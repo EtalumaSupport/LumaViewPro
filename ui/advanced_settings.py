@@ -25,7 +25,7 @@ from modules import gui_logger
 from modules.config_helpers import get_manual_video_max_duration
 from modules.config_ui_getters import firmware_stim_supported
 from modules.tiling_config import TilingConfig
-from ui.ui_helpers import run_reported, submit_reported
+from ui.ui_helpers import run_reported, submit_reported, typed_number
 
 
 class AdvancedSettings(Popup):
@@ -349,10 +349,9 @@ class AdvancedSettings(Popup):
         # without a line of its own a typed limit showed up in the bundle as
         # a limit that changed with nothing saying a user set it.
         gui_logger.text_input('ACCELERATION', typed)
-        try:
-            acc_val = int(typed)
-        except (ValueError, TypeError):
-            logger.debug(f'[Advanced ] Invalid acceleration input: {typed!r}')
+        acc_val = typed_number(typed, int, self._show_acceleration_limit)
+        if acc_val is None:
+            gui_logger.text_input('ACCELERATION_APPLIED', self.ids['acceleration_pct_text'].text)
             return
 
         # The slider's [min, max] is the valid domain for the typed value. A
@@ -366,6 +365,10 @@ class AdvancedSettings(Popup):
         self.ids['acceleration_pct_slider'].value = clamped
         self.ids['acceleration_pct_text'].text = str(clamped)
         self.set_acceleration_limit(val_pct=clamped)
+
+    def _show_acceleration_limit(self):
+        """Show the box the limit its slider holds, as its kv binding does."""
+        self.ids['acceleration_pct_text'].text = format(self.ids['acceleration_pct_slider'].value)
 
     _ACCELERATION_DEBOUNCE_S = 0.10
     _acceleration_dispatch_trigger = None

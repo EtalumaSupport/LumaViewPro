@@ -19,6 +19,7 @@ from ui.ui_helpers import (
     run_reported,
     run_unasked,
     submit_reported,
+    typed_number,
 )
 
 logger = logging.getLogger('LVP.ui.vertical_control')
@@ -159,8 +160,8 @@ class VerticalControl(BoxLayout):
     def coarse_down(self, overshoot_enabled: bool = False):
         self._z_jog(-1, coarse=True, overshoot_enabled=overshoot_enabled)
 
-    def _queue_z_move(self, pos):
-        """Parse a committed Z value and queue the move; None when refused.
+    def _queue_z_move(self, pos: float):
+        """Queue the move to a committed Z value; None when controls are locked.
 
         The slider and the text box share the move but not the record. The
         slider reports the value it resolved to; the box reports what the user
@@ -173,10 +174,7 @@ class VerticalControl(BoxLayout):
             return None
 
         logger.info('[LVP Main  ] VerticalControl.set_position()')
-        try:
-            self._next_pos = float(pos)
-        except Exception:
-            return None
+        self._next_pos = pos
         self.queue_slider_position_trigger()
         return self._next_pos
 
@@ -194,7 +192,11 @@ class VerticalControl(BoxLayout):
         setting, and the verb is what tells them apart.
         """
         gui_logger.text_input('Z_POSITION', text)
-        self._queue_z_move(text)
+        pos = typed_number(text, float, self._show_z_target)
+        if pos is None:
+            gui_logger.text_input('Z_POSITION_APPLIED', self.ids['z_position_id'].text)
+            return
+        self._queue_z_move(pos)
 
     def queue_slider_position(self):
         move_absolute('Z', self._next_pos)

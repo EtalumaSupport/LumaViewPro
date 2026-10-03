@@ -16,6 +16,7 @@ from ui.ui_helpers import (
     move_home,
     move_relative,
     run_reported,
+    typed_number,
 )
 
 logger = logging.getLogger('LVP.ui.motion_settings')
@@ -415,14 +416,14 @@ class XYStageControl(BoxLayout):
         if ctx.session.controls_locked:
             return
         logger.info('[LVP Main  ] XYStageControl.set_xposition()')
-        try:
-            x_pos = float(x_pos)
-        except Exception:
-            logger.debug(f'[LVP Main  ] Invalid X position input: {x_pos!r}')
+        typed = x_pos
+        x_pos = typed_number(typed, float, self.update_gui)
+        if x_pos is None:
             # An entry the box refuses is still the user pressing this control.
             # Returning silently left the bundle with no line at all, so a
             # stage that did not move looked like a stage nobody asked to move.
-            gui_logger.button('SET_X_POSITION', f'refused: {x_pos!r}')
+            gui_logger.button('SET_X_POSITION', f'refused: {typed!r}')
+            gui_logger.text_input('SET_X_POSITION_APPLIED', self.ids['x_pos_id'].text)
             return
         gui_logger.button('SET_X_POSITION', f'plate_mm={x_pos:.3f}')
 
@@ -436,15 +437,14 @@ class XYStageControl(BoxLayout):
         if ctx.session.controls_locked:
             return
         logger.info('[LVP Main  ] XYStageControl.set_yposition()')
-
-        try:
-            y_pos = float(y_pos)
-        except Exception:
-            logger.debug(f'[LVP Main  ] Invalid Y position input: {y_pos!r}')
+        typed = y_pos
+        y_pos = typed_number(typed, float, self.update_gui)
+        if y_pos is None:
             # An entry the box refuses is still the user pressing this control.
             # Returning silently left the bundle with no line at all, so a
             # stage that did not move looked like a stage nobody asked to move.
-            gui_logger.button('SET_Y_POSITION', f'refused: {y_pos!r}')
+            gui_logger.button('SET_Y_POSITION', f'refused: {typed!r}')
+            gui_logger.text_input('SET_Y_POSITION_APPLIED', self.ids['y_pos_id'].text)
             return
         gui_logger.button('SET_Y_POSITION', f'plate_mm={y_pos:.3f}')
 

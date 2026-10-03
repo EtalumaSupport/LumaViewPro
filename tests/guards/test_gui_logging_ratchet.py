@@ -263,7 +263,7 @@ _ROSTER = {
     'VerticalControl.turret_pos_2_btn': (_D('turret_gesture'),),
     'VerticalControl.turret_pos_3_btn': (_D('turret_gesture'),),
     'VerticalControl.turret_pos_4_btn': (_D('turret_gesture'),),
-    'VerticalControl.z_position_id': ('Z_POSITION',),
+    'VerticalControl.z_position_id': ('Z_POSITION', 'Z_POSITION_APPLIED'),
     'VideoCreationControls.FolderChooseBTN(choose:apply_video_gen_to_folder)': (
         'FOLDER_CHOOSE',
         'FOLDER_CHOOSE_OPEN',
@@ -285,8 +285,8 @@ _ROSTER = {
     'XYStageControl.home_id': ('HOME_XY',),
     'XYStageControl.slow_down': (_D('fine_right'),),
     'XYStageControl.slow_up': (_D('fine_left'),),
-    'XYStageControl.x_pos_id': ('SET_X_POSITION',),
-    'XYStageControl.y_pos_id': ('SET_Y_POSITION',),
+    'XYStageControl.x_pos_id': ('SET_X_POSITION', 'SET_X_POSITION_APPLIED'),
+    'XYStageControl.y_pos_id': ('SET_Y_POSITION', 'SET_Y_POSITION_APPLIED'),
     'ZProjectionControls.FolderChooseBTN(choose:apply_zprojection_to_folder)': (
         'FOLDER_CHOOSE',
         'FOLDER_CHOOSE_OPEN',

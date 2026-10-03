@@ -13,9 +13,10 @@ file-writes gate says the same words for five different buttons, and the
 protocol builder's refusal is shared by nine callers. The record names the
 control; the notification that follows says why it was refused.
 
-These read the AST because the invariant is an ORDERING -- the record comes
-before the branch that returns -- and because the suite mocks Kivy rather
-than instantiating widgets.
+The ordering pins read the AST because the invariant is an ORDERING -- the
+record comes before the branch that returns -- and because the suite mocks
+Kivy rather than instantiating widgets. The stage boxes are driven through
+their real handlers.
 """
 
 from __future__ import annotations
@@ -87,41 +88,40 @@ def test_the_action_is_recorded_before_the_branch_that_refuses_it(
     )
 
 
+@pytest.mark.parametrize('typed', ['', '-', '.', '-.'])
 @pytest.mark.parametrize(
-    ('handler', 'record'),
-    (('set_xposition', 'SET_X_POSITION'), ('set_yposition', 'SET_Y_POSITION')),
+    ('handler', 'box', 'record'),
+    (
+        ('set_xposition', 'x_pos_id', 'SET_X_POSITION'),
+        ('set_yposition', 'y_pos_id', 'SET_Y_POSITION'),
+    ),
 )
-def test_an_unparseable_stage_entry_is_recorded_as_a_refusal(handler, record):
-    """The except branch is the refusal; it has to leave a line behind."""
-    fn = find_def('ui/motion_settings.py', handler, class_name='XYStageControl')
-    assert fn is not None, f'XYStageControl.{handler} moved or was renamed'
+def test_an_unparseable_stage_entry_is_recorded_as_a_refusal_and_the_box_goes_back(
+    monkeypatch, handler, box, record, typed
+):
+    """What the kv float filter lets through but is not a number moves
+    nothing. The refusal leaves a line saying so -- the name alone would read
+    as a successful move -- and then the box shows the target again, and
+    that is recorded too."""
+    from types import SimpleNamespace
 
-    handlers = [n for n in ast.walk(fn) if isinstance(n, ast.ExceptHandler)]
-    assert handlers, f'{handler} no longer has a parse-failure branch'
+    import modules.app_context as _app_ctx
+    import ui.motion_settings as ms
+    from modules import gui_logger
 
-    recorded = [
-        call
-        for h in handlers
-        for call in _emitter_calls(ast.Module(body=h.body, type_ignores=[]), 'button', record)
-    ]
-    assert recorded, (
-        f'{handler} returns silently on an entry it cannot parse, so a stage '
-        f'that did not move looks like a stage nobody asked to move'
+    lines = []
+    monkeypatch.setattr(gui_logger, 'button', lambda name, detail='': lines.append((name, detail)))
+    monkeypatch.setattr(gui_logger, 'text_input', lambda name, value: lines.append((name, value)))
+    moves = []
+    monkeypatch.setattr(ms, 'move_absolute', lambda *a, **k: moves.append((a, k)))
+    monkeypatch.setattr(
+        _app_ctx, 'ctx', SimpleNamespace(session=SimpleNamespace(controls_locked=False))
     )
+    stand = SimpleNamespace(ids={box: SimpleNamespace(text=typed)})
+    stand.update_gui = lambda: setattr(stand.ids[box], 'text', '12.50')
 
+    getattr(ms.XYStageControl, handler)(stand, typed)
 
-def test_the_refusal_record_says_it_was_refused():
-    """The name alone would read as a successful move to the same box."""
-    for handler in ('set_xposition', 'set_yposition'):
-        fn = find_def('ui/motion_settings.py', handler, class_name='XYStageControl')
-        details = [
-            ast.unparse(call.args[1])
-            for h in (n for n in ast.walk(fn) if isinstance(n, ast.ExceptHandler))
-            for call in _emitter_calls(ast.Module(body=h.body, type_ignores=[]), 'button')
-            if len(call.args) > 1
-        ]
-        assert details, f'{handler} records the refusal with no detail at all'
-        assert any('refused' in d for d in details), (
-            f'{handler} records a refused entry in the same shape as a '
-            f'successful move, so the two are indistinguishable: {details}'
-        )
+    assert moves == []
+    assert stand.ids[box].text == '12.50'
+    assert lines == [(record, f'refused: {typed!r}'), (f'{record}_APPLIED', '12.50')]

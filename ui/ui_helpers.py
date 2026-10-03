@@ -168,6 +168,27 @@ def run_unasked(call: typing.Callable[[], object], label: str) -> bool:
     return _contained(call, label, solicited=False)
 
 
+def typed_number(
+    text: str, cast: typing.Callable[[str], float], put_back: typing.Callable[[], None]
+) -> float | None:
+    """The number a typed box committed, or None with the box put back.
+
+    The kv float and int filters admit entries that are not numbers -- '',
+    '.', '-', '-.' -- and a box that commits on focus loss hands them over
+    as typed. Such an entry is not a request: nothing moves, no setting
+    changes, and *put_back* shows the box what the API or the settings hold
+    again. The caller then records what the box went back to under its own
+    ``<NAME>_APPLIED``, written at the call site so the interaction census
+    can read the name. One parse for every typed-number box, so they cannot
+    each choose their own failure.
+    """
+    try:
+        return cast(text)
+    except ValueError:
+        put_back()
+        return None
+
+
 def _reported(fn: typing.Callable[[], object] | None, label: str) -> bool:
     """Run *fn* and hand whatever it raises to the one reporter, as a person's request.
 
@@ -179,7 +200,7 @@ def _reported(fn: typing.Callable[[], object] | None, label: str) -> bool:
 
 
 def _contained(fn: typing.Callable[[], object] | None, label: str, *, solicited: bool) -> bool:
-    """The only place in the GUI that catches: run *fn*, report what it raises.
+    """The only place in the GUI that catches an outcome: run *fn*, report what it raises.
 
     True when *fn* returned (or there was none), False when it raised.
     """

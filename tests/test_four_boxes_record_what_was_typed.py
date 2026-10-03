@@ -106,6 +106,56 @@ class TestATypedZCommitIsNotADrag:
             'a typed Z commit emits SLIDER, so a keystroke reads as a drag'
         )
 
+    @staticmethod
+    def _z_box(monkeypatch, typed, show_target):
+        """The real commit and queue; the trigger, the target and the box stood in."""
+        from types import SimpleNamespace
+
+        import modules.app_context as _app_ctx
+        from ui.vertical_control import VerticalControl
+
+        lines = []
+        monkeypatch.setattr(
+            gui_logger, 'text_input', lambda name, value: lines.append((name, value))
+        )
+        monkeypatch.setattr(
+            _app_ctx, 'ctx', SimpleNamespace(session=SimpleNamespace(controls_locked=False))
+        )
+        moves = []
+        stand = SimpleNamespace(
+            ids={'z_position_id': SimpleNamespace(text=typed)},
+            _next_pos=None,
+            queue_slider_position_trigger=lambda: moves.append(stand._next_pos),
+        )
+        stand._queue_z_move = lambda pos: VerticalControl._queue_z_move(stand, pos)
+        stand._show_z_target = lambda: show_target(stand.ids['z_position_id'])
+        VerticalControl.set_position_text(stand, typed)
+        return stand, moves, lines
+
+    @pytest.mark.parametrize('typed', ['', '-', '.', '-.'])
+    def test_a_typed_non_number_moves_nothing_and_the_box_shows_the_target(
+        self, monkeypatch, typed
+    ):
+        """The kv float filter lets these through. Nothing moves; the box
+        shows the Z target again, and the record has what was typed, then
+        what the box went back to."""
+        stand, moves, lines = self._z_box(
+            monkeypatch, typed, lambda box: setattr(box, 'text', '4950.00')
+        )
+
+        assert moves == []
+        assert stand.ids['z_position_id'].text == '4950.00'
+        assert lines == [('Z_POSITION', typed), ('Z_POSITION_APPLIED', '4950.00')]
+
+    def test_a_typed_number_is_queued_as_one(self, monkeypatch):
+        def _no_put_back(box):
+            pytest.fail('a number does not put the box back')
+
+        _stand, moves, lines = self._z_box(monkeypatch, '-3', _no_put_back)
+
+        assert moves == [-3.0]
+        assert lines == [('Z_POSITION', '-3')]
+
     def test_the_slider_keeps_its_own_verb(self):
         fn = find_def('ui/vertical_control.py', 'set_position', class_name='VerticalControl')
         assert fn is not None, 'the Z slider lost its handler'
@@ -138,6 +188,8 @@ class TestTheAccelerationBoxReportsTheAttemptAndTheClamp:
     def _panel(self, typed):
         from types import SimpleNamespace
 
+        from ui.advanced_settings import AdvancedSettings
+
         applied = []
 
         class _Panel:
@@ -145,6 +197,7 @@ class TestTheAccelerationBoxReportsTheAttemptAndTheClamp:
                 'acceleration_pct_slider': SimpleNamespace(min=10, max=100, value=50),
                 'acceleration_pct_text': SimpleNamespace(text=typed),
             }
+            _show_acceleration_limit = AdvancedSettings._show_acceleration_limit
 
             def set_acceleration_limit(self, val_pct):
                 applied.append(val_pct)
@@ -175,16 +228,16 @@ class TestTheAccelerationBoxReportsTheAttemptAndTheClamp:
         assert ('ACCELERATION_APPLIED', '100') in emitted, f'the clamp went unreported: {emitted}'
         assert applied == [100]
 
-    def test_an_unparseable_entry_reports_the_attempt_only(self, emitted):
+    @pytest.mark.parametrize('typed', ['', '-', 'abc'])
+    def test_an_unparseable_entry_puts_the_box_back_and_reports_both(self, emitted, typed):
+        """The kv int filter lets '' and '-' through. Nothing reaches the
+        motor; the box shows the limit its slider holds again, and the
+        record has the attempt, then what the box went back to."""
         from ui.advanced_settings import AdvancedSettings
 
-        panel, applied = self._panel('abc')
+        panel, applied = self._panel(typed)
         AdvancedSettings.acceleration_pct_text(panel)
 
-        assert ('ACCELERATION', 'abc') in emitted, (
-            f'a refused entry left no trace of the user action: {emitted}'
-        )
-        assert not [n for n, _ in emitted if n == 'ACCELERATION_APPLIED'], (
-            'nothing took effect, so there is no correction to report'
-        )
+        assert emitted == [('ACCELERATION', typed), ('ACCELERATION_APPLIED', '50')]
+        assert panel.ids['acceleration_pct_text'].text == '50'
         assert applied == [], 'an unparseable entry must not reach the motor'
