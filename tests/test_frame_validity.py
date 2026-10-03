@@ -412,6 +412,24 @@ class TestLoadCameraTiming:
         FrameValidity.SKIP_FRAMES.clear()
         FrameValidity.SKIP_FRAMES.update(original)
 
+    def test_one_cameras_counts_do_not_outlive_it(self):
+        """A second scope in the process starts from the shipped defaults.
+
+        The loader wrote the class-level dict, so the first camera's measured
+        counts became every later instance's defaults: two cameras' loads
+        printed 3 2 2 in the FX2 plan's skeptic pass.
+        """
+        shipped = dict(FrameValidity.SKIP_FRAMES)
+        first = FrameValidity(_frames)
+        first.load_camera_timing({'skip_frames': {'led': 9, 'exposure': 7}})
+        second = FrameValidity(_frames)
+
+        assert first.SKIP_FRAMES['led'] == 9
+        assert shipped == second.SKIP_FRAMES
+        assert shipped == FrameValidity.SKIP_FRAMES
+        second.invalidate('led')
+        assert second.frames_until_valid() == shipped['led']
+
     def test_overrides_skip_frames(self):
         """Config overrides SKIP_FRAMES values for specified sources."""
         fv = FrameValidity(_frames)

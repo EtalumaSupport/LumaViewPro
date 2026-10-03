@@ -78,7 +78,9 @@ class FrameValidity:
 
     # Per-source skip frame counts (camera pipeline flush).
     # Default skip counts -- overridden by per-camera measured values
-    # from data/camera_timing/<model>.json via load_camera_timing().
+    # from data/camera_timing/<model>.json via load_camera_timing(). These
+    # are the shipped defaults; each instance copies them, so one camera's
+    # measured counts never outlive it into the next scope in the process.
     SKIP_FRAMES: ClassVar[dict] = {
         'led': 2,  # LED on/off or current change (measured: 2 on a2A3536)
         'gain': 2,  # Camera gain change (measured: 2 on a2A3536)
@@ -163,6 +165,7 @@ class FrameValidity:
         self._lock = threading.Lock()
         self._frames_delivered = frames_delivered
         self._frame_counter = 0
+        self.SKIP_FRAMES = dict(FrameValidity.SKIP_FRAMES)
         self._pending = {}  # source -> _PendingSource
         self._settle_check_fn = None  # Optional: (source) -> bool
         self._target_values = {}  # source -> requested value (for chunk-match)
