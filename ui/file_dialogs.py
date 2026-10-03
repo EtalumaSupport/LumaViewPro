@@ -95,25 +95,50 @@ def _escape_applescript(s):
     return s.replace('\\', '\\\\').replace('"', '\\"')
 
 
+def _macos_type_identifiers(extensions):
+    """macOS's type identifier for each file extension ('json' -> 'public.json').
+
+    `choose file of type` takes type identifiers, not extensions: given a bare
+    "json" it greys out every .json file. macOS names each identifier, so no
+    table of them is kept here; an extension it does not know gets a dynamic
+    identifier that still matches files by that extension. The lookup is its
+    own script: the dialog script stays plain AppleScript.
+    """
+    names = ', '.join(f'"{_escape_applescript(e)}"' for e in extensions)
+    script = (
+        'use framework "Foundation"\n'
+        'use framework "UniformTypeIdentifiers"\n'
+        'set theTypes to {}\n'
+        f'repeat with ext in {{{names}}}\n'
+        "\tset end of theTypes to ((current application's UTType's "
+        "typeWithFilenameExtension:(ext as text))'s identifier()) as text\n"
+        'end repeat\n'
+        "set AppleScript's text item delimiters to linefeed\n"
+        'return theTypes as text'
+    )
+    result = subprocess.run(
+        ['osascript', '-e', script], capture_output=True, text=True, check=True, timeout=30
+    )
+    return result.stdout.strip().split('\n')
+
+
 def _macos_open_file(initial_dir=None, filetypes=None):
     """Show a native macOS open-file dialog. Returns path string or None."""
-    script = 'set theFile to choose file'
-    clauses = []
-    if filetypes:
-        # filetypes is list of tuples like [('JSON', '.json')]
-        utis = []
-        for _, ext in filetypes:
-            for e in ext.strip().split():
-                utis.append(f'"{e.lstrip(".")}"')
-        if utis:
-            clauses.append(f'of type {{{", ".join(utis)}}}')
-    if initial_dir:
-        clauses.append(f'default location POSIX file "{_escape_applescript(initial_dir)}"')
-    if clauses:
-        script += ' ' + ' '.join(clauses)
-    script += '\nPOSIX path of theFile'
-
     try:
+        script = 'set theFile to choose file'
+        clauses = []
+        if filetypes:
+            # filetypes is list of tuples like [('JSON', '.json')]
+            extensions = [e.lstrip('.') for _, ext in filetypes for e in ext.split()]
+            if extensions:
+                types = ', '.join(f'"{t}"' for t in _macos_type_identifiers(extensions))
+                clauses.append(f'of type {{{types}}}')
+        if initial_dir:
+            clauses.append(f'default location POSIX file "{_escape_applescript(initial_dir)}"')
+        if clauses:
+            script += ' ' + ' '.join(clauses)
+        script += '\nPOSIX path of theFile'
+
         result = subprocess.run(
             ['osascript', '-e', script],
             capture_output=True,
