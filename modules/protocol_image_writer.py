@@ -986,12 +986,16 @@ class ProtocolImageWriter:
 
     def _capture_evidence(self, image, significant_bits: int) -> str:
         """One-line provenance for a captured frame: brightness statistics
-        plus the chunk-verified exposure / gain and capture-hold timing.
+        plus the frame's exposure / gain and capture-hold timing.
 
         Saved-frame defects (a frame exposed under the previous channel's
         settings saturates or mis-exposes) previously left no log trace at
         all; this line makes every protocol capture auditable from a
-        support bundle. Brightness is computed on a strided sample so the
+        support bundle. Exposure and gain are the frame record's, the values
+        the saved file carries: the frame's own chunk values where the camera
+        stamps them, otherwise the applied settings read beside the grab,
+        marked ``(applied)`` so a reader never takes them for a measurement
+        of the frame. Brightness is computed on a strided sample so the
         cost stays negligible at full frame rate. ``significant_bits`` is
         the frame's true bit depth, required because the container dtype
         can be wider than the data (12-bit frames ride in uint16); a
@@ -1006,10 +1010,15 @@ class ProtocolImageWriter:
                 parts.append(f'mean={float(sample.mean()):.1f}')
                 parts.append(f'sat={sat_fraction * 100.0:.1f}%')
             info = self._scope.imaging.last_capture_info or {}
-            exp_us = info.get('chunk_exposure_us')
-            gain_db = info.get('chunk_gain_db')
-            parts.append(f'exp_ms={exp_us / 1000.0:.2f}' if exp_us is not None else 'exp_ms=na')
-            parts.append(f'gain_db={gain_db:.2f}' if gain_db is not None else 'gain_db=na')
+            record = info.get('frame_record')
+            exp_ms = record.exposure_ms if record is not None else None
+            gain_db = record.gain_db if record is not None else None
+            exp_mark = '' if info.get('chunk_exposure_us') is not None else '(applied)'
+            gain_mark = '' if info.get('chunk_gain_db') is not None else '(applied)'
+            parts.append(f'exp_ms={exp_ms:.2f}{exp_mark}' if exp_ms is not None else 'exp_ms=na')
+            parts.append(
+                f'gain_db={gain_db:.2f}{gain_mark}' if gain_db is not None else 'gain_db=na'
+            )
             if info.get('hold_ms') is not None:
                 parts.append(f'hold_ms={info["hold_ms"]:.0f}')
             if info.get('drained') is not None:
