@@ -82,6 +82,9 @@ def drive_af(runner, **overrides):
         'objective_id': 'objective-under-test',
         'run_trigger_source': 'manual',
         'abort_event': threading.Event(),
+        # No channel unless a test names one; run() requires both.
+        'led_color': None,
+        'led_illumination': 0.0,
         'led_lease': runner._scope.protocol_lease,
     }
     kwargs.update(overrides)

@@ -1216,6 +1216,8 @@ class TestRestAPIPrep:
                 future = thread.run_autofocus(
                     run_trigger_source='autofocus',
                     objective_id=objectives[0],
+                    led_color='BF',
+                    led_illumination=100.0,
                     led_lease=session.scope.illumination.acquire_led_lease(
                         'protocol', claim=held_run_claim()
                     ),
