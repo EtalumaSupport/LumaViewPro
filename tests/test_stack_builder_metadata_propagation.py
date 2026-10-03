@@ -375,6 +375,8 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             'subtree.'
         )
         assert microscope.get('Model') == 'LS720'
+        # The motor controller's firmware is not image metadata.
+        assert 'FirmwareVersion' not in microscope
         detector = instrument.get('Detector') or {}
         assert detector.get('Model') == 'Basler a2A1920'
 

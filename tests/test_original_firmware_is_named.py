@@ -22,10 +22,13 @@ def scope():
     return build_scope(simulate=True)
 
 
-def _as_board_answered(driver, version, date, responding=True):
+def _as_board_answered(driver, version, date, *, answered=True):
+    # Whether the board answered is the simulator's own, unless a test says
+    # it did not.
     driver.firmware_version = version
     driver.firmware_date = date
-    driver.firmware_responding = responding
+    if not answered:
+        driver.firmware_responding = False
 
 
 def test_the_original_motor_firmware_is_named_with_its_date(scope):
@@ -43,7 +46,7 @@ def test_a_versioned_motor_firmware_keeps_its_version_and_date(scope):
 
 
 def test_a_board_that_did_not_answer_is_not_called_original(scope):
-    _as_board_answered(scope._motion_driver, None, None, responding=False)
+    _as_board_answered(scope._motion_driver, None, None, answered=False)
     assert scope.diagnostics.get_motor_info()['firmware_version'] is None
 
 
@@ -52,3 +55,11 @@ def test_the_original_led_firmware_is_named_with_its_date(scope):
     info = scope.diagnostics.get_led_info()
     assert info['firmware_version'] == ORIGINAL_FIRMWARE
     assert info['firmware_date'] == '2024-02-01'
+
+
+def test_a_scope_with_no_motor_board_reports_no_firmware_date(scope):
+    # An LS620 or LS560 runs the null motor board.
+    from drivers.null_motorboard import NullMotionBoard
+
+    scope._motion_driver = NullMotionBoard()
+    assert scope.diagnostics.get_motor_info()['firmware_date'] is None
