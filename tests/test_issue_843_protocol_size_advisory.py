@@ -273,7 +273,8 @@ class TestTheEstimateTracksAnInPlaceEdit:
         protocol = _build_protocol([_make_step(name='A1_BF'), _make_step(name='A2_BF')])
         before = protocol.estimate_write_mb(global_max_fps=0)
 
-        steps = protocol.steps()
+        # The stored frame, edited in place as an in-place writer edits it.
+        steps = protocol._config['steps']
         steps.at[1, 'Acquire'] = 'video'
         steps.at[1, 'Video Config'] = {'duration': 600, 'fps': 30}
 

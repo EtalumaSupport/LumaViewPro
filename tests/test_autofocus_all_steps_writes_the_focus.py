@@ -127,7 +127,8 @@ class TestAProtocolThatChangedDuringTheScanIsLeftAlone:
         protocol = _two_steps()
 
         def _move_a_step():
-            protocol.steps().at[1, 'X'] = 40.0
+            # Behind the writers: the protocol has no one-cell position writer.
+            protocol._config['steps'].at[1, 'X'] = 40.0
 
         with (
             _reports_of(FocusNotWrittenError) as reported,
@@ -172,7 +173,8 @@ class TestOnlyACompletedScanWritesItsFocus:
 
         engine = bare_capture_runner()
         scanned = protocol.copy_for_execution()
-        scanned.steps()['Z'] = [5111.0, 5222.0]
+        for idx, z in enumerate([5111.0, 5222.0]):
+            scanned.modify_step_z_height(idx, z)
         engine._protocol = scanned
         engine._write_focus_to = protocol
         return engine
@@ -245,7 +247,8 @@ class TestTheProtocolsOneFocusWriter:
 
     def _scanned(self, protocol):
         scanned = protocol.copy_for_execution()
-        scanned.steps()['Z'] = [5111.0, 5222.0]
+        for idx, z in enumerate([5111.0, 5222.0]):
+            scanned.modify_step_z_height(idx, z)
         return scanned
 
     def test_matching_steps_take_the_scanned_z(self):
@@ -260,7 +263,8 @@ class TestTheProtocolsOneFocusWriter:
     def test_a_step_that_differs_refuses_and_changes_nothing(self, column, value):
         protocol = _two_steps()
         scanned = self._scanned(protocol)
-        protocol.steps().at[1, column] = value
+        # Behind the writers: the protocol has no one-cell writer for these.
+        protocol._config['steps'].at[1, column] = value
 
         with pytest.raises(FocusNotWrittenError) as refused:
             protocol.adopt_focus_from(scanned)

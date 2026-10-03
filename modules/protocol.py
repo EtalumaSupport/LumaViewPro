@@ -65,6 +65,22 @@ def to_python_scalars(step: pd.Series) -> pd.Series:
     return step.map(lambda v: v.item() if isinstance(v, np.generic) else v)
 
 
+# The step columns whose cells are dicts. A frame copy shares them, so every
+# copy the protocol hands out copies these too.
+_DICT_COLUMNS = ('Video Config', 'Stim_Config')
+
+
+def _steps_copy(steps: pd.DataFrame) -> pd.DataFrame:
+    """A copy of a steps frame that shares nothing with it, dict cells included."""
+    out = steps.copy()
+    for column in _DICT_COLUMNS:
+        if column in out.columns:
+            out[column] = pd.Series(
+                [copy.deepcopy(cell) for cell in out[column]], index=out.index, dtype=object
+            )
+    return out
+
+
 def _refuse_build(*, reason: str, title: str, message: str) -> NoReturn:
     """Report once, and raise, a refused protocol build (a tile grid, a z-stack).
 
@@ -694,13 +710,17 @@ class Protocol:
     def copy_for_execution(self) -> 'Protocol':
         """Lightweight copy for protocol execution.
 
-        Copies the config dict and steps DataFrame (which get mutated by
-        autofocus Z updates) but shares the read-only TilingConfig. Much
-        cheaper than copy.deepcopy() for large protocols with many steps.
+        Copies the config dict, the steps DataFrame (which get mutated by
+        autofocus Z updates) with the dicts in its cells, and the Layer
+        Settings, so nothing the run writes reaches the caller's protocol;
+        shares the read-only TilingConfig. Much cheaper than copy.deepcopy()
+        for large protocols with many steps.
         """
         new_config = dict(self._config)  # shallow copy of config dict
         if 'steps' in new_config:
-            new_config['steps'] = new_config['steps'].copy()  # DataFrame copy
+            new_config['steps'] = _steps_copy(new_config['steps'])
+        if 'layer_settings' in new_config:
+            new_config['layer_settings'] = copy.deepcopy(new_config['layer_settings'])
         new = Protocol.__new__(Protocol)
         new._config = new_config
         new._tiling_config = self._tiling_config  # shared, read-only
@@ -807,7 +827,7 @@ class Protocol:
                 # Serialize dict columns as JSON strings before writing to CSV.
                 # Without this, pandas uses Python repr (single quotes) which
                 # fails json.loads() on reload.
-                steps_df = self.steps().copy()
+                steps_df = self._config['steps'].copy()
                 for col in ('Video Config', 'Stim_Config'):
                     if col in steps_df.columns:
                         steps_df[col] = steps_df[col].apply(
@@ -824,8 +844,8 @@ class Protocol:
                 raise ProtocolNotSavedError(file=file_path, cause=e) from e
             raise
 
-    def optimize_step_ordering(self):
-        steps = self.steps()
+    def optimize_step_ordering(self) -> None:
+        steps = self._config['steps']
 
         if len(steps) == 0:
             return
@@ -955,7 +975,7 @@ class Protocol:
         Returns an empty list if all steps are valid.
         """
         errors = []
-        steps = self.steps()
+        steps = self._config['steps']
         if steps is None or len(steps) == 0:
             return errors
 
@@ -1075,7 +1095,7 @@ class Protocol:
             List of error strings. Empty list if all checks pass.
         """
         errors = []
-        steps = self.steps()
+        steps = self._config['steps']
         if steps is None or len(steps) == 0:
             return errors
 
@@ -1181,7 +1201,13 @@ class Protocol:
         self._step_list_changed()
 
     def steps(self) -> pd.DataFrame:
-        return self._config['steps']
+        """A copy of the steps frame, dict cells included.
+
+        A write through it does not reach the protocol: the protocol changes
+        only through its writers. Readers inside this class use the stored
+        frame.
+        """
+        return _steps_copy(self._config['steps'])
 
     def estimate_write_mb(self, *, video_as_frames: bool = False, global_max_fps: float) -> float:
         """Estimate the disk this whole protocol will write, in MB.
@@ -1218,7 +1244,7 @@ class Protocol:
         Returns:
             Estimated megabytes the whole protocol will write.
         """
-        steps = self.steps()
+        steps = self._config['steps']
         n_steps = len(steps)
         if n_steps == 0:
             return 0.0
@@ -1344,7 +1370,7 @@ class Protocol:
             FocusNotWrittenError: The steps differ from the scanned copy's.
         """
         mine = self._config['steps']
-        theirs = scanned.steps()
+        theirs = scanned._config['steps']
         if len(mine) != len(theirs):
             raise FocusNotWrittenError(
                 f'the protocol has {len(mine)} steps, not the {len(theirs)} the scan focused'
@@ -1631,7 +1657,11 @@ class Protocol:
                 )
 
         _validate()
-        return to_python_scalars(self._config['steps'].iloc[idx])
+        row = to_python_scalars(self._config['steps'].iloc[idx])
+        for column in _DICT_COLUMNS:
+            if column in row.index:
+                row[column] = copy.deepcopy(row[column])
+        return row
 
     def apply_tiling(
         self,
@@ -1676,7 +1706,7 @@ class Protocol:
         # no un-tile path; the untiled protocol has to be reloaded.
         no_tiling = self._tiling_config.no_tiling_label()
         current_tiling = self._tiling_config.determine_tiling_label_from_tiles(
-            self.steps()['Tile'].tolist()
+            self._config['steps']['Tile'].tolist()
         )
         if current_tiling not in (None, no_tiling):
             _refuse_build(
@@ -1696,8 +1726,8 @@ class Protocol:
         fill_factor = TilingConfig.fill_factor_from_overlap_percent(overlap_percent)
 
         # A copy: the focal-length column is working data for this build, and
-        # self.steps() is the protocol's own frame.
-        orig_steps_df = self.steps().copy()
+        # the stored frame is the protocol's own.
+        orig_steps_df = self._config['steps'].copy()
         objectives = objective_helper.get_objectives_dataframe()['focal_length']
         orig_steps_df['focal_length'] = orig_steps_df['Objective'].map(objectives)
 
@@ -1854,7 +1884,7 @@ class Protocol:
 
         z_limits = _axis_limits_or_refuse(axes_config, ('Z',), what='a z-stack')
 
-        steps = self.steps()
+        steps = self._config['steps']
         existing_max_zstack_group_id = steps['Z-Stack Group ID'].max()
 
         zstack_group_id = existing_max_zstack_group_id + 1

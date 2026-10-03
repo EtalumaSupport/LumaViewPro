@@ -43,7 +43,8 @@ def _acquire_only_bf(session):
 def test_a_loaded_file_with_an_invalid_step_loads_and_is_noticed_once(session, reported, tmp_path):
     _acquire_only_bf(session)
     protocol = session.new_protocol()
-    protocol.steps().at[0, 'Exposure'] = 0.0
+    # Behind the writers: a step the run gate refuses, as a hand-edited file carries one.
+    protocol._config['steps'].at[0, 'Exposure'] = 0.0
     path = tmp_path / 'bad.tsv'
     protocol.to_file(path)
     reported.clear()
