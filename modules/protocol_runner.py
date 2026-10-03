@@ -727,14 +727,20 @@ class ProtocolRunner:
                 "run's capture depth and save encoding are explicit."
             )
 
+        # One copy of the settings, taken under the lock, for every value the
+        # run reads from them: a caller on the worker pool (the GUI's Run, a
+        # REST handler) reaches here while another thread may be writing the
+        # store, and a run reading the live dict could take half an edit. The
+        # autofocus snapshot below is the exception: its restorer writes back
+        # into the live store, so it takes the lock itself.
+        settings = self.session.get_settings_snapshot()
+
         # A run that saves no artifacts and was given no directory writes
         # nowhere, and keeps None: prepare() reads it that way and does not
         # ask whether a folder it will never write to is usable.
         if parent_dir is None:
             if not disable_saving_artifacts:
-                parent_dir = (
-                    pathlib.Path(self.session.settings['live_folder']).resolve() / 'ProtocolData'
-                )
+                parent_dir = pathlib.Path(settings['live_folder']).resolve() / 'ProtocolData'
         else:
             parent_dir = pathlib.Path(parent_dir)
 
@@ -752,7 +758,7 @@ class ProtocolRunner:
 
         import modules.config_helpers as config_helpers
 
-        autogain_settings = config_helpers.get_auto_gain_settings(self.session.settings)
+        autogain_settings = config_helpers.get_auto_gain_settings(settings)
 
         # The session's as-built mode is the default; only a caller holding
         # a LIVE flag (the GUI, whose plugin flips it after the session
@@ -789,7 +795,7 @@ class ProtocolRunner:
             autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
                 self.session.settings, self.session.settings_lock
             ),
-            **config_helpers.get_sequenced_run_settings(self.session.settings, run_mode=run_mode),
+            **config_helpers.get_sequenced_run_settings(settings, run_mode=run_mode),
         )
 
         # Run-state truth is the session claim, committed inside

@@ -52,3 +52,29 @@ class TestTheCallerNamesItsRun:
         protocol = _run(runner, member)
 
         assert _prepared(runner)['protocol'] is protocol
+
+
+class TestTheRunReadsOneSnapshotOfTheSettings:
+    """A run reads its settings from one copy taken under the lock.
+
+    The panel's Run reaches the runner on the worker pool while the GUI
+    thread may be writing the store; a run reading the live dict there could
+    take half of an edit. The run's values come from the session's snapshot.
+    """
+
+    def test_the_runs_settings_are_the_snapshots(self, tmp_path):
+        import copy
+
+        runner = _runner()
+        snapshot = copy.deepcopy(runner.session.settings)
+        snapshot['live_folder'] = str(tmp_path)
+        snapshot['keep_led_between_steps'] = True
+        snapshot['protocol']['autogain']['target_brightness'] = 0.123
+        runner.session.get_settings_snapshot.return_value = snapshot
+
+        _run(runner, 'run_protocol')
+
+        prepared = _prepared(runner)
+        assert prepared['parent_dir'] == tmp_path.resolve() / 'ProtocolData'
+        assert prepared['keep_led_between_steps'] is True
+        assert prepared['autogain_settings']['target_brightness'] == 0.123
