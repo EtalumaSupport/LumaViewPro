@@ -12,7 +12,6 @@ matplotlib.use('Agg')  # Must be set before pyplot import to avoid Tk/macOS conf
 import matplotlib.pyplot as plt
 from matplotlib.dates import ConciseDateFormatter
 import numpy as np
-import pandas as pd
 
 from kivy.clock import Clock
 from kivy.properties import BooleanProperty, StringProperty
@@ -314,7 +313,6 @@ class GraphingControls(BoxLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         logger.info('LVP Main: GraphingControls.__init__()')
-        self._source_csv = None
         self.fig = None
         self._post = post_processing.PostProcessing()
         self.graphing_area = self.ids.graphing_area
@@ -325,12 +323,14 @@ class GraphingControls(BoxLayout):
         self.selected_y_axis = None
         self.trendline_enabled = False
         self.graph_df = None
+        self._x_axes = []
+        self._y_axes = []
         self.initialize_graph()
 
     def set_x_axis(self):
         axis = self.ids['graphing_x_axis_spinner'].text
         gui_logger.select('GRAPHING_X_AXIS', axis)
-        if self._source_csv:
+        if axis in self._x_axes:
             self.selected_x_axis = self.ids['graphing_x_axis_spinner'].text
             self.ids.x_axis_label_input.text = self.selected_x_axis
 
@@ -363,7 +363,7 @@ class GraphingControls(BoxLayout):
 
     def set_y_axis(self):
         gui_logger.select('GRAPHING_Y_AXIS', self.ids['graphing_y_axis_spinner'].text)
-        if self._source_csv:
+        if self.ids['graphing_y_axis_spinner'].text in self._y_axes:
             self.selected_y_axis = self.ids['graphing_y_axis_spinner'].text
             self.ids.y_axis_label_input.text = self.selected_y_axis
 
@@ -422,17 +422,6 @@ class GraphingControls(BoxLayout):
         which label the user edited.
         """
         gui_logger.text_input(name, self.ids[widget_id].text)
-
-    def update_available_axes(self):
-        self.available_x_axes = list(self.available_axes)
-        self.available_y_axes = list(self.available_axes)
-
-        # Remove time from y-axis because it cannot be properly formatted at the moment and causes trendline issues
-        if 'time' in self.available_y_axes:
-            self.available_y_axes.remove('time')
-
-        self.ids.graphing_x_axis_spinner.values = self.available_x_axes
-        self.ids.graphing_y_axis_spinner.values = self.available_y_axes
 
     def update_graph_title(self):
         self.ax.set_title(self.ids.graph_title_input.text)
@@ -613,26 +602,30 @@ class GraphingControls(BoxLayout):
         plt.savefig(filepath)
 
     def set_graphing_source(self, file):
-        self._source_csv = file
+        run_reported(lambda: self._load_source(file), self._show_source, 'LOAD_GRAPHING_DATA')
+
+    def _load_source(self, file) -> None:
+        """Take *file* as the graph's data; the axis choices and trendline start over.
+
+        A second file's columns need not be the first's, so a choice made
+        against the first is not carried onto the second.
+        """
+        self.graph_df = post_processing.read_cell_count_results(file)
+        self._x_axes, self._y_axes = post_processing.results_axes(self.graph_df)
+        self.selected_x_axis = None
+        self.selected_y_axis = None
+        self.x_axis_data = []
+        self.y_axis_data = []
+        self.trendline_enabled = False
+
+    def _show_source(self) -> None:
+        self.ids.graphing_x_axis_spinner.values = self._x_axes
+        self.ids.graphing_y_axis_spinner.values = self._y_axes
+        self.ids.graphing_x_axis_spinner.text = 'X-Axis'
+        self.ids.graphing_y_axis_spinner.text = 'Y-Axis'
+        self.ids.trendline_spinner.text = 'None'
         self.initialize_graph()
-        try:
-            self.graph_df = pd.read_csv(file)
-            self.available_axes = list(self.graph_df.keys())
-            if self.available_axes[0] == 'file':
-                self.available_axes = self.available_axes[1:]
-            if 'time' in self.available_axes:
-                # Parse to a pandas datetime64 column. A list comprehension of
-                # datetime.strptime objects yields an object-dtype column, and
-                # the .dt accessor (used by the time-axis trendline) rejects
-                # object dtype -- that crashed update_trendline on a time axis.
-                self.graph_df['time'] = pd.to_datetime(self.graph_df['time'], format='%c')
-
-            self.update_available_axes()
-            self.set_x_axis()
-            self.set_y_axis()
-
-        except Exception as e:
-            logger.exception(f'Graph Generation | Set graphing source | {e}')
+        self.update_graph()
 
     def set_post_processing_module(self, postprocessingmodule):
         self._post = postprocessingmodule

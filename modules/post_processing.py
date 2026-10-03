@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from typing import NoReturn
 
 import numpy as np
+import pandas as pd
 
 import modules.image_utils as image_utils
 
@@ -25,6 +26,14 @@ from modules.protocol_post_processor import ProgressCallback
 
 # The operation's name as a person reads it, in its refusals and failures.
 CELL_COUNT_OPERATION = 'Cell Count'
+
+# The operation's name for reading a results file back to graph it.
+GRAPHING_OPERATION = 'Graphing'
+
+# How a results file writes each image's time, and how it is read back.
+# time.ctime's layout, written in the process's C locale; '%d' also reads
+# ctime's space-padded day, so a file written before this constant reads too.
+RESULTS_TIME_FORMAT = '%a %b %d %H:%M:%S %Y'
 
 # What marks a JSON file as a saved cell-count method.
 _CELL_COUNT_METHOD_METADATA = {'type': 'cell_count_method', 'version': '1'}
@@ -237,6 +246,54 @@ def save_cell_count_method(method: Mapping, path: str | os.PathLike) -> None:
         json.dump(saved, f, indent=4, cls=CustomJSONizer)
 
 
+def read_cell_count_results(path: str | os.PathLike) -> pd.DataFrame:
+    """Read a cell-count results file into a table to graph.
+
+    A ``time`` column is parsed by the format the count writes it in, so it
+    reads back as a datetime column; every other column keeps the type pandas
+    reads it as. Which columns can be plotted is ``results_axes``'s answer.
+
+    Raises:
+        PostProcessingRefusedError: reason ``results_unreadable``; the file
+            cannot be read, is not a CSV, has a time the count did not write,
+            or has no column of numbers to plot. The message names the file.
+    """
+
+    def refuse(problem: str) -> PostProcessingRefusedError:
+        return PostProcessingRefusedError(
+            operation=GRAPHING_OPERATION,
+            reason='results_unreadable',
+            message=f'The results file {path} cannot be graphed: {problem}.',
+        )
+
+    try:
+        table = pd.read_csv(path)
+    except OSError as e:
+        raise refuse(f'it could not be read ({e.strerror})') from e
+    except ValueError as e:
+        raise refuse(f'it is not a CSV file ({e})') from e
+    if 'time' in table:
+        try:
+            table['time'] = pd.to_datetime(table['time'], format=RESULTS_TIME_FORMAT)
+        except (TypeError, ValueError) as e:
+            raise refuse(f'its time column is not in the form the count writes ({e})') from e
+    if not results_axes(table)[1]:
+        raise refuse('it has no column of numbers to plot')
+    return table
+
+
+def results_axes(table: pd.DataFrame) -> tuple[list[str], list[str]]:
+    """The columns of *table* a graph can take as its X axis and as its Y axis.
+
+    Decided by each column's type, never its name: a number column is either
+    axis; a datetime column is an X axis only; text, such as the file name, is
+    neither.
+    """
+    numeric = [c for c in table if pd.api.types.is_numeric_dtype(table[c])]
+    dates = [c for c in table if pd.api.types.is_datetime64_any_dtype(table[c])]
+    return [c for c in table if c in numeric or c in dates], numeric
+
+
 class PostProcessing:
     # A superset of the TIFF suffixes, not an independent list, so this cannot
     # drift out of agreement with what the rest of the project calls a TIFF.
@@ -311,7 +368,7 @@ class PostProcessing:
             )
 
             time_created_raw = os.path.getctime(file_path)
-            time_created = time.ctime(time_created_raw)
+            time_created = time.strftime(RESULTS_TIME_FORMAT, time.localtime(time_created_raw))
 
             results.append(
                 {

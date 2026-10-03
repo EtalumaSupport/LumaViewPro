@@ -757,6 +757,8 @@ pp.count_cells(folder, method=method)
 
 `count_cells` refuses a method the count cannot use before the count is queued: `PostProcessingRefusedError` with `reason='method_invalid'`, its message naming the field (a missing field, a `pixels_per_um` that is not a positive number, a bound that is not a number or `None`, a filter whose `min` is above its `max`). `modules.post_processing.check_cell_count_method(method)` asks the same question without counting. A method saved by LumaViewPro's panel also carries a `metadata` entry; the count does not need it.
 
+`modules.post_processing.read_cell_count_results(path)` reads a `results.csv` back as a pandas table, its `time` column a datetime column (the count's own time format); `results_axes(table)` returns the columns a graph can take as X (numbers and times) and as Y (numbers). A file that cannot be graphed is refused: `PostProcessingRefusedError` with `operation='Graphing'`, `reason='results_unreadable'`, its message naming the file.
+
 The builds run on the session's own post-processing lane, one at a time in the order asked. A protocol run writes its images on a different lane, so a long build never delays a run's writes. The tiling config and the turret are the session's own: a caller passes neither.
 
 ### Run state and locks
