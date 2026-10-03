@@ -614,7 +614,7 @@ _UI_PRIVATE_REACH_PIN = {
 # at 44f98226 from the tree, 151 handlers in 46 cells.
 _UI_EXCEPT_PIN = {
     ('ui/advanced_settings.py', 'TypeError, ValueError'): 2,
-    ('ui/file_dialogs.py', 'Exception'): 5,
+    ('ui/file_dialogs.py', 'Exception'): 1,
     ('ui/histogram.py', 'AttributeError, KeyError'): 1,
     ('ui/image_settings.py', 'Exception'): 1,
     ('ui/image_settings.py', 'KeyError'): 1,

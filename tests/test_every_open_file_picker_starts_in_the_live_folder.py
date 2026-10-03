@@ -38,7 +38,7 @@ def test_the_picker_opens_in_the_live_folder(monkeypatch, tmp_path, context):
         lambda initial_dir, filetypes: opened.append(initial_dir),
     )
     monkeypatch.setattr(
-        file_dialogs, '_run_native_dialog_async', lambda btn, open_, deliver: open_()
+        file_dialogs, '_run_native_dialog_async', lambda btn, open_, deliver, on_cancel: open_()
     )
     file_dialogs.FileChooseBTN.choose(SimpleNamespace(), context)
     assert opened == [str(tmp_path)]

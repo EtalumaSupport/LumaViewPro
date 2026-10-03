@@ -144,9 +144,22 @@ def test_dialog_runs_on_a_background_thread():
 
 def test_macos_primitives_use_the_zombie_backstop_timeout():
     """The osascript timeout is the shared hour-long backstop, not a short
-    user-facing limit that silently cancels a legitimately-open panel."""
+    user-facing limit that silently cancels a legitimately-open panel. Every
+    macOS picker runs osascript through the one function that carries it."""
     assert 'timeout=120' not in _SRC
-    assert _SRC.count('timeout=_MACOS_DIALOG_TIMEOUT_S') == 4
+    runner = next(n for n in _function_defs() if n.name == '_osascript_choice')
+    assert 'timeout=_MACOS_DIALOG_TIMEOUT_S' in ast.get_source_segment(_SRC, runner)
+    pickers = [
+        n
+        for n in _function_defs()
+        if n.name.startswith('_macos_') and n.name.endswith(('_file', '_folder'))
+    ]
+    assert len(pickers) == 4
+    for node in pickers:
+        src = ast.get_source_segment(_SRC, node)
+        assert '_osascript_choice(' in src and 'subprocess.run' not in src, (
+            f'{node.name} runs osascript outside the one runner'
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -214,14 +227,14 @@ def _load_runner(thread_cls=_SyncThread):
 def test_delivers_selected_path_to_callback():
     runner, _guard = _load_runner()
     delivered = []
-    runner(_Button(), lambda: '/some/path', lambda p: delivered.append(p))
+    runner(_Button(), lambda: '/some/path', lambda p: delivered.append(p), on_cancel=lambda: None)
     assert delivered == ['/some/path']
 
 
 def test_cancel_does_not_invoke_callback():
     runner, guard = _load_runner()
     delivered = []
-    runner(_Button(), lambda: None, lambda p: delivered.append(p))
+    runner(_Button(), lambda: None, lambda p: delivered.append(p), on_cancel=lambda: None)
     assert delivered == []
     assert guard['active'] is False
 
@@ -233,8 +246,18 @@ def test_in_flight_guard_blocks_second_dialog_even_on_a_fresh_instance():
     runner, _guard = _load_runner(thread_cls=_DeferredThread)
     _DeferredThread.pending.clear()
     calls = []
-    runner(_Button('first'), lambda: calls.append('one') or '/p', lambda p: None)
-    runner(_Button('second'), lambda: calls.append('two') or '/q', lambda p: None)
+    runner(
+        _Button('first'),
+        lambda: calls.append('one') or '/p',
+        lambda p: None,
+        on_cancel=lambda: None,
+    )
+    runner(
+        _Button('second'),
+        lambda: calls.append('two') or '/q',
+        lambda p: None,
+        on_cancel=lambda: None,
+    )
     assert len(_DeferredThread.pending) == 1, 'second dialog stacked behind the first'
     _DeferredThread.pending.pop()()
     assert calls == ['one']
@@ -242,16 +265,16 @@ def test_in_flight_guard_blocks_second_dialog_even_on_a_fresh_instance():
 
 def test_in_flight_flag_clears_after_delivery():
     runner, guard = _load_runner()
-    runner(_Button(), lambda: '/p', lambda p: None)
+    runner(_Button(), lambda: '/p', lambda p: None, on_cancel=lambda: None)
     assert guard['active'] is False
 
 
 def test_rejected_reclick_logs_context_and_elapsed(caplog):
     runner, guard = _load_runner(thread_cls=_DeferredThread)
     _DeferredThread.pending.clear()
-    runner(_Button('load_protocol'), lambda: '/p', lambda p: None)
+    runner(_Button('load_protocol'), lambda: '/p', lambda p: None, on_cancel=lambda: None)
     with caplog.at_level(logging.WARNING, logger='test_750_runner'):
-        runner(_Button('save_graph'), lambda: '/q', lambda p: None)
+        runner(_Button('save_graph'), lambda: '/q', lambda p: None, on_cancel=lambda: None)
     assert any(
         'save_graph' in r.message and 'load_protocol' in r.message for r in caplog.records
     ), f'rejection log must name both contexts; got {[r.message for r in caplog.records]}'
@@ -266,9 +289,9 @@ def test_stuck_dialog_reclick_notifies_user(monkeypatch):
     monkeypatch.setattr(notifications, 'warning', lambda *a, **k: fired.append(a))
     runner, guard = _load_runner(thread_cls=_DeferredThread)
     _DeferredThread.pending.clear()
-    runner(_Button('first'), lambda: '/p', lambda p: None)
+    runner(_Button('first'), lambda: '/p', lambda p: None, on_cancel=lambda: None)
     guard['since'] -= 120.0
-    runner(_Button('second'), lambda: '/q', lambda p: None)
+    runner(_Button('second'), lambda: '/q', lambda p: None, on_cancel=lambda: None)
     assert any(a[1] == 'A File Dialog May Already Be Open' for a in fired), (
         f'a re-click on a long-stuck dialog must notify; got {fired}'
     )
@@ -276,25 +299,40 @@ def test_stuck_dialog_reclick_notifies_user(monkeypatch):
 
 
 def test_raising_dialog_clears_guard_and_notifies(monkeypatch):
-    """A primitive that raises (missing python3-tk, TclError) must clear the
-    guard and tell the user -- a latched guard would silently lock out every
-    dialog context until restart."""
+    """A primitive that raises (missing python3-tk, TclError, an osascript
+    failure) must clear the guard and be reported -- a latched guard would
+    silently lock out every dialog context until restart."""
     from modules.notification_center import notifications
 
-    fired = []
-    monkeypatch.setattr(notifications, 'error', lambda *a, **k: fired.append(a))
+    reported = []
+    monkeypatch.setattr(notifications, 'report_outcome', lambda e, **k: reported.append((e, k)))
     runner, guard = _load_runner()
     delivered = []
+    boom = RuntimeError('no display')
 
     def _boom():
-        raise RuntimeError('no display')
+        raise boom
 
-    runner(_Button(), _boom, lambda p: delivered.append(p))
+    runner(_Button('load_protocol'), _boom, lambda p: delivered.append(p), on_cancel=lambda: None)
     assert guard['active'] is False, 'a raising primitive latched the guard'
     assert delivered == []
-    assert any(a[1] == 'File Dialog Failed' for a in fired), (
-        f'the user must hear about a failed picker; got {fired}'
-    )
+    assert len(reported) == 1, f'the failure must be reported once; got {reported}'
+    error, kwargs = reported[0]
+    assert error is boom
+    assert kwargs['solicited'] is True
+    assert kwargs['fault_title'] == 'File Dialog Failed'
+    assert 'load_protocol' in kwargs['category']
+
+
+def test_a_cancel_calls_on_cancel_and_a_choice_does_not():
+    """A cancel is handed to on_cancel, which records it under the button's
+    own name; a delivered path goes to on_path alone."""
+    cancels = []
+    runner, _guard = _load_runner()
+    runner(_Button(), lambda: None, lambda p: None, on_cancel=lambda: cancels.append(1))
+    assert cancels == [1]
+    runner(_Button(), lambda: '/p.tsv', lambda p: None, on_cancel=lambda: cancels.append(2))
+    assert cancels == [1]
 
 
 def test_expired_guard_rearms_and_drops_the_stale_result():
@@ -306,11 +344,21 @@ def test_expired_guard_rearms_and_drops_the_stale_result():
     stale_delivered = []
     fresh_delivered = []
 
-    runner(_Button('stale'), lambda: '/stale', lambda p: stale_delivered.append(p))
+    runner(
+        _Button('stale'),
+        lambda: '/stale',
+        lambda p: stale_delivered.append(p),
+        on_cancel=lambda: None,
+    )
     stale_worker = _DeferredThread.pending.pop()
     guard['since'] -= 4000.0
 
-    runner(_Button('fresh'), lambda: '/fresh', lambda p: fresh_delivered.append(p))
+    runner(
+        _Button('fresh'),
+        lambda: '/fresh',
+        lambda p: fresh_delivered.append(p),
+        on_cancel=lambda: None,
+    )
     fresh_worker = _DeferredThread.pending.pop()
 
     stale_worker()

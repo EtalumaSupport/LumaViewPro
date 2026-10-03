@@ -90,6 +90,28 @@ def _zprojection_picker_default_path(live_folder: pathlib.Path) -> str:
 _MACOS_DIALOG_TIMEOUT_S = 3600
 
 
+def _osascript_choice(script):
+    """Run one macOS picker script; return the chosen POSIX path, or None on a cancel.
+
+    osascript exits 1 both when the person cancels and when the script
+    fails; only the AppleScript error number on stderr tells them apart, and
+    a cancel is -128. Any other non-zero exit raises with osascript's own
+    words, so the runner reports the failure instead of showing it as a
+    cancel. A panel left open past the backstop raises TimeoutExpired.
+    """
+    result = subprocess.run(
+        ['osascript', '-e', script],
+        capture_output=True,
+        text=True,
+        timeout=_MACOS_DIALOG_TIMEOUT_S,
+    )
+    if result.returncode == 0:
+        return result.stdout.strip() or None
+    if '(-128)' in result.stderr:
+        return None
+    raise RuntimeError(f'osascript exited {result.returncode}: {result.stderr.strip()}')
+
+
 def _escape_applescript(s):
     """Escape a string for safe interpolation into an AppleScript double-quoted string."""
     return s.replace('\\', '\\\\').replace('"', '\\"')
@@ -124,32 +146,20 @@ def _macos_type_identifiers(extensions):
 
 def _macos_open_file(initial_dir=None, filetypes=None):
     """Show a native macOS open-file dialog. Returns path string or None."""
-    try:
-        script = 'set theFile to choose file'
-        clauses = []
-        if filetypes:
-            # filetypes is list of tuples like [('JSON', '.json')]
-            extensions = [e.lstrip('.') for _, ext in filetypes for e in ext.split()]
-            if extensions:
-                types = ', '.join(f'"{t}"' for t in _macos_type_identifiers(extensions))
-                clauses.append(f'of type {{{types}}}')
-        if initial_dir:
-            clauses.append(f'default location POSIX file "{_escape_applescript(initial_dir)}"')
-        if clauses:
-            script += ' ' + ' '.join(clauses)
-        script += '\nPOSIX path of theFile'
-
-        result = subprocess.run(
-            ['osascript', '-e', script],
-            capture_output=True,
-            text=True,
-            timeout=_MACOS_DIALOG_TIMEOUT_S,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except Exception as e:
-        logger.warning(f'[LVP Main  ] macOS file dialog error: {e}')
-    return None
+    script = 'set theFile to choose file'
+    clauses = []
+    if filetypes:
+        # filetypes is list of tuples like [('JSON', '.json')]
+        extensions = [e.lstrip('.') for _, ext in filetypes for e in ext.split()]
+        if extensions:
+            types = ', '.join(f'"{t}"' for t in _macos_type_identifiers(extensions))
+            clauses.append(f'of type {{{types}}}')
+    if initial_dir:
+        clauses.append(f'default location POSIX file "{_escape_applescript(initial_dir)}"')
+    if clauses:
+        script += ' ' + ' '.join(clauses)
+    script += '\nPOSIX path of theFile'
+    return _osascript_choice(script)
 
 
 def _macos_choose_folder(initial_dir=None):
@@ -158,19 +168,7 @@ def _macos_choose_folder(initial_dir=None):
     if initial_dir:
         script += f' default location POSIX file "{_escape_applescript(initial_dir)}"'
     script += '\nPOSIX path of theFolder'
-
-    try:
-        result = subprocess.run(
-            ['osascript', '-e', script],
-            capture_output=True,
-            text=True,
-            timeout=_MACOS_DIALOG_TIMEOUT_S,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except Exception as e:
-        logger.warning(f'[LVP Main  ] macOS folder dialog error: {e}')
-    return None
+    return _osascript_choice(script)
 
 
 def _macos_choose_file_or_folder(initial_dir=None):
@@ -179,19 +177,7 @@ def _macos_choose_file_or_folder(initial_dir=None):
     if initial_dir:
         script += f' default location POSIX file "{_escape_applescript(initial_dir)}"'
     script += '\nPOSIX path of theItem'
-
-    try:
-        result = subprocess.run(
-            ['osascript', '-e', script],
-            capture_output=True,
-            text=True,
-            timeout=_MACOS_DIALOG_TIMEOUT_S,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except Exception as e:
-        logger.warning(f'[LVP Main  ] macOS file-or-folder dialog error: {e}')
-    return None
+    return _osascript_choice(script)
 
 
 def _foregrounded_tk_root():
@@ -357,19 +343,7 @@ def _macos_save_file(initial_dir=None, default_name=None):
     if clauses:
         script += ' ' + ' '.join(clauses)
     script += '\nPOSIX path of theFile'
-
-    try:
-        result = subprocess.run(
-            ['osascript', '-e', script],
-            capture_output=True,
-            text=True,
-            timeout=_MACOS_DIALOG_TIMEOUT_S,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except Exception as e:
-        logger.warning(f'[LVP Main  ] macOS save dialog error: {e}')
-    return None
+    return _osascript_choice(script)
 
 
 # App-wide single-flight record for native dialogs. Module-level, not
@@ -390,7 +364,7 @@ _DIALOG_STUCK_NOTIFY_S = 60.0
 _DIALOG_GUARD_EXPIRY_S = 3600.0
 
 
-def _run_native_dialog_async(button, dialog_fn, on_path):
+def _run_native_dialog_async(button, dialog_fn, on_path, *, on_cancel):
     """Run a blocking native dialog off the Kivy main thread -- the one
     path every dialog open flows through, on every platform.
 
@@ -406,7 +380,8 @@ def _run_native_dialog_async(button, dialog_fn, on_path):
     dialog_fn runs on a daemon worker thread (the tkinter primitives keep
     their Tk root confined to that thread) and the chosen path is marshalled
     back to the main thread via Clock before on_path runs. on_path is
-    invoked only for a non-empty selection. The guard clears ONLY in the
+    invoked only for a non-empty selection; a cancel calls on_cancel, which
+    records it under the button's own record name. The guard clears ONLY in the
     delivery step, so a second dialog can never open before the first
     dialog's callback has run; a raising primitive still delivers (error
     branch), so it can never leave the guard latched.
@@ -466,21 +441,19 @@ def _run_native_dialog_async(button, dialog_fn, on_path):
                 return
             _dialog_in_flight['active'] = False
             if error is not None:
-                logger.error(
-                    f"[LVP Main  ] Native dialog '{context}' failed: "
-                    f'{type(error).__name__}: {error}'
-                )
                 from modules.notification_center import notifications
 
-                notifications.error(
-                    'File Dialog',
-                    'File Dialog Failed',
-                    'The file picker could not be opened. Try the button '
-                    'again; if it keeps failing, restart LumaViewPro.',
+                notifications.report_outcome(
+                    error,
+                    solicited=True,
+                    category=f'UI:FILE_DIALOG:{context}',
+                    fault_title='File Dialog Failed',
                 )
                 return
             if result:
                 on_path(result)
+            else:
+                on_cancel()
 
         Clock.schedule_once(deliver, 0)
 
@@ -519,6 +492,7 @@ class FileChooseBTN(HoverBehavior, Button):
             self,
             lambda: _platform_native_open_file(initial_dir=selected_path, filetypes=filetypes_tk),
             lambda path: self.handle_selection(selection=[path]),
+            on_cancel=lambda: gui_logger.select('FILE_CHOOSE', f'context={context} cancelled'),
         )
 
     def handle_selection(self, selection):
@@ -583,6 +557,9 @@ class FileOrFolderChooseBTN(HoverBehavior, Button):
             self,
             lambda: _platform_native_choose_file_or_folder(initial_dir, filetypes),
             lambda path: self.handle_selection(selection=[path]),
+            on_cancel=lambda: gui_logger.select(
+                'FILE_OR_FOLDER_CHOOSE', f'context={context} cancelled'
+            ),
         )
 
     def handle_selection(self, selection):
@@ -664,6 +641,7 @@ class FolderChooseBTN(HoverBehavior, Button):
                 title=f'Select folder ({context})',
             ),
             lambda chosen: self.handle_selection(selection=[chosen]),
+            on_cancel=lambda: gui_logger.select('FOLDER_CHOOSE', f'context={context} cancelled'),
         )
 
     def handle_selection(self, selection):
@@ -736,6 +714,7 @@ class FileSaveBTN(HoverBehavior, Button):
             self,
             lambda: _platform_native_save_file(initial_dir=selected_path, filetypes=filetypes),
             lambda path: self.handle_selection(selection=[path]),
+            on_cancel=lambda: gui_logger.select('FILE_SAVE', f'context={context} cancelled'),
         )
 
     def handle_selection(self, selection):
