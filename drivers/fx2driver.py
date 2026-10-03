@@ -420,10 +420,10 @@ class FrameLayout(NamedTuple):
     H = h + 2 rows (DS Table 8). The wire carries each output row as
     ``stride`` (Column_Size) bytes: output columns 2 to W - 1 as pixels, then
     a 0 sync byte. A row carries more pixels than the window's ``w``; the
-    ``w`` stored are the last of them, from byte ``column``: under the
-    Mirror_Column the driver sets, the columns are read out in reverse
-    (DS p28), so the extra ones come first, and storing the last ``w`` keeps
-    the sensor columns a Column_Size of w + 1 gave. After ``FRAME_DELIM``
+    ``w`` stored are the first of them, from byte ``column``: with
+    Mirror_Column clear, as the driver leaves it, the columns are read out in
+    numerical order from Column_Start (RR R0x020), so the extra ones come
+    last. After ``FRAME_DELIM``
     comes the first output row, which the parser skips (``skip`` bytes, one
     more than a row), then the ``h`` stored rows, then the last output row,
     which it does not store. Both unstored rows carry sensor data. The row's
@@ -452,8 +452,8 @@ def frame_layout(w: int, h: int) -> FrameLayout:
             of 4, as ``set_frame_size`` rounds them.
     """
     stride = column_size_for(w)
-    # A row's pixels are the stride less its sync byte.
-    column = stride - 1 - w
+    # The window leads the row; the extra columns trail it.
+    column = 0
     skip = stride + 1
     needed = skip + h * stride
     frame_bytes = needed + stride
@@ -2082,18 +2082,11 @@ class FX2Camera(Camera):
         # pixel clocks where it may not be strictly necessary.
         self._write_sensor_registers(((0x7F, 0x0000),))
 
-        # Read Mode 2 bits we set:
-        #   bit  6 (0x0040) -- Row_BLC enabled (sensor default)
-        #   bit 14 (0x4000) -- Mirror_Column = horizontal flip. Per
-        #                     Linux kernel mt9p031.c register defs.
-        #                     LS620 optic path delivers a left/right-
-        #                     reversed view through the eyepiece vs the
-        #                     sensor's native readout; this bit corrects
-        #                     it at the sensor (free, no CPU cost,
-        #                     applies to live view + captures uniformly).
-        # If the image ends up upside down instead of mirrored, swap
-        # bit 14 -> bit 15 (0x4000 -> 0x8000) for Mirror_Row instead.
-        self._write_sensor_registers(((REG_READ_MODE2, 0x4040),))
+        # Read Mode 2 is its reset default, Row_BLC on and Mirror_Column
+        # clear, the value LumaView Classic wrote. With Mirror_Column set, an
+        # LS620 read a USAF target facing the camera mirrored, where the
+        # LS850 reads it correctly.
+        self._write_sensor_registers(((REG_READ_MODE2, 0x0040),))
         # The Row Black Target is 0, not its default 0xA8: the default gives
         # every image a floor of about 10.5 counts in 8 bits, the dark floor
         # LumaView images once had and were better without. The cost, measured
@@ -2381,9 +2374,7 @@ class FX2Camera(Camera):
         sensor_w = column_size_for(w)
         sensor_h = h + 1
         col_start = self._column_start(sensor_w)
-        # Centre the window on the active pixel area (2592 x 1944 with
-        # offsets 16 col / 54 row), on an even row.
-        row_start = max(0, (1944 - sensor_h) // 2 + 54) & ~1
+        row_start = self._row_start(h)
 
         try:
             # Individual 3-byte writes -- firmware truncates multi-byte I2C.
@@ -2504,11 +2495,22 @@ class FX2Camera(Camera):
     def _column_start(column_size: int) -> int:
         """The Column_Start that centres a window of ``column_size`` on the active array.
 
-        RR R0x02 requires the form 4n + 2 under Mirror_Column, which the
-        driver sets; this is the nearest such value to the centred start.
+        RR R0x02 requires the form 4n with Mirror_Column clear, as the driver
+        leaves it; this is the nearest such value to the centred start, the
+        lower of two equally near.
         """
         centred = (2592 - column_size) // 2 + 16
-        return (centred // 4) * 4 + 2
+        return ((centred + 1) // 4) * 4
+
+    @staticmethod
+    def _row_start(h: int) -> int:
+        """The Row_Start of an ``h``-row window: LumaView Classic's.
+
+        The window centred on the 1944-row active array, which starts at row
+        54, made even by rounding up, as Classic made it.
+        """
+        start = (1944 - h) // 2 + 54
+        return start + start % 2
 
     def auto_exposure_t(self, state: bool = True) -> NoReturn:
         raise no_hardware_auto_mode('FX2', 'auto_exposure_t', 'auto-exposure')

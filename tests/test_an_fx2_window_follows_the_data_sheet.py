@@ -1,11 +1,12 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """An FX2's window is placed and read out as the MT9P031 documents give.
 
-Before, Column_Start was the centred value rounded to even, which lands on
-4n at about half the widths (360 at 1900, 1060 at 500), where the register
-reference requires 4n + 2 under Mirror_Column, which the driver sets. And the
-simulated FX2 sent zeros where the sensor sends its first and last output
-rows: the LS620's test patterns show both carry sensor data.
+The driver leaves Mirror_Column off, so a target reads as it does on the
+LS850 and as LumaView Classic set the sensor. Without the mirror the register
+reference requires Column_Start in the form 4n, and the columns read out in
+numerical order from Column_Start, so the columns beyond the window trail it.
+Row_Start is LumaView Classic's. And the simulated FX2 sends sensor data in
+its first and last output rows: the LS620's test patterns show both carry it.
 
 The expected values are the documents' and the bench's, written as literals.
 """
@@ -36,41 +37,62 @@ def camera(sim):
     cam.disconnect()
 
 
-def test_every_window_starts_on_a_mirrored_column_and_is_centred(sim, camera):
+def test_every_window_starts_on_a_4n_column_and_is_centred(sim, camera):
     registers = sim.device.sensor.registers
     for w in range(100, 1901, 4):
         camera.set_frame_size(w, 100)
         start = registers[fx2driver.REG_COL_START]
-        # RR R0x02: Column_Start is 4n + 2 under Mirror_Column.
-        assert start % 4 == 2, (w, start)
-        # DS Table 8: the sensor outputs W = Column_Size + 1 = w + 2 columns.
-        assert abs(start + (w + 2) / 2 - ARRAY_CENTRE) <= 2, (w, start)
+        # RR R0x02: Column_Start is 4n with Mirror_Column clear.
+        assert start % 4 == 0, (w, start)
+        # DS Table 8: the sensor outputs W = Column_Size + 1 = w + 4 columns.
+        assert abs(start + (w + 4) / 2 - ARRAY_CENTRE) <= 2, (w, start)
 
 
 @pytest.mark.parametrize(
-    'w, start', [(1900, 362), (1000, 810), (500, 1062), (1896, 362), (1880, 370)]
+    'w, start',
+    [
+        (1900, 360),
+        # The centred start is 810, halfway between 808 and 812: the lower.
+        (1000, 808),
+        (500, 1060),
+        (100, 1260),
+    ],
 )
-def test_the_column_start_at_the_benched_widths(sim, camera, w, start):
+def test_the_column_start_is_the_nearest_4n_to_the_centre(sim, camera, w, start):
     camera.set_frame_size(w, w)
     assert sim.device.sensor.registers[fx2driver.REG_COL_START] == start
 
 
-def test_every_window_writes_column_size_4n_minus_1_and_keeps_its_column_start(sim, camera):
+def test_every_window_writes_column_size_4n_minus_1(sim, camera):
     # RR R0x04: Column_Size in the form 4n - 1; w + 3, since w - 1 leaves too
-    # few pixels a row. Column_Start stays what a Column_Size of w + 1 gave,
-    # so the stored image is the same sensor columns.
+    # few pixels a row.
     registers = sim.device.sensor.registers
     for w in range(100, 1901, 4):
         camera.set_frame_size(w, 100)
         assert registers[fx2driver.REG_COL_SIZE] == w + 3, w
-        start_at_w_plus_1 = ((2592 - (w + 1)) // 2 + 16) // 4 * 4 + 2
-        assert registers[fx2driver.REG_COL_START] == start_at_w_plus_1, w
 
 
-def test_the_stored_pixels_are_the_last_w_a_row_carries():
-    # Under Mirror_Column the columns Column_Size adds beyond the window come
-    # first on the wire; storing the first w would move the image two sensor
-    # columns. Each wire byte here carries its own column index.
+def _classic_row_start(h):
+    # LumaView Classic, AptinaMT9P031_Control3.cs SetWindowSize: the centred
+    # start of an h-row window on the 1944-row array from row 54, made even
+    # by adding one.
+    start = (1944 - h) // 2 + 54
+    return start + start % 2
+
+
+def test_every_window_starts_on_classics_row(sim, camera):
+    registers = sim.device.sensor.registers
+    for h in range(100, 1901, 4):
+        camera.set_frame_size(100, h)
+        assert registers[fx2driver.REG_ROW_START] == _classic_row_start(h), h
+    camera.set_frame_size(1900, 1900)
+    assert registers[fx2driver.REG_ROW_START] == 76
+
+
+def test_the_stored_pixels_are_the_first_w_a_row_carries():
+    # With Mirror_Column clear the columns Column_Size adds beyond the window
+    # come last on the wire (RR R0x020); storing the last w would move the
+    # image two sensor columns. Each wire byte here carries its own column index.
     import threading
     import time
     from types import SimpleNamespace
@@ -110,13 +132,13 @@ def test_the_stored_pixels_are_the_last_w_a_row_carries():
     assert len(stored) == 1
     image = stored[0]
     assert image.shape == (h, w)
-    assert (image == list(range(2, w + 2))).all()
+    assert (image == list(range(w))).all()
 
 
 def test_the_simulated_frame_puts_the_window_where_the_parser_stores_it(sim, monkeypatch):
-    # The wire leads each row with the columns beyond the window; a simulator
-    # that put its pixels first would have the parser store an image moved
-    # two columns, with the window's last two columns lost.
+    # The wire trails each row with the columns beyond the window; a simulator
+    # that put its pixels last would have the parser store an image moved
+    # two columns, with the window's first two columns lost.
     import numpy as np
 
     device = sim.device
@@ -127,7 +149,7 @@ def test_the_simulated_frame_puts_the_window_where_the_parser_stores_it(sim, mon
     layout = fx2driver.frame_layout(100, 80)
     body = np.frombuffer(device.frame(), dtype=np.uint8)
     rows = body[layout.skip : layout.needed].reshape(80, layout.stride)
-    assert (rows[:, layout.column : layout.column + 100] == pattern[1:81]).all()
+    assert (rows[:, :100] == pattern[1:81]).all()
 
 
 def test_the_simulated_frame_carries_sensor_rows_where_the_parser_stores_none(sim):

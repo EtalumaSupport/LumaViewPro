@@ -330,7 +330,7 @@ class SimulatedFX2Device:
         rows are sensor rows the parser does not store, as on the wire.
         ``extra_rows`` rows of zeros after the frame make it the wrong
         length for its window, the shape the parser counts as shifted. The
-        columns a row carries beyond the window lead it, as on the wire; the
+        columns a row carries beyond the window trail it, as on the wire; the
         simulator renders the specimen only in the window and leaves them 0.
         """
         w, h = self.sensor.window()

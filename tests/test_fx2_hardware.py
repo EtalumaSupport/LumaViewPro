@@ -539,8 +539,8 @@ _REG_TEST_PATTERN_CONTROL = 0xA0
 _REG_TEST_PATTERN_GREEN = 0xA1
 _REG_TEST_PATTERN_RED = 0xA2
 _REG_TEST_PATTERN_BLUE = 0xA3
-_READ_MODE2_TODAY = 0x4040  # Mirror_Column + Row_BLC, as _init_sensor writes it
-_READ_MODE2_NO_ROW_BLC = 0x4000  # DS p37: BLC off while a test pattern runs
+_READ_MODE2_TODAY = 0x0040  # Row_BLC, Mirror_Column clear, as _init_sensor writes it
+_READ_MODE2_NO_ROW_BLC = 0x0000  # DS p37: BLC off while a test pattern runs
 _ROW_BLACK_TODAY = 0x0000
 _REG_BLC = 0x62
 _BLC_TODAY = 0x0000  # its default: connect's soft reset leaves it there
@@ -1045,7 +1045,7 @@ def _hot_pixel_shift(a, b, rows=2, columns=8):
 
 @pytest.mark.fx2_hardware
 class TestFX2ColumnSizeBench(_FX2BenchCase):
-    """Column_Size w + 3 keeps the sensor columns w + 1 gave, by storing from a row's third pixel.
+    """Column_Size w + 3 keeps the sensor columns w + 1 gave, by storing from a row's first pixel.
 
     Needs the optical path capped light-tight: the sensor's hot pixels are
     the marks, each fixed to one sensor column, so no specimen is needed.
@@ -1073,7 +1073,7 @@ class TestFX2ColumnSizeBench(_FX2BenchCase):
         return np.mean([_wire_rows(f, stride, h) for f in frames], axis=0)
 
     def test_h2_row4_the_stored_columns(self):
-        """Row 4: the column shift from w + 1 to w + 3, with the offset (0) and without it (+2)."""
+        """Row 4: the column shift from w + 1 to w + 3, at the layout's offset and at the mirrored layout's 2."""
         self.led.leds_off()
         self.camera.exposure_t(_BENCH_MS)
         self.camera.gain(24)
@@ -1089,7 +1089,7 @@ class TestFX2ColumnSizeBench(_FX2BenchCase):
         rows = self._mean_wire_rows('w + 3', layout.stride, w, h)
         images = (
             ('w + 3 with the offset', rows[:, layout.column : layout.column + w]),
-            ('w + 3 without it', rows[:, :w]),
+            ('w + 3 from the third pixel', rows[:, 2 : 2 + w]),
         )
         hot_before = before > _DARK_FLOOR
         logger.info(
