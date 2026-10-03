@@ -28,9 +28,9 @@ surfaces that do NOT resolve:
 * the Changelog, which records ``removal`` and ``rename`` entries against the
   frozen 4.x surface;
 * retirement and forward-looking notes in prose ("was previously available as
-  ``scope.compute_focus_score(image)``; retired in Wave 7", "a future release
-  may add a public ``scope.imaging.start_grabbing()``", and the explanation
-  that ``session.led_on(...)`` deliberately does not exist without a suffix).
+  ``scope.compute_focus_score(image)``; retired in Wave 7", and the
+  explanation that ``session.led_on(...)`` deliberately does not exist
+  without a suffix).
 
 A whole-file resolution check would need a hand-maintained allowlist of those
 mentions -- a mirror requiring manual sync, which is the defect class this

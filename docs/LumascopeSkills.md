@@ -2114,7 +2114,7 @@ Use for development, CI, and unit tests without hardware.
 
 ```python
 scope = Lumascope(simulate=True)
-scope._camera_driver.start_grabbing()   # simulator test setup; see note below
+scope.imaging.start_streaming()   # a scope you build yourself streams once started
 
 # All API calls work identically:
 scope.illumination.led_on('Blue', 200)
@@ -2122,7 +2122,7 @@ scope.motion.move_absolute('Z', 5000)
 image = scope.imaging.get_image()
 ```
 
-The `start_grabbing()` call reaches through to the private camera driver because the simulator does not auto-start streaming (production camera drivers do). This is the only direct private-driver access an L2 caller needs in simulator-mode test setup — a future release may add a public `scope.imaging.start_grabbing()` for symmetry.
+A camera connects configured but not grabbing, simulated or real, so a `Lumascope` you build yourself returns no frame from `get_image()` until `scope.imaging.start_streaming()`. A scope brought up through `ScopeSession.create()` is already streaming.
 
 **Only in `simulate=True`**: `set_timing_mode('fast')` lets simulator tests run faster by skipping artificial serial / motor / camera delays. Same private-driver access pattern: timing-mode control is a simulator test-infrastructure feature, not an L2 surface.
 
