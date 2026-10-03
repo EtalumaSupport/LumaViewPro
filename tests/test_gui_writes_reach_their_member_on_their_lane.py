@@ -221,6 +221,30 @@ def test_goto_focus_moves_z_to_the_layers_saved_focus(ctx, monkeypatch):
     moved.assert_called_once_with('Z', 4321.0)
 
 
+def test_goto_focus_on_a_channel_never_saved_is_refused_and_moves_nothing(ctx, monkeypatch):
+    import ui.layer_control as layer_control
+    import ui.ui_helpers as ui_helpers
+    from modules.notification_center import notifications
+    from modules.scope_session import ScopeSession
+
+    moved = MagicMock()
+    reported = []
+    monkeypatch.setattr(ui_helpers, 'move_absolute', moved)
+    monkeypatch.setattr(layer_control.gui_logger, 'button', MagicMock())
+    monkeypatch.setattr(
+        notifications,
+        'report_outcome',
+        lambda exc, **kw: reported.append((type(exc).__name__, kw['category'])),
+    )
+    ctx.settings['Green']['focus'] = None
+    ctx.session.saved_focus = lambda layer: ScopeSession.saved_focus(ctx, layer)
+
+    layer_control.LayerControl.goto_focus(SimpleNamespace(layer='Green'))
+
+    moved.assert_not_called()
+    assert reported == [('FocusNotSavedError', 'UI:GOTO_FOCUS_Green')]
+
+
 def test_home_stage_homes_every_axis_through_the_reporter(ctx, boundary, monkeypatch):
     import ui.motion_settings as motion_settings
 

@@ -93,6 +93,19 @@ def test_a_stored_shipped_focus_is_read_as_never_saved():
     assert all(stored[layer]['focus'] is None for layer in forgotten)
 
 
+def test_the_load_migrations_read_a_stored_shipped_focus_as_never_saved(caplog):
+    import logging
+
+    stored = {'Blue': {'focus': 4950.0}, 'BF': {'focus': 5998.6}}
+
+    with caplog.at_level(logging.INFO):
+        settings_init._apply_load_migrations(logging.getLogger('test'), stored)
+
+    assert stored['Blue']['focus'] is None
+    assert stored['BF']['focus'] == 5998.6
+    assert 'No focus was ever saved for Blue' in caplog.text
+
+
 def test_new_images_an_unsaved_channel_at_the_current_z_and_a_saved_one_at_its_focus(
     scale_capabilities,
 ):
