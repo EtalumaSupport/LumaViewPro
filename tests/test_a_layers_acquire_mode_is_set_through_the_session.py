@@ -65,7 +65,10 @@ class TestTheSessionSetsTheMode:
         assert session.settings['BF']['acquire'] == before
 
 
-# The one ui/ writer left: the stimulation toggle, deferred with stimulation.
+# The ui/ writer this guard can see that is left: the stimulation toggle,
+# deferred with stimulation. Step navigation also writes a step's acquire
+# into its layer, through settings[color].update(...), which this assignment
+# scan does not see; it moves with tier 3's navigation item.
 _UI_WRITERS_ALLOWED = {('ui/layer_control.py', 'update_stim_enable')}
 
 

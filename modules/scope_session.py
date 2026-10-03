@@ -1116,8 +1116,9 @@ class ScopeSession:
         once ``load_protocol`` has accepted the plate. Every layer stops
         acquiring and stimulating; each layer the protocol names then takes
         its acquire mode and every value its row holds. A blank value leaves
-        that layer's control as it was. A layer this scope does not have is
-        logged and dropped.
+        that layer's control as it was. A layer this release does not know
+        (not in ``common_utils.get_layers()``) is logged and dropped; a known
+        layer this scope's hardware lacks is set like any other.
 
         Raises:
             ProtocolFormatError: A protocol built in memory carries a

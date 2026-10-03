@@ -314,6 +314,25 @@ class TestLoad:
         assert own_popups == [], 'the outcome is shown by the one reporter'
         assert [(n.title, n.message) for n in shown] == [('Protocol Refused', str(error))]
 
+    def test_the_loaded_protocols_layer_settings_go_in_before_it_is_adopted(
+        self, ctx, shown, own_popups, tsv
+    ):
+        """An accepted plate is followed by the restore, in the one reported
+        call: a restore that fails leaves the panel on the protocol it had."""
+        accepted = _protocol()
+        ctx.session.load_protocol.return_value = accepted
+        refusal = ProtocolFormatError('a Layer Settings cell is not a number', file=tsv)
+        ctx.session.apply_layer_settings.side_effect = refusal
+        previous = _protocol()
+        panel = _Panel(previous)
+
+        loaded = panel.load_protocol(filepath=str(tsv), navigate=True)
+
+        ctx.session.apply_layer_settings.assert_called_once_with(accepted)
+        assert loaded is False
+        assert panel._protocol is previous
+        assert [n.title for n in shown] == ['Protocol Refused']
+
 
 class TestTheStartupLoad:
     def test_a_refusal_already_reported_is_not_logged_again(

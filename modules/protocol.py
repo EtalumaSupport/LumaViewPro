@@ -2625,12 +2625,20 @@ class Protocol:
                                 continue
                             row_dict = dict(zip(ls_header, sub_row, strict=False))
                             layer_name = row_dict.get('Layer', '').strip()
-                            if layer_name:
-                                config['layer_settings'][layer_name] = row_dict
+                            if not layer_name:
+                                raise ProtocolFormatError(
+                                    'a row of its Layer Settings block names no layer.',
+                                    file=file_path,
+                                )
+                            config['layer_settings'][layer_name] = row_dict
             except StopIteration:
                 raise ProtocolFormatError(
                     "Missing 'Steps' section in protocol file", file=file_path
                 ) from None
+            # The writer never writes a block with no rows; one that has none
+            # would turn every layer off at a restore.
+            if config.get('layer_settings') == {}:
+                raise ProtocolFormatError('its Layer Settings block has no rows.', file=file_path)
 
         table_lines = []
         for line in fp:

@@ -209,6 +209,16 @@ class TestTheBlockIsTypedAtLoad:
         with pytest.raises(ProtocolFormatError):
             session.load_protocol(tsv)
 
+    def test_a_block_with_no_rows_is_refused(self, session, tmp_path):
+        with pytest.raises(ProtocolFormatError):
+            session.load_protocol(_file_with_block(tmp_path))
+
+    def test_a_row_that_names_no_layer_is_refused(self, session, tmp_path):
+        tsv = _file_with_block(tmp_path, '\timage\t5.0\t0.0\tFalse\t2.0\tFalse\t1\t\n')
+
+        with pytest.raises(ProtocolFormatError):
+            session.load_protocol(tsv)
+
     def test_a_file_with_no_block_is_inferred_typed(self, session, tmp_path):
         row = session.load_protocol(_protocol_file(tmp_path, PLATE)).layer_settings()['BF']
 
