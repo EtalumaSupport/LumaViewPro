@@ -169,12 +169,9 @@ def _build_protocol(steps, period_min=1.0, duration_hrs=1.0, labware='6 well mic
         'capture_root': '',
         'tiling': '1x1',
     }
-    # Built under the EL-0940 firmware ceiling, so the illumination checks
-    # exercise a cap the way a scope-built protocol does.
     return Protocol(
         tiling_configs_file_loc=TILING_CONFIGS,
         config=config,
-        led_max_ma=1000,
     )
 
 
@@ -484,7 +481,7 @@ class TestRoundTripBasic:
         assert 'fps' in vc, 'loader must merge default fps when missing'
         assert vc['fps'] > 0, 'defaulted fps must satisfy validate_steps'
 
-        errors = proto.validate_steps(ObjectiveLoader())
+        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         fps_errors = [e for e in errors if 'Video Config fps' in e]
         assert fps_errors == [], (
             f'legacy-format Video Config must not produce fps errors; got {fps_errors}'
@@ -531,6 +528,7 @@ class TestRoundTripBasic:
             axes=('X', 'Y', 'Z'),
             objective_helper=ObjectiveLoader(),
             wellplate_loader=WellPlateLoader(),
+            led_max_ma=1000,
         )
         labware_errors = [e for e in errors if 'Labware' in e and 'not found' in e]
         assert labware_errors == [], (
@@ -939,7 +937,7 @@ class TestValidation:
     def test_invalid_video_config_not_dict(self):
         steps = [_make_step(acquire='video', video_config='not a dict')]
         proto = _build_protocol(steps)
-        errors = proto.validate_steps(ObjectiveLoader())
+        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert any('Video Config' in e for e in errors), (
             f'Expected Video Config error, got: {errors}'
         )
@@ -947,13 +945,13 @@ class TestValidation:
     def test_invalid_color(self):
         steps = [_make_step(color='Ultraviolet')]
         proto = _build_protocol(steps)
-        errors = proto.validate_steps(ObjectiveLoader())
+        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert len(errors) > 0, 'Expected validation error for invalid color'
 
     def test_negative_exposure(self):
         steps = [_make_step(exposure=-1.0)]
         proto = _build_protocol(steps)
-        errors = proto.validate_steps(ObjectiveLoader())
+        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert len(errors) > 0, 'Expected validation error for negative exposure'
 
 
@@ -1645,93 +1643,93 @@ class TestProtocolValidation:
 
     def test_valid_protocol_no_errors(self):
         proto = _build_protocol([_make_step()])
-        errors = proto.validate_steps(ObjectiveLoader())
+        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert errors == [], f'Expected no errors, got: {errors}'
 
     def test_all_valid_colors(self):
         """Every valid color passes validation."""
         for color in ['BF', 'PC', 'DF', 'Red', 'Green', 'Blue']:
             proto = _build_protocol([_make_step(color=color)])
-            errors = proto.validate_steps(ObjectiveLoader())
+            errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
             color_errors = [e for e in errors if 'Color' in e]
             assert color_errors == [], f"Color '{color}' should be valid, got: {color_errors}"
 
     def test_invalid_color_rejected(self):
         proto = _build_protocol([_make_step(color='Ultraviolet')])
-        errors = proto.validate_steps(ObjectiveLoader())
+        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert any('Color' in e for e in errors)
 
     def test_negative_exposure_rejected(self):
         proto = _build_protocol([_make_step(exposure=-1.0)])
-        errors = proto.validate_steps(ObjectiveLoader())
+        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert any('Exposure' in e for e in errors)
 
     def test_zero_exposure_rejected(self):
         """No camera takes 0 ms."""
         proto = _build_protocol([_make_step(exposure=0.0)])
-        errors = proto.validate_steps(ObjectiveLoader())
+        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert any('Exposure' in e for e in errors)
 
     def test_negative_gain_rejected(self):
         proto = _build_protocol([_make_step(gain=-1.0)])
-        errors = proto.validate_steps(ObjectiveLoader())
+        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert any('Gain' in e for e in errors)
 
     def test_zero_gain_valid(self):
         proto = _build_protocol([_make_step(gain=0.0)])
-        errors = proto.validate_steps(ObjectiveLoader())
+        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         gain_errors = [e for e in errors if 'Gain' in e]
         assert gain_errors == []
 
     def test_illumination_over_1000_rejected(self):
         proto = _build_protocol([_make_step(illumination=1001.0)])
-        errors = proto.validate_steps(ObjectiveLoader())
+        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert any('Illumination' in e for e in errors)
 
     def test_illumination_1000_valid(self):
         proto = _build_protocol([_make_step(illumination=1000.0)])
-        errors = proto.validate_steps(ObjectiveLoader())
+        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         ill_errors = [e for e in errors if 'Illumination' in e]
         assert ill_errors == []
 
     def test_negative_illumination_rejected(self):
         proto = _build_protocol([_make_step(illumination=-10.0)])
-        errors = proto.validate_steps(ObjectiveLoader())
+        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert any('Illumination' in e for e in errors)
 
     def test_sum_zero_rejected(self):
         proto = _build_protocol([_make_step(sum_count=0)])
-        errors = proto.validate_steps(ObjectiveLoader())
+        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert any('Sum' in e for e in errors)
 
     def test_sum_one_valid(self):
         proto = _build_protocol([_make_step(sum_count=1)])
-        errors = proto.validate_steps(ObjectiveLoader())
+        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         sum_errors = [e for e in errors if 'Sum' in e]
         assert sum_errors == []
 
     def test_invalid_acquire_mode(self):
         proto = _build_protocol([_make_step(acquire='timelapse')])
-        errors = proto.validate_steps(ObjectiveLoader())
+        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert any('Acquire' in e for e in errors)
 
     def test_video_with_zero_fps_rejected(self):
         proto = _build_protocol(
             [_make_step(acquire='video', video_config={'duration': 1.0, 'fps': 0})]
         )
-        errors = proto.validate_steps(ObjectiveLoader())
+        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert any('fps' in e for e in errors)
 
     def test_video_with_zero_duration_rejected(self):
         proto = _build_protocol(
             [_make_step(acquire='video', video_config={'duration': 0, 'fps': 5})]
         )
-        errors = proto.validate_steps(ObjectiveLoader())
+        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert any('duration' in e for e in errors)
 
     def test_video_with_string_config_rejected(self):
         proto = _build_protocol([_make_step(acquire='video', video_config='not a dict')])
-        errors = proto.validate_steps(ObjectiveLoader())
+        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert any('Video Config' in e for e in errors)
 
     def test_multiple_errors_reported(self):
@@ -1741,7 +1739,7 @@ class TestProtocolValidation:
             _make_step(name='bad2', illumination=2000.0, gain=-5.0),
         ]
         proto = _build_protocol(steps)
-        errors = proto.validate_steps(ObjectiveLoader())
+        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert len(errors) >= 3, f'Expected at least 3 errors, got {len(errors)}: {errors}'
 
 

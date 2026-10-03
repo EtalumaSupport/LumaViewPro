@@ -30,7 +30,6 @@ _INVALID_OBJECTIVE = '100x Oil Imm Fake'
 def _make_protocol(
     steps_data: list[dict],
     labware_id: str = '96 well microplate',
-    led_max_ma: int | None = None,
 ) -> Protocol:
     """Create a Protocol with given steps.
 
@@ -40,7 +39,6 @@ def _make_protocol(
     skips the constructor's file-loading step.
     """
     p = Protocol.__new__(Protocol)
-    p._led_max_ma = led_max_ma
     # Build the steps DataFrame
     dtypes = np.dtype(
         [
@@ -120,36 +118,38 @@ def _valid_step(**overrides) -> dict:
 class TestValidateStepsEmpty:
     def test_empty_protocol_returns_no_errors(self):
         p = _make_protocol([])
-        assert p.validate_steps(ObjectiveLoader()) == []
+        assert p.validate_steps(ObjectiveLoader(), led_max_ma=1000) == []
 
     def test_valid_single_step_returns_no_errors(self):
         p = _make_protocol([_valid_step()])
-        assert p.validate_steps(ObjectiveLoader()) == []
+        assert p.validate_steps(ObjectiveLoader(), led_max_ma=1000) == []
 
 
 class TestValidateColor:
     def test_invalid_color(self):
         p = _make_protocol([_valid_step(Color='Purple')])
-        errors = p.validate_steps(ObjectiveLoader())
+        errors = p.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert len(errors) == 1
         assert "Color 'Purple'" in errors[0]
 
     def test_all_valid_colors(self):
         for color in ('Blue', 'Green', 'Red', 'BF', 'PC', 'DF', 'Lumi'):
             p = _make_protocol([_valid_step(Color=color)])
-            assert p.validate_steps(ObjectiveLoader()) == [], f'Color {color} should be valid'
+            assert p.validate_steps(ObjectiveLoader(), led_max_ma=1000) == [], (
+                f'Color {color} should be valid'
+            )
 
 
 class TestValidateObjective:
     def test_invalid_objective(self):
         p = _make_protocol([_valid_step(Objective=_INVALID_OBJECTIVE)])
-        errors = p.validate_steps(ObjectiveLoader())
+        errors = p.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert len(errors) == 1
         assert f"Objective '{_INVALID_OBJECTIVE}'" in errors[0]
 
     def test_valid_objective(self):
         p = _make_protocol([_valid_step(Objective='10x Oly')])
-        assert p.validate_steps(ObjectiveLoader()) == []
+        assert p.validate_steps(ObjectiveLoader(), led_max_ma=1000) == []
 
     def test_the_catalogue_consulted_is_the_protocols_own(self):
         """The validator used to build a second loader over the shipped file,
@@ -158,7 +158,9 @@ class TestValidateObjective:
         from types import SimpleNamespace
 
         p = _make_protocol([_valid_step(Objective='10x Oly')])
-        errors = p.validate_steps(SimpleNamespace(get_objectives_list=lambda: ['4x Oly']))
+        errors = p.validate_steps(
+            SimpleNamespace(get_objectives_list=lambda: ['4x Oly']), led_max_ma=1000
+        )
         assert len(errors) == 1
         assert "Objective '10x Oly'" in errors[0]
 
@@ -169,7 +171,7 @@ class TestValidateObjective:
         from types import SimpleNamespace
 
         p = _make_protocol([_valid_step(Objective='10x Oly'), _valid_step(Objective='4x Oly')])
-        errors = p.validate_steps(SimpleNamespace(get_objectives_list=lambda: []))
+        errors = p.validate_steps(SimpleNamespace(get_objectives_list=lambda: []), led_max_ma=1000)
         assert len(errors) == 2
         assert all('not found in objectives.json' in e for e in errors)
 
@@ -179,111 +181,111 @@ class TestValidateExposure:
         """No camera takes 0 ms, so a 0 ms step is refused here rather than
         called valid and refused later by the run."""
         p = _make_protocol([_valid_step(Exposure=0)])
-        errors = p.validate_steps(ObjectiveLoader())
+        errors = p.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert any('Exposure must be more than 0 ms' in e for e in errors)
 
     def test_negative_exposure(self):
         p = _make_protocol([_valid_step(Exposure=-10)])
-        errors = p.validate_steps(ObjectiveLoader())
+        errors = p.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert any('Exposure must be more than 0 ms' in e for e in errors)
 
     def test_valid_exposure(self):
         p = _make_protocol([_valid_step(Exposure=100.5)])
-        assert p.validate_steps(ObjectiveLoader()) == []
+        assert p.validate_steps(ObjectiveLoader(), led_max_ma=1000) == []
 
 
 class TestValidateIllumination:
     def test_negative_illumination(self):
         p = _make_protocol([_valid_step(Illumination=-1)])
-        errors = p.validate_steps(ObjectiveLoader())
+        errors = p.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert any('Illumination must be 0' in e for e in errors)
 
     def test_over_max_illumination(self):
-        p = _make_protocol([_valid_step(Illumination=1001)], led_max_ma=1000)
-        errors = p.validate_steps(ObjectiveLoader())
+        p = _make_protocol([_valid_step(Illumination=1001)])
+        errors = p.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert any('Illumination must be 0-1000' in e for e in errors)
 
     def test_zero_illumination_valid(self):
         p = _make_protocol([_valid_step(Illumination=0)])
-        assert p.validate_steps(ObjectiveLoader()) == []
+        assert p.validate_steps(ObjectiveLoader(), led_max_ma=1000) == []
 
     def test_max_illumination_valid(self):
         p = _make_protocol([_valid_step(Illumination=1000)])
-        assert p.validate_steps(ObjectiveLoader()) == []
+        assert p.validate_steps(ObjectiveLoader(), led_max_ma=1000) == []
 
 
 class TestValidateGain:
     def test_negative_gain(self):
         p = _make_protocol([_valid_step(Gain=-1)])
-        errors = p.validate_steps(ObjectiveLoader())
+        errors = p.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert any('Gain must be >= 0' in e for e in errors)
 
     def test_zero_gain_valid(self):
         p = _make_protocol([_valid_step(Gain=0)])
-        assert p.validate_steps(ObjectiveLoader()) == []
+        assert p.validate_steps(ObjectiveLoader(), led_max_ma=1000) == []
 
 
 class TestValidateSum:
     def test_zero_sum(self):
         p = _make_protocol([_valid_step(Sum=0)])
-        errors = p.validate_steps(ObjectiveLoader())
+        errors = p.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert any('Sum must be >= 1' in e for e in errors)
 
     def test_negative_sum(self):
         p = _make_protocol([_valid_step(Sum=-1)])
-        errors = p.validate_steps(ObjectiveLoader())
+        errors = p.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert any('Sum must be >= 1' in e for e in errors)
 
     def test_valid_sum(self):
         p = _make_protocol([_valid_step(Sum=3)])
-        assert p.validate_steps(ObjectiveLoader()) == []
+        assert p.validate_steps(ObjectiveLoader(), led_max_ma=1000) == []
 
 
 class TestValidateAcquireMode:
     def test_invalid_acquire_mode(self):
         p = _make_protocol([_valid_step(Acquire='timelapse')])
-        errors = p.validate_steps(ObjectiveLoader())
+        errors = p.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert any('Acquire must be' in e for e in errors)
 
     def test_video_mode_valid(self):
         vc = {'fps': 30, 'duration': 10}
         p = _make_protocol([_valid_step(Acquire='video', **{'Video Config': vc})])
-        assert p.validate_steps(ObjectiveLoader()) == []
+        assert p.validate_steps(ObjectiveLoader(), led_max_ma=1000) == []
 
 
 class TestValidateVideoConfig:
     def test_video_mode_zero_fps(self):
         vc = {'fps': 0, 'duration': 10}
         p = _make_protocol([_valid_step(Acquire='video', **{'Video Config': vc})])
-        errors = p.validate_steps(ObjectiveLoader())
+        errors = p.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert any('fps must be > 0' in e for e in errors)
 
     def test_video_mode_zero_duration(self):
         vc = {'fps': 30, 'duration': 0}
         p = _make_protocol([_valid_step(Acquire='video', **{'Video Config': vc})])
-        errors = p.validate_steps(ObjectiveLoader())
+        errors = p.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert any('duration must be > 0' in e for e in errors)
 
     def test_image_mode_ignores_video_config(self):
         p = _make_protocol([_valid_step(Acquire='image', **{'Video Config': 'garbage'})])
-        assert p.validate_steps(ObjectiveLoader()) == []
+        assert p.validate_steps(ObjectiveLoader(), led_max_ma=1000) == []
 
 
 class TestValidateNameLength:
     def test_name_too_long(self):
         p = _make_protocol([_valid_step(Name='x' * 201)])
-        errors = p.validate_steps(ObjectiveLoader())
+        errors = p.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert any('Name exceeds 200' in e for e in errors)
 
     def test_name_at_limit(self):
         p = _make_protocol([_valid_step(Name='x' * 200)])
-        assert p.validate_steps(ObjectiveLoader()) == []
+        assert p.validate_steps(ObjectiveLoader(), led_max_ma=1000) == []
 
 
 class TestMultipleErrors:
     def test_multiple_fields_invalid(self):
         p = _make_protocol([_valid_step(Color='Bad', Exposure=-1, Sum=0)])
-        errors = p.validate_steps(ObjectiveLoader())
+        errors = p.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert len(errors) == 3
 
     def test_multiple_steps_with_errors(self):
@@ -293,7 +295,7 @@ class TestMultipleErrors:
                 _valid_step(Exposure=-10),
             ]
         )
-        errors = p.validate_steps(ObjectiveLoader())
+        errors = p.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert len(errors) == 2
         assert 'Step 1' in errors[0]
         assert 'Step 2' in errors[1]
@@ -382,6 +384,7 @@ class TestValidateForRunPositionsAreNumbers:
             axes=('X', 'Y', 'Z'),
             objective_helper=ObjectiveLoader(),
             wellplate_loader=WellPlateLoader(),
+            led_max_ma=1000,
         )
         assert any(f'{axis} position is not a valid number' in e for e in errors), errors
 
@@ -391,6 +394,7 @@ class TestValidateForRunPositionsAreNumbers:
             axes=('X', 'Y', 'Z'),
             objective_helper=ObjectiveLoader(),
             wellplate_loader=WellPlateLoader(),
+            led_max_ma=1000,
         )
         assert not any('position' in e for e in errors), errors
 
@@ -401,6 +405,7 @@ class TestValidateForRunPositionsAreNumbers:
             axes=('Z',),
             objective_helper=ObjectiveLoader(),
             wellplate_loader=WellPlateLoader(),
+            led_max_ma=1000,
         )
         assert not any('position' in e for e in errors), errors
 
@@ -412,6 +417,7 @@ class TestValidateForRunLabware:
             axes=('X', 'Y', 'Z'),
             objective_helper=ObjectiveLoader(),
             wellplate_loader=WellPlateLoader(),
+            led_max_ma=1000,
         )
         assert any("Labware 'nonexistent plate' not found" in e for e in errors)
 
@@ -421,6 +427,7 @@ class TestValidateForRunLabware:
             axes=('X', 'Y', 'Z'),
             objective_helper=ObjectiveLoader(),
             wellplate_loader=WellPlateLoader(),
+            led_max_ma=1000,
         )
         assert not any('Labware' in e for e in errors)
 
@@ -433,6 +440,7 @@ class TestValidateForRunIncludesFieldValidation:
             axes=('X', 'Y', 'Z'),
             objective_helper=ObjectiveLoader(),
             wellplate_loader=WellPlateLoader(),
+            led_max_ma=1000,
         )
         assert any("Color 'Bad'" in e for e in errors)
 
@@ -444,5 +452,6 @@ class TestValidateForRunEmpty:
             axes=('X', 'Y', 'Z'),
             objective_helper=ObjectiveLoader(),
             wellplate_loader=WellPlateLoader(),
+            led_max_ma=1000,
         )
         assert errors == []

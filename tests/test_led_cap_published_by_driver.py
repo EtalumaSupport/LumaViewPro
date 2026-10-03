@@ -101,16 +101,14 @@ def test_the_api_guard_refuses_one_over_the_boards_cap(sim_scope):
 
 
 # ---------------------------------------------------------------------------
-# The Protocol carries the cap it was built under
+# The protocol validator judges by the cap its caller gives it
 # ---------------------------------------------------------------------------
 
 
-def _protocol_with(led_max_ma, illumination) -> Protocol:
+def _protocol_with(illumination) -> Protocol:
     import pandas as pd
 
     p = Protocol.__new__(Protocol)
-    if led_max_ma is not None:
-        p._led_max_ma = led_max_ma
     p._config = {
         'steps': pd.DataFrame(
             [
@@ -147,27 +145,31 @@ def _protocol_with(led_max_ma, illumination) -> Protocol:
 _CATALOGUE = SimpleNamespace(get_objective_info=lambda **kw: {}, get_objectives_list=lambda: ['4x'])
 
 
-def test_a_protocol_built_under_a_cap_refuses_a_step_above_it():
-    errors = _protocol_with(840, 900).validate_steps(_CATALOGUE)
+def test_a_step_above_the_cap_given_is_refused():
+    errors = _protocol_with(900).validate_steps(_CATALOGUE, led_max_ma=840)
     assert any('Illumination must be 0-840 mA' in e for e in errors), errors
 
 
-def test_a_protocol_built_under_a_cap_accepts_a_step_at_it():
-    errors = _protocol_with(840, 840).validate_steps(_CATALOGUE)
+def test_a_step_at_the_cap_given_is_accepted():
+    errors = _protocol_with(840).validate_steps(_CATALOGUE, led_max_ma=840)
     assert not any('Illumination' in e for e in errors), errors
 
 
-def test_a_protocol_with_no_authority_checks_format_only():
-    errors = _protocol_with(None, 5000).validate_steps(_CATALOGUE)
-    assert not any('Illumination' in e for e in errors), errors
-    errors = _protocol_with(None, -1).validate_steps(_CATALOGUE)
+def test_a_negative_current_is_refused_under_any_cap():
+    errors = _protocol_with(-1).validate_steps(_CATALOGUE, led_max_ma=840)
     assert any('Illumination must be 0 or more' in e for e in errors), errors
 
 
-def test_the_loaders_pass_the_cap_through():
-    src = inspect.getsource(Protocol.from_config)
-    assert 'led_max_ma=capabilities.led_max_ma' in src
-    assert 'led_max_ma' in inspect.signature(Protocol.from_file).parameters
+def test_the_protocol_carries_no_cap_of_its_own():
+    # A cap carried on the protocol was dropped by every copy made for a
+    # run, and the gate admitted a step the LED then refused: the cap is
+    # the scope's, and each validator asks its caller for it.
+    assert not hasattr(Protocol, '_led_max_ma')
+    assert 'led_max_ma' not in inspect.signature(Protocol).parameters
+    assert 'led_max_ma' not in inspect.signature(Protocol.from_file).parameters
+    for validator in (Protocol.validate_steps, Protocol.validate_for_run):
+        param = inspect.signature(validator).parameters['led_max_ma']
+        assert param.default is inspect.Parameter.empty, validator.__name__
 
 
 # ---------------------------------------------------------------------------

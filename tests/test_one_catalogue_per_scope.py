@@ -105,7 +105,12 @@ def test_a_protocol_is_built_and_validated_against_the_scopes_catalogues(tmp_pat
         protocol = session.scope.protocols.create_protocol(input_config=config)
 
         assert set(protocol.steps()['Objective']) == {EXTRA_OBJECTIVE}
-        assert protocol.validate_steps(session.objective_helper) == []
+        assert (
+            protocol.validate_steps(
+                session.objective_helper, led_max_ma=session.scope.capabilities.led_max_ma
+            )
+            == []
+        )
     finally:
         _shut(session)
 

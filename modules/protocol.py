@@ -393,11 +393,6 @@ class Protocol:
         'Stim_Enabled',
     ]
 
-    # The LED current cap this protocol was built under, from the scope's
-    # capabilities; None means no authority was given (a file opened with no
-    # scope, e.g. for post-processing) and validate_steps checks format only.
-    _led_max_ma: int | None = None
-
     # Counts the changes to which steps this protocol holds and in what
     # order: a step added or deleted, or the frame replaced. A change to a
     # step's values does not count, since the step keeps its index. A step
@@ -409,11 +404,7 @@ class Protocol:
         self,
         tiling_configs_file_loc: pathlib.Path,
         config: dict | None = None,
-        *,
-        led_max_ma: int | None = None,
     ):
-        self._led_max_ma = led_max_ma
-
         self._tiling_config = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
 
         if config is None:
@@ -783,12 +774,16 @@ class Protocol:
             }
         )
 
-    def validate_steps(self, objective_helper: 'ObjectiveLoader') -> list:
+    def validate_steps(self, objective_helper: 'ObjectiveLoader', *, led_max_ma: int) -> list:
         """Validate all step fields and return a list of error strings.
 
         Args:
             objective_helper: The scope's objective catalogue; a step naming
                 an objective it lacks is an error.
+            led_max_ma: The connected scope's LED current cap
+                (``capabilities.led_max_ma``). Asked of the caller, not
+                carried on the protocol: a copy made for a run would not
+                carry it, and the gate would admit a step the LED refuses.
 
         Returns an empty list if all steps are valid.
         """
@@ -829,15 +824,13 @@ class Protocol:
             except (ValueError, TypeError):
                 errors.append(f'{label}: Exposure is not a valid number')
 
-            # Illumination -- the cap is the connected board's, when known
+            # Illumination -- the cap is the connected board's
             try:
                 illum = float(step.get('Illumination', 0))
                 if illum < 0:
                     errors.append(f'{label}: Illumination must be 0 or more mA, got {illum}')
-                elif self._led_max_ma is not None and illum > self._led_max_ma:
-                    errors.append(
-                        f'{label}: Illumination must be 0-{self._led_max_ma} mA, got {illum}'
-                    )
+                elif illum > led_max_ma:
+                    errors.append(f'{label}: Illumination must be 0-{led_max_ma} mA, got {illum}')
             except (ValueError, TypeError):
                 errors.append(f'{label}: Illumination is not a valid number')
 
@@ -892,6 +885,7 @@ class Protocol:
         axes: Iterable[str],
         objective_helper: 'ObjectiveLoader',
         wellplate_loader: 'labware_loader.WellPlateLoader',
+        led_max_ma: int,
     ) -> list:
         """Validate that the protocol's steps are well-formed enough to run.
 
@@ -908,6 +902,7 @@ class Protocol:
             axes: The axes the scope has (``capabilities.axes``).
             objective_helper: The scope's objective catalogue.
             wellplate_loader: The scope's labware catalogue.
+            led_max_ma: The scope's LED current cap (``capabilities.led_max_ma``).
 
         Returns:
             List of error strings. Empty list if all checks pass.
@@ -918,7 +913,7 @@ class Protocol:
             return errors
 
         # Validate step field values first
-        errors.extend(self.validate_steps(objective_helper))
+        errors.extend(self.validate_steps(objective_helper, led_max_ma=led_max_ma))
 
         # Refuse a run whose steps would write identical files. Collisions
         # are caught here, loudly, before any hardware moves -- never left
@@ -2035,11 +2030,12 @@ class Protocol:
         protocol = cls(
             tiling_configs_file_loc=tiling_configs_file_loc,
             config=config,
-            led_max_ma=capabilities.led_max_ma,
         )
 
         # Validate step fields -- reject protocol if any errors found
-        validation_errors = protocol.validate_steps(objective_helper)
+        validation_errors = protocol.validate_steps(
+            objective_helper, led_max_ma=capabilities.led_max_ma
+        )
         if validation_errors:
             for err in validation_errors:
                 logger.error(f'Protocol validation: {err}')
@@ -2196,7 +2192,6 @@ class Protocol:
         file_path: pathlib.Path,
         tiling_configs_file_loc: pathlib.Path | None,
         *,
-        led_max_ma: int | None = None,
         wellplate_loader: 'labware_loader.WellPlateLoader | None' = None,
     ) -> 'Protocol':
         """
@@ -2732,7 +2727,6 @@ class Protocol:
         return cls(
             tiling_configs_file_loc=tiling_configs_file_loc,
             config=config,
-            led_max_ma=led_max_ma,
         )
 
 

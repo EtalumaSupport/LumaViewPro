@@ -49,7 +49,7 @@ def test_the_shipped_default_loads_as_an_empty_protocol_carrying_the_files_own_f
     assert protocol.duration() == datetime.timedelta(days=2)
     assert protocol.labware() == '96 well microplate'
     assert protocol.capture_root() == ''
-    assert protocol.validate_steps(ObjectiveLoader()) == []
+    assert protocol.validate_steps(ObjectiveLoader(), led_max_ma=1000) == []
 
 
 def test_the_per_row_columns_keep_their_type_at_zero_rows():

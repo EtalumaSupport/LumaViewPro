@@ -120,7 +120,6 @@ class ProtocolsAPI:
         protocol = Protocol.from_file(
             file_path=file_path,
             tiling_configs_file_loc=self.tiling_configs_path(),
-            led_max_ma=self._scope.capabilities.led_max_ma,
             wellplate_loader=self._scope.wellplate_loader,
         )
         # After the parse, so a file that is not a protocol at all is
@@ -143,7 +142,9 @@ class ProtocolsAPI:
         """
         from modules.notification_center import notifications
 
-        errors = protocol.validate_steps(self._scope.objective_helper)
+        errors = protocol.validate_steps(
+            self._scope.objective_helper, led_max_ma=self._scope.capabilities.led_max_ma
+        )
         if errors:
             notifications.report_outcome(
                 ProtocolStepsInvalidNotice(errors=errors), solicited=solicited, category='Protocol'

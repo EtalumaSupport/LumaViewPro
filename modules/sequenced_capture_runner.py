@@ -972,6 +972,7 @@ class SequencedCaptureRunner:
                 axes=self._scope.capabilities.axes,
                 objective_helper=self._scope.objective_helper,
                 wellplate_loader=self._scope.wellplate_loader,
+                led_max_ma=self._scope.capabilities.led_max_ma,
             )
         except Exception as ex:
             # validate_for_run raised before producing a validation_errors
