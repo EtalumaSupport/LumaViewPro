@@ -408,10 +408,7 @@ class ImageSettings(BoxLayout):
             # state during animation), detach it before adding so kivy
             # doesn't raise "already has a parent".
             if widget.parent is not None:
-                try:
-                    widget.parent.remove_widget(widget)
-                except Exception:
-                    pass
+                widget.parent.remove_widget(widget)
             accordion.add_widget(widget)
 
     def _init_ui(self, dt=0):

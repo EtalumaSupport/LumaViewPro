@@ -209,10 +209,7 @@ class MotionSettings(BoxLayout):
         for widget in present_tracked:
             accordion.remove_widget(widget)
         for widget in untracked_in_display_order:
-            try:
-                accordion.remove_widget(widget)
-            except Exception:
-                pass
+            accordion.remove_widget(widget)
 
         # Re-add tracked widgets first in canonical order. Each
         # ``add_widget`` (no index) PREPENDS to children -- Kivy
@@ -227,10 +224,7 @@ class MotionSettings(BoxLayout):
             if widget is None:
                 continue
             if widget.parent is not None:
-                try:
-                    widget.parent.remove_widget(widget)
-                except Exception:
-                    pass
+                widget.parent.remove_widget(widget)
             accordion.add_widget(widget)
 
         # Append untracked widgets at the bottom of the display.
@@ -240,10 +234,7 @@ class MotionSettings(BoxLayout):
         # 'postproc' and any subsequent untracked items below that.
         for widget in untracked_in_display_order:
             if widget.parent is not None:
-                try:
-                    widget.parent.remove_widget(widget)
-                except Exception:
-                    pass
+                widget.parent.remove_widget(widget)
             accordion.add_widget(widget, 0)
 
     def set_turret_control_visibility(self, visible: bool) -> None:
