@@ -234,14 +234,17 @@ class TestTheSupportReportDuringARun:
         report = TechSupportReport(session=sim_session)
         led_cmd, led_sent = _spy(sc, '_led_driver', 'exchange_command')
         led_multi, led_multi_sent = _spy(sc, '_led_driver', 'exchange_multiline')
+        motor_cmd, motor_sent = _spy(sc, '_motion_driver', 'exchange_command')
+        motor_multi, motor_multi_sent = _spy(sc, '_motion_driver', 'exchange_multiline')
         run = sim_session.activity_claim.try_claim('protocol')
         try:
-            with led_cmd, led_multi:
+            with led_cmd, led_multi, motor_cmd, motor_multi:
                 sn = report._run_scope_steps(tmp_path, lambda pct, msg: None)
         finally:
             run.release()
 
-        assert led_sent == [] and led_multi_sent == [], 'a board command went out during a run'
+        assert led_sent == [] and led_multi_sent == [], 'an LED command went out during a run'
+        assert motor_sent == [] and motor_multi_sent == [], 'a motor command went out during a run'
         assert sn == sc.diagnostics.get_motor_info()['serial_number']
         motor_info = (tmp_path / 'firmware_info' / 'motor_info.txt').read_text()
         assert sn in motor_info and 'SKIPPED' in motor_info
