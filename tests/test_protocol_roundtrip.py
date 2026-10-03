@@ -2476,12 +2476,12 @@ class TestPerRowConfigParsing:
         assert isinstance(loaded.step(idx=1)['Stim_Config'], dict)
 
     def test_default_assignment_gives_independent_dicts(self):
-        """Each row's default config must be independent (no shared mutable dict)."""
+        """No write to one row's default config can reach another: the
+        stored dicts are read-only, so a shared one cannot be changed."""
         steps = [_make_step(name='A'), _make_step(name='B')]
         proto = _build_protocol(steps)
-        # Mutate one row's video config
-        proto.step(idx=0)['Video Config']['duration'] = 999
-        # Other row should be unaffected
+        with pytest.raises(TypeError):
+            proto.step(idx=0)['Video Config']['duration'] = 999
         assert proto.step(idx=1)['Video Config']['duration'] != 999
 
 

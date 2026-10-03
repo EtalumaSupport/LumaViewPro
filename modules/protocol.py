@@ -65,20 +65,46 @@ def to_python_scalars(step: pd.Series) -> pd.Series:
     return step.map(lambda v: v.item() if isinstance(v, np.generic) else v)
 
 
-# The step columns whose cells are dicts. A frame copy shares them, so every
-# copy the protocol hands out copies these too.
+# The step columns whose cells are dicts. A frame copy shares them, so they
+# are stored read-only: a copy of the frame can then share them safely.
 _DICT_COLUMNS = ('Video Config', 'Stim_Config')
 
 
-def _steps_copy(steps: pd.DataFrame) -> pd.DataFrame:
-    """A copy of a steps frame that shares nothing with it, dict cells included."""
-    out = steps.copy()
-    for column in _DICT_COLUMNS:
-        if column in out.columns:
-            out[column] = pd.Series(
-                [copy.deepcopy(cell) for cell in out[column]], index=out.index, dtype=object
-            )
-    return out
+class ReadOnlyDict(dict):
+    """A dict a protocol stores in a step cell, which refuses every change.
+
+    A dict subclass, not a mapping proxy: readers ask ``isinstance(cell,
+    dict)`` and a proxy would read to them as no config at all. A write
+    raises TypeError, so a caller holding a cell from ``steps()``, ``step()``
+    or a run's copy cannot change the protocol, or another copy, behind its
+    writers. A deep copy is a plain dict, all the way down, for the caller
+    that means to edit its own.
+    """
+
+    def _refuse(self, *args, **kwargs):
+        raise TypeError(
+            "a protocol's step data is read-only: change a step through the "
+            "protocol's writers, or edit a copy.deepcopy() of it"
+        )
+
+    __setitem__ = __delitem__ = __ior__ = _refuse
+    clear = pop = popitem = setdefault = update = _refuse
+
+    def __deepcopy__(self, memo):
+        return {key: copy.deepcopy(value, memo) for key, value in self.items()}
+
+    def __copy__(self):
+        return dict(self)
+
+    def __reduce__(self):
+        return (ReadOnlyDict, (dict(self),))
+
+
+def _read_only(value):
+    """``value`` with every dict in it, nested ones included, read-only."""
+    if isinstance(value, dict) and not isinstance(value, ReadOnlyDict):
+        return ReadOnlyDict({key: _read_only(item) for key, item in value.items()})
+    return value
 
 
 def _refuse_build(*, reason: str, title: str, message: str) -> NoReturn:
@@ -712,14 +738,14 @@ class Protocol:
         """Lightweight copy for protocol execution.
 
         Copies the config dict, the steps DataFrame (which get mutated by
-        autofocus Z updates) with the dicts in its cells, and the Layer
-        Settings, so nothing the run writes reaches the caller's protocol;
-        shares the read-only TilingConfig. Much cheaper than copy.deepcopy()
-        for large protocols with many steps.
+        autofocus Z updates) and the Layer Settings, so nothing the run
+        writes reaches the caller's protocol; shares the read-only dicts in
+        the step cells and the read-only TilingConfig. Much cheaper than
+        copy.deepcopy() for large protocols with many steps.
         """
         new_config = dict(self._config)  # shallow copy of config dict
         if 'steps' in new_config:
-            new_config['steps'] = _steps_copy(new_config['steps'])
+            new_config['steps'] = new_config['steps'].copy()
         if 'layer_settings' in new_config:
             new_config['layer_settings'] = copy.deepcopy(new_config['layer_settings'])
         new = Protocol.__new__(Protocol)
@@ -1189,6 +1215,9 @@ class Protocol:
         the run loop cannot tell from a hardware fault. Extra columns are
         allowed: the z-stack marking adds and removes its own.
 
+        The dicts in its Video Config and Stim_Config cells are stored
+        read-only (ReadOnlyDict), so a copy of the frame can share them.
+
         Raises:
             ProtocolError: a non-empty frame is missing current columns.
         """
@@ -1198,17 +1227,26 @@ class Protocol:
             missing = [c for c in self.CURRENT_COLUMNS if c not in df.columns]
             if missing:
                 raise ProtocolError(f'Protocol steps are missing required columns: {missing}')
+            df = df.assign(
+                **{
+                    column: pd.Series(
+                        [_read_only(cell) for cell in df[column]], index=df.index, dtype=object
+                    )
+                    for column in _DICT_COLUMNS
+                    if column in df.columns
+                }
+            )
         self._config['steps'] = df
         self._step_list_changed()
 
     def steps(self) -> pd.DataFrame:
-        """A copy of the steps frame, dict cells included.
+        """A copy of the steps frame.
 
-        A write through it does not reach the protocol: the protocol changes
-        only through its writers. Readers inside this class use the stored
-        frame.
+        A write to it does not reach the protocol, and its dict cells are
+        read-only, so a write into one raises: the protocol changes only
+        through its writers. Readers inside this class use the stored frame.
         """
-        return _steps_copy(self._config['steps'])
+        return self._config['steps'].copy()
 
     def estimate_write_mb(self, *, video_as_frames: bool = False, global_max_fps: float) -> float:
         """Estimate the disk this whole protocol will write, in MB.
@@ -1495,7 +1533,7 @@ class Protocol:
         objective_id: str,
         stim_configs: dict,
         label: str | None = None,
-    ):
+    ) -> None:
         """Update a step in place; label=None keeps the step's existing label.
 
         A non-None label is a user rename (clears the auto flag). The derived
@@ -1532,10 +1570,10 @@ class Protocol:
         self._config['steps'].at[step_idx, 'Sum'] = int(layer_config['sum'])
         self._config['steps'].at[step_idx, 'Objective'] = objective_id
         self._config['steps'].at[step_idx, 'Acquire'] = layer_config['acquire']
-        self._config['steps'].at[step_idx, 'Video Config'] = copy.deepcopy(
-            layer_config['video_config']
+        self._config['steps'].at[step_idx, 'Video Config'] = _read_only(
+            copy.deepcopy(layer_config['video_config'])
         )
-        self._config['steps'].at[step_idx, 'Stim_Config'] = copy.deepcopy(stim_configs)
+        self._config['steps'].at[step_idx, 'Stim_Config'] = _read_only(copy.deepcopy(stim_configs))
         self._regenerate_step_name(step_idx=step_idx)
 
     def insert_step(
@@ -1658,11 +1696,7 @@ class Protocol:
                 )
 
         _validate()
-        row = to_python_scalars(self._config['steps'].iloc[idx])
-        for column in _DICT_COLUMNS:
-            if column in row.index:
-                row[column] = copy.deepcopy(row[column])
-        return row
+        return to_python_scalars(self._config['steps'].iloc[idx])
 
     def apply_tiling(
         self,
