@@ -170,6 +170,55 @@ class TestTheContinuationRunsOnEveryOutcome:
         assert reported == [(boom, {'solicited': False, 'category': 'UI:OBJECTIVE_CONTINUATION'})]
 
 
+class TestAnEmptyPathIsNoSavedProtocol:
+    def test_nothing_is_loaded_and_nothing_is_reported(self, monkeypatch, caplog):
+        """A run of an unsaved protocol leaves the remembered path empty.
+        Path('') is the working folder and exists, so loading it raised and
+        an ERROR with a traceback said a fault happened where none did."""
+        import logging
+        from types import SimpleNamespace
+
+        import modules.app_context as _app_ctx
+        from modules.exceptions import ProtocolNotLoadedError
+        from ui.protocol_settings import ProtocolSettings
+
+        empty = object()
+        settings = {'protocol': {'filepath': ''}}
+        monkeypatch.setattr(
+            _app_ctx,
+            'ctx',
+            SimpleNamespace(
+                settings=settings, session=SimpleNamespace(create_empty_protocol=lambda: empty)
+            ),
+        )
+        loads = []
+
+        def _load_protocol(**kw):
+            # What the real load does with '': the file read raises.
+            loads.append(kw)
+            raise ProtocolNotLoadedError(
+                file='', cause=FileNotFoundError(2, 'No such file or directory')
+            )
+
+        drawn = []
+        stand = SimpleNamespace(
+            load_protocol=_load_protocol,
+            _show_schedule=lambda: drawn.append('schedule'),
+            update_step_ui=lambda: drawn.append('steps'),
+        )
+
+        with caplog.at_level(logging.INFO):
+            ProtocolSettings.load_persisted_protocol(stand)
+
+        assert loads == []
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert any('No saved protocol loaded at startup' in r.getMessage() for r in caplog.records)
+        assert settings['protocol']['filepath'] == ''
+        # The panel still adopts the empty protocol and draws it.
+        assert stand._protocol is empty
+        assert drawn == ['schedule', 'steps']
+
+
 class TestARefusedStartupLoadKeepsThePath:
     def test_the_loader_only_clears_a_path_with_no_file_behind_it(self):
         fn = find_def('ui/protocol_settings.py', 'load_persisted_protocol')

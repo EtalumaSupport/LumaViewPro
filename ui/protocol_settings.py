@@ -682,17 +682,22 @@ class ProtocolSettings(FloatLayout):
         settings = ctx.settings
         filepath = settings['protocol']['filepath']
 
-        try:
-            loaded = self.load_protocol(filepath=filepath, suppress_popup=True, navigate=False)
-        except Exception as e:
-            # Logged, not shown: nobody asked for this load. A refusal the
-            # API has already reported is not logged again.
-            from modules.notification_center import notifications
+        # An empty path is no saved protocol, asked before any load: Path('')
+        # is the working folder and exists, so loading it fails and reads as
+        # a fault when nothing went wrong.
+        loaded = False
+        if filepath:
+            try:
+                loaded = self.load_protocol(filepath=filepath, suppress_popup=True, navigate=False)
+            except Exception as e:
+                # Logged, not shown: nobody asked for this load. A refusal the
+                # API has already reported is not logged again.
+                from modules.notification_center import notifications
 
-            notifications.report_outcome(
-                e, solicited=False, category='UI:LOAD_PROTOCOL', log_only=True
-            )
-            loaded = False
+                notifications.report_outcome(
+                    e, solicited=False, category='UI:LOAD_PROTOCOL', log_only=True
+                )
+                loaded = False
 
         if loaded:
             return
