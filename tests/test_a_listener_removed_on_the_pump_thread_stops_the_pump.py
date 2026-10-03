@@ -16,9 +16,9 @@ import modules.lumascope_api.imaging as imaging_mod
 
 
 def test_a_last_listener_auto_removed_on_the_pump_thread_unregisters_cleanly(monkeypatch):
-    from modules.lumascope_api import Lumascope
+    from tests.scope_fakes import build_scope
 
-    scope = Lumascope(simulate=True)
+    scope = build_scope(simulate=True)
     try:
         warnings = []
         monkeypatch.setattr(

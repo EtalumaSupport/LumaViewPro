@@ -50,9 +50,9 @@ def shown(monkeypatch):
 
 @pytest.fixture
 def sim_scope():
-    from modules.lumascope_api import Lumascope
+    from tests.scope_fakes import build_scope
 
-    scope = Lumascope(simulate=True)
+    scope = build_scope(simulate=True)
     scope.runtime_state.set_turreted(False)
     scope.runtime_state.set_objective('4x Oly')
     yield scope

@@ -73,11 +73,21 @@ def build_scope(**kwargs):
     The test's teardown disconnects it, which stops the threads it runs;
     a test may disconnect it earlier itself, since disconnect repeats
     safely.
+
+    A simulated scope's camera takes the shipped template's frame, as
+    bring-up applies the stored one on every host. A bare scope is never
+    brought up, so its camera would otherwise stream its whole sensor, a
+    size the instrument does not run at and several times the frame to
+    render.
     """
     from modules.lumascope_api import Lumascope
+    from tests.settings_fixtures import complete_settings
 
     scope = Lumascope(**kwargs)
     _TEARDOWNS.append(scope.disconnect)
+    if kwargs.get('simulate') and scope.camera_connected:
+        frame = complete_settings()['frame']
+        scope.imaging._set_frame_size_impl(frame['width'], frame['height'])
     return scope
 
 
