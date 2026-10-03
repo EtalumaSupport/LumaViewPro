@@ -75,7 +75,8 @@ class SimulatedMotorBoard:
         move_delay: float = 0.0,
         cmd_delay: float = 0.0,
         timing: str = 'fast',
-        firmware_version: str = '2.0.1',
+        firmware_version: str | None = '2.0.1',
+        firmware_date: str | None = None,
         protocol_version: str = 'legacy',  # v3.0 STUB: 'legacy' or 'v3'
         *,
         motorconfig_defaults: Mapping,
@@ -118,6 +119,10 @@ class SimulatedMotorBoard:
         self._move_delay = move_delay
         self._simulate_move_duration = False
         self.firmware_version = firmware_version  # Configurable for testing old firmware paths
+        # The date INFO carries; None as the original firmware's version is.
+        self.firmware_date = firmware_date
+        # The simulated board always answers INFO, as a connected real one does.
+        self.firmware_responding = True
         self.protocol_version = protocol_version  # v3.0 STUB: for future v3.0 simulation testing
 
         # Apply timing preset (overrides cmd_delay/move_delay if preset given)

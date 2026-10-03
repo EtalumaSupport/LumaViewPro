@@ -2679,6 +2679,9 @@ class FX2LEDController:
         self.driver = True
         self.port = 'FX2-USB'
         self.firmware_version = 'FX2-Classic'
+        # The FX2's LED peripheral has no INFO command, so no date and no answer.
+        self.firmware_date = None
+        self.firmware_responding = False
         self.is_v2 = False
 
         # The registry passes no connection, so this takes the singleton. A

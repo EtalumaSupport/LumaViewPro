@@ -50,6 +50,25 @@ ERROR_PREFIX = 'Error: '
 LED_COMMANDS_LEGACY = 'legacy'
 LED_COMMANDS_V2 = 'v2'
 
+# What ``firmware_version`` names for a board that answered INFO with no
+# version string: the original firmware, which predates version numbers and
+# is told apart by its date. None is kept for a board that did not answer.
+ORIGINAL_FIRMWARE = 'original'
+
+
+def _firmware_identity(driver) -> dict:
+    """A board's firmware as the API names it: version and date.
+
+    The driver parses INFO; the original firmware carries a date but no
+    version, which the driver records as no version on a board that
+    answered. Named here, once, so the support report and a bench verdict
+    both say which firmware it was.
+    """
+    version = driver.firmware_version
+    if version is None and driver.firmware_responding:
+        version = ORIGINAL_FIRMWARE
+    return {'firmware_version': version, 'firmware_date': driver.firmware_date}
+
 
 def is_board_reply(response: str | list[str] | None) -> bool:
     """True when ``response`` is a board's reply, not the channel's stand-in for one."""
@@ -983,24 +1002,30 @@ class DiagnosticsAPI:
         would add a serial round-trip to every capture.
 
         Returns:
-            dict: Keys 'model', 'serial_number', 'firmware_version'.
-                  model/serial are the real strings on a connected board,
-                  'unknown' when a connected board's FULLINFO failed to
-                  parse (the cached fallback), and None when no board is
-                  present (the null driver).
+            dict: Keys 'model', 'serial_number', 'firmware_version',
+                  'firmware_date'. model/serial are the real strings on a
+                  connected board, 'unknown' when a connected board's
+                  FULLINFO failed to parse (the cached fallback), and None
+                  when no board is present (the null driver).
+                  firmware_version is the parsed version, ``'original'``
+                  (ORIGINAL_FIRMWARE) for a board that answered INFO with
+                  no version string, or None when it did not answer;
+                  firmware_date is the date INFO carried, or None.
         """
         driver = self._scope._motion_driver
         return {
             'model': driver.get_microscope_model(),
             'serial_number': driver.get_serial_number(),
-            'firmware_version': getattr(driver, 'firmware_version', None),
+            **_firmware_identity(driver),
         }
 
     def get_led_info(self) -> dict:
         """Get LED controller information.
 
         Returns:
-            dict: Keys 'firmware_version', 'connected' and 'command_set':
+            dict: Keys 'firmware_version' and 'firmware_date' (as
+                ``get_motor_info`` names them), 'connected' and
+                'command_set':
                 ``LED_COMMANDS_V2`` (INFO, SELFTEST, I2CSCAN, LEDREAD),
                 ``LED_COMMANDS_LEGACY`` (INFO only: firmware older than v2),
                 or None (no text command channel, as on an FX2 scope, or no
@@ -1008,7 +1033,12 @@ class DiagnosticsAPI:
         """
         drv = self._scope._led_driver
         if not drv or not drv.is_connected():
-            return {'firmware_version': None, 'connected': False, 'command_set': None}
+            return {
+                'firmware_version': None,
+                'firmware_date': None,
+                'connected': False,
+                'command_set': None,
+            }
 
         if not hasattr(drv, 'exchange_multiline'):
             command_set = None
@@ -1017,7 +1047,7 @@ class DiagnosticsAPI:
         else:
             command_set = LED_COMMANDS_LEGACY
         return {
-            'firmware_version': getattr(drv, 'firmware_version', None),
+            **_firmware_identity(drv),
             'connected': True,
             'command_set': command_set,
         }

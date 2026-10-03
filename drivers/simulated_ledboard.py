@@ -58,7 +58,8 @@ class SimulatedLEDBoard:
         self,
         delay: float = 0.0,
         timing: str = 'fast',
-        firmware_version: str = '2.0.1',
+        firmware_version: str | None = '2.0.1',
+        firmware_date: str | None = None,
         protocol_version: str = 'legacy',  # v3.0 STUB: 'legacy' or 'v3'
         supports_firmware_stim: bool = False,
         fail_after: int | None = None,
@@ -73,6 +74,10 @@ class SimulatedLEDBoard:
         self.driver = True  # truthy sentinel -- not a real serial port
         self._delay = delay
         self.firmware_version = firmware_version  # Configurable for testing old firmware paths
+        # The date INFO carries; None as the original firmware's version is.
+        self.firmware_date = firmware_date
+        # The simulated board always answers INFO, as a connected real one does.
+        self.firmware_responding = True
         self.protocol_version = protocol_version  # v3.0 STUB: for future v3.0 simulation testing
         self._supports_firmware_stim = supports_firmware_stim
 
