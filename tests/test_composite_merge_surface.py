@@ -107,6 +107,35 @@ class TestAFailedMergeTellsTheUserOnce:
         assert excinfo.value.reason == 'merge_error'
         self._assert_one_failure_notice(seen)
 
+    def test_the_merge_raise_is_logged_once_with_its_traceback(self, tmp_path, monkeypatch, caplog):
+        import logging
+        from unittest.mock import MagicMock
+
+        import modules.sequenced_capture_runner as scr
+        from modules.composite_generation import CompositeGeneration
+
+        def _explode(self, **kwargs):
+            raise RuntimeError('synthetic merge crash')
+
+        monkeypatch.setattr(CompositeGeneration, 'load_folder', _explode)
+        run_log = MagicMock()
+        monkeypatch.setattr(scr, 'logger', run_log)
+        with (
+            caplog.at_level(logging.ERROR, logger='LVP.outcomes'),
+            open_composite_session(headless_settings(tmp_path)) as (_session, runner),
+            pytest.raises(CaptureError),
+        ):
+            runner.run_composite(sequence_name='crash', parent_dir=str(tmp_path))
+
+        # The outcome's own record carries the crash's traceback ...
+        outcome_records = [r for r in caplog.records if r.name == 'LVP.outcomes']
+        assert len(outcome_records) == 1, [r.getMessage() for r in outcome_records]
+        formatted = logging.Formatter().format(outcome_records[0])
+        assert 'RuntimeError: synthetic merge crash' in formatted
+        assert 'Traceback' in formatted
+        # ... so the run does not log the same failure a second time.
+        assert run_log.error.call_args_list == []
+
     def test_the_writes_never_drain(self, tmp_path, monkeypatch):
         import modules.protocol_image_writer as piw
         import modules.sequenced_capture_runner as scr

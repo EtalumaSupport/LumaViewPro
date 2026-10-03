@@ -2008,19 +2008,21 @@ class SequencedCaptureRunner:
                 failed_steps=[failed.step_name for failed in tally.failed],
             )
 
-        def _fail(reason: str, detail: str) -> None:
+        def _fail(reason: str, detail: str, cause: BaseException | None = None) -> None:
             # The one place a merge failure becomes visible: one report,
             # one resolved outcome -- the shape a run
             # refusal uses, so a caller waiting on the outcome never
             # re-notifies. Success is silent by design: the saved folder
             # is the record, and the button handed the UI back at run end.
+            # A merge that raised is the failure's cause, so the one record
+            # carries its traceback.
             from modules.notification_center import notifications
 
             if incomplete is not None:
                 detail = f'{incomplete} {detail}'
-            notifications.report_outcome(
-                CompositeFailedError(detail, reason), solicited=False, category='Protocol'
-            )
+            failure = CompositeFailedError(detail, reason)
+            failure.__cause__ = cause
+            notifications.report_outcome(failure, solicited=False, category='Protocol')
             outcome.resolve(token, merged=False, artifact_path=None, merge_reason=reason)
 
         # Decline-to-start is TOTAL: anything that makes a merge impossible
@@ -2045,14 +2047,15 @@ class SequencedCaptureRunner:
                     brightness_thresholds_percent=thresholds,
                 )
             except Exception as ex:
-                logger.error(f'[{self.LOGGER_NAME}] Composite merge raised', exc_info=True)
                 # A typed outcome says why in its own reason and words; only
                 # an exception that carries neither is named by its class.
                 reason = getattr(ex, 'reason', None)
                 if reason:
-                    _fail(reason, str(ex))
+                    _fail(reason, str(ex), cause=ex)
                 else:
-                    _fail('merge_error', f'The merge failed with {type(ex).__name__}: {ex}')
+                    _fail(
+                        'merge_error', f'The merge failed with {type(ex).__name__}: {ex}', cause=ex
+                    )
                 return
             paths = result.get('artifact_paths') or []
             if paths:
