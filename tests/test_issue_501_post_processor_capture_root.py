@@ -64,8 +64,9 @@ def _method_node(path: pathlib.Path, class_name: str, method_name: str) -> ast.F
 
 
 def test_base_load_folder_threads_capture_root_into_kwargs():
-    """ProtocolPostProcessor.load_folder must read protocol.capture_root()
-    and put it into kwargs before _generate_filename runs."""
+    """ProtocolPostProcessor.load_folder must read protocol.capture_prefix(),
+    the prefix the image writer named the files with, and put it into kwargs
+    before _generate_filename runs."""
     # The folder-processing body (where capture_root threads into kwargs)
     # lives in _load_folder_inner; the public load_folder is the lifecycle
     # wrapper around it.
@@ -74,8 +75,8 @@ def test_base_load_folder_threads_capture_root_into_kwargs():
     assert 'capture_root' in src, (
         'ProtocolPostProcessor.load_folder must thread capture_root into kwargs.'
     )
-    assert '.capture_root()' in src, (
-        'ProtocolPostProcessor.load_folder must call protocol.capture_root() to source the prefix.'
+    assert '.capture_prefix()' in src, (
+        'ProtocolPostProcessor.load_folder must call protocol.capture_prefix() to source the prefix.'
     )
     # Sanity: kwargs is populated before _generate_filename is called.
     assign_idx = -1

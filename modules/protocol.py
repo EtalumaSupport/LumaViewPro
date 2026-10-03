@@ -675,7 +675,17 @@ class Protocol:
         return label
 
     def capture_root(self) -> str:
+        """The capture root as it was typed or loaded."""
         return self._config.get('capture_root', '')
+
+    def capture_prefix(self) -> str:
+        """The capture root as the prefix of a saved file's name.
+
+        The one derivation, read by the image writer and by post-processing:
+        two derivations named the images ``exp202610_A1_BF`` and looked for
+        ``exp/2026:10_A1_BF``. Empty when there is no root.
+        """
+        return self.sanitize_step_name(self.capture_root() or '')
 
     def layer_settings(self) -> dict:
         """Return per-layer settings keyed by layer name, each cell typed.

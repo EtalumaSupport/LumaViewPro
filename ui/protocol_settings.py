@@ -338,16 +338,11 @@ class ProtocolSettings(FloatLayout):
             self.ids['step_name_input'].text = ''
 
     def update_capture_root(self, text: str):
-        # Sanitize and store capture root on protocol to avoid invalid path chars
-        sanitized = Protocol.sanitize_step_name(text)
-        # What the user typed, then what sanitizing made of it. Recording only
-        # the sanitized string asserts the user typed something they did not.
+        # The protocol keeps the root as typed; the filename prefix it makes
+        # of it is the protocol's (capture_prefix), so the field shows the text.
         gui_logger.text_input('CAPTURE_ROOT', text)
-        if sanitized != text:
-            gui_logger.text_input('CAPTURE_ROOT_APPLIED', sanitized)
-        self.ids['capture_root'].text = sanitized
         if hasattr(self, '_protocol') and (self._protocol is not None):
-            self._protocol.modify_capture_root(capture_root=sanitized)
+            self._protocol.modify_capture_root(capture_root=text)
 
     # Labware Selection
     def select_labware(self, labware: str | None = None):

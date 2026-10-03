@@ -203,24 +203,26 @@ def test_restoring_labware_at_startup_is_not_recorded_as_a_selection():
     )
 
 
-def test_a_sanitized_capture_root_records_what_was_typed(emitted, monkeypatch):
-    """Typing a path-illegal name recorded only the sanitized result."""
+def test_a_capture_root_records_and_stores_what_was_typed(emitted, monkeypatch):
+    """A path-illegal root is recorded, and stored, as typed; the filename
+    prefix made of it is the protocol's (capture_prefix), not the field's."""
+    from unittest.mock import MagicMock
+
     from ui.protocol_settings import ProtocolSettings
 
     widget = _Widget('my/run:1')
 
     class _Panel:
         ids: ClassVar[dict] = {'capture_root': widget}
-        _protocol = None
+        _protocol = MagicMock()
 
-    ProtocolSettings.update_capture_root(_Panel(), widget.text)
+    panel = _Panel()
+    ProtocolSettings.update_capture_root(panel, widget.text)
 
     typed = [v for n, v in emitted if n == 'CAPTURE_ROOT']
-    assert 'my/run:1' in typed, (
-        f'only the sanitized value was recorded; what the user typed is gone: {emitted}'
-    )
-    applied = [v for n, v in emitted if n == 'CAPTURE_ROOT_APPLIED']
-    assert applied, f'the sanitized value must still be reported as the correction: {emitted}'
+    assert typed == ['my/run:1'], f'what the user typed is recorded once: {emitted}'
+    panel._protocol.modify_capture_root.assert_called_once_with(capture_root='my/run:1')
+    assert widget.text == 'my/run:1', 'the field shows what was typed'
 
 
 def test_restoring_binning_at_startup_is_not_recorded_as_a_selection():

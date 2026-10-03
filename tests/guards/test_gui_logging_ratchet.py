@@ -207,7 +207,7 @@ _ROSTER = {
     'ProtocolSettings.bf_af_for_fluorescence_btn': ('BF_AF_FOR_FLUORESCENCE',),
     'ProtocolSettings.capture_dur': ('PROTOCOL_DURATION',),
     'ProtocolSettings.capture_period': ('PROTOCOL_PERIOD',),
-    'ProtocolSettings.capture_root': ('CAPTURE_ROOT', 'CAPTURE_ROOT_APPLIED'),
+    'ProtocolSettings.capture_root': ('CAPTURE_ROOT',),
     'ProtocolSettings.change_step_btn': ('MODIFY_STEP',),
     'ProtocolSettings.delete_step_btn': ('DELETE_STEP',),
     'ProtocolSettings.labware_spinner': ('LABWARE',),

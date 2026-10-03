@@ -330,14 +330,14 @@ class ProtocolPostProcessor(abc.ABC):
         protocol_post_record = results['protocol_post_record']
 
         # The per-image protocol writer (protocol_image_writer.py) prefixes
-        # filenames with protocol.capture_root() so a scan run with Root
+        # filenames with protocol.capture_prefix() so a scan run with Root
         # "experiment1" produces "experiment1_<step>_<color>_<...>.tiff".
         # Post-processed outputs (composite, stitch, z-proj, video, stack)
         # must use the same prefix; pipe it via kwargs to _generate_filename.
         protocol = results.get('protocol')
         kwargs.setdefault(
             'capture_root',
-            protocol.capture_root() if protocol is not None else '',
+            protocol.capture_prefix() if protocol is not None else '',
         )
 
         # Account for every input the subclass filter drops: the completion

@@ -1179,11 +1179,10 @@ class ProtocolImageWriter:
             if self._scope.capabilities.has_turret and frame_objective is not None:
                 objective_short_name = frame_objective['short_name']
 
-            # Build base name from protocol's custom root + step name
-            try:
-                capture_root = protocol.capture_root()
-            except Exception:
-                capture_root = ''
+            # Build base name from the protocol's root prefix + step name. The
+            # prefix is the one post-processing reads, so its outputs find
+            # these files.
+            capture_prefix = protocol.capture_prefix()
 
             # In engineering mode, include the turret slot in the filename --
             # the slot in the light path, not the step counter, which reads a
@@ -1205,10 +1204,7 @@ class ProtocolImageWriter:
                     post=(common_utils.POST_TOKEN_VIDEO,) if is_video else (),
                 )
             )
-            if capture_root not in (None, ''):
-                name = f'{capture_root}_{step_name}'
-            else:
-                name = step_name
+            name = f'{capture_prefix}_{step_name}' if capture_prefix else step_name
             # Ensure the filename base has no invalid path characters
             try:
                 name = Protocol.sanitize_step_name(input=name)

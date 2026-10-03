@@ -55,6 +55,7 @@ WRITERS = frozenset(
 # file output, and helpers.
 NOT_WRITERS = frozenset(
     {
+        'capture_prefix',
         'capture_root',
         'copy_for_execution',
         'create_empty',
