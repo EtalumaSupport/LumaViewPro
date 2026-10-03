@@ -627,7 +627,7 @@ _UI_EXCEPT_PIN = {
     ('ui/microscope_settings.py', 'ValueError'): 1,
     ('ui/motion_settings.py', 'Exception'): 5,
     ('ui/notification_popup.py', 'Exception'): 6,
-    ('ui/post_processing.py', 'Exception'): 9,
+    ('ui/post_processing.py', 'Exception'): 8,
     ('ui/post_processing.py', 'FileNotFoundError, ValueError'): 1,
     ('ui/protocol_settings.py', 'ConfigError'): 0,
     ('ui/protocol_settings.py', 'Exception'): 4,

@@ -2,6 +2,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import contextlib
+import copy
 import csv
 import json
 import math
@@ -139,6 +140,33 @@ def check_cell_count_method(method: object, *, source: str = 'The cell-count met
                 _refuse_method(source, f'{name}.{bound} must be a number or null, not {value!r}')
         if low is not None and high is not None and low > high:
             _refuse_method(source, f'{name}.min ({low}) is above its max ({high})')
+
+
+def _number_typed(text: str) -> int | float | str:
+    """The number *text* spells, or *text* itself when it spells none."""
+    for parse in (int, float):
+        with contextlib.suppress(ValueError):
+            return parse(text)
+    return text
+
+
+def with_pixels_per_um(method: Mapping, pixels_per_um: float | str) -> dict:
+    """A copy of *method* that counts at *pixels_per_um*, refused if the count cannot use it.
+
+    A string is read as the number it spells, as a person types it into a
+    box -- a whole number as an integer, so the box can show back exactly what
+    was typed; one that spells no number is refused naming it.
+
+    Raises:
+        PostProcessingRefusedError: reason ``method_invalid``; *method* is
+            unchanged.
+    """
+    if isinstance(pixels_per_um, str):
+        pixels_per_um = _number_typed(pixels_per_um)
+    changed = copy.deepcopy(dict(method))
+    changed['context'] = {**changed.get('context', {}), 'pixels_per_um': pixels_per_um}
+    check_cell_count_method(changed)
+    return changed
 
 
 def load_cell_count_method(path: str | os.PathLike) -> dict:

@@ -100,11 +100,7 @@ _ROSTER = {
     'CellCountControls.RoundedButton(apply_method_to_preview_image)': ('APPLY_METHOD_TO_PREVIEW',),
     'CellCountControls.cell_count_fluorescent_mode_id': ('CELL_COUNT_FLUORESCENT_MODE',),
     'CellCountControls.slider_cell_count_threshold_id': ('CELL_COUNT_THRESHOLD',),
-    'CellCountControls.text_cell_count_pixels_per_um_id': (
-        'CELL_COUNT_AREA_RANGE',
-        'CELL_COUNT_PERIMETER_RANGE',
-        'CELL_COUNT_PIXELS_PER_UM',
-    ),
+    'CellCountControls.text_cell_count_pixels_per_um_id': ('CELL_COUNT_PIXELS_PER_UM',),
     'CompositeGenControls.FolderChooseBTN(choose:apply_composite_gen_to_folder)': (
         'FOLDER_CHOOSE',
         'FOLDER_CHOOSE_OPEN',

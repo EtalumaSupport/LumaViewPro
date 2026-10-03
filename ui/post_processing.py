@@ -972,44 +972,34 @@ class CellCountControls(BoxLayout):
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
 
-    def log_pixels_per_um(self) -> None:
-        """Record a typed pixels-per-um commit.
+    def commit_pixels_per_um(self) -> None:
+        """Hand a typed pixels-per-micron to the method's owner, once it is typed whole.
 
-        Bound on the commit events rather than logged inside
-        pixel_conversion_adjustment, which the kv drives on every keystroke.
-
-        No _APPLIED companion: that handler REJECTS a bad value and leaves the
-        box alone rather than coercing it, so there is no corrected value to
-        report -- the second line exists only where something was changed.
+        Bound to the box losing focus, which Enter also does, not to every
+        keystroke: a partly typed '0.5' passes through '0'. The method takes
+        the value whether or not a preview image is loaded, since a folder
+        count needs none. A refused value is reported by the boundary, and
+        the redraw puts the box back to the method's value.
         """
-        gui_logger.text_input(
-            'CELL_COUNT_PIXELS_PER_UM', self.ids['text_cell_count_pixels_per_um_id'].text
-        )
+        typed = self.ids['text_cell_count_pixels_per_um_id'].text
+        gui_logger.text_input('CELL_COUNT_PIXELS_PER_UM', typed)
 
-    def pixel_conversion_adjustment(self):
+        def _apply():
+            self._settings = post_processing.with_pixels_per_um(self._settings, typed)
 
-        def _validate(value_str):
-            try:
-                value = float(value_str)
-            except Exception:
-                return False, -1
+        run_reported(_apply, self._show_pixels_per_um, 'CELL_COUNT_PIXELS_PER_UM')
 
-            if value <= 0:
-                return False, -1
-
-            return True, value
-
-        value_str = _app_ctx.ctx.cell_count_content.ids['text_cell_count_pixels_per_um_id'].text
-
-        valid, value = _validate(value_str)
-        if not valid:
-            return
-
-        if self._preview_image is None:
-            return
-
-        self._settings['context']['pixels_per_um'] = value
-        self.update_filter_max(image=self._preview_image)
+    def _show_pixels_per_um(self) -> None:
+        box = self.ids['text_cell_count_pixels_per_um_id']
+        held = str(self._settings['context']['pixels_per_um'])
+        if box.text != held:
+            # The box is put back to what the method holds: the record pair
+            # says what was typed and what the app kept instead. Assigning
+            # .text does not dispatch the focus event the commit is bound to.
+            gui_logger.text_input('CELL_COUNT_PIXELS_PER_UM_APPLIED', held)
+            box.text = held
+        if self._preview_image is not None:
+            self.update_filter_max(image=self._preview_image)
 
 
 # ============================================================================

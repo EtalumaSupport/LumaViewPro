@@ -3925,7 +3925,7 @@
 
 			TextInput:
 				id: text_cell_count_pixels_per_um_id
-				on_focus: if not self.focus: root.log_pixels_per_um()
+				on_focus: if not self.focus: root.commit_pixels_per_um()
 				valign: 'center'
 				text: "1.0"
 				size_hint_x: None
@@ -3933,7 +3933,6 @@
 				height: '35dp'
 				width: '60dp'
 				multiline: False
-				on_text: root.pixel_conversion_adjustment()
 			
 			Label:
 				text: 'pixels/um'

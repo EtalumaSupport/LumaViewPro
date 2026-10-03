@@ -45,7 +45,7 @@ _SITES = {
     'text_cell_count_pixels_per_um_id': (
         'ui/post_processing.py',
         'CellCountControls',
-        'log_pixels_per_um',
+        'commit_pixels_per_um',
     ),
 }
 
