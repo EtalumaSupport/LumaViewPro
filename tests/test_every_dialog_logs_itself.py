@@ -95,17 +95,56 @@ def test_a_titleless_dialog_is_still_identifiable(monkeypatch):
 
 
 def test_logging_failure_never_blocks_the_dialog(monkeypatch):
-    """A user who cannot be shown a message is worse off than a missing line."""
+    """A user who cannot be shown a message is worse off than a missing line.
+
+    The failure is a real one -- a standard handler writing to a stream that
+    is closed -- and the guarantee is the logging package's: the handler's
+    own emit hands the failure to handleError, and it never reaches the
+    caller, so the dialog opens and its answer is recorded with nothing
+    raised.
+    """
+    import io
+    import logging
+
     notification_popup, Dialog = _install_against(monkeypatch)
+    writes = []
 
-    def _boom(*_a):
-        raise RuntimeError('forensic log unavailable')
+    class _FailingHandler(logging.StreamHandler):
+        def __init__(self):
+            stream = io.StringIO()
+            stream.close()
+            super().__init__(stream)
 
-    monkeypatch.setattr(notification_popup, '_log_show', _boom)
+        def handleError(self, record):
+            writes.append(record.name)
+            super().handleError(record)
 
-    dialog = Dialog(title='Still Opens')
-    dialog.open()
+    # handleError prints the traceback when raiseExceptions is set; quiet it.
+    monkeypatch.setattr(logging, 'raiseExceptions', False)
+    attached = []
+    for name in ('LVP.ui.notification_popup', 'LVP.gui_interactions'):
+        log = logging.getLogger(name)
+        # setLevel, not the attribute: it clears the isEnabledFor cache an
+        # earlier test in the worker may have filled at a higher level.
+        attached.append((log, log.level, log.disabled, _FailingHandler()))
+        log.setLevel(logging.DEBUG)
+        log.disabled = False
+        log.addHandler(attached[-1][3])
+
+    try:
+        dialog = Dialog(title='Still Opens')
+        dialog.open()
+        notification_popup._log_response('Still Opens', 'OK')
+    finally:
+        for log, level, disabled, handler in attached:
+            log.removeHandler(handler)
+            log.setLevel(level)
+            log.disabled = disabled
+
     assert dialog.opened, 'a failure writing the record must not stop the user seeing the dialog'
+    assert {'LVP.ui.notification_popup', 'LVP.gui_interactions'} <= set(writes), (
+        f'no handler write failed, so nothing was tested: {writes}'
+    )
 
 
 def test_installing_twice_does_not_double_log(monkeypatch):

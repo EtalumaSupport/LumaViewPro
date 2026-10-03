@@ -43,7 +43,6 @@ over, so the production body runs verbatim.
 """
 
 import ast
-import importlib
 import json
 import logging
 import shutil
@@ -786,16 +785,16 @@ def event_loop_status(monkeypatch):
     BOTH cases arrange it; neither trusts the ambient conftest stub.
     Two facts make ambient unknowable from here: a dev/CI machine may
     have real Kivy installed, and another test file (test_audit_fixes)
-    purges and restores the kivy stubs, so which object
-    ``from kivy.base import EventLoop`` resolves to depends on suite
-    ORDER. A negative test that trusted the stub was green alone and red
-    after that file -- green for the wrong reason either way, since the
-    real loop is 'idle' under pytest and would have marked every popup.
+    purges and restores the kivy stubs, so which object ``kivy.base``
+    names depends on suite ORDER. A negative test that trusted the stub
+    was green alone and red after that file -- green for the wrong reason
+    either way, since the real loop is 'idle' under pytest and would have
+    marked every popup. The detector reads the name its own module bound
+    at import, so that name is the one set here.
     """
 
     def _set(status):
-        module = importlib.import_module('kivy.base')
-        monkeypatch.setattr(module, 'EventLoop', SimpleNamespace(status=status), raising=False)
+        monkeypatch.setattr(notification_popup, 'EventLoop', SimpleNamespace(status=status))
 
     return _set
 

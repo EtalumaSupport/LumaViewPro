@@ -3,6 +3,7 @@
 import logging
 import typing
 
+from kivy.base import EventLoop
 from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
@@ -11,6 +12,8 @@ from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.spinner import Spinner, SpinnerOption
 from kivy.uix.widget import Widget
+
+from modules import gui_logger
 
 logger = logging.getLogger('LVP.ui.notification_popup')
 
@@ -70,13 +73,8 @@ def _install_dialog_open_logging() -> None:
     original_open = Popup.open
 
     def _open_logged_and_ordered(self, *args, **kwargs):
-        try:
-            title = getattr(self, 'title', '') or type(self).__name__
-            _log_show('dialog', 'INFO', title, _describe_dialog_body(self))
-        except Exception as ex:
-            # Never let the record stop the dialog: a user who cannot be
-            # shown a message is worse off than a bundle missing a line.
-            logger.warning(f'dialog-open logging failed: {type(ex).__name__}: {ex}')
+        title = getattr(self, 'title', '') or type(self).__name__
+        _log_show('dialog', 'INFO', title, _describe_dialog_body(self))
         opened = original_open(self, *args, **kwargs)
         if not getattr(self, _NOTICE_MARK, False):
             _raise_open_notices(getattr(self, '_window', None))
@@ -143,50 +141,26 @@ def _log_show(kind: str, severity: str, title: str, message: str):
     # app root once the root attaches -- created, "open", and invisible.
     # The open cannot be made illegal here (callers legitimately defer),
     # so make the state loud: mark both records and log at ERROR.
-    pre_mainloop = False
-    try:
-        from kivy.base import EventLoop
-
-        pre_mainloop = getattr(EventLoop, 'status', None) == 'idle'
-    except Exception:
-        pass
+    pre_mainloop = getattr(EventLoop, 'status', None) == 'idle'
     if pre_mainloop:
         message = f'{message} (pre-mainloop)'
-    try:
-        from modules import gui_logger
-
-        line = f'[Popup    ] show {kind} -- {gui_logger.one_line(title)}: {gui_logger.one_line(message)}'
-    except Exception:
-        line = f'[Popup    ] show {kind} -- {title}: {message}'
+    line = (
+        f'[Popup    ] show {kind} -- {gui_logger.one_line(title)}: {gui_logger.one_line(message)}'
+    )
     if pre_mainloop:
         logger.error(line)
     else:
         logger.info(line)
-    try:
-        from modules import gui_logger
-
-        gui_logger.notification(severity, title, message, source='popup')
-    except Exception:
-        pass
+    gui_logger.notification(severity, title, message, source='popup')
 
 
 def _log_response(title: str, response: str):
     """Log the user's response (OK / Cancel / Ack / dismiss) to BOTH surfaces. Pairs with
     _log_show so post-mortem can tell what the user was looking at AND what they decided."""
-    try:
-        from modules import gui_logger
-
-        logger.info(
-            f'[Popup    ] response {gui_logger.one_line(response)} -- {gui_logger.one_line(title)}'
-        )
-    except Exception:
-        logger.info(f'[Popup    ] response {response} -- {title}')
-    try:
-        from modules import gui_logger
-
-        gui_logger.popup_response(title, response)
-    except Exception:
-        pass
+    logger.info(
+        f'[Popup    ] response {gui_logger.one_line(response)} -- {gui_logger.one_line(title)}'
+    )
+    gui_logger.popup_response(title, response)
 
 
 def show_notification_popup(title: str, message: str):
