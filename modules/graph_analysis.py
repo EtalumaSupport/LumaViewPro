@@ -75,7 +75,7 @@ def fit_trendline(kind: str, x: pd.Series, y: pd.Series) -> Trendline:
         return PostProcessingRefusedError(
             operation=TRENDLINE_OPERATION,
             reason='fit_impossible',
-            message=f'A {kind} trendline of {y.name} against {x.name} cannot be drawn: {problem}.',
+            message=f'The {kind} trendline of {y.name} against {x.name} cannot be drawn: {problem}.',
         )
 
     if kind not in trendline_kinds(x, y):
@@ -92,23 +92,25 @@ def fit_trendline(kind: str, x: pd.Series, y: pd.Series) -> Trendline:
     ys = y.to_numpy(dtype=float)
 
     def count_where(values: np.ndarray, bad: np.ndarray, name: str, what: str) -> None:
-        if bad.any():
-            raise refuse(f'{int(bad.sum())} of the {len(values)} {name} values {what}')
+        count = int(bad.sum())
+        if count:
+            verb = 'is' if count == 1 else 'are'
+            raise refuse(f'{count} of the {len(values)} {name} values {verb} {what}')
 
-    count_where(xs, ~np.isfinite(xs), x.name, 'are missing or not a number')
-    count_where(ys, ~np.isfinite(ys), y.name, 'are missing or not a number')
+    count_where(xs, ~np.isfinite(xs), x.name, 'missing or not a number')
+    count_where(ys, ~np.isfinite(ys), y.name, 'missing or not a number')
     if kind in ('Exponential', 'Power'):
         count_where(
-            ys, ys <= 0, y.name, f'are 0 or below, and a {kind} curve needs every one above 0'
+            ys, ys <= 0, y.name, f'0 or below, and the {kind} curve needs every one above 0'
         )
     if kind in ('Power', 'Logarithmic'):
         count_where(
-            xs, xs <= 0, x.name, f'are 0 or below, and a {kind} curve needs every one above 0'
+            xs, xs <= 0, x.name, f'0 or below, and the {kind} curve needs every one above 0'
         )
     distinct = len(np.unique(xs))
     if distinct < _DISTINCT_X_NEEDED[kind]:
         raise refuse(
-            f'{x.name} has {distinct} distinct value(s), and a {kind} curve needs at least '
+            f'{x.name} has {distinct} distinct value(s), and the {kind} curve needs at least '
             f'{_DISTINCT_X_NEEDED[kind]}'
         )
 

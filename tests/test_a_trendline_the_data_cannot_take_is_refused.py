@@ -35,19 +35,19 @@ Y = _series('area', [2, 4, 6, 8])
 @pytest.mark.parametrize(
     ('kind', 'x', 'y', 'words'),
     [
-        ('Exponential', X, _series('area', [0, 4, 6, 8]), '1 of the 4 area values are 0 or below'),
-        ('Power', X, _series('area', [0, 4, 6, 8]), '1 of the 4 area values are 0 or below'),
+        ('Exponential', X, _series('area', [0, 4, 6, 8]), '1 of the 4 area values is 0 or below'),
+        ('Power', X, _series('area', [0, 4, 6, 8]), '1 of the 4 area values is 0 or below'),
         (
             'Power',
             _series('num_cells', [0, 2, 3, 4]),
             Y,
-            '1 of the 4 num_cells values are 0 or below',
+            '1 of the 4 num_cells values is 0 or below',
         ),
         (
             'Logarithmic',
             _series('num_cells', [0, 2, 3, 4]),
             Y,
-            '1 of the 4 num_cells values are 0 or below',
+            '1 of the 4 num_cells values is 0 or below',
         ),
         ('Quadratic', _series('num_cells', [1, 1, 2, 2]), Y, 'num_cells has 2 distinct value(s)'),
         ('Linear', _series('num_cells', [3, 3, 3, 3]), Y, 'num_cells has 1 distinct value(s)'),
@@ -63,9 +63,9 @@ def test_values_the_curve_cannot_take_are_refused_naming_them(kind, x, y, words)
 
 @pytest.mark.parametrize('kind', ['Linear', 'Quadratic', 'Exponential', 'Power', 'Logarithmic'])
 def test_a_missing_value_is_refused_for_every_kind(kind):
-    with pytest.raises(PostProcessingRefusedError, match='1 of the 4 area values are missing'):
+    with pytest.raises(PostProcessingRefusedError, match='1 of the 4 area values is missing'):
         fit_trendline(kind, X, _series('area', [2, np.nan, 6, 8]))
-    with pytest.raises(PostProcessingRefusedError, match='1 of the 4 num_cells values are missing'):
+    with pytest.raises(PostProcessingRefusedError, match='1 of the 4 num_cells values is missing'):
         fit_trendline(kind, _series('num_cells', [1, 2, np.nan, 4]), Y)
 
 
