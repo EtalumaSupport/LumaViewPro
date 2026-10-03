@@ -1,5 +1,4 @@
 # Copyright Etaluma, Inc.
-import json
 import logging
 import os
 import pathlib
@@ -24,7 +23,6 @@ from kivy.uix.popup import Popup
 from ui.progress_popup import show_popup
 from modules import gui_logger
 from modules.stitcher import Stitcher
-from modules.common_utils import CustomJSONizer
 import modules.zprojector as zprojector
 import modules.post_processing as post_processing
 import modules.image_utils as image_utils
@@ -689,25 +687,6 @@ class CellCountControls(BoxLayout):
     def get_current_settings(self):
         return self._settings
 
-    @staticmethod
-    def _validate_method_settings_metadata(settings):
-        if 'metadata' not in settings:
-            raise Exception('No valid metadata found')
-
-        metadata = settings['metadata']
-
-        for key in ('type', 'version'):
-            if key not in metadata:
-                raise Exception(f'No {key} found in metadata')
-
-    def _add_method_settings_metadata(self):
-        self._settings['metadata'] = {'type': 'cell_count_method', 'version': '1'}
-
-    def load_settings(self, settings):
-        self._validate_method_settings_metadata(settings=settings)
-        self._settings = settings
-        self._set_ui_to_settings(settings)
-
     def _area_range_slider_values_to_physical(self, slider_values):
         if self._preview_source_image is None:
             return slider_values
@@ -861,16 +840,22 @@ class CellCountControls(BoxLayout):
         # Resolve relative paths against source_path instead of relying on CWD
         if not os.path.isabs(file):
             file = os.path.join(_app_ctx.ctx.source_path, file)
-        self._add_method_settings_metadata()
-        with open(file, 'w') as write_file:
-            json.dump(self._settings, write_file, indent=4, cls=CustomJSONizer)
+        method = self._settings
+        run_reported(
+            lambda: post_processing.save_cell_count_method(method, file),
+            None,
+            'SAVE_CELL_COUNT_METHOD',
+        )
 
     def load_method_from_file(self, file):
         logger.info(f'[LVP Main  ] CellCountContent.load_method_from_file({file})')
-        with open(file) as f:
-            method_settings = json.load(f)
 
-        self.load_settings(settings=method_settings)
+        def _load():
+            self._settings = post_processing.load_cell_count_method(file)
+
+        run_reported(
+            _load, lambda: self._set_ui_to_settings(self._settings), 'LOAD_CELL_COUNT_METHOD'
+        )
 
     def _regenerate_image_preview(self):
         if self._preview_source_image is None:

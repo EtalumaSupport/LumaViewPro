@@ -3,6 +3,7 @@
 
 import contextlib
 import csv
+import json
 import math
 import numbers
 import os
@@ -16,11 +17,15 @@ import modules.image_utils as image_utils
 
 from lvp_logger import logger
 from modules.cell_count import CellCount
+from modules.common_utils import CustomJSONizer
 from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
 from modules.protocol_post_processor import ProgressCallback
 
 # The operation's name as a person reads it, in its refusals and failures.
 CELL_COUNT_OPERATION = 'Cell Count'
+
+# What marks a JSON file as a saved cell-count method.
+_CELL_COUNT_METHOD_METADATA = {'type': 'cell_count_method', 'version': '1'}
 
 # Each filter's bounds, by their path under 'filters'. A bound of None is open.
 _CELL_COUNT_FILTERS = (
@@ -64,19 +69,19 @@ def default_cell_count_method() -> dict:
     }
 
 
-def _refuse_method(problem: str) -> None:
+def _refuse_method(source: str, problem: str) -> None:
     raise PostProcessingRefusedError(
         operation=CELL_COUNT_OPERATION,
         reason='method_invalid',
-        message=f'The cell-count method cannot be used: {problem}.',
+        message=f'{source} cannot be used: {problem}.',
     )
 
 
-def _method_field(method: Mapping, path: tuple[str, ...]):
+def _method_field(method: Mapping, path: tuple[str, ...], source: str):
     value = method
     for key in path:
         if not isinstance(value, Mapping) or key not in value:
-            _refuse_method(f'it has no {".".join(path)}')
+            _refuse_method(source, f'it has no {".".join(path)}')
         value = value[key]
     return value
 
@@ -86,7 +91,7 @@ def _is_number(value) -> bool:
     return isinstance(value, numbers.Real) and not isinstance(value, bool) and math.isfinite(value)
 
 
-def check_cell_count_method(method: object) -> None:
+def check_cell_count_method(method: object, *, source: str = 'The cell-count method') -> None:
     """Refuse a cell-count method the count cannot use, naming the field.
 
     The count reads every field checked here. A pixels-per-micron that is
@@ -95,37 +100,94 @@ def check_cell_count_method(method: object) -> None:
     areas, so it is refused before any image is read. The file's
     ``metadata`` is not part of the method and is not required.
 
+    Args:
+        source: What the refusal calls the method, e.g. naming its file.
+
     Raises:
         PostProcessingRefusedError: reason ``method_invalid``.
     """
     if not isinstance(method, Mapping):
-        _refuse_method(f'it is a {type(method).__name__}, not a set of named settings')
+        _refuse_method(source, f'it is a {type(method).__name__}, not a set of named settings')
 
-    scale = _method_field(method, ('context', 'pixels_per_um'))
+    scale = _method_field(method, ('context', 'pixels_per_um'), source)
     if not _is_number(scale) or scale <= 0:
         _refuse_method(
+            source,
             f'context.pixels_per_um must be a positive number of camera pixels '
-            f'per micron, not {scale!r}'
+            f'per micron, not {scale!r}',
         )
 
-    fluorescent = _method_field(method, ('context', 'fluorescent_mode'))
+    fluorescent = _method_field(method, ('context', 'fluorescent_mode'), source)
     if not isinstance(fluorescent, bool):
-        _refuse_method(f'context.fluorescent_mode must be true or false, not {fluorescent!r}')
+        _refuse_method(
+            source, f'context.fluorescent_mode must be true or false, not {fluorescent!r}'
+        )
 
-    _method_field(method, ('segmentation', 'algorithm'))
-    threshold = _method_field(method, ('segmentation', 'parameters', 'threshold'))
+    _method_field(method, ('segmentation', 'algorithm'), source)
+    threshold = _method_field(method, ('segmentation', 'parameters', 'threshold'), source)
     if not _is_number(threshold):
-        _refuse_method(f'segmentation.parameters.threshold must be a number, not {threshold!r}')
+        _refuse_method(
+            source, f'segmentation.parameters.threshold must be a number, not {threshold!r}'
+        )
 
     for path in _CELL_COUNT_FILTERS:
         name = '.'.join(('filters', *path))
-        low = _method_field(method, ('filters', *path, 'min'))
-        high = _method_field(method, ('filters', *path, 'max'))
+        low = _method_field(method, ('filters', *path, 'min'), source)
+        high = _method_field(method, ('filters', *path, 'max'), source)
         for bound, value in (('min', low), ('max', high)):
             if value is not None and not _is_number(value):
-                _refuse_method(f'{name}.{bound} must be a number or null, not {value!r}')
+                _refuse_method(source, f'{name}.{bound} must be a number or null, not {value!r}')
         if low is not None and high is not None and low > high:
-            _refuse_method(f'{name}.min ({low}) is above its max ({high})')
+            _refuse_method(source, f'{name}.min ({low}) is above its max ({high})')
+
+
+def load_cell_count_method(path: str | os.PathLike) -> dict:
+    """Read a saved cell-count method file and return the method it holds.
+
+    The file is the one ``save_cell_count_method`` writes: the method, plus a
+    ``metadata`` entry naming its type and version that marks it as a method
+    file. The method is checked as the count checks it, so a method that
+    loads is one the count can use.
+
+    Raises:
+        PostProcessingRefusedError: the file cannot be read, is not a
+            method file, or holds a method the count cannot use; the message
+            names the file.
+    """
+
+    def refuse(reason: str, problem: str) -> PostProcessingRefusedError:
+        return PostProcessingRefusedError(
+            operation=CELL_COUNT_OPERATION,
+            reason=reason,
+            message=f'The cell-count method file {path} cannot be loaded: {problem}.',
+        )
+
+    try:
+        with open(path) as f:
+            saved = json.load(f)
+    except OSError as e:
+        raise refuse('method_unreadable', f'it could not be read ({e.strerror})') from e
+    except ValueError as e:
+        raise refuse('method_unreadable', f'it is not JSON ({e})') from e
+
+    metadata = saved.get('metadata') if isinstance(saved, Mapping) else None
+    if not isinstance(metadata, Mapping) or not {'type', 'version'} <= metadata.keys():
+        raise refuse('method_unreadable', 'it has no metadata naming its type and version')
+    check_cell_count_method(saved, source=f'The cell-count method in {path}')
+    return saved
+
+
+def save_cell_count_method(method: Mapping, path: str | os.PathLike) -> None:
+    """Write *method* to *path* as a cell-count method file.
+
+    Raises:
+        PostProcessingRefusedError: the method cannot be used, and nothing
+            is written.
+    """
+    check_cell_count_method(method)
+    saved = {**method, 'metadata': dict(_CELL_COUNT_METHOD_METADATA)}
+    with open(path, 'w') as f:
+        json.dump(saved, f, indent=4, cls=CustomJSONizer)
 
 
 class PostProcessing:
