@@ -2287,8 +2287,6 @@ class Protocol:
             objective_helper, led_max_ma=capabilities.led_max_ma
         )
         if validation_errors:
-            for err in validation_errors:
-                logger.error(f'Protocol validation: {err}')
             raise ProtocolFormatError(
                 f'Protocol has {len(validation_errors)} validation error(s): {validation_errors[0]}'
             )
