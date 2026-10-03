@@ -19,7 +19,7 @@ import threading
 import time
 from typing import ClassVar
 from lvp_logger import logger
-from drivers.ledboard import FIRMWARE_LED_CH_MAX_MA
+from drivers.ledboard import FIRMWARE_LED_CH_MAX_MA, firmware_commanded_ma
 from drivers.registry import led_registry
 
 # SIM-SERIAL-LOG: emit the same serial.log line shape that the real
@@ -53,6 +53,9 @@ class SimulatedLEDBoard:
 
     def max_ma(self) -> int:
         return self._MAX_MA
+
+    def commanded_ma(self, mA: float) -> float:
+        return firmware_commanded_ma(mA)
 
     def __init__(
         self,
@@ -428,6 +431,10 @@ class SimulatedLEDBoard:
             mA: Drive current in milliamps.
             block: Accepted for API parity; ignored by the simulator.
         """
+        if mA == 0:
+            # As the real board does: 0 is sent as the board's off.
+            self.led_off(channel)
+            return
         color = self.ch2color(channel)
         self.led_ma[color] = mA
         self._channel_states[channel] = mA

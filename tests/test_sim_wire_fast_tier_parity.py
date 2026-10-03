@@ -20,7 +20,15 @@ import pytest
 
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
-from tests.sim_wire_bench import BENCH, FRESH, groups, marked, replay, reply_group
+from tests.sim_wire_bench import (
+    BENCH,
+    FRESH,
+    LED_ON_RECORDED_BEFORE_ITS_RETURN,
+    groups,
+    marked,
+    replay,
+    reply_group,
+)
 
 
 def _content_group(record) -> str | None:
@@ -58,6 +66,7 @@ _GAPS = {
     'query STATUS_RY': _STATUS,
     'query STATUS_RZ': _STATUS,
     'query STATUS_RT': _STATUS,
+    'LED led_on': LED_ON_RECORDED_BEFORE_ITS_RETURN,
     'LED query INFO': _LED_ECHO,
     **{f'LED query LEDREAD{channel}': _LED_ECHO for channel in range(6)},
     'LED error_probe NOSUCHCMD': _LED_ECHO,

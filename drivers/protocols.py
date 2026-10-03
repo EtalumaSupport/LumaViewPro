@@ -162,6 +162,14 @@ class LEDBoardProtocol(Protocol):
     # range guard and every UI bound read it from capabilities.
     def max_ma(self) -> int: ...
 
+    # The current the board would command for a request, in mA: the request
+    # on the board's own step (the Classic peripheral's byte, the EL-0940
+    # firmware's whole mA), a non-zero request below one step at one step,
+    # 0 at 0. Stateless. The API asks it once per request, then skips,
+    # sends, stores and reports this value, so what is recorded is what the
+    # board was told, not what was asked.
+    def commanded_ma(self, mA: float) -> float: ...
+
     # --- Diagnostics ---
     def read_led_current(self, channel: int) -> float | None: ...
 

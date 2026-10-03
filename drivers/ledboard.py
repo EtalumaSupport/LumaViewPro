@@ -2,6 +2,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import logging
+import math
 import re
 import threading
 import time
@@ -16,6 +17,21 @@ from drivers.registry import led_registry
 # EL-0940 LED command accepts. One home in LVP; the simulated board
 # imports it because it emulates this firmware.
 FIRMWARE_LED_CH_MAX_MA = 1000
+
+
+def firmware_commanded_ma(mA: float) -> float:
+    """The current the LED firmware is commanded for a request, in mA.
+
+    The field firmware parses ``LEDn_<mA>`` as an integer, so a request goes
+    to the nearest whole mA, a half going up. A request above zero but under
+    1 mA goes to 1 mA: rounding it to 0 would leave a channel dark that was
+    asked to light. 0 stays 0. The simulated board answers with this same
+    function, because it emulates this firmware.
+    """
+    if mA <= 0:
+        return 0.0
+    return float(max(1, math.floor(float(mA) + 0.5)))
+
 
 # Same dedicated serial logger SerialBoard.exchange_command() writes to, so
 # the bespoke STIM capability probe (which scans multiple lines and cannot
@@ -324,6 +340,9 @@ class LEDBoard(SerialBoard):
     def max_ma(self) -> int:
         return self._MAX_MA
 
+    def commanded_ma(self, mA: float) -> float:
+        return firmware_commanded_ma(mA)
+
     def _validate_and_build_led_cmd(self, channel, mA):
         """Validate channel/mA and return (color, command) string.
 
@@ -356,6 +375,11 @@ class LEDBoard(SerialBoard):
             ValueError: ``channel`` or ``mA`` is outside the safe range.
         """
         color, command = self._validate_and_build_led_cmd(channel, mA)
+        if mA == 0:
+            # The field firmware drives ``LEDn_0`` at its DAC offset, not off;
+            # only the board's off command darkens the channel.
+            self.led_off(channel)
+            return
         response = self.exchange_command(command)
 
         if response:

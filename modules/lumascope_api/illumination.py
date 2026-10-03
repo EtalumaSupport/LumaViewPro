@@ -563,8 +563,14 @@ class IlluminationAPI:
         block: bool = False,
         *,
         _lease: LedLease | None = None,
-    ) -> None:
+    ) -> float | None:
         """Turn on an LED channel at the specified current.
+
+        The board lights at the nearest current its step can deliver, and a
+        request above zero but below one step at one step; that commanded
+        current, not the request, is what is skipped on, sent, stored and
+        returned. 0 mA leaves the channel on at 0 mA, which the driver sends
+        as the board's off.
 
         Args:
             channel: Channel number (0-5) or color name string.
@@ -574,12 +580,16 @@ class IlluminationAPI:
                 a caller holding no lease. Refused while a different lease is
                 the active holder.
 
+        Returns:
+            The commanded current in mA; None when no board is attached or
+            another lease holds the LEDs, so nothing was commanded.
+
         Raises:
             ValueError: If channel or illumination_ma is out of range.
             ConfigError: If a colour name this scope cannot drive is given.
         """
         if not self._driver:
-            return
+            return None
 
         channel = self._resolve_channel(channel, missing_off_ok=False)
 
@@ -593,6 +603,7 @@ class IlluminationAPI:
             or illumination_ma > led_max_ma
         ):
             raise ValueError(f'LED current must be 0-{led_max_ma} mA, got {illumination_ma}')
+        commanded_ma = self._driver.commanded_ma(illumination_ma)
 
         # Skip redundant command if channel is already on at the same current
         color_name = self.state_ch2color(channel)
@@ -627,10 +638,10 @@ class IlluminationAPI:
                 )
             if (
                 current_ma is not None
-                and abs(float(illumination_ma) - float(current_ma)) < 0.01
+                and abs(commanded_ma - float(current_ma)) < 0.01
                 and self.get_led_state(color_name)['enabled']
             ):
-                return
+                return commanded_ma
 
         # While a run holds the LEDs, a write by anyone but the active lease
         # is refused so a live UI change cannot disturb a protocol's or
@@ -639,14 +650,17 @@ class IlluminationAPI:
         violator = self._lease_violation(_lease)
         if violator is not None:
             _api_log.warning('LED on refused: the %r lease holds the LEDs', violator)
-            return
+            return None
 
         with self._led_lock:
-            self._driver.led_on(channel, illumination_ma, block=block)
+            self._driver.led_on(channel, commanded_ma, block=block)
         self._notify_if_led_command_failed()
         self._scope.imaging.frame_validity.invalidate('led')
+        requested = (
+            f' (requested {illumination_ma})' if abs(commanded_ma - illumination_ma) >= 0.01 else ''
+        )
         _api_log.info(
-            f'led_on ch={channel} illumination_ma={illumination_ma}'
+            f'led_on ch={channel} illumination_ma={commanded_ma:g}{requested}'
             f'{f" lease={_lease.purpose!r}" if _lease is not None else ""}'
         )
 
@@ -657,10 +671,11 @@ class IlluminationAPI:
             with self._led_state_lock:
                 self._led_state[color_name] = {
                     'enabled': True,
-                    'illumination_ma': float(illumination_ma),
+                    'illumination_ma': commanded_ma,
                 }
                 self._lit_by[color_name] = _lease
-            self._fire_led_listeners(color_name, True, float(illumination_ma))
+            self._fire_led_listeners(color_name, True, commanded_ma)
+        return commanded_ma
 
     def _led_off_impl(self, channel, *, _lease: LedLease | None = None) -> None:
         """Turn off an LED channel.
@@ -782,11 +797,12 @@ class IlluminationAPI:
         channel: int | str,
         illumination_ma: float,
         block: bool = False,
-    ) -> None:
+    ) -> float | None:
         """Turn on an LED channel at the specified current, and wait for it.
 
-        See ``_led_on_impl`` for the argument contract and the errors it
-        raises; this adds only the dispatch described on ``_dispatch_led``.
+        Returns the current commanded on the board's step. See
+        ``_led_on_impl`` for the argument contract, the return and the errors
+        it raises; this adds only the dispatch described on ``_dispatch_led``.
         """
         return self._dispatch_led(
             self._led_on_impl,

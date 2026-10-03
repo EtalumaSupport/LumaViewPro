@@ -163,6 +163,16 @@ def groups(group_of) -> dict:
     return grouped
 
 
+# The bench recorded led_on's return when it returned None; it now returns the
+# current commanded, so the recording, not the simulator, is out of date. A
+# re-recorded bench run passes it, and the strict xfail then fails until the
+# entry naming it is removed.
+LED_ON_RECORDED_BEFORE_ITS_RETURN = (
+    'the bench recording predates led_on returning the commanded current; re-record at the '
+    'next bench'
+)
+
+
 def marked(grouped: dict, gaps: dict, flaky: dict | None = None) -> list:
     """The group names as test parameters: a known difference is a strict
     xfail naming it, and one whose outcome varies from run to run is a

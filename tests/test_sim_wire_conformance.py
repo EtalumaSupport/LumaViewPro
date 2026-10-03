@@ -34,7 +34,16 @@ import drivers.sim_wire.backend as sim_backend
 
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
-from tests.sim_wire_bench import BENCH, FRESH, RUNS, groups, marked, replay, reply_group
+from tests.sim_wire_bench import (
+    BENCH,
+    FRESH,
+    LED_ON_RECORDED_BEFORE_ITS_RETURN,
+    RUNS,
+    groups,
+    marked,
+    replay,
+    reply_group,
+)
 
 if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
     pytest.skip(
@@ -158,6 +167,8 @@ _REPLY_GAPS = {
     'query STATUS_RT': f"{_STALLGUARD}, nor the turret's two switch bits at power-up",
     'query CONFIG': "the key order follows the unit's own motorconfig.json file, which the "
     'simulator does not have',
+    # Not the model's: the recording is older than the return it compares.
+    'LED led_on': LED_ON_RECORDED_BEFORE_ITS_RETURN,
 }
 # A gap whose outcome varies from run to run cannot be strict.
 _STOP_REST = (

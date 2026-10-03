@@ -1151,6 +1151,8 @@ scope.illumination.ch2color(0)                         # 'Blue'
 
 **Safety limits** (enforced by firmware on RP2040 boards): per-channel max 1000 mA, board total max 3000 mA. FX2 boards have their own per-channel cap declared in the camera profile.
 
+**The current is the board's step, not your number.** Each board drives its LEDs in steps: whole mA on the EL-0940 LED board, and about 3.29 mA (one step of 840 mA over 255) on the FX2 scopes (LS560, LS620, LS720). `led_on` lights the channel at the nearest step, a half going up; a request above zero but below one step lights at one step, never dark; 0 mA leaves the channel on at 0 mA, which the board receives as off. `led_on` returns that commanded current, and it is what `get_led_state`, the LED listeners, a frame's record and a saved file's `Illumination` report: `led_on('BF', 1.0)` on an LS620 returns about 3.29, and the file says so. It is the current the board was commanded, not a measurement. The layer setting and a protocol step's `Illumination` keep the value you wrote, so a protocol stays the same when it moves between scopes; `api.log` names both whenever they differ.
+
 ### State queries — read from the API, never the driver
 
 Lumascope holds the authoritative LED state in an internal cache. The API layer's `get_led_state()` / `get_led_states()` read from that cache. **Never call the driver's state methods directly** — for FX2 scopes the driver is a pure command translator and its state queries return sentinels.
@@ -1170,7 +1172,7 @@ scope.illumination.led_off('BF')
 scope.illumination.leds_off()                          # unconditional off (shutdown / cleanup)
 ```
 
-**A run can hold the LEDs exclusively, and a write refused on that account is SILENT.** While a protocol run, autofocus or another subsystem holds the internal LED lease, an `led_on` / `led_off` from anyone else is refused: the LED does not change, the refusal is recorded in `api.log`, and **the call returns `None` and raises nothing, exactly as a successful call does.** The refusal is deliberate — it stops a live UI change from disturbing a run's channels — but your call cannot see it, so a capture taken afterwards can come back dark with nothing in your own code to explain why. If an LED command appears to do nothing, check whether a run is in flight before suspecting the hardware. (Making this refusal visible at the API boundary is open work; the lease itself is internal machinery and not L2 surface.)
+**A run can hold the LEDs exclusively, and a write refused on that account is SILENT.** While a protocol run, autofocus or another subsystem holds the internal LED lease, an `led_on` / `led_off` from anyone else is refused: the LED does not change, the refusal is recorded in `api.log`, and **the call raises nothing.** A refused `led_on` returns `None` where one that commanded returns the current; a refused `led_off` returns `None` exactly as a successful one does. The refusal is deliberate — it stops a live UI change from disturbing a run's channels — but nothing is raised, so unless your code checks `led_on`'s return a capture taken afterwards can come back dark with nothing in your own code to explain why. If an LED command appears to do nothing, check whether a run is in flight before suspecting the hardware. (Making this refusal visible at the API boundary is open work; the lease itself is internal machinery and not L2 surface.)
 
 ### Save / restore — the autofocus pattern
 

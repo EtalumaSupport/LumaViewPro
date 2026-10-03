@@ -2775,8 +2775,17 @@ class FX2LEDController:
             time.sleep(0.01)
 
     def _ma_to_brightness(self, mA) -> int:
-        """Convert mA to the 0-0xFE brightness byte (0xFF is the preamble)."""
-        brightness = max(0, min(self._BRIGHTNESS_MAX, round(float(mA) * 255.0 / self._MAX_MA)))
+        """Convert mA to the 0-0xFE brightness byte (0xFF is the preamble).
+
+        The nearest byte, a half going up. A request above zero but under one
+        byte's current is byte 1: rounding it to 0 would leave a channel dark
+        that was asked to light.
+        """
+        if float(mA) <= 0:
+            brightness = 0
+        else:
+            nearest = math.floor(float(mA) * 255.0 / self._MAX_MA + 0.5)
+            brightness = max(1, min(self._BRIGHTNESS_MAX, nearest))
         # Workaround trace for mA->byte conversion. See the
         # _FX2_DEBUG_WIRE block above for the full instrumentation
         # rationale (LED driver brightness curve verification).
@@ -2799,6 +2808,9 @@ class FX2LEDController:
 
     def max_ma(self) -> int:
         return self._MAX_MA
+
+    def commanded_ma(self, mA: float) -> float:
+        return self._ma_to_brightness(mA) * self._MAX_MA / 255.0
 
     def available_colors(self) -> tuple:
         return tuple(self._COLOR_TO_CH.keys())  # ('Blue', 'Green', 'Red', 'BF')
