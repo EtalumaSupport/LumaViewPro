@@ -1201,8 +1201,6 @@ class TestIssue602_AFExecutorLED:
         # through the authority's AF_TO_CAPTURE transition, whose diff offs the
         # AF channel on abort -- so this checks the outcome (channel dark), not
         # which helper emitted the off.
-        af._led_color = 'BF'
-        af._led_illumination = 100
         run_lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
 
         abort_event = threading.Event()
@@ -1214,7 +1212,13 @@ class TestIssue602_AFExecutorLED:
             patch.object(scope.imaging, 'restore_camera_state'),
         ):
             with pytest.raises(AutofocusAborted):
-                af.run(objective_id='4x Oly', abort_event=abort_event, led_lease=run_lease)
+                af.run(
+                    objective_id='4x Oly',
+                    abort_event=abort_event,
+                    led_color='BF',
+                    led_illumination=100.0,
+                    led_lease=run_lease,
+                )
             assert not scope.illumination.get_led_state('BF')['enabled'], (
                 'aborted AF must leave its channel dark (#602)'
             )
@@ -1273,7 +1277,13 @@ class TestAFPrecisionModeRestoresOn:
             patch.object(scope.imaging, 'restore_camera_state'),
         ):
             with pytest.raises(AutofocusAborted):
-                af.run(objective_id='4x Oly', abort_event=abort_event, led_lease=run_lease)
+                af.run(
+                    objective_id='4x Oly',
+                    abort_event=abort_event,
+                    led_color=None,
+                    led_illumination=0.0,
+                    led_lease=run_lease,
+                )
             calls = [tuple(c.args) for c in mock_set.call_args_list]
             assert ('Z', True) in calls, (
                 f'abort path must restore Z precision_mode=True; got calls {calls}'
