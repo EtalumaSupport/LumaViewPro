@@ -55,9 +55,8 @@ def _scope(**kwargs) -> Lumascope:
 def test_the_firmware_tier_reports_every_catalogue_models_axes(model):
     scope = _scope(sim_tier='firmware', sim_model=model)
     try:
-        expected = _catalogue_axes(model)
-        assert set(scope.capabilities.axes) == expected
-        if expected:
+        assert set(scope.capabilities.axes) == _catalogue_axes(model)
+        if 'MotorBoard' in MODELS[model]:
             assert isinstance(scope._motion_driver, MotorBoard)
         else:
             assert isinstance(scope._motion_driver, NullMotionBoard)
@@ -94,16 +93,16 @@ def test_an_emulator_that_does_not_come_up_raises_naming_the_driver(monkeypatch)
         _scope(sim_tier='firmware', sim_model='LS850T')
 
 
-# The LED board follows the same tier. A model the catalogue gives motor axes
-# is an EL-0940 scope, whose LEDs are on their own board; one with none is an
-# FX2 scope, whose LEDs the production FX2 driver drives on a simulated FX2.
+# The LED board follows the same tier. A model whose row names an EL-0940 LED
+# board has its LEDs on that board; one naming an FX2 has its LEDs driven by
+# the production FX2 driver on a simulated FX2.
 
 
 @pytest.mark.parametrize('model', sorted(MODELS))
 def test_the_firmware_tier_runs_the_led_firmware_on_every_el0940_model(model):
     scope = _scope(sim_tier='firmware', sim_model=model)
     try:
-        if _catalogue_axes(model):
+        if MODELS[model]['LEDBoard'] == 'EL-0940':
             assert isinstance(scope._led_driver, LEDBoard)
             assert scope._led_driver.firmware_date == '2024-06-05'
         else:

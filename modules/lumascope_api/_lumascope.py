@@ -46,6 +46,7 @@ from drivers.registry import motor_registry, led_registry, camera_registry
 import modules.binning as binning
 from modules.exceptions import (
     BinningSubstitutedNotice,
+    InstallationFileError,
     FrameRefittedNotice,
     CameraNotAvailableError,
     CameraSettingRejected,
@@ -108,6 +109,11 @@ def _register_ids_camera(platform: str):
 
 
 IDSCamera = _register_ids_camera(sys.platform)
+
+# The boards a catalogue row may name that the simulator can stand in for.
+# An FX2 drives its scope's camera and LEDs; an EL-0940 is a board of its own.
+_SIMULATED_LED_BOARDS = ('EL-0940', 'FX2')
+_SIMULATED_MOTOR_BOARDS = ('EL-0940',)
 
 # PRE-RELEASE 4-mechanism warning bundle: this is the runtime
 # FutureWarning piece. The other three are the README banner, the
@@ -223,10 +229,10 @@ class Lumascope:
         self.source_path = str(source_path)
         self.wellplate_loader = labware_loader.WellPlateLoader(source_path=source_path)
         self.objective_helper = objectives_loader.ObjectiveLoader(source_path=source_path)
+        # Kept so a refusal of one of its rows names the file it came from.
+        self._scope_models_path = resolve_data_file('scopes.json', source_path=source_path)
         self.scope_models = types.MappingProxyType(
-            layer_record.load_scope_models(
-                resolve_data_file('scopes.json', source_path=source_path)
-            )
+            layer_record.load_scope_models(self._scope_models_path)
         )
         # The release's layer vocabulary is process-wide, not this folder's,
         # but the identity resolved after the lanes start needs it: asked
@@ -287,22 +293,26 @@ class Lumascope:
 
     @staticmethod
     def _build_simulated_motor_board(
-        model: str, axes: frozenset[str], sim_tier: str, motorconfig_defaults: dict
+        model: str,
+        axes: frozenset[str],
+        motor_board: str | None,
+        sim_tier: str,
+        motorconfig_defaults: dict,
     ) -> MotorBoardProtocol:
         """The simulated scope's motor board, on the tier asked for.
 
-        ``axes`` are the ones the catalogue gives the model: a model with
-        none has no motor board, so it gets the null driver on either
-        tier. The fast tier goes through the registry's simulator
-        selection with those axes. The firmware tier builds the production
-        driver by name against the emulator: a model with axes whose
-        emulator does not come up raises, because the registry's auto path
-        would fall back to the null driver and a dead emulator would then
-        look exactly like a manual scope.
+        ``axes`` and ``motor_board`` are the ones the catalogue gives the
+        model: a model that names no motor board has none, so it gets the
+        null driver on either tier. The fast tier goes through the
+        registry's simulator selection with those axes. The firmware tier
+        builds the production driver by name against the emulator: a model
+        with axes whose emulator does not come up raises, because the
+        registry's auto path would fall back to the null driver and a dead
+        emulator would then look exactly like a manual scope.
         """
         if sim_tier not in SIMULATOR_TIERS:
             raise ValueError(f'sim_tier {sim_tier!r} is not one of {SIMULATOR_TIERS}')
-        if not axes:
+        if motor_board is None:
             logger.info(f'[SCOPE API ] Model {model} has no motor axes: no motor board')
             return NullMotionBoard()
         if sim_tier == 'fast':
@@ -327,18 +337,37 @@ class Lumascope:
         )
         return board
 
-    @staticmethod
-    def _simulates_an_fx2(axes: frozenset[str]) -> bool:
-        """Whether a simulated scope with these catalogue axes is an FX2 scope.
+    def _simulated_boards(self, model: str, axes: frozenset[str]) -> tuple[str, str | None]:
+        """The LED and motor boards a simulated ``model`` has, as its catalogue row names them.
 
-        The catalogue names no LED board, so the model's axes stand in for
-        one: a model with motor axes is an EL-0940 scope, whose LEDs are on
-        their own board; a model with none is an FX2 scope, whose camera and
-        LEDs the FX2 drives. It is a proxy, right for every catalogue row
-        today; an FX2 scope with motors (the LS720) changes it here, the
-        one place both the LED and the camera builders ask.
+        The row names an ``LEDBoard`` always and a ``MotorBoard`` exactly
+        when it has motor axes. Production never reads either -- the
+        bring-up finds the boards it has -- so this is the one place the
+        rule is checked: a row that breaks it, or names a board the
+        simulator cannot stand in for, would build a scope unlike the one
+        the row describes. ``axes`` are the row's, from ``model_axes``.
+
+        Raises:
+            InstallationFileError: the row breaks the rule or names a board
+                the simulator has no stand-in for, naming the catalogue.
         """
-        return not axes
+        entry = self.scope_models[model]
+        led_board = entry.get('LEDBoard')
+        motor_board = entry.get('MotorBoard')
+        if led_board not in _SIMULATED_LED_BOARDS:
+            problem = f'names LEDBoard {led_board!r}; the simulator has {_SIMULATED_LED_BOARDS}'
+        elif axes and motor_board not in _SIMULATED_MOTOR_BOARDS:
+            problem = (
+                f'gives motor axes and names MotorBoard {motor_board!r}; '
+                f'the simulator has {_SIMULATED_MOTOR_BOARDS}'
+            )
+        elif not axes and 'MotorBoard' in entry:
+            problem = f'gives no motor axes but names MotorBoard {motor_board!r}'
+        else:
+            return led_board, motor_board
+        raise InstallationFileError(
+            self._scope_models_path, f'has a model {model!r} that {problem}'
+        )
 
     @staticmethod
     def _build_simulated_led_board(model: str, sim_tier: str) -> LEDBoardProtocol:
@@ -474,7 +503,8 @@ class Lumascope:
             default_model = settings.get('microscope', 'LS850T') if settings else 'LS850T'
             model = sim_model or configured_model or default_model
             sim_axes = model_axes(self.scope_models, model)
-            if sim_camera_stall is not None and self._simulates_an_fx2(sim_axes):
+            sim_led_board, sim_motor_board = self._simulated_boards(model, sim_axes)
+            if sim_camera_stall is not None and sim_led_board == 'FX2':
                 raise ValueError(
                     f'a simulated camera stall needs the simulated camera, and {model} is '
                     'simulated with an FX2'
@@ -514,11 +544,11 @@ class Lumascope:
         # try/except needed.
         if simulate:
             self._motion_driver: MotorBoardProtocol = self._build_simulated_motor_board(
-                model, sim_axes, sim_tier, motorconfig_defaults
+                model, sim_axes, sim_motor_board, sim_tier, motorconfig_defaults
             )
             # A simulated manual scope gets the null board, as the bench
             # finds none: not up, and not missing once the model says so.
-            parts[MOTOR] = PartStatus(MOTOR, up=bool(sim_axes))
+            parts[MOTOR] = PartStatus(MOTOR, up=sim_motor_board is not None)
         else:
             self._motion_driver, fallback = motor_registry.create_with_fallback(
                 'auto',
@@ -548,7 +578,7 @@ class Lumascope:
         # its device model is the one simulation. Built by name, since the
         # registry lists no FX2 on a host without libusb.
         sim_fx2 = None
-        if simulate and self._simulates_an_fx2(sim_axes):
+        if simulate and sim_led_board == 'FX2':
             from drivers.fx2driver import FX2LEDController
             from drivers.simulated_fx2 import SimulatedFX2
 

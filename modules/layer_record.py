@@ -139,8 +139,17 @@ _REQUIRED_ROW_FIELDS = ('key_name', 'display_name', 'led_channel', 'excitation_n
 # The fields every model entry states, with their types. A missing or
 # mistyped one is a warning, not a refusal: `entry_axes` reads a missing
 # flag as absent and a mistyped one by its truth, so the warning is where
-# such an entry shows.
-_MODEL_ENTRY_FIELDS = {'Focus': bool, 'XYStage': bool, 'Turret': bool, 'Layers': list}
+# such an entry shows. `LEDBoard` names the board that drives the model's
+# LEDs; production reads it nowhere, since the bring-up finds the board it
+# has, and only the simulator builds from it. `MotorBoard` is not listed:
+# a manual model has no motor board to name.
+_MODEL_ENTRY_FIELDS = {
+    'Focus': bool,
+    'XYStage': bool,
+    'Turret': bool,
+    'Layers': list,
+    'LEDBoard': str,
+}
 
 
 def load_scope_models(data_file: str | None = None) -> Mapping:
