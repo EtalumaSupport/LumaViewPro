@@ -45,7 +45,15 @@ _PRIMITIVE_NAMES = {
     '_platform_native_open_file',
     '_platform_native_save_file',
 }
-_CHOOSE_CLASSES = ('FileChooseBTN', 'FolderChooseBTN', 'FileSaveBTN')
+# Every class with a choose() method, read from the module, so a new picker
+# button is covered by construction. A hand-kept tuple once listed three of
+# four, and nothing said the fourth was unchecked.
+_CHOOSE_CLASSES = tuple(
+    node.name
+    for node in _TREE.body
+    if isinstance(node, ast.ClassDef)
+    and any(isinstance(item, ast.FunctionDef) and item.name == 'choose' for item in node.body)
+)
 
 
 def _function_defs():
@@ -104,6 +112,7 @@ def test_tkinter_confined_to_platform_primitives():
 def test_choose_methods_route_through_the_one_runner():
     """Each choose() body calls _run_native_dialog_async and carries no
     sys.platform branch -- platform dispatch lives in the primitives only."""
+    assert len(_CHOOSE_CLASSES) == 4, f'the picker buttons read from the module: {_CHOOSE_CLASSES}'
     for class_name in _CHOOSE_CLASSES:
         method = _choose_method(class_name)
         body_src = ast.get_source_segment(_SRC, method)
