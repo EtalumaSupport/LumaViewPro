@@ -984,7 +984,6 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
             'manufacturer': microscope.get('Manufacturer'),
             'model': microscope.get('Model'),
             'serial_number': microscope.get('SerialNumber'),
-            'firmware_version': microscope.get('FirmwareVersion'),
             'camera_model': detector.get('Model'),
         }
 
@@ -1383,7 +1382,6 @@ def build_hyperstack_output_metadata(
                 'Manufacturer': instrument.get('manufacturer') or 'Etaluma',
                 'Model': instrument.get('model') or '',
                 'SerialNumber': instrument.get('serial_number') or '',
-                'FirmwareVersion': instrument.get('firmware_version') or '',
             },
             'Objective': {
                 'Model': objective_dict.get('model') or '',
@@ -2358,7 +2356,6 @@ def generate_tiff_data(
                 'Manufacturer': instrument.get('manufacturer') or 'Etaluma',
                 'Model': instrument.get('model') or '',
                 'SerialNumber': instrument.get('serial_number') or '',
-                'FirmwareVersion': instrument.get('firmware_version') or '',
             },
             'Objective': {
                 'Model': objective_dict.get('model') or '',
@@ -2410,7 +2407,6 @@ def generate_tiff_data(
             'Device': metadata.get('microscope', ''),
             'Model': metadata.get('microscope_model', '') or '',
             'SerialNumber': instrument.get('serial_number') or '',
-            'FirmwareVersion': instrument.get('firmware_version') or '',
             'CameraModel': instrument.get('camera_model') or '',
             'PlateName': plate.get('name') or '',
             'PlateRows': plate.get('rows') or '',

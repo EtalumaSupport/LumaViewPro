@@ -73,7 +73,6 @@ def _write_structured_input(
                 'manufacturer': 'Etaluma',
                 'model': 'LS720',
                 'serial_number': 'SN12062',
-                'firmware_version': '4.0.0-beta14',
                 'camera_model': 'Basler a2A1920',
             },
             'plate': {

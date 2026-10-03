@@ -387,7 +387,7 @@ def generate_image_metadata(
     try:
         motor_info = scope.diagnostics.get_motor_info()
     except Exception:
-        motor_info = {'serial_number': None, 'firmware_version': None}
+        motor_info = {'serial_number': None}
     plate_config = getattr(labware, 'config', None) or {}
 
     # The frame's own exposure and gain, from its record: the capture took
@@ -455,7 +455,6 @@ def generate_image_metadata(
             'manufacturer': 'Etaluma',
             'model': microscope_model,
             'serial_number': motor_info.get('serial_number'),
-            'firmware_version': motor_info.get('firmware_version'),
             'camera_model': frame_record.camera_model,
         },
         'plate': {
