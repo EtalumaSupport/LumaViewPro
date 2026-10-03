@@ -12,6 +12,7 @@ Lumascope.__init__. These tests cover:
 """
 
 import logging
+import sys
 import threading
 
 # Heavy deps (lvp_logger, ...) are mocked by tests/conftest.py at
@@ -516,10 +517,15 @@ class TestLumascopeUsesRegistry:
         Motor and LED have full coverage (rp2040 / sim / null) on any
         platform. Camera 'ids' is optional -- it only registers if the
         `ids_peak` SDK is installed (Windows/Linux with IDS drivers).
-        On macOS dev machines without ids_peak, the ImportError guard
-        in `lumascope_api.py` skips the `drivers.idscamera` import,
-        so the decorator never runs and 'ids' is absent from the
-        registry. That's correct graceful-degradation behavior."""
+        On macOS the scope never imports `drivers.idscamera` (IDS peak
+        has no macOS build; `_register_ids_camera` in `_lumascope.py`),
+        and elsewhere a failed import skips it, so the decorator never
+        runs and 'ids' is absent from the registry. That's correct
+        graceful-degradation behavior.
+
+        The test suite stubs `ids_peak`, so whether the SDK imports says
+        nothing here; 'ids' is registered exactly when the driver module
+        was imported, by the scope or by an earlier test."""
         assert 'rp2040' in motor_registry.registered_names()
         assert 'sim' in motor_registry.registered_names()
         assert 'null' in motor_registry.registered_names()
@@ -530,15 +536,8 @@ class TestLumascopeUsesRegistry:
 
         assert 'pylon' in camera_registry.registered_names()
         assert 'sim' in camera_registry.registered_names()
-        # 'ids' only present if ids_peak SDK is installed.
-        try:
-            import ids_peak  # noqa: F401
-
-            ids_available = True
-        except ImportError:
-            ids_available = False
-        if ids_available:
-            assert 'ids' in camera_registry.registered_names()
+        ids_loaded = 'drivers.idscamera' in sys.modules
+        assert ('ids' in camera_registry.registered_names()) == ids_loaded
 
 
 class TestRegistryAccommodatesCompositeHardware:
