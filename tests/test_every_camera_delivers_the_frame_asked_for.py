@@ -139,3 +139,25 @@ def test_no_driver_frames_its_own_frames(member):
 
     for driver in (FX2Camera, IDSCamera, PylonCamera, SimulatedCamera):
         assert getattr(driver, member) is getattr(Camera, member), (driver.__name__, member)
+
+
+def test_every_camera_profile_offers_even_sides():
+    # The deliverable step is even sides on every camera: the base acquires
+    # the next window up on the driver's grid, so a profile carrying its
+    # hardware grid would floor a request no camera floors any more.
+    from drivers.camera_profiles import _PROFILES
+
+    for key, profile in _PROFILES:
+        assert profile.alignment == {'width': 2, 'height': 2}, key
+
+
+def test_the_frame_step_with_no_camera_is_even_sides():
+    # With no camera to ask, the step reported is the one every camera has.
+    from tests.scope_fakes import build_scope
+
+    scope = build_scope(simulate=True)
+    try:
+        scope._camera_driver.active = False
+        assert scope.imaging.get_pixel_alignment() == {'width': 2, 'height': 2}
+    finally:
+        scope.disconnect()

@@ -266,6 +266,29 @@ def test_set_frame_size_failure_clears_the_stale_window():
     assert cam._frame_window is None
 
 
+def test_an_inactive_camera_refuses_a_frame_size_without_writing():
+    """With the camera gone there is no grid to plan on: the frame size is
+    refused and nothing reaches the nodemap or the window."""
+    cam = _ids_camera_with_aoi()
+    cam.active = None
+
+    assert cam.set_frame_size(1900, 1900) is False
+    assert cam.remote_nodemap.writes == []
+    assert cam._frame_window is None
+
+
+def test_an_unreadable_aoi_node_refuses_the_frame_size_without_raising():
+    """A node read that fails leaves no grid to plan on: the frame size is
+    refused, reported as False to the caller like any refusal, and no window
+    is recorded."""
+    cam = _ids_camera_with_aoi()
+    cam.remote_nodemap = MagicMock()
+    cam.remote_nodemap.FindNode.side_effect = RuntimeError('node read failed')
+
+    assert cam.set_frame_size(1900, 1900) is False
+    assert cam._frame_window is None
+
+
 def test_set_frame_size_on_phased_height_grid_2x_binning():
     """The 2x-binning bench failure: the binned Height node reports Min=418,
     Inc=4, so its legal AOI grid is 418+4k. A plain multiple-of-4 snap produces
