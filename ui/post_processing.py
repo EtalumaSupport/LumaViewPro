@@ -779,13 +779,12 @@ class CellCountControls(BoxLayout):
     def set_preview_source_file(self, file) -> None:
         # One read returns pixels AND their payload depth, so the preview always
         # scales by the source's true depth and cannot read the two out of sync.
-        try:
-            image, significant_bits = image_utils.load_pixels(file)
-        except (FileNotFoundError, ValueError) as e:
-            logger.warning(f'[LVP Main  ] Cell-count preview could not load {file}: {e}')
-            return
-        self._preview_source_significant_bits = significant_bits
-        self.set_preview_source(image=image)
+        def _load():
+            image, significant_bits = post_processing.read_cell_count_image(file)
+            self._preview_source_significant_bits = significant_bits
+            self.set_preview_source(image=image)
+
+        run_reported(_load, None, 'LOAD_CELL_COUNT_INPUT_IMAGE')
 
     def calculate_area_filter_max(self, image):
         pixels_per_um = self._settings['context']['pixels_per_um']

@@ -142,6 +142,27 @@ def check_cell_count_method(method: object, *, source: str = 'The cell-count met
             _refuse_method(source, f'{name}.min ({low}) is above its max ({high})')
 
 
+def read_cell_count_image(path: str | os.PathLike) -> tuple[np.ndarray, int]:
+    """Read an image to count: its pixels and their payload depth.
+
+    One read returns pixels AND their payload depth together, so a
+    right-aligned 12-bit TIFF scales to 8-bit by its true depth and the two
+    can never be read out of sync.
+
+    Raises:
+        PostProcessingRefusedError: reason ``unreadable``; the file is missing
+            or is not an image, and the message names it.
+    """
+    try:
+        return image_utils.load_pixels(path)
+    except (FileNotFoundError, ValueError) as e:
+        raise PostProcessingRefusedError(
+            operation=CELL_COUNT_OPERATION,
+            reason='unreadable',
+            message=f'The image cannot be counted: {e}.',
+        ) from e
+
+
 def _number_typed(text: str) -> int | float | str:
     """The number *text* spells, or *text* itself when it spells none."""
     for parse in (int, float):
@@ -280,14 +301,11 @@ class PostProcessing:
 
         for done, filename in enumerate(filenames, start=1):
             file_path = os.path.join(path, filename)
-            # One read returns pixels AND their payload depth together, so a
-            # right-aligned 12-bit TIFF scales to 8-bit by its true depth and
-            # the two can never be read out of sync.
             try:
-                image, significant_bits = image_utils.load_pixels(file_path)
-            except (FileNotFoundError, ValueError) as e:
+                image, significant_bits = read_cell_count_image(file_path)
+            except PostProcessingRefusedError as e:
                 logger.warning(f'[LVP Main  ] Skipping unreadable image {filename}: {e}')
-                unreadable.append(f'{filename}: {e}')
+                unreadable.append(str(e))
                 continue
 
             _, region_info = self.preview_cell_count(
