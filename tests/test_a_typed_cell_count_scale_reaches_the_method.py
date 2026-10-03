@@ -111,3 +111,15 @@ def test_the_owner_returns_a_copy_and_leaves_the_method_alone():
     assert method['context']['pixels_per_um'] == 1.0
     changed['filters']['area']['max'] = 7
     assert method['filters']['area']['max'] == 100
+
+
+def test_the_box_is_judged_on_commit_not_on_every_keystroke():
+    # kv-pin: the binding is the behaviour -- an on_text binding would judge
+    # a partly typed '0.5' at '0' and put the box back mid-entry.
+    from tests.ast_seams import REPO_ROOT
+
+    kv = (REPO_ROOT / 'ui' / 'lumaviewpro.kv').read_text()
+    start = kv.index('id: text_cell_count_pixels_per_um_id')
+    rule = kv[start : kv.index('Label:', start)]
+    assert 'on_focus: if not self.focus: root.commit_pixels_per_um()' in rule
+    assert 'on_text' not in rule

@@ -11,6 +11,7 @@ import os
 import time
 import uuid
 from collections.abc import Mapping
+from typing import NoReturn
 
 import numpy as np
 
@@ -70,7 +71,7 @@ def default_cell_count_method() -> dict:
     }
 
 
-def _refuse_method(source: str, problem: str) -> None:
+def _refuse_method(source: str, problem: str) -> NoReturn:
     raise PostProcessingRefusedError(
         operation=CELL_COUNT_OPERATION,
         reason='method_invalid',
@@ -107,9 +108,6 @@ def check_cell_count_method(method: object, *, source: str = 'The cell-count met
     Raises:
         PostProcessingRefusedError: reason ``method_invalid``.
     """
-    if not isinstance(method, Mapping):
-        _refuse_method(source, f'it is a {type(method).__name__}, not a set of named settings')
-
     scale = _method_field(method, ('context', 'pixels_per_um'), source)
     if not _is_number(scale) or scale <= 0:
         _refuse_method(

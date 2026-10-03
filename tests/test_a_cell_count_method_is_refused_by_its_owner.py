@@ -77,6 +77,7 @@ def test_a_scale_that_is_not_a_positive_number_is_refused_naming_it(scale):
     'remove',
     [
         ('segmentation',),
+        ('segmentation', 'algorithm'),
         ('segmentation', 'parameters', 'threshold'),
         ('context', 'fluorescent_mode'),
         ('filters', 'intensity', 'mean'),
@@ -114,9 +115,11 @@ def test_a_fluorescent_mode_that_is_not_true_or_false_is_refused(flag):
         check_cell_count_method(_method(fluorescent_mode=flag))
 
 
-def test_a_method_that_is_not_a_dict_is_refused():
-    with pytest.raises(PostProcessingRefusedError):
-        check_cell_count_method(['context'])
+@pytest.mark.parametrize('method', [['context'], 'context', None])
+def test_a_method_that_is_not_a_dict_is_refused(method):
+    with pytest.raises(PostProcessingRefusedError) as refused:
+        check_cell_count_method(method)
+    assert 'context.pixels_per_um' in str(refused.value)
 
 
 def test_the_session_refuses_a_bad_method_before_the_count_is_queued(tmp_path):
@@ -148,3 +151,36 @@ def test_the_refusal_leaves_the_callers_method_as_it_was():
     with pytest.raises(PostProcessingRefusedError):
         check_cell_count_method(method)
     assert method == before
+
+
+@pytest.mark.parametrize('threshold', ['20', None, float('nan')])
+def test_a_threshold_that_is_not_a_number_is_refused_naming_it(threshold):
+    method = _method()
+    method['segmentation']['parameters']['threshold'] = threshold
+    with pytest.raises(PostProcessingRefusedError) as refused:
+        check_cell_count_method(method)
+    assert 'segmentation.parameters.threshold' in str(refused.value)
+
+
+@pytest.mark.parametrize('bound', ['10', [1], True])
+def test_a_filter_bound_that_is_not_a_number_is_refused_naming_it(bound):
+    method = _method()
+    method['filters']['intensity']['max']['min'] = bound
+    with pytest.raises(PostProcessingRefusedError) as refused:
+        check_cell_count_method(method)
+    assert 'filters.intensity.max.min' in str(refused.value)
+
+
+def test_the_panels_apply_to_preview_is_reported_through_the_boundary(monkeypatch):
+    from types import SimpleNamespace
+
+    import ui.post_processing as panel_module
+
+    calls = []
+    monkeypatch.setattr(
+        panel_module, 'run_reported', lambda call, redraw, label: calls.append((call, label))
+    )
+    regenerate = object()
+    panel = SimpleNamespace(_regenerate_image_preview=regenerate)
+    panel_module.CellCountControls.apply_method_to_preview_image(panel)
+    assert calls == [(regenerate, 'APPLY_METHOD_TO_PREVIEW')]
