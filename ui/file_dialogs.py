@@ -496,11 +496,12 @@ class FileChooseBTN(HoverBehavior, Button):
         logger.info(f'[LVP Main  ] FileChooseBTN.choose({context})')
         self.context = context
 
-        # Show previously selected/default folder
-        selected_path = None
+        # Every open starts in the live folder, as the folder, save and
+        # file-or-folder pickers do; without one macOS opens wherever its last
+        # dialog was, often Documents.
+        selected_path = str(pathlib.Path(_app_ctx.ctx.settings['live_folder']))
         filetypes_tk = None
         if self.context == 'load_protocol':
-            selected_path = str(pathlib.Path(_app_ctx.ctx.settings['live_folder']))
             filetypes_tk = [('TSV', '.tsv')]
         elif self.context == 'load_cell_count_input_image':
             filetypes_tk = [('TIFF', '.tif .tiff')]
