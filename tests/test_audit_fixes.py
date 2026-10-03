@@ -10350,13 +10350,14 @@ class TestPreReleaseFutureWarning:
             f'warned exactly once; saw {len(future_warnings)}'
         )
 
-    def test_scope_session_simulated_create_fires_warning(self):
+    def test_scope_session_simulated_create_fires_warning(self, tmp_path):
         import warnings
         from modules.scope_session import ScopeSession
+        from tests.settings_fixtures import complete_settings
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter('always')
-            ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
+            ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         future_warnings = [w for w in caught if issubclass(w.category, FutureWarning)]
         assert len(future_warnings) >= 1
         assert 'PRE-RELEASE' in str(future_warnings[0].message)
@@ -10851,10 +10852,11 @@ class TestScopeSessionBuildsFullExecutorBundle:
     so headless callers get the same topology lumaviewpro.py runs.
     """
 
-    def test_create_gives_the_session_the_bundles_file_io_executor(self):
+    def test_create_gives_the_session_the_bundles_file_io_executor(self, tmp_path):
         from modules.scope_session import ScopeSession
+        from tests.settings_fixtures import complete_settings
 
-        session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
+        session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         try:
             assert session.file_io_executor is session.executor_bundle.file_io_executor, (
                 'ScopeSession.create(simulate=True) must give the session the '
@@ -10864,11 +10866,12 @@ class TestScopeSessionBuildsFullExecutorBundle:
         finally:
             session.shutdown()
 
-    def test_the_session_metrics_logger_holds_its_bundle_and_settings(self):
+    def test_the_session_metrics_logger_holds_its_bundle_and_settings(self, tmp_path):
         from modules.scope_session import ScopeSession
+        from tests.settings_fixtures import complete_settings
         from modules.executor_registry import ExecutorBundle
 
-        session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
+        session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         logger_ = session.metrics_logger
         assert isinstance(logger_._bundle, ExecutorBundle), (
             'the watchdog tick snapshots the bundle; without it the four '
@@ -10880,21 +10883,23 @@ class TestScopeSessionBuildsFullExecutorBundle:
             'settings; an empty dict would log against no folder, silently'
         )
 
-    def test_create_session_carries_bundle_reference(self):
+    def test_create_session_carries_bundle_reference(self, tmp_path):
         from modules.scope_session import ScopeSession
+        from tests.settings_fixtures import complete_settings
         from modules.executor_registry import ExecutorBundle
 
-        session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
+        session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         assert isinstance(session.executor_bundle, ExecutorBundle), (
             'ScopeSession.create(simulate=True) must store the bundle on the '
             'session itself so headless callers can shut down protocol_thread '
             '/ scope_display_thread cleanly.'
         )
 
-    def test_create_bundle_has_all_four_executors(self):
+    def test_create_bundle_has_all_four_executors(self, tmp_path):
         from modules.scope_session import ScopeSession
+        from tests.settings_fixtures import complete_settings
 
-        session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
+        session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         bundle = session.executor_bundle
         # All four executors are required for full L2-caller pipelining.
         for attr_name in ('io_executor', 'camera_executor', 'file_io_executor', 'worker_pool'):

@@ -48,6 +48,7 @@ from modules.sequenced_capture_runner import (
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.protocol_drives import autofocus_snapshot
 from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
+from tests.settings_fixtures import complete_settings
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -539,7 +540,7 @@ class TestNoSilentHeadlessDefault:
     def test_configless_run_raises_before_anything_starts(self, tmp_path):
         from modules.scope_session import ScopeSession
 
-        session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
+        session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         try:
             runner = session.create_protocol_runner()
             with pytest.raises(ConfigError, match='image_mode'):

@@ -35,13 +35,14 @@ import pytest
 
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import IOTask
+from tests.settings_fixtures import complete_settings
 
 
 @pytest.fixture
-def headless_session():
+def headless_session(tmp_path):
     """A real headless session, torn down whatever the test does."""
     session = ScopeSession.create(
-        ScopeSession.load_user_settings('.'), source_path='.', simulate=True
+        complete_settings(live_folder=str(tmp_path)), source_path='.', simulate=True
     )
     try:
         yield session

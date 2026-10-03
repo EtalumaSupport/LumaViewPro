@@ -33,7 +33,7 @@ from tests.settings_fixtures import complete_settings
 
 @pytest.fixture
 def session(tmp_path):
-    s = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
+    s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
     yield s
     s.shutdown()
 

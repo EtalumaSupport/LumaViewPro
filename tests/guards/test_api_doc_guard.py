@@ -53,6 +53,7 @@ import pytest
 
 from tests.ast_seams import REPO_ROOT
 from tests.scope_fakes import build_scope
+from tests.settings_fixtures import complete_settings
 
 DOC = REPO_ROOT / 'docs' / 'LumascopeSkills.md'
 
@@ -171,7 +172,7 @@ def doc_text():
 
 
 @pytest.fixture(scope='module')
-def live_objects():
+def live_objects(tmp_path_factory):
     """Every receiver the reference documents, as live instances.
 
     Module-scoped: the headless session builds the full executor topology,
@@ -181,7 +182,9 @@ def live_objects():
     from modules.scope_session import ScopeSession
 
     scope = build_scope(simulate=True, register_atexit=False)
-    session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path_factory.mktemp('live'))), simulate=True
+    )
     yield {
         'scope': scope,
         'session': session,
