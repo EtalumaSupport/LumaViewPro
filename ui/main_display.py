@@ -185,21 +185,15 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         self.ids['viewer_id'].pos = (0, 0)
 
     def one2one_image(self):
-        try:
-            gui_logger.button('ONE_TO_ONE_IMAGE')
-            logger.info('[LVP Main  ] MainDisplay.one2one_image()')
-            if not self.scope.imaging.active_cached:
-                return
-            scope = _app_ctx.ctx.scope
-            w = self.width
-            h = self.height
-            scale_hor = float(scope.imaging.get_width()) / float(w)
-            scale_ver = float(scope.imaging.get_height()) / float(h)
-            scale = max(scale_hor, scale_ver)
-            self.ids['viewer_id'].scale = scale
-            self.ids['viewer_id'].pos = (int((w - scale * w) / 2), int((h - scale * h) / 2))
-        except Exception as e:
-            logger.error(f'[UI] one2one_image failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(title='Error', message=str(e))
+        gui_logger.button('ONE_TO_ONE_IMAGE')
+        logger.info('[LVP Main  ] MainDisplay.one2one_image()')
+        if not self.scope.imaging.active_cached:
+            return
+        scope = _app_ctx.ctx.scope
+        w = self.width
+        h = self.height
+        scale_hor = float(scope.imaging.get_width()) / float(w)
+        scale_ver = float(scope.imaging.get_height()) / float(h)
+        scale = max(scale_hor, scale_ver)
+        self.ids['viewer_id'].scale = scale
+        self.ids['viewer_id'].pos = (int((w - scale * w) / 2), int((h - scale * h) / 2))

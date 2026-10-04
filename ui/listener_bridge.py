@@ -123,10 +123,7 @@ class UIListenerBridge:
         ctx = self._ctx
         if not ctx.ready:
             return
-        try:
-            layer_obj = ctx.image_settings.layer_lookup(layer=color)
-        except Exception:
-            return
+        layer_obj = ctx.image_settings.layer_lookup(layer=color)
         state = self._scope.illumination.get_led_state(channel=color)
         target = 'down' if state.get('enabled', False) else 'normal'
         if layer_obj.ids['enable_led_btn'].state != target:
