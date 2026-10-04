@@ -57,6 +57,7 @@ import platformdirs
 from lvp_logger import collect_installed_packages
 from modules import recording_frames, settings_init
 from modules.exceptions import (
+    HARDWARE_STATE_REASONS,
     DiagnosticRefusedError,
     HardwareCommandRefusedError,
     SUPPORT_ADDRESS,
@@ -1430,7 +1431,7 @@ class FirmwareDiagnostics:
             except HomingFailedError as e:
                 return f'Error: {e}'
             except HardwareCommandRefusedError as e:
-                if e.reason != 'not_connected':
+                if e.reason not in HARDWARE_STATE_REASONS:
                     raise
                 return f'Error: {e}'
             return 'OK'

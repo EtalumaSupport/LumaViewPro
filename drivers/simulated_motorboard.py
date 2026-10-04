@@ -248,6 +248,10 @@ class SimulatedMotorBoard:
         """
         return True
 
+    def interlocks(self) -> frozenset[str]:
+        """The EL-0940 has no interlock inputs, so its stand-in has none open."""
+        return frozenset()
+
     def supports_motor_stop(self) -> bool:
         """Sim firmware supports every command family."""
         return True

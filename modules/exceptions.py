@@ -1839,7 +1839,10 @@ class HardwareCommandRefusedError(Refusal, Exception):
 
     A home with no motor controller connected raises it as well
     (``'not_connected'``): nothing was driven, and the person's remedy is
-    the cable, not a retry.
+    the cable, not a retry. So does a move or a home the stage's own
+    interlock refused before anything moved (``INTERLOCK_REASONS``): the
+    lid is open, or the stage has no power; the refused axis is where it
+    was, its position known.
 
     A declined request, not a fault, so it is a ``Refusal``: the lane shows
     it as a warning in its own words and logs one line without a
@@ -1861,12 +1864,24 @@ class HardwareCommandRefusedError(Refusal, Exception):
         self.reason = reason
         self.member = member
         self.holder = holder
-        self.title = (
-            'Not Connected'
-            if reason in ('not_connected', 'scope_disconnected')
-            else 'Microscope Busy'
-        )
+        self.title = _COMMAND_REFUSED_TITLES.get(reason, 'Microscope Busy')
 
+
+# The refusals a stage's own interlock raises: the hardware is in a state
+# that does not let it move, and the person's remedy is at the scope.
+INTERLOCK_REASONS = frozenset({'lid_open', 'stage_unpowered'})
+
+# The refusals that describe the hardware's state rather than who holds the
+# scope. A home refused for one of them is reported where it was asked for,
+# as a missing board is; any other refusal of a home is a caller's defect.
+HARDWARE_STATE_REASONS = frozenset({'not_connected'}) | INTERLOCK_REASONS
+
+_COMMAND_REFUSED_TITLES = {
+    'not_connected': 'Not Connected',
+    'scope_disconnected': 'Not Connected',
+    'lid_open': 'Lid Open',
+    'stage_unpowered': 'No Stage Power',
+}
 
 _HOLDER_NOUNS = {'protocol': 'A run', 'diagnostic': 'A diagnostic', 'recording': 'A recording'}
 
@@ -1883,6 +1898,10 @@ def _command_refused_sentence(reason: str, holder: str | None) -> str:
             'The motor controller is not connected. Check the USB cable and that '
             'no other program is holding the port.'
         )
+    if reason == 'lid_open':
+        return "The microscope's lid is open. Close it to move or home the stage."
+    if reason == 'stage_unpowered':
+        return "The stage has no power. Check the stage's power supply, then home."
     who = _HOLDER_NOUNS.get(holder, 'Another activity')
     return f'{who} is using the microscope. Try again when it ends.'
 
@@ -2248,7 +2267,8 @@ class HomingFailedError(Exception):
         home: What was homed: ``'ALL'``, ``'Z'`` or ``'T'``.
         reason: ``'failed'`` -- the driver answered False; ``'error'`` --
             the home raised; ``'unread'`` -- homed, but ``axes`` could not
-            be read.
+            be read; ``'lid_open'`` -- the lid was opened while the home
+            was moving; ``'stopped'`` -- a Stop ended the home.
         axes: The axes left without a known position.
     """
 
@@ -2271,6 +2291,13 @@ class HomingFailedError(Exception):
             )
         elif reason == 'failed':
             sentence = f'{self._SUBJECTS[home]} failed. Position is unknown.'
+        elif reason == 'lid_open':
+            sentence = (
+                f"{self._SUBJECTS[home]} stopped: the microscope's lid was opened. "
+                'Position is unknown.'
+            )
+        elif reason == 'stopped':
+            sentence = f'{self._SUBJECTS[home]} was stopped. Position is unknown.'
         else:
             sentence = f'{self._SUBJECTS[home]} encountered an error. Position is unknown.'
         super().__init__(sentence)

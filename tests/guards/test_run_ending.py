@@ -88,6 +88,7 @@ COVERAGE = {
     'video_writer_died',
     'motion_timeout',
     'position_lost',
+    'interlock',
     'hardware_disconnected',
     'consecutive_scan_failures',
     'run_loop_crashed',

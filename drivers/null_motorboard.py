@@ -452,6 +452,10 @@ class NullMotionBoard:
         """
         return False
 
+    def interlocks(self) -> frozenset[str]:
+        """No motor, no interlock."""
+        return frozenset()
+
     def supports_motor_stop(self) -> bool:
         """No motor hardware: no command family is supported."""
         return False

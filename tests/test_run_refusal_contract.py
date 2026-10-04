@@ -720,6 +720,7 @@ RUNNER_REFUSAL_COVERAGE = {
     ),
     'hardware_disconnected': _FUNNEL_LOOP,
     'position_unknown': _FUNNEL_LOOP,
+    'lid_open': _FUNNEL_LOOP,
     # Raised at start(), not prepare(), so it cannot ride the scenario
     # loop (which drives _prepare); it gets the start-tier twin below.
     'exclusive_activity_running': ('test_start_refused_while_recording_holds_activity_claim'),
@@ -801,6 +802,13 @@ class TestRefusalNotifyOnceFunnel:
             mp.setattr(scope.motion, 'axes_without_position', lambda: {'X': 'unknown'})
             return _make_single_step_protocol()
 
+        def lid_open(mp):
+            # Homed, so the position gate before it passes; the stage's lid
+            # is the board's to report.
+            mp.setattr(scope.motion, 'axes_without_position', lambda: {})
+            mp.setattr(scope.motion, 'interlocks', lambda: frozenset({'lid_open'}))
+            return _make_single_step_protocol()
+
         def autofocus_running(mp):
             # A live interactive autofocus owns Z and the LED lease; a run
             # prepared under it must be refused before any commitment.
@@ -842,6 +850,7 @@ class TestRefusalNotifyOnceFunnel:
             ('hardware_disconnected', hardware_disconnected),
             ('position_unknown', position_unknown),
             ('layer_not_on_scope', layer_not_on_scope),
+            ('lid_open', lid_open),
         ]
 
     def test_each_refusal_reason_notifies_once_with_matching_reason(

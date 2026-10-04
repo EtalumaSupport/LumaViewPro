@@ -1326,6 +1326,10 @@ class MotorBoard(SerialBoard):
         resp = self.exchange_command(command, expect_unsupported=True)
         return self._record_support(command, cache_attr, resp)
 
+    def interlocks(self) -> frozenset[str]:
+        """The EL-0940 has no interlock inputs, so none is ever open."""
+        return frozenset()
+
     def supports_motor_stop(self) -> bool:
         """Whether the connected firmware implements the STOP
         emergency-stop command.

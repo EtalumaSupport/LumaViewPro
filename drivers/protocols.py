@@ -67,6 +67,13 @@ class MotorBoardProtocol(Protocol):
     # return False.
     def motor_stop(self) -> bool: ...
 
+    # --- Interlocks ---
+    # The hardware interlocks open now that keep this board's motors from
+    # moving ('lid_open', 'stage_unpowered'), read from the board without
+    # starting anything. A board with no interlock inputs answers none. A
+    # motion command an open interlock refuses raises MotionInterlockError.
+    def interlocks(self) -> frozenset[str]: ...
+
     # --- Capability probes ---
     # Probe-and-cache whether the connected firmware implements a
     # command family, so callers gate on the probe answer instead of

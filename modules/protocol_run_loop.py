@@ -17,7 +17,12 @@ from lvp_logger import logger
 from modules.common_utils import MIN_REQUIRED_DISK_MB, check_disk_space_ok
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.protocol_state_machine import ProtocolState
-from modules.exceptions import RunFailedError, describe_unknown_positions
+from modules.exceptions import (
+    INTERLOCK_REASONS,
+    HardwareCommandRefusedError,
+    RunFailedError,
+    describe_unknown_positions,
+)
 from modules.run_outcome import RunEnding
 
 if TYPE_CHECKING:
@@ -378,6 +383,32 @@ class ProtocolRunLoop:
                         'Check the USB cable and power connections, save '
                         'the protocol, then restart LumaViewPro and the '
                         'protocol.',
+                    )
+                    if p._state not in (
+                        ProtocolState.COMPLETING,
+                        ProtocolState.IDLE,
+                        ProtocolState.ERROR,
+                    ):
+                        try:
+                            p._set_state(ProtocolState.ERROR)
+                        except ValueError:
+                            pass
+                    p.abort_run_fatal(ending.reason, ending.title, ending.message)
+                    return ending
+
+                # A move the stage's interlock refused is not transient: the
+                # lid stays open until someone closes it, so every retry is
+                # refused the same way, and the strike ceiling would end the
+                # run three periods later blaming the cable. Decided by the
+                # refusal's type; the refused axis keeps its position, so the
+                # lost-position check below would not see it.
+                if isinstance(ex, HardwareCommandRefusedError) and ex.reason in INTERLOCK_REASONS:
+                    logger.error(f'[Protocol] Stage interlock refused a move during scan: {ex}')
+                    ending = RunEnding(
+                        'failed',
+                        'interlock',
+                        f'Protocol Aborted -- {ex.title}',
+                        f'The run stopped. {ex}',
                     )
                     if p._state not in (
                         ProtocolState.COMPLETING,

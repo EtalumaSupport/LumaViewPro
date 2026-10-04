@@ -35,6 +35,7 @@ from modules import binning, common_utils, image_mode, settings_paths
 from modules.activity_claim import SCOPE_HOLDING_KINDS, ActivityClaim, HeldClaim, acting
 from modules.common_utils import CustomJSONizer
 from modules.exceptions import (
+    HARDWARE_STATE_REASONS,
     CameraSettingUnsupportedError,
     ConfigError,
     DiagnosticRefusedError,
@@ -3358,7 +3359,12 @@ class ScopeSession:
         try:
             home_fn('ALL')
         except (HomingFailedError, HardwareCommandRefusedError) as e:
-            if isinstance(e, HardwareCommandRefusedError) and e.reason != 'not_connected':
+            # A refusal for the hardware's state (no board, the lid open, the
+            # stage unpowered) is the scope's to report; any other is a defect.
+            if (
+                isinstance(e, HardwareCommandRefusedError)
+                and e.reason not in HARDWARE_STATE_REASONS
+            ):
                 raise
             from modules.notification_center import notifications
 

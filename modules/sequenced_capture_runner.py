@@ -961,8 +961,9 @@ class SequencedCaptureRunner:
     ) -> RunPlan:
         """Validate a run request and build its immutable RunPlan.
 
-        Mutates no runner state, touches no hardware, and writes nothing
-        to disk: a refused prepare is observationally a no-op. The
+        Mutates no runner state, commands no hardware -- its one read of
+        the hardware is the stage's interlocks -- and writes nothing to
+        disk: a refused prepare is observationally a no-op. The
         record getters (run_dir(), num_scans()) still answer for the
         previous run; run_trigger_source() answers for whoever holds
         the scope, which a refused prepare did not change either. Callers commit their own
@@ -976,8 +977,8 @@ class SequencedCaptureRunner:
             ProtocolRunRefusedError: The run cannot start (already
                 running, files still writing, empty protocol, validation
                 errors, hardware not connected, an axis position not
-                known). The user has already been notified once when
-                this raises.
+                known, the stage's lid open). The user has already been
+                notified once when this raises.
             ValueError: leds_state_at_end is not a supported literal --
                 a programming error at the call site, not a refusal.
             TypeError: image_capture_config is not an ImageCaptureConfig
@@ -1220,6 +1221,22 @@ class SequencedCaptureRunner:
                         if waiting
                         else 'Home the scope, then start the run.'
                     )
+                ),
+            )
+
+        # Every run commands X and Y at every plate step, and the stage's
+        # lid refuses each of those moves, so a run admitted with the lid
+        # open would end at its first step. After the position gate: an
+        # unhomed scope is told to home first, and the home is refused for
+        # the lid in its own words. Asked of the board directly rather than
+        # queued behind a move or a home on the IO lane.
+        if 'lid_open' in self._scope.motion.interlocks():
+            self._refuse(
+                reason='lid_open',
+                title='Lid Open',
+                message=(
+                    "Cannot start the run: the microscope's lid is open. "
+                    'Close it, then start the run.'
                 ),
             )
 

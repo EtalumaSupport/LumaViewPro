@@ -34,7 +34,7 @@ import time
 from typing import TYPE_CHECKING, ClassVar, NoReturn
 from collections.abc import Iterable, Iterator, Mapping
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import HardwareError, MotionInterlockError
 from lib import profile_trace
 from lvp_logger import logger
 from modules.exceptions import (
@@ -415,6 +415,52 @@ class MotionAPI:
         self._set_axis_state(axis, AxisState.UNKNOWN)
         raise MoveNotCompletedError(axis, 'driver_failed') from cause
 
+    def _refuse_for_interlock(
+        self, axis: str, cause: MotionInterlockError, member: str
+    ) -> NoReturn:
+        """The stage's interlock refused a move: raise the API's refusal.
+
+        Refused before anything moved, the axis keeps the state it had --
+        the driver call precedes the MOVING transition -- so its position
+        is still known. An axis the driver stopped in refusing it is MOVING
+        on a move nobody waits for, and the monitor sets it IDLE where it
+        stopped, as after a Stop. A refusal after something moved is not a
+        refusal, and fails the drive as any driver error does.
+
+        Raises:
+            HardwareCommandRefusedError: the interlock's reason, chained
+                from the driver's error.
+            MoveNotCompletedError: ``'driver_failed'``, when the driver says
+                the refused command had moved.
+        """
+        if cause.moved:
+            self._fail_drive(axis, cause)
+        _api_log.info(f'{member} {axis} REFUSED: {cause.reason}')
+        raise HardwareCommandRefusedError(cause.reason, member) from cause
+
+    def _axis_states(self, axes: Iterable[str]) -> dict[str, str]:
+        """The states ``axes`` hold now, read together."""
+        with self._axis_state_lock:
+            return {axis: self._axis_state.get(axis) for axis in axes}
+
+    def _home_ending(self, stop_generation: int, reason: str) -> str:
+        """A failed home's reason: ``'stopped'`` when a Stop landed during it."""
+        return 'stopped' if self._stopped_since(stop_generation) else reason
+
+    def interlocks(self) -> frozenset[str]:
+        """The stage's hardware interlocks open now (``'lid_open'``, ``'stage_unpowered'``).
+
+        Empty on a board with none. Asked of the driver directly, not
+        queued on the IO lane: the driver reads it under its own lock,
+        one exchange serialized with any in flight, so the answer never
+        waits behind a move or a home, as the motion monitor's own reads
+        do not.
+
+        Returns:
+            frozenset[str]: The open interlocks' reasons.
+        """
+        return self._driver.interlocks()
+
     @staticmethod
     def _refuse_turret_on_generic_door(axis: str, member: str) -> None:
         """Refuse T at a public generic mover; the turret moves only by slot.
@@ -667,9 +713,13 @@ class MotionAPI:
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, no motor
-                controller is connected; nothing was driven.
+                controller is connected; or an interlock reason, the stage's
+                interlock refused the home before anything moved. Nothing
+                was driven, and every axis keeps the state it had.
             HomingFailedError: the driver answered False or raised, or a
-                homed axis's position could not be read.
+                homed axis's position could not be read; ``'lid_open'``,
+                the lid was opened while the home moved; ``'stopped'``, a
+                Stop ended it.
         """
         # Short-circuit on disconnected motor -- without this, home()
         # dispatches into the driver where exchange_command tries to
@@ -681,6 +731,9 @@ class MotionAPI:
             raise HardwareCommandRefusedError('not_connected', 'home')
         present_axes = self._scope.capabilities.axes
         _api_log.info('home START')
+        # What a home the interlock refuses before anything moves gives back.
+        states_before = self._axis_states(present_axes)
+        turret_before = self._last_turret_position
         for ax in present_axes:
             self._set_axis_state(ax, AxisState.HOMING)
         # A homing turret is in no known slot until the home succeeds.
@@ -699,7 +752,9 @@ class MotionAPI:
             if result is False:
                 for ax in present_axes:
                     self._set_axis_state(ax, AxisState.UNKNOWN)
-                raise HomingFailedError('ALL', 'failed', present_axes)
+                raise HomingFailedError(
+                    'ALL', self._home_ending(stop_generation, 'failed'), present_axes
+                )
             # The position is read BEFORE an axis says IDLE: a reader that
             # samples at frame rate would otherwise pair "known" with the
             # pre-home number for the length of the serial round-trips.
@@ -717,10 +772,21 @@ class MotionAPI:
                 self._last_turret_position = 1
         except HomingFailedError:
             raise
+        except MotionInterlockError as e:
+            if not e.moved:
+                for ax, state in states_before.items():
+                    self._set_axis_state(ax, state)
+                self._last_turret_position = turret_before
+                raise HardwareCommandRefusedError(e.reason, 'home') from e
+            for ax in present_axes:
+                self._set_axis_state(ax, AxisState.UNKNOWN)
+            raise HomingFailedError('ALL', e.reason, present_axes) from e
         except Exception as e:
             for ax in present_axes:
                 self._set_axis_state(ax, AxisState.UNKNOWN)
-            raise HomingFailedError('ALL', 'error', present_axes) from e
+            raise HomingFailedError(
+                'ALL', self._home_ending(stop_generation, 'error'), present_axes
+            ) from e
         finally:
             self._is_homing = False
             _api_log.info('home DONE')
@@ -1277,10 +1343,13 @@ class MotionAPI:
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, no motor
-                controller is connected; nothing was driven.
+                controller is connected; or an interlock reason, the stage's
+                interlock refused the home before anything moved. Nothing
+                was driven, and Z keeps the state it had.
             HomingFailedError: the driver answered False or raised (e.g.
                 HardwareError on no-response / firmware-error), or Z's
-                position could not be read.
+                position could not be read; ``'lid_open'``, the lid was
+                opened while the home moved; ``'stopped'``, a Stop ended it.
         """
         # Short-circuit on disconnected motor -- same rationale as the
         # full-home body: without this, the driver's exchange_command
@@ -1290,23 +1359,32 @@ class MotionAPI:
             logger.warning('[SCOPE API ] Z home requested with motor not connected')
             raise HardwareCommandRefusedError('not_connected', 'home')
         _api_log.info('Z home START')
+        # What a home the interlock refuses before anything moves gives back.
+        state_before = self._axis_states(('Z',))['Z']
         self._set_axis_state('Z', AxisState.HOMING)
+        stop_generation = self._stop_generation
         self._scope.imaging.frame_validity.invalidate('z_move')
         try:
             with self._reference_position_logger():
                 result = self._driver.zhome()
             if result is False:
                 self._set_axis_state('Z', AxisState.UNKNOWN)
-                raise HomingFailedError('Z', 'failed', ('Z',))
+                raise HomingFailedError('Z', self._home_ending(stop_generation, 'failed'), ('Z',))
             read = self._refresh_position_cache()
             if 'Z' in read:
                 self._set_axis_state('Z', AxisState.IDLE)
             self._raise_unread_axes('Z', ('Z',), read)
         except HomingFailedError:
             raise
+        except MotionInterlockError as e:
+            if not e.moved:
+                self._set_axis_state('Z', state_before)
+                raise HardwareCommandRefusedError(e.reason, 'home') from e
+            self._set_axis_state('Z', AxisState.UNKNOWN)
+            raise HomingFailedError('Z', e.reason, ('Z',)) from e
         except Exception as e:
             self._set_axis_state('Z', AxisState.UNKNOWN)
-            raise HomingFailedError('Z', 'error', ('Z',)) from e
+            raise HomingFailedError('Z', self._home_ending(stop_generation, 'error'), ('Z',)) from e
         finally:
             _api_log.info('Z home DONE')
 
@@ -1772,6 +1850,8 @@ class MotionAPI:
                     axis, position, overshoot_enabled=overshoot_enabled
                 ),
             )
+        except MotionInterlockError as e:
+            self._refuse_for_interlock(axis, e, 'move_absolute')
         except Exception as e:
             _api_log.error(f'move_abs {axis}={position:.1f}um FAILED')
             self._fail_drive(axis, e)
@@ -1988,6 +2068,8 @@ class MotionAPI:
                     axis, distance, overshoot_enabled=overshoot_enabled
                 ),
             )
+        except MotionInterlockError as e:
+            self._refuse_for_interlock(axis, e, 'move_relative')
         except Exception as e:
             _api_log.error(f'move_rel {axis}={distance:+.1f}um FAILED')
             self._fail_drive(axis, e)
