@@ -109,7 +109,6 @@ def test_a_grid_that_is_built_says_how_many_steps_it_made(protocol_log, scale_ca
         tiling='2x2',
         frame_dimensions={'width': 1900, 'height': 1900},
         binning_size=1,
-        curr_step_idx=0,
         axes_config=_WIDE_XY,
         labware=WellPlateLoader().get_plate('6 well microplate'),
         stage_offset={'x': 0, 'y': 0},

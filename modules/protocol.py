@@ -1192,6 +1192,30 @@ class Protocol:
             self._num_steps_cache = len(self._config['steps'])
         return self._num_steps_cache
 
+    def _refuse_unless_in_range(
+        self, what: str, idx: int, *, lowest: int = 0, past_end: int = 0
+    ) -> None:
+        """Refuse an index that names no step, before anything is written.
+
+        A step index is 0..num_steps-1. insert_step's places widen it by one
+        at an end: before_step may be num_steps (at the end) and after_step
+        -1 (after no step, which is how an empty protocol takes its first).
+        Checked here and not left to pandas, whose .at answers an index past
+        the end, or -1, by appending a row nobody added.
+
+        Raises:
+            ProtocolError: idx is outside the range.
+        """
+        num_steps = self.num_steps()
+        highest = num_steps - 1 + past_end
+        if lowest <= idx <= highest:
+            return
+        if highest < lowest:
+            raise ProtocolError(f'{what} {idx} does not exist: the protocol has no steps.')
+        raise ProtocolError(
+            f'{what} {idx} is outside {lowest} to {highest}: the protocol has {num_steps} steps.'
+        )
+
     @property
     def step_list_revision(self) -> int:
         return self._step_list_revision
@@ -1228,6 +1252,11 @@ class Protocol:
         The dicts in its Video Config and Stim_Config cells are stored
         read-only (ReadOnlyDict), so a copy of the frame can share them.
 
+        A step's index is its position: the frame is renumbered 0..n-1 here.
+        The writers address a step by label (.at) and step() by position
+        (iloc), and a caller's frame may carry any index, so without this a
+        write to an index in range lands on a new row instead of that step.
+
         Raises:
             ProtocolError: a non-empty frame is missing current columns.
         """
@@ -1245,7 +1274,7 @@ class Protocol:
                     for column in _DICT_COLUMNS
                     if column in df.columns
                 }
-            )
+            ).reset_index(drop=True)
         self._config['steps'] = df
         self._step_list_changed()
 
@@ -1347,7 +1376,8 @@ class Protocol:
             ),
         )
 
-    def modify_autofocus(self, step_idx: int, enabled: bool):
+    def modify_autofocus(self, step_idx: int, enabled: bool) -> None:
+        self._refuse_unless_in_range('Step index', step_idx)
         self._config['steps'].at[step_idx, 'Auto_Focus'] = enabled
 
     def modify_autofocus_all_steps(self, enabled: bool):
@@ -1355,21 +1385,7 @@ class Protocol:
             self.modify_autofocus(step_idx=idx, enabled=enabled)
 
     def delete_step(self, step_idx: int) -> None:
-        num_steps = self.num_steps()
-
-        if num_steps < 1:
-            return
-
-        # Refused by type like step(): pandas would answer a negative label
-        # with a KeyError, an untyped fault the reporter cannot word.
-        if step_idx < 0:
-            raise ProtocolError('Step index cannot be < 0')
-
-        if step_idx >= self.num_steps():
-            raise ProtocolError(
-                f'Cannot delete step idx {step_idx}. Protocol only has {self.num_steps()}.'
-            )
-
+        self._refuse_unless_in_range('Step index', step_idx)
         self._config['steps'].drop(index=step_idx, axis=0, inplace=True)
         self._config['steps'].reset_index(drop=True, inplace=True)
         self._step_list_changed()
@@ -1396,7 +1412,8 @@ class Protocol:
         self._config['period'] = period
         self._config['duration'] = duration
 
-    def modify_step_z_height(self, step_idx: int, z: float):
+    def modify_step_z_height(self, step_idx: int, z: float) -> None:
+        self._refuse_unless_in_range('Step index', step_idx)
         self._config['steps'].at[step_idx, 'Z'] = z
 
     # What makes a step the one a focus was found for. Not the step-list
@@ -1464,6 +1481,7 @@ class Protocol:
 
         Returns the number of slices moved.
         """
+        self._refuse_unless_in_range('Step index', reference_step_idx)
         steps = self._config['steps']
         group_id = steps.at[reference_step_idx, 'Z-Stack Group ID']
         shift = z - steps.at[reference_step_idx, 'Z']
@@ -1519,15 +1537,8 @@ class Protocol:
         self,
         step_idx: int,
         step_name: str,
-    ):
-        if step_idx < 0:
-            raise ProtocolError('Step idx must be > 0')
-
-        if step_idx >= self.num_steps():
-            raise ProtocolError(
-                f'Cannot modify step idx {step_idx}. Protocol only has {self.num_steps()}.'
-            )
-
+    ) -> None:
+        self._refuse_unless_in_range('Step index', step_idx)
         self._config['steps'].at[step_idx, 'Label'] = Protocol._sanitized_label(step_name)
         # A user typing a name makes it theirs: clear the auto flag so a later
         # channel change does not regenerate over it.
@@ -1551,17 +1562,7 @@ class Protocol:
         change updates exactly the channel token while the label -- user text
         or auto base -- rides along untouched.
         """
-
-        def _validate_inputs():
-            if step_idx < 0:
-                raise ProtocolError('Step idx must be > 0')
-
-            if step_idx >= self.num_steps():
-                raise ProtocolError(
-                    f'Cannot modify step idx {step_idx}. Protocol only has {self.num_steps()}.'
-                )
-
-        _validate_inputs()
+        self._refuse_unless_in_range('Step index', step_idx)
 
         if label is not None:
             self._config['steps'].at[step_idx, 'Label'] = Protocol._sanitized_label(label)
@@ -1605,11 +1606,10 @@ class Protocol:
             if (before_step is not None) and (after_step is not None):
                 raise ProtocolError('Must specify only after_step or before_step, not both')
 
-            if (before_step is not None) and (before_step < 0):
-                raise ProtocolError('before_step cannot be < 0')
-
-            if (after_step is not None) and (after_step > self.num_steps()):
-                raise ProtocolError('after_step cannot be > num_steps')
+            if before_step is not None:
+                self._refuse_unless_in_range('before_step', before_step, past_end=1)
+            else:
+                self._refuse_unless_in_range('after_step', after_step, lowest=-1)
 
         _validate_inputs()
 
@@ -1695,17 +1695,7 @@ class Protocol:
         position from, so a stale hold does not merely misinform the caller,
         it is written into the saved image.
         """
-
-        def _validate():
-            if idx < 0:
-                raise ProtocolError('Step index cannot be < 0')
-
-            if idx >= self.num_steps():
-                raise ProtocolError(
-                    f'Step idx {idx} does not exist. Protocol only has {self.num_steps()}.'
-                )
-
-        _validate()
+        self._refuse_unless_in_range('Step index', idx)
         return to_python_scalars(self._config['steps'].iloc[idx])
 
     def apply_tiling(
@@ -1713,7 +1703,6 @@ class Protocol:
         tiling: str,
         frame_dimensions: dict,
         binning_size: int,
-        curr_step_idx: int,
         axes_config: dict,
         labware: 'labware_module.WellPlate',
         stage_offset: dict,

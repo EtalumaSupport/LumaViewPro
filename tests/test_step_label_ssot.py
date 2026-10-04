@@ -232,7 +232,6 @@ def test_tiling_children_keep_parent_label(scale_capabilities):
         tiling='2x2',
         frame_dimensions={'width': 1900, 'height': 1900},
         binning_size=1,
-        curr_step_idx=0,
         axes_config=axes_config,
         labware=labware,
         stage_offset={'x': 0, 'y': 0},

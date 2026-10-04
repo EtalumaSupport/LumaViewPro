@@ -102,7 +102,6 @@ try:
         tiling='2x2',
         frame_dimensions=config_helpers.get_frame_dimensions_from_settings(settings),
         binning_size=config_helpers.get_binning_from_settings(settings),
-        curr_step_idx=0,
         axes_config=session.scope.motion.get_axes_config(),
         labware=config_helpers.get_selected_labware_from_settings(
             settings, session.wellplate_loader

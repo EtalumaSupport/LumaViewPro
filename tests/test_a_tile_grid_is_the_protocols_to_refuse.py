@@ -31,7 +31,6 @@ def _tile(proto, capabilities, tiling, *, frame_dimensions=None):
         tiling=tiling,
         frame_dimensions=frame_dimensions or {'width': 1900, 'height': 1900},
         binning_size=1,
-        curr_step_idx=0,
         axes_config=_WIDE_XY,
         labware=WellPlateLoader().get_plate('6 well microplate'),
         stage_offset={'x': 0, 'y': 0},

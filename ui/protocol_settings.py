@@ -449,7 +449,6 @@ class ProtocolSettings(FloatLayout):
             tiling=self.ids['tiling_size_spinner'].text,
             frame_dimensions=config_helpers.get_frame_dimensions_from_settings(settings),
             binning_size=get_binning_from_ui(),
-            curr_step_idx=self.curr_step,
             axes_config=axes_config,
             labware=labware,
             stage_offset=stage_offset,

@@ -37,7 +37,6 @@ def _tile_2x2(proto, axes_config):
         tiling='2x2',
         frame_dimensions={'width': 1900, 'height': 1900},
         binning_size=1,
-        curr_step_idx=0,
         axes_config=axes_config,
         labware=WellPlateLoader().get_plate('6 well microplate'),
         stage_offset={'x': 0, 'y': 0},
