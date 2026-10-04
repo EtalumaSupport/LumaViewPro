@@ -19,8 +19,10 @@ or, for a control with no id, ``Class[attr=value]`` among the descendants
 matches nothing, or more than one live widget, stops the walk.
 
 A step that cannot be performed, or whose touch did not reach its control,
-stops the walk there with the reason; a later step never runs. Each step's
-outcome is logged to the main log under ``[SIM WALK  ]``.
+stops the walk there with the reason; a later step never runs. A walk that
+ends in ``quit`` is one nobody watches, so it closes the app at its end, done
+or stopped, with a picture of the window at a stop; any other walk leaves the
+app open. Each step's outcome is logged to the main log under ``[SIM WALK  ]``.
 
 Walk files are read and checked by ``ui.sim_walk_file``.
 """
@@ -42,7 +44,7 @@ from kivy.uix.textinput import TextInput
 
 from modules import gui_logger
 from ui import file_dialogs
-from ui.sim_walk_file import DEFAULT_SETTLE_S
+from ui.sim_walk_file import DEFAULT_SETTLE_S, closes_at_end
 
 logger = logging.getLogger('LVP.sim_walk')
 
@@ -77,6 +79,7 @@ class SimWalk:
         self._shot_dir = shot_dir
         self._number = 0
         self._action = None
+        self._closes_at_end = closes_at_end(steps)
         # What the step's done line says, when it differs from 'done'.
         self._step_outcome = 'done'
         self.finished = False
@@ -114,8 +117,7 @@ class SimWalk:
             return
         if delay is _STEP_DONE:
             logger.info(f'[SIM WALK  ] step {self._number} {_describe(step)}: {self._step_outcome}')
-            if step['do'] != 'quit':
-                Clock.schedule_once(self._next, step.get('settle_s', DEFAULT_SETTLE_S))
+            Clock.schedule_once(self._next, step.get('settle_s', DEFAULT_SETTLE_S))
             return
         Clock.schedule_once(self._resume, delay)
 
@@ -126,6 +128,14 @@ class SimWalk:
             logger.info(f'[SIM WALK  ] {self._source}: done')
         else:
             logger.warning(f'[SIM WALK  ] {self._source}: {outcome}')
+        if not self._closes_at_end:
+            return
+        # Nobody is at the screen for this walk, so it never leaves the app
+        # up, done or stopped: an open LVP blocks every other sim launch. The
+        # picture keeps what a stop looked like.
+        if outcome != 'done' and not self._picture(f'stopped_at_step_{self._number}_'):
+            logger.warning('[SIM WALK  ] the picture of the stop was not written')
+        _close_the_app()
 
     # --- the actions; each is a generator yielding the seconds to wait ------
 
@@ -223,11 +233,17 @@ class SimWalk:
 
     def _shot(self, step):
         yield 0
-        path = Window.screenshot(name=str(self._shot_dir / f'{step["name"]}.png'))
-        if not path or not pathlib.Path(path).is_file():
+        if not self._picture(step['name']):
             raise WalkStepError(f'the window picture {step["name"]!r} was not written')
+
+    def _picture(self, name: str) -> bool:
+        """Write the window to ``<shot_dir>/<name>NNNN.png``; whether it was written."""
+        path = Window.screenshot(name=str(self._shot_dir / f'{name}.png'))
+        if not path or not pathlib.Path(path).is_file():
+            return False
         self.shots.append(str(path))
         logger.info(f'[SIM WALK  ] step {self._number} picture {path}')
+        return True
 
     def _wait(self, step):
         timeout = step.get('timeout_s', _WAIT_TIMEOUT_S)
@@ -238,10 +254,8 @@ class SimWalk:
             yield _POLL_S
 
     def _quit(self, step):
-        # Recorded before the close, which ends the process.
-        self._finish('done')
-        if not Window.dispatch('on_request_close'):
-            App.get_running_app().stop()
+        # The walk's last step (the walk file holds it there); the close is
+        # the end of the walk's, in _finish.
         yield from ()
 
     # --- finding a control, and touching it ---------------------------------
@@ -306,6 +320,12 @@ class SimWalk:
             target.funbind('on_touch_down', arrival)
         if not arrived:
             raise WalkStepError(f'{path}: the touch at ({x:.0f}, {y:.0f}) did not reach it')
+
+
+def _close_the_app() -> None:
+    """Close as the window's X does, so the app's own close gate still asks."""
+    if not Window.dispatch('on_request_close'):
+        App.get_running_app().stop()
 
 
 def _describe(step: dict) -> str:

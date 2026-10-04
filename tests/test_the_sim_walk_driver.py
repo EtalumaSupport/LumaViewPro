@@ -49,6 +49,11 @@ from ui.sim_walk_file import parse_walk
 EventLoop.ensure_window()
 Window.size = (900, 700)
 
+# The app's close gate, standing in: records each close request and refuses
+# it, so the driver never reaches App.stop() in a process with no App.
+closes = []
+Window.bind(on_request_close=lambda *a, **k: closes.append(1) or True)
+
 records = []
 class _Collect(logging.Handler):
     def emit(self, record):
@@ -213,7 +218,7 @@ ids.filebtn.bind(on_release=lambda b: file_dialogs._run_native_dialog_async(
     on_cancel=lambda: hits.append('file cancelled')))
 
 def run(steps, shot_dir):
-    hits.clear(); frames.clear(); records.clear(); walk_lines.clear()
+    hits.clear(); frames.clear(); records.clear(); walk_lines.clear(); closes.clear()
     walk = SimWalk(parse_walk(json.dumps(steps), source='fragment'), source='fragment',
                    ready=lambda: True, shot_dir=pathlib.Path(shot_dir))
     walk.start()
@@ -227,7 +232,7 @@ def run(steps, shot_dir):
         EventLoop.idle()
     return {'outcome': walk.outcome, 'hits': list(hits), 'frames': dict(frames),
             'records': list(records), 'walk_lines': list(walk_lines), 'reads': walk.reads, 'shots': walk.shots,
-            'two_collapsed': drawers.ids.two.collapse}
+            'two_collapsed': drawers.ids.two.collapse, 'closes': len(closes)}
 
 steps = json.loads(sys.argv[2])
 print('RESULT ' + json.dumps(run(steps, sys.argv[3])))
@@ -406,8 +411,34 @@ def test_the_walk_file_parser_names_each_defect():
         ('[{"do": "press", "path": "a", "colour": 1}]', "step 1: unknown key 'colour'"),
         ('[{"do": "choose", "path": "a"}]', "step 1: 'choose' needs file or cancel"),
         ('[{"do": "read", "path": "a", "props": "text"}]', 'props'),
+        ('[{"do": "quit"}, {"do": "wait"}]', 'step 1: quit ends a walk'),
     ]:
         with pytest.raises(WalkFileError, match=__import__('re').escape(says)):
             parse_walk(text, source='w.json')
     with pytest.raises(json.JSONDecodeError):
         parse_walk('not json', source='w.json')
+
+
+def test_a_walk_ending_in_quit_closes_the_app_when_it_stops_early(tmp_path):
+    # Nobody is at the screen for such a walk; an LVP left open blocks every
+    # other sim launch. The stop is recorded first, and a picture kept.
+    result = _run(tmp_path, [{'do': 'press', 'path': 'Panel/nosuch'}, {'do': 'quit'}])
+    assert result['outcome'].startswith('stopped at step 1'), result
+    assert result['closes'] == 1, result
+    assert len(result['shots']) == 1, result
+    shot = pathlib.Path(result['shots'][0])
+    assert shot.name.startswith('stopped_at_step_1_') and shot.is_file(), result
+
+
+def test_a_walk_not_ending_in_quit_leaves_the_app_open_when_it_stops(tmp_path):
+    result = _run(tmp_path, [{'do': 'press', 'path': 'Panel/nosuch'}, {'do': 'wait'}])
+    assert result['outcome'].startswith('stopped at step 1'), result
+    assert result['closes'] == 0, result
+    assert result['shots'] == [], result
+
+
+def test_a_walk_ending_in_quit_closes_the_app_when_it_finishes(tmp_path):
+    result = _run(tmp_path, [{'do': 'press', 'path': 'Panel/btn'}, {'do': 'quit'}])
+    assert result['outcome'] == 'done', result
+    assert result['closes'] == 1, result
+    assert result['shots'] == [], result

@@ -82,7 +82,18 @@ def parse_walk(text: str, *, source: str) -> list[dict]:
         raise WalkFileError(f'{source}: a walk is a list of steps, each a JSON object')
     for number, step in enumerate(steps, start=1):
         _check_step(step, f'{source}: step {number}')
+        if step['do'] == 'quit' and number != len(steps):
+            raise WalkFileError(f'{source}: step {number}: quit ends a walk; it is the last step')
     return steps
+
+
+def closes_at_end(steps: list[dict]) -> bool:
+    """Whether the walk closes the app at its end: one that ends in ``quit``.
+
+    Such a walk is run with nobody at the screen, so it closes the app
+    whether it finishes or stops at a failed step.
+    """
+    return bool(steps) and steps[-1]['do'] == 'quit'
 
 
 def _check_step(step: dict, where: str) -> None:
