@@ -113,7 +113,7 @@ def test_both_focus_actions_redraw_the_stage_and_step_editor_inside_the_boundary
         redraw()
 
         (call,) = ctx.stage.set_protocol_steps.call_args_list
-        assert call.kwargs['df'].equals(protocol.steps())
+        assert call.args == (protocol,)
         ctx.motion_settings.ids['protocol_settings_id'].update_step_ui.assert_called_once_with()
 
 

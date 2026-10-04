@@ -59,6 +59,7 @@ class Stage(Widget):
         self.full_redraw()
         self.bind(pos=self._redraw_trigger, size=self._redraw_trigger)
         self._protocol_step_locations_df = None
+        self._protocol_step_labware = None
         self._protocol_step_redraw = False
         self._protocol_step_locations_show = False
 
@@ -124,11 +125,12 @@ class Stage(Widget):
         self._protocol_step_locations_show = enable
         self._protocol_step_redraw = True
 
-    def set_protocol_steps(self, df):
-        # Filter to only keep the X/Y locations
-        df = df.copy()
-        df = df[['X', 'Y']]
+    def set_protocol_steps(self, protocol):
+        # The positions are stated against the protocol's plate, so the plate
+        # travels with them. Filter to only keep the X/Y locations.
+        df = protocol.steps()[['X', 'Y']]
         self._protocol_step_locations_df = df.drop_duplicates()
+        self._protocol_step_labware = protocol.labware()
         self._protocol_step_redraw = True
         # Invalidate step locations FBO cache
         self._step_locations_fbo = None
@@ -392,6 +394,11 @@ class Stage(Widget):
 
         # Check if we need to regenerate the FBO
         if self._protocol_step_locations_df is None or not self._protocol_step_locations_show:
+            return None
+        # The map draws the scope's plate; a protocol on another plate (an API
+        # caller can put it there) has positions in that plate's frame, which
+        # would land in the wrong wells here.
+        if self._protocol_step_labware != labware_name:
             return None
 
         # Create a hash of the step locations for cache validation

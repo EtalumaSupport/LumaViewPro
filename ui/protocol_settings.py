@@ -450,7 +450,7 @@ class ProtocolSettings(FloatLayout):
         )
 
         self._protocol.optimize_step_ordering()
-        ctx.stage.set_protocol_steps(df=self._protocol.steps())
+        ctx.stage.set_protocol_steps(self._protocol)
         self.update_step_ui()
         self.go_to_step(step_idx=self.curr_step)
 
@@ -487,7 +487,7 @@ class ProtocolSettings(FloatLayout):
         )
 
         self._protocol.optimize_step_ordering()
-        ctx.stage.set_protocol_steps(df=self._protocol.steps())
+        ctx.stage.set_protocol_steps(self._protocol)
         self.update_step_ui()
         self.go_to_step(step_idx=self.curr_step)
 
@@ -614,7 +614,7 @@ class ProtocolSettings(FloatLayout):
 
     def _draw_protocol_steps(self) -> None:
         """Show the panel's protocol: its steps on the stage and in the step editor."""
-        _app_ctx.ctx.stage.set_protocol_steps(df=self._protocol.steps())
+        _app_ctx.ctx.stage.set_protocol_steps(self._protocol)
         self.update_step_ui()
 
     @show_popup
@@ -765,7 +765,7 @@ class ProtocolSettings(FloatLayout):
         reset_stim_ui()
 
         # Make steps available for drawing locations
-        ctx.stage.set_protocol_steps(df=self._protocol.steps())
+        ctx.stage.set_protocol_steps(self._protocol)
 
         # Restore the tiling selection. Tiling is baked into the steps as
         # expanded tile positions (one row per tile), not stored as a

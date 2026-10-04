@@ -680,7 +680,7 @@ class LayerControl(BoxLayout):
         It is the redraw of run_reported, which runs it on this thread and
         reports whatever it raises.
         """
-        ctx.stage.set_protocol_steps(df=protocol.steps())
+        ctx.stage.set_protocol_steps(protocol)
         ctx.motion_settings.ids['protocol_settings_id'].update_step_ui()
 
     def apply_focus_to_channel_steps(self):
