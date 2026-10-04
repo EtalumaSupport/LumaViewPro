@@ -317,6 +317,20 @@ class PylonCamera(Camera):
             except Exception as e:
                 logger.debug(f'[CAM Class ] Could not query exposure range: {e}')
 
+            # The formats this body offers, as the IDS driver records them: the
+            # profile's list is what capabilities publish, so it is the camera's
+            # answer, not the static entry's. An unreadable list keeps the
+            # documented one, said here.
+            supported = self.get_supported_pixel_formats()
+            if supported:
+                self.profile.pixel_formats = list(supported)
+                logger.info(f'[CAM Class ] Supported PixelFormat entries: {list(supported)}')
+            else:
+                _cam_log.warning(
+                    '[CAM Class ] PixelFormat entries unreadable; the profile keeps '
+                    f'its documented formats {self.profile.pixel_formats}'
+                )
+
             # Sensor pixel pitch (micrometers). Read live so the micron scale
             # bar and click-to-center distance are correct for ANY Basler body,
             # not only ones with a curated profile. Fill only when the profile
