@@ -50,7 +50,14 @@ class RangeSlider(Widget):
     """Class for creating a RangeSlider widget.
 
     Check module documentation for more details.
+
+    ``on_release`` fires once when a person lets go of a handle they took
+    hold of. ``on_touch_up`` is not that event: Kivy hands every touch to
+    every widget, so a handler bound to it runs for a click anywhere in the
+    window.
     """
+
+    __events__ = ('on_release',)
 
     connector_color = ListProperty([0.2, 0.7, 0.9, 1])
     """Connector bar color, in the format (r, g, b, a).
@@ -327,7 +334,11 @@ class RangeSlider(Widget):
     def on_touch_up(self, touch):
         if touch.grab_current == self:
             touch.ungrab(self)
+            self.dispatch('on_release')
             return True
+
+    def on_release(self):
+        pass
 
     def get_current_range_str(self):
         min_value, max_value = self._get_value()

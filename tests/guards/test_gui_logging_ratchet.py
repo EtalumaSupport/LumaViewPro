@@ -99,6 +99,12 @@ _ROSTER = {
     ),
     'CellCountControls.RoundedButton(apply_method_to_preview_image)': ('APPLY_METHOD_TO_PREVIEW',),
     'CellCountControls.cell_count_fluorescent_mode_id': ('CELL_COUNT_FLUORESCENT_MODE',),
+    'CellCountControls.slider_cell_count_area_id': ('CELL_COUNT_AREA_RANGE',),
+    'CellCountControls.slider_cell_count_max_intensity_id': ('CELL_COUNT_MAX_INTENSITY_RANGE',),
+    'CellCountControls.slider_cell_count_mean_intensity_id': ('CELL_COUNT_MEAN_INTENSITY_RANGE',),
+    'CellCountControls.slider_cell_count_min_intensity_id': ('CELL_COUNT_MIN_INTENSITY_RANGE',),
+    'CellCountControls.slider_cell_count_perimeter_id': ('CELL_COUNT_PERIMETER_RANGE',),
+    'CellCountControls.slider_cell_count_sphericity_id': ('CELL_COUNT_SPHERICITY_RANGE',),
     'CellCountControls.slider_cell_count_threshold_id': ('CELL_COUNT_THRESHOLD',),
     'CellCountControls.text_cell_count_pixels_per_um_id': ('CELL_COUNT_PIXELS_PER_UM',),
     'CompositeGenControls.FolderChooseBTN(choose:apply_composite_gen_to_folder)': (

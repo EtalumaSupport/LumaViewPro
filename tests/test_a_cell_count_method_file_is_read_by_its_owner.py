@@ -45,7 +45,7 @@ def test_a_saved_method_loads_back_as_it_was(tmp_path):
     save_cell_count_method(method, path)
     loaded = load_cell_count_method(path)
     assert loaded['context']['pixels_per_um'] == 2.5
-    assert loaded['metadata'] == {'type': 'cell_count_method', 'version': '1'}
+    assert loaded['metadata'] == {'type': 'cell_count_method', 'version': '2'}
     assert 'metadata' not in method
 
 

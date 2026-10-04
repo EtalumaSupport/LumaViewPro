@@ -18,13 +18,12 @@ import sys
 from harness import headless_session, probe_dir
 from runfolder import run_protocol_folder
 
-from modules.post_processing import default_cell_count_method
+from modules.post_processing import cell_count_scale, default_cell_count_method
 
-# The panel's default method (6c), with the area and perimeter filters opened
-# wide enough that a simulated frame's regions are not filtered out.
+# The panel's default method (6c). Its area and perimeter filters are open, so
+# a simulated frame's regions are not filtered out, and it sets no scale, so
+# each image is counted at the scale it states.
 METHOD = default_cell_count_method()
-METHOD['filters']['area'] = {'min': 0, 'max': 100000}
-METHOD['filters']['perimeter'] = {'min': 0, 'max': 100000}
 
 
 def main() -> int:
@@ -67,7 +66,12 @@ def main() -> int:
     image, bits = image_utils.load_pixels(source)
 
     # 6a -- one image
-    preview, stats = post.preview_cell_count(image=image, settings=METHOD, significant_bits=bits)
+    preview, stats = post.preview_cell_count(
+        image=image,
+        settings=METHOD,
+        significant_bits=bits,
+        pixels_per_um=cell_count_scale(METHOD, image_utils.read_pixel_size_um(source)),
+    )
     print('6a preview shape:', None if preview is None else preview.shape)
     print('6a summary:', stats['summary'])
 
@@ -78,7 +82,9 @@ def main() -> int:
     blobs = np.zeros((200, 200), dtype=np.uint16)
     for cy, cx in ((50, 50), (50, 150), (150, 50), (150, 150)):
         blobs[cy - 8 : cy + 8, cx - 8 : cx + 8] = 60000
-    _, blob_stats = post.preview_cell_count(image=blobs, settings=METHOD, significant_bits=16)
+    _, blob_stats = post.preview_cell_count(
+        image=blobs, settings=METHOD, significant_bits=16, pixels_per_um=None
+    )
     print("6a' synthetic-blob summary:", blob_stats['summary'])
 
     # 6c -- is there a DEFAULT method below ui/?

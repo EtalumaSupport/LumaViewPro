@@ -51,11 +51,20 @@ def _capture_depth(post):
     """Replace the leaf process_image with a recorder; return the capture dict."""
     captured = {}
 
-    def fake_process_image(image, settings, include_images=None, significant_bits=16):
+    def fake_process_image(
+        image, settings, significant_bits=16, pixels_per_um=None, include_images=None
+    ):
         captured['significant_bits'] = significant_bits
         return (
             {'filtered_contours': np.zeros((8, 8, 3), dtype=np.uint8)},
-            {'summary': {'num_regions': 0, 'total_object_area': 0, 'total_object_intensity': 0.0}},
+            {
+                'summary': {
+                    'num_regions': 0,
+                    'total_object_area': 0,
+                    'area_unit': 'px2',
+                    'total_object_intensity': 0.0,
+                }
+            },
         )
 
     post._cell_count.process_image = fake_process_image

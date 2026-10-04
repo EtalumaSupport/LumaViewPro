@@ -21,7 +21,12 @@ import modules.image_utils as image_utils
 from lvp_logger import logger
 from modules.cell_count import CellCount
 from modules.common_utils import CustomJSONizer
-from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
+from modules.exceptions import (
+    CellCountScaleDroppedNotice,
+    PostProcessingFailedError,
+    PostProcessingRefusedError,
+)
+from modules.notification_center import notifications
 from modules.protocol_post_processor import ProgressCallback
 
 # The operation's name as a person reads it, in its refusals and failures.
@@ -35,7 +40,9 @@ GRAPHING_OPERATION = 'Graphing'
 RESULTS_TIME_FORMAT = '%a %b %d %H:%M:%S %Y'
 
 # What marks a JSON file as a saved cell-count method.
-_CELL_COUNT_METHOD_METADATA = {'type': 'cell_count_method', 'version': '1'}
+# Version 2: context.pixels_per_um is an optional override. Every version-1 file
+# carries the old fixed default of 1.0, which the load drops.
+_CELL_COUNT_METHOD_METADATA = {'type': 'cell_count_method', 'version': '2'}
 
 # Each filter's bounds, by their path under 'filters'. A bound of None is open.
 _CELL_COUNT_FILTERS = (
@@ -53,11 +60,13 @@ def default_cell_count_method() -> dict:
 
     A new dict on every call: the caller owns and edits its copy. Areas are in
     square microns, perimeters in microns, intensities and the threshold in
-    percent of full scale.
+    percent of full scale. It sets no scale, so each image is counted at the
+    scale it states (``cell_count_scale``), and no size filter, so an image
+    that states none is counted in pixels.
     """
     return {
         'context': {
-            'pixels_per_um': 1.0,
+            'pixels_per_um': None,
             'fluorescent_mode': True,
         },
         'segmentation': {
@@ -67,8 +76,8 @@ def default_cell_count_method() -> dict:
             },
         },
         'filters': {
-            'area': {'min': 0, 'max': 100},
-            'perimeter': {'min': 0, 'max': 100},
+            'area': {'min': None, 'max': None},
+            'perimeter': {'min': None, 'max': None},
             'sphericity': {'min': 0.0, 'max': 1.0},
             'intensity': {
                 'min': {'min': 0, 'max': 100},
@@ -107,8 +116,9 @@ def check_cell_count_method(method: object, *, source: str = 'The cell-count met
     The count reads every field checked here. A pixels-per-micron that is
     not a positive number does not fail the count: it scales every region
     out of the area and perimeter filters and counts nothing, or writes NaN
-    areas, so it is refused before any image is read. The file's
-    ``metadata`` is not part of the method and is not required.
+    areas, so it is refused before any image is read. None is no override:
+    each image is counted at its own scale. The file's ``metadata`` is not
+    part of the method and is not required.
 
     Args:
         source: What the refusal calls the method, e.g. naming its file.
@@ -117,11 +127,11 @@ def check_cell_count_method(method: object, *, source: str = 'The cell-count met
         PostProcessingRefusedError: reason ``method_invalid``.
     """
     scale = _method_field(method, ('context', 'pixels_per_um'), source)
-    if not _is_number(scale) or scale <= 0:
+    if scale is not None and (not _is_number(scale) or scale <= 0):
         _refuse_method(
             source,
             f'context.pixels_per_um must be a positive number of camera pixels '
-            f'per micron, not {scale!r}',
+            f"per micron, or null to use each image's own scale, not {scale!r}",
         )
 
     fluorescent = _method_field(method, ('context', 'fluorescent_mode'), source)
@@ -146,6 +156,41 @@ def check_cell_count_method(method: object, *, source: str = 'The cell-count met
                 _refuse_method(source, f'{name}.{bound} must be a number or null, not {value!r}')
         if low is not None and high is not None and low > high:
             _refuse_method(source, f'{name}.min ({low}) is above its max ({high})')
+
+
+def cell_count_scale(method: Mapping, image_pixel_size_um: float | None) -> float | None:
+    """The pixels per micron a count measures an image at, or None for pixels.
+
+    The method's ``context.pixels_per_um`` when a person set one; else the
+    image's own scale (``image_utils.read_pixel_size_um``, microns per pixel);
+    else None, and the image is counted in pixels.
+    """
+    override = method['context']['pixels_per_um']
+    if override is not None:
+        return override
+    if image_pixel_size_um is not None:
+        return 1.0 / image_pixel_size_um
+    return None
+
+
+def _refuse_size_filters_without_a_scale(method: Mapping, name: str) -> None:
+    """Refuse a count in pixels whose method bounds an area or a perimeter.
+
+    The bounds are in microns; applying them to pixels would count a
+    different set of objects and report it as the filtered one.
+    """
+    for size in ('area', 'perimeter'):
+        bounds = method['filters'][size]
+        if bounds['min'] is not None or bounds['max'] is not None:
+            raise PostProcessingRefusedError(
+                operation=CELL_COUNT_OPERATION,
+                reason='no_scale',
+                message=(
+                    f'{name} states no scale, so it is counted in pixels, and the '
+                    f"method's {size} filter is in microns. Clear the {size} filter, "
+                    'or type a pixels-per-micron scale.'
+                ),
+            )
 
 
 def read_cell_count_image(path: str | os.PathLike) -> tuple[np.ndarray, int]:
@@ -189,7 +234,8 @@ def with_pixels_per_um(method: Mapping, pixels_per_um: float | str) -> dict:
             unchanged.
     """
     if isinstance(pixels_per_um, str):
-        pixels_per_um = _number_typed(pixels_per_um)
+        # An emptied box is no override: count at each image's own scale.
+        pixels_per_um = _number_typed(pixels_per_um) if pixels_per_um.strip() else None
     changed = copy.deepcopy(dict(method))
     changed['context'] = {**changed.get('context', {}), 'pixels_per_um': pixels_per_um}
     check_cell_count_method(changed)
@@ -228,6 +274,16 @@ def load_cell_count_method(path: str | os.PathLike) -> dict:
     metadata = saved.get('metadata') if isinstance(saved, Mapping) else None
     if not isinstance(metadata, Mapping) or not {'type', 'version'} <= metadata.keys():
         raise refuse('method_unreadable', 'it has no metadata naming its type and version')
+    context = saved.get('context')
+    if (
+        metadata['version'] == '1'
+        and isinstance(context, Mapping)
+        and context.get('pixels_per_um') == 1.0
+    ):
+        saved['context'] = {**context, 'pixels_per_um': None}
+        notifications.report_outcome(
+            CellCountScaleDroppedNotice(path), solicited=True, category=CELL_COUNT_OPERATION
+        )
     check_cell_count_method(saved, source=f'The cell-count method in {path}')
     return saved
 
@@ -310,17 +366,32 @@ class PostProcessing:
         pass
 
     def preview_cell_count(
-        self, image: np.ndarray, settings: Mapping, significant_bits: int
+        self,
+        image: np.ndarray,
+        settings: Mapping,
+        significant_bits: int,
+        *,
+        pixels_per_um: float | None,
+        name: str = 'The image',
     ) -> tuple[np.ndarray, dict]:
         """Count the cells in one image by the cell-count method *settings*.
 
+        *pixels_per_um* is the scale to measure at (``cell_count_scale``);
+        None counts in pixels. *name* is what a refusal calls the image.
+
         Raises:
             PostProcessingRefusedError: the method cannot be used
-                (``check_cell_count_method``).
+                (``check_cell_count_method``), or, with no scale, it bounds an
+                area or a perimeter (reason ``no_scale``).
         """
         check_cell_count_method(settings)
+        if pixels_per_um is None:
+            _refuse_size_filters_without_a_scale(settings, name)
         preview_images, cell_stats = self._cell_count.process_image(
-            image=image, settings=settings, significant_bits=significant_bits
+            image=image,
+            settings=settings,
+            significant_bits=significant_bits,
+            pixels_per_um=pixels_per_um,
         )
 
         return preview_images['filtered_contours'], cell_stats
@@ -337,6 +408,11 @@ class PostProcessing:
         complete on disk: a folder with nothing to count, or a write that
         fails, leaves the previous results as they were.
 
+        Each image is measured at ``cell_count_scale``'s answer for it: the
+        method's override, else the scale the image states, else pixels. The
+        results say each row's area unit (``um2`` or ``px2``), so a folder of
+        mixed images is one file.
+
         Returns:
             ``results_path``; ``counted``, how many images were analysed; and
             ``message``, the outcome in words.
@@ -345,26 +421,39 @@ class PostProcessing:
             PostProcessingRefusedError: No image in the folder could be
                 analysed -- none there, or none readable.
             PostProcessingFailedError: The results could not be written, or
-                some images could not be read; the file holds every image
+                some images could not be counted (unreadable, or a size
+                filter on an image with no scale); the file holds every image
                 that was, and the error names the rest.
         """
-        fields = ['file', 'time', 'num_cells', 'total_object_area (um2)', 'total_object_intensity']
+        fields = [
+            'file',
+            'time',
+            'num_cells',
+            'total_object_area',
+            'area_unit',
+            'total_object_intensity',
+        ]
         filenames = [f for f in os.listdir(path) if f.endswith(self.SUPPORTED_IMAGE_TYPES)]
         results = []
-        unreadable = []
+        not_counted = []
 
         for done, filename in enumerate(filenames, start=1):
             file_path = os.path.join(path, filename)
             try:
                 image, significant_bits = read_cell_count_image(file_path)
+                _, region_info = self.preview_cell_count(
+                    image=image,
+                    settings=settings,
+                    significant_bits=significant_bits,
+                    pixels_per_um=cell_count_scale(
+                        settings, image_utils.read_pixel_size_um(file_path)
+                    ),
+                    name=filename,
+                )
             except PostProcessingRefusedError as e:
-                logger.warning(f'[LVP Main  ] Skipping unreadable image {filename}: {e}')
-                unreadable.append(str(e))
+                logger.warning(f'[LVP Main  ] Not counting {filename}: {e}')
+                not_counted.append(str(e))
                 continue
-
-            _, region_info = self.preview_cell_count(
-                image=image, settings=settings, significant_bits=significant_bits
-            )
 
             time_created_raw = os.path.getctime(file_path)
             time_created = time.ctime(time_created_raw)
@@ -374,7 +463,8 @@ class PostProcessing:
                     'filename': os.path.basename(filename),
                     'time': time_created,
                     'num_cells': region_info['summary']['num_regions'],
-                    'total_object_area (um2)': region_info['summary']['total_object_area'],
+                    'total_object_area': region_info['summary']['total_object_area'],
+                    'area_unit': region_info['summary']['area_unit'],
                     'total_object_intensity': region_info['summary']['total_object_intensity'],
                 }
             )
@@ -383,7 +473,7 @@ class PostProcessing:
 
         if not results:
             message = (
-                f'None of the {len(filenames)} image(s) in the folder could be read.'
+                f'None of the {len(filenames)} image(s) in the folder could be counted.'
                 if filenames
                 else 'No images were found in the selected folder.'
             )
@@ -408,13 +498,13 @@ class PostProcessing:
                 missing=f'The results could not be written to {results_file_path} ({e}).',
             ) from e
 
-        if unreadable:
+        if not_counted:
             raise PostProcessingFailedError(
                 operation=CELL_COUNT_OPERATION,
-                missing=f'{len(unreadable)} of {len(filenames)} image(s) could not be read.',
+                missing=f'{len(not_counted)} of {len(filenames)} image(s) could not be counted.',
                 produced_paths=(results_file_path,),
                 output_root=str(path),
-                errors=unreadable,
+                errors=not_counted,
             )
         return {
             'results_path': results_file_path,

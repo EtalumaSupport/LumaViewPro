@@ -589,7 +589,7 @@ class TestCellCountConverterRouting:
             mock.patch('modules.image_utils.convert_to_8bit', side_effect=_StopError) as canonical,
             pytest.raises(_StopError),
         ):
-            cc.process_image(img, settings={}, significant_bits=16)
+            cc.process_image(img, settings={}, significant_bits=16, pixels_per_um=None)
 
         canonical.assert_called_once()
         args, kwargs = canonical.call_args

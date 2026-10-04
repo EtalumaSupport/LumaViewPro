@@ -33,16 +33,15 @@ def _blobs() -> np.ndarray:
 
 
 def _method(**context) -> dict:
+    # The default's size filters are open, so every blob is kept.
     method = default_cell_count_method()
-    method['filters']['area'] = {'min': 0, 'max': 1e9}
-    method['filters']['perimeter'] = {'min': 0, 'max': 1e9}
     method['context'].update(context)
     return method
 
 
 def test_the_default_method_counts_both_blobs():
     _, stats = PostProcessing().preview_cell_count(
-        image=_blobs(), settings=_method(), significant_bits=8
+        image=_blobs(), settings=_method(), significant_bits=8, pixels_per_um=None
     )
     assert stats['summary']['num_regions'] == 2
 
@@ -54,7 +53,7 @@ def test_the_default_method_passes_its_own_check():
 def test_each_default_is_a_fresh_copy():
     first = default_cell_count_method()
     first['context']['pixels_per_um'] = 9.0
-    assert default_cell_count_method()['context']['pixels_per_um'] == 1.0
+    assert default_cell_count_method()['context']['pixels_per_um'] is None
 
 
 def test_a_method_needs_no_file_metadata():
@@ -63,11 +62,15 @@ def test_a_method_needs_no_file_metadata():
     check_cell_count_method(method)
 
 
-@pytest.mark.parametrize('scale', [0, 0.0, -2.0, float('nan'), float('inf'), '2', None, True])
+# None is no override (each image's own scale), so it is not in this list.
+@pytest.mark.parametrize('scale', [0, 0.0, -2.0, float('nan'), float('inf'), '2', True])
 def test_a_scale_that_is_not_a_positive_number_is_refused_naming_it(scale):
     with pytest.raises(PostProcessingRefusedError) as refused:
         PostProcessing().preview_cell_count(
-            image=_blobs(), settings=_method(pixels_per_um=scale), significant_bits=8
+            image=_blobs(),
+            settings=_method(pixels_per_um=scale),
+            significant_bits=8,
+            pixels_per_um=None,
         )
     assert refused.value.reason == 'method_invalid'
     assert 'pixels_per_um' in str(refused.value)

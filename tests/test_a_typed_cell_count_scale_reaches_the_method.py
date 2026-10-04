@@ -79,7 +79,8 @@ def test_a_whole_number_is_not_recorded_as_a_correction(boundary, records):
     assert records == [('CELL_COUNT_PIXELS_PER_UM', '5')]
 
 
-@pytest.mark.parametrize('typed', ['0', '-1', 'abc', '', 'nan'])
+# An empty box is no override (each image's own scale), so it is not refused.
+@pytest.mark.parametrize('typed', ['0', '-1', 'abc', 'nan'])
 def test_a_refused_scale_is_reported_and_the_box_shows_the_methods(boundary, records, typed):
     panel = _panel(typed)
     before = panel._settings
@@ -89,10 +90,11 @@ def test_a_refused_scale_is_reported_and_the_box_shows_the_methods(boundary, rec
     assert isinstance(refused, PostProcessingRefusedError)
     assert 'pixels_per_um' in str(refused)
     assert panel._settings is before
-    assert panel.ids['text_cell_count_pixels_per_um_id'].text == '1.0'
+    # The default method has no override, which the box shows empty.
+    assert panel.ids['text_cell_count_pixels_per_um_id'].text == ''
     assert records == [
         ('CELL_COUNT_PIXELS_PER_UM', typed),
-        ('CELL_COUNT_PIXELS_PER_UM_APPLIED', '1.0'),
+        ('CELL_COUNT_PIXELS_PER_UM_APPLIED', ''),
     ]
 
 
@@ -108,9 +110,9 @@ def test_the_owner_returns_a_copy_and_leaves_the_method_alone():
     method = default_cell_count_method()
     changed = with_pixels_per_um(method, '3.5')
     assert changed['context']['pixels_per_um'] == 3.5
-    assert method['context']['pixels_per_um'] == 1.0
+    assert method['context']['pixels_per_um'] is None
     changed['filters']['area']['max'] = 7
-    assert method['filters']['area']['max'] == 100
+    assert method['filters']['area']['max'] is None
 
 
 def test_the_box_is_judged_on_commit_not_on_every_keystroke():
@@ -123,3 +125,12 @@ def test_the_box_is_judged_on_commit_not_on_every_keystroke():
     rule = kv[start : kv.index('Label:', start)]
     assert 'on_focus: if not self.focus: root.commit_pixels_per_um()' in rule
     assert 'on_text' not in rule
+
+
+def test_an_emptied_box_clears_the_override(boundary, records):
+    panel = _panel('')
+    panel._settings['context']['pixels_per_um'] = 2.0
+    _commit(panel)
+    assert boundary == []
+    assert panel._settings['context']['pixels_per_um'] is None
+    assert panel.ids['text_cell_count_pixels_per_um_id'].text == ''

@@ -799,22 +799,23 @@ A cell-count method is a dict; start from `modules.post_processing.default_cell_
 from modules.post_processing import default_cell_count_method
 
 method = default_cell_count_method()
-method['context']['pixels_per_um'] = 2.6               # camera pixels per micron of sample
 method['filters']['area'] = {'min': 20, 'max': None}   # square microns; None is an open bound
 pp.count_cells(folder, method=method)
 ```
 
+Each image is measured at the scale it states: a LumaViewPro capture carries its pixel size, so its areas and perimeters are in square microns and microns. An image that states no scale (a PNG, a capture saved without one) is counted in pixels. `results.csv` has one row per image with `file`, `time`, `num_cells`, `total_object_area`, `area_unit` (`um2` or `px2`, that row's unit) and `total_object_intensity`. Setting `context.pixels_per_um` overrides the scale for every image, for example on external images whose scale you know. The area and perimeter filters are in microns, so an image counted in pixels with either one set is not counted: the count goes on with the rest and raises `PostProcessingFailedError` naming it. `modules.post_processing.cell_count_scale(method, image_pixel_size_um)` returns the pixels per micron a count uses for an image (None for pixels).
+
 | Field | Meaning |
 |---|---|
-| `context.pixels_per_um` | camera pixels per micron of sample; a positive number |
+| `context.pixels_per_um` | `None` (the default) to use each image's own scale; or a positive number of camera pixels per micron, which overrides it for every image |
 | `context.fluorescent_mode` | `True` for bright objects on a dark background; `False` inverts the image first |
 | `segmentation.algorithm` | `'initial'` |
 | `segmentation.parameters.threshold` | brightness threshold, percent of full scale |
-| `filters.area`, `filters.perimeter` | `{'min', 'max'}` in square microns and microns |
+| `filters.area`, `filters.perimeter` | `{'min', 'max'}` in square microns and microns; open (`None`) by default. A set bound refuses an image counted in pixels |
 | `filters.sphericity` | `{'min', 'max'}`, 0 to 1 |
 | `filters.intensity.min` / `.mean` / `.max` | `{'min', 'max'}` for each region's minimum, mean and maximum intensity, percent of full scale |
 
-`count_cells` refuses a method the count cannot use before the count is queued: `PostProcessingRefusedError` with `reason='method_invalid'`, its message naming the field (a missing field, a `pixels_per_um` that is not a positive number, a bound that is not a number or `None`, a filter whose `min` is above its `max`). `modules.post_processing.check_cell_count_method(method)` asks the same question without counting. A method saved by LumaViewPro's panel also carries a `metadata` entry; the count does not need it.
+`count_cells` refuses a method the count cannot use before the count is queued: `PostProcessingRefusedError` with `reason='method_invalid'`, its message naming the field (a missing field, a `pixels_per_um` that is not a positive number, a bound that is not a number or `None`, a filter whose `min` is above its `max`). `modules.post_processing.check_cell_count_method(method)` asks the same question without counting. A method saved by LumaViewPro's panel also carries a `metadata` entry; the count does not need it. A method file saved before LumaViewPro read each image's scale (`metadata.version` `'1'`) carries the old fixed default of 1.0 pixels per micron: `load_cell_count_method` drops it, so the method uses each image's own scale, and reports a notice once.
 
 `modules.post_processing.read_cell_count_results(path)` reads a `results.csv` back as a pandas table, its `time` column a datetime column (the count's own time format); `results_axes(table)` returns the columns a graph can take as X (numbers and times) and as Y (numbers). A file that cannot be graphed is refused: `PostProcessingRefusedError` with `operation='Graphing'`, `reason='results_unreadable'`, its message naming the file. `modules.graph_analysis.trendline_kinds(x, y)` names the trendlines two columns take (a time X takes `'Linear'`, `'Quadratic'`, `'Exponential'`; two number columns also take `'Power'` and `'Logarithmic'`), and `fit_trendline(kind, x, y)` returns the curve (`.x` ascending, `.y`). It refuses a fit the values cannot give, such as a missing value, a 0 under a log, or too few distinct X values for the kind (`PostProcessingRefusedError`, `operation='Trendline'`, `reason='fit_impossible'`, naming the values and how many).
 

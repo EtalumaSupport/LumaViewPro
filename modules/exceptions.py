@@ -302,6 +302,26 @@ class NoHardwareDetectedNotice(Notice, Exception):  # noqa: N818 -- a notice, no
         )
 
 
+class CellCountScaleDroppedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """A method file saved before the count read each image's own scale.
+
+    Every such file carries the old default of 1.0 pixels per micron, which
+    described no image, so the load drops it and the count measures each
+    image at its own scale. A person who meant 1.0 types it again.
+    """
+
+    title = 'Cell-count scale'
+    reason = 'cell_count_scale_dropped'
+
+    def __init__(self, path):
+        super().__init__(
+            f'The method in {path} was saved with a fixed scale of 1.0 pixels per '
+            'micron, the old default. It now counts each image at the scale the '
+            'image states, and in pixels when it states none. Type a scale to '
+            'override it, and save the method to keep it.'
+        )
+
+
 class BinningSubstitutedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
     """The saved binning is one this camera does not offer; bring-up ran at the camera's.
 

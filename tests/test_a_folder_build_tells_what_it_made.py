@@ -19,7 +19,7 @@ import pytest
 
 from modules import image_utils
 from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
-from modules.post_processing import PostProcessing
+from modules.post_processing import PostProcessing, default_cell_count_method
 from modules.quick_enhance import QuickEnhancer, QuickEnhanceSettings
 
 OLD_RESULTS = 'file,time,num_cells\nold.tif,yesterday,7\n'
@@ -55,9 +55,14 @@ def _write_tiff(path):
 def counter(monkeypatch):
     post = PostProcessing()
 
-    def counted(image, settings, significant_bits):
+    def counted(image, settings, significant_bits, *, pixels_per_um, name):
         return None, {
-            'summary': {'num_regions': 3, 'total_object_area': 1.0, 'total_object_intensity': 2.0}
+            'summary': {
+                'num_regions': 3,
+                'total_object_area': 1.0,
+                'area_unit': 'px2',
+                'total_object_intensity': 2.0,
+            }
         }
 
     monkeypatch.setattr(post, 'preview_cell_count', counted)
@@ -74,7 +79,9 @@ def test_a_counted_folder_answers_with_its_results(counter, tmp_path):
     seen = []
 
     result = counter.apply_cell_count_to_folder(
-        str(tmp_path), {}, on_progress=lambda percent, text: seen.append(percent)
+        str(tmp_path),
+        default_cell_count_method(),
+        on_progress=lambda percent, text: seen.append(percent),
     )
 
     assert result['counted'] == 2
@@ -86,7 +93,7 @@ def test_a_counted_folder_answers_with_its_results(counter, tmp_path):
 def test_an_empty_folder_is_refused_and_keeps_the_previous_results(counter, tmp_path):
     _old_results(tmp_path)
     with pytest.raises(PostProcessingRefusedError):
-        counter.apply_cell_count_to_folder(str(tmp_path), {})
+        counter.apply_cell_count_to_folder(str(tmp_path), default_cell_count_method())
     assert (tmp_path / 'results.csv').read_text() == OLD_RESULTS
 
 
@@ -94,7 +101,7 @@ def test_a_folder_of_unreadable_images_is_refused_and_keeps_the_previous_results
     _old_results(tmp_path)
     (tmp_path / 'broken.tif').write_bytes(b'not a tiff')
     with pytest.raises(PostProcessingRefusedError):
-        counter.apply_cell_count_to_folder(str(tmp_path), {})
+        counter.apply_cell_count_to_folder(str(tmp_path), default_cell_count_method())
     assert (tmp_path / 'results.csv').read_text() == OLD_RESULTS
 
 
@@ -102,7 +109,7 @@ def test_some_unreadable_images_make_the_count_incomplete_with_its_results(count
     _write_tiff(tmp_path / 'good.tif')
     (tmp_path / 'broken.tif').write_bytes(b'not a tiff')
     with pytest.raises(PostProcessingFailedError) as raised:
-        counter.apply_cell_count_to_folder(str(tmp_path), {})
+        counter.apply_cell_count_to_folder(str(tmp_path), default_cell_count_method())
     assert raised.value.produced_paths == (os.path.join(str(tmp_path), 'results.csv'),)
     assert 'good.tif' in (tmp_path / 'results.csv').read_text()
 
@@ -118,7 +125,7 @@ def test_a_failed_results_write_raises_and_keeps_the_previous_results(
 
     monkeypatch.setattr(os, 'replace', refuse)
     with pytest.raises(PostProcessingFailedError):
-        counter.apply_cell_count_to_folder(str(tmp_path), {})
+        counter.apply_cell_count_to_folder(str(tmp_path), default_cell_count_method())
     assert (tmp_path / 'results.csv').read_text() == OLD_RESULTS
     assert sorted(p.name for p in tmp_path.iterdir()) == ['a.tif', 'results.csv']
 

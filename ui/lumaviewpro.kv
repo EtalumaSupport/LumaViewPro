@@ -3956,7 +3956,8 @@
 				id: text_cell_count_pixels_per_um_id
 				on_focus: if not self.focus: root.commit_pixels_per_um()
 				valign: 'center'
-				text: "1.0"
+				text: ''
+				hint_text: 'image'
 				size_hint_x: None
 				size_hint_y: None
 				height: '35dp'
@@ -4045,8 +4046,8 @@
 					orientation: 'horizontal'
 					value1: 0
 					value2: 100
-					on_touch_up: root.slider_adjustment_area()
-					on_touch_move: root.slider_adjustment_area()
+					on_release: root.slider_adjustment_area()
+					on_touch_move: if args[1].grab_current is self: root.show_area_range_dragged()
 				Label:
 					id: label_cell_count_area_id
 					size_hint_x: None
@@ -4072,8 +4073,8 @@
 					orientation: 'horizontal'
 					value1: 0
 					value2: 100
-					on_touch_up: root.slider_adjustment_perimeter()
-					on_touch_move: root.slider_adjustment_perimeter()
+					on_release: root.slider_adjustment_perimeter()
+					on_touch_move: if args[1].grab_current is self: root.show_perimeter_range_dragged()
 				Label:
 					id: label_cell_count_perimeter_id
 					size_hint_x: None
@@ -4099,7 +4100,7 @@
 					orientation: 'horizontal'
 					value1: 0
 					value2: 1.0
-					on_touch_up: root.slider_adjustment_sphericity()
+					on_release: root.slider_adjustment_sphericity()
 				Label:
 					id: label_cell_count_sphericity_id
 					text: f"{round(slider_cell_count_sphericity_id.value[0],2)}-{round(slider_cell_count_sphericity_id.value[1],2)}"
@@ -4126,7 +4127,7 @@
 					orientation: 'horizontal'
 					value1: 0
 					value2: 100
-					on_touch_up: root.slider_adjustment_min_intensity()
+					on_release: root.slider_adjustment_min_intensity()
 				Label:
 					id: label_cell_count_min_intensity_id
 					text: f"{int(slider_cell_count_min_intensity_id.value[0])}-{int(slider_cell_count_min_intensity_id.value[1])} %"
@@ -4153,7 +4154,7 @@
 					orientation: 'horizontal'
 					value1: 0
 					value2: 100
-					on_touch_up: root.slider_adjustment_mean_intensity()
+					on_release: root.slider_adjustment_mean_intensity()
 				Label:
 					id: label_cell_count_mean_intensity_id
 					text: f"{int(slider_cell_count_mean_intensity_id.value[0])}-{int(slider_cell_count_mean_intensity_id.value[1])} %"
@@ -4180,7 +4181,7 @@
 					orientation: 'horizontal'
 					value1: 0
 					value2: 100
-					on_touch_up: root.slider_adjustment_max_intensity()
+					on_release: root.slider_adjustment_max_intensity()
 				Label:
 					id: label_cell_count_max_intensity_id
 					text: f"{int(slider_cell_count_max_intensity_id.value[0])}-{int(slider_cell_count_max_intensity_id.value[1])} %"
