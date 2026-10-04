@@ -132,7 +132,7 @@ _ROSTER = {
     'LayerControl.autofocus': (_D('update_autofocus'),),
     'LayerControl.composite_threshold_slider': (_D('composite_threshold_slider'),),
     'LayerControl.composite_threshold_text': (_D('composite_threshold_text'),),
-    'LayerControl.enable_led_btn': (_D('update_led_state'),),
+    'LayerControl.enable_led_btn': (_D('led_toggle'),),
     'LayerControl.exp_slider': (_D('exp_slider'),),
     'LayerControl.exp_text': (_D('exp_text'),),
     'LayerControl.false_color': (_D('false_color'),),

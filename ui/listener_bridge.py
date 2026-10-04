@@ -39,7 +39,6 @@ from __future__ import annotations
 
 from lvp_logger import logger
 import modules.common_utils as common_utils
-from ui.layer_control import LayerControl
 
 
 class UIListenerBridge:
@@ -117,8 +116,9 @@ class UIListenerBridge:
         """Write one channel's enable toggle from CURRENT driver truth.
 
         Reads the driver state (not event args, which may be stale) and
-        writes 'down'/'normal' with the LED-command suppression flag held,
-        so reflecting driver truth cannot itself drive an LED.
+        writes 'down'/'normal'. A state write is not a press -- the button
+        drives an LED only from on_release -- so reflecting driver truth
+        cannot itself drive an LED.
         """
         ctx = self._ctx
         if not ctx.ready:
@@ -127,11 +127,7 @@ class UIListenerBridge:
         state = self._scope.illumination.get_led_state(channel=color)
         target = 'down' if state.get('enabled', False) else 'normal'
         if layer_obj.ids['enable_led_btn'].state != target:
-            LayerControl._suppressing_led_log = True
-            try:
-                layer_obj.ids['enable_led_btn'].state = target
-            finally:
-                LayerControl._suppressing_led_log = False
+            layer_obj.ids['enable_led_btn'].state = target
 
     def reconcile_led_buttons(self) -> None:
         """Level-based reconcile of EVERY channel's enable toggle to driver truth.

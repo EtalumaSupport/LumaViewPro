@@ -92,8 +92,7 @@ class ImageSettings(BoxLayout):
     # reconcile belongs to genuine USER drawer clicks. A PROGRAMMATIC
     # expansion (manual step navigation) owns its entire LED + camera
     # outcome through the LED authority, so while this is True the
-    # reconcile defers to that owner. Same flag idiom as
-    # LayerControl._suppressing_led_log.
+    # reconcile defers to that owner.
     _suppress_reconcile_for_programmatic_expand = False
 
     def __init__(self, **kwargs):

@@ -738,7 +738,16 @@ class LayerControl(BoxLayout):
             f'GOTO_FOCUS_{self.layer}',
         )
 
-    _suppressing_led_log = False  # Class-level flag to prevent duplicate logging
+    def led_toggle(self):
+        """The Enable LED button's press: record it, then drive the LED.
+
+        The record is here and not in update_led_state, because every
+        apply_settings also runs that, and an apply is not a press. Writing
+        the button's state is not a press either: it never dispatches
+        on_release, so the app may set it without a guard.
+        """
+        gui_logger.toggle(f'LED_{self.layer}', self.ids['enable_led_btn'].state == 'down')
+        self.update_led_state()
 
     def update_led_state(self, apply_settings=True):
         ctx = _app_ctx.ctx
@@ -747,13 +756,10 @@ class LayerControl(BoxLayout):
         # a scan (e.g. the exposure field losing focus when the AF button is
         # clicked) cannot turn off the channel AF is using. The lease is the
         # structural guard; an early-return here would only duplicate it.
-        # Skip hardware commands during programmatic state changes
-        # (e.g., disable_leds_for_other_layers toggling buttons).
-        if LayerControl._suppressing_led_log or self._initializing:
+        if self._initializing:
             return
         settings = ctx.settings
         enabled = self.ids['enable_led_btn'].state == 'down'
-        gui_logger.toggle(f'LED_{self.layer}', enabled)
         illumination = settings[self.layer]['illumination_ma']
 
         if apply_settings:
@@ -1081,16 +1087,12 @@ class LayerControl(BoxLayout):
                                 lane=ctx.io_executor,
                             )
                 # Update button states (visual only -- hardware already handled)
-                LayerControl._suppressing_led_log = True
-                try:
-                    for layer in common_utils.get_layers():
-                        if layer != self.layer:
-                            layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-                            btn = layer_obj.ids['enable_led_btn']
-                            if btn.state != 'normal':
-                                btn.state = 'normal'
-                finally:
-                    LayerControl._suppressing_led_log = False
+                for layer in common_utils.get_layers():
+                    if layer != self.layer:
+                        layer_obj = ctx.image_settings.layer_lookup(layer=layer)
+                        btn = layer_obj.ids['enable_led_btn']
+                        if btn.state != 'normal':
+                            btn.state = 'normal'
 
         if ctx.session.run_lockout:
             # Protocol actively running -- capture() handles camera settings

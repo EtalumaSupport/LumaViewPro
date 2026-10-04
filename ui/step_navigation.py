@@ -311,10 +311,4 @@ def go_to_step_update_ui(step):
     # window, when stepping is manual and no LED event will ever correct a
     # forced 'down' left here.
     if ctx.session.run_in_progress:
-        from ui.layer_control import LayerControl
-
-        LayerControl._suppressing_led_log = True
-        try:
-            layer_obj.ids['enable_led_btn'].state = 'down'
-        finally:
-            LayerControl._suppressing_led_log = False
+        layer_obj.ids['enable_led_btn'].state = 'down'
