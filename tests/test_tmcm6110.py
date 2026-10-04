@@ -785,3 +785,21 @@ def test_a_stop_between_two_commands_of_a_home_lets_no_further_one_through():
         board.home()
     sim.stopper.join(5)
     assert (RFS, RFS_START, 0) not in [(c.command, c.type, c.motor) for c in sim.commands]
+
+
+def test_a_board_left_idle_answers_at_once():
+    """Time the board stood still is not stepped through: an idle hour at
+    a simulated scope's speed-up took seconds to catch up, and the next
+    command waited for it."""
+    now = [0.0]
+    sim = SimulatedTmcm6110(clock=lambda: now[0])
+    port = SimulatedTmcm6110Port(sim, port='sim:tmcm6110', timeout=0)
+    port.write(encode_command(MVP, 0, 0, -6400))
+    port.read(9)
+    while sim.position('X') != -6400:
+        now[0] += 0.1
+    now[0] += 180_000.0
+    started = time.perf_counter()
+    port.write(encode_command(GAP, 1, 0))
+    assert decode_reply(port.read(9)).value == -6400
+    assert time.perf_counter() - started < 0.05

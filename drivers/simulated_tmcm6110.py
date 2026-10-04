@@ -194,6 +194,12 @@ class _Axis:
     def left_engaged(self) -> bool:
         return self.p <= self.layout.left_switch_at
 
+    def at_rest(self) -> bool:
+        """Nothing for time to change: stopped, or standing at its target."""
+        if self.mode == 'idle':
+            return True
+        return self.mode == 'position' and self.v == 0 and self.p == self.target + self.offset
+
 
 class SimulatedTmcm6110:
     """The board: three axes, two inputs, one reply per datagram."""
@@ -246,6 +252,12 @@ class SimulatedTmcm6110:
 
     def _advance(self) -> None:
         now = self._clock()
+        if all(axis.at_rest() for axis in self.axes.values()):
+            # Nothing moves, so the gap is not stepped through: at a
+            # simulated scope's speed-up an idle hour is millions of steps,
+            # and the next command waited seconds for them.
+            self._now = now
+            return
         while self._now + _STEP_S <= now:
             self._now += _STEP_S
             for axis in self.axes.values():
