@@ -52,8 +52,10 @@ from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.autofocus_runner import AutofocusRunner
 from modules.protocol import Protocol
 from tests.protocol_drives import (
+    StepHeartbeat,
     autofocus_snapshot,
     held_run_claim,
+    wait_for_run_end,
     wait_until_ready_for_next_run,
 )
 
@@ -204,7 +206,9 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 
     callbacks = run_kwargs.pop('callbacks', {})
     callbacks['run_complete'] = on_complete
-    # Don't provide go_to_step -- let the executor use _default_move for real motor movement
+    # The run moves the scope itself; go_to_step only marks each step's start.
+    heartbeat = StepHeartbeat(callbacks.get('go_to_step'))
+    callbacks['go_to_step'] = heartbeat
     callbacks.setdefault('move_position', lambda axis: None)
 
     plan = executor.prepare(
@@ -224,7 +228,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
     )
     executor.start(plan)
 
-    completed = done.wait(timeout=COMPLETION_TIMEOUT)
+    completed = wait_for_run_end(done, heartbeat)
     return completed, result_holder
 
 

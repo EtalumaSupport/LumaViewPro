@@ -22,6 +22,7 @@ builder instead of one copy of the layer catalogue each.
 from __future__ import annotations
 
 import datetime
+import threading
 import time
 from unittest.mock import MagicMock
 
@@ -86,6 +87,47 @@ def wait_until_ready_for_next_run(executor, timeout: float = 5.0) -> bool:
 def _files_draining(executor) -> bool:
     batch = executor.write_batch()
     return batch is not None and batch.draining
+
+
+# The longest a run may go without starting a step before it is called
+# stalled. One simulated step takes about 150 ms alone; this is far past a
+# step slowed by a loaded host, and short enough that a hang fails promptly.
+STEP_STALL_S = 15.0
+
+
+class StepHeartbeat:
+    """A run's go_to_step callback that also notes when each step starts.
+
+    The runner calls go_to_step once per step, so the time since the last
+    call says whether the run is still moving. Wraps the test's own
+    callback, if it has one.
+    """
+
+    def __init__(self, inner=None):
+        self._inner = inner
+        self._last = time.monotonic()
+
+    def __call__(self, **kwargs):
+        self._last = time.monotonic()
+        if self._inner is not None:
+            self._inner(**kwargs)
+
+    def idle_s(self) -> float:
+        return time.monotonic() - self._last
+
+
+def wait_for_run_end(done: threading.Event, heartbeat: StepHeartbeat) -> bool:
+    """Wait for a run to end; False only when it stopped starting steps.
+
+    A bound on the whole run fails a long run on a loaded host: the 50-step
+    runs take about 8 s alone and failed their 15 s bound whenever another
+    suite shared the machine. A run that keeps starting steps is not hung,
+    however slowly it goes, so only a stall of STEP_STALL_S fails it.
+    """
+    while not done.wait(timeout=0.25):
+        if heartbeat.idle_s() > STEP_STALL_S:
+            return done.is_set()
+    return True
 
 
 def _noop_restore(*, layer, value):

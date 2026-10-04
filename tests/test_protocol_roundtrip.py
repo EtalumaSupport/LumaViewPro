@@ -34,7 +34,12 @@ from modules.protocol import Protocol, ProtocolFormatError
 from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
-from tests.protocol_drives import autofocus_snapshot, wait_until_ready_for_next_run
+from tests.protocol_drives import (
+    StepHeartbeat,
+    autofocus_snapshot,
+    wait_for_run_end,
+    wait_until_ready_for_next_run,
+)
 from tests.scope_fakes import configure_turret_like_bringup
 from unittest.mock import MagicMock
 
@@ -303,7 +308,8 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 
     callbacks = run_kwargs.pop('callbacks', {})
     callbacks['run_complete'] = on_complete
-    callbacks.setdefault('go_to_step', lambda **kw: None)
+    heartbeat = StepHeartbeat(callbacks.get('go_to_step'))
+    callbacks['go_to_step'] = heartbeat
     callbacks.setdefault('move_position', lambda axis: None)
 
     plan = executor.prepare(
@@ -321,7 +327,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         **run_kwargs,
     )
     executor.start(plan)
-    completed = done.wait(timeout=COMPLETION_TIMEOUT)
+    completed = wait_for_run_end(done, heartbeat)
     return completed, result_holder
 
 
