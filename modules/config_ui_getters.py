@@ -187,22 +187,6 @@ def is_image_saving_enabled() -> bool:
 # ---------------------------------------------------------------------------
 
 
-def get_binning_from_ui() -> int:
-    """The binning factor for the running GUI.
-
-    Reads the settings store, not the selector. The selector commits its label
-    to the store as soon as the user picks one, so the store is the current
-    answer, and it is already what scope bring-up and the native-ROI
-    reconstruction read.
-
-    Reading the widget also had its own failure mode this does not: the
-    selector carries the placeholder 'Select' until a stored value is applied,
-    and parsing that text produced a notification and a factor of 1 -- an
-    answer no headless caller could see and no camera was necessarily at.
-    """
-    return config_helpers.get_binning_from_settings(_app_ctx.ctx.settings)
-
-
 def get_zstack_params() -> dict:
     """The z-stack range, step size and reference for the running GUI.
 

@@ -15,7 +15,6 @@ import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 from modules.config_ui_getters import (
     get_active_layer_config,
-    get_binning_from_ui,
     get_image_capture_config_from_ui,
     get_selected_labware,
     get_zstack_params,
@@ -440,7 +439,7 @@ class ProtocolSettings(FloatLayout):
         self._protocol.apply_tiling(
             tiling=self.ids['tiling_size_spinner'].text,
             frame_dimensions=config_helpers.get_frame_dimensions_from_settings(settings),
-            binning_size=get_binning_from_ui(),
+            binning_size=ctx.session.get_binning_size(),
             axes_config=axes_config,
             labware=labware,
             stage_offset=stage_offset,

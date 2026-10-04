@@ -397,6 +397,7 @@ session.set_frame_size(960, 600)             # a displayed (post-binning) size a
                                              # to even sides); CameraSettingOutOfRangeError outside
                                              # the scope's range
 session.frame_at_binning(2)                  # the frame set_binning_size(2) will ask for; applies nothing
+session.get_binning_size()                   # the binning factor in force, e.g. 2: the one the camera took
 ```
 
 With no camera connected, `set_binning_size` and `set_frame_size` return `None` and store nothing. `set_image_mode` stores the mode for bring-up to apply.

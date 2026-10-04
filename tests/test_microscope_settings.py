@@ -382,6 +382,7 @@ class TestTheFramingRedrawShowsTheStore:
             ),
             # The GUI getter resolves the scale off the LIVE scope.
             lumaview=SimpleNamespace(scope=SimpleNamespace(capabilities=scale_capabilities)),
+            session=SimpleNamespace(get_binning_size=lambda: 1),
         )
         monkeypatch.setattr(app_context, 'ctx', ctx)
         fn = _compile_ms_method(
@@ -390,7 +391,6 @@ class TestTheFramingRedrawShowsTheStore:
                 '_app_ctx': SimpleNamespace(ctx=ctx),
                 'common_utils': common_utils_real,
                 'config_ui_getters': config_ui_getters_real,
-                'get_binning_from_ui': lambda: 1,
             },
         )
         ids = {

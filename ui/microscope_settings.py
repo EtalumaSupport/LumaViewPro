@@ -19,7 +19,6 @@ from modules.config_helpers import (
 )
 from modules.config_ui_getters import (
     firmware_stim_supported,
-    get_binning_from_ui,
 )
 from modules.memory_profiler import MemoryLeakProfiler
 from modules.notification_center import notifications
@@ -782,7 +781,7 @@ class MicroscopeSettings(BoxLayout):
         fov_size = config_ui_getters.get_field_of_view(
             focal_length=objective['focal_length'],
             frame_size=settings['frame'],
-            binning_size=get_binning_from_ui(),
+            binning_size=ctx.session.get_binning_size(),
         )
         fov_w_text, fov_h_text = common_utils.format_field_of_view(fov_size)
         self.ids['field_of_view_width_id'].text = fov_w_text

@@ -427,7 +427,6 @@ class ScopeDisplay(Image):
                 # would under-move the stage by the downscale factor.
                 frame_width, frame_height = self.full_resolution_frame_size()
 
-                from modules.config_ui_getters import get_binning_from_ui
                 from ui.ui_helpers import submit_gesture
 
                 objective = _app_ctx.ctx.scope.runtime_state.get_current_objective()
@@ -438,7 +437,7 @@ class ScopeDisplay(Image):
                     return
                 pixel_size_um = config_ui_getters.get_pixel_size(
                     focal_length=objective['focal_length'],
-                    binning_size=get_binning_from_ui(),
+                    binning_size=_app_ctx.ctx.session.get_binning_size(),
                 )
                 if pixel_size_um is None:
                     # Click-to-center converts the click offset into a stage

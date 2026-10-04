@@ -230,33 +230,6 @@ class TestTimingAndBinningParseNotifies:
         assert params['period'] == datetime.timedelta(minutes=1)
         assert params['duration'] == datetime.timedelta(hours=1)
 
-    def test_binning_lane_answers_from_the_store_not_the_selector(self, monkeypatch):
-        # The selector is pointed at a label the store does not hold. A factor
-        # that could only have come from the widget is the two lanes drifting,
-        # and only the store is visible to a headless caller.
-        warnings = self._patch(monkeypatch, binning='2x2')
-        ctx_settings_binning = '4x4'
-        import modules.app_context as app_context
-
-        app_context.ctx.settings['binning']['size'] = ctx_settings_binning
-        app_context.ctx.motion_settings.ids['microscope_settings_id'].ids[
-            'binning_spinner'
-        ].text = '2x2'
-
-        from modules.config_helpers import get_binning_from_settings
-        from modules.config_ui_getters import get_binning_from_ui
-
-        assert get_binning_from_ui() == 4
-        assert get_binning_from_ui() == get_binning_from_settings(app_context.ctx.settings)
-        assert warnings == []
-
-    def test_valid_values_do_not_notify(self, monkeypatch):
-        warnings = self._patch(monkeypatch, period='5', duration='2', binning='2x2')
-        from modules.config_ui_getters import get_binning_from_ui
-
-        assert get_binning_from_ui() == 2
-        assert warnings == []
-
 
 class TestImageCaptureConfigSharedBuilder:
     """The UI lane (get_image_capture_config_from_ui) and the settings/headless

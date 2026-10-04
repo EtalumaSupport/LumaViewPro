@@ -2347,6 +2347,17 @@ class ScopeSession:
         )
         return self._apply_frame(native, target)
 
+    def get_binning_size(self) -> int:
+        """The binning factor in force: the one the camera took and the store holds.
+
+        ``set_binning_size`` stores a factor only once the camera took it, so
+        the store is the camera's binning; every pixel-size and tile-spacing
+        reader asks here.
+        """
+        import modules.config_helpers as config_helpers
+
+        return config_helpers.get_binning_from_settings(self.settings)
+
     def frame_at_binning(self, size: int) -> dict:
         """The frame ``set_binning_size(size)`` will ask the camera for; nothing is applied.
 

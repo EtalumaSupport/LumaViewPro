@@ -306,10 +306,7 @@ void main (void) {
             # single-owner pattern dropped them. (#638)
             if self._mouse_over_image:
                 title += f'   |   Pixel: ({self._mouse_pixel_x}, {self._mouse_pixel_y})'
-                from modules.config_ui_getters import (
-                    get_binning_from_ui,
-                    get_selected_labware,
-                )
+                from modules.config_ui_getters import get_selected_labware
 
                 # The plate (um) readout converts a cursor offset into a
                 # stage distance; it needs a connected XY stage, a known
@@ -325,7 +322,7 @@ void main (void) {
                 ):
                     pixel_size_um = config_ui_getters.get_pixel_size(
                         focal_length=objective['focal_length'],
-                        binning_size=get_binning_from_ui(),
+                        binning_size=_app_ctx.ctx.session.get_binning_size(),
                     )
                     if pixel_size_um is not None:
                         # _mouse_pixel_* are sensor-pixel coords (full frame);
