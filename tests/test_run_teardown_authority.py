@@ -94,38 +94,33 @@ def _an_ended_run(executor, tmp_path):
     return run
 
 
-def _capture_notifications(monkeypatch):
-    notified = []
-    from modules import notification_center
+def _notified_since(centre_posts, start):
+    """The warnings and errors the centre posted after ``start``."""
+    from modules.notification_center import Severity
 
-    for level in ('warning', 'error'):
-        monkeypatch.setattr(
-            notification_center.notifications,
-            level,
-            lambda *a, **kw: notified.append(a),
-        )
-    return notified
+    return [n for n in centre_posts[start:] if n.severity in (Severity.WARNING, Severity.ERROR)]
 
 
 class TestTeardownAuthority:
     def test_a_stale_handle_is_refused_and_the_live_run_survives(
-        self, executor, scope, tmp_path, monkeypatch
+        self, executor, scope, tmp_path, centre_posts
     ):
         """The reproduced defect: a stop naming an old run must not destroy
         the run that is live now."""
         stale = _an_ended_run(executor, tmp_path)
-        notified = _capture_notifications(monkeypatch)
+        start = len(centre_posts)
         done = threading.Event()
         live = _start_run(executor, tmp_path, done)
 
         with pytest.raises(ProtocolRunRefusedError) as exc:
             executor.reset(stale)
 
+        notified = _notified_since(centre_posts, start)
         assert exc.value.reason == 'run_not_live'
         # Notify-once, like every other refusal: the engine has already told
         # the user, so a caller reconciles its own state without re-notifying.
         assert len(notified) == 1, f'expected one notification, got {notified}'
-        assert notified[0][0] == 'Protocol'
+        assert notified[0].category == 'Protocol'
         # The live run is named, so a caller can say WHOSE run it is.
         assert exc.value.holder == 'protocol'
         assert exc.value.holder_trigger == OWNER
@@ -137,17 +132,18 @@ class TestTeardownAuthority:
         assert done.wait(timeout=COMPLETION_TIMEOUT)
 
     def test_a_handle_naming_no_run_is_refused_while_a_run_is_live(
-        self, executor, scope, tmp_path, monkeypatch
+        self, executor, scope, tmp_path, centre_posts
     ):
         """A control that never started anything holds None; its Stop must
         not reach the live run either."""
-        notified = _capture_notifications(monkeypatch)
+        start = len(centre_posts)
         done = threading.Event()
         live = _start_run(executor, tmp_path, done)
 
         with pytest.raises(ProtocolRunRefusedError) as exc:
             executor.reset(None)
 
+        notified = _notified_since(centre_posts, start)
         assert exc.value.reason == 'run_not_live'
         assert len(notified) == 1, f'expected one notification, got {notified}'
         assert executor.is_live_run(live), 'a refused teardown still killed the run'
@@ -176,16 +172,17 @@ class TestTeardownAuthority:
         assert done.wait(timeout=COMPLETION_TIMEOUT), 'reset did not unwind the run'
 
     def test_teardown_with_no_run_raises_run_already_ended(
-        self, executor, scope, tmp_path, monkeypatch
+        self, executor, scope, tmp_path, centre_posts
     ):
         """A stop that arrives after its run ended is told so, and nobody is
         notified: nothing was refused."""
         stale = _an_ended_run(executor, tmp_path)
-        notified = _capture_notifications(monkeypatch)
+        start = len(centre_posts)
 
         with pytest.raises(RunAlreadyEndedError) as exc:
             executor.reset(stale)
 
+        notified = _notified_since(centre_posts, start)
         assert not isinstance(exc.value, ProtocolRunRefusedError)
         assert notified == [], f'a stop after the run ended notified: {notified}'
 

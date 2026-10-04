@@ -186,16 +186,6 @@ class TestTimingAndBinningParseNotifies:
 
         monkeypatch.setattr(app_context, 'ctx', ctx)
 
-        warnings = []
-        import modules.notification_center as nc
-
-        monkeypatch.setattr(
-            nc.notifications,
-            'warning',
-            lambda category, title, message, **k: warnings.append((category, title, message)),
-        )
-        return warnings
-
     def test_an_unparseable_stored_period_is_refused_naming_it(self):
         # The stored schedule is read in one place, the settings lane, and a
         # value it cannot use is refused there -- never replaced by a default

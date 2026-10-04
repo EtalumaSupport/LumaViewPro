@@ -14,7 +14,7 @@ import threading
 
 import numpy as np
 
-from modules.notification_center import NotificationCenter
+from modules.notification_center import Severity
 
 
 class FakeClock:
@@ -149,30 +149,23 @@ class WriterStub:
 
 
 class NotifyRecorder:
-    """Notification sink recording (severity, args, kwargs) calls.
+    """The centre's posts at INFO and above, read as (severity, args, kwargs) calls.
 
-    ``report_outcome`` is the production reporter's own, so an outcome is
-    recorded as the display call the reporter would make -- its kind, title
-    and words decided by the real code, not restated here.
+    A view over the ``centre_posts`` fixture from the moment it is made, so a
+    test that starts watching mid-way sees only what was posted after.
     """
 
-    report_outcome = NotificationCenter.report_outcome
+    def __init__(self, posts):
+        self._posts = posts
+        self._start = len(posts)
 
-    def __init__(self):
-        self.calls = []
-        self._lock = threading.Lock()
-
-    def _record(self, severity):
-        def _call(*args, **kwargs):
-            self.calls.append((severity, args, kwargs))
-            return True
-
-        return _call
-
-    def __getattr__(self, name):
-        if name in ('info', 'warning', 'error', 'critical'):
-            return self._record(name)
-        raise AttributeError(name)
+    @property
+    def calls(self):
+        return [
+            (n.severity.name.lower(), (n.category, n.title, n.message), {})
+            for n in self._posts[self._start :]
+            if n.severity >= Severity.INFO
+        ]
 
     def severities(self):
         return [severity for severity, _, _ in self.calls]

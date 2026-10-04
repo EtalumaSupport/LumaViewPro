@@ -99,18 +99,11 @@ def _assemble(settings):
     )
 
 
-def _capture_notifications(monkeypatch):
-    """Route both severities of the notification singleton to one list."""
-    import modules.notification_center as notification_center
+def _warnings_and_errors(centre_posts):
+    """The warnings and errors the centre has posted."""
+    from modules.notification_center import Severity
 
-    captured = []
-    for severity in ('error', 'warning'):
-        monkeypatch.setattr(
-            notification_center.notifications,
-            severity,
-            lambda *args, _s=severity, **kwargs: captured.append((_s, args)),
-        )
-    return captured
+    return [n for n in centre_posts if n.severity in (Severity.ERROR, Severity.WARNING)]
 
 
 # ---------------------------------------------------------------------------
@@ -230,15 +223,13 @@ class TestTwoChannelFloor:
         ids=['none', 'one_transmitted', 'one_fluorescence', 'two_transmitted_collapse_to_one'],
     )
     def test_fewer_than_two_channels_is_assembled_without_refusing(
-        self, acquiring, expected, monkeypatch
+        self, acquiring, expected, centre_posts
     ):
-        captured = _capture_notifications(monkeypatch)
         config = _assemble(_settings(acquiring=acquiring))
         assert len(config['layer_configs']) == expected
-        assert captured == [], 'assembly refuses nothing and tells no one'
+        assert _warnings_and_errors(centre_posts) == [], 'assembly refuses nothing and tells no one'
 
-    def test_two_channels_is_enough(self, monkeypatch):
-        _capture_notifications(monkeypatch)
+    def test_two_channels_is_enough(self):
         config = _assemble(_settings(acquiring=('BF', 'Blue')))
         assert len(config['layer_configs']) == 2
 

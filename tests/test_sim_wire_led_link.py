@@ -23,7 +23,7 @@ import time
 import pytest
 
 import drivers.sim_wire.backend as sim_backend
-from modules import notification_center
+from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
@@ -36,8 +36,8 @@ _UNCONFIRMED = ('LED Safety', 'LED command did not confirm')
 
 
 @pytest.fixture
-def scope(monkeypatch):
-    """(the illumination API, the simulated LED board, the warnings shown)."""
+def scope(centre_posts):
+    """(the illumination API, the simulated LED board, the centre's posts)."""
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(
             sim_backend, 'LedBoardSpec', functools.partial(sim_backend.LedBoardSpec, oracle=True)
@@ -47,18 +47,19 @@ def scope(monkeypatch):
             simulate=True,
             warn_pre_release=False,
         )
-    shown = []
-    monkeypatch.setattr(
-        notification_center.notifications, 'warning', lambda *a, **k: shown.append(a[:2])
-    )
     try:
         yield (
             session.scope.illumination,
             session.scope._led_driver._backend.led_board,
-            shown,
+            centre_posts,
         )
     finally:
         session.shutdown()
+
+
+def _warnings(posts) -> list:
+    """(category, title) of each warning posted."""
+    return [(n.category, n.title) for n in posts if n.severity == Severity.WARNING]
 
 
 def _believed(illumination) -> dict:
@@ -80,13 +81,13 @@ def _driven(illumination, board) -> dict:
 
 
 def test_a_dropped_echo_leaves_the_answer_and_the_api_is_right(scope):
-    illumination, board, shown = scope
+    illumination, board, posts = scope
     board.drop_next_reply()
     illumination.led_on(0, 10)
     assert _believed(illumination) == {'Blue': 10.0}
     # The firmware's mA_to_dac: int(60.936 * 10 + 890).
     assert _driven(illumination, board) == {'Blue': 1499}
-    assert shown == []
+    assert _warnings(posts) == []
 
 
 @pytest.mark.xfail(
@@ -96,17 +97,17 @@ def test_a_dropped_echo_leaves_the_answer_and_the_api_is_right(scope):
     "answer, and the board's own answer is discarded unread",
 )
 def test_a_garbled_reply_does_not_confirm_a_write(scope):
-    illumination, board, shown = scope
+    illumination, board, posts = scope
     board.garble_next_reply()
     illumination.led_on(0, 10)
-    assert shown == [_UNCONFIRMED]
+    assert _warnings(posts) == [_UNCONFIRMED]
 
 
 def test_a_write_the_board_never_got_is_reported(scope):
-    illumination, board, shown = scope
+    illumination, board, posts = scope
     board.unplug()
     illumination.led_on(1, 10)
-    assert shown == [_UNCONFIRMED]
+    assert _warnings(posts) == [_UNCONFIRMED]
     assert _driven(illumination, board) == {}
 
 
@@ -117,7 +118,7 @@ def test_a_write_the_board_never_got_is_reported(scope):
     'and led_on returns as if it had succeeded',
 )
 def test_a_write_the_board_never_got_is_not_believed(scope):
-    illumination, board, _shown = scope
+    illumination, board, _posts = scope
     board.unplug()
     illumination.led_on(1, 10)
     assert _believed(illumination) == {}
@@ -130,7 +131,7 @@ def test_a_write_the_board_never_got_is_not_believed(scope):
     'nothing is raised and nothing is shown',
 )
 def test_a_write_to_a_lost_board_fails_out_loud(scope):
-    illumination, board, _shown = scope
+    illumination, board, _posts = scope
     board.unplug()
     illumination.led_on(1, 10)
     with pytest.raises(Exception):  # noqa: B017 -- which error is the fix's to choose
@@ -144,7 +145,7 @@ def test_a_write_to_a_lost_board_fails_out_loud(scope):
     'the rebooted board drives nothing',
 )
 def test_after_a_reboot_the_api_does_not_believe_a_channel_lit(scope):
-    illumination, board, _shown = scope
+    illumination, board, _posts = scope
     illumination.led_on(0, 10)
     board.reboot()
     illumination.led_on(1, 10)  # the write that finds the link gone

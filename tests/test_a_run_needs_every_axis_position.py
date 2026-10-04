@@ -23,6 +23,7 @@ import pytest
 import modules.protocol_run_loop as protocol_run_loop
 from modules.exceptions import ProtocolRunRefusedError
 from modules.lumascope_api import AxisState
+from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
@@ -61,21 +62,10 @@ def session_factory(tmp_path):
         session.shutdown()
 
 
-@pytest.fixture
-def notices(monkeypatch):
-    """Every notification the user is shown, as (title, message)."""
-    from modules.notification_center import notifications
-
-    shown = []
-    for level in ('info', 'warning', 'error', 'critical'):
-        original = getattr(notifications, level)
-
-        def _record(category, title, message, *args, _original=original, **kwargs):
-            shown.append((title, message))
-            return _original(category, title, message, *args, **kwargs)
-
-        monkeypatch.setattr(notifications, level, _record)
-    return shown
+def _notices(centre_posts):
+    """Every notification posted at a level the user is told at, as (title, message)."""
+    told = {Severity.INFO, Severity.WARNING, Severity.ERROR, Severity.CRITICAL}
+    return [(n.title, n.message) for n in centre_posts if n.severity in told]
 
 
 def _drop_board_writes(session, prefix, which):
@@ -155,7 +145,7 @@ class TestTheQuestion:
 
 class TestARunCannotStartWithoutEveryPosition:
     def test_an_unhomed_scope_is_refused_naming_its_axes_and_nothing_moves(
-        self, session_factory, tmp_path, notices
+        self, session_factory, tmp_path, centre_posts
     ):
         session = session_factory()
         moves = _record_moves(session)
@@ -167,7 +157,9 @@ class TestARunCannotStartWithoutEveryPosition:
         assert 'the X, Y and Z positions are unknown' in excinfo.value.message
         assert 'Home the scope' in excinfo.value.message
         assert moves == [], 'a refused run must not move the stage'
-        assert [title for title, _ in notices] == [excinfo.value.title], 'the refusal is shown once'
+        assert [title for title, _ in _notices(centre_posts)] == [excinfo.value.title], (
+            'the refusal is shown once'
+        )
 
     def test_an_unknown_turret_slot_is_refused_naming_t(self, session_factory, tmp_path):
         session = session_factory(
@@ -218,7 +210,7 @@ class TestARunCannotStartWithoutEveryPosition:
 
 class TestALostPositionEndsTheRunOnce:
     def test_a_move_the_board_never_answered_ends_the_run_naming_the_axis(
-        self, session_factory, tmp_path, notices
+        self, session_factory, tmp_path, centre_posts
     ):
         session = session_factory()
         home_sim_scope(session.scope)
@@ -229,15 +221,15 @@ class TestALostPositionEndsTheRunOnce:
         assert (outcome.status, outcome.reason) == ('failed', 'position_lost')
         assert 'the X position is unknown' in outcome.message
         assert 'Home the scope' in outcome.message
-        endings = [title for title, _ in notices if title == outcome.title]
+        endings = [title for title, _ in _notices(centre_posts) if title == outcome.title]
         assert endings == [outcome.title], 'the ending is shown once'
-        assert not any('USB' in message for _, message in notices), (
+        assert not any('USB' in message for _, message in _notices(centre_posts)), (
             'a lost position is not a cable fault'
         )
 
     @pytest.mark.parametrize('which', [3, 6])
     def test_a_z_lost_during_autofocus_saves_no_image(
-        self, session_factory, tmp_path, notices, which
+        self, session_factory, tmp_path, centre_posts, which
     ):
         session = session_factory(BF={'autofocus': True})
         home_sim_scope(session.scope)
@@ -252,7 +244,11 @@ class TestALostPositionEndsTheRunOnce:
         assert (outcome.status, outcome.reason) == ('failed', 'position_lost')
         assert 'the Z position is unknown' in outcome.message
         assert _images(tmp_path) == [], 'an image was saved at an unknown Z'
-        restore = [message for title, message in notices if title == 'Z Position Not Restored']
+        restore = [
+            message
+            for title, message in _notices(centre_posts)
+            if title == 'Z Position Not Restored'
+        ]
         assert restore and 'home the scope' in restore[0], (
             'the restore notice must send the user to home, not to a move the API refuses'
         )

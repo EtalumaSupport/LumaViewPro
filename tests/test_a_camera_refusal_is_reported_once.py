@@ -26,6 +26,7 @@ from modules.protocol_image_writer import RunWriteBatch
 from modules.exceptions import CameraSettingRejected
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
+from modules.notification_center import Severity
 from tests.frame_records import plate
 from tests.scope_fakes import give_stub_lanes, spec_scope
 
@@ -51,15 +52,9 @@ def sim_imaging():
     return imaging, cam
 
 
-@pytest.fixture
-def posted(monkeypatch):
-    captured = []
-    for level in ('error', 'warning', 'info'):
-        monkeypatch.setattr(
-            f'modules.lumascope_api.imaging.notifications.{level}',
-            lambda *a, _level=level, **kw: captured.append((_level, a)),
-        )
-    return captured
+def _posted(centre_posts):
+    told = {Severity.ERROR, Severity.WARNING, Severity.INFO}
+    return [n for n in centre_posts if n.severity in told]
 
 
 @pytest.fixture
@@ -100,28 +95,30 @@ class TestTheSetterAnswersWithTheValueInEffect:
 
 
 class TestTheApiPostsNothing:
-    def test_a_refused_gain_raises_and_posts_nothing(self, sim_imaging, posted, monkeypatch):
+    def test_a_refused_gain_raises_and_posts_nothing(self, sim_imaging, centre_posts, monkeypatch):
         imaging, cam = sim_imaging
         monkeypatch.setattr(cam, 'gain', lambda v: False)
 
         with pytest.raises(CameraSettingRejected):
             imaging.set_gain_db(7.0)
 
-        assert posted == []
+        assert _posted(centre_posts) == []
 
-    def test_a_refused_exposure_raises_and_posts_nothing(self, sim_imaging, posted, monkeypatch):
+    def test_a_refused_exposure_raises_and_posts_nothing(
+        self, sim_imaging, centre_posts, monkeypatch
+    ):
         imaging, cam = sim_imaging
         monkeypatch.setattr(cam, 'exposure_t', lambda v: False)
 
         with pytest.raises(CameraSettingRejected):
             imaging.set_exposure_ms(25.0)
 
-        assert posted == []
+        assert _posted(centre_posts) == []
 
 
 class TestTheLayerApply:
     def test_a_refused_gain_still_writes_the_exposure_then_raises(
-        self, sim_imaging, posted, monkeypatch
+        self, sim_imaging, centre_posts, monkeypatch
     ):
         imaging, cam = sim_imaging
         monkeypatch.setattr(cam, 'gain', lambda v: False)
@@ -131,7 +128,7 @@ class TestTheLayerApply:
 
         assert excinfo.value.setting == 'gain_db'
         assert imaging.exposure_ms_cached == pytest.approx(40.0)
-        assert posted == []
+        assert _posted(centre_posts) == []
 
 
 class TestTheRunReportsAndCarriesOn:

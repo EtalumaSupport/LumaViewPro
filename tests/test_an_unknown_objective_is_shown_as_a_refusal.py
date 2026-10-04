@@ -27,23 +27,6 @@ from modules.exceptions import ObjectiveUnknownError
 
 
 @pytest.fixture
-def shown(monkeypatch):
-    """Every notification posted, as (severity, title, message, kwargs)."""
-    from modules.notification_center import notifications
-
-    posted = []
-    for severity in ('warning', 'error'):
-        monkeypatch.setattr(
-            notifications,
-            severity,
-            lambda category, title, message, _s=severity, **kw: posted.append(
-                (_s, title, message, kw)
-            ),
-        )
-    return posted
-
-
-@pytest.fixture
 def popups(monkeypatch):
     import ui.notification_popup as popup_module
 
@@ -58,13 +41,13 @@ def _unknown():
     return ObjectiveUnknownError('slot_unknown')
 
 
-def _assert_shown_once_as_a_refusal(shown, popups, caplog, error):
-    from modules.notification_center import REFUSAL_OPERATION_KEY
+def _assert_shown_once_as_a_refusal(centre_posts, popups, caplog, error):
+    from modules.notification_center import REFUSAL_OPERATION_KEY, Severity
 
-    assert [(s, m) for s, _t, m, _kw in shown] == [('warning', str(error))]
-    kw = shown[0][3]
-    assert kw.get('solicited') is True
-    assert kw.get('operation_key') == REFUSAL_OPERATION_KEY
+    shown = [n for n in centre_posts if n.severity in (Severity.WARNING, Severity.ERROR)]
+    assert [(n.severity.name.lower(), n.message) for n in shown] == [('warning', str(error))]
+    assert shown[0].solicited is True
+    assert shown[0].operation_key == REFUSAL_OPERATION_KEY
     assert popups == []
     assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
@@ -90,10 +73,12 @@ class TestNewProtocol:
         )
         return ps.ProtocolSettings.new_protocol, stand, error
 
-    def test_an_unknown_objective_is_shown_once_as_a_refusal(self, panel, shown, popups, caplog):
+    def test_an_unknown_objective_is_shown_once_as_a_refusal(
+        self, panel, centre_posts, popups, caplog
+    ):
         new_protocol, stand, error = panel
 
         with caplog.at_level(logging.WARNING):
             new_protocol(stand)
 
-        _assert_shown_once_as_a_refusal(shown, popups, caplog, error)
+        _assert_shown_once_as_a_refusal(centre_posts, popups, caplog, error)

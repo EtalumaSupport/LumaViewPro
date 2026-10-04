@@ -1512,24 +1512,25 @@ class _LockWatchingSettings(dict):
 class TestRule14_A4_PreRunValidationNotify:
     """A4: Pre-run validation errors must surface a user notification (Rule 14)."""
 
-    def _run_with_validation_errors(self, monkeypatch, errors):
+    def _run_with_validation_errors(self, centre_posts, errors):
         from modules.exceptions import ProtocolRunRefusedError
-        from modules.notification_center import notifications
+        from modules.notification_center import Severity
 
-        captured = []
-        # A validation failure is a refusal, shown as a warning.
-        monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
         runner = _bare_capture_runner()
         kwargs = _scr_run_kwargs()
         kwargs['protocol'].validate_for_run.return_value = errors
         with pytest.raises(ProtocolRunRefusedError):
             runner.prepare(**kwargs)
+        # A validation failure is a refusal, shown as a warning.
+        captured = [
+            (n.category, n.title, n.message) for n in centre_posts if n.severity == Severity.WARNING
+        ]
         return runner, kwargs['protocol'], captured
 
-    def test_validation_errors_branch_notifies(self, monkeypatch):
+    def test_validation_errors_branch_notifies(self, centre_posts):
         """A failing pre-run validation must notify the user and abort the run."""
         runner, protocol, captured = self._run_with_validation_errors(
-            monkeypatch, ['step 1: X position outside axis limits']
+            centre_posts, ['step 1: X position outside axis limits']
         )
         assert captured, 'validation_errors return path must post a warning (A4 -- Rule 14)'
         assert captured[0][1] == 'Validation failed', (
@@ -1540,10 +1541,10 @@ class TestRule14_A4_PreRunValidationNotify:
         )
         assert not runner.run_in_progress(), 'run must not start'
 
-    def test_validation_summary_truncates_at_five(self, monkeypatch):
+    def test_validation_summary_truncates_at_five(self, centre_posts):
         """Notification summary must show first 5 errors; mention 'see log' for overflow."""
         errors = [f'error number {i}' for i in range(1, 8)]
-        _, _, captured = self._run_with_validation_errors(monkeypatch, errors)
+        _, _, captured = self._run_with_validation_errors(centre_posts, errors)
         assert captured, 'seven validation errors must still notify'
         body = captured[0][2]
         for i in range(1, 6):
@@ -2077,80 +2078,89 @@ class TestHomeRaises:
         )
 
     @staticmethod
-    def _record_errors(monkeypatch):
-        """Route notifications.error into a list of (component, title, body)."""
-        from modules.notification_center import notifications
+    def _errors(centre_posts):
+        """The error posts, as (component, title, body)."""
+        from modules.notification_center import Severity
 
-        calls = []
-        monkeypatch.setattr(notifications, 'error', lambda *args, **kwargs: calls.append(args))
-        return calls
+        return [
+            (n.category, n.title, n.message) for n in centre_posts if n.severity == Severity.ERROR
+        ]
 
-    def test_zhome_propagates_driver_true(self, sim_scope, monkeypatch):
-        errors = self._record_errors(monkeypatch)
+    def test_zhome_propagates_driver_true(self, sim_scope, monkeypatch, centre_posts):
         monkeypatch.setattr(sim_scope._motion_driver, 'zhome', lambda: True)
         sim_scope.motion.home(axis='Z')
+        errors = self._errors(centre_posts)
         assert errors == [], f'success path must not notify; got {errors}'
 
-    def test_zhome_raises_and_posts_nothing_on_driver_false(self, sim_scope, monkeypatch):
-        errors = self._record_errors(monkeypatch)
+    def test_zhome_raises_and_posts_nothing_on_driver_false(
+        self, sim_scope, monkeypatch, centre_posts
+    ):
         monkeypatch.setattr(sim_scope._motion_driver, 'zhome', lambda: False)
         with pytest.raises(HomingFailedError):
             sim_scope.motion.home(axis='Z')
+        errors = self._errors(centre_posts)
         assert errors == [], f'the home raises and posts nothing; got {errors}'
 
-    def test_zhome_raises_and_posts_nothing_on_driver_raise(self, sim_scope, monkeypatch):
-        errors = self._record_errors(monkeypatch)
-
+    def test_zhome_raises_and_posts_nothing_on_driver_raise(
+        self, sim_scope, monkeypatch, centre_posts
+    ):
         def boom():
             raise HardwareError('no response from motor board')
 
         monkeypatch.setattr(sim_scope._motion_driver, 'zhome', boom)
         with pytest.raises(HomingFailedError):
             sim_scope.motion.home(axis='Z')
+        errors = self._errors(centre_posts)
         assert errors == [], f'the home raises and posts nothing; got {errors}'
 
-    def test_home_propagates_driver_true(self, sim_scope, monkeypatch):
-        errors = self._record_errors(monkeypatch)
+    def test_home_propagates_driver_true(self, sim_scope, monkeypatch, centre_posts):
         monkeypatch.setattr(sim_scope._motion_driver, 'home', lambda: True)
         sim_scope.motion.home()
+        errors = self._errors(centre_posts)
         assert errors == [], f'success path must not notify; got {errors}'
 
-    def test_home_raises_and_posts_nothing_on_driver_false(self, sim_scope, monkeypatch):
-        errors = self._record_errors(monkeypatch)
+    def test_home_raises_and_posts_nothing_on_driver_false(
+        self, sim_scope, monkeypatch, centre_posts
+    ):
         monkeypatch.setattr(sim_scope._motion_driver, 'home', lambda: False)
         with pytest.raises(HomingFailedError):
             sim_scope.motion.home()
+        errors = self._errors(centre_posts)
         assert errors == [], f'the home raises and posts nothing; got {errors}'
 
-    def test_home_raises_and_posts_nothing_on_driver_raise(self, sim_scope, monkeypatch):
-        errors = self._record_errors(monkeypatch)
-
+    def test_home_raises_and_posts_nothing_on_driver_raise(
+        self, sim_scope, monkeypatch, centre_posts
+    ):
         def boom():
             raise HardwareError('firmware error')
 
         monkeypatch.setattr(sim_scope._motion_driver, 'home', boom)
         with pytest.raises(HomingFailedError):
             sim_scope.motion.home()
+        errors = self._errors(centre_posts)
         assert errors == [], f'the home raises and posts nothing; got {errors}'
 
-    def test_thome_propagates_driver_true(self, sim_scope, monkeypatch):
+    def test_thome_propagates_driver_true(self, sim_scope, monkeypatch, centre_posts):
         sim_scope._motion_driver.set_timing_mode('instant')
-        errors = self._record_errors(monkeypatch)
         monkeypatch.setattr(sim_scope._motion_driver, 'thome', lambda: True)
         sim_scope.motion.home(axis='T')
+        errors = self._errors(centre_posts)
         assert errors == [], f'success path must not notify; got {errors}'
 
-    def test_thome_raises_and_posts_nothing_on_driver_false(self, sim_scope, monkeypatch):
+    def test_thome_raises_and_posts_nothing_on_driver_false(
+        self, sim_scope, monkeypatch, centre_posts
+    ):
         sim_scope._motion_driver.set_timing_mode('instant')
-        errors = self._record_errors(monkeypatch)
         monkeypatch.setattr(sim_scope._motion_driver, 'thome', lambda: False)
         with pytest.raises(HomingFailedError, match='Turret homing'):
             sim_scope.motion.home(axis='T')
+        errors = self._errors(centre_posts)
         assert errors == [], f'the home raises and posts nothing; got {errors}'
 
-    def test_thome_raises_and_posts_nothing_on_driver_raise(self, sim_scope, monkeypatch):
+    def test_thome_raises_and_posts_nothing_on_driver_raise(
+        self, sim_scope, monkeypatch, centre_posts
+    ):
         sim_scope._motion_driver.set_timing_mode('instant')
-        errors = self._record_errors(monkeypatch)
 
         def boom():
             raise HardwareError('no response from motor board')
@@ -2158,6 +2168,7 @@ class TestHomeRaises:
         monkeypatch.setattr(sim_scope._motion_driver, 'thome', boom)
         with pytest.raises(HomingFailedError, match='Turret homing'):
             sim_scope.motion.home(axis='T')
+        errors = self._errors(centre_posts)
         assert errors == [], f'the home raises and posts nothing; got {errors}'
 
     def test_thome_failure_sets_turret_arrival_event(self, sim_scope, monkeypatch):
@@ -2165,7 +2176,6 @@ class TestHomeRaises:
         safe-turret-move Z restore returns immediately instead of hanging
         on a cleared T event until the 120s motion timeout."""
         sim_scope._motion_driver.set_timing_mode('instant')
-        self._record_errors(monkeypatch)
         monkeypatch.setattr(sim_scope._motion_driver, 'thome', lambda: False)
         with pytest.raises(HomingFailedError):
             sim_scope.motion.home(axis='T')

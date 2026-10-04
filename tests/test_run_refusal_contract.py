@@ -323,22 +323,35 @@ def _a_closed_batch_still_writing(*, stuck_write=None):
     return batch
 
 
-def _capture_notifications(monkeypatch):
-    """Route both severities of the notification singleton to one list."""
-    import modules.notification_center as notification_center
+class _WarningsAndErrors:
+    """The warnings and errors the centre posts from the moment this is made, read when asked."""
 
-    captured = []
-    monkeypatch.setattr(
-        notification_center.notifications,
-        'error',
-        lambda *args, **kwargs: captured.append(('error', args)),
-    )
-    monkeypatch.setattr(
-        notification_center.notifications,
-        'warning',
-        lambda *args, **kwargs: captured.append(('warning', args)),
-    )
-    return captured
+    def __init__(self, posts):
+        self._posts = posts
+        self._start = len(posts)
+
+    def _seen(self):
+        from modules.notification_center import Severity
+
+        return [
+            n
+            for n in self._posts[self._start :]
+            if n.severity in (Severity.WARNING, Severity.ERROR)
+        ]
+
+    def __len__(self):
+        return len(self._seen())
+
+    def __getitem__(self, index):
+        return self._seen()[index]
+
+    def __repr__(self):
+        return repr(self._seen())
+
+
+def _capture_notifications(centre_posts):
+    """The warnings and errors posted from now on, seen through ``centre_posts``."""
+    return _WarningsAndErrors(centre_posts)
 
 
 # ---------------------------------------------------------------------------
@@ -460,14 +473,14 @@ class TestHeadlessRefusalDoesNotHang:
 
 class TestLateFailurePreservesNothingAndLeavesNoOrphan:
     def test_run_dir_init_failure_fails_at_start_no_orphan_dir(
-        self, executor, tmp_path, monkeypatch
+        self, executor, tmp_path, monkeypatch, centre_posts
     ):
         _run_to_completion(executor, _make_single_step_protocol(), tmp_path)
         _wait_for_file_queue_drain(executor)
         output_dir = tmp_path / 'output'
         listing_after_first = sorted(p.name for p in output_dir.iterdir())
 
-        captured = _capture_notifications(monkeypatch)
+        captured = _capture_notifications(centre_posts)
 
         def _boom():
             raise OSError('protocol file write failed')
@@ -509,12 +522,12 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
         _run_to_completion(executor, _make_single_step_protocol(), tmp_path)
 
     def test_a_run_whose_protocol_copy_cannot_be_written_fails_at_start(
-        self, executor, tmp_path, monkeypatch
+        self, executor, tmp_path, centre_posts
     ):
         """The run's folder holds the protocol it ran; without it the images
         cannot be traced to the steps that took them, so the run does not
         begin. The copy's name puts it in a folder that does not exist."""
-        captured = _capture_notifications(monkeypatch)
+        captured = _capture_notifications(centre_posts)
         completions = []
         plan = _prepare(
             executor,
@@ -604,13 +617,13 @@ class TestTheCompositeChannelFloor:
         ids=['no_channel', 'one_channel'],
     )
     def test_fewer_than_two_channels_is_refused_once(
-        self, executor, tmp_path, monkeypatch, protocol_factory
+        self, executor, tmp_path, protocol_factory, centre_posts
     ):
-        captured = _capture_notifications(monkeypatch)
+        captured = _capture_notifications(centre_posts)
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             self._prepare_composite(executor, protocol_factory(), tmp_path)
         assert excinfo.value.reason == 'composite_needs_two_channels'
-        assert len(captured) == 1 and captured[0][0] == 'warning', captured
+        assert len(captured) == 1 and captured[0].severity.name.lower() == 'warning', captured
         assert not executor.run_in_progress()
 
 
@@ -848,7 +861,7 @@ class TestRefusalNotifyOnceFunnel:
         ]
 
     def test_each_refusal_reason_notifies_once_with_matching_reason(
-        self, executor, scope, tmp_path, monkeypatch
+        self, executor, scope, tmp_path, monkeypatch, centre_posts
     ):
         scenarios = self._scenarios(executor, scope)
         assert {reason for reason, _ in scenarios} == {
@@ -858,7 +871,7 @@ class TestRefusalNotifyOnceFunnel:
         }, 'the scenario list and RUNNER_REFUSAL_COVERAGE drifted apart'
         for reason, setup in scenarios:
             with monkeypatch.context() as mp:
-                captured = _capture_notifications(mp)
+                captured = _capture_notifications(centre_posts)
                 protocol = setup(mp)
                 try:
                     with pytest.raises(ProtocolRunRefusedError) as excinfo:
@@ -871,7 +884,7 @@ class TestRefusalNotifyOnceFunnel:
                 assert len(captured) == 1, (
                     f'refusal {reason!r} must notify exactly once; got {captured}'
                 )
-                assert captured[0][0] == 'warning', (
+                assert captured[0].severity.name.lower() == 'warning', (
                     f'refusal {reason!r} is a refusal, shown as a warning; got {captured}'
                 )
                 assert not executor.run_in_progress(), (
@@ -879,7 +892,7 @@ class TestRefusalNotifyOnceFunnel:
                 )
 
     def test_start_refused_while_recording_holds_activity_claim(
-        self, executor, tmp_path, monkeypatch
+        self, executor, tmp_path, centre_posts
     ):
         """start()-tier twin of the loop above.
 
@@ -889,19 +902,18 @@ class TestRefusalNotifyOnceFunnel:
         must not disturb the recording's claim, and the runner must stay
         fully usable once the recording releases it.
         """
-        with monkeypatch.context() as mp:
-            captured = _capture_notifications(mp)
-            plan = _prepare(executor, _make_single_step_protocol(), tmp_path)
-            recording = executor._activity_claim.try_claim('recording')
-            assert recording
-            try:
-                with pytest.raises(ProtocolRunRefusedError) as excinfo:
-                    executor.start(plan)
-                assert executor._activity_claim.owner == 'recording', (
-                    "a refused start must not steal or release the recording's claim"
-                )
-            finally:
-                recording.release()
+        captured = _capture_notifications(centre_posts)
+        plan = _prepare(executor, _make_single_step_protocol(), tmp_path)
+        recording = executor._activity_claim.try_claim('recording')
+        assert recording
+        try:
+            with pytest.raises(ProtocolRunRefusedError) as excinfo:
+                executor.start(plan)
+            assert executor._activity_claim.owner == 'recording', (
+                "a refused start must not steal or release the recording's claim"
+            )
+        finally:
+            recording.release()
         assert excinfo.value.reason == 'exclusive_activity_running'
         assert 'recording' in excinfo.value.message.lower(), (
             'the recording-holder branch must name the recording, not the '
@@ -913,21 +925,20 @@ class TestRefusalNotifyOnceFunnel:
         _run_to_completion(executor, _make_single_step_protocol(), tmp_path)
 
     def test_start_refused_while_a_diagnostic_holds_activity_claim(
-        self, executor, tmp_path, monkeypatch
+        self, executor, tmp_path, centre_posts
     ):
         """A diagnostic holds the scope the way a run does, so a run start
         during one is refused, names it, and leaves its claim alone."""
-        with monkeypatch.context() as mp:
-            captured = _capture_notifications(mp)
-            plan = _prepare(executor, _make_single_step_protocol(), tmp_path)
-            diagnostic = executor._activity_claim.try_claim('diagnostic')
-            assert diagnostic
-            try:
-                with pytest.raises(ProtocolRunRefusedError) as excinfo:
-                    executor.start(plan)
-                assert diagnostic.holds, "a refused start must not touch the diagnostic's claim"
-            finally:
-                diagnostic.release()
+        captured = _capture_notifications(centre_posts)
+        plan = _prepare(executor, _make_single_step_protocol(), tmp_path)
+        diagnostic = executor._activity_claim.try_claim('diagnostic')
+        assert diagnostic
+        try:
+            with pytest.raises(ProtocolRunRefusedError) as excinfo:
+                executor.start(plan)
+            assert diagnostic.holds, "a refused start must not touch the diagnostic's claim"
+        finally:
+            diagnostic.release()
         assert excinfo.value.reason == 'exclusive_activity_running'
         assert 'diagnostic' in excinfo.value.message, excinfo.value.message
         assert len(captured) == 1, f'the refusal must notify exactly once; got {captured}'

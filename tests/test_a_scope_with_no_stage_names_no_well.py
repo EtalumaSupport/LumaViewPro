@@ -14,9 +14,9 @@ LS850 (X, Y and Z) as the control.
 
 import json
 
-import pytest
 import tifffile
 
+from modules.notification_center import Severity
 from tests.test_manual_capture_member import _capture, _open_session, _settings
 
 
@@ -26,17 +26,8 @@ def _session(tmp_path, microscope):
     return _open_session(settings)
 
 
-@pytest.fixture
-def warnings_shown(monkeypatch):
-    from modules.notification_center import notifications
-
-    shown = []
-    monkeypatch.setattr(
-        notifications,
-        'warning',
-        lambda category, title, message, **kwargs: shown.append(title),
-    )
-    return shown
+def _warnings(centre_posts):
+    return [n.title for n in centre_posts if n.severity == Severity.WARNING]
 
 
 def _description(path):
@@ -50,17 +41,17 @@ class TestAZOnlyScope:
             assert not session.scope.capabilities.has_xy_stage
             assert session.scope.runtime_state.get_well_label() is None
 
-    def test_a_still_is_saved_without_a_well_and_says_nothing(self, tmp_path, warnings_shown):
+    def test_a_still_is_saved_without_a_well_and_says_nothing(self, tmp_path, centre_posts):
         with _session(tmp_path, 'LS820') as session:
             (path,) = _capture(session)
 
         assert path.name == 'live_BF_000001.tiff'
         assert _description(path)['Plate']['WellLabel'] == ''
-        assert warnings_shown == []
+        assert _warnings(centre_posts) == []
 
 
 class TestAnXYScope:
-    def test_a_homed_stage_names_its_well(self, tmp_path, warnings_shown):
+    def test_a_homed_stage_names_its_well(self, tmp_path, centre_posts):
         with _session(tmp_path, 'LS850') as session:
             assert session.scope.capabilities.has_xy_stage
             label = session.scope.runtime_state.get_well_label()
@@ -69,4 +60,4 @@ class TestAnXYScope:
         assert label
         assert path.name == f'live_{label}_BF_000001.tiff'
         assert _description(path)['Plate']['WellLabel'] == label
-        assert warnings_shown == []
+        assert _warnings(centre_posts) == []

@@ -194,10 +194,9 @@ def test_dropped_frames_are_reported_once_unsolicited(tmp_path, monkeypatch):
     assert kw == {'solicited': False, 'category': 'Recording'}
 
 
-def test_a_limit_above_the_cameras_rate_shows_nothing(tmp_path, monkeypatch):
+def test_a_limit_above_the_cameras_rate_shows_nothing(tmp_path, centre_posts):
     controller, _scope, _clock = make_controller(tmp_path, max_fps=1000)
-    recorder = NotifyRecorder()
-    monkeypatch.setattr(manual_recording_module, 'notifications', recorder)
+    recorder = NotifyRecorder(centre_posts)
 
     controller.start()
     controller.stop()

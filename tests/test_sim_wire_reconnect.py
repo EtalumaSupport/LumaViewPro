@@ -131,22 +131,15 @@ _HOMES = {
 }
 
 
-def _pulled(scope, monkeypatch) -> list:
-    errors = []
-    monkeypatch.setattr(
-        notification_center.notifications,
-        'error',
-        lambda category, title, message, **kwargs: errors.append(title),
-    )
+def _pulled(scope) -> None:
     scope._motion_driver._backend.motor_board.unplug()
-    return errors
 
 
 @pytest.mark.parametrize('home', list(_HOMES))
-def test_a_home_after_a_cable_pull_fails_at_once(scope, monkeypatch, home):
+def test_a_home_after_a_cable_pull_fails_at_once(scope, home):
     # #632: a disconnected motor must not hold the caller while the driver
     # waits out its timeouts and reconnect attempts.
-    _pulled(scope, monkeypatch)
+    _pulled(scope)
     started = time.monotonic()
     with pytest.raises((HomingFailedError, HardwareCommandRefusedError)):
         _HOMES[home](scope.motion)
@@ -160,8 +153,8 @@ def test_a_home_after_a_cable_pull_fails_at_once(scope, monkeypatch, home):
     'home. Only the next call knows the motor is disconnected',
 )
 @pytest.mark.parametrize('home', list(_HOMES))
-def test_a_home_after_a_cable_pull_says_the_motor_is_not_connected(scope, monkeypatch, home):
-    _pulled(scope, monkeypatch)
+def test_a_home_after_a_cable_pull_says_the_motor_is_not_connected(scope, home):
+    _pulled(scope)
     with pytest.raises(HardwareCommandRefusedError) as raised:
         _HOMES[home](scope.motion)
     assert raised.value.reason == 'not_connected'

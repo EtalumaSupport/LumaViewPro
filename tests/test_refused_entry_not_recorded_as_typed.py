@@ -50,20 +50,7 @@ def _advanced_panel(monkeypatch, widget_id, widget, stored):
         ids: ClassVar[dict] = {widget_id: widget}
 
     monkeypatch.setattr(advanced_settings._app_ctx, 'ctx', type('C', (), {'settings': stored})())
-    monkeypatch.setattr(advanced_settings, 'notifications', _Noop(), raising=False)
     return _Panel()
-
-
-class _Noop:
-    def warning(self, *a, **k):
-        pass
-
-
-@pytest.fixture(autouse=True)
-def _silence_notifications(monkeypatch):
-    from modules import notification_center
-
-    monkeypatch.setattr(notification_center.notifications, 'warning', lambda *a, **k: None)
 
 
 def test_a_refused_fps_limit_records_the_attempt_not_the_revert(emitted, monkeypatch):

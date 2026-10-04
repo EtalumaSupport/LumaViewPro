@@ -33,6 +33,7 @@ from pypylon import genicam
 from modules.exceptions import CameraSettingRejected
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
+from modules.notification_center import Severity
 from tests.camera_fakes import bare_pylon_camera
 from tests.scope_fakes import give_stub_lanes
 
@@ -73,13 +74,8 @@ def pylon_cam():
 
 
 @pytest.fixture
-def pylon_imaging(pylon_cam, monkeypatch):
-    """The real ImagingAPI over that driver, with the popup captured."""
-    captured = []
-    monkeypatch.setattr(
-        'modules.lumascope_api.imaging.notifications.error',
-        lambda *a, **kw: captured.append(a),
-    )
+def pylon_imaging(pylon_cam):
+    """The real ImagingAPI over that driver."""
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = pylon_cam
     give_stub_lanes(scope)
@@ -87,7 +83,7 @@ def pylon_imaging(pylon_cam, monkeypatch):
     scope._state_lock = threading.RLock()
     imaging = ImagingAPI(scope, pylon_cam)
     scope.imaging = imaging
-    return imaging, pylon_cam, captured
+    return imaging, pylon_cam
 
 
 class TestEverySwallowedRejectionIsReported:
@@ -143,7 +139,7 @@ class TestARefusalIsNotRecordedAsTruth:
     """The end-to-end consequence, through the real API over the real driver."""
 
     def test_the_refusal_reaches_an_l2_caller(self, pylon_imaging):
-        imaging, cam, _captured = pylon_imaging
+        imaging, cam = pylon_imaging
         cam.active.Gain.SetValue.side_effect = genicam.OutOfRangeException('out of range')
 
         with pytest.raises(CameraSettingRejected) as excinfo:
@@ -153,7 +149,7 @@ class TestARefusalIsNotRecordedAsTruth:
         assert excinfo.value.requested == 30.0
 
     def test_the_cache_and_the_chunk_target_stay_where_the_camera_is(self, pylon_imaging):
-        imaging, cam, _captured = pylon_imaging
+        imaging, cam = pylon_imaging
         imaging.set_gain_db(3.0)
         assert imaging.gain_db_cached == 3.0, 'precondition: the applied write was recorded'
         assert imaging.frame_validity.target('gain') == 3.0
@@ -167,12 +163,14 @@ class TestARefusalIsNotRecordedAsTruth:
             'a chunk target no frame can carry rejects every frame the camera produces'
         )
 
-    def test_the_api_shows_nothing_itself(self, pylon_imaging):
-        imaging, cam, captured = pylon_imaging
+    def test_the_api_shows_nothing_itself(self, pylon_imaging, centre_posts):
+        imaging, cam = pylon_imaging
         cam.active.Gain.SetValue.side_effect = genicam.OutOfRangeException('out of range')
 
         with pytest.raises(CameraSettingRejected) as excinfo:
             imaging.set_gain_db(30.0)
 
-        assert not captured, 'the refusal is shown by its reporter, not by the API'
+        assert not [n for n in centre_posts if n.severity == Severity.ERROR], (
+            'the refusal is shown by its reporter, not by the API'
+        )
         assert excinfo.value.title, 'and it carries the words the reporter shows'

@@ -48,10 +48,10 @@ def _tile_2x2(proto, axis_limits):
 
 
 @pytest.mark.parametrize('axis_limits', [{}, _WIDE_XY], ids=['no motors', 'no Z'])
-def test_a_zstack_without_z_is_refused_once_and_builds_nothing(monkeypatch, axis_limits):
+def test_a_zstack_without_z_is_refused_once_and_builds_nothing(axis_limits, centre_posts):
     proto = _one_step_protocol()
     before = proto.steps().copy()
-    captured = _capture_notifications(monkeypatch)
+    captured = _capture_notifications(centre_posts)
 
     with pytest.raises(ProtocolRunRefusedError) as refused:
         proto.apply_zstacking(zstack_params=_ZSTACK, axis_limits=axis_limits)
@@ -63,10 +63,10 @@ def test_a_zstack_without_z_is_refused_once_and_builds_nothing(monkeypatch, axis
 
 
 @pytest.mark.parametrize('axis_limits', [{}, _WIDE_Z], ids=['no motors', 'Z only'])
-def test_a_tile_grid_without_xy_is_refused_once_and_builds_nothing(monkeypatch, axis_limits):
+def test_a_tile_grid_without_xy_is_refused_once_and_builds_nothing(axis_limits, centre_posts):
     proto = _one_step_protocol()
     before = proto.steps().copy()
-    captured = _capture_notifications(monkeypatch)
+    captured = _capture_notifications(centre_posts)
 
     with pytest.raises(ProtocolRunRefusedError) as refused:
         _tile_2x2(proto, axis_limits)

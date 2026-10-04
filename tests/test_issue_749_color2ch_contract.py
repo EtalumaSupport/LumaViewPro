@@ -144,18 +144,12 @@ class TestTaskFailureNotificationWording:
     where the failure happened, which the title carries.
     """
 
-    def _fire(self, monkeypatch, *, protocol: bool):
-        from modules import notification_center
+    def _fire(self, centre_posts, *, protocol: bool):
+        from modules.notification_center import Severity
         from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
         executor = SequentialIOExecutor(max_workers=1, name='TEST_WORDING')
         try:
-            calls = []
-            monkeypatch.setattr(
-                notification_center.notifications,
-                'error',
-                lambda category, title, body, **kw: calls.append((title, body)),
-            )
 
             def sample_operation():
                 pass
@@ -168,19 +162,20 @@ class TestTaskFailureNotificationWording:
             queue.put(task)
             queue.get_nowait()
             executor._on_task_done(task, None, RuntimeError('boom'))
+            calls = [(n.title, n.message) for n in centre_posts if n.severity == Severity.ERROR]
             assert len(calls) == 1
             return calls[0]
         finally:
             executor.shutdown(wait=False)
 
-    def test_live_task_does_not_blame_a_protocol(self, monkeypatch):
-        title, body = self._fire(monkeypatch, protocol=False)
+    def test_live_task_does_not_blame_a_protocol(self, centre_posts):
+        title, body = self._fire(centre_posts, protocol=False)
         seen = f'{title} {body}'.lower()
         assert 'protocol' not in seen, f'a manual live action blamed a protocol: {seen!r}'
         assert 'sample_operation' not in seen, f'the user was shown a Python symbol: {seen!r}'
 
-    def test_protocol_task_says_where_it_happened(self, monkeypatch):
-        title, body = self._fire(monkeypatch, protocol=True)
+    def test_protocol_task_says_where_it_happened(self, centre_posts):
+        title, body = self._fire(centre_posts, protocol=True)
         seen = f'{title} {body}'.lower()
         assert 'protocol' in seen, f'a protocol-queue failure must say so: {seen!r}'
         assert 'skipped' not in seen, (
@@ -281,18 +276,12 @@ class TestCaptureAbortWording:
     everything else (incl. a board-less run) keeps the camera wording."""
 
     @staticmethod
-    def _run_abort(monkeypatch, *, color, led_connected, channel):
+    def _run_abort(centre_posts, *, color, led_connected, channel):
         from unittest.mock import MagicMock
 
-        from modules import notification_center
+        from modules.notification_center import Severity
         from tests.test_audit_fixes import _bare_protocol_writer, _protocol_step
 
-        criticals = []
-        monkeypatch.setattr(
-            notification_center.notifications,
-            'critical',
-            lambda title, subject, body, **kw: criticals.append(body),
-        )
         writer = _bare_protocol_writer()
         scope = writer._scope
         # The objective the frame is taken with, read at capture.
@@ -311,18 +300,19 @@ class TestCaptureAbortWording:
             protocol=protocol,
             enable_image_saving=True,
         )
+        criticals = [n.message for n in centre_posts if n.severity == Severity.CRITICAL]
         assert len(criticals) == 1, criticals
         return criticals[0]
 
-    def test_undrivable_colour_names_the_colour(self, monkeypatch):
-        body = self._run_abort(monkeypatch, color='PC', led_connected=True, channel=None)
+    def test_undrivable_colour_names_the_colour(self, centre_posts):
+        body = self._run_abort(centre_posts, color='PC', led_connected=True, channel=None)
         assert 'PC' in body
         assert 'Camera' not in body
 
-    def test_no_led_board_keeps_camera_wording(self, monkeypatch):
-        body = self._run_abort(monkeypatch, color='BF', led_connected=False, channel=None)
+    def test_no_led_board_keeps_camera_wording(self, centre_posts):
+        body = self._run_abort(centre_posts, color='BF', led_connected=False, channel=None)
         assert 'Camera failed' in body
 
-    def test_drivable_colour_keeps_camera_wording(self, monkeypatch):
-        body = self._run_abort(monkeypatch, color='BF', led_connected=True, channel=3)
+    def test_drivable_colour_keeps_camera_wording(self, centre_posts):
+        body = self._run_abort(centre_posts, color='BF', led_connected=True, channel=3)
         assert 'Camera failed' in body

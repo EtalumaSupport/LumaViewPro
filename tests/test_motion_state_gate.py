@@ -42,6 +42,7 @@ from drivers.exceptions import HardwareError
 from drivers.sim_wire.mp import tmc5072
 from modules.exceptions import AxisStateUnknownError, HomingFailedError, MoveNotCompletedError
 from modules.lumascope_api import AxisState
+from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
@@ -51,14 +52,8 @@ if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
     )
 
 
-def _silence_notifications(monkeypatch, sink):
-    import modules.notification_center as nc
-
-    monkeypatch.setattr(
-        nc.notifications,
-        'error',
-        lambda category, title, message, **k: sink.append((category, title, message)),
-    )
+def _errors_posted(centre_posts):
+    return [(n.category, n.title, n.message) for n in centre_posts if n.severity == Severity.ERROR]
 
 
 def _wait_until(predicate, timeout=3.0, interval=0.02):
@@ -71,20 +66,17 @@ def _wait_until(predicate, timeout=3.0, interval=0.02):
 
 
 @pytest.fixture
-def session(monkeypatch):
-    """A simulated scope on the real firmware, with notifications captured.
+def session():
+    """A simulated scope on the real firmware.
 
     An LS850T has X/Y/Z plus a turret, so the turret paths are exercised
     on the same instance as the stage paths.
     """
-    errors = []
-    _silence_notifications(monkeypatch, errors)
     session = ScopeSession.create(
         complete_settings(simulator_tier='firmware', microscope='LS850T'),
         simulate=True,
         warn_pre_release=False,
     )
-    session.scope.notifications_seen = errors
     try:
         yield session
     finally:
@@ -123,16 +115,15 @@ def _home_and_fail(scope):
 # ---------------------------------------------------------------------------
 
 
-def test_failed_home_marks_every_axis_unknown(scope):
+def test_failed_home_marks_every_axis_unknown(scope, centre_posts):
     _home_and_fail(scope)
     for axis in scope.capabilities.axes:
         assert scope.motion._axis_state[axis] == AxisState.UNKNOWN, (
             f'{axis} must be UNKNOWN after a failed home'
         )
     assert scope.motion.has_homed() is False
-    assert scope.notifications_seen == [], (
-        f'the home raises and posts nothing; its caller reports it, got {scope.notifications_seen}'
-    )
+    errors = _errors_posted(centre_posts)
+    assert errors == [], f'the home raises and posts nothing; its caller reports it, got {errors}'
 
 
 # ---------------------------------------------------------------------------
@@ -286,7 +277,7 @@ def _startup_hooks(scope):
     return attempts, hooks
 
 
-def test_startup_skips_turret_positioning_after_failed_home(session, scope):
+def test_startup_skips_turret_positioning_after_failed_home(session, scope, centre_posts):
     """The cascade in #702: startup homes, the home fails, and startup
     positions the turret anyway -- a real move against an unknown
     reference, and a second error popup on top of the home's own."""
@@ -300,9 +291,10 @@ def test_startup_skips_turret_positioning_after_failed_home(session, scope):
     assert turret_moves == [], (
         f'startup must not position the turret after a failed home, attempted {turret_moves}'
     )
-    assert len(scope.notifications_seen) == 1, (
+    errors = _errors_posted(centre_posts)
+    assert len(errors) == 1, (
         f'the home failure notifies once; the skipped turret move must not add '
-        f'a second popup, got {scope.notifications_seen}'
+        f'a second popup, got {errors}'
     )
 
 
@@ -341,7 +333,7 @@ def test_driver_move_raises_when_target_write_is_unanswered(scope):
         scope._motion_driver.move('Z', 1000)
 
 
-def test_api_marks_axis_unknown_when_the_driver_move_raises(scope):
+def test_api_marks_axis_unknown_when_the_driver_move_raises(scope, centre_posts):
     """The API half: on a driver raise the axis must land in UNKNOWN.
 
     The move paths re-raise with only a log line today, so the axis keeps
@@ -364,7 +356,7 @@ def test_api_marks_axis_unknown_when_the_driver_move_raises(scope):
     # its caller shows; the move itself posts nothing.
     assert failed.value.reason == 'driver_failed'
     assert isinstance(failed.value.__cause__, HardwareError)
-    assert scope.notifications_seen == []
+    assert _errors_posted(centre_posts) == []
 
 
 def test_a_failed_move_then_refuses_the_next_one(scope):

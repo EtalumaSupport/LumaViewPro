@@ -29,6 +29,7 @@ from drivers.simulated_camera import SimulatedCamera
 from modules.exceptions import CameraSettingRejected
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
+from modules.notification_center import Severity
 from tests.scope_fakes import give_stub_lanes
 
 
@@ -47,19 +48,12 @@ def sim_imaging():
     return imaging, cam
 
 
-@pytest.fixture
-def notified(monkeypatch):
-    """Capture the popup: it must survive the change, not be replaced by it."""
-    captured = []
-    monkeypatch.setattr(
-        'modules.lumascope_api.imaging.notifications.error',
-        lambda *a, **kw: captured.append(a),
-    )
-    return captured
+def _errors(centre_posts):
+    return [n for n in centre_posts if n.severity == Severity.ERROR]
 
 
 class TestAConfirmedRejectionReachesTheCaller:
-    def test_a_refused_gain_raises_by_name(self, sim_imaging, notified, monkeypatch):
+    def test_a_refused_gain_raises_by_name(self, sim_imaging, monkeypatch):
         imaging, cam = sim_imaging
         monkeypatch.setattr(cam, 'gain', lambda v: False)
 
@@ -69,7 +63,7 @@ class TestAConfirmedRejectionReachesTheCaller:
         assert excinfo.value.setting == 'gain_db'
         assert excinfo.value.requested == 7.0
 
-    def test_a_refused_exposure_raises_by_name(self, sim_imaging, notified, monkeypatch):
+    def test_a_refused_exposure_raises_by_name(self, sim_imaging, monkeypatch):
         imaging, cam = sim_imaging
         monkeypatch.setattr(cam, 'exposure_t', lambda v: False)
 
@@ -79,7 +73,7 @@ class TestAConfirmedRejectionReachesTheCaller:
         assert excinfo.value.setting == 'exposure_ms'
         assert excinfo.value.requested == 25.0
 
-    def test_the_api_shows_nothing_itself(self, sim_imaging, notified, monkeypatch):
+    def test_the_api_shows_nothing_itself(self, sim_imaging, centre_posts, monkeypatch):
         """The raise carries the words; whoever ends its flight shows them, so
         the API posting too would show the one refusal twice."""
         imaging, cam = sim_imaging
@@ -88,7 +82,7 @@ class TestAConfirmedRejectionReachesTheCaller:
         with pytest.raises(CameraSettingRejected):
             imaging.set_gain_db(7.0)
 
-        assert not notified, 'the refusal is shown by its reporter, not by the API'
+        assert not _errors(centre_posts), 'the refusal is shown by its reporter, not by the API'
 
 
 class TestOnlyAConfirmedRejectionRaises:
@@ -125,9 +119,7 @@ class TestARefusalIsNotRecordedAsTruth:
     is ``tests/test_pylon_gain_reports_its_rejection.py``.
     """
 
-    def test_a_refused_gain_moves_neither_the_cache_nor_the_target(
-        self, sim_imaging, notified, monkeypatch
-    ):
+    def test_a_refused_gain_moves_neither_the_cache_nor_the_target(self, sim_imaging, monkeypatch):
         imaging, cam = sim_imaging
         imaging.set_gain_db(3.0)
         monkeypatch.setattr(cam, 'gain', lambda v: False)
@@ -197,7 +189,7 @@ class TestARemovedCameraIsNotAValueRejection:
         assert 'not connected' in warned[0][1].lower()
         assert not errored, 'and must not be reported as a refused value'
 
-    def test_a_live_camera_still_reports_its_refusal(self, sim_imaging, notified, monkeypatch):
+    def test_a_live_camera_still_reports_its_refusal(self, sim_imaging, monkeypatch):
         """The discrimination must not swallow a real refusal -- the whole
         point of the driver-side fix is that this one is reachable."""
         imaging, cam = sim_imaging
@@ -239,21 +231,23 @@ class TestTheImplsStayNonRaising:
     value the camera actually holds.
     """
 
-    def test_the_gain_impl_reports_without_raising(self, sim_imaging, notified, monkeypatch):
+    def test_the_gain_impl_reports_without_raising(self, sim_imaging, centre_posts, monkeypatch):
         imaging, cam = sim_imaging
         monkeypatch.setattr(cam, 'gain', lambda v: False)
 
         assert imaging._set_gain_db_impl(7.0) is False
-        assert not notified, 'the impl answers the refusal; its caller reports it'
+        assert not _errors(centre_posts), 'the impl answers the refusal; its caller reports it'
 
-    def test_the_exposure_impl_reports_without_raising(self, sim_imaging, notified, monkeypatch):
+    def test_the_exposure_impl_reports_without_raising(
+        self, sim_imaging, centre_posts, monkeypatch
+    ):
         imaging, cam = sim_imaging
         monkeypatch.setattr(cam, 'exposure_t', lambda v: False)
 
         assert imaging._set_exposure_ms_impl(25.0) is False
-        assert not notified, 'the impl answers the refusal; its caller reports it'
+        assert not _errors(centre_posts), 'the impl answers the refusal; its caller reports it'
 
-    def test_an_auto_gain_lock_survives_a_refused_write(self, sim_imaging, notified, monkeypatch):
+    def test_an_auto_gain_lock_survives_a_refused_write(self, sim_imaging, monkeypatch):
         """The lock consumes the arm; a raise would strand it, disarmed."""
         imaging, cam = sim_imaging
         monkeypatch.setattr(cam, 'gain', lambda v: False)

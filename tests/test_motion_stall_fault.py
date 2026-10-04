@@ -24,21 +24,14 @@ def _wait_until(predicate, timeout=3.0, interval=0.02):
     return predicate()
 
 
-def _silence_notifications(monkeypatch, sink):
-    import modules.notification_center as nc
+def _errors_posted(centre_posts):
+    from modules.notification_center import Severity
 
-    monkeypatch.setattr(
-        nc.notifications,
-        'error',
-        lambda category, title, message, **k: sink.append((category, title, message)),
-    )
+    return [(n.category, n.title, n.message) for n in centre_posts if n.severity == Severity.ERROR]
 
 
-def test_stalled_move_faults_axis_and_notifies(monkeypatch):
+def test_stalled_move_faults_axis_and_notifies(monkeypatch, centre_posts):
     from modules.lumascope_api import AxisState
-
-    errors = []
-    _silence_notifications(monkeypatch, errors)
 
     scope = build_scope(simulate=True)
     motion = scope.motion
@@ -55,18 +48,16 @@ def test_stalled_move_faults_axis_and_notifies(monkeypatch):
     )
     assert motion._axis_state['Z'] == AxisState.UNKNOWN
     assert motion._arrival_events['Z'].is_set()
+    errors = _errors_posted(centre_posts)
     assert len(errors) == 1, f'exactly one stall notification expected, got {errors}'
     assert 'stalled' in errors[0][1].lower()
 
 
-def test_arriving_move_never_stall_faults(monkeypatch):
+def test_arriving_move_never_stall_faults(monkeypatch, centre_posts):
     """A move that reaches its target must complete IDLE with no fault and
     no notification, even with the stall bound at its most aggressive --
     arrival must always win over the stall clock."""
     from modules.lumascope_api import AxisState
-
-    errors = []
-    _silence_notifications(monkeypatch, errors)
 
     scope = build_scope(simulate=True)
     motion = scope.motion
@@ -78,4 +69,5 @@ def test_arriving_move_never_stall_faults(monkeypatch):
     assert _wait_until(lambda: motion._axis_state['Z'] == AxisState.IDLE), (
         'an arriving move must transition to IDLE'
     )
+    errors = _errors_posted(centre_posts)
     assert errors == [], f'no stall notification expected on arrival, got {errors}'

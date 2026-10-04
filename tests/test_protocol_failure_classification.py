@@ -106,12 +106,12 @@ class TestRunLoopInnerClassifiesByConnection:
     notify), still-connected = transient (silent retry on next period,
     bounded by the consecutive-failure ceiling)."""
 
-    def _drive_failing_run_loop(self, monkeypatch, *, connected):
+    def _drive_failing_run_loop(self, centre_posts, *, connected):
         """run_loop on a runner whose every scan raises; classification
         is steered by the mocked are_all_connected."""
         from unittest.mock import MagicMock
 
-        from modules.notification_center import notifications
+        from modules.notification_center import Severity
         from tests.protocol_drives import protocol_step, run_loop_ready_runner
 
         # Both channels, because the two classifications notify through
@@ -120,19 +120,21 @@ class TestRunLoopInnerClassifiesByConnection:
         # critical severity, while the consecutive-failure ceiling notifies
         # itself at error. Capturing one channel would let a second popup on
         # the other slip past unseen.
-        captured = []
-        monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
-        monkeypatch.setattr(notifications, 'critical', lambda *a, **k: captured.append(a))
         runner = run_loop_ready_runner(protocol_step())
         runner._protocol.step.side_effect = RuntimeError('serial dropped mid-step')
         runner._scope.are_all_connected = MagicMock(return_value=connected)
         runner._run_loop_executor.run_loop(runner.run_outcome())
+        captured = [
+            (n.category, n.title, n.message)
+            for n in centre_posts
+            if n.severity in (Severity.ERROR, Severity.CRITICAL)
+        ]
         return runner, captured
 
-    def test_disconnect_aborts_with_classified_notification(self, monkeypatch):
+    def test_disconnect_aborts_with_classified_notification(self, centre_posts):
         from modules.protocol_state_machine import ProtocolState
 
-        runner, captured = self._drive_failing_run_loop(monkeypatch, connected=False)
+        runner, captured = self._drive_failing_run_loop(centre_posts, connected=False)
         # The abort and its popup both come from the fatal-abort funnel, which
         # this harness holds as a mock -- so the observable here is the one
         # call into it, carrying the cause. The popup the funnel then posts is
@@ -160,8 +162,8 @@ class TestRunLoopInnerClassifiesByConnection:
         )
         assert runner._cleanup.called
 
-    def test_transient_failure_retries_then_escalates(self, monkeypatch):
-        runner, captured = self._drive_failing_run_loop(monkeypatch, connected=True)
+    def test_transient_failure_retries_then_escalates(self, centre_posts):
+        runner, captured = self._drive_failing_run_loop(centre_posts, connected=True)
         assert runner._protocol.step.call_count == 3, (
             'transient (still-connected) failures must retry on the next '
             f'period up to the ceiling; got {runner._protocol.step.call_count} attempts'

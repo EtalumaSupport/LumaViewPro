@@ -288,12 +288,11 @@ class TestRateLimit:
         assert result.configured_fps == pytest.approx(25.0)
         assert result.frames_selected == 25
 
-    def test_uncapped_never_fires_fps_budget_warning(self, tmp_path, monkeypatch):
+    def test_uncapped_never_fires_fps_budget_warning(self, tmp_path, centre_posts):
         # max_fps == 0 means uncapped: a fresh install must not see the
         # FPS-budget warning at every long exposure (the regression the
         # legacy _user_requested_fps_limit flag closed).
-        recorder = NotifyRecorder()
-        monkeypatch.setattr(manual_recording_module, 'notifications', recorder)
+        recorder = NotifyRecorder(centre_posts)
         controller, _, _ = make_controller(tmp_path, max_fps=0)
         controller.start()
         assert 'warning' not in recorder.severities()
@@ -640,7 +639,7 @@ class TestExclusivitySpansTheFinish:
             release.set()
         finish(controller)
 
-    def test_refusal_during_finish_emits_no_fps_warning(self, tmp_path, monkeypatch):
+    def test_refusal_during_finish_emits_no_fps_warning(self, tmp_path, monkeypatch, centre_posts):
         # The guard has to precede the rate clamp, which pops a warning
         # before the last refusal: a refused start that still nags the
         # user about their FPS budget has already run half of start().
@@ -655,8 +654,7 @@ class TestExclusivitySpansTheFinish:
             assert entered.wait(timeout=10)
 
             # Installed only now: the first start legitimately warns.
-            recorder = NotifyRecorder()
-            monkeypatch.setattr(manual_recording_module, 'notifications', recorder)
+            recorder = NotifyRecorder(centre_posts)
             with pytest.raises(RecordingRefusedError):
                 controller.start()
             assert recorder.calls == []
@@ -666,15 +664,14 @@ class TestExclusivitySpansTheFinish:
 
 
 class TestFinishThreadResilience:
-    def test_finish_thread_survives_a_finalize_failure(self, tmp_path, monkeypatch):
+    def test_finish_thread_survives_a_finalize_failure(self, tmp_path, monkeypatch, centre_posts):
         # The finish thread must complete even when the engine never
         # produced a result. result() raises in exactly that case, and it
         # used to sit upstream of the container close and the completion
         # callback -- so a failed finalize left an unclosed MP4 and a UI
         # stuck in its recording state, with the drain already over.
         made = _capture_engine_and_writer(monkeypatch)
-        recorder = NotifyRecorder()
-        monkeypatch.setattr(manual_recording_module, 'notifications', recorder)
+        recorder = NotifyRecorder(centre_posts)
         controller, scope, clock = make_controller(tmp_path, video_as_frames=False)
 
         def _explode(_self):
@@ -709,12 +706,11 @@ class TestDurationCap:
 
 
 class TestLossIsNotified:
-    def test_write_failure_notifies_short_video(self, tmp_path, monkeypatch):
+    def test_write_failure_notifies_short_video(self, tmp_path, monkeypatch, centre_posts):
         # A frame lost to a write error costs that frame and the finish
         # must say so -- the invariant the legacy finalize guards pinned.
         controller, scope, clock = make_controller(tmp_path)
-        recorder = NotifyRecorder()
-        monkeypatch.setattr(manual_recording_module, 'notifications', recorder)
+        recorder = NotifyRecorder(centre_posts)
 
         real_write = manual_recording_module.image_save.write_video_frame
         calls = {'n': 0}
@@ -737,12 +733,11 @@ class TestLossIsNotified:
         assert manifest['write_failures'] == 1
         assert 'error' in recorder.severities()
 
-    def test_finish_failure_notifies(self, tmp_path, monkeypatch):
+    def test_finish_failure_notifies(self, tmp_path, monkeypatch, centre_posts):
         # A post-drain finish failure (here the hyperstack build) must
         # reach the user, never vanish behind a log line.
         controller, scope, clock = make_controller(tmp_path, hyperstack=True)
-        recorder = NotifyRecorder()
-        monkeypatch.setattr(manual_recording_module, 'notifications', recorder)
+        recorder = NotifyRecorder(centre_posts)
 
         class _ExplodingBuilder:
             def __init__(self, **kwargs):
@@ -927,10 +922,9 @@ class TestScratchSweep:
 
 
 class TestDiskFloor:
-    def test_floor_breach_stops_selection_keeps_frames(self, tmp_path, monkeypatch):
+    def test_floor_breach_stops_selection_keeps_frames(self, tmp_path, monkeypatch, centre_posts):
         controller, scope, clock = make_controller(tmp_path)
-        recorder = NotifyRecorder()
-        monkeypatch.setattr(manual_recording_module, 'notifications', recorder)
+        recorder = NotifyRecorder(centre_posts)
 
         checks = {'n': 0}
 
@@ -997,16 +991,15 @@ class TestFeedLossDetection:
     way the user gets one loss notification and kept frames stay.
     """
 
-    def _recording_controller(self, tmp_path, monkeypatch):
-        notify = NotifyRecorder()
-        monkeypatch.setattr(manual_recording_module, 'notifications', notify)
+    def _recording_controller(self, tmp_path, centre_posts):
+        notify = NotifyRecorder(centre_posts)
         controller, scope, clock = make_controller(tmp_path)  # 100 ms -> 10 fps
         controller.start()
         feed_frames(scope, clock, 3)
         return controller, scope, clock, notify
 
-    def test_silently_stalled_feed_stops_with_a_loss_notification(self, tmp_path, monkeypatch):
-        controller, _scope, clock, notify = self._recording_controller(tmp_path, monkeypatch)
+    def test_silently_stalled_feed_stops_with_a_loss_notification(self, tmp_path, centre_posts):
+        controller, _scope, clock, notify = self._recording_controller(tmp_path, centre_posts)
         # Threshold is the 5 s floor (10 fps, 0.1 s exposure). Ticks
         # before it: recording continues; past it with no new frames:
         # the feed is dead.
@@ -1026,8 +1019,8 @@ class TestFeedLossDetection:
         )
         assert manifest['end_reason'] == 'camera_stalled'
 
-    def test_an_exposure_raised_mid_recording_is_not_a_dead_feed(self, tmp_path, monkeypatch):
-        controller, scope, clock, _notify = self._recording_controller(tmp_path, monkeypatch)
+    def test_an_exposure_raised_mid_recording_is_not_a_dead_feed(self, tmp_path, centre_posts):
+        controller, scope, clock, _notify = self._recording_controller(tmp_path, centre_posts)
         # Started at 100 ms: the bound is the 5 s floor. Raised to 8 s, the
         # next frame is 8 s away; judged by the start exposure, the live
         # feed would be stopped as dead at 5 s.
@@ -1042,8 +1035,8 @@ class TestFeedLossDetection:
         controller.stop()
         finish(controller)
 
-    def test_a_dead_feed_is_still_caught_at_the_raised_bound(self, tmp_path, monkeypatch):
-        controller, scope, clock, _notify = self._recording_controller(tmp_path, monkeypatch)
+    def test_a_dead_feed_is_still_caught_at_the_raised_bound(self, tmp_path, centre_posts):
+        controller, scope, clock, _notify = self._recording_controller(tmp_path, centre_posts)
         scope.imaging.exposure_ms_cached = 800.0  # bound 10 x 0.8 s = 8 s
         controller._scheduler.fire()
         clock.advance(8.5)
@@ -1053,9 +1046,9 @@ class TestFeedLossDetection:
         assert controller.end_reason == 'camera_stalled'
 
     def test_disconnect_stops_immediately_without_waiting_for_the_threshold(
-        self, tmp_path, monkeypatch
+        self, tmp_path, centre_posts
     ):
-        controller, scope, clock, notify = self._recording_controller(tmp_path, monkeypatch)
+        controller, scope, clock, notify = self._recording_controller(tmp_path, centre_posts)
         scope.imaging.active_cached = False
         clock.advance(0.2)
         controller._scheduler.fire()
@@ -1064,10 +1057,10 @@ class TestFeedLossDetection:
         assert len(errors) == 1
         finish(controller)
 
-    def test_healthy_feed_keeps_recording_through_ticks(self, tmp_path, monkeypatch):
+    def test_healthy_feed_keeps_recording_through_ticks(self, tmp_path, centre_posts):
         # Preservation guard: frames arriving between ticks never trip
         # the watch, and the duration cap still owns the normal end.
-        controller, scope, clock, notify = self._recording_controller(tmp_path, monkeypatch)
+        controller, scope, clock, notify = self._recording_controller(tmp_path, centre_posts)
         for _ in range(4):
             clock.advance(3.0)
             feed_frames(scope, clock, 2)

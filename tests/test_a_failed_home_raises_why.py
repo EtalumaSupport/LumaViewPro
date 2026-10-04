@@ -31,20 +31,10 @@ DONE_LINE = {'ALL': 'home DONE', 'Z': 'Z home DONE', 'T': 'T home DONE'}
 
 
 @pytest.fixture
-def scope(monkeypatch):
-    import modules.notification_center as nc
-
+def scope(centre_posts):
     scope = build_scope(simulate=True)
     scope.motion.home('ALL')
-    posts = []
-    real_notify = nc.notifications.notify
-
-    def _record(severity, category, title, message, **kw):
-        posts.append((category, title))
-        return real_notify(severity, category, title, message, **kw)
-
-    monkeypatch.setattr(nc.notifications, 'notify', _record)
-    scope.posts = posts
+    scope.posts = centre_posts
     return scope
 
 

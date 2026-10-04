@@ -304,6 +304,47 @@ def _fresh_notification_dedup():
     yield
 
 
+class CentrePosts(list):
+    """The notifications the centre posted during one test, in order.
+
+    ``threads[i]`` names the thread that posted ``self[i]``, so a post that
+    arrives from a worker after the test's own events can be told apart.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.threads = []
+
+    def clear(self):
+        super().clear()
+        self.threads.clear()
+
+
+@pytest.fixture
+def centre_posts():
+    """Every post the notification centre makes during the test, as a client sees it.
+
+    A listener on the real singleton at DEBUG, the way the GUI's popup bridge
+    and REST's outcome subscription observe it, so a post is seen whichever
+    internal path made it and whichever module bound the centre at import. A
+    test that replaced a posting method instead watched one door; when the
+    reporter posted through another, a "nothing posted" assertion passed with
+    nothing watching. The listener only appends: an assertion raised inside a
+    listener is swallowed by the centre's listener guard.
+    """
+    from modules.notification_center import Severity, notifications
+
+    posts = CentrePosts()
+
+    def heard(notification):
+        posts.threads.append(threading.current_thread().name)
+        posts.append(notification)
+
+    notifications.add_listener(heard, min_severity=Severity.DEBUG)
+    yield posts
+    notifications.remove_listener(heard)
+
+
 @pytest.fixture(autouse=True)
 def _no_refused_edit_outlives_its_test():
     """Each test starts with no refused edit on record for the input being handled.

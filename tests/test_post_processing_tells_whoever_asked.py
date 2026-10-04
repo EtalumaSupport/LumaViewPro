@@ -82,19 +82,6 @@ def _drive(processor, tmp_path, monkeypatch, *, helper=None, groups=2):
     return processor.load_folder(path=tmp_path, tiling_configs_file_loc=TILING_CONFIGS)
 
 
-@pytest.fixture
-def posts(monkeypatch):
-    """Every notification posted, of any severity, as (method, title, kwargs)."""
-    seen = []
-    for method in ('notice', 'info', 'warning', 'error', 'critical'):
-        monkeypatch.setattr(
-            notifications,
-            method,
-            lambda category, title, message, _m=method, **kw: seen.append((_m, title, kw)),
-        )
-    return seen
-
-
 def _ok(**metadata):
     return PostProcResult.ok(significant_bits=8, record_metadata=metadata or None)
 
@@ -104,7 +91,9 @@ def _ok(**metadata):
 # ---------------------------------------------------------------------------
 
 
-def test_a_build_where_some_groups_failed_raises_with_what_it_made(tmp_path, monkeypatch, posts):
+def test_a_build_where_some_groups_failed_raises_with_what_it_made(
+    tmp_path, monkeypatch, centre_posts
+):
     processor = _Processor(
         [_ok(), PostProcResult.failed('bad tile'), PostProcResult.failed('bad plane')]
     )
@@ -118,10 +107,10 @@ def test_a_build_where_some_groups_failed_raises_with_what_it_made(tmp_path, mon
     assert fault.produced_paths == (str(tmp_path / 'Hyperstack' / 'out0.tiff'),)
     assert [e.split(': ', 1)[1] for e in fault.errors] == ['bad tile', 'bad plane']
     assert '2 of 3 hyperstack group(s) failed' in str(fault)
-    assert posts == []
+    assert centre_posts == []
 
 
-def test_a_build_where_every_group_failed_names_every_error(tmp_path, monkeypatch, posts):
+def test_a_build_where_every_group_failed_names_every_error(tmp_path, monkeypatch):
     processor = _Processor([PostProcResult.failed('one'), PostProcResult.failed('two')])
 
     with pytest.raises(PostProcessingFailedError) as raised:
@@ -135,7 +124,7 @@ def test_a_build_where_every_group_failed_names_every_error(tmp_path, monkeypatc
     assert 'Nothing was saved.' in str(fault)
 
 
-def test_a_video_short_of_frames_raises_with_the_video(tmp_path, monkeypatch, posts):
+def test_a_video_short_of_frames_raises_with_the_video(tmp_path, monkeypatch, centre_posts):
     processor = _Processor([_ok(dropped_frames=3), _ok()], post_function=PostFunction.VIDEO)
 
     with pytest.raises(PostProcessingFailedError) as raised:
@@ -144,18 +133,18 @@ def test_a_video_short_of_frames_raises_with_the_video(tmp_path, monkeypatch, po
     fault = raised.value
     assert len(fault.produced_paths) == 2
     assert '3 frame(s) could not be added' in str(fault)
-    assert posts == []
+    assert centre_posts == []
 
 
-def test_a_complete_build_returns_and_posts_nothing(tmp_path, monkeypatch, posts):
+def test_a_complete_build_returns_and_posts_nothing(tmp_path, monkeypatch, centre_posts):
     result = _drive(_Processor([_ok(), _ok()]), tmp_path, monkeypatch)
 
     assert result['status'] is True
     assert result['new_count'] == 2
-    assert posts == []
+    assert centre_posts == []
 
 
-def test_a_folder_with_no_images_is_refused(tmp_path, monkeypatch, posts):
+def test_a_folder_with_no_images_is_refused(tmp_path, monkeypatch, centre_posts):
     helper = {
         'status': True,
         'images_df': _images_df(0),
@@ -169,10 +158,10 @@ def test_a_folder_with_no_images_is_refused(tmp_path, monkeypatch, posts):
 
     assert raised.value.reason == 'no_images'
     assert raised.value.title == 'Hyperstack Not Possible'
-    assert posts == []
+    assert centre_posts == []
 
 
-def test_the_helpers_own_sentence_reaches_the_refusal(tmp_path, monkeypatch, posts):
+def test_the_helpers_own_sentence_reaches_the_refusal(tmp_path, monkeypatch):
     helper = {'status': False, 'message': 'Protocol and/or Protocol Record not found in folder'}
 
     with pytest.raises(PostProcessingRefusedError) as raised:
@@ -196,14 +185,15 @@ def test_a_z_projection_with_no_z_stack_says_where_one_lives():
 # ---------------------------------------------------------------------------
 
 
-def _hyperstack_build(monkeypatch, tmp_path, answer, posts):
-    # A notice is reported through the reporter too; it is kept with the
-    # posts, so the reports are what went wrong.
+def _hyperstack_build(monkeypatch, tmp_path, answer):
+    # A notice is reported through the reporter too; it is kept apart from
+    # the reports, so the reports are what went wrong.
+    notices = []
     reports = []
 
     def _report(exception, **kw):
         if isinstance(exception, Notice):
-            posts.append(('notice', exception.title, kw))
+            notices.append(('notice', exception.title, kw))
         else:
             reports.append((exception, kw))
 
@@ -219,10 +209,12 @@ def _hyperstack_build(monkeypatch, tmp_path, answer, posts):
     stack_builder.build_hyperstacks_for_run(
         tmp_path, False, TILING_CONFIGS, wait_for_images=lambda: None
     )
-    return reports
+    return notices, reports
 
 
-def test_the_post_run_build_announces_then_answers_under_one_key(tmp_path, monkeypatch, posts):
+def test_the_post_run_build_announces_then_answers_under_one_key(
+    tmp_path, monkeypatch, centre_posts
+):
     answer = {
         'status': True,
         'message': 'Success.',
@@ -232,24 +224,26 @@ def test_the_post_run_build_announces_then_answers_under_one_key(tmp_path, monke
         'accounting_note': '',
     }
 
-    reports = _hyperstack_build(monkeypatch, tmp_path, answer, posts)
+    notices, reports = _hyperstack_build(monkeypatch, tmp_path, answer)
 
-    assert [(m, t) for m, t, _ in posts] == [
+    assert [(m, t) for m, t, _ in notices] == [
         ('notice', 'Saving Hyperstacks'),
         ('notice', 'Hyperstacks Saved'),
     ]
-    assert {kw['operation_key'] for _, _, kw in posts} == {'post-processing:Hyperstack'}
+    assert {kw['operation_key'] for _, _, kw in notices} == {'post-processing:Hyperstack'}
     assert reports == []
+    assert centre_posts == []
 
 
 def test_the_post_run_builds_failure_replaces_its_announcement_in_its_own_words(
-    tmp_path, monkeypatch, posts
+    tmp_path, monkeypatch, centre_posts
 ):
     fault = CaptureError('Plane 3 of well A1 could not be read.', 'unreadable_input_frame')
 
-    reports = _hyperstack_build(monkeypatch, tmp_path, fault, posts)
+    notices, reports = _hyperstack_build(monkeypatch, tmp_path, fault)
 
-    assert [(m, t) for m, t, _ in posts] == [('notice', 'Saving Hyperstacks')]
+    assert [(m, t) for m, t, _ in notices] == [('notice', 'Saving Hyperstacks')]
+    assert centre_posts == []
     ((reported, kw),) = reports
     assert reported is fault
     assert kw['solicited'] is False
@@ -368,7 +362,7 @@ def _manual_video(monkeypatch, tmp_path, video_result):
     return builder._build_manual_recording_video(tmp_path, frames_per_sec=10)
 
 
-def test_a_manual_video_that_failed_to_encode_raises(tmp_path, monkeypatch, posts):
+def test_a_manual_video_that_failed_to_encode_raises(tmp_path, monkeypatch):
     with pytest.raises(PostProcessingFailedError) as raised:
         _manual_video(monkeypatch, tmp_path, {'status': False, 'error': 'encoder died'})
 
@@ -376,7 +370,7 @@ def test_a_manual_video_that_failed_to_encode_raises(tmp_path, monkeypatch, post
     assert raised.value.produced_paths == ()
 
 
-def test_a_manual_video_short_of_frames_raises_with_the_video(tmp_path, monkeypatch, posts):
+def test_a_manual_video_short_of_frames_raises_with_the_video(tmp_path, monkeypatch):
     video = tmp_path / 'rec.mp4'
 
     with pytest.raises(PostProcessingFailedError) as raised:

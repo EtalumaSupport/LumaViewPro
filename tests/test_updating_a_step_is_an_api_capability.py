@@ -92,7 +92,7 @@ def _step(protocol):
 @pytest.mark.usefixtures('turret_in_a_known_slot')
 class TestTheApiRefuses:
     def test_an_unknown_axis_position_is_refused_and_the_step_is_unchanged(
-        self, scope, monkeypatch
+        self, scope, monkeypatch, centre_posts
     ):
         # The defect: after a failed home the position read keeps answering
         # the last real position, and Update Step saved it.
@@ -101,7 +101,7 @@ class TestTheApiRefuses:
         with scope.motion._axis_state_lock:
             scope.motion._axis_state['X'] = AxisState.UNKNOWN
         monkeypatch.setattr(scope.motion, 'is_current_turret_position_objective_set', lambda: False)
-        captured = _capture_notifications(monkeypatch)
+        captured = _capture_notifications(centre_posts)
 
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             _update(scope, protocol)
@@ -115,7 +115,7 @@ class TestTheApiRefuses:
         assert _step(protocol) == before
 
     def test_an_unset_turret_objective_is_refused_and_the_step_is_unchanged(
-        self, scope, monkeypatch
+        self, scope, monkeypatch, centre_posts
     ):
         protocol = _protocol_with_one_bf_step(scope)
         before = _step(protocol)
@@ -123,7 +123,7 @@ class TestTheApiRefuses:
             scope, 'capabilities', dataclasses.replace(scope.capabilities, has_turret=True)
         )
         monkeypatch.setattr(scope.motion, 'is_current_turret_position_objective_set', lambda: False)
-        captured = _capture_notifications(monkeypatch)
+        captured = _capture_notifications(centre_posts)
 
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             _update(scope, protocol)
@@ -132,10 +132,10 @@ class TestTheApiRefuses:
         assert len(captured) == 1
         assert _step(protocol) == before
 
-    def test_an_unknown_objective_is_refused_and_the_step_is_unchanged(self, scope, monkeypatch):
+    def test_an_unknown_objective_is_refused_and_the_step_is_unchanged(self, scope, centre_posts):
         protocol = _protocol_with_one_bf_step(scope)
         before = _step(protocol)
-        captured = _capture_notifications(monkeypatch)
+        captured = _capture_notifications(centre_posts)
 
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             _update(scope, protocol, objective_id=None)
@@ -231,7 +231,7 @@ class TestAScriptUpdatesAStepThroughTheSession:
 
         assert _step(protocol)['Label'] == 'mine'
 
-    def test_a_lost_position_is_refused_through_the_session(self, session, monkeypatch):
+    def test_a_lost_position_is_refused_through_the_session(self, session, centre_posts):
         # The GUI case: the scope was homed, then lost its reference. The
         # position read still answers the last real position.
         protocol = _session_protocol(session)
@@ -240,7 +240,7 @@ class TestAScriptUpdatesAStepThroughTheSession:
         with motion._axis_state_lock:
             for axis in ('X', 'Y', 'Z'):
                 motion._axis_state[axis] = AxisState.UNKNOWN
-        captured = _capture_notifications(monkeypatch)
+        captured = _capture_notifications(centre_posts)
 
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             session.update_step(protocol, 0, layer='BF')

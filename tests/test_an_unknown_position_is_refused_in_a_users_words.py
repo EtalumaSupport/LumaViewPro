@@ -15,6 +15,7 @@ import pytest
 
 from modules.exceptions import AxisStateUnknownError
 from modules.lumascope_api import AxisState
+from modules.notification_center import Severity
 from tests.scope_fakes import build_scope, home_sim_scope
 
 
@@ -65,20 +66,11 @@ def test_a_lost_axis_beside_a_homing_one_asks_for_a_home():
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def notices(monkeypatch):
-    import modules.notification_center as nc
-
-    shown = []
-    monkeypatch.setattr(
-        nc.notifications,
-        'warning',
-        lambda category, title, message, **kwargs: shown.append((title, message)),
-    )
-    return shown
+def _warnings(centre_posts):
+    return [(n.title, n.message) for n in centre_posts if n.severity == Severity.WARNING]
 
 
-def test_a_gesture_is_refused_once_for_every_unknown_axis(unhomed_scope, notices):
+def test_a_gesture_is_refused_once_for_every_unknown_axis(unhomed_scope, centre_posts):
     with pytest.raises(AxisStateUnknownError) as excinfo:
         unhomed_scope.motion.refuse_unknown_positions(
             ('X', 'Y', 'Z'), recording=False, then='go to the step'
@@ -89,7 +81,7 @@ def test_a_gesture_is_refused_once_for_every_unknown_axis(unhomed_scope, notices
         'Y': AxisState.UNKNOWN,
         'Z': AxisState.UNKNOWN,
     }
-    assert notices == [
+    assert _warnings(centre_posts) == [
         (
             'Scope Not Homed',
             'The X, Y and Z positions are unknown. Home the scope, then go to the step.',
@@ -97,7 +89,7 @@ def test_a_gesture_is_refused_once_for_every_unknown_axis(unhomed_scope, notices
     ]
 
 
-def test_an_axis_the_scope_does_not_have_is_not_asked_about(unhomed_scope, notices):
+def test_an_axis_the_scope_does_not_have_is_not_asked_about(unhomed_scope):
     with pytest.raises(AxisStateUnknownError) as excinfo:
         unhomed_scope.motion.refuse_unknown_positions(
             ('X', 'Q'), recording=False, then='move the stage'
@@ -106,17 +98,17 @@ def test_an_axis_the_scope_does_not_have_is_not_asked_about(unhomed_scope, notic
     assert list(excinfo.value.axes) == ['X']
 
 
-def test_a_homed_scope_is_not_refused(unhomed_scope, notices):
+def test_a_homed_scope_is_not_refused(unhomed_scope, centre_posts):
     home_sim_scope(unhomed_scope)
 
     unhomed_scope.motion.refuse_unknown_positions(
         unhomed_scope.capabilities.axes, recording=True, then='save the bookmark'
     )
 
-    assert notices == []
+    assert _warnings(centre_posts) == []
 
 
-def test_a_homing_axis_may_be_moved_but_not_recorded(unhomed_scope, notices):
+def test_a_homing_axis_may_be_moved_but_not_recorded(unhomed_scope, centre_posts):
     """Its move queues behind the home and lands; its position is not yet one to save."""
     home_sim_scope(unhomed_scope)
     with unhomed_scope.motion._axis_state_lock:
@@ -129,7 +121,7 @@ def test_a_homing_axis_may_be_moved_but_not_recorded(unhomed_scope, notices):
     assert str(excinfo.value) == (
         'Z is still homing. Wait for the home to finish, then save the focus.'
     )
-    assert len(notices) == 1
+    assert len(_warnings(centre_posts)) == 1
 
 
 # ---------------------------------------------------------------------------

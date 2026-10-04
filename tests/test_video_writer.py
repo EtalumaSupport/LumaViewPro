@@ -263,17 +263,12 @@ class TestProtocolVideoDropNotification:
     protocol mute owns whether an unattended run pops it -- plus the
     manifest counts. A clean step posts nothing."""
 
-    def _capture_notifications(self, monkeypatch):
-        import modules.protocol_recording as protocol_recording
-
-        fired = {'warning': [], 'error': [], 'critical': []}
-        for level in fired:
-            monkeypatch.setattr(
-                protocol_recording.notifications,
-                level,
-                lambda *a, _lv=level, **k: fired[_lv].append((a, k)),
-            )
-        return fired
+    @staticmethod
+    def _posted(centre_posts):
+        return {
+            level: [n for n in centre_posts if n.severity.name.lower() == level]
+            for level in ('warning', 'error', 'critical')
+        }
 
     def _run_one_frame_step(self, tmp_path, monkeypatch, *, write_fails):
         import threading
@@ -356,18 +351,18 @@ class TestProtocolVideoDropNotification:
         assert recorder.wait_until_finished(timeout=10.0)
         return recorder
 
-    def test_write_failure_posts_one_nonfatal_error(self, tmp_path, monkeypatch):
-        fired = self._capture_notifications(monkeypatch)
+    def test_write_failure_posts_one_nonfatal_error(self, tmp_path, monkeypatch, centre_posts):
         self._run_one_frame_step(tmp_path, monkeypatch, write_fails=True)
+        fired = self._posted(centre_posts)
         assert len(fired['error']) == 1 and fired['warning'] == [], (
             'a step that lost frames must post exactly one error through the '
             f'center (the protocol mute owns popup policy); got {fired}'
         )
         assert fired['critical'] == [], 'a per-frame loss is non-fatal, never critical'
 
-    def test_no_drops_posts_nothing(self, tmp_path, monkeypatch):
-        fired = self._capture_notifications(monkeypatch)
+    def test_no_drops_posts_nothing(self, tmp_path, monkeypatch, centre_posts):
         self._run_one_frame_step(tmp_path, monkeypatch, write_fails=False)
+        fired = self._posted(centre_posts)
         assert fired['warning'] == [] and fired['error'] == [], 'a clean recording must not notify'
 
     def test_each_frame_carries_its_own_fact_and_is_rendered_as_its_channel(
@@ -377,7 +372,6 @@ class TestProtocolVideoDropNotification:
         # arrives, like the manual leg: with no LED reported lit the channel
         # is the step's, the stage is not moving, and with no plate transform
         # the frame states no plate position rather than a number.
-        self._capture_notifications(monkeypatch)
         self._run_one_frame_step(tmp_path, monkeypatch, write_fails=False)
         (kwargs,) = self.written
         metadata = kwargs['metadata']

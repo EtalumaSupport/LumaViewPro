@@ -62,9 +62,9 @@ def turret_in_a_known_slot(scope):
 
 @pytest.mark.usefixtures('turret_in_a_known_slot')
 class TestTheApiRefuses:
-    def test_no_acquiring_layer_is_refused_once_and_adds_nothing(self, scope, monkeypatch):
+    def test_no_acquiring_layer_is_refused_once_and_adds_nothing(self, scope, centre_posts):
         protocol = _empty_protocol_for_add()
-        captured = _capture_notifications(monkeypatch)
+        captured = _capture_notifications(centre_posts)
 
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             _add(scope, protocol, _layer_configs(), before_step=0)
@@ -73,13 +73,15 @@ class TestTheApiRefuses:
         assert len(captured) == 1
         assert protocol.num_steps() == 0
 
-    def test_an_unset_turret_objective_is_refused_before_anything_is_read(self, scope, monkeypatch):
+    def test_an_unset_turret_objective_is_refused_before_anything_is_read(
+        self, scope, monkeypatch, centre_posts
+    ):
         protocol = _empty_protocol_for_add()
         monkeypatch.setattr(
             scope, 'capabilities', dataclasses.replace(scope.capabilities, has_turret=True)
         )
         monkeypatch.setattr(scope.motion, 'is_current_turret_position_objective_set', lambda: False)
-        captured = _capture_notifications(monkeypatch)
+        captured = _capture_notifications(centre_posts)
 
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             _add(scope, protocol, _layer_configs(BF='image'), before_step=0)
@@ -88,12 +90,12 @@ class TestTheApiRefuses:
         assert len(captured) == 1
         assert protocol.num_steps() == 0
 
-    def test_an_unknown_objective_is_refused_and_adds_nothing(self, scope, monkeypatch):
+    def test_an_unknown_objective_is_refused_and_adds_nothing(self, scope, centre_posts):
         # A step records the objective it was taken with; with no one able
         # to say which objective is in the light path, there is nothing
         # true to record.
         protocol = _empty_protocol_for_add()
-        captured = _capture_notifications(monkeypatch)
+        captured = _capture_notifications(centre_posts)
 
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             _add(scope, protocol, _layer_configs(BF='image'), objective_id=None, before_step=0)
@@ -102,7 +104,9 @@ class TestTheApiRefuses:
         assert len(captured) == 1
         assert protocol.num_steps() == 0
 
-    def test_an_unknown_axis_position_is_refused_before_anything_else(self, scope, monkeypatch):
+    def test_an_unknown_axis_position_is_refused_before_anything_else(
+        self, scope, monkeypatch, centre_posts
+    ):
         # An axis that lost its reference keeps answering the last number it
         # reported, so the position handed in looks real and is not. Asked
         # ahead of the turret check, whose advice is wrong when the slot
@@ -112,7 +116,7 @@ class TestTheApiRefuses:
             scope.motion._axis_state['Y'] = AxisState.UNKNOWN
             scope.motion._axis_state['Z'] = AxisState.HOMING
         monkeypatch.setattr(scope.motion, 'is_current_turret_position_objective_set', lambda: False)
-        captured = _capture_notifications(monkeypatch)
+        captured = _capture_notifications(centre_posts)
 
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             _add(scope, protocol, _layer_configs(BF='image'), before_step=0)
@@ -189,13 +193,13 @@ class TestAScriptAddsAStepThroughTheSession:
         assert step['Color'] == 'BF'
         assert step['Objective'] == session.scope.runtime_state.resolve_current_objective()[0]
 
-    def test_the_session_forwards_the_refusal(self, session, monkeypatch):
+    def test_the_session_forwards_the_refusal(self, session, centre_posts):
         for layer in config_helpers.get_layer_configs(session.settings):
             session.settings[layer]['acquire'] = None
         protocol = session.scope.protocols.create_protocol(
             empty_config=session.get_sequenced_capture_config()
         )
-        captured = _capture_notifications(monkeypatch)
+        captured = _capture_notifications(centre_posts)
 
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             session.add_step(protocol, before_step=0)

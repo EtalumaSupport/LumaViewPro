@@ -22,16 +22,6 @@ from tests.test_jpg_export import _bright_mono, _scope_with_depth
 from tests.frame_records import frame_record, plate
 
 
-@pytest.fixture
-def posted(monkeypatch):
-    calls = []
-    monkeypatch.setattr(
-        'modules.notification_center.notifications.notify',
-        lambda *a, **kw: calls.append(a),
-    )
-    return calls
-
-
 def _save(tmp_path):
     return image_save.save_image(
         _scope_with_depth(),
@@ -54,7 +44,7 @@ def _save(tmp_path):
 
 class TestSaveImage:
     def test_a_disk_failure_raises_the_typed_fault_and_posts_nothing(
-        self, tmp_path, monkeypatch, posted
+        self, tmp_path, monkeypatch, centre_posts
     ):
         denied = PermissionError('read-only folder')
 
@@ -72,10 +62,10 @@ class TestSaveImage:
         assert excinfo.value.title == 'Image Save Failed'
         assert 'Check disk space and permissions' in str(excinfo.value)
         assert excinfo.value.__cause__ is denied
-        assert posted == []
+        assert centre_posts == []
 
     def test_a_failure_that_is_not_the_disk_keeps_its_own_words(
-        self, tmp_path, monkeypatch, posted
+        self, tmp_path, monkeypatch, centre_posts
     ):
         def bad_data(*args, **kwargs):
             raise ValueError('cannot encode this array as JPEG')
@@ -86,7 +76,7 @@ class TestSaveImage:
             _save(tmp_path)
 
         assert not isinstance(excinfo.value, ImageSaveError)
-        assert posted == []
+        assert centre_posts == []
 
 
 # Each bench-tool SDK setter, the driver method it calls and its arguments.
@@ -113,7 +103,9 @@ class _FailingCamera:
 
 
 @pytest.mark.parametrize(('setter', 'method', 'args'), SDK_SETTERS)
-def test_an_sdk_setter_raises_the_driver_error_once_and_posts_nothing(setter, method, args, posted):
+def test_an_sdk_setter_raises_the_driver_error_once_and_posts_nothing(
+    setter, method, args, centre_posts
+):
     from modules.lumascope_api import Lumascope
     from modules.lumascope_api.imaging import ImagingAPI
 
@@ -126,4 +118,4 @@ def test_an_sdk_setter_raises_the_driver_error_once_and_posts_nothing(setter, me
     with pytest.raises(HardwareError, match='node write timed out'):
         getattr(imaging, setter)(*args)
 
-    assert posted == []
+    assert centre_posts == []

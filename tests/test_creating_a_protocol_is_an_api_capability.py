@@ -26,9 +26,9 @@ def _set_acquire(session, **acquire_by_layer):
 
 
 class TestTheSessionBuilds:
-    def test_no_acquiring_layer_is_refused_once_and_builds_nothing(self, session, monkeypatch):
+    def test_no_acquiring_layer_is_refused_once_and_builds_nothing(self, session, centre_posts):
         _set_acquire(session)
-        captured = _capture_notifications(monkeypatch)
+        captured = _capture_notifications(centre_posts)
 
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             session.new_protocol()
