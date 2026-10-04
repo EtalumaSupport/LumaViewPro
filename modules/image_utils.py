@@ -673,11 +673,11 @@ def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
     tifffile's auto-OME serializer preserves only a subset of the structured
     metadata into the ImageDescription XML: Plane PositionX/Y/Z + ExposureTime,
     Pixels PhysicalSizeX, and Channel Name. Gain/Illumination, Objective,
-    Instrument, and Plate are dropped at write and cannot be recovered -- they
-    take the same sentinel defaults build_postproc_output_metadata applies when
-    no structured metadata is present. Returns None on a parse failure, or when
-    there is no Pixels / Plane element to read at all, so the caller falls back
-    to defaults. A Plane that simply states no position is NOT a parse failure:
+    Instrument, and Plate are dropped at write and cannot be recovered, so the
+    result states none of them, and a scale or exposure the XML does not carry
+    is absent too: a derived output states only what its input did. Returns
+    None on a parse failure, or when there is no Pixels / Plane element to read
+    at all. A Plane that simply states no position is NOT a parse failure:
     the position is optional here because it is optional at the writer.
     """
     try:
@@ -709,15 +709,12 @@ def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
     exposure = _float(plane.attrib, 'ExposureTime')
     pixel_size = _float(pixels.attrib, 'PhysicalSizeX')
 
-    flat: dict = {
-        # Dropped by tifffile's auto-OME serializer; default to match the
-        # no-structured-metadata path so the derived output is consistent.
-        'objective': {},
-        'exposure_time_ms': exposure if exposure is not None else 0.0,
-        'gain_db': 0.0,
-        'illumination_ma': 0.0,
-        'pixel_size_um': pixel_size if pixel_size is not None else 1.0,
-    }
+    # The objective is dropped by tifffile's auto-OME serializer; {} is the
+    # writer's "none". The scale is a hard key whose None the writer reads as
+    # no PhysicalSize.
+    flat: dict = {'objective': {}, 'pixel_size_um': pixel_size}
+    if exposure is not None:
+        flat['exposure_time_ms'] = exposure
     # Position is optional on the way in because it is optional on the way
     # out: a capture with no coordinate writes no Plane position, and a file
     # that honestly states no position must not be discarded for it.
@@ -828,22 +825,32 @@ def read_pixel_size_um(path: pathlib.Path) -> float | None:
             ome_xml = tif.ome_metadata
     except Exception:
         return None
+    return _stated_pixel_size_um(structured, ome_xml)
 
-    pixel_size_um = None
+
+def _stated_pixel_size_um(structured: dict | None, ome_xml: str | None) -> float | None:
+    """The scale a file states, in um/pixel, or None when it states none.
+
+    The one reading of a file's scale, for every reader. The writer omits
+    PhysicalSizeX when it measured no scale, so a file without one is a file
+    saying "no scale", and None is how the metadata dict says the same:
+    write_tiff takes it as no PhysicalSize and no absolute resolution unit.
+    """
+    stated = None
     if structured is not None:
         # Stills serialize the OME spelling; video frames pass the flat dict
         # through untouched, so the same fact arrives under either name.
-        pixel_size_um = structured.get('PhysicalSizeX', structured.get('pixel_size_um'))
+        stated = structured.get('PhysicalSizeX', structured.get('pixel_size_um'))
     elif ome_xml:
         flat = _read_ome_input_metadata(ome_xml, None)
-        pixel_size_um = flat.get('pixel_size_um') if flat else None
+        stated = flat['pixel_size_um'] if flat else None
 
-    if pixel_size_um is None:
+    if stated is None:
         return None
-    pixel_size_um = float(pixel_size_um)
+    stated = float(stated)
     # A non-positive scale is not a measurement; treat it as absent rather than
     # dividing by it downstream.
-    return pixel_size_um if pixel_size_um > 0 else None
+    return stated if stated > 0 else None
 
 
 def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
@@ -857,7 +864,8 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
     Returns None when the input has no recoverable structured metadata
     (bare ``tifffile.imwrite`` outputs that carry only ``{'shape': ...}``,
     or files written by a non-LumaViewPro pipeline). Returns None on any
-    parse failure so callers can fall back to defaults without crashing.
+    parse failure, and the caller's output then states nothing it read.
+    A scale the input does not state reads back as ``pixel_size_um`` None.
 
     Args:
         path: TIFF file path.
@@ -880,9 +888,12 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
         # context in the auto-OME ImageDescription XML instead. Recover what
         # tifffile's serializer preserved so an OME tile still forwards
         # acquisition context to derived outputs.
-        if ome_xml:
-            return _read_ome_input_metadata(ome_xml, datetime_value)
-        return None
+        if not ome_xml:
+            return None
+        flat = _read_ome_input_metadata(ome_xml, datetime_value)
+        if flat is not None:
+            flat['pixel_size_um'] = _stated_pixel_size_um(None, ome_xml)
+        return flat
     if 'Plane' not in structured:
         # Bare tifffile.imwrite (only carries 'shape') or other non-LVP
         # producer; no acquisition context to forward.
@@ -892,14 +903,15 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
     try:
         flat: dict = {
             'objective': plane.get('Objective', {}),
-            'pixel_size_um': structured['PhysicalSizeX'],
+            'pixel_size_um': _stated_pixel_size_um(structured, None),
             'channel': structured['Channel']['Name'][0],
         }
     except (KeyError, IndexError, TypeError):
         # Structured TIFF present but missing required acquisition keys
         # (older LVP file, third-party producer, or a non-acquisition
-        # frame type); fall back to defaults rather than crashing the
-        # post-processing job, per this function's documented contract.
+        # frame type); the derived output then states nothing it read,
+        # rather than crashing the post-processing job, per this
+        # function's documented contract.
         return None
     # Position, exposure, gain and illumination are the writer's optional
     # fields: the producer omits the key when the value was genuinely unknown
@@ -909,9 +921,8 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
     # when present -- so such a frame still forwards everything it DOES state
     # and no fabricated stand-in is invented on the way back out to a derived
     # output. Discarding the whole file over one absent field is the
-    # expensive failure: the caller's fallback then invents a position, an
-    # exposure, a gain, an illumination and a pixel size of 1.0, and a wrong
-    # scale is measured off the derived output forever.
+    # expensive failure: the derived output then loses everything the
+    # file did state.
     if 'PositionX' in plane and 'PositionY' in plane:
         flat['plate_pos_mm'] = {'x': plane['PositionX'], 'y': plane['PositionY']}
     if 'PositionZ' in plane:
@@ -1089,9 +1100,10 @@ def build_postproc_output_metadata(
 
     Callers in stitcher pass ``plate_pos_mm_override`` with the stitched
     region's geometric center; zprojector leaves both overrides None and
-    inherits the input slice's position. Falls back to sentinel defaults
-    when the input has no structured metadata (test fixtures, external
-    files).
+    inherits the input slice's position. An input with no structured
+    metadata (an external PNG, a bare TIFF) gives an output that states no
+    position, acquisition setting or scale: unknown stays unknown, because a
+    number in a TIFF tag is read downstream as a measurement.
 
     Args:
         input_path: First-input TIFF; metadata is read from here.
@@ -1110,15 +1122,8 @@ def build_postproc_output_metadata(
     """
     metadata = read_postproc_input_metadata(input_path)
     if metadata is None:
-        metadata = {
-            'plate_pos_mm': {'x': 0.0, 'y': 0.0},
-            'z_pos_um': 0.0,
-            'objective': {},
-            'exposure_time_ms': 0.0,
-            'gain_db': 0.0,
-            'illumination_ma': 0.0,
-            'pixel_size_um': 1.0,
-        }
+        # The writer's two hard keys, each in its "none" form.
+        metadata = {'objective': {}, 'pixel_size_um': None}
     else:
         for per_capture_field in (
             'timestamp_iso',
@@ -1192,8 +1197,9 @@ def build_composite_output_metadata(
     """Build a write_tiff metadata dict for a composite output.
 
     Composite outputs merge multiple input channels with different
-    per-channel exposure / gain / illumination, so those fields zero
-    out -- they describe the source captures, not the merged image.
+    per-channel exposure / gain / illumination, so the output states none
+    of them -- they describe the source captures, not the merged image,
+    and a zero would read as a setting.
     Shared acquisition context (objective, position, pixel size,
     instrument, plate, well_label) propagates from the reference input;
     composite input channels share these at the same site.
@@ -1217,9 +1223,8 @@ def build_composite_output_metadata(
         channel='Composite',
         significant_bits=significant_bits,
     )
-    metadata['exposure_time_ms'] = 0.0
-    metadata['gain_db'] = 0.0
-    metadata['illumination_ma'] = 0.0
+    for per_channel_field in ('exposure_time_ms', 'gain_db', 'illumination_ma'):
+        metadata.pop(per_channel_field, None)
     return metadata
 
 

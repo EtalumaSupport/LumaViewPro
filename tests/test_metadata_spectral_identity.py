@@ -144,10 +144,9 @@ class TestWrittenFileRoundTrip:
     def _write_tile(self, tmp_path, metadata, *, ome):
         import numpy as np
 
-        # The sim scope carries no measured scale, and the read-back
-        # required block cannot parse a scale-less file (a pre-existing
-        # defect of the same shape as the Illumination hard-require,
-        # recorded separately); scale is not under test here.
+        # The sim scope carries no measured scale; scale is not under test
+        # here (a scale-less file round-trips: see
+        # test_a_derived_image_states_only_what_its_input_did.py).
         metadata['pixel_size_um'] = 1.0
         path = tmp_path / ('tile_ome.tiff' if ome else 'tile_ij.tiff')
         image_utils.write_tiff(

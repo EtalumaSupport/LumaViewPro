@@ -1007,10 +1007,10 @@ class TestOmeMetadataReadback:
         )
         recovered = image_utils.read_postproc_input_metadata(path)
         # Gain / Illumination / Objective are dropped by tifffile's auto-OME
-        # serializer, so they take sentinel defaults rather than the input's
-        # values.
-        assert recovered['gain_db'] == 0.0
-        assert recovered['illumination_ma'] == 0.0
+        # serializer, so the read-back states none of them: no invented zero
+        # gain or illumination, and the writer's empty objective.
+        assert 'gain_db' not in recovered
+        assert 'illumination_ma' not in recovered
         assert recovered['objective'] == {}
 
 

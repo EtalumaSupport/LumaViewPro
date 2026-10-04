@@ -80,16 +80,15 @@ class TestMetadataReadRobustness:
         # The original concern, on a key that is still required. Every PLANE
         # field is optional now -- position last, when the writer started
         # omitting it for captures that have no coordinate, as ExposureTime
-        # and Gain did before it for unknown camera reads. PhysicalSizeX is
-        # not: without a scale there is nothing to forward to a derived
-        # output, and inventing one would be the failure this whole contract
-        # exists to prevent.
+        # and Gain did before it for unknown camera reads -- and so is the
+        # scale (PhysicalSizeX), which the writer omits when it measured
+        # none. The channel name is not.
         tf.imwrite(
             str(p),
             np.zeros((4, 4), dtype=np.uint16),
-            metadata=_structured_metadata(missing_top='PhysicalSizeX'),
+            metadata=_structured_metadata(missing_top='Channel'),
         )
-        # Must not raise; falls back to None so the postproc job uses defaults.
+        # Must not raise; None, and the derived output states nothing it read.
         assert image_utils.read_postproc_input_metadata(p) is None
 
     def test_a_plane_missing_only_its_position_still_recovers(self, tmp_path):
