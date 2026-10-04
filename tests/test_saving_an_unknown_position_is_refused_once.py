@@ -34,7 +34,9 @@ import ui.layer_control as layer_control
 import ui.motion_settings as motion_settings
 import ui.vertical_control as vertical_control
 from modules.exceptions import AxisStateUnknownError
+from modules.lumascope_api.protocols import ProtocolsAPI
 from modules.notification_center import Severity
+from modules.scope_session import ScopeSession
 
 
 def _stand(cls, *names, **attrs):
@@ -65,14 +67,19 @@ GESTURES = {
         'set_all_bookmarks',
     ),
     'save focus': (
-        lambda: _stand(layer_control.LayerControl, 'save_focus', 'execute_save_focus', layer='BF'),
+        lambda: _stand(
+            layer_control.LayerControl,
+            'save_focus',
+            '_schedule_step_views_refresh',
+            layer='BF',
+        ),
         'save_focus',
     ),
     'apply focus': (
         lambda: _stand(
             layer_control.LayerControl,
             'apply_focus_to_channel_steps',
-            'execute_apply_focus_to_channel_steps',
+            '_schedule_step_views_refresh',
             layer='BF',
         ),
         'apply_focus_to_channel_steps',
@@ -97,8 +104,21 @@ def unknown(monkeypatch):
             layer: {'focus': 7000.0} for layer in ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi')
         },
     }
+    # Save Focus and Apply Focus are the Session's: its real members, over
+    # the real protocols API, on this scope.
+    scope.protocols = ProtocolsAPI(scope)
+    scope.layer_identity = SimpleNamespace(model='LS850', layers=[SimpleNamespace(key_name='BF')])
+    session = SimpleNamespace(scope=scope, settings=settings, settings_lock=MagicMock())
+    for name in (
+        'save_focus',
+        'apply_focus_to_layer_steps',
+        '_refuse_layer_not_on_scope',
+        '_layers_on_scope',
+    ):
+        setattr(session, name, getattr(ScopeSession, name).__get__(session))
     ctx = SimpleNamespace(
         scope=scope,
+        session=session,
         lumaview=SimpleNamespace(scope=scope),
         settings=settings,
         settings_lock=MagicMock(),

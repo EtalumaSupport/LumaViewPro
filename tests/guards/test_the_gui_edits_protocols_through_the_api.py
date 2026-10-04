@@ -87,8 +87,6 @@ _STEPS_WRITE = 'steps()[...] ='
 # Pinned at the tree that first counted them (fifteen writer calls and one
 # write into the live frame), lowered as each edit moved behind the API.
 _PIN = {
-    ('ui/layer_control.py', 'apply_focus_all_layer_steps'): 1,
-    ('ui/layer_control.py', 'modify_step_z_height'): 1,
     ('ui/protocol_settings.py', 'apply_tiling'): 1,
     ('ui/protocol_settings.py', 'apply_zstacking'): 1,
     ('ui/protocol_settings.py', 'delete_step'): 1,

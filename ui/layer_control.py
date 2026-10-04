@@ -19,7 +19,6 @@ from modules.config_ui_getters import (
     get_exposure_text_max,
     get_layer_illumination_text_max,
 )
-from modules.exceptions import ProtocolError
 from ui.ui_helpers import run_reported, submit_reported
 
 logger = logging.getLogger('LVP.ui.layer_control')
@@ -703,75 +702,19 @@ class LayerControl(BoxLayout):
         gui_logger.button(f'SAVE_FOCUS_{self.layer}')
         ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] LayerControl.save_focus()')
-        # The selected-step index is captured HERE, at click time on the main
-        # thread: "the selected step" must mean the one the user was looking
-        # at when they clicked, not whatever is selected when the queued task
-        # eventually runs (the two diverge if the user navigates or deletes
-        # steps in the click-to-execute window). This also keeps the worker
-        # thread out of the widget tree. The protocol is taken the same way,
-        # from the panel that holds it: the panel replaces its protocol on
-        # New and Load, so the one being edited is the one it holds now.
+        # The selected step and the protocol are taken at the click: the
+        # step the user was looking at, in the protocol the panel holds now
+        # (the panel replaces its protocol on New and Load). The panel's -1
+        # is no step selected.
         protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
         protocol = protocol_settings._protocol
         selected_step = int(protocol_settings.curr_step)
+        step_idx = selected_step if selected_step >= 0 else None
         run_reported(
-            lambda: self.execute_save_focus(protocol, selected_step=selected_step),
-            None,
+            lambda: ctx.session.save_focus(protocol, self.layer, step_idx=step_idx),
+            lambda: self._schedule_step_views_refresh(ctx, protocol, context='save_focus'),
             f'SAVE_FOCUS_{self.layer}',
         )
-
-    def execute_save_focus(self, protocol, selected_step: int = -1):
-        """Save the current Z as this layer's focus, and as the selected step's Z.
-
-        A cache read and store writes, run inline by the boundary; the
-        motion API's refusal of an unknown Z is what it raises and shows.
-        """
-        ctx = _app_ctx.ctx
-        settings = ctx.settings
-        # A Z that lost its reference keeps answering the last number it
-        # reported; saved, it would become every future step's focus.
-        ctx.scope.motion.refuse_unknown_positions(('Z',), recording=True, then='save the focus')
-        pos = ctx.scope.motion.get_current_position('Z')
-        with ctx.settings_lock:
-            settings[self.layer]['focus'] = pos
-        # Save Focus writes the layer default (what future steps of this
-        # channel are born with) plus the SELECTED step's Z -- never any
-        # other step. Sibling steps once inherited the value through a
-        # baseline-equality guess, which collapsed distinct per-step
-        # focus values into the last save: every step of a layer is
-        # born at the identical layer focus, so equality is the default
-        # state, not evidence of user intent. Only an explicit
-        # selection earns the write.
-        if selected_step >= 0:
-            if selected_step >= protocol.num_steps():
-                logger.info(
-                    f'[LVP Main  ] save_focus: selected step {selected_step} is '
-                    f'out of range; layer {self.layer} focus saved, no step updated'
-                )
-                return
-            try:
-                step = protocol.step(idx=selected_step)
-            except ProtocolError:
-                # Steps changed between the range check and the read (a
-                # deletion on the main thread while this task ran).
-                logger.info(
-                    f'[LVP Main  ] save_focus: selected step {selected_step} no '
-                    f'longer exists; layer {self.layer} focus saved, no step updated'
-                )
-                return
-            if step['Color'] != self.layer:
-                logger.info(
-                    f'[LVP Main  ] save_focus: selected step {selected_step} is '
-                    f'{step["Color"]}, not {self.layer}; layer focus saved, '
-                    'step untouched'
-                )
-                return
-            protocol.modify_step_z_height(step_idx=selected_step, z=pos)
-            logger.info(
-                f'[LVP Main  ] save_focus: layer={self.layer} Z={pos} saved to '
-                f'selected step {selected_step}'
-            )
-            self._schedule_step_views_refresh(ctx, protocol, context='save_focus')
 
     def _schedule_step_views_refresh(self, ctx, protocol, context: str):
         """Schedule a main-thread refresh of the stage view + step editor.
@@ -801,35 +744,17 @@ class LayerControl(BoxLayout):
 
     def apply_focus_to_channel_steps(self):
         gui_logger.button(f'APPLY_FOCUS_TO_STEPS_{self.layer}')
+        ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] LayerControl.apply_focus_to_channel_steps()')
         # As Save Focus: the protocol the panel holds at the click.
-        protocol = _app_ctx.ctx.motion_settings.ids['protocol_settings_id']._protocol
+        protocol = ctx.motion_settings.ids['protocol_settings_id']._protocol
         run_reported(
-            lambda: self.execute_apply_focus_to_channel_steps(protocol),
-            None,
+            lambda: ctx.session.apply_focus_to_layer_steps(protocol, self.layer),
+            lambda: self._schedule_step_views_refresh(
+                ctx, protocol, context='apply_focus_to_channel_steps'
+            ),
             f'APPLY_FOCUS_TO_STEPS_{self.layer}',
         )
-
-    def execute_apply_focus_to_channel_steps(self, protocol):
-        """Save the current Z as this layer's focus and write it into every step of the channel.
-
-        Run inline by the boundary, as Save Focus is.
-        """
-        ctx = _app_ctx.ctx
-        settings = ctx.settings
-        # As Save Focus, and this one writes the Z into every step of the
-        # channel.
-        ctx.scope.motion.refuse_unknown_positions(('Z',), recording=True, then='apply the focus')
-        pos = ctx.scope.motion.get_current_position('Z')
-        with ctx.settings_lock:
-            settings[self.layer]['focus'] = pos
-        updated = protocol.apply_focus_all_layer_steps(layer=self.layer, z=pos)
-        logger.info(
-            f'[LVP Main  ] apply_focus_to_channel_steps: layer={self.layer} '
-            f'Z={pos} applied to {updated} step(s)'
-        )
-        if updated > 0:
-            self._schedule_step_views_refresh(ctx, protocol, context='apply_focus_to_channel_steps')
 
     def goto_focus(self):
         from ui.ui_helpers import move_absolute

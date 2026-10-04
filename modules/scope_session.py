@@ -133,6 +133,19 @@ class ObjectiveQuestion:
     choices: tuple[str, ...]
 
 
+@dataclasses.dataclass(frozen=True)
+class SavedFocus:
+    """What ``ScopeSession.save_focus`` wrote.
+
+    Attributes:
+        z: The Z saved as the layer's focus, in um.
+        step_idx: The step that took it as its Z, or None when no step did.
+    """
+
+    z: float
+    step_idx: int | None
+
+
 class ScopeSession:
     """Owns the shared, GUI-independent state for one microscope session."""
 
@@ -1221,6 +1234,26 @@ class ScopeSession:
         protocol.to_file(file_path=path, layer_settings=layer_settings)
         return path
 
+    def _refuse_layer_not_on_scope(self, layer: str, *, then: str) -> None:
+        """Refuse ``layer`` unless this scope has it.
+
+        Raises:
+            ConfigError: this scope has no ``layer``, or its layers could
+                not be resolved.
+        """
+        if layer in self._layers_on_scope():
+            return
+        identity = self.scope.layer_identity
+        if identity.layers:
+            raise ConfigError(
+                f'this scope ({identity.model}) has no {layer} layer; '
+                f'its layers are {sorted(self._layers_on_scope())}'
+            )
+        raise ConfigError(
+            f"this scope's layers could not be resolved (model {identity.model}), "
+            f'so {layer} cannot {then}'
+        )
+
     def set_layer_acquire(self, layer: str, mode: 'str | None') -> None:
         """Set what a layer captures: ``'image'``, ``'video'``, or None (nothing).
 
@@ -1242,17 +1275,8 @@ class ScopeSession:
             )
         if mode not in ('image', 'video', None):
             raise ConfigError(f"acquire mode {mode!r} is not 'image', 'video' or None")
-        if mode is not None and layer not in self._layers_on_scope():
-            identity = self.scope.layer_identity
-            if identity.layers:
-                raise ConfigError(
-                    f'this scope ({identity.model}) has no {layer} layer; '
-                    f'its layers are {sorted(self._layers_on_scope())}'
-                )
-            raise ConfigError(
-                f"this scope's layers could not be resolved (model {identity.model}), "
-                f'so {layer} cannot be set to acquire'
-            )
+        if mode is not None:
+            self._refuse_layer_not_on_scope(layer, then='be set to acquire')
         with self.settings_lock:
             self.settings[layer]['acquire'] = mode
             stim = self.settings[layer].get('stim_config')
@@ -1372,6 +1396,57 @@ class ScopeSession:
             objective_id=objective_id,
             label=label,
         )
+
+    def save_focus(
+        self, protocol: 'Protocol', layer: str, *, step_idx: int | None = None
+    ) -> SavedFocus:
+        """Save the live Z as ``layer``'s focus, and as step ``step_idx``'s Z.
+
+        The layer's focus is what every new step of the layer is born at.
+        The step takes the Z only when it is a step of ``layer``; a step of
+        another channel is left alone. No other step is written: every step
+        of a layer is born at the same focus, so a step matching the old
+        focus says nothing about whether its user wants the new one.
+        ``apply_focus_to_layer_steps`` writes them all.
+
+        Raises:
+            ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
+                has no Z axis. Nothing is written.
+            AxisStateUnknownError: Z lost its reference. Nothing is written.
+            ProtocolError: ``step_idx`` is not a step of ``protocol``.
+                Nothing is written.
+            ConfigError: this scope has no ``layer``. Nothing is written.
+        """
+        self._refuse_layer_not_on_scope(layer, then='take a focus')
+        step = None if step_idx is None else protocol.step(idx=step_idx)
+        z = self.scope.protocols.focus_z(then='save the focus')
+        with self.settings_lock:
+            self.settings[layer]['focus'] = z
+        if step is None or step['Color'] != layer:
+            logger.info(f'[Session  ] Focus saved: {layer} Z={z}, no step written')
+            return SavedFocus(z=z, step_idx=None)
+        self.scope.protocols.set_step_z(protocol, step_idx, z)
+        logger.info(f'[Session  ] Focus saved: {layer} Z={z}, and as the Z of step {step_idx}')
+        return SavedFocus(z=z, step_idx=step_idx)
+
+    def apply_focus_to_layer_steps(self, protocol: 'Protocol', layer: str) -> int:
+        """Save the live Z as ``layer``'s focus and as the Z of its every step.
+
+        Returns how many steps took it.
+
+        Raises:
+            ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
+                has no Z axis. Nothing is written.
+            AxisStateUnknownError: Z lost its reference. Nothing is written.
+            ConfigError: this scope has no ``layer``. Nothing is written.
+        """
+        self._refuse_layer_not_on_scope(layer, then='take a focus')
+        z = self.scope.protocols.focus_z(then='apply the focus')
+        with self.settings_lock:
+            self.settings[layer]['focus'] = z
+        updated = self.scope.protocols.apply_focus_to_layer_steps(protocol, layer, z)
+        logger.info(f'[Session  ] Focus applied: {layer} Z={z} to {updated} step(s)')
+        return updated
 
     def protocol_size_advisory(self, protocol: 'Protocol') -> 'ProtocolSizeAdvisory | None':
         """Ask a protocol whether it is large enough to warn the user about.

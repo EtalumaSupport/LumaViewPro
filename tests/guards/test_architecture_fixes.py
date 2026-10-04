@@ -619,7 +619,7 @@ _UI_EXCEPT_PIN = {
     ('ui/image_settings.py', 'Exception'): 0,
     ('ui/image_settings.py', 'KeyError'): 0,
     ('ui/layer_control.py', 'Exception'): 5,
-    ('ui/layer_control.py', 'ProtocolError'): 1,
+    ('ui/layer_control.py', 'ProtocolError'): 0,
     ('ui/layer_control.py', 'TypeError, ValueError'): 1,
     ('ui/listener_bridge.py', 'Exception'): 0,
     ('ui/main_display.py', 'Exception'): 0,

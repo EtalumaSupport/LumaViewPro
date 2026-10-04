@@ -66,8 +66,8 @@ class TestSaveFocusRefresh:
             'the save_focus refresh callback must log on failure, not pass.'
         )
 
-    def test_execute_save_focus_has_no_local_clock_reimport(self):
-        src = _method_src('ui/layer_control.py', 'LayerControl', 'execute_save_focus')
+    def test_the_refresh_has_no_local_clock_reimport(self):
+        src = _method_src('ui/layer_control.py', 'LayerControl', '_schedule_step_views_refresh')
         assert 'from kivy.clock import Clock' not in src, (
-            'execute_save_focus must use the module-level Clock import.'
+            '_schedule_step_views_refresh must use the module-level Clock import.'
         )

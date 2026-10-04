@@ -356,6 +356,47 @@ class ProtocolsAPI:
         self._report_invalid_steps(protocol, solicited=True)
         return protocol.step(idx=step_idx)['Name']
 
+    def focus_z(self, *, then: str) -> float:
+        """The live Z, as a focus to save into a layer or a step.
+
+        Args:
+            then: What the user does once Z knows its position, ending the
+                refusal (e.g. ``'save the focus'``).
+
+        Raises:
+            ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
+                has no Z axis, so there is no focus to save; the position
+                cache would answer 0. Logged and notified once.
+            AxisStateUnknownError: Z lost its reference, so the number it
+                answers is the last one it reported. Reported once by the
+                motion API.
+        """
+        if not self._scope.capabilities.has_focus:
+            self._refuse(
+                reason='positions_unreachable',
+                title='Position Not Reachable',
+                message=f'This scope has no motor for Z, so it cannot {then}.',
+            )
+        self._scope.motion.refuse_unknown_positions(('Z',), recording=True, then=then)
+        return self._scope.motion.get_current_position('Z')
+
+    def set_step_z(self, protocol: Protocol, step_idx: int, z: float) -> None:
+        """Write ``z`` as step ``step_idx``'s Z.
+
+        Raises:
+            ProtocolError: ``step_idx`` is not a step of ``protocol``, or
+                ``z`` is not a number (raised by the protocol).
+        """
+        protocol.modify_step_z_height(step_idx=step_idx, z=z)
+
+    def apply_focus_to_layer_steps(self, protocol: Protocol, layer: str, z: float) -> int:
+        """Write ``z`` as the Z of every step of ``layer``; returns how many.
+
+        Raises:
+            ProtocolError: ``z`` is not a number (raised by the protocol).
+        """
+        return protocol.apply_focus_all_layer_steps(layer=layer, z=z)
+
     def _refuse_unrecordable_step(self, *, verb: str, objective_id: str | None) -> None:
         """Refuse to save a step the scope cannot vouch for.
 
