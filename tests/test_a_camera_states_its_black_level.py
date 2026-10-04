@@ -15,7 +15,11 @@ import pytest
 from pypylon import genicam
 
 from drivers.exceptions import HardwareError
-from modules.exceptions import CameraSettingOutOfRangeError, CameraSettingUnsupportedError
+from modules.exceptions import (
+    CameraSettingOutOfRangeError,
+    CameraSettingRejected,
+    CameraSettingUnsupportedError,
+)
 from modules.scope_session import ScopeSession
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera
 from tests.settings_fixtures import complete_settings
@@ -46,6 +50,21 @@ def test_a_full_scale_pixel_saturates_under_the_offset_and_does_not_wrap(sim_sco
 
     assert full_scale is not None and image is not None
     assert np.array_equal(image, full_scale)
+
+
+def test_a_camera_refusal_is_a_rejection_in_the_black_levels_words(sim_scope):
+    with (
+        patch.object(sim_scope._camera_driver, 'set_black_level', return_value=False),
+        pytest.raises(CameraSettingRejected, match='did not accept the black level 4'),
+    ):
+        sim_scope.imaging.set_black_level(4.0)
+
+
+def test_the_simulator_reloads_its_default_black_level_at_connect(sim_scope):
+    driver = sim_scope._camera_driver
+    sim_scope.imaging.set_black_level(4.0)
+    driver.init_camera_config()
+    assert driver.get_black_level() == 0.0
 
 
 def test_a_value_outside_the_range_is_refused_and_nothing_moves(sim_scope):

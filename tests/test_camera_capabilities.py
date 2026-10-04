@@ -173,6 +173,7 @@ class TestScopeCapabilitiesIntegration:
         )
         assert caps.is_color_native is False
         assert caps.native_bit_depth == 16
+        assert caps.camera_supports_black_level is False
 
 
 @pytest.mark.parametrize(

@@ -126,6 +126,16 @@ def test_connect_writes_the_documents_registers_and_leaves_r0x62_at_its_default(
     assert 0x62 not in dict(writes)
 
 
+def test_the_black_level_reported_is_the_row_black_target_connect_writes(sim, writes, monkeypatch):
+    monkeypatch.setattr(fx2driver, 'ROW_BLACK_TARGET', 0x0007)
+    cam = FX2Camera(connection=sim.connection)
+    try:
+        assert dict(writes[len(BRING_UP) :])[0x49] == 0x0007
+        assert cam.get_black_level() == 7.0
+    finally:
+        cam.disconnect()
+
+
 def test_the_simulated_sensor_soft_resets_to_its_power_on_window(sim):
     sensor = sim.device.sensor
     sensor.write(bytes([0x04, 0x01, 0xF5]))
