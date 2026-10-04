@@ -1497,6 +1497,25 @@ class ScopeSession:
         logger.info(f'[Session  ] Focus applied: {layer} Z={z} to {updated} step(s)')
         return updated
 
+    def delete_step(self, protocol: 'Protocol', step_idx: int) -> None:
+        """Remove step ``step_idx`` from ``protocol``, as the Delete button does.
+
+        Raises:
+            ProtocolError: ``step_idx`` is not a step of ``protocol``.
+                Nothing is removed.
+        """
+        self.scope.protocols.delete_step(protocol, step_idx)
+
+    def rename_step(self, protocol: 'Protocol', step_idx: int, name: str) -> str:
+        """Give step ``step_idx`` of ``protocol`` the label ``name``; returns its new name.
+
+        Raises:
+            ProtocolError: ``step_idx`` is not a step of ``protocol``, or
+                ``name`` has no letter, digit, dash or underscore. The step
+                keeps its name.
+        """
+        return self.scope.protocols.rename_step(protocol, step_idx, name)
+
     def protocol_size_advisory(self, protocol: 'Protocol') -> 'ProtocolSizeAdvisory | None':
         """Ask a protocol whether it is large enough to warn the user about.
 

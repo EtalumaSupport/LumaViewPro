@@ -27,13 +27,14 @@ Both paths route the field text through
 common_utils.resolve_step_rename, which returns None for a blank field
 ("no rename intended"). On None, step_name_validation skips the write
 and modify_step_ex passes label=None to Protocol.modify_step, which
-keeps the step's existing Label and auto/user flag. A non-empty entry
-is the user's rename and passes through sanitized.
+keeps the step's existing Label and auto/user flag. A non-blank entry
+is the user's rename and passes through as typed; the protocol cleans it,
+or refuses one with nothing left to keep.
 
 Test approach
 -------------
-resolve_step_rename is a pure support function (raw text + a sanitize
-callable; no Kivy / ctx), so its behavior is exercised directly at
+resolve_step_rename is a pure support function (raw text; no Kivy /
+ctx), so its behavior is exercised directly at
 runtime. The two call sites stay Kivy-bound, so AST locks assert both
 route through the helper and that modify_step_ex's None-guard still
 precedes the Protocol.modify_step call.
@@ -68,21 +69,22 @@ class TestResolveStepRename:
     def _resolve(raw: str):
         from modules.common_utils import resolve_step_rename
 
-        # A sanitize stub that strips whitespace -- enough to drive the
-        # policy (blank-after-sanitize -> None). The real
-        # sanitize_step_name also drops invalid path chars; that is not
-        # what this policy gates on.
-        return resolve_step_rename(raw, lambda s: s.strip())
+        return resolve_step_rename(raw)
 
     def test_empty_field_means_no_rename(self):
         assert self._resolve('') is None
 
     def test_whitespace_only_field_means_no_rename(self):
-        # Sanitizes down to empty -> still "no rename intended".
         assert self._resolve('   ') is None
 
-    def test_real_name_passes_through_sanitized(self):
-        assert self._resolve('  My Step  ') == 'My Step'
+    def test_real_name_passes_through_as_typed(self):
+        # The protocol is the one cleaner of a name.
+        assert self._resolve('  My Step  ') == '  My Step  '
+
+    def test_a_name_of_only_invalid_characters_is_a_rename(self):
+        # Not blank, so not "keep the name": the protocol refuses it, and
+        # the person who typed it is told why.
+        assert self._resolve('!!!') == '!!!'
 
 
 class TestRenamePathsRouteThroughHelper:
@@ -99,7 +101,7 @@ class TestRenamePathsRouteThroughHelper:
         )
         assert 'is None' in body_src, (
             'step_name_validation must guard the resolve_step_rename result '
-            'against None (blank field = no rename) before calling modify_name.'
+            'against None (blank field = no rename) before renaming.'
         )
 
     def test_modify_step_ex_uses_helper_with_none_guard(self):

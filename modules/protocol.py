@@ -1264,7 +1264,9 @@ class Protocol:
         if lowest <= idx <= highest:
             return
         if highest < lowest:
-            raise ProtocolError(f'{what} {idx} does not exist: the protocol has no steps.')
+            # Every index is outside an empty protocol, so the index says
+            # nothing; the GUI's is its no-selection -1.
+            raise ProtocolError('The protocol has no steps, so there is no step to change.')
         raise ProtocolError(
             f'{what} {idx} is outside {lowest} to {highest}: the protocol has {num_steps} steps.'
         )

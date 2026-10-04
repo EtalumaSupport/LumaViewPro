@@ -63,6 +63,7 @@ import ui.protocol_settings as ps
 import ui.step_navigation as nav
 import ui.ui_helpers as ui_helpers
 from modules.objectives_loader import ObjectiveLoader
+from modules.exceptions import ProtocolError
 from modules.protocol import Protocol
 
 
@@ -143,9 +144,22 @@ def env(monkeypatch):
     monkeypatch.setattr(nav, '_load_step_into_layer', lambda **kw: loaded.append(kw['step']['X']))
     monkeypatch.setattr(nav, 'go_to_step_update_ui', lambda step: None)
     monkeypatch.setattr(ps.gui_logger, 'protocol_action', lambda *a, **kw: None)
+    monkeypatch.setattr(ps.gui_logger, 'text_input', lambda *a, **kw: None)
 
     def add_step(protocol, *, before_step=None, after_step=None):
         return [_insert(protocol, x=99.0, before_step=before_step, after_step=after_step)]
+
+    def update_step(protocol, step_idx, *, layer, label=None):
+        protocol.modify_step(
+            step_idx=step_idx,
+            layer=layer,
+            layer_config=LAYER_CONFIG,
+            plate_position={'x': 99.0, 'y': 0.0, 'z': 0.0},
+            objective_id='10x Oly',
+            stim_configs={},
+            label=label,
+        )
+        return protocol.step(idx=step_idx)['Name']
 
     ctx = SimpleNamespace(
         settings={'protocol_led_on': False, 'protocol': {'filepath': 'plate.tsv'}},
@@ -167,6 +181,11 @@ def env(monkeypatch):
             is_protocol_running=False,
             run_lockout=False,
             add_step=add_step,
+            delete_step=lambda protocol, step_idx: protocol.delete_step(step_idx=step_idx),
+            rename_step=lambda protocol, step_idx, name: protocol.modify_name(
+                step_idx=step_idx, step_name=name
+            ),
+            update_step=update_step,
         ),
         stage=MagicMock(),
     )
@@ -234,6 +253,80 @@ def test_a_delete_the_protocol_refuses_is_reported_and_changes_nothing(env, monk
     assert reported == [('ProtocolError', 'UI:DELETE_STEP')]
     assert _xs(panel._protocol) == [0.0, 1.0, 2.0]
     assert panel.curr_step == 7
+
+
+@pytest.fixture
+def refusals(monkeypatch):
+    from modules.notification_center import notifications
+
+    reported = []
+    monkeypatch.setattr(
+        notifications,
+        'report_outcome',
+        lambda exc, **kw: reported.append((type(exc).__name__, kw['category'])),
+    )
+    return reported
+
+
+def test_a_delete_on_an_empty_protocol_is_the_protocols_refusal(env, refusals):
+    """The panel does not decide that there is nothing to delete; the API says so."""
+    panel = env.panel(num_steps=0, curr_step=-1)
+
+    panel.delete_step()
+
+    assert refusals == [('ProtocolError', 'UI:DELETE_STEP')]
+    assert panel.curr_step == -1
+
+
+def test_a_name_with_nothing_to_keep_is_refused_and_the_step_keeps_its_name(env, refusals):
+    panel = env.panel(num_steps=2, curr_step=1)
+    before = panel._protocol.step(1)['Name']
+
+    panel.step_name_validation('!!!')
+
+    assert refusals == [('ProtocolError', 'UI:RENAME_STEP')]
+    assert panel._protocol.step(1)['Name'] == before
+
+
+def test_a_blank_name_field_keeps_the_name_without_asking_the_protocol(env, refusals):
+    panel = env.panel(num_steps=2, curr_step=1)
+    before = panel._protocol.step(1)['Name']
+
+    panel.step_name_validation('  ')
+
+    assert refusals == []
+    assert panel._protocol.step(1)['Name'] == before
+    assert panel.ids['step_name_input'].text == ''
+
+
+def test_a_rename_shows_the_label_the_protocol_kept(env, refusals):
+    panel = env.panel(num_steps=2, curr_step=1)
+
+    panel.step_name_validation('my step!')
+
+    assert refusals == []
+    assert panel._protocol.step(1)['Label'] == 'mystep'
+    assert panel.ids['step_name_input'].text == 'mystep'
+
+
+def test_update_with_a_name_of_nothing_to_keep_is_refused(env):
+    """The name field reaches Update as typed; the protocol refuses it, not the panel."""
+    panel = env.panel(num_steps=2, curr_step=1)
+    before = panel._protocol.step(1)['Name']
+
+    with pytest.raises(ProtocolError, match='at least one letter'):
+        panel.modify_step_ex('BF', '!!!')
+
+    assert panel._protocol.step(1)['Name'] == before
+
+
+def test_update_with_a_blank_name_field_keeps_the_label(env):
+    panel = env.panel(num_steps=2, curr_step=1)
+    panel._protocol.modify_name(step_idx=1, step_name='mine')
+
+    panel.modify_step_ex('BF', '')
+
+    assert panel._protocol.step(1)['Label'] == 'mine'
 
 
 def test_an_edit_that_leaves_a_step_invalid_gets_no_popup_from_the_panel(env, monkeypatch):

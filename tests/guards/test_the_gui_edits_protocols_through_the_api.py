@@ -11,10 +11,13 @@ two such calls stopped working for a fortnight without a test noticing.
 
 Counted per file and member, from ``ui/`` and ``lumaviewpro.py``:
 
-* a call of a ``Protocol`` writer's name on any receiver but ``self`` -- the
-  GUI holds its protocols under several names (``self._protocol``,
-  ``protocol``, a run's ``sequence``), while the panel's own handlers of the
-  same names (``delete_step``, ``insert_step``) are called on ``self``;
+* a call of a ``Protocol`` writer's name on any receiver but ``self`` or the
+  API -- the GUI holds its protocols under several names
+  (``self._protocol``, ``protocol``, a run's ``sequence``), while the
+  panel's own handlers of the same names (``delete_step``, ``insert_step``)
+  are called on ``self``, and the Session's and the protocols API's members
+  of the same names (``ctx.session.delete_step``) are the edit made
+  through the API;
 * an assignment into the frame ``steps()`` returns, which is the protocol's
   live frame, so the write lands with no writer called at all.
 
@@ -89,10 +92,8 @@ _STEPS_WRITE = 'steps()[...] ='
 _PIN = {
     ('ui/protocol_settings.py', 'apply_tiling'): 1,
     ('ui/protocol_settings.py', 'apply_zstacking'): 1,
-    ('ui/protocol_settings.py', 'delete_step'): 1,
     ('ui/protocol_settings.py', 'modify_capture_root'): 1,
     ('ui/protocol_settings.py', 'modify_labware'): 1,
-    ('ui/protocol_settings.py', 'modify_name'): 1,
     ('ui/protocol_settings.py', 'modify_time_params'): 1,
     ('ui/protocol_settings.py', 'optimize_step_ordering'): 2,
 }
@@ -100,6 +101,14 @@ _PIN = {
 
 def _not_self(receiver: ast.expr) -> bool:
     return not (isinstance(receiver, ast.Name) and receiver.id == 'self')
+
+
+# The receivers that are the API: ``ctx.session``, ``scope.protocols``.
+_API_RECEIVERS = frozenset({'session', 'protocols'})
+
+
+def _is_api(receiver: ast.expr) -> bool:
+    return isinstance(receiver, ast.Attribute) and receiver.attr in _API_RECEIVERS
 
 
 def _is_steps_call(node: ast.expr) -> bool:
@@ -119,6 +128,7 @@ def _edits_in(tree: ast.Module) -> dict[str, int]:
             and isinstance(node.func, ast.Attribute)
             and node.func.attr in WRITERS
             and _not_self(node.func.value)
+            and not _is_api(node.func.value)
         ):
             counts[node.func.attr] = counts.get(node.func.attr, 0) + 1
         elif isinstance(node, (ast.Assign, ast.AugAssign)):
@@ -170,6 +180,8 @@ def test_the_census_sees_each_shape_of_edit():
         "    self._protocol.steps()['Z'] = 1\n"
         "    self._protocol.steps().loc[0, 'Z'] = 1\n"
         '    self.delete_step()\n'
+        '    ctx.session.delete_step(protocol, 0)\n'
+        '    ctx.scope.protocols.delete_step(protocol, 0)\n'
         '    protocol.steps()\n'
     )
     assert _edits_in(ast.parse(source)) == {

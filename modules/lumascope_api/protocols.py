@@ -397,6 +397,37 @@ class ProtocolsAPI:
         """
         return protocol.apply_focus_all_layer_steps(layer=layer, z=z)
 
+    def delete_step(self, protocol: Protocol, step_idx: int) -> None:
+        """Remove step ``step_idx`` from ``protocol``; the steps after it move up one.
+
+        Raises:
+            ProtocolError: ``step_idx`` is not a step of ``protocol``
+                (raised by the protocol). Nothing is removed.
+        """
+        protocol.delete_step(step_idx=step_idx)
+        self._report_invalid_steps(protocol, solicited=True)
+
+    def rename_step(self, protocol: Protocol, step_idx: int, name: str) -> str:
+        """Give step ``step_idx`` the label ``name``, kept through later channel changes.
+
+        Characters a filename cannot carry are removed from ``name``.
+        Returns the step's name after the rename. A rename to the label the
+        step already holds as its own changes nothing, so it gives no
+        invalid-step notice: a name field sends the name it shows each time
+        it loses focus.
+
+        Raises:
+            ProtocolError: ``step_idx`` is not a step of ``protocol``, or
+                ``name`` has no letter, digit, dash or underscore (raised
+                by the protocol). The step keeps its name.
+        """
+        before = protocol.step(idx=step_idx)[['Label', 'Auto_Named']].tolist()
+        protocol.modify_name(step_idx=step_idx, step_name=name)
+        after = protocol.step(idx=step_idx)
+        if after[['Label', 'Auto_Named']].tolist() != before:
+            self._report_invalid_steps(protocol, solicited=True)
+        return after['Name']
+
     def _refuse_unrecordable_step(self, *, verb: str, objective_id: str | None) -> None:
         """Refuse to save a step the scope cannot vouch for.
 

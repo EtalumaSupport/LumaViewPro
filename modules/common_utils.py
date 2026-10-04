@@ -382,26 +382,24 @@ def recover_step_label(step) -> tuple[str, bool]:
     return name, False
 
 
-def resolve_step_rename(raw_text: str, sanitize) -> str | None:
-    """Resolve a step-name field value to the name to persist, or None.
+def resolve_step_rename(raw_text: str) -> str | None:
+    """Resolve a step-name field value to the name to rename to, or None.
 
     Auto-named custom steps blank the name field so the default name shows
     as a hint placeholder rather than editable text. A blank field
     therefore means "no rename intended": persisting the empty string
     would wipe the auto-assigned name, leaving added steps unnamed and
     colliding on the same default name. Returns None for a blank field so
-    callers keep the existing name; a non-empty entry is a real rename and
-    is returned sanitized.
+    callers keep the existing name; anything else is a real rename, passed
+    as typed, and the protocol cleans it or refuses it.
 
     Args:
         raw_text: the raw text from the step-name input field.
-        sanitize: callable that cleans a name (e.g. strips invalid chars).
 
     Returns:
-        The sanitized name to persist, or None if the field is blank.
+        The text to rename to, or None if the field is blank.
     """
-    cleaned = sanitize(raw_text)
-    return cleaned if cleaned else None
+    return raw_text if raw_text.strip() else None
 
 
 def convert_zstack_reference_position_setting_to_config(text_label: str) -> str:

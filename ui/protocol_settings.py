@@ -320,22 +320,27 @@ class ProtocolSettings(FloatLayout):
         # without this line a name the sanitiser changed, or a blank entry that
         # kept the old name, leaves nothing saying what was actually entered.
         gui_logger.text_input('STEP_NAME', text)
-        if (
-            hasattr(self, '_protocol')
-            and (self._protocol is not None)
-            and (self._protocol.num_steps() > 0 and self.curr_step >= 0)
-        ):
-            new_name = common_utils.resolve_step_rename(text, Protocol.sanitize_step_name)
-            if new_name is None:
-                # Blank field = keep the existing name; leave the field
-                # empty so the auto-name hint shows.
-                self.ids['step_name_input'].text = ''
-                return
-            self._protocol.modify_name(step_idx=self.curr_step, step_name=new_name)
-            gui_logger.protocol_action('RENAME_STEP', f'step={self.curr_step} name={new_name!r}')
-            self.ids['step_name_input'].text = new_name
-        else:
+        if not hasattr(self, '_protocol') or self._protocol is None:
             self.ids['step_name_input'].text = ''
+            return
+        new_name = common_utils.resolve_step_rename(text)
+        if new_name is None:
+            # Blank field = keep the existing name; leave the field
+            # empty so the auto-name hint shows.
+            self.ids['step_name_input'].text = ''
+            return
+        run_reported(
+            lambda: self.step_name_validation_ex(new_name),
+            self._draw_protocol_steps,
+            'RENAME_STEP',
+        )
+
+    def step_name_validation_ex(self, new_name: str) -> None:
+        """Rename the current step and show the label the protocol kept."""
+        _app_ctx.ctx.session.rename_step(self._protocol, self.curr_step, new_name)
+        label = self._protocol.step(idx=self.curr_step)['Label']
+        gui_logger.protocol_action('RENAME_STEP', f'step={self.curr_step} name={label!r}')
+        self.ids['step_name_input'].text = label
 
     def update_capture_root(self, text: str):
         # The protocol keeps the root as typed; the filename prefix it makes
@@ -957,10 +962,7 @@ class ProtocolSettings(FloatLayout):
         The move is a navigation that belongs only to a list the protocol
         has changed, so it is the last call, never reached on a refusal.
         """
-        if self._protocol.num_steps() <= 0:
-            return
-
-        self._protocol.delete_step(step_idx=self.curr_step)
+        _app_ctx.ctx.session.delete_step(self._protocol, self.curr_step)
 
         if self._protocol.num_steps() <= 0:
             self.curr_step = -1
@@ -992,7 +994,7 @@ class ProtocolSettings(FloatLayout):
         # from the updated columns inside modify_step, so an auto-named
         # step's channel token tracks a channel change and a user label
         # rides along untouched -- no name branching needed here.
-        label = common_utils.resolve_step_rename(name_field, Protocol.sanitize_step_name)
+        label = common_utils.resolve_step_rename(name_field)
         name = _app_ctx.ctx.session.update_step(
             self._protocol, self.curr_step, layer=active_layer, label=label
         )
