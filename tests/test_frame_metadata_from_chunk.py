@@ -46,6 +46,7 @@ def _imaging(live=None, chunk_reads=None):
         illumination=SimpleNamespace(state_ch2color=lambda ch: {3: 'BF'}[ch]),
         _camera_driver=SimpleNamespace(
             get_model_name=lambda: 'simcam',
+            get_black_level=lambda: None,
             timestamp_tick_frequency_hz=1_000_000_000,
             cam_image_handler=SimpleNamespace(get_last_chunks=get_last_chunks),
         ),

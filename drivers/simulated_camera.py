@@ -130,6 +130,7 @@ class SimulatedCamera(Camera):
 
         self._exposure_us = 10_000.0  # 10 ms in microseconds
         self._gain = 1.0
+        self._black_level = 0.0
         self._pixel_format = 'Mono8'
         self._binning = 1
         self._grabbing = False
@@ -337,6 +338,9 @@ class SimulatedCamera(Camera):
         self._pixel_format = 'Mono8'
         self._exposure_us = 10_000.0  # 10 ms
         self._gain = 1.0
+        # Reset at every connect, as the real bodies reload their Default
+        # user set.
+        self._black_level = 0.0
         self._binning = 1
 
     # ------------------------------------------------------------------
@@ -883,6 +887,12 @@ class SimulatedCamera(Camera):
                 )
             img = self._render_cycle_frame(h, w, dtype, max_val, brightness)
 
+        if self._black_level:
+            # The offset lifts every pixel, and a pixel lifted past full scale
+            # saturates there, as a sensor's output does; the integer cast
+            # would otherwise wrap a bright pixel to near zero.
+            img = np.minimum(np.rint(img.astype(np.float32) + self._black_level), max_val)
+            img = img.astype(dtype)
         return img
 
     def grab_new_capture(self, timeout_s: float) -> tuple:
@@ -920,6 +930,38 @@ class SimulatedCamera(Camera):
         if not self.active:
             return -1
         return self._gain
+
+    # ------------------------------------------------------------------
+    # Black level: an offset in DN of the delivered pixel format, added to
+    # every rendered frame, so the value reported is what the image shows.
+    # ------------------------------------------------------------------
+    _BLACK_LEVEL_RANGE = (0.0, 64.0)
+
+    def supports_black_level(self) -> bool:
+        return bool(self.active)
+
+    def get_black_level(self) -> float | None:
+        if not self.active:
+            return None
+        return self._black_level
+
+    def get_black_level_range(self) -> tuple[float, float] | None:
+        if not self.active:
+            return None
+        return self._BLACK_LEVEL_RANGE
+
+    def set_black_level(self, value: float) -> float | bool | None:
+        """Set the simulated black level; refused outside its range, as a
+        real node refuses. Returns as ``gain`` does."""
+        if not self.active:
+            return None
+        low, high = self._BLACK_LEVEL_RANGE
+        if not low <= float(value) <= high:
+            logger.warning(f'[CAM Sim   ] Black level {value} outside [{low}, {high}]')
+            return False
+        with self._lock:
+            self._black_level = float(value)
+        return float(value)
 
     def gain(self, value: float) -> float | bool | None:
         """Set the simulated camera gain.

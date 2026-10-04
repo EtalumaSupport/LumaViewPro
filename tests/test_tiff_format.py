@@ -1066,6 +1066,16 @@ class TestStructuredReadbackOptionalGainExposure:
         assert recovered['exposure_time_ms'] == pytest.approx(metadata['exposure_time_ms'])
         assert recovered['gain_db'] == pytest.approx(metadata['gain_db'])
 
+    def test_black_level_round_trips_and_its_absence_stays_absent(
+        self, img_8bit, metadata, tmp_tiff
+    ):
+        stated = tmp_tiff()
+        self._write(img_8bit, {**metadata, 'black_level': 4.0}, stated)
+        assert image_utils.read_postproc_input_metadata(stated)['black_level'] == 4.0
+        unstated = tmp_tiff()
+        self._write(img_8bit, metadata, unstated)
+        assert 'black_level' not in image_utils.read_postproc_input_metadata(unstated)
+
 
 # Largest value a signed-32-bit reader (Bioformats) treats as positive. A TIFF
 # RATIONAL stores unsigned uint32, but Bioformats reads the numerator as int32,

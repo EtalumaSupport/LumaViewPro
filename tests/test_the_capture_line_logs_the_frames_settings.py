@@ -58,6 +58,7 @@ def test_a_camera_with_chunks_logs_the_frames_own_values_unmarked():
         captured_at=datetime.datetime.now(),
         exposure_ms=62.003,
         gain_db=3.5,
+        black_level=None,
         illumination_ma={},
         frames_summed=1,
         camera_timestamp_ticks=None,

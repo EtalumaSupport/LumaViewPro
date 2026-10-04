@@ -2444,6 +2444,66 @@ class PylonCamera(Camera):
             )
             return False
 
+    def supports_black_level(self) -> bool:
+        """True if the camera exposes the BlackLevel node."""
+        if not self.active:
+            return False
+        try:
+            return self._has_node(self.active.GetNodeMap(), 'BlackLevel')
+        except Exception as e:
+            # No disconnect teardown, as in the probes above.
+            raise HardwareError(f'BlackLevel probe failed: {type(e).__name__}: {e}') from e
+
+    def get_black_level(self) -> float | None:
+        """Read BlackLevel live. See ``Camera.get_black_level``.
+
+        A failed read raises and does not tear the camera down: a transient
+        read must not latch a removal (the probes above say why).
+        """
+        if not self.active:
+            return None
+        try:
+            if not self._has_node(self.active.GetNodeMap(), 'BlackLevel'):
+                return None
+            return float(self.active.BlackLevel.GetValue())
+        except Exception as e:
+            raise HardwareError(f'BlackLevel read failed: {type(e).__name__}: {e}') from e
+
+    def get_black_level_range(self) -> tuple[float, float] | None:
+        """BlackLevel's minimum and maximum, live. See ``Camera.get_black_level_range``."""
+        if not self.active:
+            return None
+        try:
+            if not self._has_node(self.active.GetNodeMap(), 'BlackLevel'):
+                return None
+            node = self.active.BlackLevel
+            return float(node.GetMin()), float(node.GetMax())
+        except Exception as e:
+            raise HardwareError(f'BlackLevel range read failed: {type(e).__name__}: {e}') from e
+
+    def set_black_level(self, value: float) -> float | bool | None:
+        """Set BlackLevel, with BlackLevelSelector 'All' where the body has
+        the selector (Basler black-level.html). Returns as ``gain`` does."""
+        if self.active is None:
+            _cam_log.warning(f'[CAM Class ] Cannot set black level {value}: camera inactive')
+            return None
+        try:
+            if self._has_node(self.active.GetNodeMap(), 'BlackLevelSelector'):
+                self.active.BlackLevelSelector.SetValue('All')
+            if _cam_log is not None:
+                _cam_log.info(f'pylon BlackLevel.SetValue({float(value):g})')
+            self.active.BlackLevel.SetValue(float(value))
+            # Read back, as gain does: the node may snap to its increment.
+            return float(self.active.BlackLevel.GetValue())
+        except genicam.RuntimeException as e:
+            _cam_log.error(
+                f'[CAM Class ] Camera communication error setting BlackLevel {value}: {e}'
+            )
+            self._mark_disconnected()
+            return False
+        except Exception as e:
+            raise HardwareError(f'BlackLevel {value} write failed: {type(e).__name__}: {e}') from e
+
     def init_auto_gain_focus(
         self,
         auto_target_brightness: float = 0.5,

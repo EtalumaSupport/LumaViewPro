@@ -209,10 +209,21 @@ def _rejected_mode_words(what: str) -> tuple[str, str]:
     )
 
 
+def _rejected_black_level_words(black_level: float) -> tuple[str, str]:
+    """The title and sentence for a black level the camera refused; see
+    ``_rejected_gain_words``. A camera holding its black level automatically
+    refuses a manual one, which the sentence names."""
+    return (
+        'Camera Setting Not Applied',
+        f'The camera did not accept the black level {float(black_level):g}. '
+        'Captures will continue at the previous black level. A camera that '
+        'sets its black level automatically takes no manual value.',
+    )
+
+
 def _value_rejection(setting: str, requested: float) -> CameraSettingRejected:
-    """The typed refusal of a gain or exposure, in its one set of words."""
-    words = _rejected_gain_words if setting == 'gain_db' else _rejected_exposure_words
-    title, message = words(requested)
+    """The typed refusal of a camera value setting, in its one set of words."""
+    title, message = _REJECTED_VALUE_WORDS[setting](requested)
     return CameraSettingRejected(setting, requested, title=title, message=message)
 
 
@@ -280,6 +291,13 @@ def _rejected_exposure_words(exposure_ms: float) -> tuple[str, str]:
         'Captures will continue at the previous exposure. Check '
         'that the value is within the camera limits.',
     )
+
+
+_REJECTED_VALUE_WORDS = {
+    'gain_db': _rejected_gain_words,
+    'exposure_ms': _rejected_exposure_words,
+    'black_level': _rejected_black_level_words,
+}
 
 
 # Per Firmware/docs/PERFORMANCE_BUDGETS.md plugin_live_processing_handler_ms
@@ -2056,6 +2074,94 @@ class ImagingAPI:
             return False
         return result
 
+    def get_black_level(self) -> float | None:
+        """Read the camera's black level, live.
+
+        The value is the camera's own black level parameter, in the camera's
+        own units, as the vendors' EMVA 1288 sheets state it: on a Basler
+        body one unit moves the gray value by a model-specific step (0.0625 DN
+        at 12-bit depth on the daA3840), on an IDS body it is DN of the current
+        pixel format, on the FX2 it is the sensor's Row Black Target. The
+        offset it makes in DN is measured, not derived from it.
+
+        Not cached: a failed read has no last-known-good to answer with.
+
+        Returns:
+            float | None: The black level; None when no camera is active or
+                the camera reports none.
+
+        Raises:
+            HardwareError: The camera reports a black level and the read
+                failed.
+        """
+        driver = self._driver
+        if not driver or not driver.active:
+            return None
+        return driver.get_black_level()
+
+    def set_black_level(self, value: float) -> float | None:
+        """Set the camera's black level, wait for it, and answer with the
+        value in effect.
+
+        See ``get_black_level`` for what the value means. The value holds
+        until the next connect, when the camera reloads its default user set.
+
+        Returns:
+            float | None: The black level now in effect, which differs from
+                the request when the camera snapped it. ``None`` when no
+                camera is active.
+
+        Raises:
+            CameraSettingUnsupportedError: This camera offers no black level
+                setting (``capabilities.camera_supports_black_level`` is
+                False). Nothing reached the camera.
+            CameraSettingOutOfRangeError: The value is outside the range the
+                camera reports for its current pixel format; nothing was sent.
+            CameraSettingRejected: The camera refused it, as a camera holding
+                its black level automatically does.
+            HardwareError: The camera's probe, range read, write or read-back
+                failed; the black level in effect is unknown.
+        """
+        applied = self._dispatch_camera(
+            self._set_black_level_impl,
+            'set_black_level',
+            args=(value,),
+            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+        )
+        if applied is False:
+            raise _value_rejection('black_level', value)
+        return applied
+
+    def _set_black_level_impl(self, value: float) -> float | bool | None:
+        """Set the black level; the refusals of ``set_black_level`` are raised
+        here, on the camera lane, because the support probe and the range are
+        live camera reads. A camera refusal is answered ``False``, not raised.
+        """
+        driver = self._driver
+        if not driver or not driver.active:
+            return None
+        if not driver.supports_black_level():
+            raise CameraSettingUnsupportedError(
+                'black_level',
+                value,
+                offered=(),
+                title='Not Available on This Camera',
+                message='This camera offers no black level setting. The black level stays as it is.',
+            )
+        low, high = driver.get_black_level_range()
+        self._refuse_out_of_range('black_level', value, low, high, noun='black level', unit='units')
+
+        def _write_black_level():
+            with self._cam_lock:
+                return self._driver.set_black_level(float(value))
+
+        result = self._camera_write(_write_black_level, invalidates=('black_level',))
+        if result is False and self._removed_during_write(
+            'black_level', 'black level', float(value)
+        ):
+            return None
+        return result
+
     # --- SDK-perf knobs (write-only by design) ---
     #
     # Considered get_X companions for the cluster below
@@ -2995,17 +3101,21 @@ class ImagingAPI:
         with self._state_lock:
             if self._dark_saved:
                 extra['dark_saved'] = True
-        if image is not None:
-            extra['frame_record'] = self._build_frame_record(
-                chunks=chunks, lit=lit, captured_at=grabbed_at, frames_summed=sum_count
+        # The record's black level read raises on a failed read and fails the
+        # capture; a locked auto-gain arm is re-armed either way.
+        try:
+            if image is not None:
+                extra['frame_record'] = self._build_frame_record(
+                    chunks=chunks, lit=lit, captured_at=grabbed_at, frames_summed=sum_count
+                )
+            _record_capture_info(
+                chunk_exposure_us=chunks.get('ExposureTime'),
+                chunk_gain_db=chunks.get('Gain'),
+                **extra,
             )
-        _record_capture_info(
-            chunk_exposure_us=chunks.get('ExposureTime'),
-            chunk_gain_db=chunks.get('Gain'),
-            **extra,
-        )
-        if lock is not None:
-            self._resume_auto_gain_impl(lock)
+        finally:
+            if lock is not None:
+                self._resume_auto_gain_impl(lock)
         return image
 
     def _build_frame_record(
@@ -3063,6 +3173,7 @@ class ImagingAPI:
             captured_at=captured_at,
             exposure_ms=exposure_ms,
             gain_db=gain_db,
+            black_level=self._black_level_for_record(),
             illumination_ma={illumination.state_ch2color(ch): ma for ch, ma in lit},
             frames_summed=frames_summed,
             camera_timestamp_ticks=int(ticks) if ticks is not None else None,
@@ -3071,6 +3182,15 @@ class ImagingAPI:
             binning_size=self._binning_size,
             camera_model=self._driver.get_model_name(),
         )
+
+    def _black_level_for_record(self) -> float | None:
+        """The black level a frame's record carries: a live read beside the
+        grab, None when the camera reports none. A setter makes it a capture
+        variable, so a frame states it as it states its gain; a failed read
+        raises ``HardwareError`` and fails the capture rather than saving a
+        frame whose black level is unknown.
+        """
+        return self._driver.get_black_level()
 
     def capture_and_wait(
         self,

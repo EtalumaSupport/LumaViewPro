@@ -55,6 +55,7 @@ def _record():
         captured_at=datetime.datetime(2026, 9, 29, 12, 0, 0, 123456),
         exposure_ms=12.5,
         gain_db=3.0,
+        black_level=4.0,
         illumination_ma={'BF': 40.0},
         frames_summed=2,
         camera_timestamp_ticks=1000,
@@ -86,6 +87,7 @@ def test_the_builder_records_its_frame_with_the_live_scope_unreachable(sim_scope
 
     assert metadata['exposure_time_ms'] == 12.5
     assert metadata['gain_db'] == 3.0
+    assert metadata['black_level'] == 4.0
     assert metadata['illumination_ma'] == 40.0
     assert metadata['frames_summed'] == 2
     assert metadata['well_label'] == 'A1'

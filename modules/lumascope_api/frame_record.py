@@ -28,6 +28,8 @@ class FrameRecord:
         exposure_ms: Per-frame exposure. For a summed capture this is each
             frame's exposure, not the total; ``frames_summed`` says how many.
         gain_db: Gain the frame was taken at.
+        black_level: The camera's black level parameter the frame was taken
+            at, in the camera's own units (``ImagingAPI.get_black_level``).
         illumination_ma: Drive current of each channel lit for the grab,
             by layer name. A channel that was off is absent.
         frames_summed: Number of frames summed into the image.
@@ -42,6 +44,7 @@ class FrameRecord:
     captured_at: datetime.datetime
     exposure_ms: float | None
     gain_db: float | None
+    black_level: float | None
     illumination_ma: Mapping[str, float]
     frames_summed: int
     camera_timestamp_ticks: int | None

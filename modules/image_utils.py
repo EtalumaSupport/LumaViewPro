@@ -933,6 +933,8 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
         flat['exposure_time_ms'] = plane['ExposureTime']
     if 'Gain' in plane:
         flat['gain_db'] = plane['Gain']
+    if 'BlackLevel' in plane:
+        flat['black_level'] = plane['BlackLevel']
     if 'FramesSummed' in plane:
         flat['frames_summed'] = plane['FramesSummed']
     if datetime_value is not None:
@@ -1223,7 +1225,7 @@ def build_composite_output_metadata(
         channel='Composite',
         significant_bits=significant_bits,
     )
-    for per_channel_field in ('exposure_time_ms', 'gain_db', 'illumination_ma'):
+    for per_channel_field in ('exposure_time_ms', 'gain_db', 'black_level', 'illumination_ma'):
         metadata.pop(per_channel_field, None)
     return metadata
 
@@ -2247,6 +2249,10 @@ def generate_tiff_data(
     if 'gain_db' in metadata:
         plane['Gain'] = metadata['gain_db']
         plane['GainUnit'] = 'dB'
+    # The camera's own black level parameter, in the camera's own units: no
+    # unit is written because none is common to every camera.
+    if 'black_level' in metadata:
+        plane['BlackLevel'] = metadata['black_level']
     # ExposureTime is per frame; a summed image integrates this many of them,
     # and without the count the file's exposure understates its integration.
     if 'frames_summed' in metadata:

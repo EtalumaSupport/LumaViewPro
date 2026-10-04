@@ -28,7 +28,7 @@ from types import SimpleNamespace
 import pytest
 
 from drivers.simulated_camera import SimulatedCamera
-from modules.exceptions import CameraSettingRejected
+from modules.exceptions import CameraSettingOutOfRangeError, CameraSettingRejected
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
 from tests.ast_seams import parse_module
@@ -49,6 +49,7 @@ CAMERA_WRITE_METHODS = frozenset(
         'set_pixel_format',
         'set_conversion_gain_mode',
         'set_line_noise_reduction',
+        'set_black_level',
         'update_auto_gain_target_brightness',
     }
 )
@@ -374,6 +375,22 @@ class TestSdkPerfSetterSequences:
         events = _record_validity_events(imaging_plain)
         result = imaging_plain.set_line_noise_reduction(True)
         assert result is False
+        assert events == []
+
+
+class TestBlackLevelSetterSequence:
+    """The black level invalidates its own source when the camera took the
+    value, and nothing when it was refused before reaching the camera."""
+
+    def test_set_black_level_success_sequence(self, imaging_plain):
+        events = _record_validity_events(imaging_plain)
+        assert imaging_plain.set_black_level(4.0) == 4.0
+        assert events == [('invalidate', 'black_level')]
+
+    def test_an_out_of_range_black_level_invalidates_nothing(self, imaging_plain):
+        events = _record_validity_events(imaging_plain)
+        with pytest.raises(CameraSettingOutOfRangeError):
+            imaging_plain.set_black_level(1000.0)
         assert events == []
 
 

@@ -3069,6 +3069,66 @@ class IDSCamera(Camera):
             _cam_log.error(f'[CAM Class ] Gain set failed (likely out of bounds): {e}')
             return False
 
+    # BlackLevel is a float in DN of the current pixel format; the SDK rescales
+    # it on a format change. Written to the IDS peak documentation, unbenched.
+
+    def supports_black_level(self) -> bool:
+        """True if the camera exposes the BlackLevel node."""
+        if not self.active or self.remote_nodemap is None:
+            return False
+        try:
+            return bool(self.remote_nodemap.HasNode('BlackLevel'))
+        except Exception as e:
+            raise HardwareError(f'BlackLevel probe failed: {type(e).__name__}: {e}') from e
+
+    def get_black_level(self) -> float | None:
+        """Read BlackLevel live. See ``Camera.get_black_level``."""
+        if not self.active or self.remote_nodemap is None:
+            return None
+        try:
+            if not self.remote_nodemap.HasNode('BlackLevel'):
+                return None
+            return float(self.remote_nodemap.FindNode('BlackLevel').Value())
+        except Exception as e:
+            raise HardwareError(f'BlackLevel read failed: {type(e).__name__}: {e}') from e
+
+    def get_black_level_range(self) -> tuple[float, float] | None:
+        """BlackLevel's minimum and maximum, live. See ``Camera.get_black_level_range``."""
+        if not self.active or self.remote_nodemap is None:
+            return None
+        try:
+            if not self.remote_nodemap.HasNode('BlackLevel'):
+                return None
+            node = self.remote_nodemap.FindNode('BlackLevel')
+            return float(node.Minimum()), float(node.Maximum())
+        except Exception as e:
+            raise HardwareError(f'BlackLevel range read failed: {type(e).__name__}: {e}') from e
+
+    def set_black_level(self, value: float) -> float | bool | None:
+        """Set BlackLevel. Returns as ``gain`` does.
+
+        Refused while BlackLevelAuto is not Off: a camera holding its black
+        level automatically would overwrite the value, so it is not written.
+        """
+        if not self.active or self.remote_nodemap is None:
+            _cam_log.warning(f'[CAM Class ] Cannot set black level {value}: camera inactive')
+            return None
+        try:
+            if self.remote_nodemap.HasNode('BlackLevelAuto'):
+                auto = self.remote_nodemap.FindNode('BlackLevelAuto').CurrentEntry().SymbolicValue()
+                if auto != 'Off':
+                    _cam_log.warning(
+                        f'[CAM Class ] BlackLevel {value} not set: BlackLevelAuto is {auto}'
+                    )
+                    return False
+            node = self.remote_nodemap.FindNode('BlackLevel')
+            if _cam_log is not None:
+                _cam_log.info(f'ids BlackLevel.SetValue({float(value):g})')
+            node.SetValue(float(value))
+            return float(node.Value())
+        except Exception as e:
+            raise HardwareError(f'BlackLevel {value} write failed: {type(e).__name__}: {e}') from e
+
     def auto_gain(
         self,
         state: bool = True,

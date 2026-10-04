@@ -18,6 +18,7 @@ def frame_record(**overrides) -> FrameRecord:
         'captured_at': datetime.datetime(2026, 9, 29, 12, 0, 0),
         'exposure_ms': 10.0,
         'gain_db': 1.0,
+        'black_level': None,
         'illumination_ma': {},
         'frames_summed': 1,
         'camera_timestamp_ticks': None,

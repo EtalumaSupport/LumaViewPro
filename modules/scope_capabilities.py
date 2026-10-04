@@ -244,6 +244,12 @@ class ScopeCapabilities:
     horizontal stripe artifacts). Gates the UI toggle. Pylon Bsl feature;
     absent on cameras without it."""
 
+    camera_supports_black_level: bool = False
+    """True if the camera's black level can be set
+    (``scope.imaging.set_black_level``). The black level is read with
+    ``scope.imaging.get_black_level`` on any camera that reports one,
+    settable or not (the FX2 reports its fixed Row Black Target)."""
+
     # ---- Cross-cutting feature flags ----
     has_firmware_stim: bool = False
     """True when the LED firmware advertises the STIM pulse-train command
@@ -324,6 +330,7 @@ class ScopeCapabilities:
         native_bit_depth = 16
         camera_supports_conversion_gain_mode = False
         camera_supports_line_noise_reduction = False
+        camera_supports_black_level = False
         if camera is not None:
             profile = getattr(camera, 'profile', None)
             if profile is not None:
@@ -353,12 +360,18 @@ class ScopeCapabilities:
                 lambda: bool(camera.supports_line_noise_reduction()),
                 False,
             )
+            camera_supports_black_level = _probe(
+                'camera.supports_black_level',
+                lambda: bool(camera.supports_black_level()),
+                False,
+            )
             # Record the detected low-noise toggles so a support bundle shows
             # whether they were available on this camera without debug mode.
             logger.info(
                 f'[CAPABILITIES] camera={camera_model!r} '
                 f'conversion_gain_mode={camera_supports_conversion_gain_mode} '
-                f'line_noise_reduction={camera_supports_line_noise_reduction}'
+                f'line_noise_reduction={camera_supports_line_noise_reduction} '
+                f'black_level={camera_supports_black_level}'
             )
 
         return cls(
@@ -383,4 +396,5 @@ class ScopeCapabilities:
             native_bit_depth=native_bit_depth,
             camera_supports_conversion_gain_mode=camera_supports_conversion_gain_mode,
             camera_supports_line_noise_reduction=camera_supports_line_noise_reduction,
+            camera_supports_black_level=camera_supports_black_level,
         )

@@ -123,6 +123,10 @@ class ScriptedCameraDriver:
     def get_gain(self):
         return self._next('get_gain')
 
+    def get_black_level(self):
+        # This double reports no black level; the record carries none.
+        return None
+
     def get_exposure_t(self):
         return self._next('get_exposure_t')
 
@@ -267,6 +271,10 @@ EXCLUDED = {
     'get_live_camera_settings': (
         'live-confirmed surface; deliberately the inverse contract '
         '(omits unknown rather than answering last-known-good)'
+    ),
+    'get_black_level': (
+        'live read with no cache by design: a failed read raises HardwareError, '
+        'None means no camera or none reported'
     ),
 }
 # significant_bits / last_significant_bits are properties (not reachable by

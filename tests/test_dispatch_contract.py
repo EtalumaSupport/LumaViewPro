@@ -86,6 +86,7 @@ FAMILIES = [
     ('imaging', 'set_pixel_format', {'pixel_format': 'Mono8'}, 'camera'),
     ('imaging', 'set_conversion_gain_mode', {'mode': 'High'}, 'camera'),
     ('imaging', 'set_line_noise_reduction', {'enabled': True}, 'camera'),
+    ('imaging', 'set_black_level', {'value': 4.0}, 'camera'),
     (
         'imaging',
         'update_auto_gain_target_brightness',

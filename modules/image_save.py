@@ -403,6 +403,8 @@ def generate_image_metadata(
         _frame_settings['gain_db'] = round(
             frame_record.gain_db, common_utils.max_decimal_precision('gain')
         )
+    if frame_record.black_level is not None:
+        _frame_settings['black_level'] = frame_record.black_level
 
     # Spectral identity from the resolved layer record. Written whatever
     # rung identity resolved from, and a null value is ABSENT: broadband

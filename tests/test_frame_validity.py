@@ -206,17 +206,23 @@ class TestExcludeSources:
 
 
 class TestUnknownSource:
-    """Unknown sources use default skip count."""
+    """A source without a skip count is refused: a silent default would be a
+    count nobody chose."""
 
-    def test_unknown_source_uses_default(self):
+    def test_unknown_source_is_refused(self):
         fv = FrameValidity(_frames)
-        fv.invalidate('custom_thing')
-        assert fv.frames_until_valid() == FrameValidity.DEFAULT_SKIP_FRAMES
+        with pytest.raises(ValueError, match='custom_thing'):
+            fv.invalidate('custom_thing')
+        assert fv.is_valid
 
-    def test_unknown_source_settles(self):
+    @pytest.mark.parametrize(
+        'source', ['black_level', 'conversion_gain_mode', 'line_noise_reduction']
+    )
+    def test_the_sensor_setting_sources_have_counts(self, source):
+        assert source in FrameValidity.SKIP_FRAMES
         fv = FrameValidity(_frames)
-        fv.invalidate('something_new')
-        for _ in range(FrameValidity.DEFAULT_SKIP_FRAMES):
+        fv.invalidate(source)
+        for _ in range(FrameValidity.SKIP_FRAMES[source]):
             fv.count_frame(_f())
         assert fv.is_valid
 

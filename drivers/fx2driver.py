@@ -481,6 +481,10 @@ REG_READ_MODE2 = 0x20
 REG_GLOBAL_GAIN = 0x35
 REG_ROW_BLACK = 0x49
 
+# The Row Black Target written at connect, and the black level the camera
+# reports: one value, so the report cannot drift from the write.
+ROW_BLACK_TARGET = 0x0000
+
 # R0x10 with its reserved bits 7:4 at their default 0x5: Power_PLL, then
 # Power_PLL and Use_PLL.
 _PLL_POWERED = 0x0051
@@ -2094,7 +2098,7 @@ class FX2Camera(Camera):
         # half of its read noise to zero, invisible at 0 dB (dark noise 0.28
         # counts), while at 24 dB 64% of dark pixels read 0 and the dark mean
         # reads 0.64 counts, a sub-count bias on faint signal at high gain.
-        self._write_sensor_registers(((REG_ROW_BLACK, 0x0000),))
+        self._write_sensor_registers(((REG_ROW_BLACK, ROW_BLACK_TARGET),))
 
         # Set default window to full 1900x1900 -- also configures the
         # col_size/row_size registers correctly with centering.
@@ -2551,6 +2555,17 @@ class FX2Camera(Camera):
     def get_gain(self):
         _, db = _register_to_gain_db(self._gain_reg)
         return db
+
+    def get_black_level(self) -> float | None:
+        """The Row Black Target written at connect (R0x49, sensor counts).
+
+        Not read back: the driver has no sensor register read path, and
+        nothing else writes the register. The black level is not offered
+        for setting; the FX2 line keeps LumaView Classic's sensor setup.
+        """
+        if not self.active:
+            return None
+        return float(ROW_BLACK_TARGET)
 
     def auto_gain(
         self,

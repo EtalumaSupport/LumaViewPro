@@ -1423,6 +1423,57 @@ class Camera(ABC):
         """
         pass
 
+    # Black level is the camera's own offset parameter, in the camera's own
+    # units (Basler's step in DN differs by model and sensor bit depth; IDS
+    # states DN of the current format), never converted to output DN here:
+    # no probe supplies the factor. The defaults describe a camera that
+    # neither reports nor offers one; each driver overrides what it has.
+
+    def supports_black_level(self) -> bool:
+        """Whether the black level can be set on this camera.
+
+        Raises:
+            HardwareError: The probe failed.
+        """
+        return False
+
+    def get_black_level(self) -> float | None:
+        """Read the black level in effect, live.
+
+        Returns:
+            float | None: The camera's black level parameter; None when the
+                camera does not report one.
+
+        Raises:
+            HardwareError: The camera reports one and the read failed.
+        """
+        return None
+
+    def get_black_level_range(self) -> tuple[float, float] | None:
+        """Read the settable black level range, live: it can change with the
+        pixel format.
+
+        Returns:
+            tuple[float, float] | None: ``(minimum, maximum)``; None when the
+                black level cannot be set.
+
+        Raises:
+            HardwareError: The read failed.
+        """
+        return None
+
+    def set_black_level(self, value: float) -> float | bool | None:
+        """Set the black level, and report the value now in effect.
+
+        Called only when ``supports_black_level`` is True and ``value`` is
+        inside ``get_black_level_range``. Returns as ``gain`` does: ``False``
+        is the camera's refusal, or the camera lost.
+
+        Raises:
+            HardwareError: The write or its read-back failed.
+        """
+        raise NotImplementedError(f'{type(self).__name__} offers no black level setting')
+
     @abstractmethod
     def auto_gain(
         self,

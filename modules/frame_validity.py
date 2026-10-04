@@ -74,8 +74,6 @@ class FrameValidity:
     Motion sources additionally require physical completion (axis stopped).
     """
 
-    DEFAULT_SKIP_FRAMES = 2
-
     # Per-source skip frame counts (camera pipeline flush).
     # Default skip counts -- overridden by per-camera measured values
     # from data/camera_timing/<model>.json via load_camera_timing(). These
@@ -106,6 +104,11 @@ class FrameValidity:
         'pixel_format': 3,
         'frame_size': 3,
         'binning': 3,
+        # Sensor settings that change the next frames like gain does. Unmeasured;
+        # gain's count until a bench measurement goes into camera_timing.
+        'black_level': 2,
+        'conversion_gain_mode': 2,
+        'line_noise_reduction': 2,
     }
 
     # One shape for every trace row this class writes. A row records the
@@ -199,11 +202,15 @@ class FrameValidity:
         """Record that hardware state changed and frames need to settle.
 
         Args:
-            source: What changed ('led', 'gain', 'exposure', 'auto_gain',
-                    'xy_move', 'z_move', 'turret'). Unknown sources use
-                    DEFAULT_SKIP_FRAMES.
+            source: What changed: a key of SKIP_FRAMES.
+
+        Raises:
+            ValueError: ``source`` has no skip count. A source that settled
+                on a silent default had a count nobody chose.
         """
-        skip = self.SKIP_FRAMES.get(source, self.DEFAULT_SKIP_FRAMES)
+        skip = self.SKIP_FRAMES.get(source)
+        if skip is None:
+            raise ValueError(f'frame validity has no skip count for source {source!r}')
         with self._lock:
             # Read INSIDE the lock: two threads invalidating the same source
             # can otherwise store the earlier ordinal for the later write,

@@ -26,7 +26,9 @@ import threading
 from unittest.mock import patch
 
 import lvp_logger
+import pytest
 import modules.config_helpers as config_helpers
+from drivers.exceptions import HardwareError
 from modules.exceptions import AutoGainNotSettledError, ExposureAtMinimumNotice
 from drivers.simulated_camera import SimulatedCamera, _SimImageHandler
 from modules.lumascope_api import Lumascope
@@ -253,6 +255,19 @@ def test_live_view_arm_resumes_after_capture():
     _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=False)
     assert imaging._capture_and_wait_impl(timeout_s=1.0) is not None
     assert cam._auto_gain_enabled is False
+
+
+def test_a_failed_black_level_read_fails_the_capture_and_the_arm_resumes():
+    """The record's black level read raising fails the capture, and a
+    live-view arm the capture locked is re-armed all the same."""
+    imaging, cam = _build(ae_lands_on_ms=62.0)
+    _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
+    with (
+        patch.object(cam, 'get_black_level', side_effect=HardwareError('BlackLevel read failed')),
+        pytest.raises(HardwareError, match='BlackLevel read failed'),
+    ):
+        imaging._capture_and_wait_impl(timeout_s=1.0)
+    assert cam._auto_gain_enabled is True
 
 
 def test_live_view_lock_tells_the_user_and_a_protocol_lock_does_not():
