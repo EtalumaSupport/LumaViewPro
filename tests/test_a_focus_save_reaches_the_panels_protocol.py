@@ -21,6 +21,7 @@ tests do.
 from __future__ import annotations
 
 import ast
+import functools
 import pathlib
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -45,7 +46,7 @@ def _compile(method_name: str, globals_: dict):
 
 def _panel_with(protocol, selected_step):
     """A real AppContext whose Protocol panel holds ``protocol``; the session records the call."""
-    panel = SimpleNamespace(_protocol=protocol, curr_step=selected_step)
+    panel = SimpleNamespace(_protocol=protocol, curr_step=selected_step, update_step_ui=MagicMock())
     session = SimpleNamespace(save_focus=MagicMock(), apply_focus_to_layer_steps=MagicMock())
     ctx = AppContext(
         session=session,
@@ -58,7 +59,7 @@ def _panel_with(protocol, selected_step):
         'logger': MagicMock(),
         'run_reported': lambda call, redraw, label: call(),
     }
-    me = SimpleNamespace(layer='Blue', _schedule_step_views_refresh=MagicMock())
+    me = SimpleNamespace(layer='Blue', _refresh_step_views=MagicMock())
     return me, globals_, session
 
 
@@ -91,6 +92,29 @@ def test_apply_focus_hands_the_session_the_panels_protocol():
     _compile('apply_focus_to_channel_steps', globals_)(me)
 
     session.apply_focus_to_layer_steps.assert_called_once_with(protocol, 'Blue')
+
+
+def test_both_focus_actions_redraw_the_stage_and_step_editor_inside_the_boundary():
+    # The redraw is run_reported's own, so anything it raises reaches the one
+    # reporter; a clock hop would run it outside the boundary, where only a
+    # catch of its own could answer for it.
+    protocol = _protocol()
+    for method_name in ('save_focus', 'apply_focus_to_channel_steps'):
+        me, globals_, _ = _panel_with(protocol, selected_step=0)
+        redraws = []
+        globals_['run_reported'] = lambda call, redraw, label, redraws=redraws: redraws.append(
+            redraw
+        )
+        me._refresh_step_views = functools.partial(_compile('_refresh_step_views', globals_), me)
+        ctx = globals_['_app_ctx'].ctx
+
+        _compile(method_name, globals_)(me)
+        (redraw,) = redraws
+        redraw()
+
+        (call,) = ctx.stage.set_protocol_steps.call_args_list
+        assert call.kwargs['df'].equals(protocol.steps())
+        ctx.motion_settings.ids['protocol_settings_id'].update_step_ui.assert_called_once_with()
 
 
 def test_the_application_context_has_no_protocol_of_its_own():

@@ -308,9 +308,17 @@ def test_the_shared_helper_reports_a_correction_under_its_own_name():
 def test_an_unparseable_entry_is_no_longer_invisible():
     """The reject path used to return without logging anything at all."""
     fn = find_def('ui/layer_control.py', _HELPER, class_name='LayerControl')
-    handlers = [n for n in ast.walk(fn) if isinstance(n, ast.ExceptHandler)]
-    assert handlers, f'{_HELPER} no longer has a parse-failure path'
-    emitted = [c for h in handlers for c in _text_input_calls(h)]
+    parses = [
+        n
+        for n in ast.walk(fn)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == 'typed_number'
+    ]
+    assert parses, f'{_HELPER} no longer parses through typed_number, the one typed-number parse'
+    refusals = [
+        n for n in ast.walk(fn) if isinstance(n, ast.If) and ast.unparse(n.test) == 'raw is None'
+    ]
+    assert refusals, f'{_HELPER} no longer has a parse-failure path'
+    emitted = [c for r in refusals for c in _text_input_calls(r)]
     assert len(emitted) == 2, (
         'a rejected entry must record both the attempt and the value the box was '
         f'reset to; found {len(emitted)} emission(s) on the reject path'

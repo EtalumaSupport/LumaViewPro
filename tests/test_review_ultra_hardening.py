@@ -4,8 +4,7 @@
 Companion to test_review_prepass_hardening.py: pins the findings from the
 multi-agent review of the mono-native + overlap bundle. Behavioral where
 the module imports under the harness; source/AST locks where the carrier
-is Kivy-bound and cannot be instantiated (window keyboard handler,
-layer_control focus refresh).
+is Kivy-bound and cannot be instantiated (window keyboard handler).
 """
 
 from __future__ import annotations
@@ -53,21 +52,3 @@ class TestCompositeNoDeadThresholdParam:
 
         params = inspect.signature(CompositeGeneration.generate_composite_from_paths).parameters
         assert 'brightness_thresholds' not in params
-
-
-class TestSaveFocusRefresh:
-    """The scheduled save-focus refresh must log failures (not swallow them
-    with except: pass) so a stale-Z labware view is diagnosable, and must not
-    re-import Clock locally (the module-level import is in scope)."""
-
-    def test_refresh_callback_logs_on_failure(self):
-        src = _method_src('ui/layer_control.py', None, '_refresh')
-        assert 'logger.exception' in src, (
-            'the save_focus refresh callback must log on failure, not pass.'
-        )
-
-    def test_the_refresh_has_no_local_clock_reimport(self):
-        src = _method_src('ui/layer_control.py', 'LayerControl', '_schedule_step_views_refresh')
-        assert 'from kivy.clock import Clock' not in src, (
-            '_schedule_step_views_refresh must use the module-level Clock import.'
-        )

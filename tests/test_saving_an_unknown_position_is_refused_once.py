@@ -70,7 +70,7 @@ GESTURES = {
         lambda: _stand(
             layer_control.LayerControl,
             'save_focus',
-            '_schedule_step_views_refresh',
+            '_refresh_step_views',
             layer='BF',
         ),
         'save_focus',
@@ -79,7 +79,7 @@ GESTURES = {
         lambda: _stand(
             layer_control.LayerControl,
             'apply_focus_to_channel_steps',
-            '_schedule_step_views_refresh',
+            '_refresh_step_views',
             layer='BF',
         ),
         'apply_focus_to_channel_steps',
@@ -123,6 +123,7 @@ def unknown(monkeypatch):
         settings=settings,
         settings_lock=MagicMock(),
         motion_settings=MagicMock(),
+        stage=MagicMock(),
         protocol=None,
     )
     monkeypatch.setattr(_app_ctx, 'ctx', ctx)

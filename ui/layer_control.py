@@ -19,7 +19,7 @@ from modules.config_ui_getters import (
     get_exposure_text_max,
     get_layer_illumination_text_max,
 )
-from ui.ui_helpers import run_reported, submit_reported
+from ui.ui_helpers import run_reported, submit_reported, typed_number
 
 logger = logging.getLogger('LVP.ui.layer_control')
 
@@ -195,15 +195,15 @@ class LayerControl(BoxLayout):
         else:
             val = settings[self.layer][settings_key]
 
-        try:
-            raw = cast(typed_text)
-        except (ValueError, TypeError):
-            logger.debug(f'[LVP Main  ] Invalid {settings_key} input: {self.ids[text_id].text!r}')
+        def put_back():
             self._initializing = True
             try:
                 self.ids[text_id].text = str(val)
             finally:
                 self._initializing = False
+
+        raw = typed_number(typed_text, cast, put_back)
+        if raw is None:
             # An unparseable entry is still a user action, and the reset above
             # would otherwise leave no trace of it. Both halves are recorded:
             # what was typed, and what the box was put back to. Separate names
@@ -546,10 +546,7 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.stim_freq_slider()')
         frequency = self.ids['stim_freq_slider'].value
         gui_logger.slider(f'STIM_FREQ_{self.layer}', frequency)
-        try:
-            settings[self.layer]['stim_config']['frequency'] = frequency
-        except Exception as e:
-            logger.error(f'[LVP Main  ] LayerControl.stim_freq_slider() -> {e}')
+        settings[self.layer]['stim_config']['frequency'] = frequency
         self.apply_settings()
 
     def stim_pulse_count_slider(self):
@@ -557,10 +554,7 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.stim_pulse_count_slider()')
         pulse_count = int(self.ids['stim_pulse_count_slider'].value)
         gui_logger.slider(f'STIM_PULSE_COUNT_{self.layer}', pulse_count)
-        try:
-            settings[self.layer]['stim_config']['pulse_count'] = pulse_count
-        except Exception as e:
-            logger.error(f'[LVP Main  ] LayerControl.stim_pulse_count_slider() -> {e}')
+        settings[self.layer]['stim_config']['pulse_count'] = pulse_count
         self.apply_settings()
 
     def stim_pulse_width_slider(self):
@@ -568,10 +562,7 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.stim_pulse_width_slider()')
         pulse_width = int(self.ids['stim_pulse_width_slider'].value)
         gui_logger.slider(f'STIM_PULSE_WIDTH_{self.layer}', pulse_width)
-        try:
-            settings[self.layer]['stim_config']['pulse_width'] = pulse_width
-        except Exception as e:
-            logger.error(f'[LVP Main  ] LayerControl.stim_pulse_width_slider() -> {e}')
+        settings[self.layer]['stim_config']['pulse_width'] = pulse_width
         self.apply_settings()
 
     def stim_freq_text(self):
@@ -611,10 +602,7 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.stim_ill_slider()')
         illumination = round(self.ids['stim_ill_slider'].value)
         gui_logger.slider(f'STIM_ILL_{self.layer}', illumination)
-        try:
-            settings[self.layer]['stim_config']['illumination_ma'] = illumination
-        except Exception as e:
-            logger.error(f'[LVP Main  ] LayerControl.stim_ill_slider() -> {e}')
+        settings[self.layer]['stim_config']['illumination_ma'] = illumination
         new_text = str(illumination)
         if self.ids['stim_ill_text'].text != new_text:
             self.ids['stim_ill_text'].text = new_text
@@ -712,35 +700,20 @@ class LayerControl(BoxLayout):
         step_idx = selected_step if selected_step >= 0 else None
         run_reported(
             lambda: ctx.session.save_focus(protocol, self.layer, step_idx=step_idx),
-            lambda: self._schedule_step_views_refresh(ctx, protocol, context='save_focus'),
+            lambda: self._refresh_step_views(ctx, protocol),
             f'SAVE_FOCUS_{self.layer}',
         )
 
-    def _schedule_step_views_refresh(self, ctx, protocol, context: str):
-        """Schedule a main-thread refresh of the stage view + step editor.
+    def _refresh_step_views(self, ctx, protocol):
+        """Redraw the stage view and the step editor from *protocol*.
 
         Shared by every focus action that changes step Z values so the
         labware view and the step editor's focus readout update together.
+        It is the redraw of run_reported, which runs it on this thread and
+        reports whatever it raises.
         """
-
-        # Refresh the stage labware view + the steps table so the
-        # updated Z values are visible immediately.
-        def _refresh(_dt):
-            try:
-                ctx.stage.set_protocol_steps(df=protocol.steps())
-                ctx.motion_settings.ids['protocol_settings_id'].update_step_ui()
-            except Exception:
-                # Scheduled main-thread callback: the steps table
-                # can be mid-rebuild on this tick. Log so a stale-Z
-                # labware view / step editor is diagnosable instead
-                # of failing silently.
-                logger.exception(
-                    f'[LVP Main  ] {context}: stage / step-editor refresh '
-                    f'failed for layer {self.layer}; Z readouts may show '
-                    'stale values until the next UI update'
-                )
-
-        Clock.schedule_once(_refresh, 0)
+        ctx.stage.set_protocol_steps(df=protocol.steps())
+        ctx.motion_settings.ids['protocol_settings_id'].update_step_ui()
 
     def apply_focus_to_channel_steps(self):
         gui_logger.button(f'APPLY_FOCUS_TO_STEPS_{self.layer}')
@@ -750,9 +723,7 @@ class LayerControl(BoxLayout):
         protocol = ctx.motion_settings.ids['protocol_settings_id']._protocol
         run_reported(
             lambda: ctx.session.apply_focus_to_layer_steps(protocol, self.layer),
-            lambda: self._schedule_step_views_refresh(
-                ctx, protocol, context='apply_focus_to_channel_steps'
-            ),
+            lambda: self._refresh_step_views(ctx, protocol),
             f'APPLY_FOCUS_TO_STEPS_{self.layer}',
         )
 
