@@ -298,6 +298,7 @@ class TestTheLabwarePanelReportsARefusal:
 
         shown = capture_shown(monkeypatch)
         redrawn = []
+        protocol_plates = []
 
         def _refuse(name):
             raise HardwareCommandRefusedError(
@@ -309,7 +310,10 @@ class TestTheLabwarePanelReportsARefusal:
             'ctx',
             types.SimpleNamespace(
                 wellplate_loader=types.SimpleNamespace(get_plate_list=lambda: ['A', 'B']),
-                session=types.SimpleNamespace(select_labware=_refuse),
+                session=types.SimpleNamespace(
+                    select_labware=_refuse,
+                    set_protocol_labware=lambda protocol, key: protocol_plates.append(key),
+                ),
                 stage=types.SimpleNamespace(full_redraw=lambda: redrawn.append('stage')),
             ),
         )
@@ -318,10 +322,14 @@ class TestTheLabwarePanelReportsARefusal:
         )
         panel = types.SimpleNamespace(
             ids={'labware_spinner': types.SimpleNamespace(text='B', values=[])},
-            _protocol=None,
+            _protocol=object(),
+        )
+        panel.select_labware_ex = lambda selected: (
+            protocol_settings_module.ProtocolSettings.select_labware_ex(panel, selected)
         )
 
         protocol_settings_module.ProtocolSettings.select_labware(panel)
 
         assert [n.title for n in shown] == ['Microscope Busy']
+        assert protocol_plates == [], 'a plate the scope refused was written into the protocol'
         assert redrawn == ['stage'], 'the panel must still render the plate in place'

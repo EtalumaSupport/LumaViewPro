@@ -19,6 +19,10 @@ _REQUIRED_WELLPLATE_FIELDS = {
 
 _REQUIRED_DIMENSION_FIELDS = {'x': (int, float), 'y': (int, float)}
 
+# The plate of a scope with no XY stage: one field, at the centre, with no
+# wells to move between.
+CENTER_PLATE = 'Center Plate'
+
 # Plate names the catalogue has retired, and the key each now lives under.
 # A protocol or settings file written before a rename still carries the old
 # spelling; it is translated wherever a name enters the program, once, so
@@ -27,7 +31,7 @@ _LABWARE_ALIASES = {
     '384 well Corning Spheroid Microplate': '384 well microplate',
     # The catalogue's own rename: 'Center Dish' shipped, then became
     # 'Center Plate'; files saved before that carry the old key.
-    'Center Dish': 'Center Plate',
+    'Center Dish': CENTER_PLATE,
 }
 
 

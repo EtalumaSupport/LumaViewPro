@@ -21,6 +21,7 @@ from modules.config_ui_getters import (
     get_zstack_params,
     is_image_saving_enabled,
 )
+from modules.labware_loader import CENTER_PLATE
 from modules.protocol import Protocol, schedule_from_units
 from modules.run_outcome import PendingRunOutcome
 from ui.step_navigation import go_to_step
@@ -351,43 +352,32 @@ class ProtocolSettings(FloatLayout):
             self._protocol.modify_capture_root(capture_root=text)
 
     # Labware Selection
-    def select_labware(self, labware: str | None = None):
+    def select_labware(self):
+        """Put the scope and the panel's protocol on the plate the spinner shows.
+
+        The spinner is the protocol's plate, so the two move together: the
+        protocol takes the plate only once the scope has, and a refusal --
+        a plate change while a recording holds the scope, or a name the
+        catalogue no longer has -- leaves both where they were.
+        """
         ctx = _app_ctx.ctx
-        wellplate_loader = ctx.wellplate_loader
-
         logger.info('[LVP Main  ] ProtocolSettings.select_labware()')
-        if labware is None:
-            spinner = self.ids['labware_spinner']
-            spinner.values = wellplate_loader.get_plate_list()
-            gui_logger.select('LABWARE', spinner.text)
-            # An empty spinner (not yet populated at startup) names no
-            # plate, so there is nothing to select; bring-up already put
-            # the stored plate in place and it stays there.
-            selected = spinner.text
-        else:
-            center_plate_str = 'Center Plate'
-            spinner = self.ids['labware_spinner']
-            spinner.values = [center_plate_str]
-            # Forcing the spinner re-enters this method through its text event;
-            # the app falling back to Center Plate is not the user choosing it.
-            gui_logger.note_write_back('LABWARE', center_plate_str)
-            spinner.text = center_plate_str
-            selected = labware
-
+        spinner = self.ids['labware_spinner']
+        spinner.values = ctx.wellplate_loader.get_plate_list()
+        gui_logger.select('LABWARE', spinner.text)
+        # An empty spinner (not yet populated at startup) names no plate, so
+        # there is nothing to select; bring-up already put the stored plate
+        # in place and it stays there.
+        selected = spinner.text
         if selected:
-            # A refusal -- a plate change while a recording still holds the
-            # scope, or a stored name the catalogue no longer has -- leaves
-            # both stores on the plate they had, and the tail below renders
-            # that plate, so the panel is never left describing a selection
-            # the scope did not take.
-            run_reported(lambda: ctx.session.select_labware(selected), None, 'LABWARE')
-
-        labware_id, _labware_obj = get_selected_labware()
-
-        if self._protocol is not None:
-            self._protocol.modify_labware(labware_id=labware_id)
-
+            run_reported(lambda: self.select_labware_ex(selected), None, 'LABWARE')
         ctx.stage.full_redraw()
+
+    def select_labware_ex(self, selected: str) -> None:
+        ctx = _app_ctx.ctx
+        ctx.session.select_labware(selected)
+        if self._protocol is not None:
+            ctx.session.set_protocol_labware(self._protocol, selected)
 
     def set_focus_control_visibility(self, visible: bool) -> None:
         for focus_id in (
@@ -408,16 +398,12 @@ class ProtocolSettings(FloatLayout):
 
         if not visible:
             # The app hides the choice and parks the spinner; not a user pick.
-            gui_logger.note_write_back('LABWARE', 'Center Plate')
-            labware_spinner.text = 'Center Plate'
+            gui_logger.note_write_back('LABWARE', CENTER_PLATE)
+            labware_spinner.text = CENTER_PLATE
         else:
-            # UI-1 follow-up (plate-spinner): when re-enabling labware
-            # selection after a scope switch (e.g., LS620 -> LS850), the
-            # spinner widget is re-enabled but the dropdown values are
-            # still locked to ['Center Plate'] from the prior
-            # select_labware('Center Plate') call. User can click the
-            # spinner but has no other choices. Restore the full plate
-            # list and the saved labware.
+            # When labware selection comes back after a scope switch (e.g.
+            # LS620 -> LS850), the spinner is still parked on Center Plate:
+            # restore the full plate list and the saved labware.
             ctx = _app_ctx.ctx
             saved_labware = ctx.settings.get('protocol', {}).get('labware')
             wellplate_loader = ctx.wellplate_loader
@@ -630,21 +616,6 @@ class ProtocolSettings(FloatLayout):
         """Show the panel's protocol: its steps on the stage and in the step editor."""
         _app_ctx.ctx.stage.set_protocol_steps(df=self._protocol.steps())
         self.update_step_ui()
-
-    def _validate_labware(self, labware: str):
-        ctx = _app_ctx.ctx
-
-        # Asked of the drivers rather than the selected scope model, which a
-        # user can change mid-session -- see set_ui_features_for_scope.
-        # If XY motion is available, any type of labware is acceptable
-        if ctx.lumaview.scope.capabilities.has_xy_stage:
-            return True, labware
-
-        # If XY motion is not available, only Center Plate
-        if labware == 'Center Plate':
-            return True, labware
-        else:
-            return False, 'Center Plate'
 
     @show_popup
     def _show_popup_message(self, popup, title, message, delay_sec):

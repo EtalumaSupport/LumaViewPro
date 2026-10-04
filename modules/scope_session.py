@@ -1119,8 +1119,7 @@ class ScopeSession:
                 raises them; the scope stays on the plate it had.
         """
         protocol = self.scope.protocols.load_protocol(file_path=file_path)
-        if not self.scope.capabilities.has_xy_stage:
-            protocol.modify_labware(labware_id='Center Plate')
+        self.scope.protocols.set_labware(protocol, protocol.labware())
         self.select_labware(protocol.labware())
         return protocol
 
@@ -1516,6 +1515,18 @@ class ScopeSession:
         """
         return self.scope.protocols.rename_step(protocol, step_idx, name)
 
+    def set_protocol_labware(self, protocol: 'Protocol', plate_key: str) -> str:
+        """Put ``protocol`` on the plate ``plate_key``; returns the key it took.
+
+        The protocol's plate only: the scope's is ``select_labware``'s. On a
+        scope with no XY stage the protocol takes Center Plate.
+
+        Raises:
+            ConfigError: ``plate_key`` is not a plate the catalogue has. The
+                protocol keeps its plate.
+        """
+        return self.scope.protocols.set_labware(protocol, plate_key)
+
     def protocol_size_advisory(self, protocol: 'Protocol') -> 'ProtocolSizeAdvisory | None':
         """Ask a protocol whether it is large enough to warn the user about.
 
@@ -1622,6 +1633,28 @@ class ScopeSession:
         saved = self.settings['microscope']
         return None if saved == self.scope.layer_identity.model else saved
 
+    def _put_a_stageless_scope_on_center_plate(self) -> None:
+        """Replace a stored plate a scope with no XY stage cannot be on with Center Plate.
+
+        Such a scope has one field and no wells to move between, so every
+        protocol made from the settings is born on Center Plate and no host
+        has to move it there afterwards. The stored plate is a value the
+        hardware cannot take, replaced by what it can, and logged.
+        """
+        from modules.labware_loader import CENTER_PLATE
+
+        if self.scope.capabilities.has_xy_stage:
+            return
+        # select_labware refuses a protocol block that is not a mapping.
+        block = self.settings.get('protocol')
+        stored = block.get('labware') if isinstance(block, dict) else None
+        if not self.select_labware(CENTER_PLATE):
+            return
+        logger.info(
+            f'[Session  ] stored plate {stored!r} replaced by {CENTER_PLATE!r}: '
+            'this scope has no XY stage'
+        )
+
     def configure_scope(self) -> None:
         """Configure the scope from this session's settings -- the bring-up.
 
@@ -1681,6 +1714,7 @@ class ScopeSession:
         # normalizer is the one boundary between the file's string slot keys
         # and the runtime's ints; without it every slot reads as unassigned.
         settings_init._normalize_turret_slot_keys(self.settings)
+        self._put_a_stageless_scope_on_center_plate()
         scope_config = scope_models.get(self.settings.get('microscope'))
         _labware_id, labware = config_helpers.get_selected_labware_from_settings(
             self.settings, self.wellplate_loader

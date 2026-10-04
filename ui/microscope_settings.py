@@ -643,9 +643,9 @@ class MicroscopeSettings(BoxLayout):
         if not caps.has_xy_stage:
             # Stage-less scopes (Lumi, LS820) keep a single-plate
             # ("Center Plate") graphic in the protocol tab so the crosshair
-            # position is visible; only the XY motion capability is disabled
-            # (set below). Stitch is hidden -- it needs tiling.
-            protocol_settings.select_labware(labware='Center Plate')
+            # position is visible; bring-up has already put the scope on it.
+            # Only the XY motion capability is disabled (set below). Stitch
+            # is hidden -- it needs tiling.
             ctx.motion_settings.ids['post_processing_id'].hide_stitch()
 
         # Nothing to write: session.motion_enabled and the stage crosshair

@@ -2874,9 +2874,8 @@ class TestIssue710_LumiLS820PlateViewRestored:
 
     def test_set_ui_features_keeps_center_plate_without_removing_stage(self):
         src = self._func_src('ui/microscope_settings.py', 'set_ui_features_for_scope')
-        assert "select_labware(labware='Center Plate')" in src, (
-            'XYStage=False scopes still select the Center Plate labware (#710)'
-        )
+        # XYStage=False scopes are put on Center Plate at bring-up, not here
+        # (tests/test_a_protocols_plate_is_set_through_the_api.py).
         assert 'remove_parent()' not in src, (
             'set_ui_features_for_scope must not detach the stage for '
             'XYStage=False scopes (#710 restores the plate graphic)'

@@ -428,6 +428,30 @@ class ProtocolsAPI:
             self._report_invalid_steps(protocol, solicited=True)
         return after['Name']
 
+    def set_labware(self, protocol: Protocol, plate_key: str) -> str:
+        """Put ``protocol`` on the plate ``plate_key``; returns the key it took.
+
+        Every position a step holds is stated against the protocol's plate.
+        On a scope with no XY stage there is no plate to move over, so the
+        protocol takes Center Plate whatever was asked, and a different plate
+        asked for is logged as replaced.
+
+        Raises:
+            ConfigError: ``plate_key`` is not a plate the catalogue has. The
+                protocol keeps its plate.
+        """
+        from modules.labware_loader import CENTER_PLATE
+
+        key = self._scope.wellplate_loader.resolve_plate_key(plate_key)
+        if not self._scope.capabilities.has_xy_stage and key != CENTER_PLATE:
+            _api_log.info(
+                f'[API] protocol plate {key!r} replaced by {CENTER_PLATE!r}: '
+                'this scope has no XY stage'
+            )
+            key = CENTER_PLATE
+        protocol.modify_labware(labware_id=key)
+        return key
+
     def _refuse_unrecordable_step(self, *, verb: str, objective_id: str | None) -> None:
         """Refuse to save a step the scope cannot vouch for.
 
