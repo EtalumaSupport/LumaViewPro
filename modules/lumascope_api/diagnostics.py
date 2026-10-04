@@ -50,6 +50,12 @@ ERROR_PREFIX = 'Error: '
 LED_COMMANDS_LEGACY = 'legacy'
 LED_COMMANDS_V2 = 'v2'
 
+# The motor board's text command set, as ``get_motor_info()['command_set']``
+# names it: the EL-0940's (INFO, FULLINFO, ACTUAL_R, SPI and the rest). A
+# board with no text command channel (the TMCM-6110, which speaks binary
+# datagrams), or no board connected, answers None.
+MOTOR_COMMANDS_TEXT = 'text'
+
 # What ``firmware_version`` names for a board that answered INFO with no
 # version string: the original firmware, which predates version numbers and
 # is told apart by its date. None is kept for a board that did not answer.
@@ -1032,7 +1038,9 @@ class DiagnosticsAPI:
 
         Returns:
             dict: Keys 'model', 'serial_number', 'firmware_version',
-                  'firmware_date'. model/serial are the real strings on a
+                  'firmware_date' and 'command_set' (``MOTOR_COMMANDS_TEXT``,
+                  or None: no text command channel, or no board connected).
+                  model/serial are the real strings on a
                   connected board, 'unknown' when a connected board's
                   FULLINFO failed to parse (the cached fallback), and None
                   when no board is present (the null driver).
@@ -1042,10 +1050,12 @@ class DiagnosticsAPI:
                   firmware_date is the date INFO carried, or None.
         """
         driver = self._scope._motion_driver
+        speaks_text = self._scope.motor_connected and hasattr(driver, 'exchange_multiline')
         return {
             'model': driver.get_microscope_model(),
             'serial_number': driver.get_serial_number(),
             **_firmware_identity(driver),
+            'command_set': MOTOR_COMMANDS_TEXT if speaks_text else None,
         }
 
     def get_led_info(self) -> dict:

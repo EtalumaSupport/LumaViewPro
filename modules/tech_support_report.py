@@ -873,6 +873,20 @@ class MotorBoardPresence(enum.Enum):
     NOT_ON_THIS_MODEL = 'No motor board on this model'
 
 
+# What a motor text section says on a board that has no text channel.
+NO_MOTOR_TEXT = 'Not supported on this motor board (no text command channel)'
+
+
+def _write_axis_section(f, heading: str, entries: dict, show=str) -> None:
+    """Write one per-axis section, or the one statement standing for it."""
+    f.write(f'{heading}:\n')
+    if 'not_applicable' in entries:
+        f.write(f'  {entries["not_applicable"]}.\n')
+        return
+    for ax, value in entries.items():
+        f.write(f'  {ax}: {show(value)}\n')
+
+
 def _unread_text(unread: dict) -> str:
     """The one statement an ``_unread_*`` entry makes, for a step that writes text."""
     (text,) = unread.values()
@@ -978,6 +992,34 @@ class FirmwareDiagnostics:
         if presence is MotorBoardPresence.NOT_ON_THIS_MODEL:
             return {'not_applicable': presence.value}
         return {'error': presence.value}
+
+    def _unread_motor_text(self) -> dict | None:
+        """None when a text command can be sent to the motor board; else the entry saying why not.
+
+        A board that is not there answers as ``_unread_motor_board`` does. A
+        connected board with no text command channel (the TMCM-6110, which
+        speaks binary datagrams) cannot carry the command: ``not_applicable``.
+        Asked by each section that sends the board text, never by the homing
+        and fan tests, which go through the API on every board.
+        """
+        unread = self._unread_motor_board()
+        if unread is not None:
+            return unread
+        if self._scope.diagnostics.get_motor_info()['command_set'] is None:
+            return {'not_applicable': NO_MOTOR_TEXT}
+        return None
+
+    def _no_motor_text(self) -> str | None:
+        """The statement for a motor board that cannot carry text, or None.
+
+        For the sections that send the board text without first asking
+        whether it is there: a missing board still answers through the
+        command channel's own stand-in.
+        """
+        unread = self._unread_motor_text()
+        if unread is not None and 'not_applicable' in unread:
+            return unread['not_applicable']
+        return None
 
     def _unread_led(self, needs_v2: bool) -> dict | None:
         """None when an LED board command can be sent; else the entry saying why not.
@@ -1085,10 +1127,13 @@ class FirmwareDiagnostics:
             end_markers=['RESET CAUSE', 'POWER-ON', 'HARD', 'WDT', 'CALIBRATION'],
         )
 
-    def get_motor_info(self):
+    def get_motor_info(self) -> str:
+        no_text = self._no_motor_text()
+        if no_text is not None:
+            return no_text
         return self._cmd(self.motor_board, 'INFO')
 
-    def get_motor_fullinfo(self):
+    def get_motor_fullinfo(self) -> str:
         """Fetch motor-board FULLINFO with per-instance cache.
 
         FULLINFO is a static, multi-line dump of model/serial/firmware/
@@ -1100,6 +1145,9 @@ class FirmwareDiagnostics:
         for the report body). Caching avoids the duplicate serial round
         trip and slightly speeds up tech-support runs.
         """
+        no_text = self._no_motor_text()
+        if no_text is not None:
+            return no_text
         if not hasattr(self, '_cached_motor_fullinfo'):
             self._cached_motor_fullinfo = self._cmd(self.motor_board, 'FULLINFO')
         return self._cached_motor_fullinfo
@@ -1110,7 +1158,12 @@ class FirmwareDiagnostics:
         Old firmware returns everything on one line:
           Etaluma Motor Controller Board EL-0923 Firmware: 2023-05-30 Model: LS850 Serial: 12006 X homed: True ...
         New firmware uses multi-line with 'Serial Number = ...'
+
+        A board without text gives the serial number its driver read at
+        connect, or ``'UNKNOWN'``.
         """
+        if self._no_motor_text() is not None:
+            return self._scope.diagnostics.get_motor_info()['serial_number'] or 'UNKNOWN'
         fullinfo = self.get_motor_fullinfo()
         if not is_board_reply(fullinfo):
             return 'UNKNOWN'
@@ -1158,18 +1211,29 @@ class FirmwareDiagnostics:
             end_markers=['LED7 LED_K', 'AIN1)', 'ERROR'],
         )
 
-    def get_driver_status_all(self):
+    def get_driver_status_all(self) -> dict:
         """DRVSTAT for all 4 axes (raw 32-bit register values).
 
         Returns ``{axis: int | None}``. None means firmware does not
-        support DRVSTAT_<axis> on this axis (legacy firmware).
+        support DRVSTAT_<axis> on this axis (legacy firmware). A board with
+        no text channel has no TMC5072 to ask: ``{'not_applicable': ...}``.
         """
         if not self._scope:
             return dict.fromkeys('XYZT')
+        no_text = self._no_motor_text()
+        if no_text is not None:
+            return {'not_applicable': no_text}
         return {ax: self._scope.diagnostics.read_motor_drv_status(ax) for ax in 'XYZT'}
 
-    def get_motor_positions_all(self):
-        """Actual/target/status for all 4 axes."""
+    def get_motor_positions_all(self) -> dict:
+        """Actual/target/status for all 4 axes.
+
+        A board with no text channel cannot be asked:
+        ``{'not_applicable': ...}``.
+        """
+        no_text = self._no_motor_text()
+        if no_text is not None:
+            return {'not_applicable': no_text}
         result = {}
         for ax in 'XYZT':
             result[ax] = {
@@ -1179,14 +1243,18 @@ class FirmwareDiagnostics:
             }
         return result
 
-    def get_fan_status(self):
+    def get_fan_status(self) -> int | str | None:
         """Read fan tachometer RPM via the diagnostics sub-API.
 
-        Returns int RPM, or None if firmware does not support FANSPEED.
+        Returns int RPM, or None if firmware does not support FANSPEED,
+        or the statement that a board with no text channel reports none.
         """
         if not self._scope:
             return None
-        return self._scope.diagnostics.read_motor_fan_rpm()
+        rpm = self._scope.diagnostics.read_motor_fan_rpm()
+        if rpm is None and self._no_motor_text() is not None:
+            return 'Not applicable: this motor board reports no fan speed'
+        return rpm
 
     def get_i2c_scan(self) -> str:
         unread = self._unread_led(needs_v2=True)
@@ -1286,7 +1354,7 @@ class FirmwareDiagnostics:
         Returns dict per chip (XY, ZT) with register values.
         Uses the firmware's SPI<axis>0x<addr><payload> command.
         """
-        unread = self._unread_motor_board()
+        unread = self._unread_motor_text()
         if unread is not None:
             return unread
         results = {}
@@ -1436,11 +1504,15 @@ class FirmwareDiagnostics:
                 return f'Error: {e}'
             return 'OK'
 
+        # The firmware's own registers after the home, a cross-check on what
+        # the API reports: only a board with a text channel can be asked.
+        no_text = self._no_motor_text()
+
         def _record(axis, home_response):
             results['axes'][axis] = {
                 'home_response': home_response,
-                'actual_after': self._cmd(self.motor_board, f'ACTUAL_R{axis}'),
-                'target_after': self._cmd(self.motor_board, f'TARGET_R{axis}'),
+                'actual_after': no_text or self._cmd(self.motor_board, f'ACTUAL_R{axis}'),
+                'target_after': no_text or self._cmd(self.motor_board, f'TARGET_R{axis}'),
             }
 
         # Home Z first (safety -- move Z up before XY)
@@ -1665,12 +1737,8 @@ class TechSupportReport:
             positions = self.diag.get_motor_positions_all()
             drvstat = self.diag.get_driver_status_all()
             with open(d / 'motor_status.txt', 'w') as f:
-                f.write('Motor Positions:\n')
-                for ax, data in positions.items():
-                    f.write(f'  {ax}: {json.dumps(data)}\n')
-                f.write('\nTMC5072 Driver Status:\n')
-                for ax, st in drvstat.items():
-                    f.write(f'  {ax}: {st}\n')
+                _write_axis_section(f, 'Motor Positions', positions, json.dumps)
+                _write_axis_section(f, '\nTMC5072 Driver Status', drvstat)
             fan = self.diag.get_fan_status()
 
         i2c = self.diag.get_i2c_scan()
@@ -1716,9 +1784,7 @@ class TechSupportReport:
             with open(d / 'motor_status.txt', 'w') as f:
                 f.write('Motor Positions: not read.\n')
                 f.write(skipped)
-                f.write('\nTMC5072 Driver Status:\n')
-                for ax, st in drvstat.items():
-                    f.write(f'  {ax}: {st}\n')
+                _write_axis_section(f, '\nTMC5072 Driver Status', drvstat)
             fan = self.diag.get_fan_status()
         with open(d / 'peripherals.txt', 'w') as f:
             f.write(f'Fan: {fan}\n\n')
@@ -2030,7 +2096,7 @@ class TechSupportReport:
             'LED': self.diag._unread_led(needs_v2=False)
             or self.diag.measure_serial_latency('led', 'INFO')
         }
-        results['Motor'] = self.diag._unread_motor_board() or self.diag.measure_serial_latency(
+        results['Motor'] = self.diag._unread_motor_text() or self.diag.measure_serial_latency(
             'motor', 'INFO'
         )
 
