@@ -14,11 +14,11 @@ re-applying a grid over a tiled protocol, which has no un-tile path.
 
 Fix
 ---
-- ProtocolSettings.load_protocol infers the tiling label back from the
-  steps' Tile column values (TilingConfig.determine_tiling_label_from_tiles
-  -- the authoritative per-step tile assignment; step NAMES are never
-  parsed, so tile-shaped user text cannot fake a tiling) and sets the
-  spinner.
+- ProtocolSettings.load_protocol sets the spinner from Protocol.tiling(),
+  which infers the label from the steps' Tile column values
+  (TilingConfig.determine_tiling_label_from_tiles -- the authoritative
+  per-step tile assignment; step NAMES are never parsed, so tile-shaped
+  user text cannot fake a tiling).
 - Protocol.apply_tiling refuses a grid over an already-tiled protocol
   (tests/test_a_tile_grid_is_the_protocols_to_refuse.py), directing the
   user to reload the untiled base first.
@@ -96,21 +96,21 @@ def _method(name: str) -> ast.FunctionDef:
     raise AssertionError(f'ProtocolSettings.{name} not found')
 
 
-def _calls_determine_tiling(method: ast.FunctionDef) -> bool:
+def _calls(method: ast.FunctionDef, attr: str) -> bool:
     return any(
-        isinstance(n, ast.Call)
-        and isinstance(n.func, ast.Attribute)
-        and n.func.attr == 'determine_tiling_label_from_tiles'
+        isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == attr
         for n in ast.walk(method)
     )
 
 
 def test_load_protocol_restores_tiling_spinner():
+    # The panel shows the protocol's answer and works nothing out itself.
     load = _method('load_protocol')
-    assert _calls_determine_tiling(load), (
-        "load_protocol must infer the tiling label from the loaded steps' "
-        'Tile column so the spinner reflects an already-tiled protocol.'
+    assert _calls(load, 'tiling'), (
+        'load_protocol must set the spinner from Protocol.tiling() so it '
+        'reflects an already-tiled protocol.'
     )
+    assert not _calls(load, 'determine_tiling_label_from_tiles')
     src = ast.get_source_segment(PROTOCOL_SETTINGS_SRC.read_text(), load)
     assert 'tiling_size_spinner' in src, (
         'load_protocol must set the tiling_size_spinner from the inferred label.'

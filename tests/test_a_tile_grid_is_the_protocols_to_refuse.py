@@ -13,6 +13,7 @@ before any step changes, and a refusal is reported once.
 from __future__ import annotations
 
 import ast
+import pathlib
 from unittest.mock import patch
 
 import pandas as pd
@@ -21,9 +22,15 @@ import pytest
 from modules.exceptions import ProtocolRunRefusedError
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
+from modules.protocol import Protocol
 from tests.ast_seams import find_def
+from tests.scope_fakes import build_scope
+from tests.test_a_zstack_with_no_range_is_refused import _standalone_config
 from tests.test_step_label_ssot import _build_protocol, _labeled_step
 from tests.test_zstack_group_identity import _WIDE_XY
+
+
+_REPO_ROOT = pathlib.Path(__file__).parent.parent
 
 
 def _tile(proto, capabilities, tiling, *, frame_dimensions=None):
@@ -70,6 +77,32 @@ def test_a_grid_the_installation_does_not_offer_is_refused(scale_capabilities):
     assert refusal.reason == 'tiling_unknown'
 
 
+@pytest.mark.parametrize('tiling', ['13x13', ''])
+def test_a_new_protocol_in_a_grid_the_installation_does_not_offer_is_refused(tiling):
+    # The build from a config refused nothing: it raised KeyError from the
+    # grid lookup, which reached the GUI's New as "Operation failed" when
+    # the spinner was blank, and a script or REST caller as a bare KeyError.
+    config = _standalone_config({'range': 20.0, 'step_size': 5.0}, use_zstacking=False)
+    config['tiling'] = tiling
+    scope = build_scope(simulate=True, source_path=_REPO_ROOT)
+    try:
+        with (
+            patch('modules.protocol.notifications.report_outcome') as report,
+            pytest.raises(ProtocolRunRefusedError) as refusal,
+        ):
+            Protocol.from_config(
+                input_config=config,
+                tiling_configs_file_loc=_REPO_ROOT / 'data' / 'tiling.json',
+                capabilities=scope.capabilities,
+                objective_helper=scope.objective_helper,
+                wellplate_loader=scope.wellplate_loader,
+            )
+    finally:
+        scope.disconnect()
+    assert refusal.value.reason == 'tiling_unknown'
+    report.assert_called_once()
+
+
 def test_a_step_with_an_unknown_objective_is_refused_not_tiled_at_nan(scale_capabilities):
     proto = _build_protocol([_labeled_step(), _labeled_step(label='B')])
     steps = proto.steps()
@@ -93,6 +126,31 @@ def test_an_untiled_protocol_still_tiles(scale_capabilities):
     proto = _build_protocol([_labeled_step()])
     _tile(proto, scale_capabilities, '2x2')
     assert sorted(proto.steps()['Tile']) == ['A1', 'A2', 'B1', 'B2']
+
+
+def _tiled_in_no_offered_grid():
+    # One row of two tiles: a hand-edited file's shape, since every grid the
+    # installation builds is square.
+    proto = _build_protocol([_labeled_step(), _labeled_step(label='B')])
+    steps = proto.steps()
+    steps['Tile'] = ['A1', 'A2']
+    proto._set_steps(steps)
+    return proto
+
+
+def test_a_protocol_tiled_in_no_offered_grid_refuses_another(scale_capabilities):
+    # Before, only a tiling that named an offered grid was refused, so a grid
+    # over these tiles changed nothing and returned as if it had built.
+    refusal = _refused(_tiled_in_no_offered_grid(), scale_capabilities, '2x2')
+    assert refusal.reason == 'already_tiled'
+
+
+def test_the_protocol_names_the_grid_its_steps_carry(scale_capabilities):
+    proto = _build_protocol([_labeled_step()])
+    assert proto.tiling() == '1x1'
+    _tile(proto, scale_capabilities, '2x2')
+    assert proto.tiling() == '2x2'
+    assert _tiled_in_no_offered_grid().tiling() is None
 
 
 def test_the_panel_decides_nothing_about_a_grid():

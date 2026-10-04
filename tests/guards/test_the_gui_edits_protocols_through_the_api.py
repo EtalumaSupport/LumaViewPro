@@ -73,6 +73,7 @@ NOT_WRITERS = frozenset(
         'step',
         'step_list_revision',
         'steps',
+        'tiling',
         'to_file',
         'validate_for_run',
         'validate_steps',

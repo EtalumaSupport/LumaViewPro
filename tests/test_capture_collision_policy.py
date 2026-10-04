@@ -610,12 +610,10 @@ def test_loader_infers_tiling_from_tile_column(tmp_path):
     tsv.write_text(_build_tsv(rows))
 
     proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
-    assert proto._config['tiling'] == '2x2'
+    assert proto.tiling() == '2x2'
 
 
 def test_tile_shaped_names_with_empty_tile_column_infer_no_tiling(tmp_path):
-    from modules.tiling_config import TilingConfig
-
     # User step names embed tile-shaped segments, but the authoritative
     # Tile column is empty: no tiling may be inferred. The old name-parse
     # inference reported 2x2 here and the UI then refused to apply tiling
@@ -629,11 +627,8 @@ def test_tile_shaped_names_with_empty_tile_column_infer_no_tiling(tmp_path):
     tsv.write_text(_build_tsv(rows))
 
     proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
-    tc = TilingConfig(tiling_configs_file_loc=TILING_CONFIGS)
-    # Untiled inference is falsy-or-1x1; consumers apply `inferred or
-    # no_tiling_label()` (the same contract the old name-based inference
-    # had). Anything else here means a tiling was faked from the names.
-    assert (proto._config['tiling'] or tc.no_tiling_label()) == tc.no_tiling_label()
+    # Anything but the no-tiling label means a tiling was faked from the names.
+    assert proto.tiling() == '1x1'
     # The user text itself survives as the labels.
     assert list(proto.steps()['Label']) == ['Region_TA1', 'Region_TA2', 'Region_TB1', 'Region_TB2']
 

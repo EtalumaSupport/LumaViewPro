@@ -793,19 +793,9 @@ class ProtocolSettings(FloatLayout):
         # Restore the tiling selection. Tiling is baked into the steps as
         # expanded tile positions (one row per tile), not stored as a
         # scalar, so the spinner otherwise stays at its 1x1 default and
-        # misrepresents an already-tiled protocol. Infer the NxN label back
-        # from the steps' Tile column; fall back to no-tiling when the
-        # protocol isn't tiled (or the layout isn't square).
-        try:
-            inferred_tiling = self.tiling_config.determine_tiling_label_from_tiles(
-                self._protocol.steps()['Tile'].tolist()
-            )
-        except Exception as e:
-            logger.warning(f'[LVP Main  ] Could not infer tiling from protocol: {e}')
-            inferred_tiling = None
-        self.ids['tiling_size_spinner'].text = (
-            inferred_tiling or self.tiling_config.no_tiling_label()
-        )
+        # misrepresents an already-tiled protocol. A protocol tiled in no
+        # grid on offer shows no selection.
+        self.ids['tiling_size_spinner'].text = self._protocol.tiling() or ''
 
         self.update_step_ui()
         # Only a load a person asked for may drive the stage. The startup

@@ -120,6 +120,21 @@ def _refuse_build(*, reason: str, title: str, message: str) -> NoReturn:
     raise refusal
 
 
+def _refuse_unless_tiling_offered(tiling_config: TilingConfig, tiling: str) -> None:
+    """Refuse a tile grid this installation's tiling.json does not offer.
+
+    Both builds ask, so a new protocol and a grid over an existing one are
+    refused alike; the build from a config used to raise KeyError from the
+    grid lookup instead.
+    """
+    if tiling not in tiling_config.available_configs():
+        _refuse_build(
+            reason='tiling_unknown',
+            title='Tiling Not Available',
+            message=f'"{tiling}" is not one of the tiling grids this installation offers.',
+        )
+
+
 def _refuse_unless_zstack_has_extent(zstack_params: dict) -> None:
     """Refuse a z-stack whose range or step size is not greater than zero.
 
@@ -654,6 +669,19 @@ class Protocol:
 
     def labware(self) -> str:
         return self._config['labware_id']
+
+    def tiling(self) -> str | None:
+        """The tile grid this protocol's steps carry.
+
+        The no-tiling label when no step carries a tile; the grid's label
+        when the steps' tiles form a grid this installation offers; None
+        when they are tiled in a layout it does not offer, which only a
+        hand-edited file produces, since every offered grid is square.
+        """
+        tiles = [t for t in self._config['steps']['Tile'] if t not in (None, '')]
+        if not tiles:
+            return self._tiling_config.no_tiling_label()
+        return self._tiling_config.determine_tiling_label_from_tiles(tiles)
 
     @staticmethod
     def sanitize_step_name(input: str) -> str:
@@ -1728,26 +1756,20 @@ class Protocol:
 
         # Every refusal comes before anything below touches the steps: a
         # refused build leaves the protocol as it was.
-        if tiling not in self._tiling_config.available_configs():
-            _refuse_build(
-                reason='tiling_unknown',
-                title='Tiling Not Available',
-                message=f'"{tiling}" is not one of the tiling grids this installation offers.',
-            )
+        _refuse_unless_tiling_offered(self._tiling_config, tiling)
 
         # Tiled steps are carried over as they are, so a second grid over a
         # tiled protocol would change nothing while reporting success. There is
         # no un-tile path; the untiled protocol has to be reloaded.
         no_tiling = self._tiling_config.no_tiling_label()
-        current_tiling = self._tiling_config.determine_tiling_label_from_tiles(
-            self._config['steps']['Tile'].tolist()
-        )
-        if current_tiling not in (None, no_tiling):
+        current_tiling = self.tiling()
+        if current_tiling != no_tiling:
+            grid = f' ({current_tiling})' if current_tiling else ''
             _refuse_build(
                 reason='already_tiled',
                 title='Protocol Already Tiled',
                 message=(
-                    f'This protocol is already tiled ({current_tiling}). Reload the '
+                    f'This protocol is already tiled{grid}. Reload the '
                     f'original (untiled) protocol before changing the tiling.'
                 ),
             )
@@ -2067,6 +2089,7 @@ class Protocol:
         # a photograph and a reported success.
         if use_zstacking:
             _refuse_unless_zstack_has_extent(zstack_params)
+        _refuse_unless_tiling_offered(tiling_config, tiling)
 
         # The objective is stamped into every step and sizes a spaced tiling
         # grid; a protocol with neither -- an empty one -- is built with no
@@ -2869,16 +2892,6 @@ class Protocol:
 
         if config['version'] in (2, 3, 4, 5):
             protocol_df['Step Index'] = protocol_df.index
-
-            # Extract tiling config from step names
-            tc = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
-
-            if len(protocol_df) > 0:
-                config['tiling'] = tc.determine_tiling_label_from_tiles(
-                    tiles=protocol_df['Tile'].to_list()
-                )
-            else:
-                config['tiling'] = tc.no_tiling_label()
 
         if 'Label' not in protocol_df.columns:
             # Pre-v8 files never persisted the label; recover it per row from

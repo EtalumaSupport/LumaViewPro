@@ -77,10 +77,9 @@ class ProtocolsAPI:
 
         What a caller needs to choose a grid: ``available_configs()`` lists the
         labels ``create_protocol`` and ``Protocol.apply_tiling`` accept,
-        ``default_config()`` is the one to preselect, and
-        ``determine_tiling_label_from_tiles`` names the grid a protocol's
-        steps already carry. Read from the file on each call, so there is no
-        copy to fall out of step with it.
+        and ``default_config()`` is the one to preselect; ``Protocol.tiling()``
+        names the grid a protocol's steps already carry. Read from the file on
+        each call, so there is no copy to fall out of step with it.
 
         Raises:
             RuntimeError: tiling.json is missing or is not valid JSON.
