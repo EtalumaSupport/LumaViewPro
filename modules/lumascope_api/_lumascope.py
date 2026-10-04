@@ -42,7 +42,7 @@ from drivers.simulated_ledboard import SimulatedLEDBoard  # noqa: F401
 from drivers.null_motorboard import NullMotionBoard
 from drivers.null_ledboard import NullLEDBoard
 from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
-from drivers.registry import motor_registry, led_registry, camera_registry
+from drivers.registry import DriverNotLiveError, motor_registry, led_registry, camera_registry
 import modules.binning as binning
 from modules.exceptions import (
     BinningSubstitutedNotice,
@@ -114,7 +114,7 @@ IDSCamera = _register_ids_camera(sys.platform)
 # The boards a catalogue row may name that the simulator can stand in for.
 # An FX2 drives its scope's camera and LEDs; an EL-0940 is a board of its own.
 _SIMULATED_LED_BOARDS = ('EL-0940', 'FX2')
-_SIMULATED_MOTOR_BOARDS = ('EL-0940',)
+_SIMULATED_MOTOR_BOARDS = ('EL-0940', 'TMCM-6110')
 
 # PRE-RELEASE 4-mechanism warning bundle: this is the runtime
 # FutureWarning piece. The other three are the README banner, the
@@ -314,7 +314,10 @@ class Lumascope:
 
         ``axes`` and ``motor_board`` are the ones the catalogue gives the
         model: a model that names no motor board has none, so it gets the
-        null driver on either tier. The fast tier goes through the
+        null driver on either tier. A TMCM-6110 is the production driver
+        over the simulated board at the serial seam on either tier: it has
+        no firmware of Etaluma's to run, so the board's model is the one
+        simulation, as the FX2's is. The fast tier goes through the
         registry's simulator selection with those axes. The firmware tier
         builds the production driver by name against the emulator: a model
         with axes whose emulator does not come up raises, because the
@@ -326,6 +329,19 @@ class Lumascope:
         if motor_board is None:
             logger.info(f'[SCOPE API ] Model {model} has no motor axes: no motor board')
             return NullMotionBoard()
+        if motor_board == 'TMCM-6110':
+            from drivers.simulated_tmcm6110 import SimulatedTmcm6110Backend
+            from drivers.tmcm6110 import Tmcm6110Board
+
+            board = Tmcm6110Board(
+                motorconfig_defaults=motorconfig_defaults, backend=SimulatedTmcm6110Backend()
+            )
+            if not board.found:
+                raise DriverNotLiveError(f'the simulated TMCM-6110 for {model} did not answer')
+            logger.info(
+                f'[SCOPE API ] Using the TMCM-6110 driver on a SIMULATED board (model={model})'
+            )
+            return board
         if sim_tier == 'fast':
             board = motor_registry.create(
                 'auto',

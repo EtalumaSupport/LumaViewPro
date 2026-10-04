@@ -1,0 +1,731 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+
+"""Tmcm6110Board -- the LS720's stage: a Trinamic TMCM-6110 speaking TMCL.
+
+The board is a USB virtual COM port that answers 9-byte binary datagrams,
+one reply per command, nothing unsolicited. It holds no per-unit config and
+runs no Etaluma firmware; everything it is told comes from the "TMCM-6110"
+section of the shipped motor defaults (``Tmcm6110Config``).
+
+Positions are microsteps on the board. The API sees micrometres, 0 at the
+reference and positive away from it, through each axis's direction from the
+config.
+
+The board's own registers are the one store of where each axis is and where
+it is going: the target is read back with ``GAP 0``, never remembered here.
+
+The lid. The LS720's deck lid is an input on the board, not an interlock the
+board enforces. As LumaView Classic did, every command that starts X or Y
+motion reads it first, under the same lock as the command; open, all three
+axes are stopped and the command is refused with ``MotionInterlockError``.
+Z moves with the lid open, and stopping is never gated.
+
+The datagram codec is here once, both directions: the simulated board
+(``drivers/simulated_tmcm6110.py``) decodes what this driver encodes.
+"""
+
+from __future__ import annotations
+
+import logging
+import struct
+import threading
+import time
+from collections.abc import Mapping
+from functools import partial
+from typing import NamedTuple
+
+import serial
+
+from drivers.exceptions import HardwareError, MotionInterlockError
+from drivers.motorconfig import read_only_axes_config
+from drivers.serial_backend import PYSERIAL, SerialBackend
+from drivers.tmcm6110_config import Tmcm6110Config
+
+logger = logging.getLogger('LVP.drivers.tmcm6110')
+
+# The two USB identities a TMCM-6110 enumerates as: the current Trinamic
+# one, and the one boards of the V1.26 firmware era used.
+USB_IDS = ((0x2A3C, 0x0100), (0x16D0, 0x0650))
+
+# The board's factory module address, which LumaView Classic used; replies
+# come from host address 2.
+MODULE_ADDRESS = 1
+HOST_ADDRESS = 2
+
+DATAGRAM_BYTES = 9
+STATUS_OK = 100
+
+# TMCL command numbers.
+ROR = 1
+MST = 3
+MVP = 4
+SAP = 5
+GAP = 6
+SGP = 9
+RFS = 13
+SIO = 14
+GIO = 15
+FIRMWARE_VERSION = 136
+
+COMMAND_NAMES = {
+    ROR: 'ROR',
+    MST: 'MST',
+    MVP: 'MVP',
+    SAP: 'SAP',
+    GAP: 'GAP',
+    SGP: 'SGP',
+    RFS: 'RFS',
+    SIO: 'SIO',
+    GIO: 'GIO',
+    FIRMWARE_VERSION: 'FIRMWARE_VERSION',
+}
+
+# Reply status codes, as the TMCL firmware manual names them.
+STATUS_WORDS = {
+    1: 'wrong checksum',
+    2: 'invalid command',
+    3: 'wrong type',
+    4: 'invalid value',
+    5: 'configuration EEPROM locked',
+    6: 'command not available',
+}
+
+# MVP types.
+MVP_ABS = 0
+MVP_REL = 1
+
+# RFS types.
+RFS_START = 0
+RFS_STOP = 1
+RFS_STATUS = 2
+
+# Axis parameters.
+AP_TARGET_POSITION = 0
+AP_ACTUAL_POSITION = 1
+AP_ACTUAL_VELOCITY = 3
+AP_MAX_POSITIONING_SPEED = 4
+AP_MAX_ACCELERATION = 5
+AP_RIGHT_SWITCH = 10
+AP_LEFT_SWITCH = 11
+
+# The inputs, as (GIO type, bank). The lid reads 1 open; the stage's supply
+# reads about 240 present and about 13 absent, so above 20 is present
+# (LumaView Classic's threshold, from Trinamic).
+LID_INPUT = (5, 0)
+POWER_INPUT = (8, 1)
+POWER_PRESENT_ABOVE = 20
+
+MOTORS = {'X': 0, 'Y': 1, 'Z': 2}
+LID_GATED_AXES = ('X', 'Y')
+
+# How long one reply may take: LumaView Classic's per-command wait.
+REPLY_TIMEOUT_S = 0.5
+
+# How long a stop waits for every stopped axis to read velocity 0 before
+# writing its target. Classic's shipped ramps decelerate from full speed in
+# about a second (derived from the ramp constants, not measured).
+STOP_SETTLE_S = 2.0
+STOP_POLL_S = 0.01
+
+_DATAGRAM = struct.Struct('>BBBBiB')
+
+
+class TmclCommand(NamedTuple):
+    address: int
+    command: int
+    type: int
+    motor: int
+    value: int
+
+
+class TmclReply(NamedTuple):
+    reply_address: int
+    module_address: int
+    status: int
+    command: int
+    value: int
+
+
+def _checksum(head: bytes) -> int:
+    return sum(head) & 0xFF
+
+
+def _pack(a: int, b: int, c: int, d: int, value: int) -> bytes:
+    head = _DATAGRAM.pack(a, b, c, d, value, 0)[:8]
+    return head + bytes([_checksum(head)])
+
+
+def _unpack(datagram: bytes) -> tuple[int, int, int, int, int]:
+    if len(datagram) != DATAGRAM_BYTES:
+        raise ValueError(f'a TMCL datagram is {DATAGRAM_BYTES} bytes, not {len(datagram)}')
+    if _checksum(datagram[:8]) != datagram[8]:
+        raise ValueError(f'TMCL datagram checksum mismatch: {datagram.hex(" ")}')
+    return _DATAGRAM.unpack(datagram)[:5]
+
+
+def encode_command(command: int, type_: int, motor: int, value: int = 0) -> bytes:
+    """One command datagram to the board at ``MODULE_ADDRESS``."""
+    return _pack(MODULE_ADDRESS, command, type_, motor, value)
+
+
+def decode_command(datagram: bytes) -> TmclCommand:
+    """Raises ValueError on a wrong length or checksum."""
+    return TmclCommand(*_unpack(datagram))
+
+
+def encode_reply(status: int, command: int, value: int) -> bytes:
+    """One reply datagram from the board at ``MODULE_ADDRESS``."""
+    return _pack(HOST_ADDRESS, MODULE_ADDRESS, status, command, value)
+
+
+def decode_reply(datagram: bytes) -> TmclReply:
+    """Raises ValueError on a wrong length or checksum."""
+    return TmclReply(*_unpack(datagram))
+
+
+def encode_version_reply(version: str) -> bytes:
+    """The reply to FIRMWARE_VERSION type 0: the host address, then the
+    version's 8 ASCII characters where the rest of a reply would be, with
+    no checksum."""
+    text = version.encode('ascii')
+    if len(text) != DATAGRAM_BYTES - 1:
+        raise ValueError(f'a TMCL version string is 8 characters, not {version!r}')
+    return bytes([HOST_ADDRESS]) + text
+
+
+def decode_version_reply(datagram: bytes) -> str:
+    return datagram[1:DATAGRAM_BYTES].decode('ascii', errors='replace')
+
+
+class Tmcm6110Board:
+    """The TMCM-6110 stage controller behind the LS720's X, Y and Z.
+
+    Constructed on every host the registry tries it on, so it opens only
+    ports with a 6110's USB identity, closes any whose firmware query does
+    not answer as a 6110, and never raises for finding none: it answers
+    ``found = False``.
+    """
+
+    def __init__(self, *, motorconfig_defaults: Mapping, backend: SerialBackend = PYSERIAL):
+        # One datagram in flight: the board must not get a second command
+        # before it has replied to the first. Re-entrant so a lid refusal
+        # can stop the motors inside the command it refuses.
+        self._lock = threading.RLock()
+        self._backend = backend
+        self._serial: serial.SerialBase | None = None
+        self.port: str | None = None
+        self.overshoot = False
+        self.firmware_version: str | None = None
+        self.firmware_date = None
+        self.motorconfig: Tmcm6110Config | None = None
+        self.axes_config = read_only_axes_config({})
+
+        self._serial = self._open_identified()
+        self.found = self._serial is not None
+        self.firmware_responding = self.found
+        if not self.found:
+            logger.info('[TMCM-6110 ] No TMCM-6110 found')
+            return
+
+        try:
+            self.motorconfig = Tmcm6110Config(motorconfig_defaults)
+        except ValueError:
+            self.disconnect()
+            raise
+        self.axes_config = read_only_axes_config(
+            {
+                axis: {
+                    'limits': {'min': 0.0, 'max': self.motorconfig.travel_limit_um(axis)},
+                    'move_func': partial(self._um2ustep, axis),
+                }
+                for axis in MOTORS
+            }
+        )
+        logger.info(f'[TMCM-6110 ] Found {self.firmware_version} on {self.port}')
+        if not self.motorconfig.travel_limits_measured:
+            limits = ', '.join(
+                f'{axis} {self.motorconfig.travel_limit_um(axis) / 1000:g} mm' for axis in MOTORS
+            )
+            logger.warning(
+                f'[TMCM-6110 ] The travel limits ({limits}) are not measured on an LS720; '
+                'a move inside them may still reach an end of travel'
+            )
+
+    # ------------------------------------------------------------------
+    # The port
+    # ------------------------------------------------------------------
+
+    def _open_identified(self) -> serial.SerialBase | None:
+        """Open the first port with a 6110's USB identity whose firmware
+        query answers as a 6110, or None."""
+        for info in self._backend.comports():
+            if (info.vid, info.pid) not in USB_IDS:
+                continue
+            try:
+                port = self._backend.open(
+                    port=info.device,
+                    baudrate=9600,
+                    timeout=REPLY_TIMEOUT_S,
+                    write_timeout=REPLY_TIMEOUT_S,
+                )
+            except serial.SerialException as e:
+                logger.warning(f'[TMCM-6110 ] {info.device} could not be opened: {e}')
+                continue
+            version = self._query_version(port)
+            if version is not None and version.startswith('6110'):
+                self.firmware_version = version
+                self.port = info.device
+                return port
+            port.close()
+            logger.warning(
+                f'[TMCM-6110 ] {info.device} has a TMCM-6110 USB identity but answered '
+                f'{version!r} to the firmware query; closed'
+            )
+        return None
+
+    @staticmethod
+    def _query_version(port: serial.SerialBase) -> str | None:
+        try:
+            port.write(encode_command(FIRMWARE_VERSION, 0, 0))
+            reply = port.read(DATAGRAM_BYTES)
+        except serial.SerialException:
+            return None
+        if len(reply) < DATAGRAM_BYTES:
+            return None
+        return decode_version_reply(reply)
+
+    def _drop_port(self) -> None:
+        if self._serial is not None:
+            try:
+                self._serial.close()
+            except serial.SerialException as e:
+                logger.warning(f'[TMCM-6110 ] Closing {self.port} failed: {e}')
+            self._serial = None
+
+    def _exchange(self, command: int, type_: int, motor: int, value: int = 0) -> int:
+        """Send one command and return its reply's value.
+
+        A port that is gone is looked for again first, as a replugged
+        board would be. A reply that does not come, does not check, or
+        answers another command closes the port, since the stream can no
+        longer be trusted to line up.
+
+        Raises:
+            HardwareError: no board, no reply, a garbled reply, or a status
+                other than success; the message names the command.
+        """
+        what = f'{COMMAND_NAMES.get(command, command)} {type_}, motor {motor}, value {value}'
+        with self._lock:
+            if self._serial is None:
+                self._serial = self._open_identified()
+                if self._serial is None:
+                    raise HardwareError(f'{what}: the TMCM-6110 is not connected')
+            try:
+                self._serial.write(encode_command(command, type_, motor, value))
+                raw = self._serial.read(DATAGRAM_BYTES)
+            except serial.SerialException as e:
+                self._drop_port()
+                raise HardwareError(f'{what}: the TMCM-6110 port failed: {e}') from e
+            if len(raw) < DATAGRAM_BYTES:
+                self._drop_port()
+                raise HardwareError(
+                    f'{what}: no reply from the TMCM-6110 within {REPLY_TIMEOUT_S} s'
+                )
+            try:
+                reply = decode_reply(raw)
+            except ValueError as e:
+                self._drop_port()
+                raise HardwareError(f'{what}: {e}') from e
+            if reply.command != command:
+                self._drop_port()
+                raise HardwareError(f'{what}: the reply answers command {reply.command}')
+            if reply.status != STATUS_OK:
+                raise HardwareError(
+                    f'{what}: the TMCM-6110 refused it with status {reply.status} '
+                    f'({STATUS_WORDS.get(reply.status, "unknown status")})'
+                )
+            return reply.value
+
+    def connect(self) -> None:
+        with self._lock:
+            if self._serial is None:
+                self._serial = self._open_identified()
+
+    def disconnect(self) -> None:
+        with self._lock:
+            self._drop_port()
+
+    def is_connected(self) -> bool:
+        return self._serial is not None
+
+    # ------------------------------------------------------------------
+    # The inputs and the one stop
+    # ------------------------------------------------------------------
+
+    def _lid_open(self) -> bool:
+        return self._exchange(GIO, *LID_INPUT) == 1
+
+    def interlocks(self) -> frozenset[str]:
+        """The lid and the stage's power, read from the board now."""
+        with self._lock:
+            open_now = set()
+            if self._lid_open():
+                open_now.add('lid_open')
+            if self._exchange(GIO, *POWER_INPUT) <= POWER_PRESENT_ABOVE:
+                open_now.add('stage_unpowered')
+            return frozenset(open_now)
+
+    def _stop(self, axes) -> None:
+        """Stop ``axes`` and leave each target equal to where it stopped.
+
+        ``MST`` decelerates; the target is written only once the axis reads
+        velocity 0, since a target written while it is still decelerating
+        would send it back. The target is written with ``SAP 0``, never
+        ``MVP``, which is a motion command and gated on the lid. Never gated:
+        a stop must work with the lid open.
+
+        Raises:
+            HardwareError: an axis still moving after ``STOP_SETTLE_S``,
+                naming it; every axis that did stop has its target written.
+        """
+        with self._lock:
+            for axis in axes:
+                self._exchange(MST, 0, MOTORS[axis])
+            deadline = time.monotonic() + STOP_SETTLE_S
+            moving = list(axes)
+            while True:
+                moving = [
+                    axis for axis in moving if self._exchange(GAP, AP_ACTUAL_VELOCITY, MOTORS[axis])
+                ]
+                if not moving or time.monotonic() >= deadline:
+                    break
+                time.sleep(STOP_POLL_S)
+            for axis in axes:
+                if axis in moving:
+                    continue
+                actual = self._exchange(GAP, AP_ACTUAL_POSITION, MOTORS[axis])
+                self._exchange(SAP, AP_TARGET_POSITION, MOTORS[axis], actual)
+            if moving:
+                raise HardwareError(f'{", ".join(moving)} still moving {STOP_SETTLE_S} s after MST')
+
+    def _refuse_if_lid_open(self, axis: str) -> None:
+        """Called under the lock, before a command that starts ``axis``
+        moving. An open lid stops all three axes and refuses the command."""
+        if axis not in LID_GATED_AXES or not self._lid_open():
+            return
+        try:
+            self._stop(MOTORS)
+            stopped = True
+        except HardwareError as e:
+            logger.error(f'[TMCM-6110 ] Lid open: the stop did not complete: {e}')
+            stopped = False
+        raise MotionInterlockError('lid_open', moved=False, stopped=stopped)
+
+    def motor_stop(self) -> bool:
+        """Stop all three axes, each target left where it stopped.
+
+        Returns:
+            bool: True once every axis has stopped and its target is written.
+
+        Raises:
+            HardwareError: the board did not answer, or an axis did not stop.
+        """
+        self._stop(MOTORS)
+        return True
+
+    # ------------------------------------------------------------------
+    # Moves and arrival
+    # ------------------------------------------------------------------
+
+    def _motor(self, axis: str) -> int:
+        if axis not in MOTORS:
+            raise HardwareError(f'Unsupported axis ({axis})')
+        return MOTORS[axis]
+
+    def _to_board(self, axis: str, usteps: int) -> int:
+        return self.motorconfig.direction(axis) * usteps
+
+    def move(self, axis: str, steps: int) -> None:
+        """Move ``axis`` to ``steps`` microsteps from the reference.
+
+        Returns once the board holds the new target.
+
+        Raises:
+            MotionInterlockError: X or Y with the lid open; nothing moved.
+            HardwareError: an unsupported axis, or the board did not take it.
+        """
+        motor = self._motor(axis)
+        with self._lock:
+            self._refuse_if_lid_open(axis)
+            self._exchange(MVP, MVP_ABS, motor, self._to_board(axis, steps))
+
+    def move_abs_pos(self, axis: str, pos: float, overshoot_enabled: bool = True) -> None:
+        """Move to ``pos`` micrometres. No overshoot: Classic compensated
+        no backlash on the LS720, and none is measured.
+
+        Travel is not checked here: the motion API refuses a target
+        outside travel before it calls this.
+        """
+        self._motor(axis)
+        self.move(axis, self.axes_config[axis]['move_func'](pos))
+
+    def move_rel_pos(self, axis: str, um: float, overshoot_enabled: bool = False) -> None:
+        """Move by ``um`` from the board's current target.
+
+        Raises:
+            HardwareError: the target could not be read, so the move did
+                not happen.
+        """
+        pos = self.target_pos(axis)
+        if pos is None:
+            raise HardwareError(
+                f'move_rel_pos({axis}): cannot read the current target '
+                f'position; the move did not happen'
+            )
+        self.move_abs_pos(axis, pos + um)
+
+    def _read_usteps(self, axis: str, parameter: int) -> int | None:
+        try:
+            raw = self._exchange(GAP, parameter, self._motor(axis))
+        except HardwareError as e:
+            logger.warning(f'[TMCM-6110 ] GAP {parameter} on {axis} failed: {e}')
+            return None
+        return self._to_board(axis, raw)
+
+    def target_pos_steps(self, axis: str) -> int | None:
+        return self._read_usteps(axis, AP_TARGET_POSITION)
+
+    def current_pos_steps(self, axis: str) -> int | None:
+        return self._read_usteps(axis, AP_ACTUAL_POSITION)
+
+    def _usteps_to_um(self, axis: str, usteps: int | None) -> float | None:
+        return None if usteps is None else self._ustep2um(axis, usteps)
+
+    def target_pos(self, axis: str) -> float | None:
+        """The board's target in micrometres, or None if it could not be read."""
+        return self._usteps_to_um(axis, self.target_pos_steps(axis))
+
+    def current_pos(self, axis: str) -> float | None:
+        """The actual position in micrometres, or None if it could not be read."""
+        return self._usteps_to_um(axis, self.current_pos_steps(axis))
+
+    def target_status(self, axis: str) -> bool:
+        """True when the axis stands still at the board's target.
+
+        Straight after ``MVP`` the axis may not have started, so standing
+        still alone is not arrival; the position must equal the target.
+
+        Raises:
+            HardwareError: the board did not answer.
+        """
+        motor = self._motor(axis)
+        with self._lock:
+            if self._exchange(GAP, AP_ACTUAL_VELOCITY, motor) != 0:
+                return False
+            actual = self._exchange(GAP, AP_ACTUAL_POSITION, motor)
+            return actual == self._exchange(GAP, AP_TARGET_POSITION, motor)
+
+    def reference_status(self, axis: str) -> int:
+        """The reference search's state (``RFS 2``): 0 when none is running."""
+        return self._exchange(RFS, RFS_STATUS, self._motor(axis))
+
+    def limit_switch_status(self, axis: str) -> tuple[int, int]:
+        """``(left, right)``: 1 engaged, 0 clear, -1 each when unread."""
+        motor = self._motor(axis)
+        try:
+            with self._lock:
+                left = self._exchange(GAP, AP_LEFT_SWITCH, motor)
+                right = self._exchange(GAP, AP_RIGHT_SWITCH, motor)
+        except HardwareError as e:
+            logger.warning(f'[TMCM-6110 ] limit_switch_status({axis}) failed: {e}')
+            return -1, -1
+        return int(left != 0), int(right != 0)
+
+    # ------------------------------------------------------------------
+    # Homing
+    # ------------------------------------------------------------------
+
+    def home(self) -> bool:
+        raise NotImplementedError('homing the TMCM-6110 is not built yet')
+
+    def zhome(self) -> bool:
+        raise NotImplementedError('homing the TMCM-6110 is not built yet')
+
+    def thome(self) -> bool:
+        raise HardwareError('the TMCM-6110 stage has no turret')
+
+    def has_homed(self) -> bool:
+        return False
+
+    def has_turret(self) -> bool:
+        return False
+
+    def has_thomed(self) -> bool:
+        return False
+
+    def detect_present_axes(self) -> list:
+        return list(MOTORS)
+
+    def detect_homed_axes(self) -> list:
+        """None: the board keeps no record of a home, so every axis starts unknown."""
+        return []
+
+    # ------------------------------------------------------------------
+    # Acceleration
+    # ------------------------------------------------------------------
+
+    _ACCELERATION_AXES = ('X', 'Y')
+    _ACCELERATION_PARAMETERS = ('acceleration', 'deceleration')
+
+    def _check_acceleration(self, axis: str, parameter: str) -> None:
+        if axis not in self._ACCELERATION_AXES:
+            raise NotImplementedError(
+                f'Support for acceleration limit on axis {axis} not implemented'
+            )
+        if parameter not in self._ACCELERATION_PARAMETERS:
+            raise NotImplementedError(
+                f'Support for acceleration limit parameter {parameter} not implemented.'
+            )
+
+    def acceleration_limit(self, axis: str, parameter: str) -> int:
+        """The axis's full acceleration in TMCL units. The TMC429's ramps are
+        symmetric, so acceleration and deceleration are the one value."""
+        self._check_acceleration(axis, parameter)
+        return self.motorconfig.axis_parameters(axis)['Max Acceleration']
+
+    def acceleration_limits(self) -> dict:
+        return {
+            axis: {p: self.acceleration_limit(axis, p) for p in self._ACCELERATION_PARAMETERS}
+            for axis in self._ACCELERATION_AXES
+        }
+
+    def set_acceleration_limit(self, axis: str, parameter: str, val_pct: int) -> None:
+        """Set the axis's acceleration (and so its deceleration) to
+        ``val_pct`` of full.
+
+        The speed is written again first: the board runs an axis
+        anomalously slowly when its acceleration changes without it.
+
+        The range is the API's: it refuses a value outside it before any
+        board is commanded.
+
+        Raises:
+            HardwareError: the board did not take it.
+        """
+        self._check_acceleration(axis, parameter)
+        params = self.motorconfig.axis_parameters(axis)
+        motor = MOTORS[axis]
+        with self._lock:
+            self._exchange(SAP, AP_MAX_POSITIONING_SPEED, motor, params['Max Positioning Speed'])
+            self._exchange(
+                SAP,
+                AP_MAX_ACCELERATION,
+                motor,
+                max(1, round(params['Max Acceleration'] * val_pct / 100)),
+            )
+
+    def set_acceleration_limits(self, val_pct: int) -> None:
+        for axis in self._ACCELERATION_AXES:
+            self.set_acceleration_limit(axis, 'acceleration', val_pct)
+
+    def set_precision_mode(self, axis: str, enabled: bool) -> None:
+        """No precision mode on the TMCM-6110: nothing to set."""
+
+    # ------------------------------------------------------------------
+    # Unit conversion
+    # ------------------------------------------------------------------
+
+    def _ustep2um(self, axis: str, ustep: int) -> float:
+        return ustep * 1000 / self.motorconfig.usteps_per_mm(axis)
+
+    def _um2ustep(self, axis: str, um: float) -> int:
+        return round(self.motorconfig.usteps_per_mm(axis) * um / 1000)
+
+    def z_ustep2um(self, ustep: int) -> float:
+        return self._ustep2um('Z', ustep)
+
+    def z_um2ustep(self, um: float) -> int:
+        return self._um2ustep('Z', um)
+
+    def xy_ustep2um(self, ustep: int) -> float:
+        return self._ustep2um('X', ustep)
+
+    def xy_um2ustep(self, um: float) -> int:
+        return self._um2ustep('X', um)
+
+    def t_ustep2deg(self, ustep: int) -> float:
+        raise RuntimeError('the TMCM-6110 stage has no turret to convert for')
+
+    def t_ustep2pos(self, ustep: int) -> int:
+        raise RuntimeError('the TMCM-6110 stage has no turret to convert for')
+
+    def t_deg2ustep(self, degrees: float) -> int:
+        raise RuntimeError('the TMCM-6110 stage has no turret to convert for')
+
+    def t_pos2ustep(self, position: int) -> int:
+        raise RuntimeError('the TMCM-6110 stage has no turret to convert for')
+
+    # ------------------------------------------------------------------
+    # Info
+    # ------------------------------------------------------------------
+
+    def get_microscope_model(self) -> str:
+        """'LS720': the only Lumascope with this board."""
+        return 'LS720'
+
+    def get_serial_number(self) -> None:
+        """None: the board carries no Etaluma serial number."""
+        return None
+
+    def get_current_firmware(self) -> str | None:
+        return self.firmware_version
+
+    def fullinfo(self) -> dict:
+        homed = self.has_homed()
+        return {
+            'model': self.get_microscope_model(),
+            'serial_number': None,
+            'firmware_version': self.firmware_version,
+            'x_homed': homed,
+            'x_present': True,
+            'y_homed': homed,
+            'y_present': True,
+            'z_homed': homed,
+            'z_present': True,
+            't_homed': False,
+            't_present': False,
+        }
+
+    def get_axes_config(self) -> Mapping:
+        return self.axes_config
+
+    def get_axis_limits(self, axis: str) -> Mapping[str, float] | None:
+        if axis not in self.axes_config:
+            raise HardwareError(f'Unsupported axis ({axis})')
+        return self.axes_config[axis]['limits']
+
+    # ------------------------------------------------------------------
+    # What the board has no part in
+    # ------------------------------------------------------------------
+
+    def supports_motor_stop(self) -> bool:
+        return True
+
+    def supports_fan(self) -> bool:
+        return False
+
+    def supports_diagnostics(self) -> bool:
+        return False
+
+    def spi_read(self, axis: str, addr: int) -> str | None:
+        raise RuntimeError('the TMCM-6110 gives no SPI register access')
+
+    def spi_write(self, axis: str, addr: int, payload: int | str) -> str:
+        raise RuntimeError('the TMCM-6110 gives no SPI register access')
+
+    def exchange_command(
+        self, command: str, response_numlines: int = 1, timeout: float | None = None
+    ) -> None:
+        """None: the board takes no text commands, so no text has a reply."""
+        logger.warning(f'[TMCM-6110 ] Text command {command!r} not sent: the board speaks TMCL')
+        return None

@@ -20,8 +20,18 @@ SECTION = 'TMCM-6110'
 AXES = ('X', 'Y', 'Z')
 
 # The TMC429's clock on the TMCM-6110 (TMCM-6110 TMCL firmware manual,
-# section 6.4, which also gives the two conversions in ramp_params).
+# section 6.4, which also gives the two conversions below).
 _F_CLK_HZ = 16_000_000
+
+
+def usteps_per_s(speed: int, pulse_div: int) -> float:
+    """A TMCL speed (axis parameters 2-4) in microsteps/s."""
+    return _F_CLK_HZ * speed / (2**pulse_div * 2048 * 32)
+
+
+def usteps_per_s2(accel: int, pulse_div: int, ramp_div: int) -> float:
+    """A TMCL acceleration (axis parameter 5) in microsteps/s^2."""
+    return _F_CLK_HZ**2 * accel / 2 ** (pulse_div + ramp_div + 29)
 
 
 def _frozen(value):
@@ -163,16 +173,13 @@ class Tmcm6110Config:
     def ramp_params(self, axis: str) -> dict:
         """The axis's ramp in um/s and um/s^2: vmax, and amax = dmax.
 
-        The TMC429 ramps are trapezoidal and symmetric. From the manual,
-        microsteps/s = f_clk * speed / (2**pulse_div * 2048 * 32) and
-        microsteps/s^2 = f_clk**2 * accel / 2**(pulse_div + ramp_div + 29).
+        The TMC429 ramps are trapezoidal and symmetric.
         """
         params = self.axis_parameters(axis)
         pulse_div = params['Pulse Divisor']
-        ramp_div = params['Ramp Divisor']
         um_per_ustep = 1000.0 / self.usteps_per_mm(axis)
-        vmax = _F_CLK_HZ * params['Max Positioning Speed'] / (2**pulse_div * 2048 * 32)
-        amax = _F_CLK_HZ**2 * params['Max Acceleration'] / 2 ** (pulse_div + ramp_div + 29)
+        vmax = usteps_per_s(params['Max Positioning Speed'], pulse_div)
+        amax = usteps_per_s2(params['Max Acceleration'], pulse_div, params['Ramp Divisor'])
         return {
             'vmax': vmax * um_per_ustep,
             'amax': amax * um_per_ustep,
