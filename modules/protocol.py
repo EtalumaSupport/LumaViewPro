@@ -264,6 +264,27 @@ class ProtocolFormatError(Refusal, ProtocolError):
         self.file = file
 
 
+class StepNotFoundError(Refusal, ProtocolError):
+    """A step index the protocol does not have, refused before anything is read or written.
+
+    A refusal: the caller named a step, and the words say which steps there
+    are. Unmarked, a Delete on an empty protocol was reported as a fault --
+    "Operation failed", an ERROR and a traceback for a designed answer.
+    """
+
+    title = 'No Such Step'
+
+
+class StepEditRefusedError(Refusal, ProtocolError):
+    """A value a step writer cannot take; the protocol is unchanged.
+
+    A name with nothing left once cleaned, a value not of its column's type,
+    or an insert that names no place or two. A refusal, as a missing step is.
+    """
+
+    title = 'Step Not Changed'
+
+
 class ProtocolScheduleRefusedError(ProtocolFormatError):
     """A period or duration the scope cannot run, refused rather than changed.
 
@@ -758,7 +779,7 @@ class Protocol:
         """
         label = Protocol.sanitize_step_name(step_name)
         if label == '':
-            raise ProtocolError(
+            raise StepEditRefusedError(
                 'Step name must contain at least one letter, digit, dash, or underscore.'
             )
         return label
@@ -1257,7 +1278,7 @@ class Protocol:
         the end, or -1, by appending a row nobody added.
 
         Raises:
-            ProtocolError: idx is outside the range.
+            StepNotFoundError: idx is outside the range.
         """
         num_steps = self.num_steps()
         highest = num_steps - 1 + past_end
@@ -1266,8 +1287,8 @@ class Protocol:
         if highest < lowest:
             # Every index is outside an empty protocol, so the index says
             # nothing; the GUI's is its no-selection -1.
-            raise ProtocolError('The protocol has no steps, so there is no step to change.')
-        raise ProtocolError(
+            raise StepNotFoundError('The protocol has no steps.')
+        raise StepNotFoundError(
             f'{what} {idx} is outside {lowest} to {highest}: the protocol has {num_steps} steps.'
         )
 
@@ -1374,12 +1395,12 @@ class Protocol:
         reads its values here before it writes.
 
         Raises:
-            ProtocolError: ``value`` is not of the column's type.
+            StepEditRefusedError: ``value`` is not of the column's type.
         """
         try:
             return _STEP_CELLS[column](value)
         except ValueError as e:
-            raise ProtocolError(f'a step {column} of {value!r} {e}') from None
+            raise StepEditRefusedError(f'a step {column} of {value!r} {e}') from None
 
     def steps(self) -> pd.DataFrame:
         """A copy of the steps frame.
@@ -1722,10 +1743,10 @@ class Protocol:
 
         def _validate_inputs():
             if (before_step is None) and (after_step is None):
-                raise ProtocolError('Must specify after_step or before_step')
+                raise StepEditRefusedError('Must specify after_step or before_step')
 
             if (before_step is not None) and (after_step is not None):
-                raise ProtocolError('Must specify only after_step or before_step, not both')
+                raise StepEditRefusedError('Must specify only after_step or before_step, not both')
 
             if before_step is not None:
                 self._refuse_unless_in_range('before_step', before_step, past_end=1)

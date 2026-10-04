@@ -11,11 +11,14 @@ run will refuse is noticed once, as Add and Update are.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 import modules.config_helpers as config_helpers
-from modules.exceptions import ProtocolError
+from modules.exceptions import ProtocolError, Refusal
 from modules.notification_center import notifications
+from modules.protocol import StepEditRefusedError, StepNotFoundError
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
 
 
@@ -117,6 +120,46 @@ class TestRenameStep:
 
         with pytest.raises(ProtocolError, match='has no steps'):
             session.rename_step(protocol, -1, 'center')
+
+
+class TestARefusedStepEditIsARefusal:
+    """Reported as a warning under its own title, never as "Operation failed" with a traceback."""
+
+    def test_a_missing_step_is_a_refusal_titled_no_such_step(self, session):
+        protocol = session.create_empty_protocol()
+
+        with pytest.raises(StepNotFoundError) as refused:
+            session.delete_step(protocol, -1)
+
+        assert isinstance(refused.value, Refusal)
+        assert refused.value.title == 'No Such Step'
+
+    def test_a_name_with_nothing_to_keep_is_a_refusal_titled_step_not_changed(self, session):
+        protocol = _three_bf_steps(session)
+
+        with pytest.raises(StepEditRefusedError) as refused:
+            session.rename_step(protocol, 0, '!!!')
+
+        assert isinstance(refused.value, Refusal)
+        assert refused.value.title == 'Step Not Changed'
+
+    def test_the_reporter_logs_it_once_as_a_warning_with_no_traceback(self, session, caplog):
+        protocol = session.create_empty_protocol()
+        try:
+            session.delete_step(protocol, -1)
+        except StepNotFoundError as refused:
+            with caplog.at_level(logging.DEBUG):
+                notifications.report_outcome(refused, solicited=True, category='UI:DELETE_STEP')
+
+        # The reporter's own record; the interaction log also records the popup.
+        records = [
+            r
+            for r in caplog.records
+            if r.name == 'LVP.notifications' and 'has no steps' in r.getMessage()
+        ]
+        assert [r.levelno for r in records] == [logging.WARNING]
+        assert records[0].exc_info is None
+        assert 'No Such Step' in records[0].getMessage()
 
 
 class TestTheInvalidStepNotice:

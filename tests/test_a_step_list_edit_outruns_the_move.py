@@ -250,7 +250,7 @@ def test_a_delete_the_protocol_refuses_is_reported_and_changes_nothing(env, monk
 
     panel.delete_step()
 
-    assert reported == [('ProtocolError', 'UI:DELETE_STEP')]
+    assert reported == [('StepNotFoundError', 'UI:DELETE_STEP')]
     assert _xs(panel._protocol) == [0.0, 1.0, 2.0]
     assert panel.curr_step == 7
 
@@ -274,7 +274,7 @@ def test_a_delete_on_an_empty_protocol_is_the_protocols_refusal(env, refusals):
 
     panel.delete_step()
 
-    assert refusals == [('ProtocolError', 'UI:DELETE_STEP')]
+    assert refusals == [('StepNotFoundError', 'UI:DELETE_STEP')]
     assert panel.curr_step == -1
 
 
@@ -284,7 +284,7 @@ def test_a_name_with_nothing_to_keep_is_refused_and_the_step_keeps_its_name(env,
 
     panel.step_name_validation('!!!')
 
-    assert refusals == [('ProtocolError', 'UI:RENAME_STEP')]
+    assert refusals == [('StepEditRefusedError', 'UI:RENAME_STEP')]
     assert panel._protocol.step(1)['Name'] == before
 
 

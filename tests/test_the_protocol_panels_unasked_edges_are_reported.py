@@ -118,7 +118,7 @@ def test_a_step_editor_frame_on_a_stale_pointer_is_reported_not_raised(reported,
 
     panel._do_update_step_ui(0.05)
 
-    assert reported == [('ProtocolError', 'UI:STEP_UI', False)]
+    assert reported == [('StepNotFoundError', 'UI:STEP_UI', False)]
 
 
 def test_a_step_editor_frame_on_a_real_step_shows_it(reported, monkeypatch):
