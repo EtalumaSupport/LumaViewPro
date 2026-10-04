@@ -7,8 +7,9 @@ Each ``Protocol`` writer checked its index on its own, or not at all.
 phantom row: a step nobody added, no step-list revision, run like any other.
 ``apply_zstack_group_focus`` raised a bare ``KeyError``; ``insert_step``
 placed a step past the end without a word; ``delete_step`` on an empty
-protocol did nothing. Every writer now refuses with ``ProtocolError`` and
-leaves the steps as they were.
+protocol did nothing. Every writer now refuses with ``StepNotFoundError``
+(a ``ProtocolError``, reported as a refusal) and leaves the steps as they
+were.
 
 ``after_step=-1`` is not out of range: it is "after no step", how an empty
 protocol takes its first step through the Session and through the GUI.
@@ -20,8 +21,7 @@ import pandas as pd
 import pytest
 
 from modules import config_helpers
-from modules.exceptions import ProtocolError
-from modules.protocol import Protocol
+from modules.protocol import Protocol, StepEditRefusedError, StepNotFoundError
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.test_protocol_roundtrip import TILING_CONFIGS, _build_protocol, _make_step
@@ -81,11 +81,11 @@ def _insert(protocol, **place):
     )
 
 
-def _assert_refused_and_unchanged(protocol, write):
+def _assert_refused_and_unchanged(protocol, write, refusal=StepNotFoundError):
     before = protocol.steps()
     revision = protocol.step_list_revision
 
-    with pytest.raises(ProtocolError):
+    with pytest.raises(refusal):
         write(protocol)
 
     pd.testing.assert_frame_equal(protocol.steps(), before)
@@ -151,6 +151,15 @@ def test_deleting_from_an_empty_protocol_is_refused():
 )
 def test_an_insert_outside_the_protocol_is_refused(place):
     _assert_refused_and_unchanged(_protocol(), lambda p: _insert(p, **place))
+
+
+@pytest.mark.parametrize(
+    'place', [{}, {'after_step': 0, 'before_step': 1}], ids=['neither', 'both']
+)
+def test_an_insert_naming_no_place_or_two_is_refused(place):
+    _assert_refused_and_unchanged(
+        _protocol(), lambda p: _insert(p, **place), refusal=StepEditRefusedError
+    )
 
 
 @pytest.mark.parametrize(

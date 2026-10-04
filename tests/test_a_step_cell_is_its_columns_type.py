@@ -21,8 +21,7 @@ import pathlib
 
 import pytest
 
-from modules.exceptions import ProtocolError
-from modules.protocol import Protocol, ProtocolFormatError
+from modules.protocol import Protocol, ProtocolFormatError, StepEditRefusedError
 from tests.ast_seams import parse_module, walk_defs
 from tests.test_protocol_roundtrip import TILING_CONFIGS, _build_protocol, _make_step
 
@@ -165,7 +164,7 @@ def test_every_in_place_writer_refuses_a_value_not_of_its_columns_type(writer, v
     protocol = _build_protocol(TWO_STEPS)
     before = protocol.steps()
 
-    with pytest.raises(ProtocolError) as refused:
+    with pytest.raises(StepEditRefusedError) as refused:
         write(protocol, value)
 
     assert column in str(refused.value)
