@@ -496,3 +496,39 @@ def test_blank_labware_has_no_wells_and_fabricates_no_index():
     i, j = plate.get_well_index(*plate.get_well_position(0, 0))
     assert (i, j) == (0, 0)
     assert plate.get_well_label(*plate.get_well_position(0, 0)) == 'A1'
+
+
+def test_replacing_a_stuck_worker_is_a_warning_not_a_failure():
+    """Replacing a stuck worker is the recovery a person chose, after the
+    stall was already reported as a fault; logging it at ERROR counted one
+    failure twice. It is a WARNING: a thread is abandoned and its write lost."""
+    from lvp_logger import logger as executor_logger
+
+    ex = SequentialIOExecutor(name='TEST_BP_REPLACE_LEVEL')
+    ex.start()
+    started = threading.Event()
+    release = threading.Event()
+    try:
+
+        def _wedge():
+            started.set()
+            release.wait(timeout=60)
+
+        assert ex.put(IOTask(action=_wedge)) is ENQUEUED
+        assert started.wait(2), 'worker never picked up the wedge task'
+        executor_logger.reset_mock()
+
+        ex.replace_stuck_worker()
+
+        def _said(method):
+            return [str(c.args[0]) for c in method.call_args_list if c.args]
+
+        assert any('Replacing a worker stuck' in m for m in _said(executor_logger.warning)), _said(
+            executor_logger.warning
+        )
+        assert not any('Replacing a worker stuck' in m for m in _said(executor_logger.error)), (
+            _said(executor_logger.error)
+        )
+    finally:
+        release.set()
+        ex.shutdown(wait=True)

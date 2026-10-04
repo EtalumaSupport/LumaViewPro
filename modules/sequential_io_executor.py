@@ -1655,7 +1655,10 @@ class SequentialIOExecutor:
         stuck = self.running_task
         if stuck is None:
             return
-        logger.error(
+        # WARNING, not ERROR: this is the recovery a person chose, after the
+        # stall was reported as a fault; the abandoned thread and its lost
+        # write are worth a reader's attention, not a second failure.
+        logger.warning(
             f'[{self.executor_name}] Replacing a worker stuck on {self.describe_running_task()}'
         )
         # Quarantine FIRST: were the stuck task to finish before the
