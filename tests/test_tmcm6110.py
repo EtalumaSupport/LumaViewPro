@@ -8,10 +8,12 @@ in flight until it arrives.
 """
 
 import logging
+import threading
 import time
 
 import pytest
 
+from drivers import tmcm6110
 from drivers.exceptions import HardwareError, MotionInterlockError
 from drivers.registry import DriverRegistry
 from drivers.simulated_tmcm6110 import (
@@ -28,7 +30,14 @@ from drivers.tmcm6110 import (
     LID_INPUT,
     MST,
     MVP,
+    POWER_INPUT,
+    RFS,
+    RFS_START,
+    RFS_STATUS,
+    ROR,
     SAP,
+    SGP,
+    SIO,
     STATUS_OK,
     USB_IDS,
     Tmcm6110Board,
@@ -527,3 +536,252 @@ def test_a_simulated_row_naming_the_6110_gets_the_driver_on_the_simulated_board(
     assert board.found
     board.move_abs_pos('Z', 10)
     assert board.target_pos('Z') == pytest.approx(10, abs=0.1)
+
+
+# --- Homing ---------------------------------------------------------------
+
+# Homing runs the board's slow index searches, so these run its clock faster.
+HOMING = 200
+
+
+@pytest.fixture
+def homing_sim():
+    return SimulatedTmcm6110(clock=_fast_clock(HOMING))
+
+
+@pytest.fixture
+def homing_board(homing_sim):
+    driver = Tmcm6110Board(
+        motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=SimulatedTmcm6110Backend(homing_sim)
+    )
+    yield driver
+    driver.disconnect()
+
+
+def _writes(commands):
+    """The commands that change the board, without the reads a home polls with."""
+    return [
+        (c.command, c.type, c.motor, c.value)
+        for c in commands
+        if c.command not in (GAP, GIO) and not (c.command == RFS and c.type == RFS_STATUS)
+    ]
+
+
+def _init(motor, current, standby, speed, accel):
+    """Classic's axis initialisation: switches enabled, hard stop, the
+    currents, 32 microsteps, the divisors, then speed and acceleration."""
+    values = ((12, 0), (13, 0), (149, 0), (6, current), (7, standby), (140, 5), (153, 9), (154, 3))
+    return [(SAP, n, motor, v) for n, v in values] + [
+        (SAP, 4, motor, speed),
+        (SAP, 5, motor, accel),
+    ]
+
+
+POLARITIES = [(SGP, 77, 0, 0), (SGP, 79, 0, 0), (SIO, 0, 0, 1)]
+
+
+def _index_search(motor, approach_first):
+    """Classic's homeAxisToLimitSwitch(motor, 1000, 100, 4, 1): onto the right
+    switch, back off 10000, back on at 100, then the mode-5 index search at
+    acceleration 50, the normal ramp restored, and the position set to 0."""
+    approach = [(ROR, 0, motor, 1000)] if approach_first else []
+    return [
+        *approach,
+        (MVP, 1, motor, -10000),
+        (ROR, 0, motor, 100),
+        (SAP, 4, motor, 1000),
+        (SAP, 5, motor, 50),
+        (SAP, 193, motor, 5),
+        (SAP, 194, motor, 4),
+        (SAP, 195, motor, 1),
+        (RFS, 0, motor, 0),
+        (SAP, 4, motor, 1000),
+        (SAP, 5, motor, 500),
+        (SAP, 1, motor, 0),
+    ]
+
+
+END_SEARCHES = [(RFS, 1, 0, 0), (RFS, 1, 1, 0), (RFS, 1, 2, 0)]
+
+
+def test_a_home_sends_classics_sequence(homing_board, homing_sim):
+    """Power and lid first, then fan, polarities, Z to its switch, X to its
+    switch, Y then X to the index pulse, every target 0, every search ended."""
+    _sent(homing_sim)
+    assert homing_board.home() is True
+    sent = _sent(homing_sim)
+    assert (sent[0].command, sent[0].type, sent[0].motor) == (GIO, *POWER_INPUT)
+    assert (sent[1].command, sent[1].type, sent[1].motor) == (GIO, *LID_INPUT)
+    assert _writes(sent) == [
+        (SIO, 1, 2, 1),
+        *POLARITIES,
+        # Z, to its right switch (StageController.cs InitializeZAxisToReferencePoint)
+        *POLARITIES,
+        *_init(2, 48, 8, 250, 2000),
+        (SAP, 193, 2, 65),
+        (SAP, 194, 2, 500),
+        (RFS, 0, 2, 0),
+        # X, fast to its switch (PreInitializeXAxisToLimitSwitch)
+        *_init(0, 16, 2, 2047, 500),
+        (SAP, 193, 0, 65),
+        (SAP, 194, 0, 1000),
+        (SAP, 195, 0, 50),
+        (RFS, 0, 0, 0),
+        # Y (InitializeYAxisToReferencePoint)
+        *POLARITIES,
+        *_init(1, 16, 4, 1000, 500),
+        *_index_search(1, approach_first=True),
+        # X, already on its switch (InitializeXAxisToReferencePoint)
+        *_init(0, 16, 2, 1000, 500),
+        *_index_search(0, approach_first=False),
+        (SAP, 0, 0, 0),
+        (SAP, 0, 1, 0),
+        (SAP, 0, 2, 0),
+        *END_SEARCHES,
+    ]
+
+
+def test_after_a_home_every_axis_is_at_0_and_arrived(homing_board, homing_sim):
+    homing_board.move_abs_pos('X', 20_000)
+    homing_board.move_abs_pos('Z', 2_000)
+    homing_board.home()
+    for axis in 'XYZ':
+        assert homing_board.current_pos(axis) == 0
+        assert homing_board.target_pos(axis) == 0
+        assert homing_board.target_status(axis)
+        # At the reference itself: the index pulse, or Z's switch.
+        assert homing_sim.axes[axis].p == pytest.approx(0)
+    assert homing_board.has_homed()
+
+
+def test_a_z_home_homes_z_alone(homing_board, homing_sim):
+    homing_board.move_abs_pos('X', 1_000)
+    _wait_arrival(homing_board, 'X')
+    _sent(homing_sim)
+    assert homing_board.zhome() is True
+    writes = _writes(_sent(homing_sim))
+    assert {w[2] for w in writes if w[0] in (SAP, RFS, ROR, MVP) and w[:2] != (RFS, 1)} == {2}
+    assert writes[-3:] == END_SEARCHES
+    assert homing_board.current_pos('Z') == 0
+    assert homing_board.target_status('Z')
+    assert homing_board.current_pos('X') == pytest.approx(1_000)
+
+
+def test_no_stage_power_refuses_the_home_before_anything_is_sent(homing_board, homing_sim):
+    homing_sim.powered = False
+    _sent(homing_sim)
+    with pytest.raises(MotionInterlockError) as refused:
+        homing_board.home()
+    assert (refused.value.reason, refused.value.moved) == ('stage_unpowered', False)
+    assert [(c.command, c.type, c.motor) for c in _sent(homing_sim)] == [(GIO, *POWER_INPUT)]
+    assert not homing_board.has_homed()
+
+
+def test_an_open_lid_refuses_the_home_before_anything_moves(homing_board, homing_sim):
+    homing_sim.lid_open = True
+    _sent(homing_sim)
+    with pytest.raises(MotionInterlockError) as refused:
+        homing_board.home()
+    assert (refused.value.reason, refused.value.moved) == ('lid_open', False)
+    assert not any(w[0] in (RFS, ROR, MVP) for w in _writes(_sent(homing_sim)))
+
+
+def _home_in_thread(board):
+    outcome = {}
+
+    def run():
+        try:
+            outcome['result'] = board.home()
+        except Exception as e:
+            outcome['error'] = e
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    return thread, outcome
+
+
+def _wait_for(sim, command, type_, motor, timeout=5.0):
+    deadline = time.monotonic() + timeout
+    while not any((c.command, c.type, c.motor) == (command, type_, motor) for c in sim.commands):
+        assert time.monotonic() < deadline, f'never sent {command} {type_} {motor}'
+        time.sleep(0.005)
+
+
+def test_a_lid_opened_during_a_home_stops_all_three_and_fails_it(homing_board, homing_sim):
+    thread, outcome = _home_in_thread(homing_board)
+    _wait_for(homing_sim, RFS, RFS_START, 0)  # the X switch search under way
+    homing_sim.lid_open = True
+    thread.join(10)
+    error = outcome['error']
+    assert isinstance(error, MotionInterlockError)
+    assert (error.reason, error.moved, error.stopped) == ('lid_open', True, True)
+    sent = list(homing_sim.commands)
+    assert sorted(c.motor for c in sent if c.command == MST) == [0, 1, 2]
+    assert _writes(sent)[-3:] == END_SEARCHES
+    assert not homing_board.has_homed()
+
+
+def test_a_stop_from_another_thread_ends_the_home(homing_board, homing_sim):
+    thread, outcome = _home_in_thread(homing_board)
+    _wait_for(homing_sim, ROR, 0, 1)  # Y driving onto its switch
+    assert homing_board.motor_stop() is True
+    thread.join(10)
+    assert isinstance(outcome['error'], HardwareError)
+    assert 'stopped' in str(outcome['error'])
+    sent = list(homing_sim.commands)
+    last_stop = max(i for i, c in enumerate(sent) if c.command == MST)
+    # After the stop, nothing that moves an axis: the stop's own target
+    # writes, then the home's ending of every search.
+    after = _writes(sent[last_stop + 1 :])
+    assert [w for w in after if w[:2] != (SAP, AP_TARGET_POSITION)] == END_SEARCHES
+    for axis in 'XYZ':
+        assert homing_board.target_status(axis)
+
+
+def test_a_phase_that_never_completes_fails_the_home_naming_it(
+    homing_board, homing_sim, monkeypatch
+):
+    monkeypatch.setattr(tmcm6110, 'HOME_PHASE_TIMEOUT_S', 0.5)
+    homing_sim.break_right_switch('Z')
+    _sent(homing_sim)
+    with pytest.raises(HardwareError, match='homing Z to its switch did not complete'):
+        homing_board.home()
+    assert _writes(_sent(homing_sim))[-3:] == END_SEARCHES
+
+
+def test_the_driver_is_a_motor_board():
+    from drivers.protocols import MotorBoardProtocol
+
+    board = Tmcm6110Board(
+        motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS,
+        backend=SimulatedTmcm6110Backend(SimulatedTmcm6110()),
+    )
+    assert isinstance(board, MotorBoardProtocol)
+
+
+def test_a_stop_between_two_commands_of_a_home_lets_no_further_one_through():
+    """A stop that lands while the home is sending, not polling: the home
+    must not go on to start the search it was setting up."""
+
+    class StopsMidSequence(SimulatedTmcm6110):
+        board = None
+        stopper = None
+
+        def answer(self, datagram):
+            reply = super().answer(datagram)
+            # The X switch search's mode is written; its start comes after.
+            if self.stopper is None and datagram[1:4] == bytes([SAP, 193, 0]):
+                self.stopper = threading.Thread(target=self.board.motor_stop)
+                self.stopper.start()
+                assert self.board._home_abort.wait(5)
+            return reply
+
+    sim = StopsMidSequence(clock=_fast_clock(HOMING))
+    board = Tmcm6110Board(
+        motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=SimulatedTmcm6110Backend(sim)
+    )
+    sim.board = board
+    with pytest.raises(HardwareError, match='stopped'):
+        board.home()
+    sim.stopper.join(5)
+    assert (RFS, RFS_START, 0) not in [(c.command, c.type, c.motor) for c in sim.commands]

@@ -21,7 +21,7 @@ power-up, where its switches and index pulse are, and the extent of travel.
 
 Tests reach the hardware through the board: open or close the lid, pull
 the stage's power, silence the board, unplug its USB, make an axis ignore
-MST, and read every command the board was sent.
+MST, break a right switch, and read every command the board was sent.
 """
 
 from __future__ import annotations
@@ -159,6 +159,7 @@ class _Axis:
     velocity_setpoint: float = 0.0
     search_mode: int = 0
     ignores_stop: bool = False
+    right_switch_dead: bool = False
 
     def actual(self) -> int:
         return round(self.p - self.offset)
@@ -174,7 +175,7 @@ class _Axis:
         )
 
     def right_engaged(self) -> bool:
-        return self.p >= self.layout.right_switch_at
+        return not self.right_switch_dead and self.p >= self.layout.right_switch_at
 
     def left_engaged(self) -> bool:
         return self.p <= self.layout.left_switch_at
@@ -215,6 +216,12 @@ class SimulatedTmcm6110:
         with self._lock:
             self.axes[axis].ignores_stop = ignores
 
+    def break_right_switch(self, axis: str) -> None:
+        """Make ``axis``'s right switch never close, as a broken or
+        unplugged switch would: the axis drives on past it."""
+        with self._lock:
+            self.axes[axis].right_switch_dead = True
+
     def position(self, axis: str) -> int:
         """The actual-position register of ``axis``, after the time passed."""
         with self._lock:
@@ -235,6 +242,8 @@ class SimulatedTmcm6110:
         if axis.mode == 'idle':
             return
         a = axis.amax()
+        # With the stage's supply out, nothing moves: the board's own
+        # behaviour then is not recorded, and this is the simplest guess.
         if not self.powered or a <= 0:
             axis.v = 0.0
             return

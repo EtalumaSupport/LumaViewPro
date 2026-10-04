@@ -32,7 +32,7 @@ import threading
 import time
 from collections.abc import Mapping
 from functools import partial
-from typing import NamedTuple
+from typing import NamedTuple, NoReturn
 
 import serial
 
@@ -105,8 +105,34 @@ AP_ACTUAL_POSITION = 1
 AP_ACTUAL_VELOCITY = 3
 AP_MAX_POSITIONING_SPEED = 4
 AP_MAX_ACCELERATION = 5
+AP_TARGET_REACHED = 8
 AP_RIGHT_SWITCH = 10
 AP_LEFT_SWITCH = 11
+AP_REFERENCE_SEARCH_MODE = 193
+AP_REFERENCE_SEARCH_SPEED = 194
+AP_REFERENCE_SWITCH_SPEED = 195
+
+# The axis parameters an axis is initialised with, by the name the config
+# section uses, in the order Classic writes them: speed and acceleration
+# after the two divisors, as the board needs.
+INIT_PARAMETERS = (
+    ('Right Limit Switch Disable', 12),
+    ('Left Limit Switch Disable', 13),
+    ('Soft Stop Flag', 149),
+    ('Max Current', 6),
+    ('Standby Current', 7),
+    ('Microstep Resolution', 140),
+    ('Ramp Divisor', 153),
+    ('Pulse Divisor', 154),
+    ('Max Positioning Speed', AP_MAX_POSITIONING_SPEED),
+    ('Max Acceleration', AP_MAX_ACCELERATION),
+)
+
+# Global parameters (bank 0) and outputs, as (number, bank).
+GP_AUTO_START_MODE = (77, 0)
+GP_END_SWITCH_POLARITY = (79, 0)
+SWITCH_PULLUPS_OUTPUT = (0, 0)
+FAN_OUTPUT = (1, 2)
 
 # The inputs, as (GIO type, bank). The lid reads 1 open; the stage's supply
 # reads about 240 present and about 13 absent, so above 20 is present
@@ -126,6 +152,12 @@ REPLY_TIMEOUT_S = 0.5
 # about a second (derived from the ramp constants, not measured).
 STOP_SETTLE_S = 2.0
 STOP_POLL_S = 0.01
+
+# How often a home reads the lid, the abort and its phase's progress
+# (Classic's homing thread polled every 100 ms), and how long one phase may
+# take (Classic's 200 polls of 500 ms).
+HOME_POLL_S = 0.1
+HOME_PHASE_TIMEOUT_S = 100.0
 
 _DATAGRAM = struct.Struct('>BBBBiB')
 
@@ -211,6 +243,10 @@ class Tmcm6110Board:
         # before it has replied to the first. Re-entrant so a lid refusal
         # can stop the motors inside the command it refuses.
         self._lock = threading.RLock()
+        # Set by motor_stop before it takes the lock, so a home in another
+        # thread sends nothing more once a stop has begun.
+        self._home_abort = threading.Event()
+        self._homed = False
         self._backend = backend
         self._serial: serial.SerialBase | None = None
         self.port: str | None = None
@@ -408,21 +444,25 @@ class Tmcm6110Board:
             if moving:
                 raise HardwareError(f'{", ".join(moving)} still moving {STOP_SETTLE_S} s after MST')
 
-    def _refuse_if_lid_open(self, axis: str) -> None:
-        """Called under the lock, before a command that starts ``axis``
-        moving. An open lid stops all three axes and refuses the command."""
-        if axis not in LID_GATED_AXES or not self._lid_open():
-            return
+    def _refuse_for_lid(self, *, moved: bool) -> NoReturn:
+        """The lid is open: stop all three axes and refuse."""
         try:
             self._stop(MOTORS)
             stopped = True
         except HardwareError as e:
             logger.error(f'[TMCM-6110 ] Lid open: the stop did not complete: {e}')
             stopped = False
-        raise MotionInterlockError('lid_open', moved=False, stopped=stopped)
+        raise MotionInterlockError('lid_open', moved=moved, stopped=stopped)
+
+    def _refuse_if_lid_open(self, axis: str) -> None:
+        """Called under the lock, before a command that starts ``axis``
+        moving. An open lid stops all three axes and refuses the command."""
+        if axis in LID_GATED_AXES and self._lid_open():
+            self._refuse_for_lid(moved=False)
 
     def motor_stop(self) -> bool:
-        """Stop all three axes, each target left where it stopped.
+        """Stop all three axes, each target left where it stopped, and end
+        any home in progress.
 
         Returns:
             bool: True once every axis has stopped and its target is written.
@@ -430,6 +470,7 @@ class Tmcm6110Board:
         Raises:
             HardwareError: the board did not answer, or an axis did not stop.
         """
+        self._home_abort.set()
         self._stop(MOTORS)
         return True
 
@@ -546,16 +587,188 @@ class Tmcm6110Board:
     # ------------------------------------------------------------------
 
     def home(self) -> bool:
-        raise NotImplementedError('homing the TMCM-6110 is not built yet')
+        """Home all three axes with LumaView Classic's sequence.
+
+        Z first, to its switch, so the objective is down before X or Y
+        moves; then X to its switch; then Y and X each to their switch, off
+        it, back onto it slowly and on to the index pulse, where the
+        position is set to 0. Every axis's target is then set to 0, so
+        target and actual agree. Each phase polls the lid and the abort.
+
+        Returns:
+            bool: True once every axis is at its reference.
+
+        Raises:
+            MotionInterlockError: the stage has no power, or the lid is
+                open (``moved=False``: nothing was started) or was opened
+                during the home (``moved=True``; all three axes stopped).
+            HardwareError: a phase did not complete in time, a stop ended
+                the home, or the board did not answer; naming the phase.
+        """
+        return self._home(
+            (self._home_z, self._home_x_to_switch, self._home_y, self._home_x), ('X', 'Y', 'Z')
+        )
 
     def zhome(self) -> bool:
-        raise NotImplementedError('homing the TMCM-6110 is not built yet')
+        """Home Z alone, to its switch, with the same checks as ``home``."""
+        return self._home((self._home_z,), ('Z',))
+
+    def _home(self, phases, axes: tuple[str, ...]) -> bool:
+        """Run ``phases`` in order, then set the target of each of ``axes`` to 0."""
+        self._home_abort.clear()
+        self._homed = False
+        with self._lock:
+            if self._exchange(GIO, *POWER_INPUT) <= POWER_PRESENT_ABOVE:
+                raise MotionInterlockError('stage_unpowered', moved=False, stopped=False)
+            if self._lid_open():
+                self._refuse_for_lid(moved=False)
+        try:
+            self._home_send(SIO, *FAN_OUTPUT, 1)
+            self._set_switch_polarities()
+            for phase in phases:
+                phase()
+            for axis in axes:
+                self._home_send(SAP, AP_TARGET_POSITION, MOTORS[axis], 0)
+        except BaseException:
+            self._end_reference_searches(raising=False)
+            raise
+        self._end_reference_searches(raising=True)
+        self._homed = True
+        return True
+
+    def _home_send(self, command: int, type_: int, motor: int, value: int = 0) -> int:
+        """One command of a home, refused once a stop has begun: the abort
+        is read under the lock motor_stop's stop takes, so a home never
+        starts an axis after a stop."""
+        with self._lock:
+            if self._home_abort.is_set():
+                raise HardwareError('the home was stopped')
+            return self._exchange(command, type_, motor, value)
+
+    def _await(self, phase: str, done) -> None:
+        """Poll until ``done()`` is true, reading the lid and the abort each time.
+
+        Raises:
+            MotionInterlockError: the lid was opened; all three axes stopped.
+            HardwareError: a stop ended the home, or ``phase`` took longer
+                than ``HOME_PHASE_TIMEOUT_S``.
+        """
+        deadline = time.monotonic() + HOME_PHASE_TIMEOUT_S
+        while True:
+            time.sleep(HOME_POLL_S)
+            with self._lock:
+                if self._home_abort.is_set():
+                    raise HardwareError(f'the home was stopped during {phase}')
+                if self._lid_open():
+                    self._refuse_for_lid(moved=True)
+                if done():
+                    return
+            if time.monotonic() >= deadline:
+                raise HardwareError(f'homing {phase} did not complete in {HOME_PHASE_TIMEOUT_S} s')
+
+    def _end_reference_searches(self, *, raising: bool) -> None:
+        """``RFS 1`` to all three axes, on every exit from a home, as Classic's
+        did. On a home that failed, the failure is what is reported: a stop
+        that fails too is logged beside it."""
+        for motor in MOTORS.values():
+            try:
+                self._exchange(RFS, RFS_STOP, motor)
+            except HardwareError as e:
+                if raising:
+                    raise
+                logger.error(f'[TMCM-6110 ] Ending the reference search on motor {motor}: {e}')
+
+    def _set_switch_polarities(self) -> None:
+        """The switches read uninverted with their pull-ups on, and no TMCL
+        program starts on its own."""
+        self._home_send(SGP, *GP_AUTO_START_MODE, 0)
+        self._home_send(SGP, *GP_END_SWITCH_POLARITY, 0)
+        self._home_send(SIO, *SWITCH_PULLUPS_OUTPUT, 1)
+
+    def _init_axis(self, axis: str, overrides: Mapping[int, int] | None = None) -> None:
+        """Write the axis's parameters, with ``overrides`` by TMCL number."""
+        params = self.motorconfig.axis_parameters(axis)
+        overrides = overrides or {}
+        for name, number in INIT_PARAMETERS:
+            self._home_send(SAP, number, MOTORS[axis], overrides.get(number, params[name]))
+
+    def _stopped(self, axis: str):
+        return lambda: self._exchange(GAP, AP_ACTUAL_VELOCITY, MOTORS[axis]) == 0
+
+    def _home_z(self) -> None:
+        search = self.motorconfig.homing('Z')['Switch Search']
+        self._set_switch_polarities()
+        self._init_axis('Z')
+        self._home_send(SAP, AP_REFERENCE_SEARCH_MODE, MOTORS['Z'], search['Reference Search Mode'])
+        self._home_send(
+            SAP, AP_REFERENCE_SEARCH_SPEED, MOTORS['Z'], search['Reference Search Speed']
+        )
+        self._home_send(RFS, RFS_START, MOTORS['Z'])
+        self._await('Z to its switch', self._stopped('Z'))
+
+    def _home_x_to_switch(self) -> None:
+        """X to its switch fast, so the Y search starts with X out of the way."""
+        pre = self.motorconfig.homing('X')['Switch Pre-move']
+        motor = MOTORS['X']
+        self._init_axis('X', {AP_MAX_POSITIONING_SPEED: pre['Max Positioning Speed']})
+        self._home_send(SAP, AP_REFERENCE_SEARCH_MODE, motor, pre['Reference Search Mode'])
+        self._home_send(SAP, AP_REFERENCE_SEARCH_SPEED, motor, pre['Reference Search Speed'])
+        self._home_send(SAP, AP_REFERENCE_SWITCH_SPEED, motor, pre['Reference Switch Speed'])
+        self._home_send(RFS, RFS_START, motor)
+        self._await('X to its switch', self._stopped('X'))
+
+    def _home_y(self) -> None:
+        self._set_switch_polarities()
+        self._init_axis('Y')
+        self._index_search('Y')
+
+    def _home_x(self) -> None:
+        self._init_axis('X')
+        self._index_search('X')
+
+    def _index_search(self, axis: str) -> None:
+        """Onto the right switch, off it, back onto it slowly, then the
+        index pulse, where the position becomes 0."""
+        index = self.motorconfig.homing(axis)['Index Search']
+        params = self.motorconfig.axis_parameters(axis)
+        motor = MOTORS[axis]
+        fast, slow = index['Approach Speeds']
+
+        def at_switch():
+            return self._exchange(GAP, AP_RIGHT_SWITCH, motor) == 1
+
+        if self._home_send(GAP, AP_RIGHT_SWITCH, motor) != 1:
+            self._home_send(ROR, 0, motor, fast)
+            self._await(f'{axis} onto its switch', at_switch)
+        self._home_send(MVP, MVP_REL, motor, -index['Back-off Microsteps'])
+        self._await(
+            f'{axis} off its switch',
+            lambda: self._exchange(GAP, AP_TARGET_REACHED, motor) == 1,
+        )
+        self._home_send(ROR, 0, motor, slow)
+        self._await(f'{axis} back onto its switch', at_switch)
+        # The speed is written before every acceleration change: the board
+        # runs an axis anomalously slowly otherwise.
+        self._home_send(SAP, AP_MAX_POSITIONING_SPEED, motor, params['Max Positioning Speed'])
+        self._home_send(SAP, AP_MAX_ACCELERATION, motor, index['Max Acceleration'])
+        self._home_send(SAP, AP_REFERENCE_SEARCH_MODE, motor, index['Reference Search Mode'])
+        self._home_send(SAP, AP_REFERENCE_SEARCH_SPEED, motor, index['Reference Search Speed'])
+        self._home_send(SAP, AP_REFERENCE_SWITCH_SPEED, motor, index['Reference Switch Speed'])
+        self._home_send(RFS, RFS_START, motor)
+        self._await(
+            f'{axis} to its index pulse',
+            lambda: self._exchange(RFS, RFS_STATUS, motor) == 0,
+        )
+        self._home_send(SAP, AP_MAX_POSITIONING_SPEED, motor, params['Max Positioning Speed'])
+        self._home_send(SAP, AP_MAX_ACCELERATION, motor, params['Max Acceleration'])
+        self._home_send(SAP, AP_ACTUAL_POSITION, motor, 0)
 
     def thome(self) -> bool:
         raise HardwareError('the TMCM-6110 stage has no turret')
 
     def has_homed(self) -> bool:
-        return False
+        """Whether this driver's last home completed."""
+        return self._homed
 
     def has_turret(self) -> bool:
         return False
