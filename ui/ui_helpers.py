@@ -10,7 +10,10 @@ re-exports everything for existing callers.
 import logging
 import typing
 
+from kivy.properties import StringProperty
+from kivy.uix.accordion import AccordionItem
 from kivy.uix.scrollview import ScrollView
+from modules import gui_logger
 from modules.kivy_utils import schedule_ui as _schedule_ui
 
 import modules.app_context as _app_ctx
@@ -640,6 +643,28 @@ def reset_stim_ui():
 # ============================================================================
 # ScrollView Memory Cleanup
 # ============================================================================
+
+
+class LoggedAccordionItem(AccordionItem):
+    """An accordion item that records a person opening it.
+
+    Kivy expands a collapsed item in one place, its touch handler; the app's
+    own expands (start-up, a step's layer, a model swap, a resort) write
+    ``collapse`` directly and never pass through it. So the record is written
+    here, before the expand and whatever it causes, and only for a person.
+    ``on_collapse`` cannot carry it: it fires for both and does not say which.
+
+    Every item sets both names in the kv; the GUI-logging census refuses an
+    item that does not (tests/gui_logging_census.py).
+    """
+
+    log_group = StringProperty('')
+    log_item = StringProperty('')
+
+    def on_touch_down(self, touch):
+        if self.collapse and not self.disabled and self.collide_point(*touch.pos):
+            gui_logger.select(self.log_group, self.log_item)
+        return super().on_touch_down(touch)
 
 
 def resort_accordion(accordion, items: typing.Sequence[tuple[object | None, bool]]) -> None:

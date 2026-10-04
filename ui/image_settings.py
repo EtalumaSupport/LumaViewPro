@@ -3,7 +3,6 @@ import logging
 
 from kivy.clock import Clock
 from kivy.metrics import dp
-from kivy.uix.accordion import AccordionItem
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.scrollview import ScrollView
 
@@ -15,7 +14,7 @@ from modules.config_ui_getters import (
     get_layer_exposure_slider_max,
     get_layer_illumination_slider_max,
 )
-from ui.ui_helpers import resort_accordion
+from ui.ui_helpers import LoggedAccordionItem, resort_accordion
 
 logger = logging.getLogger('LVP.ui.image_settings')
 
@@ -25,7 +24,7 @@ logger = logging.getLogger('LVP.ui.image_settings')
 # ============================================================================
 
 
-class AccordionItemXyStageControl(AccordionItem):
+class AccordionItemXyStageControl(LoggedAccordionItem):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
@@ -33,7 +32,7 @@ class AccordionItemXyStageControl(AccordionItem):
         self.ids['xy_stagecontrol_id'].update_gui(full_redraw=full_redraw)
 
 
-class AccordionItemImageSettingsBase(AccordionItem):
+class AccordionItemImageSettingsBase(LoggedAccordionItem):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
@@ -168,7 +167,8 @@ class ImageSettings(BoxLayout):
         if _app_ctx.ctx.session.run_lockout:
             return
 
-        gui_logger.select('IMAGE_LAYER', layer)
+        # No gui_logger record: this is the app's expand, not a person's.
+        # A person's is recorded by LoggedAccordionItem.on_touch_down.
 
         # Ordering invariant: the guard is set BEFORE the mutation loop
         # (the collapse events it fires prime the reconcile trigger) and

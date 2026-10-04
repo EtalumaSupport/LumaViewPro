@@ -297,6 +297,8 @@
 
 <AccordionItemXyStageControl>:
 	title: 'XY Stage Control'
+	log_group: 'SETTINGS_SECTION'
+	log_item: 'XY_STAGE'
 	XYStageControl:
 		id: xy_stagecontrol_id
 
@@ -316,8 +318,10 @@
 		# (run buttons, autofocus, z-stack acquire) deliberately escape it.
 
         # MICROSCOPE SETTINGS
-        AccordionItem:
+        LoggedAccordionItem:
             id: motionsettings_microscope_accordion_id
+            log_group: 'SETTINGS_SECTION'
+            log_item: 'MICROSCOPE'
             title: 'Microscope Settings'
             collapse: False
 			on_collapse: root.accordion_collapse()
@@ -325,24 +329,30 @@
                 id: microscope_settings_id
 
         # FOCUS SETTINGS
-		AccordionItem:
+		LoggedAccordionItem:
 			id: objective_control_accordion_id
+			log_group: 'SETTINGS_SECTION'
+			log_item: 'OBJECTIVE'
 			title: 'Objective Control'
 			on_collapse: root.accordion_collapse()
 			VerticalControl:
 				id: verticalcontrol_id
 
         # PROTOCOL SETTINGS
-		AccordionItem:
+		LoggedAccordionItem:
 			title: 'Protocol'
 			id: motionsettings_protocol_accordion_id
+			log_group: 'SETTINGS_SECTION'
+			log_item: 'PROTOCOL'
 			on_collapse: root.accordion_collapse()
 			ProtocolSettings:
                 id: protocol_settings_id
 
 		# POST PROCESSING
-		AccordionItem:
+		LoggedAccordionItem:
 			id: motionsettings_postprocessing_accordion_id
+			log_group: 'SETTINGS_SECTION'
+			log_item: 'POST_PROCESSING'
 			title: 'Post Processing'
 			on_collapse: root.accordion_collapse()
 			PostProcessingAccordion:
@@ -1940,8 +1950,10 @@
 		orientation: 'vertical'
 		id: post_processing_accordion_id
 
-		AccordionItem:
+		LoggedAccordionItem:
 			id: create_avi_accordion_id
+			log_group: 'POST_PROCESSING_TOOL'
+			log_item: 'VIDEO'
 			title: 'Create Video'
 			on_collapse: root.accordion_collapse()
 			background_normal: './data/icons/post_processing_background.png'
@@ -1951,8 +1963,10 @@
 				VideoCreationControls:
 					id: video_creation_controls_id
 			
-		AccordionItem:
+		LoggedAccordionItem:
 			id: stitch_accordion_id
+			log_group: 'POST_PROCESSING_TOOL'
+			log_item: 'STITCH'
 			title: 'Stitch'
 			on_collapse: root.accordion_collapse()
 			background_normal: './data/icons/post_processing_background.png'
@@ -1961,8 +1975,10 @@
 				StitchControls:
 					id: stitch_controls_id
 
-		AccordionItem:
+		LoggedAccordionItem:
 			id: composite_gen_accordion_id
+			log_group: 'POST_PROCESSING_TOOL'
+			log_item: 'COMPOSITE'
 			title: 'Composite Generation'
 			on_collapse: root.accordion_collapse()
 			background_normal: './data/icons/post_processing_background.png'
@@ -1971,8 +1987,10 @@
 				CompositeGenControls:
 					id: composite_gen_controls_id
 
-		AccordionItem:
+		LoggedAccordionItem:
 			id: zprojection_accordion_id
+			log_group: 'POST_PROCESSING_TOOL'
+			log_item: 'Z_PROJECTION'
 			title: 'Z-Projection'
 			on_collapse: root.accordion_collapse()
 			background_normal: './data/icons/post_processing_background.png'
@@ -1981,8 +1999,10 @@
 				ZProjectionControls:
 					id: zprojection_controls_id
 
-		AccordionItem:
+		LoggedAccordionItem:
 			id: quick_enhance_accordion_id
+			log_group: 'POST_PROCESSING_TOOL'
+			log_item: 'QUICK_ENHANCE'
 			title: 'Quick Enhance'
 			on_collapse: root.accordion_collapse()
 			background_normal: './data/icons/post_processing_background.png'
@@ -2014,8 +2034,10 @@
 
 		# 		Widget:
 
-		AccordionItem:
+		LoggedAccordionItem:
 			id: cell_count_accordion_id
+			log_group: 'POST_PROCESSING_TOOL'
+			log_item: 'OBJECT_ANALYSIS'
 			title: 'Object Analysis'
 			on_collapse: root.accordion_collapse()
 			background_normal: './data/icons/post_processing_background.png'
@@ -2063,6 +2085,8 @@
 
 <AccordionItemImageSettingsBlueControl>:
 	id: Blue_accordion
+	log_group: 'IMAGE_LAYER'
+	log_item: 'Blue'
 	title: 'Blue Channel Control'
 	on_collapse: root.accordion_collapse()
 	LayerControl:
@@ -2073,6 +2097,8 @@
 
 <AccordionItemImageSettingsGreenControl>:
 	id: Green_accordion
+	log_group: 'IMAGE_LAYER'
+	log_item: 'Green'
 	title: 'Green Channel Control'
 	on_collapse: root.accordion_collapse()
 	LayerControl:
@@ -2083,6 +2109,8 @@
 
 <AccordionItemImageSettingsRedControl>:
 	id: Red_accordion
+	log_group: 'IMAGE_LAYER'
+	log_item: 'Red'
 	title: 'Red Channel Control'
 	on_collapse: root.accordion_collapse()
 	collapse: False
@@ -2094,6 +2122,8 @@
 
 <AccordionItemImageSettingsDfControl>:
 	id: DF_accordion
+	log_group: 'IMAGE_LAYER'
+	log_item: 'DF'
 	title: 'Low Mag Darkfield Control'
 	on_collapse: root.accordion_collapse()
 	LayerControl:
@@ -2105,6 +2135,8 @@
 
 <AccordionItemImageSettingsLumiControl>:
 	id: Lumi_accordion
+	log_group: 'IMAGE_LAYER'
+	log_item: 'Lumi'
 	title: 'Luminescence Control'
 	on_collapse: root.accordion_collapse()
 	collapse: False
@@ -2149,8 +2181,10 @@
         disabled: app.controls_locked
 
         # BRIGHTFIELD SETTINGS
-        AccordionItem:
+        LoggedAccordionItem:
 			id: BF_accordion
+			log_group: 'IMAGE_LAYER'
+			log_item: 'BF'
             title: 'Brightfield Control'
 			on_collapse: root.accordion_collapse()
             LayerControl:
@@ -2159,8 +2193,10 @@
                 bg_color: 0.5, 0.5, 0.5,  1
 
        # PHASE CONTRAST SETTINGS
-        AccordionItem:
+        LoggedAccordionItem:
 			id: PC_accordion
+			log_group: 'IMAGE_LAYER'
+			log_item: 'PC'
             title: 'Phase Contrast Control'
 			on_collapse: root.accordion_collapse()
             LayerControl:

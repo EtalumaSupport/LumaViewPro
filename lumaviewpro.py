@@ -471,6 +471,7 @@ from ui.shader import ShaderViewer
 from ui.stage import Stage
 from ui.tooltip import Tooltip, TooltipMixin
 from ui.ui_helpers import (
+    LoggedAccordionItem,
     _handle_autofocus_ui,
     _handle_ui_update_for_axis,
     draw_shared_run_displays,

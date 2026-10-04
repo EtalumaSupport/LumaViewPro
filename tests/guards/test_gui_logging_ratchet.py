@@ -302,6 +302,27 @@ _ROSTER = {
         _D('log_step_field'),
         _D('set_steps'),
     ),
+    # Accordion items: each records SELECT <group> <item> from
+    # LoggedAccordionItem's touch handler (tests/gui_logging_census.py
+    # accordion_items).
+    'AccordionItemImageSettingsBlueControl.Blue_accordion': ('IMAGE_LAYER',),
+    'AccordionItemImageSettingsDfControl.DF_accordion': ('IMAGE_LAYER',),
+    'AccordionItemImageSettingsGreenControl.Green_accordion': ('IMAGE_LAYER',),
+    'AccordionItemImageSettingsLumiControl.Lumi_accordion': ('IMAGE_LAYER',),
+    'AccordionItemImageSettingsRedControl.Red_accordion': ('IMAGE_LAYER',),
+    'AccordionItemXyStageControl.<rule>': ('SETTINGS_SECTION',),
+    'ImageSettings.BF_accordion': ('IMAGE_LAYER',),
+    'ImageSettings.PC_accordion': ('IMAGE_LAYER',),
+    'MotionSettings.motionsettings_microscope_accordion_id': ('SETTINGS_SECTION',),
+    'MotionSettings.motionsettings_postprocessing_accordion_id': ('SETTINGS_SECTION',),
+    'MotionSettings.motionsettings_protocol_accordion_id': ('SETTINGS_SECTION',),
+    'MotionSettings.objective_control_accordion_id': ('SETTINGS_SECTION',),
+    'PostProcessingAccordion.cell_count_accordion_id': ('POST_PROCESSING_TOOL',),
+    'PostProcessingAccordion.composite_gen_accordion_id': ('POST_PROCESSING_TOOL',),
+    'PostProcessingAccordion.create_avi_accordion_id': ('POST_PROCESSING_TOOL',),
+    'PostProcessingAccordion.quick_enhance_accordion_id': ('POST_PROCESSING_TOOL',),
+    'PostProcessingAccordion.stitch_accordion_id': ('POST_PROCESSING_TOOL',),
+    'PostProcessingAccordion.zprojection_accordion_id': ('POST_PROCESSING_TOOL',),
 }
 
 
@@ -398,3 +419,29 @@ def test_no_new_kv_source_escapes_the_census():
     )
     stale = sorted(declared - actual)
     assert not stale, f'{stale} no longer hold a load_string block.'
+
+
+def test_an_accordion_item_that_records_nothing_is_reported(monkeypatch):
+    # The census's known positive for accordion items: a plain AccordionItem,
+    # and a LoggedAccordionItem missing its item name, both reach no record.
+    import tests.gui_logging_census as gui_census
+
+    scratch = (
+        '<Scratch@BoxLayout>:\n'
+        '    Accordion:\n'
+        '        AccordionItem:\n'
+        '            id: plain_item\n'
+        "            title: 'Plain'\n"
+        '        LoggedAccordionItem:\n'
+        '            id: half_named_item\n'
+        "            log_group: 'SETTINGS_SECTION'\n"
+        '        LoggedAccordionItem:\n'
+        '            id: named_item\n'
+        "            log_group: 'SETTINGS_SECTION'\n"
+        "            log_item: 'NAMED'\n"
+    )
+    monkeypatch.setattr(gui_census, 'kv_sources', lambda: [('scratch.kv', scratch)])
+    items = gui_census.accordion_items()
+    assert items['Scratch.plain_item']['static'] == []
+    assert items['Scratch.half_named_item']['static'] == []
+    assert items['Scratch.named_item']['static'] == ['SETTINGS_SECTION']
