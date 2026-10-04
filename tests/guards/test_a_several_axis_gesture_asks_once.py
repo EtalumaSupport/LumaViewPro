@@ -111,7 +111,6 @@ def test_the_gestures_are_the_ones_known():
     assert gestures >= {
         'ui/scope_display.py::ScopeDisplay.touch',
         'ui/stage.py::Stage.on_touch_down',
-        'ui/step_navigation.py::go_to_step',
     }
 
 

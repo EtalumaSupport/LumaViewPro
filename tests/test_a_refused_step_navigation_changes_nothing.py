@@ -7,15 +7,17 @@ names. When it could not, the old code logged, raised a dialog, and then
 moved X, Y and Z anyway -- to a step it could not put the right objective
 in front of.
 
-The pointer is the part that matters, and it is why this refuses ABOVE
-the write rather than beside the move. `modify_step_ex` and
+The pointer is the part that matters, and it is why it is written only
+once the Session has gone to the step. `modify_step_ex` and
 `insert_step_ex` address a step BY that pointer and fill it from the LIVE
 stage, so a pointer left on a step the user never arrived at means the
 next edit writes the previous step's coordinates into it. The protocol
 file is then wrong, on disk, with nothing in it saying so.
 
-The rule is the API's, so these tests drive the real one: the scope's
-turret configuration decides, exactly as it does for a run.
+The rule is the API's, so the Session stand here refuses through the real
+one: the scope's turret configuration decides, exactly as it does for a
+run. The Session's own move is
+``tests/test_going_to_a_step_is_the_sessions_move.py``.
 """
 
 from __future__ import annotations
@@ -23,13 +25,14 @@ from __future__ import annotations
 import sys
 import threading
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import pytest
 
-from modules.exceptions import AxisStateUnknownError, ProtocolRunRefusedError
+from modules.exceptions import ProtocolRunRefusedError
 from modules.lumascope_api.protocols import ProtocolsAPI
-from tests.gesture_fakes import inline_submit_gesture
+from modules.protocol import StepNotFoundError
+from tests.gesture_fakes import inline_submit_move
 
 
 ON_TURRET = '10x Oly'
@@ -136,7 +139,18 @@ def nav_env(monkeypatch):
         scope=scope,
         protocol_running=SimpleNamespace(is_set=MagicMock(return_value=False)),
         session=SimpleNamespace(
-            is_protocol_running=False, run_lockout=False, run_in_progress=False
+            is_protocol_running=False,
+            run_lockout=False,
+            run_in_progress=False,
+            # The Session's member, refusing through the real rule and
+            # recording the step it was asked to go to.
+            go_to_step=MagicMock(
+                side_effect=lambda protocol, step_idx: (
+                    scope.protocols.refuse_unaddressable_objectives(
+                        [protocol.step(idx=step_idx)['Objective']]
+                    )
+                )
+            ),
         ),
         stage=SimpleNamespace(draw_labware=MagicMock()),
         io_executor=object(),
@@ -144,8 +158,8 @@ def nav_env(monkeypatch):
     monkeypatch.setattr('modules.app_context.ctx', ctx)
 
     ui_helpers = MagicMock()
-    # The gesture runs at once, so what it would drive is seen.
-    ui_helpers.submit_gesture.side_effect = inline_submit_gesture(scope)
+    # The move runs at once, so what it would drive is seen.
+    ui_helpers.submit_move.side_effect = inline_submit_move
     monkeypatch.setitem(sys.modules, 'ui.ui_helpers', ui_helpers)
     monkeypatch.setitem(sys.modules, 'ui.layer_control', MagicMock())
     monkeypatch.setattr('ui.step_navigation._schedule_ui', lambda fn, t: fn(0))
@@ -158,9 +172,8 @@ def nav_env(monkeypatch):
         carried=carried,
         scope=scope,
         protocol_settings=protocol_settings,
-        move_absolute=scope.motion.move_absolute,
-        move_turret=scope.motion.move_turret,
-        refuse_unknown_positions=scope.motion.refuse_unknown_positions,
+        session_go_to_step=ctx.session.go_to_step,
+        layer_obj=layer_obj,
     )
 
 
@@ -194,20 +207,12 @@ class TestARefusedNavigationIsANoOp:
             'modify_step_ex would now fill that step from the live stage'
         )
 
-    def test_no_axis_moves(self, nav_env):
+    def test_the_layer_is_not_applied(self, nav_env):
+        """A refused navigation shows nothing of the step it did not reach."""
         _navigate(NOT_ON_TURRET)
 
-        assert nav_env.move_absolute.call_count == 0, (
-            f'a refused navigation moved the stage: {nav_env.move_absolute.call_args_list}'
-        )
-
-    def test_the_layer_settings_are_untouched(self, nav_env):
-        """A refused manual navigation must not load the step into the layer."""
-        before = dict(nav_env.ctx.settings['Green'])
-
-        _navigate(NOT_ON_TURRET)
-
-        assert nav_env.ctx.settings['Green'] == before
+        assert nav_env.layer_obj.apply_settings.call_count == 0
+        assert nav_env.layer_obj.set_step_state.call_count == 0
 
     def test_the_refusal_carries_the_admissibility_reason(self, nav_env):
         """Refused for the reason the run would give, not a navigation one."""
@@ -217,13 +222,8 @@ class TestARefusedNavigationIsANoOp:
         assert refusal.value.reason == 'turret_objectives_unassigned'
 
     def test_a_refused_navigation_does_not_propagate_to_its_caller(self, nav_env):
-        """The API told the user; a step button has nothing left to do.
-
-        go_to_step is also the run's navigation callback, so a raise here
-        would end a run over a refusal the engine already answered at
-        prepare().
-        """
-        _navigate(NOT_ON_TURRET, include_move=False)
+        """The reporter told the user; a step button has nothing left to do."""
+        _navigate(NOT_ON_TURRET)
 
 
 class TestAnAdmissibleNavigationStillWorks:
@@ -232,62 +232,31 @@ class TestAnAdmissibleNavigationStillWorks:
 
         assert nav_env.protocol_settings.curr_step == 1
 
-    def test_the_stage_moves(self, nav_env):
+    def test_the_session_is_asked_to_go_to_the_step(self, nav_env):
         _navigate(ON_TURRET, step_idx=1)
 
-        axes = [c.args[0] for c in nav_env.move_absolute.call_args_list]
-        assert axes == ['X', 'Y', 'Z'], f'axes moved: {axes}'
+        assert nav_env.session_go_to_step.call_count == 1
+        assert nav_env.session_go_to_step.call_args.args[1] == 1
 
-    def test_the_turret_moves_to_the_slot_that_carries_the_glass(self, nav_env):
-        _navigate(ON_TURRET, step_idx=1)
+    def test_an_index_before_the_first_step_is_the_sessions_to_refuse(self, nav_env):
+        """A typed 0 arrives as -1; the panel clears its pointer only for a
+        protocol with no steps, never for a number the protocol lacks."""
+        nav_env.session_go_to_step.side_effect = StepNotFoundError('The protocol has no step 0.')
 
-        # The step's own Z move follows, so the turret does not put Z back.
-        nav_env.move_turret.assert_called_once_with(1, restore_z=False)
+        _navigate(ON_TURRET, step_idx=-1)
 
-
-class TestTheSlotLookupCannotDisagreeWithTheRule:
-    def test_a_missing_slot_after_the_rule_passed_is_a_defect_not_a_move(self, nav_env):
-        """The rule and the lookup read the same store, so this cannot happen.
-
-        When it does, the two have disagreed and the honest answer is to
-        stop. The old code logged, raised a dialog, and then moved X, Y
-        and Z without the objective -- a capture through whatever glass
-        happened to be in the path, named for the glass the step asked
-        for.
-        """
-        nav_env.scope.motion.get_turret_position_for_objective_id = (
-            lambda objective_id, persisted_position=None: None
-        )
-
-        with pytest.raises(RuntimeError) as defect:
-            _navigate(ON_TURRET, step_idx=1)
-
-        assert 'slot' in str(defect.value).lower()
-        assert nav_env.move_absolute.call_count == 0, (
-            'the stage moved despite the turret having nowhere to go'
-        )
-
-
-class TestAnUnhomedNavigationIsANoOp:
-    """An axis that does not know its position refuses the navigation once,
-    before the pointer moves -- the same no-op as an unaddressable objective."""
-
-    def test_the_positions_are_asked_once_for_every_axis_before_anything_moves(self, nav_env):
-        nav_env.refuse_unknown_positions.side_effect = AxisStateUnknownError(
-            {'X': 'unknown'}, then='go to the step'
-        )
-
-        _navigate(ON_TURRET)
-
-        nav_env.refuse_unknown_positions.assert_called_once_with(
-            ('X', 'Y', 'Z', 'T'), recording=False, then='go to the step'
-        )
+        assert nav_env.session_go_to_step.call_args.args[1] == -1
         assert nav_env.protocol_settings.curr_step == 3
-        assert nav_env.move_absolute.call_count == 0
-        assert nav_env.move_turret.call_count == 0
 
-    def test_a_run_navigation_does_not_ask(self, nav_env):
-        """The run navigates with include_move=False; prepare() settled positions."""
+    def test_the_layer_is_applied_once_the_session_has_gone(self, nav_env):
+        _navigate(ON_TURRET, step_idx=1)
+
+        assert nav_env.layer_obj.apply_settings.call_args_list == [call(update_led=False)]
+
+
+class TestARunNavigationOnlyDisplays:
+    def test_a_run_navigation_asks_the_session_for_no_move(self, nav_env):
+        """The run navigates with include_move=False; it moved the scope itself."""
         import ui.step_navigation as step_navigation
 
         protocol = SimpleNamespace(
@@ -295,11 +264,10 @@ class TestAnUnhomedNavigationIsANoOp:
             step=MagicMock(return_value=_make_step(ON_TURRET)),
             step_list_revision=0,
         )
-        # The panel shows this protocol: a completed move lands only on the
-        # protocol and step list it was sent for.
         import modules.app_context as _app_ctx
 
         _app_ctx.ctx.motion_settings.ids['protocol_settings_id']._protocol = protocol
         step_navigation.go_to_step(protocol, step_idx=0, include_move=False)
 
-        nav_env.refuse_unknown_positions.assert_not_called()
+        nav_env.session_go_to_step.assert_not_called()
+        assert nav_env.protocol_settings.curr_step == 0

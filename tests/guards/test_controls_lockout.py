@@ -299,7 +299,7 @@ class TestGestureMotionFunnel:
 
     def test_all_three_movers_guard(self):
         src = (REPO_ROOT / 'ui' / 'ui_helpers.py').read_text()
-        for mover in ('move_relative', 'move_absolute', 'move_home', 'submit_gesture'):
+        for mover in ('move_relative', 'move_absolute', 'move_home', 'submit_move'):
             idx = src.find(f'def {mover}(')
             nxt = src.find('\ndef ', idx + 1)
             body = src[idx:nxt]

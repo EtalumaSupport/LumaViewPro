@@ -428,21 +428,43 @@ def submit_gesture(
         on_moved: GUI work that belongs to a gesture that happened, run on
             the GUI thread after the redraw and only when *moves* returned.
     """
+    axes = tuple(axes)
+
+    def call() -> None:
+        if axes:
+            _app_ctx.ctx.scope.motion.refuse_unknown_positions(axes, recording=False, then=then)
+        moves()
+
+    submit_move(label, axes=axes, call=call, on_moved=on_moved)
+
+
+def submit_move(
+    label: str,
+    *,
+    axes: typing.Iterable[str],
+    call: typing.Callable[[], None],
+    on_moved: typing.Callable[[], None] | None = None,
+) -> None:
+    """Run a person's move on the IO lane, redraw its axes, then its GUI work.
+
+    The lane half of ``submit_gesture``, for a move an API member composes
+    itself (asking about its axes included): the control-surface lock is
+    enforced here, *call* runs as one task on the IO lane, the axes are
+    redrawn once the task has ended whatever its outcome, and *on_moved*
+    runs on the GUI thread only when *call* returned.
+    """
     ctx = _app_ctx.ctx
     axes = tuple(axes)
     if _user_motion_locked(label):
         return
-    motion = ctx.scope.motion
     # Written on the lane, read by the redraw, which submit_reported runs
     # once after the task has ended: the one thing the redraw needs to know
     # about the outcome the reporter has already shown.
     moved = False
 
-    def call() -> None:
+    def moving() -> None:
         nonlocal moved
-        if axes:
-            motion.refuse_unknown_positions(axes, recording=False, then=then)
-        moves()
+        call()
         moved = True
 
     def redraw() -> None:
@@ -450,7 +472,7 @@ def submit_gesture(
         if moved and on_moved is not None:
             on_moved()
 
-    submit_reported(call, redraw, label, lane=ctx.io_executor)
+    submit_reported(moving, redraw, label, lane=ctx.io_executor)
 
 
 def _redraw_gesture_axes(axes: tuple[str, ...]) -> None:

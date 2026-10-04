@@ -39,6 +39,7 @@ from ui.ui_helpers import (
     set_writing_title,
     submit_reported,
     sync_layer_widgets_from_settings,
+    typed_number,
 )
 from ui.progress_popup import show_popup
 
@@ -821,36 +822,16 @@ class ProtocolSettings(FloatLayout):
     #
     def handle_step_ui_input_change(self) -> None:
         obj = self.ids['step_number_input']
-        # Captured before either path below rewrites the box.
         typed = obj.text
         gui_logger.text_input('STEP_NUMBER', typed)
-        try:
-            val = int(obj.text)
-        except ValueError:
-            num_steps = self._protocol.num_steps()
-            if num_steps < 1:
-                val = 0
-            else:
-                val = 1
-
-            obj.text = f'{val}'
+        val = typed_number(typed, int, self.update_step_ui_immediate)
+        if val is None:
             gui_logger.text_input('STEP_NUMBER_APPLIED', obj.text)
             return
-
-        num_steps = self._protocol.num_steps()
-        if num_steps < 1:
-            val = 0
-            obj.text = f'{val}'
-        elif val < 1:
-            val = 1
-            obj.text = f'{val}'
-        elif val > num_steps:
-            val = num_steps
-            obj.text = f'{val}'
-
-        if obj.text != typed:
-            gui_logger.text_input('STEP_NUMBER_APPLIED', obj.text)
-
+        # The box shows the current step until the move has landed, as it
+        # does after Prev and Next; a number the protocol has no step for is
+        # the Session's refusal, shown, and the box is already put back.
+        self.update_step_ui()
         self.go_to_step(step_idx=val - 1)
 
     def go_to_step(self, step_idx: int):

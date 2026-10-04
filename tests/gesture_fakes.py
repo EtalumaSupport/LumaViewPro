@@ -1,10 +1,10 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""``ui_helpers.submit_gesture`` run inline, for tests that fake the ui_helpers module.
+"""``ui_helpers.submit_gesture`` and ``submit_move`` run inline, for tests that fake ui_helpers.
 
-The real helper runs its task on the IO lane; its own contract is pinned by
-``tests/test_a_gesture_is_one_lane_task.py``. A test of a gesture's caller
-needs only the outcome: the axes asked once, the moves, and the caller's GUI
-work only when the moves went through.
+The real helpers run their task on the IO lane; their own contract is
+pinned by ``tests/test_a_gesture_is_one_lane_task.py``. A test of a
+gesture's caller needs only the outcome: the axes asked once, the moves,
+and the caller's GUI work only when the moves went through.
 """
 
 from __future__ import annotations
@@ -29,3 +29,15 @@ def inline_submit_gesture(scope) -> typing.Callable[..., None]:
             on_moved()
 
     return submit_gesture
+
+
+def inline_submit_move(label, *, axes, call, on_moved=None) -> None:
+    """A ``submit_move`` stand-in: *call* at once, then *on_moved* if it returned."""
+    try:
+        call()
+    except Exception:
+        # The real helper hands this to the reporter; the caller's GUI
+        # work does not run.
+        return
+    if on_moved is not None:
+        on_moved()

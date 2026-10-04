@@ -632,11 +632,11 @@ _UI_EXCEPT_PIN = {
     ('ui/protocol_settings.py', 'ConfigError'): 0,
     ('ui/protocol_settings.py', 'Exception'): 1,
     ('ui/protocol_settings.py', 'TypeError, ValueError'): 0,
-    ('ui/protocol_settings.py', 'ValueError'): 1,
+    ('ui/protocol_settings.py', 'ValueError'): 0,
     ('ui/scope_display.py', 'Exception'): 0,
     ('ui/shader.py', 'Exception'): 0,
     ('ui/stage.py', 'Exception'): 0,
-    ('ui/step_navigation.py', 'ProtocolRunRefusedError'): 1,
+    ('ui/step_navigation.py', 'ProtocolRunRefusedError'): 0,
     # The sim walk driver's own stop (a step it cannot perform), not an API
     # outcome; one catch where the driver runs a step (Eric, 2026-10-04).
     ('ui/sim_walk.py', 'WalkStepError'): 1,

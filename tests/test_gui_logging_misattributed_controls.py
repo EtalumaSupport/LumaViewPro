@@ -118,15 +118,16 @@ def test_a_togglebutton_site_compares_state_rather_than_passing_it():
         )
 
 
-def test_step_number_reports_the_value_it_was_clamped_to():
-    """Both coercing paths rewrite the box, so both owe an _APPLIED line."""
+def test_step_number_reports_the_value_it_was_put_back_to():
+    """The one path that rewrites the box -- an entry that is not a number,
+    put back -- owes an _APPLIED line. A number the protocol has no step for
+    is not rewritten: it is the Session's refusal, never a clamp."""
     fn = find_def(
         'ui/protocol_settings.py', 'handle_step_ui_input_change', class_name='ProtocolSettings'
     )
     applied = [
         c for c in _emitter_calls(fn) if c.args and 'STEP_NUMBER_APPLIED' in ast.unparse(c.args[0])
     ]
-    assert len(applied) == 2, (
-        'this handler rewrites the box on the unparseable path AND on the clamp '
-        f'path; both owe a corrected-value line, found {len(applied)}'
+    assert len(applied) == 1, (
+        f'this handler rewrites the box on the unparseable path only, found {len(applied)}'
     )

@@ -27,8 +27,7 @@ import pytest
 
 from modules.lumascope_api.protocols import ProtocolsAPI
 
-from modules.lumascope_api.illumination import LedTransition
-from tests.gesture_fakes import inline_submit_gesture
+from tests.gesture_fakes import inline_submit_move
 
 
 GREEN_LAYER_SETTINGS = {
@@ -119,7 +118,12 @@ def stepnav_env(monkeypatch):
         scope=scope,
         protocol_running=SimpleNamespace(is_set=MagicMock(return_value=False)),
         session=SimpleNamespace(
-            is_protocol_running=False, run_lockout=False, run_in_progress=False
+            is_protocol_running=False,
+            run_lockout=False,
+            run_in_progress=False,
+            # The Session's member: the moves, the layer write and the LED
+            # preview are its (tests/test_going_to_a_step_is_the_sessions_move.py).
+            go_to_step=MagicMock(),
         ),
         stage=SimpleNamespace(draw_labware=MagicMock()),
         io_executor=object(),
@@ -127,10 +131,10 @@ def stepnav_env(monkeypatch):
     monkeypatch.setattr('modules.app_context.ctx', ctx)
     # ui.ui_helpers and ui.layer_control pull kivy submodules the conftest
     # kivy mock cannot provide; go_to_step defers both imports, so
-    # module-boundary stubs suffice. The gesture runs at once, so the LED
-    # command it carries is seen.
+    # module-boundary stubs suffice. The move runs at once, so what follows
+    # it is seen.
     ui_helpers = MagicMock()
-    ui_helpers.submit_gesture.side_effect = inline_submit_gesture(scope)
+    ui_helpers.submit_move.side_effect = inline_submit_move
     monkeypatch.setitem(sys.modules, 'ui.ui_helpers', ui_helpers)
     monkeypatch.setitem(sys.modules, 'ui.layer_control', MagicMock())
     # Run scheduled UI callbacks inline so the closures under test execute.
@@ -170,24 +174,20 @@ class TestStepNavPreviewRespectsLedEnable:
         _run_manual_nav(stepnav_env)
         assert stepnav_env.layer_obj.ids['enable_led_btn'].state == 'normal'
 
-    def test_preview_still_lights_via_authority_transition(self, stepnav_env):
-        """Removing the widget write must NOT remove the preview: the
-        MANUAL_STEP transition is the one LED command."""
+    def test_the_gui_issues_no_led_command_of_its_own(self, stepnav_env):
+        """The preview is the Session's one LED command, inside its go_to_step;
+        the GUI asks the Session once and lights nothing itself."""
         _run_manual_nav(stepnav_env)
-        apply_transition = stepnav_env.ctx.scope.illumination.apply_transition
-        assert apply_transition.call_count == 1
-        # The one LED command rides the step's gesture on the IO lane; with
-        # no motor board the gesture moves no axis.
-        gesture = sys.modules['ui.ui_helpers'].submit_gesture
-        assert gesture.call_count == 1
-        assert gesture.call_args.kwargs['axes'] == ()
-        transition, led_ctx = apply_transition.call_args.args
-        assert transition is LedTransition.MANUAL_STEP
-        assert led_ctx.preview_on is True
+        assert stepnav_env.ctx.scope.illumination.apply_transition.call_count == 0
+        assert stepnav_env.ctx.session.go_to_step.call_count == 1
+        # The move rides the IO lane; with no motor board no axis is redrawn.
+        move = sys.modules['ui.ui_helpers'].submit_move
+        assert move.call_count == 1
+        assert move.call_args.kwargs['axes'] == ()
 
     def test_apply_settings_cannot_rederive_led_from_widget(self, stepnav_env):
-        """apply_settings must receive update_led=False in the preview
-        branch, so the widget can never act as an LED command channel."""
+        """apply_settings must receive update_led=False once the Session has
+        gone, so the widget can never act as an LED command channel."""
         _run_manual_nav(stepnav_env)
         assert stepnav_env.layer_obj.apply_settings.call_count == 1
         assert stepnav_env.layer_obj.apply_settings.call_args.kwargs['update_led'] is False
@@ -201,5 +201,5 @@ def test_a_step_click_on_a_scope_with_no_motor_board_warns_nothing(stepnav_env, 
     with caplog.at_level(logging.WARNING, logger='LVP.ui.step_navigation'):
         _run_manual_nav(stepnav_env)
 
-    assert stepnav_env.ctx.scope.illumination.apply_transition.call_count == 1
+    assert stepnav_env.ctx.session.go_to_step.call_count == 1
     assert [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING] == []

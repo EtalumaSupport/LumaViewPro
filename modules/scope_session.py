@@ -48,11 +48,13 @@ from modules.exceptions import (
     ScopeModelUnknownError,
     SettingsSaveRefusedError,
 )
+from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.manual_capture import ManualCaptureController
 from modules.manual_recording import ManualRecordingController
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
 from modules.run_outcome import PendingRunOutcome, RunEnding
 from modules.scheduler import Scheduler, ThreadingTimerScheduler
+from modules.sequential_io_executor import IOTask
 
 # How long a diagnostic's end waits for a run it lent its claim to. The
 # window of one autofocus inside a characterization. Per
@@ -87,6 +89,7 @@ if TYPE_CHECKING:
     from modules.lumascope_api.imaging import AutoGainLock
     from modules.objectives_loader import ObjectiveLoader
     from modules.protocol import Protocol, ProtocolSizeAdvisory
+    from modules.lumascope_api.protocols import StepTargets
     from modules.protocol_runner import ProtocolRunner
     from modules.sequential_io_executor import SequentialIOExecutor
 
@@ -244,6 +247,11 @@ class ScopeSession:
         # or re-read the level-derivation properties below -- never
         # acquire engine locks or trust edge context.
         self._run_state_listeners: list = []
+        # The step the last go_to_step previewed, as (protocol, index): a
+        # repeat of it is a re-click, whose preview would put out a channel
+        # the person lit in between. Forgotten at every run transition, so
+        # the first click after a run previews whatever the run left.
+        self._last_step_gone_to: tuple | None = None
         # Outcome listeners this session registered on the notification
         # centre, so its shutdown takes back exactly what it gave.
         self._outcome_listeners: list = []
@@ -567,6 +575,7 @@ class ScopeSession:
         """
         from modules.notification_center import notifications
 
+        self._last_step_gone_to = None
         for listener in list(self._run_state_listeners):
             try:
                 listener()
@@ -1278,10 +1287,14 @@ class ScopeSession:
         if mode is not None:
             self._refuse_layer_not_on_scope(layer, then='be set to acquire')
         with self.settings_lock:
-            self.settings[layer]['acquire'] = mode
-            stim = self.settings[layer].get('stim_config')
-            if mode is not None and stim is not None:
-                stim['enabled'] = False
+            self._write_layer_acquire(layer, mode)
+
+    def _write_layer_acquire(self, layer: str, mode: 'str | None') -> None:
+        """Under ``settings_lock``: ``layer`` acquires ``mode``, and stops stimulating if it does."""
+        self.settings[layer]['acquire'] = mode
+        stim = self.settings[layer].get('stim_config')
+        if mode is not None and stim is not None:
+            stim['enabled'] = False
 
     def set_layer_auto_gain(self, layer: str, enabled: bool) -> 'AutoGainLock | None':
         """Turn a layer's auto-gain on or off, as the GUI's Auto Gain/Exp box does.
@@ -1574,6 +1587,152 @@ class ScopeSession:
         """
         self.scope.protocols.apply_zstacking(
             protocol, range_um=range_um, step_size_um=step_size_um, z_reference=z_reference
+        )
+
+    def go_to_step(self, protocol: 'Protocol', step_idx: int) -> None:
+        """Go to step ``step_idx`` of ``protocol``, as a click on a step does.
+
+        One task on the scope's IO lane: the axes are asked once whether
+        they know their position; the turret turns to the step's objective
+        and X, Y and Z move to the step, on the protocol's own plate
+        (``ProtocolsAPI.step_targets``, the targets a run computes; the
+        moves are commanded, not waited out); the step's values go into its
+        layer's live settings, the layer acquiring as the step does and its
+        focus at the step's Z, so the layer and the step agree; and the
+        step's LED preview is applied -- its channel at its current when
+        ``protocol_led_on`` is set, every channel dark when not. A scope
+        with no motor board moves nothing and does the rest.
+
+        A repeat of the step this session last went to (a re-click, a
+        re-typed number) does everything but the preview: a channel the
+        person lit or put out in between stays as they left it.
+
+        Raises:
+            StepNotFoundError: ``step_idx`` is not a step of ``protocol``.
+                Nothing changes.
+            ProtocolRunRefusedError: this scope cannot put the step's
+                objective in the light path. Nothing changes.
+            ConfigError: this scope has no layer of the step's colour, or
+                the step's stimulation names a layer this release has not.
+                Nothing changes.
+            AxisStateUnknownError: an axis the step moves does not know
+                its position. Nothing changes.
+            HardwareCommandRefusedError: a run or a diagnostic holds the
+                scope. Nothing changes.
+            PositionOutOfRangeError: the step lies outside an axis's travel;
+                the axes before it have moved, nothing else changes.
+        """
+        step = protocol.step(idx=step_idx)
+        self.scope.protocols.refuse_unaddressable_objectives([step['Objective']])
+        self._refuse_layer_not_on_scope(step['Color'], then='be gone to')
+        stim_configs = step.get('Stim_Config')
+        if isinstance(stim_configs, dict):
+            unknown = sorted(set(stim_configs) - set(common_utils.get_layers()))
+            if unknown:
+                raise ConfigError(
+                    f'step {step_idx} stimulates {unknown}, not layers; '
+                    f'the layers are {common_utils.get_layers()}'
+                )
+        # Converted here, from the step read above, so the lane moves to the
+        # step this call was made for whatever the list holds by then.
+        targets = (
+            self.scope.protocols.step_targets(protocol, step_idx)
+            if self.scope.motor_connected
+            else None
+        )
+        # Every member inside bounds its own wait, so the task has no bound
+        # of its own to add.
+        self.io_executor.call(
+            IOTask(action=self._go_to_step_on_lane, args=(protocol, step_idx, step, targets)),
+            'go_to_step',
+            timeout_s=None,
+        )
+
+    def _go_to_step_on_lane(
+        self, protocol: 'Protocol', step_idx: int, step, targets: 'StepTargets | None'
+    ) -> None:
+        """The lane half of ``go_to_step``: ask once, move, load the layer, preview."""
+        if targets is not None:
+            motion = self.scope.motion
+            # The turret included: a failed turret home leaves T unknown
+            # while the stage axes still know theirs.
+            motion.refuse_unknown_positions(
+                self.scope.capabilities.axes, recording=False, then='go to the step'
+            )
+            if targets.turret_slot is not None:
+                # The step's own Z move follows, so the turret need not put Z back.
+                motion.move_turret(targets.turret_slot, restore_z=False)
+            motion.move_absolute('X', targets.x)
+            motion.move_absolute('Y', targets.y)
+            motion.move_absolute('Z', targets.z)
+        self._load_step_into_layer(step)
+        last = self._last_step_gone_to
+        self._last_step_gone_to = (protocol, step_idx)
+        if last is not None and last[0] is protocol and last[1] == step_idx:
+            return
+        # After the step's moves, in the same task: a toggle the person
+        # makes while the stage travels lands after the step's preview.
+        self.scope.illumination.apply_transition(
+            LedTransition.MANUAL_STEP, self._step_led_ctx(step)
+        )
+
+    def _load_step_into_layer(self, step) -> None:
+        """The step's values into its layer's live settings, under ``settings_lock``.
+
+        A run never writes here: it reads its steps from the protocol, and
+        the person's live-view configuration is theirs to keep across it.
+        The step's config dicts are copied; the protocol owns them. The
+        layer's focus takes the step's Z, so its Goto Focus lands where the
+        step was set up. A step's stimulation spans every layer it names,
+        and each takes its own.
+        """
+        color = step['Color']
+        layer_values = {
+            'autofocus': step['Auto_Focus'],
+            'false_color': step['False_Color'],
+            'illumination_ma': step['Illumination'],
+            'gain_db': step['Gain'],
+            'auto_gain': step['Auto_Gain'],
+            'exposure_ms': step['Exposure'],
+            'sum': step['Sum'],
+            'focus': step['Z'],
+        }
+        video_config = step.get('Video Config')
+        if isinstance(video_config, dict):
+            layer_values['video_config'] = copy.deepcopy(video_config)
+        stim_configs = step.get('Stim_Config')
+        with self.settings_lock:
+            self.settings[color].update(layer_values)
+            self._write_layer_acquire(color, step['Acquire'])
+            if isinstance(stim_configs, dict):
+                for stim_layer, stim_config in stim_configs.items():
+                    self.settings[stim_layer]['stim_config'] = copy.deepcopy(stim_config)
+
+    def _step_led_ctx(self, step) -> LedTransitionCtx:
+        """The step's LED preview: its channel when the preview is on, all dark when off.
+
+        The MANUAL_STEP transition diffs this against the LEDs' cached
+        state, so it clears a lit channel of another colour without
+        blinking a same-colour one. Outside a run nothing holds the LED
+        lease, so the transition goes through the lease-free
+        ``apply_transition``.
+        """
+        color = step['Color']
+        channel = self.scope.illumination.color2ch(color)
+        if (
+            channel is None
+            and self.scope.led_connected
+            and color in common_utils.get_layers_with_led()
+        ):
+            # A step of a layer this unit's identity lacks would otherwise
+            # just not light, with nothing anywhere naming why.
+            logger.warning(
+                f"[Session  ] This scope has no '{color}' LED channel; preview will not light."
+            )
+        return LedTransitionCtx(
+            channel=channel,
+            illumination_ma=step['Illumination'],
+            preview_on=self.settings['protocol_led_on'],
         )
 
     def protocol_size_advisory(self, protocol: 'Protocol') -> 'ProtocolSizeAdvisory | None':

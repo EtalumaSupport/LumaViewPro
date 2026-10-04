@@ -74,21 +74,6 @@ def _make_step():
     }
 
 
-# The settings key each step column lands in under manual navigation.
-STEP_TO_SETTINGS = {
-    'Auto_Focus': 'autofocus',
-    'False_Color': 'false_color',
-    'Illumination': 'illumination_ma',
-    'Gain': 'gain_db',
-    'Auto_Gain': 'auto_gain',
-    'Exposure': 'exposure_ms',
-    'Sum': 'sum',
-    'Acquire': 'acquire',
-    'Z': 'focus',
-    'Video Config': 'video_config',
-}
-
-
 def _go_to_step(step, *, include_move=True):
     import ui.step_navigation as step_navigation
 
@@ -124,35 +109,23 @@ class TestRunNavigationLeavesLayerSettingsAlone:
         assert env.layer_obj.set_step_state.call_count == 0
 
 
-class TestManualNavigationLoadsTheStepIntoTheLayer:
-    def test_manual_navigation_loads_the_step_into_the_layer(self, stepnav_env):
-        """Manual navigation writes all eleven keys, the two config dicts as
-        deep copies, and the write lands BEFORE the layer's settings are
-        applied (apply_settings reads the settings)."""
+class TestManualNavigationWritesNothingInTheGui:
+    def test_the_write_is_the_sessions_and_the_apply_follows_it(self, stepnav_env):
+        """A person's navigation writes the step into its layer inside
+        ``ScopeSession.go_to_step`` (every key, the config dicts as copies:
+        tests/test_going_to_a_step_is_the_sessions_move.py); the GUI writes
+        no setting itself and applies the layer only once the Session has
+        gone, so the apply reads the step's values."""
         env = stepnav_env
-        seen_at_outcome = {}
+        before = copy.deepcopy(env.ctx.settings['Green'])
+        order = []
+        env.ctx.session.go_to_step.side_effect = lambda protocol, step_idx: order.append('session')
+        env.layer_obj.apply_settings.side_effect = lambda **kwargs: order.append('apply')
 
-        def _record_outcome(**kwargs):
-            seen_at_outcome.update(copy.deepcopy(env.ctx.settings['Green']))
+        _go_to_step(_make_step())
 
-        env.layer_obj.apply_settings.side_effect = _record_outcome
-        step = _make_step()
-
-        _go_to_step(step)
-
-        green = env.ctx.settings['Green']
-        for column, key in STEP_TO_SETTINGS.items():
-            assert green[key] == step[column], f"{key} did not take the step's {column}"
-        assert green['stim_config'] == step['Stim_Config']['Green']
-        assert seen_at_outcome, 'the manual-nav outcome must be applied'
-        assert seen_at_outcome == green, 'the settings write must precede the outcome'
-
-        # Deep copies: the step's dicts are the protocol's; mutating them
-        # afterwards must not reach into the user's settings.
-        step['Video Config']['duration'] = 999
-        step['Stim_Config']['Green']['illumination_ma'] = 999
-        assert green['video_config']['duration'] == 30
-        assert green['stim_config']['illumination_ma'] == 200
+        assert env.ctx.settings['Green'] == before, 'the GUI wrote a setting itself'
+        assert order == ['session', 'apply']
 
 
 # Every widget id set_step_state writes, with the attribute it writes.

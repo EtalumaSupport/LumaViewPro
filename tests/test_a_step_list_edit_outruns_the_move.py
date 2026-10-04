@@ -135,13 +135,14 @@ class _Panel(ps.ProtocolSettings):
 def env(monkeypatch):
     held = []
 
-    def submit_gesture(label, *, axes, then, moves, on_moved=None):
-        held.append(on_moved)
+    def submit_move(label, *, axes, call, on_moved=None):
+        held.append((call, on_moved))
 
+    # The X of each step the Session was asked to go to, in the order the
+    # lane ran them: a superseded click never reaches it.
     loaded = []
-    monkeypatch.setattr(ui_helpers, 'submit_gesture', submit_gesture)
+    monkeypatch.setattr(ui_helpers, 'submit_move', submit_move)
     monkeypatch.setattr(nav, '_schedule_ui', lambda fn, timeout: None)
-    monkeypatch.setattr(nav, '_load_step_into_layer', lambda **kw: loaded.append(kw['step']['X']))
     monkeypatch.setattr(nav, 'go_to_step_update_ui', lambda step: None)
     monkeypatch.setattr(ps.gui_logger, 'protocol_action', lambda *a, **kw: None)
     monkeypatch.setattr(ps.gui_logger, 'text_input', lambda *a, **kw: None)
@@ -180,6 +181,7 @@ def env(monkeypatch):
         session=SimpleNamespace(
             is_protocol_running=False,
             run_lockout=False,
+            go_to_step=lambda protocol, step_idx: loaded.append(protocol.step(idx=step_idx)['X']),
             add_step=add_step,
             delete_step=lambda protocol, step_idx: protocol.delete_step(step_idx=step_idx),
             rename_step=lambda protocol, step_idx, name: protocol.modify_name(
@@ -199,9 +201,10 @@ def env(monkeypatch):
         return p
 
     def land(count=None):
-        """Let the held moves complete, oldest first."""
+        """Let the held moves run and complete, oldest first."""
         while held and (count is None or count > 0):
-            on_moved = held.pop(0)
+            call, on_moved = held.pop(0)
+            call()
             on_moved()
             if count is not None:
                 count -= 1

@@ -1,10 +1,11 @@
 """P07 -- right-click the stage to jump to the nearest protocol step.
 
-GUI entry: ui/stage.py:147 on_touch_down, right-button branch ->
-ui/ui_helpers.py:133 find_nearest_step -> ui/step_navigation.py:24 go_to_step.
+GUI entry: ui/stage.py on_touch_down, right-button branch ->
+ui/ui_helpers.py find_nearest_step -> ui/step_navigation.py go_to_step ->
+ScopeSession.go_to_step.
 """
 
-from harness import check, run, void
+from harness import check, run
 
 import modules.config_helpers as config_helpers
 
@@ -14,25 +15,10 @@ def body(s):
     m.home('ALL')
     s.select_labware('96 well microplate')
 
-    # --- is there an API member for interactive step navigation? ---
-    names = []
-    for holder, label in (
-        (s, 'ScopeSession'),
-        (s.scope, 'Lumascope'),
-        (m, 'MotionAPI'),
-        (s.scope.protocols, 'ProtocolsAPI'),
-    ):
-        names += [
-            f'{label}.{n}'
-            for n in dir(holder)
-            if ('go_to' in n.lower() or 'goto' in n.lower() or 'nearest' in n.lower())
-            and not n.startswith('_')
-        ]
-    void(
-        'a script can go to a protocol step through one API member',
-        bool(names),
-        'ui/step_navigation.py go_to_step is the only implementation: it moves XYZ, '
-        'then applies the step turret, LED, gain and exposure',
+    # --- the API member for interactive step navigation ---
+    check(
+        'a script can go to a protocol step through one Session member',
+        callable(getattr(s, 'go_to_step', None)),
     )
 
     # --- find_nearest_step IS a modules-level function, reachable headless ---
@@ -68,12 +54,11 @@ def body(s):
     check('find_nearest_step resolves a click to a step index', idx >= 0, f'idx={idx}')
 
     step = protocol.step(idx=idx)
-    m.move_absolute('X', float(step['X']), frame='plate', wait_until_complete=True)
-    m.move_absolute('Y', float(step['Y']), frame='plate', wait_until_complete=True)
-    m.move_absolute('Z', float(step['Z']), wait_until_complete=True)
+    s.go_to_step(protocol, idx)
+    m.wait_until_finished_moving()
     here = s.get_current_plate_position()
     check(
-        'a script can MOVE to the nearest step by hand',
+        'a script can go to the nearest step through the Session',
         abs(here['x'] - float(step['X'])) < 0.05 and abs(here['y'] - float(step['Y'])) < 0.05,
         f'step=({step["X"]},{step["Y"]},{step["Z"]}) arrived=({here["x"]:.2f},{here["y"]:.2f},'
         f'{m.get_current_position("Z"):.1f})',

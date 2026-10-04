@@ -32,6 +32,6 @@ def test_going_to_a_step_asks_the_camera_nothing(nav_env):
 
     _navigate(ON_TURRET)
 
-    assert nav_env.move_absolute.call_count > 0, 'the navigation never reached its moves'
+    assert nav_env.session_go_to_step.call_count > 0, 'the navigation never reached its move'
     assert imaging.get_gain_db.call_count == 0, 'go_to_step read the gain from the camera'
     assert imaging.get_exposure_ms.call_count == 0, 'go_to_step read the exposure from the camera'

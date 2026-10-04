@@ -32,7 +32,7 @@ from unittest.mock import MagicMock, call
 
 import pytest
 
-from modules.lumascope_api.illumination import LedTransition
+from tests.ast_seams import parse_module
 from tests.test_issue_733_step_nav_preview_led_button import (  # noqa: F401 -- stepnav_env is a fixture
     _make_step,
     stepnav_env,
@@ -41,6 +41,7 @@ from tests.test_issue_733_step_nav_preview_led_button import (  # noqa: F401 -- 
 _UI_DIR = pathlib.Path(__file__).resolve().parents[1] / 'ui'
 _NAV_SRC = (_UI_DIR / 'step_navigation.py').read_text()
 _NAV_TREE = ast.parse(_NAV_SRC)
+_SESSION_TREE = parse_module('modules/scope_session.py')
 _IMG_SRC = (_UI_DIR / 'image_settings.py').read_text()
 _IMG_TREE = ast.parse(_IMG_SRC)
 
@@ -75,12 +76,12 @@ def _find_function(tree, name):
 # ---------------------------------------------------------------------------
 
 
-def _run_nav(env, preview_on, step_changed=True):
+def _run_nav(env, preview_on):
     """The real go_to_step for a person's click on step 0 of a one-step protocol."""
     import ui.step_navigation as step_navigation
 
     env.ctx.settings['protocol_led_on'] = preview_on
-    env.ctx.motion_settings.ids['protocol_settings_id'].curr_step = 0 if not step_changed else 5
+    env.ctx.motion_settings.ids['protocol_settings_id'].curr_step = 5
     step = {**_make_step(), 'Illumination': 250.0}
     protocol = SimpleNamespace(
         num_steps=MagicMock(return_value=1),
@@ -92,7 +93,6 @@ def _run_nav(env, preview_on, step_changed=True):
     import modules.app_context as _app_ctx
 
     _app_ctx.ctx.motion_settings.ids['protocol_settings_id']._protocol = protocol
-    env.ctx.scope.illumination.color2ch.return_value = 7
     env.ctx.scope.illumination.led_off = MagicMock()
     step_navigation.go_to_step(protocol, step_idx=0, include_move=True)
     return env.ctx.scope.illumination, env.layer_obj
@@ -102,49 +102,46 @@ def _run_nav(env, preview_on, step_changed=True):
 _THE_APPLY = [call(update_led=False)]
 
 
-def test_preview_on_nav_fires_one_authority_transition_and_no_button_read(stepnav_env):
-    ill, layer_obj = _run_nav(stepnav_env, preview_on=True)
-    assert ill.apply_transition.call_count == 1
-    transition, led_ctx = ill.apply_transition.call_args.args
-    assert transition is LedTransition.MANUAL_STEP
-    assert led_ctx.preview_on is True
-    assert led_ctx.channel == 7
-    assert led_ctx.illumination_ma == 250.0
+@pytest.mark.parametrize('preview_on', [True, False])
+def test_nav_applies_the_camera_once_and_drives_no_led_itself(stepnav_env, preview_on):
+    """Whatever the preview state, the GUI's part is one settings apply with
+    no LED intent read from the button, and no LED command of its own: the
+    preview is the Session's, inside its go_to_step
+    (tests/test_going_to_a_step_is_the_sessions_move.py)."""
+    ill, layer_obj = _run_nav(stepnav_env, preview_on=preview_on)
+    assert ill.apply_transition.call_count == 0
     assert ill.led_off.call_count == 0, 'nav must not queue its own led_off'
-    assert layer_obj.apply_settings.call_args_list == _THE_APPLY
-    assert layer_obj.ids['enable_led_btn'].state == 'normal'
-
-
-def test_preview_off_nav_goes_dark_via_authority_and_still_applies_camera(stepnav_env):
-    ill, layer_obj = _run_nav(stepnav_env, preview_on=False)
-    assert ill.apply_transition.call_count == 1
-    transition, led_ctx = ill.apply_transition.call_args.args
-    assert transition is LedTransition.MANUAL_STEP
-    assert led_ctx.preview_on is False, 'preview OFF must reach the authority as all-dark'
+    assert stepnav_env.ctx.session.go_to_step.call_count == 1
     # Camera + histogram no longer depend on the accordion reconcile:
     # protocol=False runs the camera block and histogram sync;
     # update_led=False keeps the enable button out of it.
     assert layer_obj.apply_settings.call_args_list == _THE_APPLY
+    assert layer_obj.ids['enable_led_btn'].state == 'normal'
 
 
-def test_same_step_reselection_leaves_the_led_alone(stepnav_env):
-    ill, layer_obj = _run_nav(stepnav_env, preview_on=True, step_changed=False)
-    assert ill.apply_transition.call_count == 0, (
-        're-selecting the current step must not re-drive the LED '
-        '(a user-darkened channel stays dark)'
-    )
-    assert layer_obj.apply_settings.call_count == 1, 'camera settings still apply'
+def _reads_protocol_led_on(node) -> bool:
+    return any(isinstance(n, ast.Constant) and n.value == 'protocol_led_on' for n in ast.walk(node))
 
 
 def test_go_to_step_no_longer_gates_the_authority_on_protocol_led_on():
-    """Source pin: protocol_led_on decides only preview_on inside the step's
-    LED context; it is no longer the gate for whether the authority runs."""
-    go_src = ast.get_source_segment(_NAV_SRC, _find_function(_NAV_TREE, 'go_to_step'))
-    assert 'protocol_led_on' not in go_src, (
-        'go_to_step must not branch the authority call on protocol_led_on'
-    )
-    led_src = ast.get_source_segment(_NAV_SRC, _find_function(_NAV_TREE, '_step_led_ctx'))
-    assert "preview_on=settings['protocol_led_on']" in led_src
+    """protocol_led_on decides only preview_on inside the step's LED context;
+    it is no longer the gate for whether the authority runs. The context is
+    built by the Session, where the navigation now lives."""
+    for name in ('go_to_step', '_go_to_step_on_lane'):
+        fn = _find_function(_SESSION_TREE, name)
+        branches = [
+            n for n in ast.walk(fn) if isinstance(n, ast.If) and _reads_protocol_led_on(n.test)
+        ]
+        assert branches == [], f'{name} branches on protocol_led_on'
+    led_ctx = _find_function(_SESSION_TREE, '_step_led_ctx')
+    preview_on = [
+        kw.value
+        for n in ast.walk(led_ctx)
+        if isinstance(n, ast.Call)
+        for kw in n.keywords
+        if kw.arg == 'preview_on'
+    ]
+    assert len(preview_on) == 1 and _reads_protocol_led_on(preview_on[0])
 
 
 # ---------------------------------------------------------------------------
@@ -368,24 +365,25 @@ def test_wrapper_go_to_step_requires_an_explicit_target():
     assert required_count >= 2, 'step_idx must have no default value'
 
 
-def test_module_go_to_step_compares_before_writing_the_store():
-    """Ordering invariant inside the navigation module: step_changed is
-    computed from curr_step at the click, BEFORE the gesture's GUI work
-    overwrites curr_step with the target; computing it after the write
-    silently kills every LED preview transition."""
-    fn = _find_function(_NAV_TREE, 'go_to_step')
-    compare_idx = write_idx = None
+def test_the_sessions_repeat_rule_is_decided_before_the_step_is_recorded():
+    """Ordering invariant inside the Session's lane half: the last step gone
+    to is read BEFORE this navigation overwrites it; reading it after would
+    find this very step and silently skip every preview."""
+    fn = _find_function(_SESSION_TREE, '_go_to_step_on_lane')
+    read_idx = write_idx = None
     for idx, stmt in enumerate(fn.body):
-        if isinstance(stmt, ast.Assign) and any(
-            isinstance(t, ast.Name) and t.id == 'step_changed' for t in stmt.targets
-        ):
-            compare_idx = idx
-        writes_pointer = any(
-            isinstance(node, ast.Assign)
-            and any(isinstance(t, ast.Attribute) and t.attr == 'curr_step' for t in node.targets)
-            for node in ast.walk(stmt)
-        )
-        if isinstance(stmt, ast.FunctionDef) and stmt.name == 'on_moved' and writes_pointer:
-            write_idx = idx
-    assert compare_idx is not None and write_idx is not None
-    assert compare_idx < write_idx, 'step_changed must be computed before curr_step is overwritten'
+        if isinstance(stmt, ast.Assign):
+            is_read = any(
+                isinstance(node, ast.Attribute) and node.attr == '_last_step_gone_to'
+                for node in ast.walk(stmt.value)
+            )
+            is_write = any(
+                isinstance(t, ast.Attribute) and t.attr == '_last_step_gone_to'
+                for t in stmt.targets
+            )
+            if is_read and read_idx is None:
+                read_idx = idx
+            if is_write:
+                write_idx = idx
+    assert read_idx is not None and write_idx is not None
+    assert read_idx < write_idx, 'the last step must be read before it is overwritten'
