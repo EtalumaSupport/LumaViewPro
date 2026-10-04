@@ -384,18 +384,17 @@ class TestCaptureOrder:
 # ---------------------------------------------------------------------------
 
 
-_SEQUENCE_ACQUIRING = ('BF', 'Blue', 'Green', 'Lumi')
+_SEQUENCE_ACQUIRING = ('BF', 'Blue', 'Green')
 
 # Luminescence is emitted BY the sample; illuminating it is the one thing
 # that destroys the measurement. It is also the only acquiring channel
 # with no LED behind it, so it is the channel a run must capture DARK.
+# Only a scope with a Lumi layer acquires it: the Lumi model.
 _LUMINESCENCE = 'Lumi'
+_LUMINESCENT_ACQUIRING = ('BF', _LUMINESCENCE)
 
 
-@pytest.fixture
-def sequenced_composite(tmp_path, monkeypatch):
-    """A composite whose LED writes and frame grabs share one timeline."""
-    settings = headless_settings(tmp_path, acquiring=_SEQUENCE_ACQUIRING)
+def _sequenced_run(tmp_path, monkeypatch, settings):
     expected = get_composite_channels(settings)
     with open_composite_session(settings) as (session, runner):
         events = _record_led_commands(monkeypatch, session)
@@ -406,6 +405,22 @@ def sequenced_composite(tmp_path, monkeypatch):
             'events': events,
             'run_dir': single_run_dir(tmp_path),
         }
+
+
+@pytest.fixture
+def sequenced_composite(tmp_path, monkeypatch):
+    """A composite whose LED writes and frame grabs share one timeline."""
+    yield from _sequenced_run(
+        tmp_path, monkeypatch, headless_settings(tmp_path, acquiring=_SEQUENCE_ACQUIRING)
+    )
+
+
+@pytest.fixture
+def luminescent_composite(tmp_path, monkeypatch):
+    """The same timeline on a scope that has a luminescence layer."""
+    settings = headless_settings(tmp_path, acquiring=_LUMINESCENT_ACQUIRING)
+    settings['microscope'] = 'Lumi'
+    yield from _sequenced_run(tmp_path, monkeypatch, settings)
 
 
 def _replay(events):
@@ -455,25 +470,29 @@ class TestOneChannelAtATime:
                 f'{channel} was never extinguished after its capture: {timeline}'
             )
 
-    def test_luminescence_is_never_lit(self, sequenced_composite):
+
+class TestLuminescence:
+    """A luminescence channel is captured dark, and still captured."""
+
+    def test_luminescence_is_never_lit(self, luminescent_composite):
         # A luminescence channel measures light the sample emits; driving
         # an LED during that step does not merely add background, it
         # swamps the signal the step exists to record.
-        for kind, color, illumination_ma in sequenced_composite['events']:
+        for kind, color, illumination_ma in luminescent_composite['events']:
             assert not (kind == 'on' and color == _LUMINESCENCE), (
                 f'the run drove the luminescence channel on at {illumination_ma} mA'
             )
 
-    def test_luminescence_still_contributes_a_frame(self, sequenced_composite):
+    def test_luminescence_still_contributes_a_frame(self, luminescent_composite):
         # Not lighting it is not the same as skipping it: the merge needs
         # the dark-field emission frame, and a step silently dropped for
         # having no LED would leave the composite a channel short.
-        assert _LUMINESCENCE in sequenced_composite['expected'], (
+        assert _LUMINESCENCE in luminescent_composite['expected'], (
             'the config assembly dropped the luminescence channel'
         )
-        assert _frame_channels(sequenced_composite['run_dir'], (_LUMINESCENCE,)) == {
+        assert _frame_channels(luminescent_composite['run_dir'], (_LUMINESCENCE,)) == {
             _LUMINESCENCE
         }, (
             'the luminescence step wrote no frame: '
-            f'{sorted(p.name for p in sequenced_composite["run_dir"].glob("*.tiff"))}'
+            f'{sorted(p.name for p in luminescent_composite["run_dir"].glob("*.tiff"))}'
         )

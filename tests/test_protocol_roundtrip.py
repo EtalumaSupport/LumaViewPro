@@ -525,7 +525,6 @@ class TestRoundTripBasic:
         assert proto.labware() == '384 well microplate'
 
         errors = proto.validate_for_run(
-            axes=('X', 'Y', 'Z'),
             objective_helper=ObjectiveLoader(),
             wellplate_loader=WellPlateLoader(),
             led_max_ma=1000,
@@ -935,12 +934,8 @@ class TestValidation:
     """Protocol validation catches bad configs before execution."""
 
     def test_invalid_video_config_not_dict(self):
-        steps = [_make_step(acquire='video', video_config='not a dict')]
-        proto = _build_protocol(steps)
-        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
-        assert any('Video Config' in e for e in errors), (
-            f'Expected Video Config error, got: {errors}'
-        )
+        with pytest.raises(ProtocolFormatError, match='Video Config'):
+            _build_protocol([_make_step(acquire='video', video_config='not a dict')])
 
     def test_invalid_color(self):
         steps = [_make_step(color='Ultraviolet')]
@@ -1709,9 +1704,8 @@ class TestProtocolValidation:
         assert sum_errors == []
 
     def test_invalid_acquire_mode(self):
-        proto = _build_protocol([_make_step(acquire='timelapse')])
-        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
-        assert any('Acquire' in e for e in errors)
+        with pytest.raises(ProtocolFormatError, match='Acquire'):
+            _build_protocol([_make_step(acquire='timelapse')])
 
     def test_video_with_zero_fps_rejected(self):
         proto = _build_protocol(
@@ -1728,9 +1722,8 @@ class TestProtocolValidation:
         assert any('duration' in e for e in errors)
 
     def test_video_with_string_config_rejected(self):
-        proto = _build_protocol([_make_step(acquire='video', video_config='not a dict')])
-        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
-        assert any('Video Config' in e for e in errors)
+        with pytest.raises(ProtocolFormatError, match='Video Config'):
+            _build_protocol([_make_step(acquire='video', video_config='not a dict')])
 
     def test_multiple_errors_reported(self):
         """Multiple bad steps should all report errors."""
@@ -2403,11 +2396,11 @@ class TestLumascapeAPICamera:
 
 
 class TestPerRowConfigParsing:
-    """One corrupt row must not wipe all rows to defaults.
+    """A corrupt config cell refuses the file, naming its step and column.
 
-    Regression tests for per-row config parsing fix ported from
-    archive/2.3.2-OG. Previously, one corrupt row caused ALL rows to
-    fall back to defaults (all-or-nothing try/except around .apply()).
+    It used to load as the default config, so the step ran with a video
+    length or a stimulation nobody set; before that, one corrupt row
+    wiped every row to the defaults.
     """
 
     def _save_and_corrupt(self, tmp_path, steps, column, corrupt_row_idx, corrupt_value):
@@ -2431,30 +2424,23 @@ class TestPerRowConfigParsing:
 
         return Protocol.from_file(tsv_path, tiling_configs_file_loc=TILING_CONFIGS)
 
-    def test_one_corrupt_video_config_preserves_others(self, tmp_path):
-        """If one row has corrupt Video Config JSON, only that row gets default."""
+    def test_one_corrupt_video_config_refuses_the_file(self, tmp_path):
         # Wells match the names so the derived Names stay distinct at load.
         steps = [
             _make_step(name='A1_BF', well='A1', video_config={'duration': 5.0, 'fps': 10}),
             _make_step(name='A2_BF', well='A2', video_config={'duration': 5.0, 'fps': 10}),
             _make_step(name='A3_BF', well='A3', video_config={'duration': 5.0, 'fps': 10}),
         ]
-        loaded = self._save_and_corrupt(
-            tmp_path,
-            steps,
-            'Video Config',
-            corrupt_row_idx=1,
-            corrupt_value='THIS IS NOT JSON',
-        )
+        with pytest.raises(ProtocolFormatError, match=r'step 2 .*Video Config'):
+            self._save_and_corrupt(
+                tmp_path,
+                steps,
+                'Video Config',
+                corrupt_row_idx=1,
+                corrupt_value='THIS IS NOT JSON',
+            )
 
-        # Good rows should keep their custom config
-        assert loaded.step(idx=0)['Video Config']['duration'] == 5.0
-        assert loaded.step(idx=2)['Video Config']['duration'] == 5.0
-        # Corrupt row should have the default, not crash
-        assert isinstance(loaded.step(idx=1)['Video Config'], dict)
-
-    def test_one_corrupt_stim_config_preserves_others(self, tmp_path):
-        """If one row has corrupt Stim_Config JSON, only that row gets default."""
+    def test_one_corrupt_stim_config_refuses_the_file(self, tmp_path):
         sc = _stim_config_enabled(channels=['Red'])
         # Wells match the names so the derived Names stay distinct at load.
         steps = [
@@ -2462,18 +2448,14 @@ class TestPerRowConfigParsing:
             _make_step(name='A2_BF', well='A2', stim_config=sc),
             _make_step(name='A3_BF', well='A3', stim_config=sc),
         ]
-        loaded = self._save_and_corrupt(
-            tmp_path,
-            steps,
-            'Stim_Config',
-            corrupt_row_idx=1,
-            corrupt_value='{BROKEN',
-        )
-        # Good rows should keep their stim config
-        assert loaded.step(idx=0)['Stim_Config']['Red']['enabled'] is True
-        assert loaded.step(idx=2)['Stim_Config']['Red']['enabled'] is True
-        # Corrupt row should have default (all disabled), not crash
-        assert isinstance(loaded.step(idx=1)['Stim_Config'], dict)
+        with pytest.raises(ProtocolFormatError, match=r'step 2 .*Stim_Config'):
+            self._save_and_corrupt(
+                tmp_path,
+                steps,
+                'Stim_Config',
+                corrupt_row_idx=1,
+                corrupt_value='{BROKEN',
+            )
 
     def test_default_assignment_gives_independent_dicts(self):
         """No write to one row's default config can reach another: the

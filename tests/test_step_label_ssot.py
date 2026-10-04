@@ -422,9 +422,10 @@ def test_recover_label_post_record_output_adjusted_rows_stay_machine():
 
 
 # ---------------------------------------------------------------------------
-# Fix 2: a blank Z-Slice cell forces the column to float64 at read; the
-# loader must normalize to the int / -1-sentinel form so compose-and-compare
-# still matches ('Z3' not 'Z3.0') and names never render float tokens.
+# Fix 2: Z-Slice is read as a whole number, so compose-and-compare matches
+# ('Z3' not 'Z3.0') and names never render float tokens. A blank Z-Slice is
+# a cell of the wrong type -- no shipped writer left one blank -- and refuses
+# the file rather than being guessed as -1.
 # ---------------------------------------------------------------------------
 
 _V6_ZFLOAT = (
@@ -445,9 +446,16 @@ _V6_ZFLOAT = (
 )
 
 
-def test_float_zslice_column_does_not_misclassify_names(tmp_path):
+def test_a_blank_zslice_refuses_the_file(tmp_path):
     src = tmp_path / 'v6_zfloat.tsv'
     src.write_text(_V6_ZFLOAT)
+    with pytest.raises(ProtocolFormatError, match='Z-Slice'):
+        Protocol.from_file(file_path=src, tiling_configs_file_loc=TILING_CONFIGS)
+
+
+def test_zslice_reads_as_a_whole_number_and_names_render_from_it(tmp_path):
+    src = tmp_path / 'v6_zint.tsv'
+    src.write_text(_V6_ZFLOAT.replace('A3\t\t\t', 'A3\t\t-1\t'))
     proto = Protocol.from_file(file_path=src, tiling_configs_file_loc=TILING_CONFIGS)
     steps = proto.steps()
     # The Z3 row must still compose-and-compare as machine (Label '') and

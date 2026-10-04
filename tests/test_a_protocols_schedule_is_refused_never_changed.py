@@ -183,7 +183,7 @@ class TestAReaderThatNeverRunsTheProtocol:
         protocol = Protocol.from_file(
             file_path=self._run_folder(tmp_path) / 'unsaved_protocol.tsv',
             tiling_configs_file_loc=TILING,
-            judge_schedule=False,
+            runnable=False,
         )
 
         assert protocol.period() == datetime.timedelta(minutes=0.005)

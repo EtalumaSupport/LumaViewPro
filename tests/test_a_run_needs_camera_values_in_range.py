@@ -30,7 +30,8 @@ OUT_OF_RANGE = 'camera_setting_out_of_range'
 
 
 def _steps(**values):
-    return _make_multi_step_protocol([{'name': 'Lumi step', 'color': 'Lumi', **values}])
+    # A layer the suite's scope has; the gate judges the value, not the layer.
+    return _make_multi_step_protocol([{'name': 'Blue step', 'color': 'Blue', **values}])
 
 
 def test_the_api_caches_the_camera_floors(scope):
@@ -47,7 +48,7 @@ def test_a_gain_above_the_camera_maximum_is_refused_naming_the_step(executor, sc
 
     assert refusal.value.reason == OUT_OF_RANGE
     message = str(refusal.value)
-    assert 'Lumi step' in message
+    assert 'Blue step' in message
     assert f'{maximum + 28.0:g}' in message
     assert f'{maximum:g}' in message
 

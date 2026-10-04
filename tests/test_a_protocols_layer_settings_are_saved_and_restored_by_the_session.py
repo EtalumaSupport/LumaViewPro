@@ -253,9 +253,8 @@ def _v5_file_whose_step_has(tmp_path, column, value):
 
 
 class TestAFileWithNoBlockAndABadStep:
-    """A bad step is the step's to report: a notice at load and a refusal at
-    the run, as in a file with a block. The layer row inferred from it has no
-    value for that cell, so the layer control keeps its own."""
+    """A step cell of the wrong type refuses the file, with a block or
+    without: no layer row is inferred from a cell nothing could read."""
 
     @pytest.mark.parametrize(
         'column, value',
@@ -266,14 +265,12 @@ class TestAFileWithNoBlockAndABadStep:
             ('Sum', '1.5'),
             ('Auto_Gain', 'maybe'),
             ('False_Color', 'maybe'),
+            ('Acquire', 'Image'),
         ],
     )
-    def test_it_loads_and_the_inferred_cell_is_blank(self, session, tmp_path, column, value):
-        loaded = session.load_protocol(_v5_file_whose_step_has(tmp_path, column, value))
+    def test_it_is_refused_naming_the_step_and_the_column(self, session, tmp_path, column, value):
+        with pytest.raises(ProtocolFormatError) as refused:
+            session.load_protocol(_v5_file_whose_step_has(tmp_path, column, value))
 
-        assert loaded.layer_settings()['BF'][column] is None
-
-    def test_a_step_acquire_the_layer_row_cannot_hold_infers_image(self, session, tmp_path):
-        loaded = session.load_protocol(_v5_file_whose_step_has(tmp_path, 'Acquire', 'Image'))
-
-        assert loaded.layer_settings()['BF']['Acquire'] == 'image'
+        assert 'step 1' in str(refused.value)
+        assert column in str(refused.value)

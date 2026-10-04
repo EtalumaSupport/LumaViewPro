@@ -1,9 +1,14 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A step whose plate position is unknown still moves to its own Z.
+"""A step on a scope with no XY stage still moves to its own Z.
 
 A run's step move went to Z only after moving X and Y, so a step with no
 X/Y left the focus wherever it was while the saved image recorded the
 step's Z -- an image that says it was taken at a focus it was not.
+
+A step with no plate position at all is refused where the protocol is
+built until the Z-only row fixes every reader of an unknown position
+(ruled F2); until then the step carries the position it was saved with,
+and the scope, having no XY stage, moves only Z.
 
 Driven through the Session on a simulated LS820, a scope with Z and no XY
 stage.
@@ -37,8 +42,8 @@ def zonly_session(tmp_path):
     session.shutdown()
 
 
-def _step_with_no_plate_position():
-    step = {**_make_single_step_protocol().step(idx=0), 'X': None, 'Y': None, 'Z': STEP_Z_UM}
+def _step_at(z_um):
+    step = {**_make_single_step_protocol().step(idx=0), 'Z': z_um}
     return _build_real_protocol([step])
 
 
@@ -64,7 +69,7 @@ def test_the_run_ends_at_the_steps_z_and_the_image_says_so(zonly_session, tmp_pa
     assert not zonly_session.scope.capabilities.has_xy_stage
     assert motion.get_actual_position('Z') == pytest.approx(START_Z_UM)
 
-    _run_and_wait_for_files(zonly_session, tmp_path, _step_with_no_plate_position())
+    _run_and_wait_for_files(zonly_session, tmp_path, _step_at(STEP_Z_UM))
 
     assert motion.get_actual_position('Z') == pytest.approx(STEP_Z_UM)
     (image,) = [

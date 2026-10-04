@@ -19,6 +19,7 @@ from __future__ import annotations
 import pytest
 
 from modules.exceptions import ConfigError, ProtocolRunRefusedError
+from modules.protocol import ProtocolFormatError
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings_without
 from tests.test_a_protocol_needs_its_objectives_on_the_turret import (
@@ -88,11 +89,11 @@ def test_the_offset_judged_is_the_scopes(executor, scope, tmp_path):
     assert refusal.reason == OUTSIDE, refusal
 
 
-def test_a_blank_x_is_still_a_malformed_step(executor, scope, tmp_path):
-    protocol = _make_multi_step_protocol([{'name': 'blank', 'x': ''}])
-    refusal = _refusal(executor, protocol, tmp_path)
-    assert refusal.reason == 'validation_failed', refusal
-    assert 'X position is not a valid number' in str(refusal), str(refusal)
+def test_a_blank_x_never_reaches_the_travel_check():
+    # A position that is not a number refuses the protocol where it is built,
+    # so the travel check only ever reads numbers.
+    with pytest.raises(ProtocolFormatError, match='X'):
+        _make_multi_step_protocol([{'name': 'blank', 'x': ''}])
 
 
 def test_a_disconnected_scope_is_told_it_is_disconnected_first(

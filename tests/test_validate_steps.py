@@ -8,13 +8,13 @@ names in test steps must match real entries in data/objectives.json.
 
 import datetime
 
-import numpy as np
 import pandas as pd
 import pytest
 
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
-from modules.protocol import Protocol
+from modules.protocol import Protocol, ProtocolFormatError
+from tests.test_protocol_roundtrip import TILING_CONFIGS
 
 
 # Real objective names from data/objectives.json -- must match for validation
@@ -31,52 +31,16 @@ def _make_protocol(
     steps_data: list[dict],
     labware_id: str = '96 well microplate',
 ) -> Protocol:
-    """Create a Protocol with given steps.
-
-    Bypasses Protocol.__init__ because it requires a full valid config dict
-    with a loaded DataFrame -- validate_steps() only needs _config, so we
-    set that directly. This is NOT a mock of Protocol's behavior; it just
-    skips the constructor's file-loading step.
-    """
-    p = Protocol.__new__(Protocol)
-    # Build the steps DataFrame
-    dtypes = np.dtype(
-        [
-            ('Name', str),
-            ('X', float),
-            ('Y', float),
-            ('Z', float),
-            ('Auto_Focus', bool),
-            ('Color', str),
-            ('False_Color', bool),
-            ('Illumination', float),
-            ('Gain', float),
-            ('Auto_Gain', bool),
-            ('Exposure', float),
-            ('Sum', int),
-            ('Objective', str),
-            ('Well', str),
-            ('Tile', str),
-            ('Z-Slice', int),
-            ('Custom Step', bool),
-            ('Tile Group ID', int),
-            ('Z-Stack Group ID', int),
-            ('Acquire', str),
-            ('Video Config', object),
-            ('Stim_Config', object),
-        ]
+    """A protocol over ``steps_data``, built as a caller's ``config=`` is."""
+    return Protocol(
+        tiling_configs_file_loc=TILING_CONFIGS,
+        config={
+            'steps': pd.DataFrame(steps_data),
+            'period': datetime.timedelta(minutes=1),
+            'duration': datetime.timedelta(hours=1),
+            'labware_id': labware_id,
+        },
     )
-    if steps_data:
-        df = pd.DataFrame(steps_data)
-    else:
-        df = pd.DataFrame(np.empty(0, dtype=dtypes))
-    p._config = {
-        'steps': df,
-        'period': datetime.timedelta(minutes=1),
-        'duration': datetime.timedelta(hours=1),
-        'labware_id': labware_id,
-    }
-    return p
 
 
 def _valid_step(**overrides) -> dict:
@@ -104,6 +68,7 @@ def _valid_step(**overrides) -> dict:
         'Acquire': 'image',
         'Video Config': {},
         'Stim_Config': {},
+        'Auto_Named': True,
         'Label': '',
     }
     step.update(overrides)
@@ -242,10 +207,9 @@ class TestValidateSum:
 
 
 class TestValidateAcquireMode:
-    def test_invalid_acquire_mode(self):
-        p = _make_protocol([_valid_step(Acquire='timelapse')])
-        errors = p.validate_steps(ObjectiveLoader(), led_max_ma=1000)
-        assert any('Acquire must be' in e for e in errors)
+    def test_an_acquire_mode_that_is_not_image_or_video_is_refused(self):
+        with pytest.raises(ProtocolFormatError, match='Acquire'):
+            _make_protocol([_valid_step(Acquire='timelapse')])
 
     def test_video_mode_valid(self):
         vc = {'fps': 30, 'duration': 10}
@@ -266,9 +230,10 @@ class TestValidateVideoConfig:
         errors = p.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         assert any('duration must be > 0' in e for e in errors)
 
-    def test_image_mode_ignores_video_config(self):
-        p = _make_protocol([_valid_step(Acquire='image', **{'Video Config': 'garbage'})])
-        assert p.validate_steps(ObjectiveLoader(), led_max_ma=1000) == []
+    def test_a_video_config_that_is_not_a_config_is_refused_on_any_step(self):
+        # A cell of the wrong type, whatever the step acquires.
+        with pytest.raises(ProtocolFormatError, match='Video Config'):
+            _make_protocol([_valid_step(Acquire='image', **{'Video Config': 'garbage'})])
 
 
 class TestValidateNameLength:
@@ -373,36 +338,18 @@ class TestAxesOutsideTravel:
         assert _outside({'X': 999999, 'Y': 0.0, 'Z': 999999}, {}) == []
 
 
-class TestValidateForRunPositionsAreNumbers:
+class TestAPositionIsANumber:
     @pytest.mark.parametrize('axis', ['X', 'Y', 'Z'])
-    @pytest.mark.parametrize('value', ['', 'abc'])
-    def test_a_position_that_is_not_a_number_is_reported(self, axis, value):
-        # The run gate's travel check reads the positions on the scope's
-        # axes as numbers.
-        p = _make_protocol([_valid_step(**{axis: value})])
-        errors = p.validate_for_run(
-            axes=('X', 'Y', 'Z'),
-            objective_helper=ObjectiveLoader(),
-            wellplate_loader=WellPlateLoader(),
-            led_max_ma=1000,
-        )
-        assert any(f'{axis} position is not a valid number' in e for e in errors), errors
+    @pytest.mark.parametrize('value', ['', 'abc', None])
+    def test_a_position_that_is_not_a_number_is_refused(self, axis, value):
+        # An empty position too: "unknown" arrives with the Z-only row, which
+        # fixes every reader of one first (ruled F2).
+        with pytest.raises(ProtocolFormatError, match=axis):
+            _make_protocol([_valid_step(**{axis: value})])
 
     def test_numeric_positions_are_not_reported(self):
         p = _make_protocol([_valid_step(X=999999, Y=-5, Z=200000)])
         errors = p.validate_for_run(
-            axes=('X', 'Y', 'Z'),
-            objective_helper=ObjectiveLoader(),
-            wellplate_loader=WellPlateLoader(),
-            led_max_ma=1000,
-        )
-        assert not any('position' in e for e in errors), errors
-
-    def test_an_axis_the_scope_lacks_is_not_judged(self):
-        # A Z-only scope's step may carry no plate position at all.
-        p = _make_protocol([_valid_step(X=None, Y=None, Z=3000.0)])
-        errors = p.validate_for_run(
-            axes=('Z',),
             objective_helper=ObjectiveLoader(),
             wellplate_loader=WellPlateLoader(),
             led_max_ma=1000,
@@ -414,7 +361,6 @@ class TestValidateForRunLabware:
     def test_invalid_labware(self):
         p = _make_protocol([_valid_step()], labware_id='nonexistent plate')
         errors = p.validate_for_run(
-            axes=('X', 'Y', 'Z'),
             objective_helper=ObjectiveLoader(),
             wellplate_loader=WellPlateLoader(),
             led_max_ma=1000,
@@ -424,7 +370,6 @@ class TestValidateForRunLabware:
     def test_valid_labware(self):
         p = _make_protocol([_valid_step(X=60.0, Y=40.0)], labware_id='96 well microplate')
         errors = p.validate_for_run(
-            axes=('X', 'Y', 'Z'),
             objective_helper=ObjectiveLoader(),
             wellplate_loader=WellPlateLoader(),
             led_max_ma=1000,
@@ -437,7 +382,6 @@ class TestValidateForRunIncludesFieldValidation:
         """validate_for_run should include validate_steps errors too."""
         p = _make_protocol([_valid_step(X=60.0, Y=40.0, Color='Bad')])
         errors = p.validate_for_run(
-            axes=('X', 'Y', 'Z'),
             objective_helper=ObjectiveLoader(),
             wellplate_loader=WellPlateLoader(),
             led_max_ma=1000,
@@ -449,7 +393,6 @@ class TestValidateForRunEmpty:
     def test_empty_protocol(self):
         p = _make_protocol([])
         errors = p.validate_for_run(
-            axes=('X', 'Y', 'Z'),
             objective_helper=ObjectiveLoader(),
             wellplate_loader=WellPlateLoader(),
             led_max_ma=1000,

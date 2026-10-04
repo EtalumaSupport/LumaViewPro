@@ -649,7 +649,9 @@ class TestSingleScanFluorescence:
         # After protocol with leds_state_at_end='off', LEDs are off --
         # completion confirms the LED was used during the protocol
 
-    @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'PC', 'DF', 'Lumi'])
+    # Every layer of the suite's scope (an LS850T: no Lumi). A luminescence
+    # run is a Lumi-model run: test_composite_run_leds.TestLuminescence.
+    @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'PC', 'DF'])
     def test_completes_for_all_channels(self, executor, scope, tmp_path, color):
         protocol = _make_single_step_protocol(color=color)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)

@@ -678,6 +678,7 @@ RUNNER_REFUSAL_COVERAGE = {
     'autofocus_running': _FUNNEL_LOOP,
     'empty_protocol': _FUNNEL_LOOP,
     'turret_objectives_unassigned': _FUNNEL_LOOP,
+    'layer_not_on_scope': _FUNNEL_LOOP,
     'objectives_require_turret': (
         'tests/test_a_protocol_needs_its_objectives_on_the_turret.py::TestTheRuleItself'
     ),
@@ -827,6 +828,12 @@ class TestRefusalNotifyOnceFunnel:
             mp.setattr(scope.runtime_state, 'get_turret_config', lambda: {1: '10x Oly'})
             return _make_two_objective_protocol()
 
+        def layer_not_on_scope(mp):
+            # The suite's scope has no Lumi layer.
+            return _build_real_protocol(
+                [{**_make_single_step_protocol().step(idx=0), 'Color': 'Lumi'}]
+            )
+
         return [
             ('already_running', already_running),
             ('files_writing', files_writing),
@@ -837,6 +844,7 @@ class TestRefusalNotifyOnceFunnel:
             ('validation_failed', validation_failed),
             ('hardware_disconnected', hardware_disconnected),
             ('position_unknown', position_unknown),
+            ('layer_not_on_scope', layer_not_on_scope),
         ]
 
     def test_each_refusal_reason_notifies_once_with_matching_reason(

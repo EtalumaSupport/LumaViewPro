@@ -969,7 +969,6 @@ class SequencedCaptureRunner:
         # Pre-run validation: the steps are well-formed enough to run
         try:
             validation_errors = protocol.validate_for_run(
-                axes=self._scope.capabilities.axes,
                 objective_helper=self._scope.objective_helper,
                 wellplate_loader=self._scope.wellplate_loader,
                 led_max_ma=self._scope.capabilities.led_max_ma,
@@ -1029,6 +1028,10 @@ class SequencedCaptureRunner:
         self._scope.protocols.refuse_unaddressable_objectives(
             protocol.steps()['Objective'].to_list()
         )
+        # A step on a layer this scope lacks cannot be taken as the step
+        # says. The load refuses it on the same rule; a protocol built in
+        # memory meets it only here.
+        self._scope.protocols.refuse_absent_layers(protocol)
 
         try:
             all_connected = self._scope.are_all_connected()

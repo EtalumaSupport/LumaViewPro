@@ -927,6 +927,7 @@ class ScopeSession:
         except BaseException:
             cls._report_teardown_failure(session.shutdown)
             raise
+        session._stop_acquiring_absent_layers()
         # The one marker for "the camera is grabbing and the session is
         # up": a host measures its own consumer's start against it.
         logger.info('[Session  ] bring-up complete: scope configured, camera streaming')
@@ -1109,6 +1110,32 @@ class ScopeSession:
         self.select_labware(protocol.labware())
         return protocol
 
+    def _layers_on_scope(self) -> set[str]:
+        """The layers this scope has, by key name: none when unresolved."""
+        return {record.key_name for record in self.scope.layer_identity.layers}
+
+    def _stop_acquiring_absent_layers(self) -> None:
+        """Turn acquiring off on every layer this scope does not have.
+
+        A saved setting from another scope (a configuration carried between
+        machines, or one written before this scope's layers were known) can
+        have such a layer acquiring, and New, Add and a composite would then
+        build steps for it. The stored value is replaced by what this scope
+        can deliver, and each replacement is logged.
+        """
+        present = self._layers_on_scope()
+        with self.settings_lock:
+            for name in common_utils.get_layers():
+                if name in present or self.settings[name].get('acquire') is None:
+                    continue
+                logger.warning(
+                    f'[Session   ] {name} was set to acquire '
+                    f'{self.settings[name]["acquire"]!r}, but this scope '
+                    f'({self.scope.layer_identity.model}) has no {name} layer; '
+                    'it is set to acquire nothing.'
+                )
+                self.settings[name]['acquire'] = None
+
     def apply_layer_settings(self, protocol: 'Protocol') -> None:
         """Put a protocol's Layer Settings into this session's layer controls.
 
@@ -1117,8 +1144,8 @@ class ScopeSession:
         acquiring and stimulating; each layer the protocol names then takes
         its acquire mode and every value its row holds. A blank value leaves
         that layer's control as it was. A layer this release does not know
-        (not in ``common_utils.get_layers()``) is logged and dropped; a known
-        layer this scope's hardware lacks is set like any other.
+        (not in ``common_utils.get_layers()``), or this scope does not have,
+        is logged and dropped.
 
         Raises:
             ProtocolFormatError: A protocol built in memory carries a
@@ -1127,6 +1154,7 @@ class ScopeSession:
         """
         rows = protocol.layer_settings()
         layers = common_utils.get_layers()
+        present = self._layers_on_scope()
         with self.settings_lock:
             for name in layers:
                 self.settings[name]['acquire'] = None
@@ -1138,6 +1166,13 @@ class ScopeSession:
                     logger.warning(
                         f'[Session   ] Protocol carries settings for unknown layer '
                         f'{name!r}; that layer is dropped on load.'
+                    )
+                    continue
+                if name not in present:
+                    logger.warning(
+                        f'[Session   ] Protocol carries settings for {name}, which this '
+                        f'scope ({self.scope.layer_identity.model}) does not have; '
+                        'that layer is dropped on load.'
                     )
                     continue
                 layer = self.settings[name]
@@ -1195,9 +1230,11 @@ class ScopeSession:
         stimulate at once.
 
         Raises:
-            ConfigError: ``layer`` is not one of this release's layers, or
-                ``mode`` is not ``'image'``, ``'video'`` or None; nothing
-                is changed.
+            ConfigError: ``layer`` is not one of this release's layers,
+                ``mode`` is not ``'image'``, ``'video'`` or None, or
+                ``mode`` is not None and this scope does not have ``layer``;
+                nothing is changed. Setting a layer to acquire nothing is
+                always admitted.
         """
         if layer not in common_utils.get_layers():
             raise ConfigError(
@@ -1205,6 +1242,17 @@ class ScopeSession:
             )
         if mode not in ('image', 'video', None):
             raise ConfigError(f"acquire mode {mode!r} is not 'image', 'video' or None")
+        if mode is not None and layer not in self._layers_on_scope():
+            identity = self.scope.layer_identity
+            if identity.layers:
+                raise ConfigError(
+                    f'this scope ({identity.model}) has no {layer} layer; '
+                    f'its layers are {sorted(self._layers_on_scope())}'
+                )
+            raise ConfigError(
+                f"this scope's layers could not be resolved (model {identity.model}), "
+                f'so {layer} cannot be set to acquire'
+            )
         with self.settings_lock:
             self.settings[layer]['acquire'] = mode
             stim = self.settings[layer].get('stim_config')

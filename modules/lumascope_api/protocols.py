@@ -109,10 +109,11 @@ class ProtocolsAPI:
                 here, by name, before any object exists: a protocol whose
                 plate the scope cannot be on must never be adopted.
             ProtocolRunRefusedError: The file names glass this scope
-                cannot put in the light path, with the reason a run would
-                give for the same file. Refused for the same reason the
-                plate is: a caller must not be handed a protocol it can
-                edit, navigate and save but never perform.
+                cannot put in the light path, or has a step on a layer this
+                scope does not have, with the reason a run would give for
+                the same file. Refused for the same reason the plate is: a
+                caller must not be handed a protocol it can edit, navigate
+                and save but never perform.
         """
         from modules.protocol import Protocol
 
@@ -125,6 +126,7 @@ class ProtocolsAPI:
         # answered as that rather than as a turret problem, and before the
         # return, so no caller ever holds an inadmissible protocol.
         self.refuse_unaddressable_objectives(protocol.steps()['Objective'].to_list())
+        self.refuse_absent_layers(protocol)
         # Unsolicited, as the loader's duplicate-filename notice is: a load
         # may be the startup adoption, which nobody asked for.
         self._report_invalid_steps(protocol, solicited=False)
@@ -317,16 +319,30 @@ class ProtocolsAPI:
 
         Raises:
             ProtocolRunRefusedError: an axis does not know its position, the
-                turret's current slot has no objective, or the active
-                objective is unknown. Logged and notified once.
+                turret's current slot has no objective, the active objective
+                is unknown, or the layer the step takes is not set to
+                acquire (reason ``no_acquiring_layer``, as an add). Logged
+                and notified once; the step is unchanged.
             ProtocolError: ``step_idx`` is not a step of ``protocol``
                 (raised by the protocol).
         """
+        from modules.protocol import Protocol
+
         self._refuse_unrecordable_step(verb='update', objective_id=objective_id)
 
         stim_config = layer_configs[layer].get('stim_config')
         if stim_config is not None and stim_config['enabled']:
             layer = protocol.step(idx=step_idx)['Color']
+
+        if not Protocol.layer_acquires(layer_configs[layer]):
+            self._refuse(
+                reason='no_acquiring_layer',
+                title='No Channel Set to Acquire',
+                message=(
+                    f'{layer} is not set to acquire, so there is no step to make. '
+                    f'Set {layer} to Image or Video first.'
+                ),
+            )
 
         protocol.modify_step(
             step_idx=step_idx,
@@ -447,6 +463,45 @@ class ProtocolsAPI:
                     'Set a channel to Image or Video first.'
                 ),
             )
+
+    def refuse_absent_layers(self, protocol: Protocol) -> None:
+        """Refuse a protocol with a step on a layer this scope does not have.
+
+        Asked where steps arrive that this scope's settings did not build: a
+        loaded file, and a run about to start. A step this session builds
+        (New, Add, Update, a composite) comes from layers set to acquire,
+        and a layer this scope lacks is never set to acquire. A scope whose
+        layers could not be resolved has none, and the words say so rather
+        than naming a layer it lacks.
+
+        A consult seam, not part of the L2 API surface: an L2 caller meets
+        this refusal through ``ScopeSession.load_protocol`` and a run's start.
+
+        Raises:
+            ProtocolRunRefusedError: reason ``layer_not_on_scope``, naming
+                the layers and the steps. Logged and notified once.
+        """
+        identity = self._scope.layer_identity
+        present = {record.key_name for record in identity.layers}
+        steps = protocol.steps()
+        absent = steps.loc[~steps['Color'].isin(present)]
+        if absent.empty:
+            return
+        missing = sorted(set(absent['Color']))
+        layers = ', '.join(missing) + (' layers' if len(missing) > 1 else ' layer')
+        names = common_utils.first_few(list(absent['Name']), separator=', ')
+        if identity.layers:
+            scope = f'This scope ({identity.model}) has no {layers}'
+        else:
+            scope = f"This scope's layers could not be resolved (model {identity.model})"
+        self._refuse(
+            reason='layer_not_on_scope',
+            title='Layer Not on This Scope',
+            message=(
+                f'{scope}, so {len(absent)} step(s) cannot be run: {names}. '
+                f'Delete those steps, or open the protocol on a scope that has the layer.'
+            ),
+        )
 
     def refuse_unaddressable_objectives(self, objective_ids: Iterable[str]) -> None:
         """Refuse unless this scope can put every objective named here in the light path.

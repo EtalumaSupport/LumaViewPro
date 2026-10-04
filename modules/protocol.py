@@ -13,7 +13,6 @@ import pathlib
 import re
 import contextlib
 import copy
-from collections.abc import Iterable
 from typing import TYPE_CHECKING, ClassVar, NoReturn
 
 from lvp_logger import logger
@@ -343,6 +342,64 @@ def _acquire_cell(value: object) -> str:
     return value
 
 
+def _str_cell(value: object) -> str:
+    if not isinstance(value, str):
+        raise ValueError('is not text')
+    return value
+
+
+def _dict_cell(value: object) -> dict:
+    """A config cell: a dict, or the text of one.
+
+    The current writer saves JSON; files written before it hold Python's
+    repr of the dict (single quotes, True/False), read by literal_eval.
+    """
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except ValueError:
+            try:
+                parsed = ast.literal_eval(value)
+            except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+                raise ValueError('is not a config') from None
+        if isinstance(parsed, dict):
+            return parsed
+    raise ValueError('is not a config')
+
+
+# Each step column with the type its cell is read as: the one reader for a
+# file's steps, a caller's frame and every in-place write. No cell is blank:
+# an empty position, number or True/False is a cell of the wrong type.
+_STEP_CELLS = {
+    'Name': _str_cell,
+    'X': _float_cell,
+    'Y': _float_cell,
+    'Z': _float_cell,
+    'Auto_Focus': _bool_cell,
+    'Color': _str_cell,
+    'False_Color': _bool_cell,
+    'Illumination': _float_cell,
+    'Gain': _float_cell,
+    'Auto_Gain': _bool_cell,
+    'Exposure': _float_cell,
+    'Sum': _int_cell,
+    'Objective': _str_cell,
+    'Well': _str_cell,
+    'Tile': _str_cell,
+    'Z-Slice': _int_cell,
+    'Custom Step': _bool_cell,
+    'Tile Group ID': _int_cell,
+    'Z-Stack Group ID': _int_cell,
+    'Acquire': _acquire_cell,
+    'Video Config': _dict_cell,
+    'Stim_Config': _dict_cell,
+    'Auto_Named': _bool_cell,
+    'Label': _str_cell,
+}
+
+
 # Each Layer Settings column after 'Layer', with the type its cell is read
 # as. Every cell but Acquire may be blank, read as None: the layer's control
 # keeps what it holds.
@@ -615,18 +672,21 @@ class Protocol:
         tiling_configs_file_loc: pathlib.Path,
         config: dict | None = None,
         *,
-        judge_schedule: bool = True,
+        runnable: bool = True,
     ):
         """A protocol over ``config``.
 
         Args:
-            judge_schedule: False only for a reader that never runs the
+            runnable: False only for a reader that never runs or edits the
                 protocol (``from_file``'s, which says when): its period and
-                duration are kept as given and not held to the range.
+                duration are kept as given and not held to the range, and
+                its step cells are kept as read.
 
         Raises:
             ProtocolScheduleRefusedError: the config's period or duration
-                cannot be run, and ``judge_schedule`` is True.
+                cannot be run, and ``runnable`` is True.
+            ProtocolFormatError: a step cell is not of its column's type, and
+                ``runnable`` is True.
         """
         self._tiling_config = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
 
@@ -635,8 +695,9 @@ class Protocol:
         else:
             self._config = config
 
+        self._runnable = runnable
         for key in ('period', 'duration'):
-            if judge_schedule and key in self._config:
+            if runnable and key in self._config:
                 _refuse_unless_runnable(key, self._config[key])
 
         # Cache for num_steps() -- invalidated by _step_list_changed().
@@ -745,11 +806,10 @@ class Protocol:
 
         A layer with steps acquires: 'video' when any of its steps records
         video, else 'image'. Every other cell is read from the layer's first
-        step by its column's reader. A step cell that reader cannot take is
-        the step's own fault, reported by step validation (a notice at load,
-        a refusal at the run gate) as it is in a file with a block; the row
-        has no value to infer for it, so the cell is None and the layer
-        control keeps what it holds.
+        step by its column's reader. A runnable protocol's step cells were
+        typed when it was built, so each reader takes its cell; a cell a
+        reader cannot take, in a protocol kept as read, has no value to
+        infer, so it is None and the layer control keeps what it holds.
         """
         steps = self._config.get('steps')
         if steps is None or len(steps) == 0 or 'Color' not in steps.columns:
@@ -790,6 +850,7 @@ class Protocol:
         new._config = new_config
         new._tiling_config = self._tiling_config  # shared, read-only
         new._num_steps_cache = None
+        new._runnable = self._runnable
         return new
 
     def to_file(self, file_path: pathlib.Path | str, layer_settings: dict | None = None) -> None:
@@ -1067,62 +1128,42 @@ class Protocol:
             if obj not in valid_objectives:
                 errors.append(f"{label}: Objective '{obj}' not found in objectives.json")
 
+            # Every cell is already its column's type (_set_steps); what is
+            # judged here is whether the value is one the run can use.
+
             # Exposure -- no camera takes 0 ms; the camera's own floor is
             # checked when the run is prepared, against the connected body.
-            try:
-                exposure = float(step.get('Exposure', 0))
-                if exposure <= 0:
-                    errors.append(f'{label}: Exposure must be more than 0 ms, got {exposure}')
-            except (ValueError, TypeError):
-                errors.append(f'{label}: Exposure is not a valid number')
+            exposure = step['Exposure']
+            if exposure <= 0:
+                errors.append(f'{label}: Exposure must be more than 0 ms, got {exposure}')
 
             # Illumination -- the cap is the connected board's
-            try:
-                illum = float(step.get('Illumination', 0))
-                if illum < 0:
-                    errors.append(f'{label}: Illumination must be 0 or more mA, got {illum}')
-                elif illum > led_max_ma:
-                    errors.append(f'{label}: Illumination must be 0-{led_max_ma} mA, got {illum}')
-            except (ValueError, TypeError):
-                errors.append(f'{label}: Illumination is not a valid number')
+            illum = step['Illumination']
+            if illum < 0:
+                errors.append(f'{label}: Illumination must be 0 or more mA, got {illum}')
+            elif illum > led_max_ma:
+                errors.append(f'{label}: Illumination must be 0-{led_max_ma} mA, got {illum}')
 
-            # Gain
-            try:
-                gain = float(step.get('Gain', 0))
-                if gain < 0:
-                    errors.append(f'{label}: Gain must be >= 0, got {gain}')
-            except (ValueError, TypeError):
-                errors.append(f'{label}: Gain is not a valid number')
+            gain = step['Gain']
+            if gain < 0:
+                errors.append(f'{label}: Gain must be >= 0, got {gain}')
 
-            # Sum
-            try:
-                sum_count = int(step.get('Sum', 1))
-                if sum_count < 1:
-                    errors.append(f'{label}: Sum must be >= 1, got {sum_count}')
-                elif sum_count > 100:
-                    logger.warning(
-                        f'[PROTOCOL] {label}: Sum count {sum_count} is unusually high (> 100). This may cause long capture times.'
-                    )
-            except (ValueError, TypeError):
-                errors.append(f'{label}: Sum is not a valid integer')
+            sum_count = step['Sum']
+            if sum_count < 1:
+                errors.append(f'{label}: Sum must be >= 1, got {sum_count}')
+            elif sum_count > 100:
+                logger.warning(
+                    f'[PROTOCOL] {label}: Sum count {sum_count} is unusually high (> 100). This may cause long capture times.'
+                )
 
-            # Acquire mode
-            acquire = step.get('Acquire', 'image')
-            if acquire not in self.VALID_ACQUIRE_MODES:
-                errors.append(f"{label}: Acquire must be 'image' or 'video', got '{acquire}'")
-
-            # Video Config (only validate if acquire == 'video')
-            if acquire == 'video':
-                vc = step.get('Video Config', {})
-                if isinstance(vc, dict):
-                    fps = vc.get('fps', 0)
-                    duration = vc.get('duration', 0)
-                    if not isinstance(fps, (int, float)) or fps <= 0:
-                        errors.append(f'{label}: Video Config fps must be > 0')
-                    if not isinstance(duration, (int, float)) or duration <= 0:
-                        errors.append(f'{label}: Video Config duration must be > 0')
-                else:
-                    errors.append(f'{label}: Video Config is not a valid dict')
+            if step['Acquire'] == 'video':
+                vc = step['Video Config']
+                fps = vc.get('fps', 0)
+                duration = vc.get('duration', 0)
+                if not isinstance(fps, (int, float)) or fps <= 0:
+                    errors.append(f'{label}: Video Config fps must be > 0')
+                if not isinstance(duration, (int, float)) or duration <= 0:
+                    errors.append(f'{label}: Video Config duration must be > 0')
 
             # Name length
             name = step.get('Name', '')
@@ -1134,7 +1175,6 @@ class Protocol:
     def validate_for_run(
         self,
         *,
-        axes: Iterable[str],
         objective_helper: 'ObjectiveLoader',
         wellplate_loader: 'labware_loader.WellPlateLoader',
         led_max_ma: int,
@@ -1142,16 +1182,12 @@ class Protocol:
         """Validate that the protocol's steps are well-formed enough to run.
 
         validate_steps() checks the camera and objective fields; this adds the
-        checks a run needs on top: unique capture filenames, a known plate, and
-        numeric positions on the axes the scope moves. Whether those
-        positions lie inside the stage's travel is the scope's question, asked
-        by the run gate (``ProtocolsAPI.refuse_unreachable_positions``), which
-        reads them as numbers -- so a position that is not one is reported
-        here, before that gate is reached. An axis the scope does not have is
-        not judged: a Z-only scope's step may carry no plate position at all.
+        checks a run needs on top: unique capture filenames and a known plate.
+        Whether the positions lie inside the stage's travel is the scope's
+        question, asked by the run gate
+        (``ProtocolsAPI.refuse_unreachable_positions``).
 
         Args:
-            axes: The axes the scope has (``capabilities.axes``).
             objective_helper: The scope's objective catalogue.
             wellplate_loader: The scope's labware catalogue.
             led_max_ma: The scope's LED current cap (``capabilities.led_max_ma``).
@@ -1201,17 +1237,6 @@ class Protocol:
                 # A loader failure leaves labware unvalidated; surface it so
                 # the gap is visible rather than a silently-skipped net.
                 logger.warning(f'[Protocol] Labware validation skipped for {labware_key!r}: {ex}')
-
-        judged = [axis for axis in ('X', 'Y', 'Z') if axis in axes]
-        for idx, step in steps.iterrows():
-            for axis in judged:
-                try:
-                    float(step.get(axis))
-                except (ValueError, TypeError):
-                    errors.append(
-                        f'Step {idx + 1} ({step.get("Name", "?")}): '
-                        f'{axis} position is not a valid number'
-                    )
 
         return errors
 
@@ -1277,6 +1302,12 @@ class Protocol:
         the run loop cannot tell from a hardware fault. Extra columns are
         allowed: the z-stack marking adds and removes its own.
 
+        Every cell of a runnable protocol is read by its column's reader
+        (_STEP_CELLS), and each column takes the schema's dtype
+        (_create_empty_steps_df): a cell of the wrong type refuses the frame,
+        so a reader never meets one and nothing is guessed for it. A
+        protocol that is not runnable keeps its cells as given.
+
         The dicts in its Video Config and Stim_Config cells are stored
         read-only (ReadOnlyDict), so a copy of the frame can share them.
 
@@ -1287,6 +1318,8 @@ class Protocol:
 
         Raises:
             ProtocolError: a non-empty frame is missing current columns.
+            ProtocolFormatError: a cell of a runnable protocol is not of its
+                column's type; the words name the step and the column.
         """
         if df.empty:
             df = self._create_empty_steps_df()
@@ -1294,6 +1327,8 @@ class Protocol:
             missing = [c for c in self.CURRENT_COLUMNS if c not in df.columns]
             if missing:
                 raise ProtocolError(f'Protocol steps are missing required columns: {missing}')
+            if self._runnable:
+                df = self._typed_steps(df)
             df = df.assign(
                 **{
                     column: pd.Series(
@@ -1305,6 +1340,44 @@ class Protocol:
             ).reset_index(drop=True)
         self._config['steps'] = df
         self._step_list_changed()
+
+    @classmethod
+    def _typed_steps(cls, df: pd.DataFrame) -> pd.DataFrame:
+        """``df`` with every step column read by its reader and given its dtype.
+
+        Raises:
+            ProtocolFormatError: a cell is not of its column's type.
+        """
+        dtypes = cls._create_empty_steps_df().dtypes
+        columns = {}
+        for column, read in _STEP_CELLS.items():
+            values = []
+            for position, cell in enumerate(df[column]):
+                try:
+                    values.append(read(cell))
+                except ValueError as e:
+                    name = df['Name'].iloc[position]
+                    raise ProtocolFormatError(
+                        f'step {position + 1} ({name}) has {column} {cell!r}, which {e}.'
+                    ) from None
+            columns[column] = pd.Series(values, index=df.index, dtype=dtypes[column])
+        return df.assign(**columns)
+
+    @staticmethod
+    def _typed_value(column: str, value: object) -> object:
+        """``value`` read as a ``column`` cell, for a write in place.
+
+        A frame does not hold its schema: pandas admits None into a number or
+        text column and anything into a dict column, so each in-place writer
+        reads its values here before it writes.
+
+        Raises:
+            ProtocolError: ``value`` is not of the column's type.
+        """
+        try:
+            return _STEP_CELLS[column](value)
+        except ValueError as e:
+            raise ProtocolError(f'a step {column} of {value!r} {e}') from None
 
     def steps(self) -> pd.DataFrame:
         """A copy of the steps frame.
@@ -1406,7 +1479,7 @@ class Protocol:
 
     def modify_autofocus(self, step_idx: int, enabled: bool) -> None:
         self._refuse_unless_in_range('Step index', step_idx)
-        self._config['steps'].at[step_idx, 'Auto_Focus'] = enabled
+        self._config['steps'].at[step_idx, 'Auto_Focus'] = self._typed_value('Auto_Focus', enabled)
 
     def modify_autofocus_all_steps(self, enabled: bool):
         for idx, _ in self._config['steps'].iterrows():
@@ -1442,7 +1515,7 @@ class Protocol:
 
     def modify_step_z_height(self, step_idx: int, z: float) -> None:
         self._refuse_unless_in_range('Step index', step_idx)
-        self._config['steps'].at[step_idx, 'Z'] = z
+        self._config['steps'].at[step_idx, 'Z'] = self._typed_value('Z', z)
 
     # What makes a step the one a focus was found for. Not the step-list
     # revision: an Update moves a step without changing the list.
@@ -1510,6 +1583,7 @@ class Protocol:
         Returns the number of slices moved.
         """
         self._refuse_unless_in_range('Step index', reference_step_idx)
+        z = self._typed_value('Z', z)
         steps = self._config['steps']
         group_id = steps.at[reference_step_idx, 'Z-Stack Group ID']
         shift = z - steps.at[reference_step_idx, 'Z']
@@ -1537,6 +1611,7 @@ class Protocol:
         Returns:
             Number of steps updated.
         """
+        z = self._typed_value('Z', z)
         steps_df = self._config['steps']
         if steps_df is None or len(steps_df) == 0:
             return 0
@@ -1548,6 +1623,18 @@ class Protocol:
 
     def modify_capture_root(self, capture_root: str):
         self._config['capture_root'] = capture_root
+
+    def _render_step_names(self) -> None:
+        """Render every step's derived Name from its structured columns."""
+        steps = self._config['steps']
+        steps['Name'] = pd.Series(
+            [
+                common_utils.build_step_name(common_utils.step_components(row))
+                for _, row in steps.iterrows()
+            ],
+            index=steps.index,
+            dtype=self._create_empty_steps_df().dtypes['Name'],
+        )
 
     def _regenerate_step_name(self, step_idx: int) -> str:
         """Re-render the step's derived Name from its structured columns.
@@ -1592,27 +1679,31 @@ class Protocol:
         """
         self._refuse_unless_in_range('Step index', step_idx)
 
+        # Every value is read before any is written, so a refused one leaves
+        # the step as it was.
+        values = {
+            'X': plate_position['x'],
+            'Y': plate_position['y'],
+            'Z': plate_position['z'],
+            'Auto_Focus': layer_config['autofocus'],
+            'Color': layer,
+            'False_Color': layer_config['false_color'],
+            'Illumination': layer_config['illumination_ma'],
+            'Gain': layer_config['gain_db'],
+            'Auto_Gain': layer_config['auto_gain'],
+            'Exposure': layer_config['exposure_ms'],
+            'Sum': layer_config['sum'],
+            'Objective': objective_id,
+            'Acquire': layer_config['acquire'],
+            'Video Config': copy.deepcopy(layer_config['video_config']),
+            'Stim_Config': copy.deepcopy(stim_configs),
+        }
+        typed = {column: self._typed_value(column, value) for column, value in values.items()}
         if label is not None:
-            self._config['steps'].at[step_idx, 'Label'] = Protocol._sanitized_label(label)
-            self._config['steps'].at[step_idx, 'Auto_Named'] = False
-        self._config['steps'].at[step_idx, 'X'] = plate_position['x']
-        self._config['steps'].at[step_idx, 'Y'] = plate_position['y']
-        self._config['steps'].at[step_idx, 'Z'] = plate_position['z']
-
-        self._config['steps'].at[step_idx, 'Auto_Focus'] = layer_config['autofocus']
-        self._config['steps'].at[step_idx, 'Color'] = layer
-        self._config['steps'].at[step_idx, 'False_Color'] = layer_config['false_color']
-        self._config['steps'].at[step_idx, 'Illumination'] = layer_config['illumination_ma']
-        self._config['steps'].at[step_idx, 'Gain'] = layer_config['gain_db']
-        self._config['steps'].at[step_idx, 'Auto_Gain'] = layer_config['auto_gain']
-        self._config['steps'].at[step_idx, 'Exposure'] = layer_config['exposure_ms']
-        self._config['steps'].at[step_idx, 'Sum'] = int(layer_config['sum'])
-        self._config['steps'].at[step_idx, 'Objective'] = objective_id
-        self._config['steps'].at[step_idx, 'Acquire'] = layer_config['acquire']
-        self._config['steps'].at[step_idx, 'Video Config'] = _read_only(
-            copy.deepcopy(layer_config['video_config'])
-        )
-        self._config['steps'].at[step_idx, 'Stim_Config'] = _read_only(copy.deepcopy(stim_configs))
+            typed['Label'] = Protocol._sanitized_label(label)
+            typed['Auto_Named'] = False
+        for column, value in typed.items():
+            self._config['steps'].at[step_idx, column] = _read_only(value)
         self._regenerate_step_name(step_idx=step_idx)
 
     def insert_step(
@@ -2453,7 +2544,7 @@ class Protocol:
         tiling_configs_file_loc: pathlib.Path | None,
         *,
         wellplate_loader: 'labware_loader.WellPlateLoader | None' = None,
-        judge_schedule: bool = True,
+        runnable: bool = True,
     ) -> 'Protocol':
         """
         Returns Protocol object loaded from file on success
@@ -2462,13 +2553,15 @@ class Protocol:
         (the installation's catalogue) is given, on a Labware row naming a
         plate that catalogue does not have
 
-        ``judge_schedule`` is False for a reader that never runs the
+        ``runnable`` is False for a reader that never runs or edits the
         protocol -- post-processing a finished run reads its record and never
-        its period -- so a file saved before the period had a floor stays
-        readable there. Every other reader leaves it True: a period or
-        duration no protocol can run raises ProtocolScheduleRefusedError,
-        naming the file, and so does a Layer Settings cell
-        ``layer_settings()`` cannot type (ProtocolFormatError).
+        its period -- so a file saved before the period had a floor, or with
+        a step cell a run would refuse, stays readable there with its cells
+        as read. Every other reader leaves it True: a period or duration no
+        protocol can run raises ProtocolScheduleRefusedError, naming the
+        file, and a step cell or a Layer Settings cell that is not of its
+        column's type raises ProtocolFormatError, naming the file, the step
+        or layer, and the column.
         """
 
         # A bound on how much memory one file may ask for, not a judgement
@@ -2560,7 +2653,7 @@ class Protocol:
             # downstream consumers in protocol_time_estimator already treat
             # period_s == 0 as one scan rather than dividing by zero.
             config['period'] = schedule_from_units(
-                'period', period_row[1], file=file_path, judged=judge_schedule
+                'period', period_row[1], file=file_path, judged=runnable
             )
 
         except StopIteration:
@@ -2582,7 +2675,7 @@ class Protocol:
             # config carries duration=None). Refusing 0 here once kept
             # Apply-Z-Projection broken: the writer saves None as 0.
             config['duration'] = schedule_from_units(
-                'duration', duration[1], file=file_path, judged=judge_schedule
+                'duration', duration[1], file=file_path, judged=runnable
             )
 
         except StopIteration:
@@ -2740,10 +2833,12 @@ class Protocol:
             # reads 'Color', so normalize once at the read boundary.
             protocol_df = protocol_df.rename(columns={'Channel': 'Color'})
 
-        # Z-Slice arrives as float64 whenever any cell is blank (pandas NaN
-        # inference); normalize to the int / -1-sentinel form the rest of
-        # the app uses, so a z index can never render as 'Z3.0' in a name.
-        protocol_df['Z-Slice'] = protocol_df['Z-Slice'].apply(common_utils.to_int)
+        # A runnable protocol's Z-Slice is read with its other cells, and a
+        # blank one refuses the file (no shipped writer left one blank). The
+        # post-processing reader keeps the -1 sentinel for a blank, so a z
+        # index never renders as 'Z3.0' in the names it matches files by.
+        if not runnable:
+            protocol_df['Z-Slice'] = protocol_df['Z-Slice'].apply(common_utils.to_int)
 
         # Added in v3
         DEFAULT_VIDEO_CONFIG = {'fps': 5, 'duration': 5}
@@ -2798,36 +2893,31 @@ class Protocol:
                     layer_stim['illumination_ma'] = layer_stim.pop('illumination')
             return stim_config
 
-        def _parse_config_per_row(row, column, default):
-            """Parse a config string for a single row.
+        def _parse_config_per_row(position, row, column):
+            """One row's config cell, read by the step reader.
 
-            Returns the parsed dict, or a fresh deepcopy of default if that
-            row's value is missing or corrupt.  Errors are logged with the
-            step name so the bad row is easy to find.  If the value is already
-            a dict (programmatic build), returns it as-is.
-
-            Accepts both JSON (current save format) and Python-repr dict
-            strings (legacy TSVs written via pandas default stringification
-            with single quotes + True/False).  json.loads is tried first;
-            ast.literal_eval handles the legacy case.
+            Parsed here rather than in the constructor because the legacy
+            repairs below need the dict. A cell that is not a config refuses
+            a runnable file, naming the step; post-processing's reader keeps
+            it as read.
             """
-            val = row[column]
-            if isinstance(val, dict):
-                return val
             try:
-                return json.loads(val)
-            except Exception:
-                try:
-                    parsed = ast.literal_eval(val)
-                    if isinstance(parsed, dict):
-                        return parsed
-                    raise ValueError(f'not a dict: {type(parsed).__name__}')
-                except Exception as ex:
-                    step_name = row.get('Name', '?')
-                    logger.error(
-                        f"Unable to parse {column} for step '{step_name}', using default: {ex}"
-                    )
-                    return copy.deepcopy(default)
+                return _dict_cell(row[column])
+            except ValueError as e:
+                if not runnable:
+                    return row[column]
+                raise ProtocolFormatError(
+                    f'step {position + 1} ({row["Name"]}) has {column} {row[column]!r}, which {e}.',
+                    file=file_path,
+                ) from None
+
+        def _with_video_defaults(video_config):
+            """A legacy save that stored only some keys (an older one held just
+            'duration') takes the default for the rest, rather than failing
+            validation on fps 0."""
+            if not isinstance(video_config, dict):
+                return video_config
+            return {**DEFAULT_VIDEO_CONFIG, **video_config}
 
         def _typed_column(values, dtype) -> pd.Series:
             """A per-row column for the steps frame, typed explicitly.
@@ -2848,18 +2938,10 @@ class Protocol:
                 (copy.deepcopy(DEFAULT_VIDEO_CONFIG) for _ in protocol_df.index), object
             )
         else:
-            # Parse per-row so one corrupt row doesn't wipe all configs.
-            # Merge DEFAULT_VIDEO_CONFIG so legacy TSVs that only stored a
-            # subset of fields (e.g. older saves with just 'duration') fall
-            # back to defaults for missing keys instead of failing validation
-            # on fps=0.
             protocol_df['Video Config'] = _typed_column(
                 (
-                    {
-                        **DEFAULT_VIDEO_CONFIG,
-                        **_parse_config_per_row(row, 'Video Config', DEFAULT_VIDEO_CONFIG),
-                    }
-                    for _, row in protocol_df.iterrows()
+                    _with_video_defaults(_parse_config_per_row(position, row, 'Video Config'))
+                    for position, (_, row) in enumerate(protocol_df.iterrows())
                 ),
                 object,
             )
@@ -2879,13 +2961,10 @@ class Protocol:
                 (copy.deepcopy(DEFAULT_STIM_CONFIG) for _ in protocol_df.index), object
             )
         else:
-            # Parse per-row so one corrupt row doesn't wipe all configs
             protocol_df['Stim_Config'] = _typed_column(
                 (
-                    _carry_stim_key_names(
-                        _parse_config_per_row(row, 'Stim_Config', DEFAULT_STIM_CONFIG)
-                    )
-                    for _, row in protocol_df.iterrows()
+                    _carry_stim_key_names(_parse_config_per_row(position, row, 'Stim_Config'))
+                    for position, (_, row) in enumerate(protocol_df.iterrows())
                 ),
                 object,
             )
@@ -2923,18 +3002,6 @@ class Protocol:
             )
         protocol_df['Label'] = sanitized_labels
 
-        # Name is a derived rendering of the structured columns; re-render it
-        # so a stale or hand-edited Name cannot disagree with the fields it
-        # encodes. For auto-named rows this reproduces the stored Name
-        # byte-identically.
-        protocol_df['Name'] = _typed_column(
-            (
-                common_utils.build_step_name(common_utils.step_components(row))
-                for _, row in protocol_df.iterrows()
-            ),
-            str,
-        )
-
         # The in-memory steps now carry every current column; stamp the
         # current version so a save writes the format the file actually
         # holds instead of an older version label over new columns.
@@ -2950,17 +3017,27 @@ class Protocol:
             int(custom_indices.astype(int).max()) + 1 if len(custom_indices) else 0
         )
 
-        protocol = cls(
-            tiling_configs_file_loc=tiling_configs_file_loc,
-            config=config,
-            judge_schedule=judge_schedule,
-        )
+        try:
+            protocol = cls(
+                tiling_configs_file_loc=tiling_configs_file_loc,
+                config=config,
+                runnable=runnable,
+            )
+        except ProtocolFormatError as e:
+            raise ProtocolFormatError(str(e), file=file_path) from None
+
+        # Name is a derived rendering of the structured columns; re-render it
+        # so a stale or hand-edited Name cannot disagree with the fields it
+        # encodes. After the cells are typed, so it renders what they hold.
+        # For auto-named rows this reproduces the stored Name byte-identically.
+        protocol._render_step_names()
+        protocol_df = protocol._config['steps']
 
         # A Layer Settings cell the reader cannot type refuses the file here,
         # naming it, as a step cell does; a loaded protocol's layer_settings()
         # then cannot raise. A run's protocol read back for post-processing
         # is not judged: nothing there reads its layer settings.
-        if judge_schedule:
+        if runnable:
             try:
                 protocol.layer_settings()
             except ProtocolFormatError as e:
