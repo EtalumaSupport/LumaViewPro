@@ -1320,11 +1320,11 @@ class ScopeSession:
         """Add a step to ``protocol`` from this session's settings and live position.
 
         The entry point a caller with no GUI uses to do what Add Step
-        does: one step per layer whose ``acquire`` is set, at the current
-        plate position, with the current objective, in the settings'
-        channel order. The protocols API performs the add and refuses when
-        nothing would be added; this composes its inputs from the session
-        the same way the GUI's handler does.
+        does: one step per layer whose ``acquire`` is set, at the live
+        stage position on the protocol's plate, with the current objective,
+        in the settings' channel order. The protocols API performs the add
+        and refuses when nothing would be added; this composes its inputs
+        from the session the same way the GUI's handler does.
 
         Returns the inserted step names, in protocol order.
         """
@@ -1334,7 +1334,7 @@ class ScopeSession:
             protocol,
             layer_configs=self.get_layer_configs(),
             stim_configs=self.get_stim_configs(),
-            plate_position=self.get_current_plate_position(),
+            plate_position=self._plate_position(protocol.labware()),
             objective_id=objective_id,
             channel_order=self.settings.get('step_channel_order', None),
             before_step=before_step,
@@ -1352,11 +1352,11 @@ class ScopeSession:
         """Rewrite a step of ``protocol`` from this session's settings and live position.
 
         The entry point a caller with no GUI uses to do what Update Step
-        does: step ``step_idx`` takes ``layer``'s settings, the current
-        plate position and the current objective. The protocols API
-        performs the update and refuses it when the position or the
-        objective is unknown; this composes its inputs from the session
-        the same way ``add_step`` does.
+        does: step ``step_idx`` takes ``layer``'s settings, the live stage
+        position on the protocol's plate and the current objective. The
+        protocols API performs the update and refuses it when the position
+        or the objective is unknown; this composes its inputs from the
+        session the same way ``add_step`` does.
 
         Returns the step's name after the update.
         """
@@ -1368,7 +1368,7 @@ class ScopeSession:
             layer=layer,
             layer_configs=self.get_layer_configs(),
             stim_configs=self.get_stim_configs(),
-            plate_position=self.get_current_plate_position(),
+            plate_position=self._plate_position(protocol.labware()),
             objective_id=objective_id,
             label=label,
         )
@@ -2053,6 +2053,9 @@ class ScopeSession:
             raise ValueError(f'turret slot must be a whole number 1-4, got {position!r}')
 
     def get_current_plate_position(self) -> dict:
+        return self._plate_position(self.settings.get('protocol', {}).get('labware'))
+
+    def _plate_position(self, labware_id: str) -> dict:
         import modules.config_helpers as config_helpers
 
         return config_helpers.get_current_plate_position(
@@ -2060,6 +2063,7 @@ class ScopeSession:
             self.settings,
             self.coordinate_transformer,
             self.wellplate_loader,
+            labware_id,
         )
 
     # ------------------------------------------------------------------

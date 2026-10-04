@@ -382,18 +382,26 @@ def get_current_plate_position(
     settings: dict,
     coordinate_transformer: 'CoordinateTransformer',
     wellplate_loader: WellPlateLoader,
+    labware_id: str,
 ) -> dict:
     """Get current plate position in plate coordinates.
 
+    Args:
+        labware_id: The plate the position is stated on. A step is stored
+            on its protocol's plate, which need not be the scope's
+            selection; converting through another plate puts it in a frame
+            the run will not drive it in.
+
     Returns:
-        dict with keys 'x', 'y', 'z' in plate coordinates (um).
+        dict with keys 'x', 'y', 'z' in plate coordinates: x and y in mm,
+        z in um.
 
     Raises:
         HardwareCommandRefusedError: ``'not_connected'`` -- this scope's
             model has a motor controller and none is connected, so there is
             no position to read. A step or a run recorded at a made-up
             position would image the wrong place under the right name.
-        ConfigError: The stored labware is not a plate the catalogue has.
+        ConfigError: ``labware_id`` is not a plate the catalogue has.
             Converting through a different plate would put every position
             in the wrong frame.
     """
@@ -407,7 +415,7 @@ def get_current_plate_position(
         return {'x': 0, 'y': 0, 'z': 0}
 
     pos = scope.motion.get_current_position(axis=None)
-    _labware_id, labware = get_selected_labware_from_settings(settings, wellplate_loader)
+    labware = wellplate_loader.get_plate(plate_key=wellplate_loader.resolve_plate_key(labware_id))
 
     # Z-only scopes (no XY stage) report position without X/Y keys; tolerate
     # missing axes so adding/modifying a step (and z-stack capture) does not

@@ -368,6 +368,7 @@ class TestGetCurrentPlatePosition:
                 _make_settings(),
                 MagicMock(),
                 MagicMock(),
+                '96 well microplate',
             )
         assert refused.value.reason == 'not_connected'
 
@@ -383,6 +384,7 @@ class TestGetCurrentPlatePosition:
             _make_settings(),
             MagicMock(),
             MagicMock(),
+            '96 well microplate',
         )
         assert result == {'x': 0, 'y': 0, 'z': 0}
 
@@ -390,15 +392,14 @@ class TestGetCurrentPlatePosition:
         from modules.exceptions import ConfigError
         from modules.labware_loader import WellPlateLoader
 
-        settings = _make_settings()
-        settings['protocol'] = {'labware': 'nonexistent'}
         transformer = MagicMock()
         with pytest.raises(ConfigError, match="unknown labware 'nonexistent'"):
             config_helpers.get_current_plate_position(
                 _make_mock_scope(),
-                settings,
+                _make_settings(),
                 transformer,
                 WellPlateLoader(),
+                'nonexistent',
             )
         transformer.stage_to_plate.assert_not_called()
 
@@ -416,6 +417,7 @@ class TestGetCurrentPlatePosition:
             _make_settings(),
             transformer,
             loader,
+            '96 well microplate',
         )
         assert set(result) == {'x', 'y', 'z'}
         assert result['z'] != 0  # Z=500 preserved on a Z-only scope
