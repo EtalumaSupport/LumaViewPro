@@ -325,10 +325,12 @@ class ProtocolSettings(FloatLayout):
             return
         new_name = common_utils.resolve_step_rename(text)
         if new_name is None:
-            # Blank field = keep the existing name; leave the field
-            # empty so the auto-name hint shows.
-            self.ids['step_name_input'].text = ''
+            # Blank field = keep the existing name. The field shows what the
+            # step holds: its own label, or the auto name as the hint.
+            self.generate_step_name_input()
             return
+        # The redraw shows the label the protocol kept, or after a refusal
+        # the one it still has.
         run_reported(
             lambda: self.step_name_validation_ex(new_name),
             self._draw_protocol_steps,
@@ -336,11 +338,10 @@ class ProtocolSettings(FloatLayout):
         )
 
     def step_name_validation_ex(self, new_name: str) -> None:
-        """Rename the current step and show the label the protocol kept."""
+        """Rename the current step."""
         _app_ctx.ctx.session.rename_step(self._protocol, self.curr_step, new_name)
         label = self._protocol.step(idx=self.curr_step)['Label']
         gui_logger.protocol_action('RENAME_STEP', f'step={self.curr_step} name={label!r}')
-        self.ids['step_name_input'].text = label
 
     def update_capture_root(self, text: str):
         # The protocol keeps the root as typed; the filename prefix it makes

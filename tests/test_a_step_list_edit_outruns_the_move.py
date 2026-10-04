@@ -280,12 +280,16 @@ def test_a_delete_on_an_empty_protocol_is_the_protocols_refusal(env, refusals):
 
 def test_a_name_with_nothing_to_keep_is_refused_and_the_step_keeps_its_name(env, refusals):
     panel = env.panel(num_steps=2, curr_step=1)
+    panel._protocol.modify_name(step_idx=1, step_name='center')
     before = panel._protocol.step(1)['Name']
+    panel.ids['step_name_input'].text = '!!!'  # what the person typed
 
     panel.step_name_validation('!!!')
+    panel.update_step_ui_immediate()
 
     assert refusals == [('StepEditRefusedError', 'UI:RENAME_STEP')]
     assert panel._protocol.step(1)['Name'] == before
+    assert panel.ids['step_name_input'].text == 'center', 'the field still shows the refused text'
 
 
 def test_a_blank_name_field_keeps_the_name_without_asking_the_protocol(env, refusals):
@@ -299,10 +303,25 @@ def test_a_blank_name_field_keeps_the_name_without_asking_the_protocol(env, refu
     assert panel.ids['step_name_input'].text == ''
 
 
+def test_a_blank_field_on_a_named_step_shows_its_name_again(env, refusals):
+    """Blank keeps the name, so the field shows it, not the auto name's hint."""
+    panel = env.panel(num_steps=2, curr_step=1)
+    panel._protocol.modify_name(step_idx=1, step_name='center')
+    panel.ids['step_name_input'].text = ''
+
+    panel.step_name_validation('')
+
+    assert refusals == []
+    assert panel._protocol.step(1)['Label'] == 'center'
+    assert panel.ids['step_name_input'].text == 'center'
+
+
 def test_a_rename_shows_the_label_the_protocol_kept(env, refusals):
     panel = env.panel(num_steps=2, curr_step=1)
 
+    panel.ids['step_name_input'].text = 'my step!'  # what the person typed
     panel.step_name_validation('my step!')
+    panel.update_step_ui_immediate()
 
     assert refusals == []
     assert panel._protocol.step(1)['Label'] == 'mystep'
