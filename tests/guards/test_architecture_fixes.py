@@ -615,9 +615,9 @@ _UI_PRIVATE_REACH_PIN = {
 _UI_EXCEPT_PIN = {
     ('ui/advanced_settings.py', 'TypeError, ValueError'): 2,
     ('ui/file_dialogs.py', 'Exception'): 1,
-    ('ui/histogram.py', 'AttributeError, KeyError'): 1,
+    ('ui/histogram.py', 'AttributeError, KeyError'): 0,
     ('ui/image_settings.py', 'Exception'): 0,
-    ('ui/image_settings.py', 'KeyError'): 1,
+    ('ui/image_settings.py', 'KeyError'): 0,
     ('ui/layer_control.py', 'Exception'): 5,
     ('ui/layer_control.py', 'ProtocolError'): 1,
     ('ui/layer_control.py', 'TypeError, ValueError'): 1,

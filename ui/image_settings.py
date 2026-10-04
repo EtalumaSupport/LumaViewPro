@@ -295,20 +295,11 @@ class ImageSettings(BoxLayout):
 
         Only layers present in the identity are retitled; a hidden
         accordion keeps its last title and is refreshed the next time
-        its layer appears in identity. A record whose layer has no
-        accordion in this build is skipped -- the drawer set is fixed
-        until accordions are built from the record, so a catalogue
-        layer beyond the built set simply has no drawer to retitle.
+        its layer appears in identity. Every catalogue layer has a drawer
+        (tests/guards/test_every_layer_has_a_drawer.py).
         """
         for record in layers:
-            try:
-                item = self.accordion_item_lookup(layer=record.key_name)
-            except KeyError:
-                logger.debug(
-                    f'[LVP Main  ] no accordion for layer {record.key_name!r}; title skipped'
-                )
-                continue
-            item.title = layer_title(record)
+            self.accordion_item_lookup(layer=record.key_name).title = layer_title(record)
 
     def set_layer_focus_visibility(self, visible: bool) -> None:
         for layer in common_utils.get_layers():
