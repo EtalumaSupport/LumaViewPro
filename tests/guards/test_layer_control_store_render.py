@@ -319,7 +319,8 @@ class TestTheRendererRendersTheStore:
         )
 
     def test_the_auto_gain_write_back_renders_instead_of_poking_widgets(self):
-        fn = _func(LAYER_CONTROL_PATH, 'update_auto_gain_cb')
+        # The Session stores what the lock reached; the toggle's redraw renders it.
+        fn = _func(LAYER_CONTROL_PATH, 'update_auto_gain')
         assert _calls(fn, RENDERER), (
             'The toggle-off write-back must store the achieved values and then render '
             'them, not assign the sliders and let the handlers re-commit.'

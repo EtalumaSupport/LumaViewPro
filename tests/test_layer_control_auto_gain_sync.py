@@ -112,7 +112,7 @@ class TestApplySettingsSyncsAutoGainCheckbox:
     apply_settings call: the camera AG state ends up matching settings
     (correct) but the toggle UI continues to show the stale .kv default
     of False. The user has to click the toggle on-then-off to force the
-    update_auto_gain_cb path to re-write settings and re-fire
+    toggle's path to re-write settings and re-fire
     apply_settings, at which point the toggle visibly reflects state.
 
     The sync is gated by ``if not protocol_running_global.is_set()`` --

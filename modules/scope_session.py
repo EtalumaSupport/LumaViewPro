@@ -84,6 +84,7 @@ if TYPE_CHECKING:
     from drivers.simulated_camera import SimulatedStall
     from modules.labware_loader import WellPlateLoader
     from modules.lumascope_api.bring_up import BringUpRecord
+    from modules.lumascope_api.imaging import AutoGainLock
     from modules.objectives_loader import ObjectiveLoader
     from modules.protocol import Protocol, ProtocolSizeAdvisory
     from modules.protocol_runner import ProtocolRunner
@@ -1282,6 +1283,54 @@ class ScopeSession:
             stim = self.settings[layer].get('stim_config')
             if mode is not None and stim is not None:
                 stim['enabled'] = False
+
+    def set_layer_auto_gain(self, layer: str, enabled: bool) -> 'AutoGainLock | None':
+        """Turn a layer's auto-gain on or off, as the GUI's Auto Gain/Exp box does.
+
+        Turning it on stores the preference only: the camera arms when the
+        layer is next applied (``scope.imaging.apply_layer_camera_settings``
+        with ``auto_gain=True``). Turning it off locks a standing arm
+        (``scope.imaging.lock_auto_gain``) and stores what the camera reached
+        as the layer's manual setting: the lock's ``gain_db`` and its
+        ``stored_exposure_ms``, rounded to 0.1 dB and 0.01 ms, the resolution
+        the stored settings carry. Each is stored only when the camera
+        reported it; with no arm standing, or a lock that found nothing
+        usable, they are left as they were. Turning it off waits on the
+        camera lane.
+
+        Returns:
+            The lock when turning off (its ``state`` is None when no arm
+            stood), so a caller can read the state the camera reached;
+            None when turning on.
+
+        Raises:
+            ConfigError: ``layer`` is not one of this release's layers,
+                ``enabled`` is not a bool, or ``enabled`` is True and this
+                scope does not have ``layer``; nothing is changed. Turning
+                auto-gain off is always admitted.
+            The lock's refusal, when a run or a diagnostic holds the scope;
+                nothing is stored.
+        """
+        if layer not in common_utils.get_layers():
+            raise ConfigError(
+                f'{layer!r} is not a layer; the layers are {common_utils.get_layers()}'
+            )
+        if not isinstance(enabled, bool):
+            raise ConfigError(f'auto-gain enabled must be True or False, got {enabled!r}')
+        lock = None
+        if enabled:
+            self._refuse_layer_not_on_scope(layer, then='run auto-gain')
+        else:
+            lock = self.scope.imaging.lock_auto_gain()
+        with self.settings_lock:
+            stored = self.settings[layer]
+            if lock is not None and lock.state is not None:
+                if common_utils.is_valid_gain_db(lock.gain_db):
+                    stored['gain_db'] = round(lock.gain_db, 1)
+                if common_utils.is_valid_exposure_ms(lock.exposure_ms):
+                    stored['exposure_ms'] = round(lock.stored_exposure_ms, 2)
+            stored['auto_gain'] = enabled
+        return lock
 
     def new_protocol(
         self,

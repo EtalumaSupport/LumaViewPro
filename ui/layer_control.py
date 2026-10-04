@@ -413,62 +413,30 @@ class LayerControl(BoxLayout):
         ):
             self.apply_settings()
 
-    def update_auto_gain(self, init: bool = False):
+    def update_auto_gain(self):
         logger.info('[LVP Main  ] LayerControl.update_auto_gain()')
-        if self.ids['auto_gain'].state == 'down':
-            state = True
-        else:
-            state = False
-        if not init:
-            gui_logger.toggle(f'AUTO_GAIN_{self.layer}', state)
+        enabled = self.ids['auto_gain'].state == 'down'
+        gui_logger.toggle(f'AUTO_GAIN_{self.layer}', enabled)
 
-        # Leaving auto-gain asks the API to lock the standing arm and
-        # hands the result to the write-back below. Program start loads
-        # the stored settings, never the camera's, and entering auto-gain
-        # has nothing to lock (the arm happens in apply_settings), so
-        # neither asks.
-        lock = None
-        if not init and not state:
-            lock = _app_ctx.ctx.scope.imaging.lock_auto_gain()
-        self.update_auto_gain_cb(result=(init, lock))
+        # Leaving auto-gain locks the camera's arm and stores what it reached;
+        # the Session does both, so a script leaving auto-gain stores the same
+        # thing. The lock waits on the camera, so it runs on the camera lane.
+        # The redraw shows whatever the store holds afterwards -- the reached
+        # values, or the old ones if the lock was refused -- and the apply
+        # re-syncs the box and arms the camera when auto-gain went on.
+        ctx = _app_ctx.ctx
+        layer = self.layer
 
-    def update_auto_gain_cb(self, result=None, exception=None):
-        settings = _app_ctx.ctx.settings
-        if exception is not None:
-            logger.error(f'LVP Main] Update_auto_gain error: {exception}')
-            return
+        def redraw():
+            self.render_layer_values_from_settings()
+            self.apply_settings()
 
-        init, lock = result
-        state = self.ids['auto_gain'].state == 'down'
-
-        # Only a toggle OFF that locked a standing arm writes back what
-        # the auto loop achieved; the API has already told the user about
-        # a limit state or a failed lock.
-        if not init and not state and lock is not None and lock.state is not None:
-            gain = lock.gain_db
-            exp = lock.exposure_ms
-            # A FAILED lock carries no values; keep the previous settings
-            # for that field rather than push a non-physical one.
-            gain_known = common_utils.is_valid_gain_db(gain)
-            exp_known = common_utils.is_valid_exposure_ms(exp)
-            # Rounded to the resolution the control has: an achieved value
-            # carrying more digits than any path can re-enter would make the
-            # store and every widget showing it disagree forever.
-            if gain_known:
-                settings[self.layer]['gain_db'] = round(gain, 1)
-            if exp_known:
-                # The API decided this value -- the achieved exposure floored
-                # to the class's usable floor -- so that a GUI and a REST
-                # caller store the same thing. Narrowing it again to this
-                # slider's range would make the widget a second answerer over
-                # the API's own answer, and a slider whose max sits below the
-                # achieved exposure would silently shrink what gets stored.
-                settings[self.layer]['exposure_ms'] = round(lock.stored_exposure_ms, 2)
-            if gain_known or exp_known:
-                self.render_layer_values_from_settings()
-
-        settings[self.layer]['auto_gain'] = state
-        self.apply_settings()
+        submit_reported(
+            lambda: ctx.session.set_layer_auto_gain(layer, enabled),
+            redraw,
+            f'AUTO_GAIN_{layer}',
+            lane=ctx.camera_executor,
+        )
 
     def gain_slider(self):
         settings = _app_ctx.ctx.settings

@@ -336,8 +336,9 @@ def get_ag_ae_min_exposure_ms(layer: str) -> float:
     treats as usable: a setting written below it produces near-black
     protocol steps on ordinary scenes, and fluorescence / luminescence
     sliders cannot show sub-millisecond values at all. An auto-gain lock
-    at or below this floor reports AT_MINIMUM; the layer control floors
-    the written-back setting to it. Unknown layers fall back to the
+    at or below this floor reports AT_MINIMUM, and the exposure a caller
+    leaving auto-gain stores is floored to it (``stored_exposure_ms``).
+    Unknown layers fall back to the
     fluorescence floor, as the ceiling sibling does.
     """
     return DEFAULT_AG_AE_MIN_EXPOSURE_MS[_ag_ae_channel_class(layer)]

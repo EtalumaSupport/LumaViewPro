@@ -31,6 +31,7 @@ from tests.scope_fakes import give_stub_lanes
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 IMAGE_SETTINGS_PATH = REPO_ROOT / 'ui' / 'image_settings.py'
 LAYER_CONTROL_PATH = REPO_ROOT / 'ui' / 'layer_control.py'
+SCOPE_SESSION_PATH = REPO_ROOT / 'modules' / 'scope_session.py'
 
 
 def _func(path: pathlib.Path, name: str) -> ast.FunctionDef:
@@ -154,7 +155,7 @@ class TestTheGuiNeverNarrowsTheStore:
         # ImagingAPI.stored_exposure_after_lock decides this value so that a
         # GUI and a REST caller store the same thing; narrowing it again to a
         # slider's range makes the widget a second answerer over the API.
-        fn = _func(LAYER_CONTROL_PATH, 'update_auto_gain_cb')
+        fn = _func(SCOPE_SESSION_PATH, 'set_layer_auto_gain')
         clips = [
             n
             for n in ast.walk(fn)
