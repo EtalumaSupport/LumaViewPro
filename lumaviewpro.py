@@ -310,6 +310,7 @@ if __name__ == '__main__':
     kivy.require('2.1.0')
 
     from kivy.app import App
+    from kivy.base import stopTouchApp
     from kivy.clock import Clock
     from kivy.factory import Factory
     from kivy.graphics import (
@@ -1396,6 +1397,18 @@ class LumaViewProApp(TooltipMixin, App):
         except Exception:
             logger.exception('[LVP Main  ] periodic current.json flush failed')
 
+    def stop(self, *largs) -> None:
+        """End the event loop; ``run()`` then dispatches ``on_stop``, once.
+
+        Kivy's own ``stop()`` dispatches ``on_stop`` itself, and ``run()``
+        dispatches it again when the loop it ended returns, so every exit
+        made from inside the loop (Confirm Exit, the drain close, quit and
+        repair) would cancel, save and tear down twice, the second save
+        after the scope is disconnected. A window close already ends the
+        loop this way.
+        """
+        stopTouchApp()
+
     def on_stop(self) -> None:
         """Kivy lifecycle hook: save settings, tear the session down, exit cleanly."""
         logger.info('[LVP Main  ] LumaViewProApp.on_stop()')
@@ -1465,9 +1478,7 @@ class LumaViewProApp(TooltipMixin, App):
 
         # The one teardown: metrics, the LED drain through the io lane,
         # the consumer threads, the lanes, motion stopped, the scope
-        # disconnected. Kivy's run() falls through to a second on_stop
-        # after an in-loop stop(); that pass finds the session already
-        # shut and logs it.
+        # disconnected.
         logger.info('[LVP Main  ] ctx.session.shutdown()')
         from modules.exceptions import ScopeDisconnectError
         from modules.notification_center import notifications

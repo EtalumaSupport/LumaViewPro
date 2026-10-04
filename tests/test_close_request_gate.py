@@ -191,3 +191,28 @@ def test_the_close_gate_does_not_derive_the_drain_state_itself():
         'read ctx.session.close_drain_pending instead so headless and REST see the '
         'same fact the GUI renders.'
     )
+
+
+def test_the_apps_stop_ends_the_loop_and_leaves_on_stop_to_run():
+    """Every exit runs on_stop once.
+
+    Kivy's App.stop() dispatches on_stop and then run() dispatches it again
+    when the loop returns, so an exit made from inside the loop (Confirm
+    Exit, the drain close, quit and repair) cancelled, saved and tore down
+    twice, the second save after the scope was disconnected. The app's
+    stop() only ends the loop, and run() is the one dispatcher.
+    """
+    stop = _method(_app_class(_module_tree()), 'stop')
+
+    calls = [
+        node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, 'id', '')
+        for node in ast.walk(stop)
+        if isinstance(node, ast.Call)
+    ]
+
+    assert 'stopTouchApp' in calls, f'{_APP_CLASS}.stop must end the event loop: {calls}'
+    assert not {'dispatch', '_stop', 'stop', 'on_stop'} & set(calls), (
+        f'{_APP_CLASS}.stop must not dispatch on_stop itself (it calls {calls}); '
+        'run() dispatches it when the loop returns, and a second dispatch repeats '
+        'the whole shutdown.'
+    )
