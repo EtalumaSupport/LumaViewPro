@@ -90,11 +90,8 @@ _STEPS_WRITE = 'steps()[...] ='
 # Pinned at the tree that first counted them (fifteen writer calls and one
 # write into the live frame), lowered as each edit moved behind the API.
 _PIN = {
-    ('ui/protocol_settings.py', 'apply_tiling'): 1,
-    ('ui/protocol_settings.py', 'apply_zstacking'): 1,
     ('ui/protocol_settings.py', 'modify_capture_root'): 1,
     ('ui/protocol_settings.py', 'modify_time_params'): 1,
-    ('ui/protocol_settings.py', 'optimize_step_ordering'): 2,
 }
 
 

@@ -191,7 +191,7 @@ def test_pre_v7_compose_and_compare_recovers_flag_per_row(tmp_path):
 # ---------------------------------------------------------------------------
 
 _ZSTACK = {'range': 100.0, 'step_size': 20.0, 'z_reference': 'center'}
-_WIDE_Z = {'Z': {'limits': {'min': 0.0, 'max': 10000.0}}}
+_WIDE_Z = {'Z': {'min': 0.0, 'max': 10000.0}}
 
 
 def _labeled_step(label='Treatment_10x', **kwargs):
@@ -210,7 +210,7 @@ def _labeled_step(label='Treatment_10x', **kwargs):
 
 def test_zstack_children_keep_parent_label():
     proto = _build_protocol([_labeled_step(z=5000.0)])
-    proto.apply_zstacking(zstack_params=_ZSTACK, axes_config=_WIDE_Z)
+    proto.apply_zstacking(zstack_params=_ZSTACK, axis_limits=_WIDE_Z)
     steps = proto.steps()
     assert len(steps) == 6
     assert list(steps['Label']) == ['Treatment_10x'] * 6
@@ -223,16 +223,16 @@ def test_tiling_children_keep_parent_label(scale_capabilities):
     from modules.objectives_loader import ObjectiveLoader
 
     labware = WellPlateLoader().get_plate('6 well microplate')
-    axes_config = {
-        'X': {'limits': {'min': -1_000_000.0, 'max': 1_000_000.0}},
-        'Y': {'limits': {'min': -1_000_000.0, 'max': 1_000_000.0}},
+    axis_limits = {
+        'X': {'min': -1_000_000.0, 'max': 1_000_000.0},
+        'Y': {'min': -1_000_000.0, 'max': 1_000_000.0},
     }
     proto = _build_protocol([_labeled_step(x=60.0, y=40.0)])
     proto.apply_tiling(
         tiling='2x2',
         frame_dimensions={'width': 1900, 'height': 1900},
         binning_size=1,
-        axes_config=axes_config,
+        axis_limits=axis_limits,
         labware=labware,
         stage_offset={'x': 0, 'y': 0},
         overlap_percent=0.0,

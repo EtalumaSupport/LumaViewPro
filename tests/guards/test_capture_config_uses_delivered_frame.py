@@ -48,7 +48,6 @@ def _patch_ctx(monkeypatch, *, typed: str, settings: dict):
         'tiling_size_spinner': MagicMock(text='1x1'),
         'acquire_zstack_id': MagicMock(active=False),
     }
-    protocol_settings.get_tiling_overlap_percent.return_value = 0.0
     ctx.motion_settings.ids = {
         'microscope_settings_id': _frame_fields(typed),
         'protocol_settings_id': protocol_settings,

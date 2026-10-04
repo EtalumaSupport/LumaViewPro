@@ -1527,6 +1527,55 @@ class ScopeSession:
         """
         return self.scope.protocols.set_labware(protocol, plate_key)
 
+    def apply_tiling(self, protocol: 'Protocol', tiling: str) -> None:
+        """Expand every step of ``protocol`` into the tile grid ``tiling``, as Apply does.
+
+        The tiles are spaced for the configured frame, binning and tile
+        overlap, laid out on the protocol's own plate.
+
+        Raises:
+            ProtocolRunRefusedError: ``tiling`` is not a grid this
+                installation offers, the protocol is already tiled, a step's
+                objective is not in the catalogue, the scope has no X/Y
+                motor, or a tile falls outside the stage's travel. Nothing
+                changes.
+            ConfigError: the protocol's plate is not in the catalogue.
+                Nothing changes.
+        """
+        import modules.config_helpers as config_helpers
+
+        self.scope.protocols.apply_tiling(
+            protocol,
+            tiling,
+            frame_dimensions=config_helpers.get_frame_dimensions_from_settings(self.settings),
+            binning_size=self.get_binning_size(),
+            overlap_percent=self.settings['tiling_overlap_percent'],
+        )
+
+    def apply_zstacking(
+        self,
+        protocol: 'Protocol',
+        *,
+        range_um: float,
+        step_size_um: float,
+        z_reference: str,
+    ) -> None:
+        """Expand every step of ``protocol`` not already in a stack into a z-stack.
+
+        ``z_reference`` says where each step's Z sits in its stack:
+        ``'top'``, ``'center'`` or ``'bottom'``.
+
+        Raises:
+            ProtocolRunRefusedError: ``range_um`` or ``step_size_um`` is not
+                greater than zero, the scope has no Z motor, or a slice falls
+                outside the Z travel. Nothing changes.
+            ConfigError: ``z_reference`` is not one of the three. Nothing
+                changes.
+        """
+        self.scope.protocols.apply_zstacking(
+            protocol, range_um=range_um, step_size_um=step_size_um, z_reference=z_reference
+        )
+
     def protocol_size_advisory(self, protocol: 'Protocol') -> 'ProtocolSizeAdvisory | None':
         """Ask a protocol whether it is large enough to warn the user about.
 

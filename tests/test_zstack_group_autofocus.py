@@ -39,7 +39,7 @@ from tests.test_protocol_roundtrip import _build_protocol, _make_step
 from tests.scope_fakes import swap_lanes
 
 
-_WIDE_Z = {'Z': {'limits': {'min': 0.0, 'max': 100_000.0}}}
+_WIDE_Z = {'Z': {'min': 0.0, 'max': 100_000.0}}
 # center reference at Z=5000, range 10, step 5 -> 4995 / 5000 / 5005
 _ZSTACK = {'range': 10.0, 'step_size': 5.0, 'z_reference': 'center'}
 _LAYER_FOCUS = 5000.0
@@ -52,7 +52,7 @@ def _stacked(auto_focus: bool = True):
     proto = _build_protocol(
         [_make_step(name='A1_Green', z=_LAYER_FOCUS, z_slice=-1, auto_focus=auto_focus)]
     )
-    proto.apply_zstacking(zstack_params=_ZSTACK, axes_config=_WIDE_Z)
+    proto.apply_zstacking(zstack_params=_ZSTACK, axis_limits=_WIDE_Z)
     return proto
 
 
@@ -106,7 +106,7 @@ def test_placing_the_group_preserves_spacing_for_every_reference_mode():
             [_make_step(name='A1_Green', z=_LAYER_FOCUS, z_slice=-1, auto_focus=True)]
         )
         proto.apply_zstacking(
-            zstack_params={**_ZSTACK, 'z_reference': reference}, axes_config=_WIDE_Z
+            zstack_params={**_ZSTACK, 'z_reference': reference}, axis_limits=_WIDE_Z
         )
         anchor = proto.zstack_group_focus_anchor(step_idx=proto.steps().index[0])
         proto.apply_zstack_group_focus(reference_step_idx=anchor, z=5015.0)

@@ -32,13 +32,13 @@ def _proto():
 def test_out_of_range_zslices_refuse_the_stack():
     proto = _proto()
     before = proto.steps().copy()
-    axes_config = {'Z': {'limits': {'min': 4960.0, 'max': 5040.0}}}
+    axis_limits = {'Z': {'min': 4960.0, 'max': 5040.0}}
 
     with (
         patch('modules.protocol.notifications.report_outcome'),
         pytest.raises(ProtocolRunRefusedError) as refusal,
     ):
-        proto.apply_zstacking(zstack_params=_ZSTACK, axes_config=axes_config)
+        proto.apply_zstacking(zstack_params=_ZSTACK, axis_limits=axis_limits)
 
     # 4950 and 5050 fall outside [4960, 5040].
     assert refusal.value.reason == 'zslices_outside_travel'
@@ -48,8 +48,8 @@ def test_out_of_range_zslices_refuse_the_stack():
 
 def test_all_in_range_zslices_kept_no_skips():
     proto = _proto()
-    axes_config = {'Z': {'limits': {'min': 0.0, 'max': 10000.0}}}
+    axis_limits = {'Z': {'min': 0.0, 'max': 10000.0}}
 
-    proto.apply_zstacking(zstack_params=_ZSTACK, axes_config=axes_config)
+    proto.apply_zstacking(zstack_params=_ZSTACK, axis_limits=axis_limits)
 
     assert len(proto.steps()) == 6

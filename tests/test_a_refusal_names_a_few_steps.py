@@ -53,7 +53,7 @@ def _stack_refusal(proto):
         pytest.raises(ProtocolRunRefusedError) as refusal,
     ):
         proto.apply_zstacking(
-            zstack_params=_STACK, axes_config={'Z': {'limits': {'min': 4960.0, 'max': 10_000.0}}}
+            zstack_params=_STACK, axis_limits={'Z': {'min': 4960.0, 'max': 10_000.0}}
         )
     return str(refusal.value)
 
@@ -94,9 +94,7 @@ def protocol_log(monkeypatch, caplog):
 
 def test_a_stack_that_is_built_says_how_many_steps_it_made(protocol_log):
     proto = _build_protocol([_labeled_step(z=5000.0)])
-    proto.apply_zstacking(
-        zstack_params=_STACK, axes_config={'Z': {'limits': {'min': 0.0, 'max': 10_000.0}}}
-    )
+    proto.apply_zstacking(zstack_params=_STACK, axis_limits={'Z': {'min': 0.0, 'max': 10_000.0}})
 
     assert [r.getMessage() for r in protocol_log.records] == [
         '[Protocol] Z-stack applied (range 100.0 um, step 20.0 um): 1 -> 6 steps'
@@ -109,7 +107,7 @@ def test_a_grid_that_is_built_says_how_many_steps_it_made(protocol_log, scale_ca
         tiling='2x2',
         frame_dimensions={'width': 1900, 'height': 1900},
         binning_size=1,
-        axes_config=_WIDE_XY,
+        axis_limits=_WIDE_XY,
         labware=WellPlateLoader().get_plate('6 well microplate'),
         stage_offset={'x': 0, 'y': 0},
         overlap_percent=0.0,

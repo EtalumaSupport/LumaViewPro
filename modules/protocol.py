@@ -219,8 +219,11 @@ def _refuse_positions_outside_travel(
     )
 
 
-def _axis_limits_or_refuse(axes_config: dict, axes: tuple[str, ...], *, what: str) -> dict:
+def _axis_limits_or_refuse(axis_limits: dict, axes: tuple[str, ...], *, what: str) -> dict:
     """The travel limits of each of *axes*, or a refusal naming the missing ones.
+
+    *axis_limits* maps each axis the scope has a motor for to its travel
+    limits; an axis absent from it has no motor.
 
     A z-stack or a tile grid is built by moving an axis. On a scope without
     that axis's motor there are no limits to build against, and building
@@ -232,7 +235,7 @@ def _axis_limits_or_refuse(axes_config: dict, axes: tuple[str, ...], *, what: st
         ProtocolRunRefusedError: An axis in *axes* has no limits. It has
             been logged and shown before it is raised.
     """
-    limits = {axis: (axes_config.get(axis) or {}).get('limits') for axis in axes}
+    limits = {axis: axis_limits.get(axis) for axis in axes}
     missing = [axis for axis, axis_limits in limits.items() if axis_limits is None]
     if missing:
         _refuse_build(
@@ -1845,7 +1848,7 @@ class Protocol:
         tiling: str,
         frame_dimensions: dict,
         binning_size: int,
-        axes_config: dict,
+        axis_limits: dict,
         labware: 'labware_module.WellPlate',
         stage_offset: dict,
         overlap_percent: float = 0.0,
@@ -1853,12 +1856,13 @@ class Protocol:
         capabilities: 'ScopeCapabilities',
         objective_helper: 'ObjectiveLoader',
     ) -> None:
-        """Expand every step into a tile grid.
+        """Expand every step into a tile grid, in the order a run visits them.
 
         The tile spacing derives from each step's objective and the scope's
         optics, so the caller that owns the scope hands its capabilities and
         its objective catalogue in; a protocol is a data object handed a
-        scale, never one that finds a scope.
+        scale, never one that finds a scope. *axis_limits* holds the travel
+        of each axis the scope has a motor for, and only those.
 
         Raises:
             ProtocolRunRefusedError: the grid is not one this installation
@@ -1891,7 +1895,7 @@ class Protocol:
         if tiling == no_tiling:
             return
 
-        limits = _axis_limits_or_refuse(axes_config, ('X', 'Y'), what='a tile grid')
+        limits = _axis_limits_or_refuse(axis_limits, ('X', 'Y'), what='a tile grid')
 
         fill_factor = TilingConfig.fill_factor_from_overlap_percent(overlap_percent)
 
@@ -2032,6 +2036,7 @@ class Protocol:
             remedy='Choose a smaller grid, or move those steps away from the edge of the stage.',
         )
         self._set_steps(pd.DataFrame.from_dict(new_steps))
+        self.optimize_step_ordering()
         logger.info(
             f'[Protocol] Tile grid {tiling} applied: {len(orig_steps_df)} -> '
             f'{self.num_steps()} steps'
@@ -2040,9 +2045,12 @@ class Protocol:
     def apply_zstacking(
         self,
         zstack_params: dict,
-        axes_config: dict,
+        axis_limits: dict,
     ) -> None:
-        """Expand every step not already in a stack into a z-stack.
+        """Expand every step not already in a stack into a z-stack, in the order a run visits them.
+
+        *axis_limits* holds the travel of each axis the scope has a motor
+        for, and only those.
 
         Raises:
             ProtocolRunRefusedError: the range or step size is not greater
@@ -2052,7 +2060,7 @@ class Protocol:
         """
         _refuse_unless_zstack_has_extent(zstack_params)
 
-        z_limits = _axis_limits_or_refuse(axes_config, ('Z',), what='a z-stack')
+        z_limits = _axis_limits_or_refuse(axis_limits, ('Z',), what='a z-stack')
 
         steps = self._config['steps']
         existing_max_zstack_group_id = steps['Z-Stack Group ID'].max()
@@ -2152,6 +2160,7 @@ class Protocol:
             remedy='Reduce the range, or move the focus of those steps away from the end of travel.',
         )
         self._set_steps(pd.DataFrame.from_dict(new_steps))
+        self.optimize_step_ordering()
         logger.info(
             f'[Protocol] Z-stack applied (range {zstack_params["range"]} um, step '
             f'{zstack_params["step_size"]} um): {num_steps} -> {self.num_steps()} steps'

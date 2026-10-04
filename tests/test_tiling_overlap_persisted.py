@@ -5,15 +5,16 @@ Tile overlap used to live only in the protocol panel's overlap spinner
 and was read straight off the widget at scan time, so it reset to 0%
 every launch. It is now promoted to settings['tiling_overlap_percent']:
 the spinner is just the editor (writes the setting via
-update_tiling_overlap), and scan/apply read the persisted value through
-ProtocolSettings.get_tiling_overlap_percent().
+update_tiling_overlap), and scan/apply read the persisted value (a scan
+through the sequenced-capture config, Apply through
+``ScopeSession.apply_tiling``).
 
 These guard the two halves of that contract:
   - the key ships in the tracked settings.json schema default, so the
     settings_init default-merge backfills it into every user's
     current.json and the bare read never raises KeyError;
-  - get_tiling_overlap_percent reads the setting, not the widget, and
-    the scan-config builder goes through that single accessor.
+  - a scan config carries the setting, not the widget (Apply's read is
+    pinned by test_a_protocol_is_tiled_and_stacked_through_the_api).
 
 current.json is gitignored runtime state, not the schema source, so it
 is intentionally not asserted here.
@@ -46,24 +47,12 @@ def test_tiling_overlap_percent_in_settings_schema():
 
     settings_init merges missing settings.json keys into current.json at
     load, so shipping the default here backfills every existing user and
-    the bare read in get_tiling_overlap_percent never raises KeyError.
+    the bare read in ScopeSession.apply_tiling never raises KeyError.
     """
     data = json.loads((REPO / 'data' / 'settings.json').read_text())
     assert 'tiling_overlap_percent' in data, (
         'data/settings.json must define tiling_overlap_percent so the '
         'default-merge backfills it and the persisted read does not KeyError'
-    )
-
-
-def test_get_tiling_overlap_percent_reads_setting_not_widget():
-    """The accessor reads the persisted setting, not the spinner widget."""
-    source = _method_source(PROTOCOL_SETTINGS_SRC, 'ProtocolSettings', 'get_tiling_overlap_percent')
-    assert "settings['tiling_overlap_percent']" in source, (
-        'get_tiling_overlap_percent must read the persisted setting'
-    )
-    assert 'tiling_overlap_spinner' not in source, (
-        'get_tiling_overlap_percent must not read the spinner widget; the '
-        'setting is the source of truth'
     )
 
 

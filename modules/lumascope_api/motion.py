@@ -574,15 +574,6 @@ class MotionAPI:
             return False
         return self._scope.runtime_state.get_turret_config()[slot] is not None
 
-    def get_axes_config(self) -> Mapping:
-        """Get the axis configuration from the motion board.
-
-        Returns:
-            Mapping: Axis configuration (axes present, limits, etc.),
-            read-only: an edit raises ``TypeError``.
-        """
-        return self._driver.get_axes_config()
-
     @contextlib.contextmanager
     def _reference_position_logger(self) -> Iterator[None]:
         """Context manager that logs limit-switch status before and after homing.

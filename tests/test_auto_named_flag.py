@@ -24,7 +24,7 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 TILING_CONFIGS = REPO / 'data' / 'tiling.json'
 
 _ZSTACK = {'range': 100.0, 'step_size': 20.0, 'z_reference': 'center'}
-_WIDE_Z = {'Z': {'limits': {'min': 0.0, 'max': 10000.0}}}
+_WIDE_Z = {'Z': {'min': 0.0, 'max': 10000.0}}
 
 
 def _insert_step(proto, *, step_name):
@@ -61,7 +61,7 @@ def test_zstack_inherits_auto_flag():
     # A z-stack expansion copies the parent step; the auto flag must ride along
     # so the expanded slices keep the parent's auto-vs-user identity.
     proto = _build_protocol([_make_step(name='A1_BF', z=5000.0, z_slice=-1, auto_named=False)])
-    proto.apply_zstacking(zstack_params=_ZSTACK, axes_config=_WIDE_Z)
+    proto.apply_zstacking(zstack_params=_ZSTACK, axis_limits=_WIDE_Z)
     flags = proto.steps()['Auto_Named'].tolist()
     assert flags and not any(flags), flags
 

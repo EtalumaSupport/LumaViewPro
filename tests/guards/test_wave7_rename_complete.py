@@ -122,7 +122,6 @@ MOTION_ONLY_METHODS = frozenset(
     {
         'add_position_listener',
         'get_actual_position',
-        'get_axes_config',
         'get_axis_limits',
         'get_axis_state',
         'get_current_position',

@@ -98,19 +98,7 @@ try:
     print('tiling catalogue:', tc.available_configs())
     print('no-tiling label :', tc.no_tiling_label())
     before = p.num_steps()
-    p.apply_tiling(
-        tiling='2x2',
-        frame_dimensions=config_helpers.get_frame_dimensions_from_settings(settings),
-        binning_size=config_helpers.get_binning_from_settings(settings),
-        axes_config=session.scope.motion.get_axes_config(),
-        labware=config_helpers.get_selected_labware_from_settings(
-            settings, session.wellplate_loader
-        )[1],
-        stage_offset=settings['stage_offset'],
-        overlap_percent=settings['tiling_overlap_percent'],
-        capabilities=session.scope.capabilities,
-        objective_helper=session.scope.objective_helper,
-    )
+    session.apply_tiling(p, '2x2')
     print(f'{before} -> {p.num_steps()} steps')
     print('ASSERT tiled 4x:', 'PASS' if p.num_steps() == before * 4 else f'CHECK ({p.num_steps()})')
     print('Tile column:', p.steps()['Tile'].tolist()[:6])

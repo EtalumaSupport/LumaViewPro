@@ -452,6 +452,90 @@ class ProtocolsAPI:
         protocol.modify_labware(labware_id=key)
         return key
 
+    def apply_tiling(
+        self,
+        protocol: Protocol,
+        tiling: str,
+        *,
+        frame_dimensions: dict,
+        binning_size: int,
+        overlap_percent: float,
+    ) -> None:
+        """Expand every step of ``protocol`` into the tile grid ``tiling``.
+
+        The tiles are laid out on the protocol's own plate, at the scope's
+        stage offset, and ordered as a run visits them.
+
+        Raises:
+            ProtocolRunRefusedError: ``tiling`` is not a grid this
+                installation offers, the protocol is already tiled, a step's
+                objective is not in the catalogue, the scope has no X/Y
+                motor, or a tile falls outside the stage's travel. Nothing
+                changes.
+            ConfigError: the protocol's plate is not in the catalogue, or the
+                scope has not been initialized, so it has no stage offset.
+                Nothing changes.
+        """
+        protocol.apply_tiling(
+            tiling=tiling,
+            frame_dimensions=frame_dimensions,
+            binning_size=binning_size,
+            axis_limits=self._travel_limits(),
+            labware=self._scope.wellplate_loader.get_plate(plate_key=protocol.labware()),
+            stage_offset=self._scope.runtime_state.require_stage_offset(),
+            overlap_percent=overlap_percent,
+            capabilities=self._scope.capabilities,
+            objective_helper=self._scope.objective_helper,
+        )
+        self._report_invalid_steps(protocol, solicited=True)
+
+    def apply_zstacking(
+        self,
+        protocol: Protocol,
+        *,
+        range_um: float,
+        step_size_um: float,
+        z_reference: str,
+    ) -> None:
+        """Expand every step of ``protocol`` not already in a stack into a z-stack.
+
+        ``z_reference`` says where each step's Z sits in its stack:
+        ``'top'``, ``'center'`` or ``'bottom'``. The slices are ordered as a
+        run visits them.
+
+        Raises:
+            ProtocolRunRefusedError: ``range_um`` or ``step_size_um`` is not
+                greater than zero, the scope has no Z motor, or a slice falls
+                outside the Z travel. Nothing changes.
+            ConfigError: ``z_reference`` is not one of the three. Nothing
+                changes.
+        """
+        protocol.apply_zstacking(
+            zstack_params={
+                'range': range_um,
+                'step_size': step_size_um,
+                'z_reference': z_reference,
+            },
+            axis_limits=self._travel_limits(),
+        )
+        self._report_invalid_steps(protocol, solicited=True)
+
+    def _travel_limits(self) -> dict:
+        """The travel limits of each axis this scope has a motor for, by axis.
+
+        The one read the run gate and the tile and z-stack builds judge
+        positions against. Only the axes in ``capabilities.axes``: the
+        motion board answers limits for X and Y on a Z-only scope too, and a
+        build judged against them would lay out tiles no motor can reach. An
+        axis without software-enforced bounds (the turret's T) answers None
+        and is left out.
+        """
+        return {
+            axis: limits
+            for axis in self._scope.capabilities.axes
+            if (limits := self._scope.motion.get_axis_limits(axis)) is not None
+        }
+
     def _refuse_unrecordable_step(self, *, verb: str, objective_id: str | None) -> None:
         """Refuse to save a step the scope cannot vouch for.
 
@@ -753,13 +837,7 @@ class ProtocolsAPI:
 
         from modules.protocol import axes_outside_travel
 
-        # An axis without software-enforced bounds (the turret's T) answers
-        # None and is not judged.
-        axis_limits = {
-            axis: limits
-            for axis in present
-            if (limits := self._scope.motion.get_axis_limits(axis)) is not None
-        }
+        axis_limits = self._travel_limits()
         plate = {}
         if {'X', 'Y'} & set(axis_limits):
             plate = {

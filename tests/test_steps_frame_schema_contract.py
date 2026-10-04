@@ -59,9 +59,9 @@ def test_empty_replacement_frame_regains_schema_and_dtypes():
 def test_populated_frame_is_passed_through_untouched():
     """The schema restore must not rewrite or reorder real rows."""
     proto = _proto()
-    axes_config = {'Z': {'limits': {'min': 0.0, 'max': 10000.0}}}
+    axis_limits = {'Z': {'min': 0.0, 'max': 10000.0}}
 
-    proto.apply_zstacking(zstack_params=_ZSTACK, axes_config=axes_config)
+    proto.apply_zstacking(zstack_params=_ZSTACK, axis_limits=axis_limits)
 
     steps = proto.steps()
     assert len(steps) == 6

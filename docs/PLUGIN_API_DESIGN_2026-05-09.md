@@ -96,7 +96,7 @@ lock.
   `is_homing`, `is_turreting`, `wait_until_finished_moving`
 - Listeners: `add_position_listener`, `remove_position_listener`,
   `_fire_position_listeners`
-- Configuration: `get_axes_config`, `get_axis_limits`,
+- Configuration: `get_axis_limits`,
   `set_motor_precision_mode`, `set_acceleration_limit`,
   `refresh_position_cache`, `_predicted_position`
 - Limits / status: `get_home_status`, `get_target_status`,

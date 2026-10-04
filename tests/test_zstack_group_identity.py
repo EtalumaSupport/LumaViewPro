@@ -34,8 +34,8 @@ from tests.test_step_label_ssot import (
 
 
 _WIDE_XY = {
-    'X': {'limits': {'min': -1_000_000.0, 'max': 1_000_000.0}},
-    'Y': {'limits': {'min': -1_000_000.0, 'max': 1_000_000.0}},
+    'X': {'min': -1_000_000.0, 'max': 1_000_000.0},
+    'Y': {'min': -1_000_000.0, 'max': 1_000_000.0},
 }
 
 
@@ -44,7 +44,7 @@ def _tile_2x2(proto, capabilities):
         tiling='2x2',
         frame_dimensions={'width': 1900, 'height': 1900},
         binning_size=1,
-        axes_config=_WIDE_XY,
+        axis_limits=_WIDE_XY,
         labware=WellPlateLoader().get_plate('6 well microplate'),
         stage_offset={'x': 0, 'y': 0},
         overlap_percent=0.0,
@@ -66,7 +66,7 @@ def _groups_to_xy(steps) -> dict[int, set[tuple[float, float]]]:
 def test_tiling_a_zstack_gives_each_tile_its_own_group(scale_capabilities):
     """One group must never span more than one XY position."""
     proto = _build_protocol([_labeled_step(x=60.0, y=40.0, z=5000.0)])
-    proto.apply_zstacking(zstack_params=_ZSTACK, axes_config=_WIDE_Z)
+    proto.apply_zstacking(zstack_params=_ZSTACK, axis_limits=_WIDE_Z)
     assert len(proto.steps()) == 6
 
     _tile_2x2(proto, scale_capabilities)
@@ -87,7 +87,7 @@ def test_tiling_a_zstack_gives_each_tile_its_own_group(scale_capabilities):
 def test_tiling_a_zstack_keeps_every_slice_of_a_tile_together(scale_capabilities):
     """The grouping must still bind the slices AT one position."""
     proto = _build_protocol([_labeled_step(x=60.0, y=40.0, z=5000.0)])
-    proto.apply_zstacking(zstack_params=_ZSTACK, axes_config=_WIDE_Z)
+    proto.apply_zstacking(zstack_params=_ZSTACK, axis_limits=_WIDE_Z)
     _tile_2x2(proto, scale_capabilities)
 
     steps = proto.steps()

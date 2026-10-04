@@ -28,20 +28,26 @@ def session():
     s.shutdown()
 
 
-def _edits(motion):
-    """Every way a caller could try to widen Z's travel through a read."""
+def _edits(session):
+    """Every way a caller could try to widen Z's travel through a read.
+
+    The API's one door is ``get_axis_limits``; the driver's axis config,
+    which that read and the move refusal both read, is the other.
+    """
+    motion = session.scope.motion
+    driver = session.scope._motion_driver
 
     def limits_value():
         motion.get_axis_limits('Z')['max'] = 114000.0
 
     def config_value():
-        motion.get_axes_config()['Z']['limits']['max'] = 114000.0
+        driver.get_axes_config()['Z']['limits']['max'] = 114000.0
 
     def config_limits():
-        motion.get_axes_config()['Z']['limits'] = {'min': 0.0, 'max': 114000.0}
+        driver.get_axes_config()['Z']['limits'] = {'min': 0.0, 'max': 114000.0}
 
     def config_axis():
-        motion.get_axes_config()['Z'] = {'limits': {'min': 0.0, 'max': 114000.0}}
+        driver.get_axes_config()['Z'] = {'limits': {'min': 0.0, 'max': 114000.0}}
 
     return [limits_value, config_value, config_limits, config_axis]
 
@@ -52,7 +58,7 @@ def test_an_edit_through_a_read_is_refused_and_the_bound_holds(session, which):
     travel_max = motion.get_axis_limits('Z')['max']
 
     with pytest.raises(TypeError):
-        _edits(motion)[which]()
+        _edits(session)[which]()
 
     assert motion.get_axis_limits('Z')['max'] == travel_max
     with pytest.raises(PositionOutOfRangeError):

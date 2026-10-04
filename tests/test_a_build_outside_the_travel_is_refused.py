@@ -33,12 +33,12 @@ _PLATE = '6 well microplate'
 _STACK = {'range': 100.0, 'step_size': 20.0, 'z_reference': 'center'}  # 4950..5050
 
 
-def _tile(proto, capabilities, axes_config):
+def _tile(proto, capabilities, axis_limits):
     proto.apply_tiling(
         tiling='2x2',
         frame_dimensions={'width': 1900, 'height': 1900},
         binning_size=1,
-        axes_config=axes_config,
+        axis_limits=axis_limits,
         labware=WellPlateLoader().get_plate(_PLATE),
         stage_offset={'x': 0, 'y': 0},
         overlap_percent=0.0,
@@ -76,7 +76,7 @@ def test_a_grid_with_a_tile_outside_the_travel_is_refused(scale_capabilities):
     )
     assert len(stage_x) == 2
     narrow = {
-        'X': {'limits': {'min': -1_000_000.0, 'max': sum(stage_x) / 2}},
+        'X': {'min': -1_000_000.0, 'max': sum(stage_x) / 2},
         'Y': _WIDE_XY['Y'],
     }
 
@@ -93,7 +93,7 @@ def test_a_stack_with_a_slice_outside_the_travel_is_refused():
     refusal = _refused(
         proto,
         lambda: proto.apply_zstacking(
-            zstack_params=_STACK, axes_config={'Z': {'limits': {'min': 4960.0, 'max': 10_000.0}}}
+            zstack_params=_STACK, axis_limits={'Z': {'min': 4960.0, 'max': 10_000.0}}
         ),
     )
 
@@ -111,7 +111,7 @@ def test_a_stack_with_no_extent_is_refused(range_um, step_um):
     refusal = _refused(
         proto,
         lambda: proto.apply_zstacking(
-            zstack_params=params, axes_config={'Z': {'limits': {'min': 0.0, 'max': 10_000.0}}}
+            zstack_params=params, axis_limits={'Z': {'min': 0.0, 'max': 10_000.0}}
         ),
     )
 

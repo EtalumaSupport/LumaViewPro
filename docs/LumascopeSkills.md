@@ -680,7 +680,7 @@ Recovery is deliberate data loss: the finished run's outstanding images are give
 
 **Canonical entry points.** Build the runner with `session.create_protocol_runner()`. Build the `Protocol` it runs with one of the two constructors on the protocols sub-API -- `scope.protocols.load_protocol(file_path)` (from a `.tsv` on disk) or `scope.protocols.create_protocol(config=... | input_config=... | empty_config=...)` (in-memory). Both resolve `data/tiling.json` from the scope's data folder and judge the protocol against the scope's catalogues, so prefer them over calling `Protocol.from_file(...)` directly (which makes you pass `tiling_configs_file_loc` by hand). From a Session, `session.load_protocol(file_path)` is the same load with the scope put on the protocol's plate.
 
-**Tiling grids.** `scope.protocols.tiling_config()` returns the grids this installation offers, read from the same `data/tiling.json`: `available_configs()` lists the labels a protocol's `tiling` accepts (`'1x1'`, `'2x2'`, ...), and `default_config()` is the one to preselect. It reads the file on each call; a missing or corrupt file raises `RuntimeError`. `protocol.tiling()` names the grid a protocol's steps already carry: `'1x1'` when no step is tiled, the grid's label when the tiles form one on offer, and None when they are tiled in a layout no grid offers. `Protocol.apply_tiling` refuses any grid over a tiled protocol (`ProtocolRunRefusedError`, reason `already_tiled`).
+**Tiling grids.** `scope.protocols.tiling_config()` returns the grids this installation offers, read from the same `data/tiling.json`: `available_configs()` lists the labels a protocol's `tiling` accepts (`'1x1'`, `'2x2'`, ...), and `default_config()` is the one to preselect. It reads the file on each call; a missing or corrupt file raises `RuntimeError`. `protocol.tiling()` names the grid a protocol's steps already carry: `'1x1'` when no step is tiled, the grid's label when the tiles form one on offer, and None when they are tiled in a layout no grid offers. `session.apply_tiling` refuses any grid over a tiled protocol (`ProtocolRunRefusedError`, reason `already_tiled`).
 
 ```python
 grids = session.scope.protocols.tiling_config()
@@ -736,6 +736,13 @@ name = session.update_step(protocol, 0, layer='Blue')   # 'custom0000_Blue'
 ```python
 session.rename_step(protocol, 0, 'center')   # 'center_BF'
 session.delete_step(protocol, 1)
+```
+
+**Tiling and z-stacking a protocol.** `session.apply_tiling(protocol, tiling)` does what the protocol panel's tiling Apply does: every step becomes a grid of tiles, `tiling` one of the labels `tiling_config().available_configs()` lists. The tiles are spaced for the configured frame, binning and tile overlap (`tiling_overlap_percent`), and laid out on the protocol's own plate. `session.apply_zstacking(protocol, range_um=..., step_size_um=..., z_reference=...)` does what the z-stack Apply does: every step not already in a stack becomes a stack of slices `step_size_um` apart over `range_um`, its own Z at the stack's `'top'`, `'center'` or `'bottom'`. Both leave the steps in the order a run visits them, and report the step check's notice as the other edits do. Each is refused before any step changes. `ProtocolRunRefusedError` covers a grid this installation does not offer, a protocol already tiled (reason `already_tiled`), a step's objective not in the catalogue, a range or step size not greater than zero, a scope with no motor for the axes the build moves (reason `positions_unreachable`; a Z-only scope cannot be tiled), and a tile or slice outside the stage's travel. `ConfigError` covers an unknown `z_reference` and a protocol plate the catalogue does not have. The underlying calls are `scope.protocols.apply_tiling(protocol, tiling, frame_dimensions=..., binning_size=..., overlap_percent=...)` and `scope.protocols.apply_zstacking(protocol, range_um=..., step_size_um=..., z_reference=...)`.
+
+```python
+session.apply_tiling(protocol, '3x3')
+session.apply_zstacking(protocol, range_um=20.0, step_size_um=5.0, z_reference='center')
 ```
 
 **Saving a focus.** `session.save_focus(protocol, layer, step_idx=None)` does what the layer panel's Save Focus does: the live Z becomes `layer`'s saved focus (what every new step of the layer is born at, `session.saved_focus(layer)`), and, when `step_idx` names a step of `layer`, that step's Z. A step of another channel is left alone, and no other step is written: every step of a layer is born at the same focus, so a step that matches the old focus says nothing about whether it should take the new one. It returns a `SavedFocus` (`modules.scope_session`): `z`, the Z saved, and `step_idx`, the step that took it or None. `session.apply_focus_to_layer_steps(protocol, layer)` does what Apply to Steps does: the live Z becomes the layer's focus and the Z of every step of `layer`, and it returns how many steps took it. Both are refused before anything is written: a `layer` this scope does not have with `ConfigError`; on a scope with no Z axis with `ProtocolRunRefusedError`, reason `positions_unreachable`; when Z does not know its position (never homed, homing, or lost after a failed home) with `AxisStateUnknownError`, each logged and notified once; and a `step_idx` that is not a step of `protocol` raises `StepNotFoundError`. The underlying calls are `scope.protocols.focus_z(then=...)` (the live Z, refused as above), `scope.protocols.set_step_z(protocol, step_idx, z)` and `scope.protocols.apply_focus_to_layer_steps(protocol, layer, z)`.
@@ -1119,20 +1126,18 @@ scope.motion.get_preferred_turret_slot()         # the slot the last move_turret
 
 # Stage
 scope.motion.get_axis_limits('Z')                # {'min': 0, 'max': 14000}, read-only
-scope.motion.get_axes_config()                   # per-axis config: limits + ustep-conversion funcs (motion-driver shape), read-only
 ```
 
-Both are read-only mappings: they are the bound a move is refused against,
-so an edit raises `TypeError`. Take `dict(...)` of one for a working copy.
+The limits are a read-only mapping: they are the bound a move is refused
+against, so an edit raises `TypeError`. Take `dict(...)` of it for a
+working copy.
 
-**Axes: two different questions, two different surfaces.** Asking *what
-axes does this scope have* uses `scope.capabilities.axes` (tuple of
-names; immutable identity). Asking *what is the per-axis runtime config*
-(travel limits, ustep-per-mm conversion functions) uses
-`scope.motion.get_axes_config()` (read-only mapping of mappings; driver-level config).
-The first is frozen at boot and answers UI-gating questions; the second
-exposes the motor-board's per-axis configuration for tiling /
-coordinate-transform work. They are not redundant.
+**Axes: ask which axes the scope has before asking their limits.**
+`scope.capabilities.axes` names the axes this scope has a motor for.
+`get_axis_limits(axis)` answers the motion board's travel for an axis,
+and the board answers X and Y on a Z-only scope too, so read limits only
+for the axes `capabilities.axes` names. The turret's `'T'` answers None:
+it moves by slot, not by distance.
 
 **Z overshoot:** firmware moves below target then approaches from below, eliminating leadscrew backlash for consistent focus.
 
@@ -2313,7 +2318,7 @@ Engineering-mode commands (`FACTORY`, `RAW…`, `ADCREAD`, `CALIBRATE`, `CALSAVE
 | `VOLTAGE` | Rail status |
 | `CURRENT` | Per-axis motor current telemetry |
 
-Axes: `X`, `Y`, `Z`, `T`. Position conversion (µsteps ↔ µm) is in `motorconfig.json`; prefer `scope.motion.get_axes_config()` over reading that file directly.
+Axes: `X`, `Y`, `Z`, `T`. Position conversion (µsteps ↔ µm) is in `motorconfig.json`; the API takes and answers micrometres, and an axis's travel is `scope.motion.get_axis_limits(axis)`, so a caller never reads that file.
 
 During homing, `STOP` aborts. `INFO`, `ACTUAL_R`, `STATUS_R`, `VOLTAGE` respond normally. Other commands return `BUSY`.
 

@@ -317,9 +317,6 @@ class TestTheLabwarePanelReportsARefusal:
                 stage=types.SimpleNamespace(full_redraw=lambda: redrawn.append('stage')),
             ),
         )
-        monkeypatch.setattr(
-            protocol_settings_module, 'get_selected_labware', lambda: ('A', object())
-        )
         panel = types.SimpleNamespace(
             ids={'labware_spinner': types.SimpleNamespace(text='B', values=[])},
             _protocol=object(),

@@ -12,11 +12,9 @@ from kivy.uix.floatlayout import FloatLayout
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
-import modules.config_helpers as config_helpers
 from modules.config_ui_getters import (
     get_active_layer_config,
     get_image_capture_config_from_ui,
-    get_selected_labware,
     get_zstack_params,
     is_image_saving_enabled,
 )
@@ -419,47 +417,22 @@ class ProtocolSettings(FloatLayout):
         run_reported(self._apply_tiling, None, 'APPLY_TILING')
 
     def _apply_tiling(self) -> None:
-        """Ask the protocol for the chosen grid, then show the steps it built.
+        """Ask the Session for the chosen grid, then show the steps it built.
 
         Every refusal (an unknown grid, an already-tiled protocol, an unknown
         objective, a scope with no X/Y motor, a tile outside the stage's
-        travel) is the protocol's, raised before any step changes; the
-        boundary reports it, so nothing here decides it.
+        travel) is the API's, raised before any step changes; the boundary
+        reports it, so nothing here decides it.
         """
-        settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
 
         logger.info('[LVP Main  ] Apply tiling to protocol')
 
-        axes_config = ctx.lumaview.scope.motion.get_axes_config()
-        _, labware = get_selected_labware()
-        stage_offset = settings['stage_offset']
-        overlap_percent = self.get_tiling_overlap_percent()
+        ctx.session.apply_tiling(self._protocol, self.ids['tiling_size_spinner'].text)
 
-        self._protocol.apply_tiling(
-            tiling=self.ids['tiling_size_spinner'].text,
-            frame_dimensions=config_helpers.get_frame_dimensions_from_settings(settings),
-            binning_size=ctx.session.get_binning_size(),
-            axes_config=axes_config,
-            labware=labware,
-            stage_offset=stage_offset,
-            overlap_percent=overlap_percent,
-            capabilities=ctx.lumaview.scope.capabilities,
-            objective_helper=ctx.lumaview.scope.objective_helper,
-        )
-
-        self._protocol.optimize_step_ordering()
         ctx.stage.set_protocol_steps(self._protocol)
         self.update_step_ui()
         self.go_to_step(step_idx=self.curr_step)
-
-    def get_tiling_overlap_percent(self) -> float:
-        """Tile overlap percentage, read from the persisted system setting.
-
-        The single accessor for tile overlap at scan/apply time; the editor
-        (the spinner in Advanced Settings) only ever writes the setting.
-        """
-        return _app_ctx.ctx.settings['tiling_overlap_percent']
 
     def apply_zstacking(self) -> None:
         # At entry, not on success: the protocol can refuse the stack, and a
@@ -469,23 +442,25 @@ class ProtocolSettings(FloatLayout):
         run_reported(self._apply_zstacking, None, 'APPLY_ZSTACKING')
 
     def _apply_zstacking(self) -> None:
-        """Ask the protocol for a z-stack of the panel's values, then show the steps.
+        """Ask the Session for a z-stack of the panel's values, then show the steps.
 
         Every refusal (a range or step size not greater than zero, a scope
-        with no Z motor, a slice outside the Z travel) is the protocol's,
-        raised before any step changes; the boundary reports it, so nothing
-        here decides it.
+        with no Z motor, a slice outside the Z travel) is the API's, raised
+        before any step changes; the boundary reports it, so nothing here
+        decides it.
         """
         ctx = _app_ctx.ctx
 
         logger.info('[LVP Main  ] Apply Z-Stacking to protocol')
 
-        self._protocol.apply_zstacking(
-            zstack_params=get_zstack_params(),
-            axes_config=ctx.lumaview.scope.motion.get_axes_config(),
+        zstack_params = get_zstack_params()
+        ctx.session.apply_zstacking(
+            self._protocol,
+            range_um=zstack_params['range'],
+            step_size_um=zstack_params['step_size'],
+            z_reference=zstack_params['z_reference'],
         )
 
-        self._protocol.optimize_step_ordering()
         ctx.stage.set_protocol_steps(self._protocol)
         self.update_step_ui()
         self.go_to_step(step_idx=self.curr_step)

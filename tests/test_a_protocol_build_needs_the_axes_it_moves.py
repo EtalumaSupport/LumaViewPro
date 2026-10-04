@@ -23,8 +23,8 @@ from tests.test_step_label_ssot import _ZSTACK, _WIDE_Z, _build_protocol, _label
 
 UNREACHABLE = 'positions_unreachable'
 _WIDE_XY = {
-    'X': {'limits': {'min': -1_000_000.0, 'max': 1_000_000.0}},
-    'Y': {'limits': {'min': -1_000_000.0, 'max': 1_000_000.0}},
+    'X': {'min': -1_000_000.0, 'max': 1_000_000.0},
+    'Y': {'min': -1_000_000.0, 'max': 1_000_000.0},
 }
 
 
@@ -32,12 +32,12 @@ def _one_step_protocol():
     return _build_protocol([_labeled_step()])
 
 
-def _tile_2x2(proto, axes_config):
+def _tile_2x2(proto, axis_limits):
     return proto.apply_tiling(
         tiling='2x2',
         frame_dimensions={'width': 1900, 'height': 1900},
         binning_size=1,
-        axes_config=axes_config,
+        axis_limits=axis_limits,
         labware=WellPlateLoader().get_plate('6 well microplate'),
         stage_offset={'x': 0, 'y': 0},
         overlap_percent=0.0,
@@ -47,14 +47,14 @@ def _tile_2x2(proto, axes_config):
     )
 
 
-@pytest.mark.parametrize('axes_config', [{}, _WIDE_XY], ids=['no motors', 'no Z'])
-def test_a_zstack_without_z_is_refused_once_and_builds_nothing(monkeypatch, axes_config):
+@pytest.mark.parametrize('axis_limits', [{}, _WIDE_XY], ids=['no motors', 'no Z'])
+def test_a_zstack_without_z_is_refused_once_and_builds_nothing(monkeypatch, axis_limits):
     proto = _one_step_protocol()
     before = proto.steps().copy()
     captured = _capture_notifications(monkeypatch)
 
     with pytest.raises(ProtocolRunRefusedError) as refused:
-        proto.apply_zstacking(zstack_params=_ZSTACK, axes_config=axes_config)
+        proto.apply_zstacking(zstack_params=_ZSTACK, axis_limits=axis_limits)
 
     assert refused.value.reason == UNREACHABLE
     assert 'Z' in refused.value.message
@@ -62,14 +62,14 @@ def test_a_zstack_without_z_is_refused_once_and_builds_nothing(monkeypatch, axes
     assert proto.steps().equals(before)
 
 
-@pytest.mark.parametrize('axes_config', [{}, _WIDE_Z], ids=['no motors', 'Z only'])
-def test_a_tile_grid_without_xy_is_refused_once_and_builds_nothing(monkeypatch, axes_config):
+@pytest.mark.parametrize('axis_limits', [{}, _WIDE_Z], ids=['no motors', 'Z only'])
+def test_a_tile_grid_without_xy_is_refused_once_and_builds_nothing(monkeypatch, axis_limits):
     proto = _one_step_protocol()
     before = proto.steps().copy()
     captured = _capture_notifications(monkeypatch)
 
     with pytest.raises(ProtocolRunRefusedError) as refused:
-        _tile_2x2(proto, axes_config)
+        _tile_2x2(proto, axis_limits)
 
     assert refused.value.reason == UNREACHABLE
     assert 'X, Y' in refused.value.message
