@@ -1400,16 +1400,20 @@ class ProtocolImageWriter:
                     # the user can see the saved frame before the live preview
                     # overwrites it. NOT a delay -- the next protocol save bumps
                     # the hold deadline forward, so display tracks the
-                    # most-recent saved frame in real time. Best-effort: the
-                    # GUI hands the hook in, and one whose display is not built
-                    # yet (early init / standalone tools) may raise here.
+                    # most-recent saved frame in real time. The hold is the
+                    # GUI's hook and nobody waits on it: a failure to show the
+                    # frame (one deeper than its declared depth, a shape the
+                    # display cannot draw) is reported here and the capture's
+                    # write goes on.
                     try:
                         if self._callbacks.hold_protocol_saved_image:
                             self._callbacks.hold_protocol_saved_image(
                                 captured_image, frame_significant_bits
                             )
-                    except Exception as _e:
-                        logger.debug(f'[PROTOCOL] hold_protocol_saved_image failed: {_e}')
+                    except Exception as hold_failure:
+                        notifications.report_outcome(
+                            hold_failure, solicited=False, category='Protocol'
+                        )
 
                     _success_capture_time = datetime.datetime.now()
                     if not self._submit_write(

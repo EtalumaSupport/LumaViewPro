@@ -1170,27 +1170,24 @@ class ScopeDisplay(Image):
         """
         if image is None or getattr(image, 'size', 0) == 0:
             return
-        try:
-            from kivy.clock import Clock as _Clock
-            import modules.image_utils as _image_utils
+        from kivy.clock import Clock as _Clock
+        import modules.image_utils as _image_utils
 
-            arr = image
-            if arr.dtype != np.uint8:
-                arr = _image_utils.convert_to_8bit(arr, significant_bits)
-            shape = arr.shape
-            data = arr.tobytes()
-            gen = self._current_generation()
-            # Bump hold deadline on the thread (was self._protocol_hold_until).
-            ctx = _app_ctx.ctx
-            thread = getattr(ctx, 'scope_display_thread', None) if ctx else None
-            if thread is not None:
-                thread.bump_protocol_hold(self._PROTOCOL_HOLD_MS / 1000.0)
-            _Clock.schedule_once(
-                lambda dt, b=data, s=shape, g=gen: self.create_and_set_texture(b, s, generation=g),
-                0,
-            )
-        except Exception as e:
-            logger.warning(f'[LVP Main  ] hold_protocol_saved_image failed: {e}')
+        arr = image
+        if arr.dtype != np.uint8:
+            arr = _image_utils.convert_to_8bit(arr, significant_bits)
+        shape = arr.shape
+        data = arr.tobytes()
+        gen = self._current_generation()
+        # Bump hold deadline on the thread (was self._protocol_hold_until).
+        ctx = _app_ctx.ctx
+        thread = getattr(ctx, 'scope_display_thread', None) if ctx else None
+        if thread is not None:
+            thread.bump_protocol_hold(self._PROTOCOL_HOLD_MS / 1000.0)
+        _Clock.schedule_once(
+            lambda dt, b=data, s=shape, g=gen: self.create_and_set_texture(b, s, generation=g),
+            0,
+        )
 
     def hold_derived_image(self, image, significant_bits):
         """Show a derived post-processing image briefly in the central viewer.
@@ -1202,21 +1199,18 @@ class ScopeDisplay(Image):
         """
         if image is None or getattr(image, 'size', 0) == 0:
             return
-        try:
-            from ui.image_utils_kivy import image_to_texture
+        from ui.image_utils_kivy import image_to_texture
 
-            display = image
-            if display.dtype != np.uint8:
-                display = image_utils.convert_to_8bit(display, significant_bits)
-            if display.ndim == 3:
-                display = display[..., :3][..., ::-1].copy()
-            thread = getattr(_app_ctx.ctx, 'scope_display_thread', None)
-            if thread is not None:
-                thread.bump_protocol_hold(self._PROTOCOL_HOLD_MS / 1000.0)
-            self.texture = image_to_texture(display)
-            self.canvas.ask_update()
-        except Exception as e:
-            logger.warning(f'[LVP Main  ] hold_derived_image failed: {e}')
+        display = image
+        if display.dtype != np.uint8:
+            display = image_utils.convert_to_8bit(display, significant_bits)
+        if display.ndim == 3:
+            display = display[..., :3][..., ::-1].copy()
+        thread = getattr(_app_ctx.ctx, 'scope_display_thread', None)
+        if thread is not None:
+            thread.bump_protocol_hold(self._PROTOCOL_HOLD_MS / 1000.0)
+        self.texture = image_to_texture(display)
+        self.canvas.ask_update()
 
     def _count_display_fps(self):
         """Track actual rendered frame rate (called on main thread after blit).

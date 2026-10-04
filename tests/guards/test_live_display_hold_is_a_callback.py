@@ -132,12 +132,35 @@ class TestTheHoldFiresThroughTheCallback:
 
         assert writer._write_batch._executor.put.called, 'the save itself must still run'
 
+    def test_a_failed_hold_is_reported_and_the_save_goes_on(self, no_context, monkeypatch):
+        """A frame the display cannot hold -- here one deeper than its declared
+        depth -- is reported once, unasked, by the writer that called the hold,
+        and the capture's write is still submitted."""
+        from modules.exceptions import FrameDepthError
+        from modules.notification_center import notifications
+
+        reported = []
+        monkeypatch.setattr(notifications, 'report_outcome', lambda e, **k: reported.append((e, k)))
+        failure = FrameDepthError(4095, 8)
+
+        def _hold(image, bits):
+            raise failure
+
+        writer = _writer(ProtocolCallbacks(hold_protocol_saved_image=_hold))
+
+        _capture_one_still(writer)
+
+        assert writer._write_batch._executor.put.called, 'the save itself must still run'
+        holds = [(e, k) for e, k in reported if e is failure]
+        assert len(holds) == 1, reported
+        assert holds[0][1]['solicited'] is False
+
 
 class TestTheGuiHelperIsLateBound:
     def test_the_helper_builds_before_the_display_exists(self, monkeypatch):
         """A starter that runs before the display is built must not raise
-        while assembling its callbacks; the degradation happens later, inside
-        the writer's own guard, exactly where the direct read degraded."""
+        while assembling its callbacks; the failure comes later, inside the
+        writer's own guard, which reports it."""
         from ui.ui_helpers import live_display_callbacks
 
         monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace())
@@ -147,32 +170,23 @@ class TestTheGuiHelperIsLateBound:
         assert set(callbacks) == {'hold_protocol_saved_image'}
         assert callable(callbacks['hold_protocol_saved_image'])
 
-    def test_a_missing_display_degrades_at_debug_inside_the_writer(self, monkeypatch):
+    def test_a_missing_display_is_reported_by_the_writer(self, monkeypatch):
+        """A run that starts before the display is built: the hook's late read
+        fails inside the writer, which reports it once, unasked, and the save
+        goes on."""
+        from modules.notification_center import notifications
         from ui.ui_helpers import live_display_callbacks
 
         monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace())
-        debug_lines = []
-
-        def quiet(*args, **kwargs):
-            return None
-
-        monkeypatch.setattr(
-            'modules.protocol_image_writer.logger',
-            SimpleNamespace(
-                isEnabledFor=lambda level: False,
-                debug=lambda msg, *a, **k: debug_lines.append(str(msg)),
-                info=quiet,
-                warning=quiet,
-                error=quiet,
-                exception=quiet,
-                critical=quiet,
-            ),
-        )
+        reported = []
+        monkeypatch.setattr(notifications, 'report_outcome', lambda e, **k: reported.append((e, k)))
         writer = _writer(ProtocolCallbacks(**live_display_callbacks()))
 
         _capture_one_still(writer)
 
-        assert any('hold_protocol_saved_image' in line for line in debug_lines), debug_lines
+        holds = [(e, k) for e, k in reported if isinstance(e, AttributeError)]
+        assert len(holds) == 1, reported
+        assert holds[0][1]['solicited'] is False
         assert writer._write_batch._executor.put.called, 'the save itself must still run'
 
     def test_the_helper_reaches_the_live_display(self, monkeypatch):

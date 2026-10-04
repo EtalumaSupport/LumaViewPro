@@ -29,7 +29,7 @@ import modules.post_processing as post_processing
 import modules.image_utils as image_utils
 import ui.image_utils_kivy as image_utils_kivy
 import modules.app_context as _app_ctx
-from ui.ui_helpers import run_reported, submit_reported
+from ui.ui_helpers import run_reported, run_unasked, submit_reported
 
 logger = logging.getLogger('LVP.ui.post_processing')
 
@@ -117,7 +117,10 @@ class QuickEnhanceControls(BoxLayout):
         def _show(_dt):
             scope_display = getattr(_app_ctx.ctx, 'scope_display', None)
             if scope_display is not None:
-                scope_display.hold_derived_image(display_image, significant_bits)
+                run_unasked(
+                    lambda: scope_display.hold_derived_image(display_image, significant_bits),
+                    'ENHANCE_PREVIEW',
+                )
 
         Clock.schedule_once(_show, 0)
 
