@@ -363,6 +363,34 @@ _DIALOG_STUCK_NOTIFY_S = 60.0
 # stale dialog that resolves after expiry is dropped by its token.
 _DIALOG_GUARD_EXPIRY_S = 3600.0
 
+# The answer a scripted sim walk gives the next dialog, in place of the native
+# panel: on macOS that panel is an osascript process no in-app touch can reach.
+# Empty text is a cancel. Set only by the walk driver (``ui.sim_walk``).
+_scripted_answer: dict[str, str] = {}
+
+
+def answer_next_dialog(path: str) -> None:
+    """Give the next dialog ``path`` as its answer ('' cancels), not a native panel.
+
+    Raises:
+        RuntimeError: an earlier scripted answer has not been taken yet.
+    """
+    if _scripted_answer:
+        raise RuntimeError(
+            f'a scripted dialog answer is already waiting: {_scripted_answer["path"]!r}'
+        )
+    _scripted_answer['path'] = path
+
+
+def scripted_answer_waiting() -> bool:
+    """Whether a scripted answer is still waiting for a dialog to take it."""
+    return bool(_scripted_answer)
+
+
+def withdraw_scripted_answer() -> None:
+    """Drop a scripted answer no dialog took, so a person's next dialog is native."""
+    _scripted_answer.clear()
+
 
 def _run_native_dialog_async(button, dialog_fn, on_path, *, on_cancel):
     """Run a blocking native dialog off the Kivy main thread -- the one
@@ -386,7 +414,8 @@ def _run_native_dialog_async(button, dialog_fn, on_path, *, on_cancel):
     dialog's callback has run; a raising primitive still delivers (error
     branch), so it can never leave the guard latched.
 
-    ``button`` supplies the context name for the guard and its logs.
+    ``button`` supplies the context name for the guard and its logs. A scripted
+    answer waiting from ``answer_next_dialog`` stands in for ``dialog_fn``.
     """
     now = time.monotonic()
     context = getattr(button, 'context', '')
@@ -415,6 +444,9 @@ def _run_native_dialog_async(button, dialog_fn, on_path, *, on_cancel):
             f'old panel ever resolves, its result will be dropped.'
         )
 
+    if _scripted_answer:
+        scripted = _scripted_answer.pop('path')
+        dialog_fn = lambda: scripted
     _dialog_in_flight['active'] = True
     _dialog_in_flight['context'] = context
     _dialog_in_flight['since'] = now

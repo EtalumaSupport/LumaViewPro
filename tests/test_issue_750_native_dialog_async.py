@@ -226,6 +226,7 @@ def _load_runner(thread_cls=_SyncThread):
         'time': time,
         'logger': test_logger,
         '_dialog_in_flight': guard,
+        '_scripted_answer': {},
         '_DIALOG_STUCK_NOTIFY_S': 60.0,
         '_DIALOG_GUARD_EXPIRY_S': 3600.0,
     }

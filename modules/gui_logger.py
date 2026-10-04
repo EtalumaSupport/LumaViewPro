@@ -180,6 +180,17 @@ def text_input(name: str, value: object) -> None:
     _log.info(f'TEXT_INPUT {name} {value}')
 
 
+def walk_scripted(source: str) -> None:
+    """Log that the presses which follow are a scripted sim walk's, not a person's.
+
+    The walk driver (``ui.sim_walk``) touches widgets through the same handlers a
+    person's touch reaches, so its presses record exactly as a person's would --
+    that is what a walk checks. This one line, written before the first step, is
+    what tells a reader of the log that no person made them.
+    """
+    _log.info(f'WALK SCRIPTED {source}')
+
+
 def window_event(event_name: str, detail: str = '') -> None:
     """Log a Kivy Window-level lifecycle event.
 

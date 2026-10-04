@@ -89,6 +89,16 @@ if __name__ == '__main__':
             sim_file_stall = SimulatedStall(after_s=float(_after), for_s=float(_for))
         except ValueError as _stall_error:
             sys.exit(f'--sim-file-stall=AFTER,FOR (seconds): {_stall_error}')
+    # --sim-walk=<file> performs a sim walk's steps on the GUI once bring-up
+    # has finished (ui/sim_walk.py). Simulator only: a walk on hardware would
+    # move a real stage. Removed from argv here, before Kivy is imported,
+    # because Kivy exits on a flag it does not know.
+    from ui.sim_walk_file import take_walk_flag
+
+    try:
+        sim_walk = take_walk_flag(sys.argv, simulate=simulate_mode)
+    except (OSError, ValueError) as _walk_error:
+        sys.exit(f'--sim-walk=<file>: {_walk_error}')
 
     ############################################################################
     # ---------------------Directory Initialization-----------------------------#
@@ -709,6 +719,20 @@ class LumaViewProApp(TooltipMixin, App):
             ctx.image_settings.accordion_collapse()
 
         Clock.schedule_once(complete_initialization, 0.3)
+
+        if sim_walk is not None:
+            from ui.sim_walk import SimWalk
+
+            _walk_path, _walk_steps = sim_walk
+            # Held on the app: the Clock keeps only weak references to the
+            # walk's bound methods. Pictures land beside the walk file.
+            self._sim_walk = SimWalk(
+                _walk_steps,
+                source=str(_walk_path),
+                ready=lambda: ctx.ready,
+                shot_dir=_walk_path.parent,
+            )
+            self._sim_walk.start()
 
         # MetricsLogger owns the executor watchdog, system metrics, and camera-temp
         # logging so adding a new periodic metric only requires editing one module.
