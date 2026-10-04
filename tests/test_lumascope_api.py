@@ -693,7 +693,7 @@ class TestPerAxisDictsFromDriver:
         assert set(scope.motion._move_profile.keys()) == present
 
     def test_z_only_scope_dicts_have_only_z(self):
-        """Simulate an LS820 / LVC LS720-like Z-only scope."""
+        """Simulate an LS820, a Z-only scope."""
         scope = build_scope(simulate=True)
         scope._motion_driver.detect_present_axes = lambda: ['Z']
         # Re-init the per-axis dicts to reflect the patched motion.

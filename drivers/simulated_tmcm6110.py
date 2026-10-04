@@ -29,6 +29,7 @@ from __future__ import annotations
 import collections
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from serial.serialutil import PortNotOpenError, SerialBase, SerialException, to_bytes
@@ -138,6 +139,19 @@ POWER_ABSENT = 13
 
 # The integration step, in seconds of board time.
 _STEP_S = 0.001
+
+# How many times faster than the bench a simulated scope's stage runs, as
+# the EL-0940's simulated boards answer without waiting: the simulated home,
+# 89 s at real speed, takes a few seconds. A test of the board's own timing
+# builds it at real speed.
+SCOPE_SPEEDUP = 50
+
+
+def sped_up_clock(factor: float) -> Callable[[], float]:
+    """A clock that runs ``factor`` times faster than the wall clock."""
+    start = time.monotonic()
+    return lambda: (time.monotonic() - start) * factor
+
 
 # Commands kept for a test to read; enough for any one test, bounded so a
 # long simulator session does not grow without end.

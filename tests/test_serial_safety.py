@@ -1967,7 +1967,7 @@ class TestMotorBoardStateLock:
         board._has_turret = False
         board.initial_homing_complete = False
         board.initial_t_homing_complete = False
-        board._fullinfo = {'model': 'LS720', 'serial_number': '12345', 'present_axes': []}
+        board._fullinfo = {'model': 'LS820', 'serial_number': '12345', 'present_axes': []}
         board.port = '/dev/fake'
         board._lock = threading.RLock()
         board._label = '[XYZ Class ]'
@@ -2020,16 +2020,16 @@ class TestMotorBoardStateLock:
     def test_get_microscope_model_reads_under_lock(self):
         """get_microscope_model() should read _fullinfo under _state_lock."""
         board = self._make_board()
-        assert board.get_microscope_model() == 'LS720'
+        assert board.get_microscope_model() == 'LS820'
 
     def test_fullinfo_sets_has_turret_for_T_model(self):
         """fullinfo() should set _has_turret when model ends in T."""
         board = self._make_board()
         board.exchange_command = MagicMock(
-            return_value='Etaluma Motor Controller Board Model: LS720T Serial: 99999'
+            return_value='Etaluma Motor Controller Board Model: LS820T Serial: 99999'
         )
         info = board.fullinfo()
-        assert info['model'] == 'LS720T'
+        assert info['model'] == 'LS820T'
         assert board.has_turret() is True
 
     def test_concurrent_homing_flag_access(self):

@@ -247,6 +247,44 @@
             ],
             "Filterset": "405/488/589"
         },
+        "LS720": {
+            "Focus": true,
+            "XYStage": true,
+            "Turret": false,
+            "LEDBoard": "FX2",
+            "MotorBoard": "TMCM-6110",
+            "Optics": {
+                "LensFocalLength": 47.8,
+                "PixelSize": 2.2
+            },
+            "Layers": [
+                {
+                    "key_name": "BF",
+                    "display_name": "BF-Phase",
+                    "led_channel": 3,
+                    "excitation_nm": null
+                },
+                {
+                    "key_name": "Blue",
+                    "display_name": "Blue",
+                    "led_channel": 0,
+                    "excitation_nm": 405
+                },
+                {
+                    "key_name": "Green",
+                    "display_name": "Green",
+                    "led_channel": 1,
+                    "excitation_nm": 488
+                },
+                {
+                    "key_name": "Red",
+                    "display_name": "Red",
+                    "led_channel": 2,
+                    "excitation_nm": 589
+                }
+            ],
+            "Filterset": "405/488/589"
+        },
         "LS560": {
             "Focus": false,
             "XYStage": false,

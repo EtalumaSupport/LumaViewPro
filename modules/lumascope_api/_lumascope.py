@@ -35,6 +35,7 @@ from drivers.camera import Camera
 # finds no 'sim' drivers and startup aborts.
 from drivers.ledboard import LEDBoard  # noqa: F401
 from drivers.motorboard import MotorBoard  # noqa: F401
+from drivers.tmcm6110 import Tmcm6110Board
 from drivers.pyloncamera import PylonCamera  # noqa: F401
 from drivers.simulated_camera import SimulatedCamera  # noqa: F401
 from drivers.simulated_motorboard import SimulatedMotorBoard  # noqa: F401
@@ -330,11 +331,18 @@ class Lumascope:
             logger.info(f'[SCOPE API ] Model {model} has no motor axes: no motor board')
             return NullMotionBoard()
         if motor_board == 'TMCM-6110':
-            from drivers.simulated_tmcm6110 import SimulatedTmcm6110Backend
-            from drivers.tmcm6110 import Tmcm6110Board
+            from drivers.simulated_tmcm6110 import (
+                SCOPE_SPEEDUP,
+                SimulatedTmcm6110,
+                SimulatedTmcm6110Backend,
+                sped_up_clock,
+            )
 
             board = Tmcm6110Board(
-                motorconfig_defaults=motorconfig_defaults, backend=SimulatedTmcm6110Backend()
+                motorconfig_defaults=motorconfig_defaults,
+                backend=SimulatedTmcm6110Backend(
+                    SimulatedTmcm6110(clock=sped_up_clock(SCOPE_SPEEDUP))
+                ),
             )
             if not board.found:
                 raise DriverNotLiveError(f'the simulated TMCM-6110 for {model} did not answer')

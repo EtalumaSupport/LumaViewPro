@@ -22,6 +22,7 @@ from drivers.null_motorboard import NullMotionBoard
 from drivers.simulated_camera import SimulatedStall
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
+from drivers.tmcm6110 import Tmcm6110Board
 from modules import layer_record
 from modules.exceptions import InstallationFileError
 from tests.scope_fakes import build_scope
@@ -48,7 +49,7 @@ def test_every_row_names_an_led_board_and_a_motor_board_exactly_when_it_has_axes
     entry = MODELS[model]
     assert entry['LEDBoard'] in ('EL-0940', 'FX2')
     if layer_record.model_axes(MODELS, model):
-        assert entry['MotorBoard'] == 'EL-0940'
+        assert entry['MotorBoard'] in ('EL-0940', 'TMCM-6110')
     else:
         assert 'MotorBoard' not in entry
 
@@ -61,7 +62,10 @@ def test_the_simulated_scope_is_built_with_the_boards_its_row_names(model):
             assert isinstance(scope._led_driver, FX2LEDController)
         else:
             assert isinstance(scope._led_driver, SimulatedLEDBoard)
-        if 'MotorBoard' in MODELS[model]:
+        motor_board = MODELS[model].get('MotorBoard')
+        if motor_board == 'TMCM-6110':
+            assert isinstance(scope._motion_driver, Tmcm6110Board)
+        elif motor_board == 'EL-0940':
             assert isinstance(scope._motion_driver, SimulatedMotorBoard)
         else:
             assert isinstance(scope._motion_driver, NullMotionBoard)

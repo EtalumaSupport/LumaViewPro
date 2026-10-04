@@ -2059,8 +2059,8 @@ def homing_boards():
     the faults it injects."""
     boards = {
         'full': _firmware_motorboard('LS850T', 'XYZT'),
-        'z_only': _firmware_motorboard('LS720', 'Z'),
-        'z_only_field': _firmware_motorboard('LS720', 'Z', dialect='field'),
+        'z_only': _firmware_motorboard('LS820', 'Z'),
+        'z_only_field': _firmware_motorboard('LS820', 'Z', dialect='field'),
     }
     yield boards
     for board, _sim in boards.values():

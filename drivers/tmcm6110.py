@@ -38,6 +38,7 @@ import serial
 
 from drivers.exceptions import HardwareError, MotionInterlockError
 from drivers.motorconfig import read_only_axes_config
+from drivers.registry import motor_registry
 from drivers.serial_backend import PYSERIAL, SerialBackend
 from drivers.tmcm6110_config import Tmcm6110Config
 
@@ -229,6 +230,9 @@ def decode_version_reply(datagram: bytes) -> str:
     return datagram[1:DATAGRAM_BYTES].decode('ascii', errors='replace')
 
 
+# Tried after the EL-0940 motor board: an LS720 host has no EL-0940 board,
+# and on every other host this finds nothing and opens nothing.
+@motor_registry.register('tmcm6110', priority=80)
 class Tmcm6110Board:
     """The TMCM-6110 stage controller behind the LS720's X, Y and Z.
 

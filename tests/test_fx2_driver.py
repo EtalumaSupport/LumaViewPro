@@ -650,9 +650,8 @@ class TestCameraProfileRegistration:
 class TestScopesJsonClassicModels:
     """LS620 and LS560 entries should exist with correct capability bits.
 
-    LS720 is intentionally NOT in scopes.json until Stage 4 ships the
-    LVC motor driver -- avoids the "scopes.json says XYZ but
-    capabilities.axes is empty" inconsistency.
+    The LS720 is the LS620's camera and LED with an XYZ stage on a
+    TMCM-6110.
     """
 
     @pytest.fixture
@@ -667,11 +666,12 @@ class TestScopesJsonClassicModels:
     def test_ls560_exists(self, scopes):
         assert 'LS560' in scopes
 
-    def test_ls720_NOT_in_scopes_json_yet(self, scopes):
-        """Stage 3 intentionally defers LS720 to Stage 4 (LVC motor port)."""
-        assert 'LS720' not in scopes, (
-            'LS720 should not be added until Stage 4 ships drivers/lvc_motorboard.py'
-        )
+    def test_ls720_has_an_xyz_stage_on_the_6110(self, scopes):
+        entry = scopes['LS720']
+        assert (entry['Focus'], entry['XYStage'], entry['Turret']) == (True, True, False)
+        assert (entry['LEDBoard'], entry['MotorBoard']) == ('FX2', 'TMCM-6110')
+        for key in ('Optics', 'Layers', 'Filterset'):
+            assert entry[key] == scopes['LS620'][key]
 
     def test_ls620_has_no_motors(self, scopes):
         entry = scopes['LS620']

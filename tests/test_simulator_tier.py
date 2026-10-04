@@ -20,6 +20,7 @@ from drivers.motorboard import MotorBoard
 from drivers.null_motorboard import NullMotionBoard
 from drivers.registry import DriverNotLiveError
 from drivers.sim_wire.backend import LED_DEVICE, SimWireBackend
+from drivers.tmcm6110 import Tmcm6110Board
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
 from modules.exceptions import ConfigError
@@ -56,7 +57,10 @@ def test_the_firmware_tier_reports_every_catalogue_models_axes(model):
     scope = _scope(sim_tier='firmware', sim_model=model)
     try:
         assert set(scope.capabilities.axes) == _catalogue_axes(model)
-        if 'MotorBoard' in MODELS[model]:
+        motor_board = MODELS[model].get('MotorBoard')
+        if motor_board == 'TMCM-6110':
+            assert isinstance(scope._motion_driver, Tmcm6110Board)
+        elif motor_board == 'EL-0940':
             assert isinstance(scope._motion_driver, MotorBoard)
         else:
             assert isinstance(scope._motion_driver, NullMotionBoard)
