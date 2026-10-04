@@ -148,18 +148,18 @@ def _read(rel: str) -> str:
 
 
 def test_step_navigation_asks_the_same_lookup_the_run_asks():
-    """Static-source guard: step navigation passes nothing but the
-    objective, as the run does, so the two cannot choose different slots
+    """Static-source guard: the one step conversion a run and a person's
+    navigation share (``ProtocolsAPI.step_targets``) passes nothing but the
+    objective to the slot lookup, so the two cannot choose different slots
     for a step. A caller-supplied hint was how they came to disagree.
     """
     pattern = re.compile(
         r'get_turret_position_for_objective_id\(([^)]*)\)',
         re.DOTALL,
     )
-    for rel in ('ui/step_navigation.py', 'modules/protocol_step_runner.py'):
-        calls = pattern.findall(_read(rel))
-        assert calls, f'No slot lookup found in {rel} -- has it moved? Update the test.'
-        for args in calls:
-            assert args.split('=')[0].strip() == 'objective_id' and args.count('=') == 1, (
-                f'{rel} passes more than the objective to the slot lookup:\n{args}'
-            )
+    calls = pattern.findall(_read('modules/lumascope_api/protocols.py'))
+    assert calls, 'No slot lookup found in the protocols API -- has it moved? Update the test.'
+    for args in calls:
+        assert args.split('=')[0].strip() == 'objective_id' and args.count('=') == 1, (
+            f'the protocols API passes more than the objective to the slot lookup:\n{args}'
+        )

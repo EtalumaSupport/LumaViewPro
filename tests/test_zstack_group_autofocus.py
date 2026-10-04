@@ -160,7 +160,7 @@ def _drive_group_scan(found_z: float, max_ticks: int = 400):
     from unittest.mock import MagicMock
 
     from modules.sequential_io_executor import PROTOCOL_ENQUEUED
-    from tests.protocol_drives import protocol_step, scan_ready_runner
+    from tests.protocol_drives import protocol_step, scan_ready_runner, stand_in_step_targets
 
     class _InlineIOExecutor:
         def protocol_put(self, task, return_future=False):
@@ -175,8 +175,7 @@ def _drive_group_scan(found_z: float, max_ticks: int = 400):
     runner = scan_ready_runner(protocol_step())
     runner._protocol = proto
     swap_lanes(runner._scope, io=_InlineIOExecutor())
-    runner._coordinate_transformer = MagicMock()
-    runner._coordinate_transformer.plate_to_stage.return_value = (1.0, 2.0)
+    stand_in_step_targets(runner._scope, plate_to_stage=(1.0, 2.0))
     runner._scope.motion.is_moving.return_value = False
 
     # The state the runner is in on the poll after a sweep has resolved: the

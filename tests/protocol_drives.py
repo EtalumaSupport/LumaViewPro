@@ -249,6 +249,28 @@ def scr_run_kwargs(**overrides):
     return kwargs
 
 
+def stand_in_step_targets(scope, *, plate_to_stage=(0.0, 0.0)):
+    """Answer ``scope.protocols``' step conversion from the protocol's own rows.
+
+    A mock scope's protocols API cannot convert a plate position (its plate
+    catalogue is a mock); this answers every step's X/Y with
+    *plate_to_stage* and its Z from the step, with no turret slot.
+    """
+    from modules.lumascope_api.protocols import StepTargets
+
+    scope.protocols.plate_to_stage.side_effect = lambda protocol, px, py, stage_offset=None: (
+        plate_to_stage
+    )
+    scope.protocols.step_targets.side_effect = lambda protocol, step_idx, stage_offset=None: (
+        StepTargets(
+            turret_slot=None,
+            x=plate_to_stage[0],
+            y=plate_to_stage[1],
+            z=protocol.step(idx=step_idx)['Z'],
+        )
+    )
+
+
 def scan_ready_runner(step, **state):
     """Runner advanced to the scan-ready state prepare()+start()
     normally establish, with a single-step protocol mock returning *step*.
@@ -305,8 +327,7 @@ def run_loop_ready_runner(step, n_scans=1, **state):
     # The run moves every step itself: a turretless scope on a flat plate
     # frame, its moves queued on the io executor mock.
     runner._scope.capabilities.has_turret = False
-    runner._coordinate_transformer = MagicMock()
-    runner._coordinate_transformer.plate_to_stage.return_value = (0.0, 0.0)
+    stand_in_step_targets(runner._scope, plate_to_stage=(0.0, 0.0))
     runner._cleanup = MagicMock()
     # The loop's first act takes the camera: it snapshots the camera and
     # takes the auto-gain arm out of that snapshot. A bare mock snapshot

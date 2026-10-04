@@ -595,22 +595,21 @@ class ProtocolStepRunner:
         sliders, manual moves) mid-step.
         """
         p = self._p
-        labware = p._scope.wellplate_loader.get_plate(plate_key=p._protocol.labware())
-
+        sx = sy = None
         if (px is not None) and (py is not None):
-            # Converted HERE, against the labware the PROTOCOL stores, not
-            # the one the session has selected -- a run must image the plate
-            # it was written for even if the operator has since picked a
-            # different one. The motion API's plate frame resolves labware
-            # from the session, so this path cannot use it without silently
-            # retargeting the run.
-            sx, sy = p._coordinate_transformer.plate_to_stage(
-                labware=labware,
-                stage_offset=p._stage_offset,
-                px=px,
-                py=py,
+            # Against the plate the PROTOCOL stores, not the one the session
+            # has selected -- a run images the plate it was written for even
+            # if the operator has since picked a different one -- and with
+            # the offset this run started with.
+            sx, sy = p._scope.protocols.plate_to_stage(
+                p._protocol, px, py, stage_offset=p._stage_offset
             )
+        self._move_to_stage(sx, sy, z)
 
+    def _move_to_stage(self, sx: float | None, sy: float | None, z: float | None) -> None:
+        """Move each given axis to its stage target, X then Y then Z, and record it."""
+        p = self._p
+        if sx is not None and sy is not None:
             self._move_axis_through_io('X', sx)
             p._target_x_pos = sx
             if p._callbacks.move_position:
@@ -654,24 +653,18 @@ class ProtocolStepRunner:
         if p._aborted.is_set():
             return
 
-        step = p._protocol.step(idx=step_idx)
+        # The targets a person's navigation to this step computes too, with
+        # the offset this run started with.
+        targets = p._scope.protocols.step_targets(
+            p._protocol, step_idx, stage_offset=p._stage_offset
+        )
         # The run turns the turret itself, on every host: a step's captures
         # are only of its objective if that objective is in the light path.
-        # The slot is the one carrying the step's objective, which prepare()
-        # already refused to start without.
-        if p._scope.capabilities.has_turret:
-            slot = p._scope.motion.get_turret_position_for_objective_id(
-                objective_id=step['Objective']
-            )
-            if slot is None:
-                raise RuntimeError(
-                    f'no turret slot carries {step["Objective"]!r} for step {step_idx}, '
-                    'though the run was admitted with it'
-                )
-            self._move_turret_through_io(slot)
+        if targets.turret_slot is not None:
+            self._move_turret_through_io(targets.turret_slot)
             if p._callbacks.move_position:
                 _schedule_ui(lambda dt: p._callbacks.move_position('T'), 0)
-        self.default_move(px=step['X'], py=step['Y'], z=step['Z'])
+        self._move_to_stage(targets.x, targets.y, targets.z)
 
         # The host's callback displays the step; it moves nothing.
         if p._callbacks.go_to_step:

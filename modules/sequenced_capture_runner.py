@@ -21,7 +21,6 @@ from modules.protocol_run_loop import ProtocolRunLoop
 
 from modules.lumascope_api import AxisState, Lumascope
 
-import modules.coord_transformations as coord_transformations
 import modules.image_mode as image_mode
 
 from modules.activity_claim import ActivityClaim, ActivityHolder, BorrowedClaim, Taking, acting
@@ -211,7 +210,6 @@ class SequencedCaptureRunner:
         self._on_run_idle = on_run_idle
         # Stateless, so the run keeps its own. The labware catalogue is the
         # scope's, read where a run needs a plate.
-        self._coordinate_transformer = coord_transformations.CoordinateTransformer()
         # The offset a run converts plate positions with; prepare() snapshots
         # the scope's into the RunPlan, and start() sets it from there.
         self._stage_offset: dict | None = None

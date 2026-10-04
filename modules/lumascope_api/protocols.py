@@ -25,6 +25,7 @@ ask four different ones.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import math
 import pathlib
@@ -33,6 +34,7 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 import modules.common_utils as common_utils
+from modules.coord_transformations import CoordinateTransformer
 from modules.exceptions import (
     ProtocolRunRefusedError,
     ProtocolStepsInvalidNotice,
@@ -48,6 +50,21 @@ if TYPE_CHECKING:
     from modules.tiling_config import TilingConfig
 
 _api_log = logging.getLogger('LVP.api')
+_coordinate_transformer = CoordinateTransformer()
+
+
+@dataclasses.dataclass(frozen=True)
+class StepTargets:
+    """Where a protocol step puts the scope, in the frames the motors take.
+
+    ``turret_slot`` is None on a scope with no turret. ``x`` and ``y`` are
+    stage micrometres on the protocol's own plate; ``z`` is the step's.
+    """
+
+    turret_slot: int | None
+    x: float
+    y: float
+    z: float
 
 
 class ProtocolsAPI:
@@ -519,6 +536,66 @@ class ProtocolsAPI:
             axis_limits=self._travel_limits(),
         )
         self._report_invalid_steps(protocol, solicited=True)
+
+    def plate_to_stage(
+        self, protocol: Protocol, px: float, py: float, *, stage_offset: dict | None = None
+    ) -> tuple[float, float]:
+        """A plate position of ``protocol``, as stage micrometres.
+
+        Converted against the plate the PROTOCOL stores, not the one the
+        session has selected: a step is driven in the frame it was written
+        in, whatever plate the operator has since picked. ``stage_offset``
+        is the live one unless a caller supplies the snapshot it took (a
+        run keeps the offset it started with).
+
+        Raises:
+            ConfigError: the protocol's plate is not in the catalogue, or
+                the scope has not been initialized, so it has no stage
+                offset.
+        """
+        if stage_offset is None:
+            stage_offset = self._scope.runtime_state.require_stage_offset()
+        return _coordinate_transformer.plate_to_stage(
+            labware=self._scope.wellplate_loader.get_plate(plate_key=protocol.labware()),
+            stage_offset=stage_offset,
+            px=px,
+            py=py,
+        )
+
+    def step_targets(
+        self, protocol: Protocol, step_idx: int, *, stage_offset: dict | None = None
+    ) -> StepTargets:
+        """The motor targets of step ``step_idx``: the one conversion a run and a person's navigation share.
+
+        The turret slot is the one carrying the step's objective, chosen as
+        ``motion.get_turret_position_for_objective_id`` chooses it, so
+        navigating to a step and running it look through the same glass.
+
+        Raises:
+            StepNotFoundError: ``step_idx`` is not a step of ``protocol``.
+            ConfigError: as ``plate_to_stage``.
+            RuntimeError: this scope has a turret and no slot carries the
+                step's objective. The admissibility rule
+                (``refuse_unaddressable_objectives``) reads the same turret
+                configuration, so a step it admitted has a slot; the two
+                disagreeing is a defect, and what this replaced moved X, Y
+                and Z anyway, capturing through the wrong glass under the
+                right file name.
+        """
+        step = protocol.step(idx=step_idx)
+        turret_slot = None
+        if self._scope.capabilities.has_turret:
+            turret_slot = self._scope.motion.get_turret_position_for_objective_id(
+                objective_id=step['Objective']
+            )
+            if turret_slot is None:
+                raise RuntimeError(
+                    f'no turret slot carries {step["Objective"]!r} for step {step_idx}, '
+                    'though the admissibility rule accepted it from the same turret '
+                    'configuration'
+                )
+        x, y = self.plate_to_stage(protocol, step['X'], step['Y'], stage_offset=stage_offset)
+        return StepTargets(turret_slot=turret_slot, x=x, y=y, z=step['Z'])
 
     def _travel_limits(self) -> dict:
         """The travel limits of each axis this scope has a motor for, by axis.

@@ -195,25 +195,29 @@ class TestTheConversionLeftTheCallers:
     validation and tile generation convert in order to test each
     candidate and report them all -- so it legitimately wants the value.
 
-    ``modules/protocol_step_runner.py`` converts against the labware the
+    ``ProtocolsAPI.plate_to_stage`` converts against the labware the
     PROTOCOL stores, while the motion API's plate frame resolves labware
-    from the session. Those are different stores: a run must image the
-    plate it was written for even if the operator has since selected a
-    different one. Routing this caller through the plate frame silently
-    retargets the run, which is a worse defect than the message it would
-    improve. Closing it means one store, not one more frame argument.
+    from the session. Those are different stores: a run, and a person's
+    navigation to a step, must image the plate the protocol was written
+    for even if the operator has since selected a different one. Routing
+    that caller through the plate frame silently retargets the run, which
+    is a worse defect than the message it would improve. Closing it means
+    one store, not one more frame argument. The run engine and the Session
+    take their targets from that member and are not callers here.
     """
 
     SANCTIONED: ClassVar[set[str]] = {
         'modules/protocol.py',
-        'modules/protocol_step_runner.py',
+        'modules/lumascope_api/protocols.py',
         'modules/lumascope_api/runtime_state.py',
     }
 
     def test_only_the_enumerators_call_the_raw_transform(self):
         import re
 
-        call = re.compile(r'\.plate_to_stage\s*\(')
+        # The transformer's own member, not the protocols API's of the
+        # same name, which converts on the protocol's plate for its callers.
+        call = re.compile(r'coordinate_transformer\.plate_to_stage\s*\(')
 
         offenders = []
         for path in sorted([*REPO_ROOT.glob('ui/**/*.py'), *REPO_ROOT.glob('modules/**/*.py')]):
