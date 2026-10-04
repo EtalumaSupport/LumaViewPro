@@ -37,8 +37,9 @@ def _steps(**values):
 def test_the_api_caches_the_camera_floors(scope):
     imaging = scope.imaging
     assert imaging.min_gain_db_cached == pytest.approx(scope._camera_driver.min_gain)
-    # The simulated camera declares no exposure floor.
-    assert imaging.min_exposure_ms_cached is None
+    assert imaging.min_exposure_ms_cached == pytest.approx(
+        scope._camera_driver.profile.exposure_min_us / 1000.0
+    )
 
 
 def test_a_gain_above_the_camera_maximum_is_refused_naming_the_step(executor, scope, tmp_path):
@@ -75,6 +76,8 @@ def test_values_in_range_are_admitted(executor, scope, tmp_path):
 
 
 def test_an_undeclared_floor_is_not_checked(executor, scope, tmp_path):
-    """The simulated camera declares no exposure floor, so a tiny exposure is
-    the camera's to take or refuse, not the run's to refuse."""
+    """A camera that declares no exposure floor: a tiny exposure is the
+    camera's to take or refuse, not the run's to refuse."""
+    scope._camera_driver.profile.exposure_min_us = None
+    scope.imaging._populate_camera_cache()
     _prepare(executor, _steps(exposure_ms=0.001), tmp_path)

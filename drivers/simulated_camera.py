@@ -98,9 +98,6 @@ class SimulatedCamera(Camera):
     MODEL_NAME = simulated_profile().model_name
     SERIAL_NUMBER = 'SIM-CAM-001'
 
-    # Supported pixel formats
-    PIXEL_FORMATS = ('Mono8', 'Mono10', 'Mono12')
-
     TIMING_FAST: ClassVar[dict] = {'grab_delay': 0.0}
     TIMING_REALISTIC: ClassVar[dict] = {'grab_delay': 0.005}  # ~5ms USB transfer overhead
 
@@ -469,14 +466,14 @@ class SimulatedCamera(Camera):
     # Frame size
     # ------------------------------------------------------------------
     def _frame_grid(self) -> FrameGrid:
-        """Windows of 48 x 4 steps, up to the sensor at the current binning.
+        """Windows of 4 x 4 steps, up to the sensor at the current binning.
 
         Sizes are post-binning (displayed) pixels, so the ceiling is the native
         sensor size divided by the binning factor -- the same constraint Pylon
         enforces via ``Width.Max`` at the active binning.
         """
         return FrameGrid(
-            step=(48, 4),
+            step=(4, 4),
             max_size=(self._native_width // self._binning, self._native_height // self._binning),
         )
 
@@ -495,9 +492,9 @@ class SimulatedCamera(Camera):
         """Return the simulator's minimum supported frame size.
 
         Returns:
-            dict: ``{'width': 48, 'height': 4}``.
+            dict: ``{'width': 4, 'height': 4}``.
         """
-        return {'width': 48, 'height': 4}
+        return {'width': 4, 'height': 4}
 
     def get_max_frame_size(self) -> dict:
         """Return the maximum frame size at the current binning.
@@ -523,12 +520,12 @@ class SimulatedCamera(Camera):
         """Set the simulated camera pixel format.
 
         Args:
-            pixel_format: Format identifier (must be in ``PIXEL_FORMATS``).
+            pixel_format: Format identifier (must be one its profile lists).
 
         Returns:
             bool: True on success, False when the format is not supported.
         """
-        if pixel_format not in self.PIXEL_FORMATS:
+        if pixel_format not in self.profile.pixel_formats:
             if _cam_log is not None:
                 _cam_log.error(f'sim set_pixel_format({pixel_format}) UNSUPPORTED')
             logger.error(f'[CAM Sim   ] Unsupported pixel format: {pixel_format}')
@@ -543,17 +540,17 @@ class SimulatedCamera(Camera):
         """Return the simulated camera's current pixel format.
 
         Returns:
-            str: One of ``PIXEL_FORMATS``.
+            str: One of the profile's ``pixel_formats``.
         """
         return self._pixel_format
 
     def get_supported_pixel_formats(self) -> tuple:
-        """Return the supported pixel formats.
+        """Return the formats its profile lists.
 
         Returns:
-            tuple: ``('Mono8', 'Mono10', 'Mono12')``.
+            tuple: The profile's ``pixel_formats``.
         """
-        return self.PIXEL_FORMATS
+        return tuple(self.profile.pixel_formats)
 
     # ------------------------------------------------------------------
     # Exposure

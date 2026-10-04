@@ -83,12 +83,15 @@ def test_an_exposure_above_the_maximum_is_refused(sim_imaging):
         imaging.set_exposure_ms(maximum + 1.0)
 
     assert excinfo.value.reason == 'exposure_ms_out_of_range'
-    assert excinfo.value.minimum is None, 'the simulated camera declares no floor'
-    assert f'at most {maximum:g} ms' in str(excinfo.value)
+    minimum = imaging.min_exposure_ms_cached
+    assert excinfo.value.minimum == minimum
+    assert f'{minimum:g} to {maximum:g} ms' in str(excinfo.value)
 
 
 def test_an_undeclared_floor_is_not_checked(sim_imaging):
-    imaging, _cam = sim_imaging
+    imaging, cam = sim_imaging
+    cam.profile.exposure_min_us = None  # a camera that declares no floor
+    imaging._populate_camera_cache()
     assert imaging.min_exposure_ms_cached is None
 
     imaging.set_exposure_ms(0.001)

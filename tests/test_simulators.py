@@ -940,7 +940,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
 
     def test_max_exposure_set(self):
         cam = SimulatedCamera()
-        assert cam.max_exposure == 10_000
+        assert cam.max_exposure == 1_000
 
     # -- Thread safety --
 
@@ -1129,7 +1129,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
         cam = SimulatedCamera()
         assert cam.profile.sensor == 'Simulated'
         assert cam.profile.pixel_size_um == 2.0
-        assert cam.profile.shutter == 'global'
+        assert cam.profile.shutter == 'rolling'
 
     def test_profile_sets_max_exposure(self):
         cam = SimulatedCamera()
@@ -1149,8 +1149,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
     def test_profile_gain_info(self):
         cam = SimulatedCamera()
         assert cam.profile.gain.total_min_db == 0.0
-        assert cam.profile.gain.total_max_db == 20.0
-        assert cam.profile.gain.analog_max_db == 20.0
+        assert cam.profile.gain.total_max_db == 48.0
 
     def test_profile_native_resolution(self):
         cam = SimulatedCamera()
@@ -1160,7 +1159,6 @@ class TestNoPatternRequestedRendersTheSpecimen:
         cam = SimulatedCamera()
         assert cam.profile.has_auto_gain is True
         assert cam.profile.has_auto_exposure is True
-        assert cam.profile.has_temperature is True
         assert cam.profile.driver == 'simulated'
 
     # -- update_camera_config exception safety --

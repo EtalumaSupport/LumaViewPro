@@ -82,7 +82,8 @@ Adding a new camera model
    exposure, and gain all work correctly.
 """
 
-from dataclasses import dataclass, field
+import copy
+from dataclasses import dataclass, field, replace
 
 
 @dataclass
@@ -246,32 +247,23 @@ _U3_34L0XCP_M = CameraProfile(
     '31.6x (analog only).',
 )
 
-# Simulated camera. Its sensor is the size of the daA3840-45um's IMX334, the
-# camera LumaViewPro's main fleet ships, so a frame the shipped settings ask
-# for is one the simulated scope delivers. The simulated camera reads its size
-# and name from here.
-_simulated = CameraProfile(
+# Simulated camera: the daA3840-45um, the camera LumaViewPro's main fleet
+# ships, so a script, REST client or GUI meets in the simulator the limits it
+# meets on the bench. Built from that profile, so every field an API caller
+# reads is the dart's by construction; replaced are the identity, the ranges
+# the real camera fills at connect (given as what it advertises: 0-48 dB,
+# 14 us - 1 s), and the formats the simulator renders (it has no packed
+# Mono12p). The simulated camera reads its size, name and formats from here.
+_simulated = replace(
+    copy.deepcopy(_daA3840_45um),
     model_name='SimulatedCamera-3840x2160',
     sensor='Simulated',
-    pixel_size_um=2.0,
-    shutter='global',
-    native_resolution={'width': 3840, 'height': 2160},
-    pixel_formats=['Mono8', 'Mono10', 'Mono12'],
-    exposure_max_us=10_000_000,
-    binning_sizes=[1, 2, 4],
-    binning_modes=['Sum'],
-    gain=GainInfo(
-        analog_max_db=20.0,
-        has_digital=False,
-        gain_selector='All',
-        total_min_db=0.0,
-        total_max_db=20.0,
-    ),
-    has_auto_gain=True,
-    has_auto_exposure=True,
-    has_temperature=True,
     driver='simulated',
+    pixel_formats=['Mono8', 'Mono12'],
+    exposure_min_us=14.0,
+    exposure_max_us=1_000_000,
 )
+_simulated.gain = replace(_simulated.gain, total_min_db=0.0, total_max_db=48.0)
 
 
 # Aptina MT9P031 -- Lumascope Classic LS620 / LS560 / LS720 via Cypress FX2
@@ -345,8 +337,6 @@ _DEFAULT = CameraProfile(
 
 def simulated_profile() -> CameraProfile:
     """The simulated camera's profile, a copy, as ``lookup_profile`` returns one."""
-    import copy
-
     return copy.deepcopy(_simulated)
 
 

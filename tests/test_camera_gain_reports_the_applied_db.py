@@ -153,8 +153,8 @@ class TestSimulated:
 
     def test_a_gain_above_the_declared_maximum_is_refused(self, cam):
         before = cam.get_gain()
-        assert cam.max_gain < 25.0
-        assert cam.gain(25.0) is False
+        above = cam.max_gain + 1.0
+        assert cam.gain(above) is False
         assert cam.get_gain() == before
 
     def test_a_gain_below_the_declared_minimum_is_refused(self, cam):

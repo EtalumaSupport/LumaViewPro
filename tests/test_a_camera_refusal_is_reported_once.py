@@ -89,12 +89,13 @@ class TestTheSetterAnswersWithTheValueInEffect:
         assert imaging.set_exposure_ms(33.0) == pytest.approx(33.0)
 
     def test_an_exposure_the_driver_clamped_is_recorded_as_clamped(self, sim_imaging, monkeypatch):
-        """A sub-minimum request the body raises to its floor answers with the
-        floor, and the cache says so -- not the request."""
+        """A request the body raises to its own floor answers with the floor,
+        and the cache says so -- not the request. The request is inside the
+        declared range, so it reaches the body."""
         imaging, cam = sim_imaging
         monkeypatch.setattr(cam, 'exposure_t', lambda v: 50.0)
 
-        assert imaging.set_exposure_ms(0.01) == pytest.approx(0.05)
+        assert imaging.set_exposure_ms(0.02) == pytest.approx(0.05)
         assert imaging.exposure_ms_cached == pytest.approx(0.05)
 
 

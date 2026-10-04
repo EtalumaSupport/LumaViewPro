@@ -1132,6 +1132,15 @@ def dataclasses_fields(cls):
     return _dc.fields(cls)
 
 
+def _scope_without_an_exposure_floor():
+    """A simulated scope whose camera declares no exposure floor, so a sub-5 us
+    request reaches the unit-confusion warning instead of the floor's refusal."""
+    scope = build_scope(simulate=True)
+    scope._camera_driver.profile.exposure_min_us = None
+    scope.imaging._populate_camera_cache()
+    return scope
+
+
 class TestSetExposureTimeValueWarningSuppression:
     """`set_exposure_ms` warns at < 0.005 ms (5us) exposures -- the
     Basler sensor physical minimum. Sub-5us requests indicate a
@@ -1163,7 +1172,7 @@ class TestSetExposureTimeValueWarningSuppression:
 
     def test_warning_fires_by_default_at_sub_0_005_ms(self, monkeypatch):
         mock_logger = self._patch_logger(monkeypatch)
-        scope = build_scope(simulate=True)
+        scope = _scope_without_an_exposure_floor()
         scope.imaging.set_exposure_ms(0.003)
         # Find the warning among any other logger calls
         warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]
@@ -1173,7 +1182,7 @@ class TestSetExposureTimeValueWarningSuppression:
 
     def test_warning_suppressed_inside_context_manager(self, monkeypatch):
         mock_logger = self._patch_logger(monkeypatch)
-        scope = build_scope(simulate=True)
+        scope = _scope_without_an_exposure_floor()
         with scope.imaging.suppress_value_warnings():
             scope.imaging.set_exposure_ms(0.003)
         warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]

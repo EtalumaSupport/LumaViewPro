@@ -39,6 +39,9 @@ def _warnings_for(exposure_ms: float, monkeypatch) -> list:
 
     cam = SimulatedCamera()
     cam.connect()
+    # A camera that declares no floor, so a sub-5 us request reaches the
+    # warning instead of the floor's refusal.
+    cam.profile.exposure_min_us = None
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
     give_stub_lanes(scope)
