@@ -825,3 +825,39 @@ class TestTheImageModeSelectorRendersTheApi:
             )
         )
         assert refreshed == [True]
+
+
+def test_a_mode_redraw_refreshes_the_jpg_hint():
+    """The JPG hint follows the mode as well as the format: a redraw of the
+    stored mode asks the API's predicate again."""
+    from types import SimpleNamespace
+
+    import modules.image_mode as image_mode_real
+
+    settings = {'image_mode': '12bit_scientific'}
+    ids = {
+        'image_mode_spinner': SimpleNamespace(
+            text=image_mode_real.IMAGE_MODE_LABELS['12bit_scientific']
+        )
+    }
+    refreshed = []
+    fn = _compile_ms_method(
+        '_redraw_image_mode',
+        {
+            '_app_ctx': SimpleNamespace(
+                ctx=SimpleNamespace(
+                    settings=settings, scope_display=SimpleNamespace(image_mode=None)
+                )
+            ),
+            'image_mode': image_mode_real,
+            'gui_logger': _RecordingGuiLogger(ids),
+        },
+    )
+    fn(
+        SimpleNamespace(
+            ids=ids,
+            _refresh_binning_depth_hint=lambda: None,
+            _refresh_jpg_depth_hint=lambda: refreshed.append(True),
+        )
+    )
+    assert refreshed == [True]
