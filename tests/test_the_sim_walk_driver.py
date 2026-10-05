@@ -175,6 +175,12 @@ Builder.load_string('''
         size_hint: None, None
         size: 100, 40
         pos: 500, 300
+    Button:
+        id: spinpopbtn
+        text: 'spinpop'
+        size_hint: None, None
+        size: 100, 40
+        pos: 620, 300
 ''')
 
 root = FloatLayout()
@@ -224,6 +230,15 @@ def open_stacked(*_):
     inner.bind(on_release=open_popup)
     Popup(title='Outer', content=inner, size_hint=(0.6, 0.6), auto_dismiss=False).open()
 ids.stackbtn.bind(on_release=open_stacked)
+
+def open_spinner_popup(*_):
+    # A spinner inside a popup, as Advanced Settings holds Tiling Overlap: its
+    # option list opens on the window, outside the popup.
+    from kivy.uix.spinner import Spinner
+    spinner = Spinner(text='a', values=['a', 'b'], size_hint=(None, None), size=(100, 40))
+    spinner.bind(text=lambda s, t: hits.append('popspin ' + t))
+    Popup(title='Settings', content=spinner, size_hint=(0.4, 0.4), auto_dismiss=False).open()
+ids.spinpopbtn.bind(on_release=open_spinner_popup)
 
 def native():
     raise AssertionError('the native picker ran during a scripted walk')
@@ -362,6 +377,20 @@ def test_the_popup_on_top_is_the_one_answered(tmp_path):
     )
     assert result['outcome'] == 'done', result
     assert result['hits'] == ['ok'], result
+
+
+def test_a_spinner_inside_a_popup_takes_its_pick(tmp_path):
+    """The option list is on the window, not in the popup; it is the popup's
+    spinner's list, so a pick from it is inside the popup on top."""
+    result = _run(
+        tmp_path,
+        [
+            {'do': 'press', 'path': 'Panel/spinpopbtn'},
+            {'do': 'select', 'path': 'Popup/Spinner[text=a]', 'value': 'b'},
+        ],
+    )
+    assert result['outcome'] == 'done', result
+    assert result['hits'] == ['popspin b'], result
 
 
 def test_a_missing_control_stops_the_walk_and_no_later_step_runs(tmp_path):

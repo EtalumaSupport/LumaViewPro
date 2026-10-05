@@ -37,6 +37,7 @@ from kivy.core.window import Window
 from kivy.tests.common import UnitTestTouch
 from kivy.uix.accordion import AccordionItem
 from kivy.uix.behaviors import ButtonBehavior
+from kivy.uix.dropdown import DropDown
 from kivy.uix.modalview import ModalView
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.spinner import Spinner
@@ -287,7 +288,7 @@ class SimWalk:
                     f'{path} is inside the collapsed drawer {parent.title!r}; open it first'
                 )
         popups = _open_popups()
-        if popups and not _contains(popups[0], target):
+        if popups and not _contains(popups[0], _placed_by(target)):
             raise WalkStepError(
                 f'a popup is open ({getattr(popups[0], "title", "")!r}); answer it first'
             )
@@ -355,6 +356,20 @@ def _class_matches(widget, segment: str) -> bool:
 def _open_popups() -> list:
     """The open popups, the one on top first: Kivy puts the newest window child at index 0."""
     return [w for w in Window.children if isinstance(w, ModalView)]
+
+
+def _placed_by(widget):
+    """The widget that put ``widget`` on screen.
+
+    A dropdown's option is the dropdown's widget, but the list is added to the
+    window rather than inside the spinner, so a spinner in a popup opens a list
+    outside it; the option belongs to the popup through the spinner it opened
+    from.
+    """
+    for parent in (widget, *_ancestors(widget)):
+        if isinstance(parent, DropDown) and parent.attach_to is not None:
+            return parent.attach_to
+    return widget
 
 
 def _contains(ancestor, widget) -> bool:
