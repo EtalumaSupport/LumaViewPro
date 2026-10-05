@@ -237,3 +237,23 @@ class TestEngineeringModeNamesTheTurretPosition:
         save_one = _run_capture(capture_ctx)
 
         assert save_one.call_args_list[0].kwargs['append'] == 'A1_Lumi'
+
+
+class TestASumsOverlayIsDrawnAsItIsShown:
+    def test_the_overlay_renders_a_sum_against_one_frames_white(self, capture_ctx):
+        """Three 8-bit frames summed to 255 are one frame's white; the overlay
+        is drawn on that rendering, so the pixel is white, not 255 of 1023."""
+        capture_ctx.use_crosshairs = True
+        capture_ctx.scope.imaging._capture_and_wait_impl.return_value = np.full(
+            (4, 4), 255, dtype=np.uint16
+        )
+        capture_ctx.scope.imaging.capture_frame_depth.return_value = 10
+        capture_ctx.scope.imaging.last_capture_info = {
+            'frame_record': frame_record(frames_summed=3, frame_significant_bits=8)
+        }
+
+        save_one = _run_capture(capture_ctx, sum_count=3)
+
+        overlay = save_one.call_args_list[1].args[1]
+        assert overlay.dtype == np.uint8
+        assert int(overlay[0, 0].min()) == 255

@@ -78,3 +78,19 @@ class TestTheRunReadsOneSnapshotOfTheSettings:
         assert prepared['parent_dir'] == tmp_path.resolve() / 'ProtocolData'
         assert prepared['keep_led_between_steps'] is True
         assert prepared['autogain_settings']['target_brightness'] == 0.123
+
+
+class TestTheScanLogNamesTheFormatInForce:
+    def test_the_scan_line_names_the_pixel_format_the_camera_delivers(self, monkeypatch):
+        import modules.protocol_runner as protocol_runner
+
+        lines = []
+        monkeypatch.setattr(protocol_runner.logger, 'info', lambda msg, *a, **k: lines.append(msg))
+        runner = _runner()
+        runner.session.scope.imaging.pixel_format_cached = 'Mono8'
+
+        _run(runner, 'run_single_scan')
+
+        (scan,) = [line for line in lines if '[Protocol] scan' in line]
+        assert 'pixel_format=Mono8' in scan
+        assert 'capture_depth=' not in scan

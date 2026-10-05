@@ -300,3 +300,26 @@ class TestEveryGuiRunStarterSpreadsTheHelper:
         assert not offenders, (
             f'modules/protocol_image_writer.py imports the application context at {offenders}'
         )
+
+
+class TestTheHoldShowsASumAsItIsShown:
+    def test_a_sum_reaches_the_hold_rendered_against_one_frames_white(self, no_context):
+        holds = []
+        writer = _writer(
+            ProtocolCallbacks(
+                hold_protocol_saved_image=lambda image, bits: holds.append((image, bits))
+            )
+        )
+        imaging = writer._scope.imaging
+        imaging.capture_and_wait.return_value = np.full((4, 4), 255, dtype=np.uint16)
+        imaging.capture_frame_depth.return_value = 10
+        imaging.capture_frame_full_scale.return_value = 765
+        imaging.last_capture_info = {
+            'frame_record': frame_record(frames_summed=3, frame_significant_bits=8)
+        }
+
+        _capture_one_still(writer)
+
+        ((image, bits),) = holds
+        assert image.dtype == np.uint8 and bits == 8
+        assert int(image.min()) == 255

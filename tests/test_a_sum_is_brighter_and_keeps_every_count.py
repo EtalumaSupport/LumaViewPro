@@ -297,3 +297,66 @@ def test_a_hyperstack_of_8bit_and_16bit_planes_is_built_at_16bit(
     assert stack.dtype == np.uint16
     planes = sorted(int(plane.max()) for plane in stack.reshape(-1, *stack.shape[-2:]))
     assert planes == sorted([unsummed, summed])
+
+
+# --- the renderings and the hand-offs -----------------------------------------
+
+
+def test_a_sums_jpg_is_rendered_against_one_frames_white(tmp_path):
+    """A JPG is the frame as it is shown: three 8-bit frames summed to 255 are
+    one frame's white, so the JPG is white, not 255 of the sum's 1023."""
+    import cv2
+
+    from modules import image_save
+    from tests.frame_records import frame_record, plate
+    from tests.test_jpg_export import _scope_with_depth
+
+    path = image_save.save_image(
+        _scope_with_depth(),
+        np.full((32, 32), 255, dtype=np.uint16),
+        save_folder=str(tmp_path),
+        file_root='snap_',
+        append='BF',
+        channel='BF',
+        false_color_on=False,
+        tail_id_mode=None,
+        output_format='JPG',
+        jpeg_quality=95,
+        save_encoding='right_aligned',
+        significant_bits=10,
+        objective_id='4x Oly',
+        frame_record=frame_record(frames_summed=3, frame_significant_bits=8),
+        labware=plate(),
+        well_label=None,
+    )
+    jpg = cv2.imdecode(np.frombuffer(pathlib.Path(path).read_bytes(), np.uint8), cv2.IMREAD_COLOR)
+    assert int(jpg.min()) >= 250
+
+
+def test_the_depth_before_any_capture_is_the_cameras_stamp(sim_camera):
+    scope = sim_camera('Mono12')
+    assert scope.imaging.capture_frame_depth(np.zeros((4, 4), dtype=np.uint16)) == 12
+    assert scope.imaging.capture_frame_full_scale(np.zeros((4, 4), dtype=np.uint16)) == 4095
+
+
+def test_the_post_run_build_is_told_the_runs_encoding(monkeypatch, tmp_path):
+    from modules import stack_builder
+    from modules.notification_center import notifications
+
+    asked = {}
+
+    def _load_folder(self, **kwargs):
+        asked.update(kwargs)
+        # Only what it was asked matters here; the build's answer is reported.
+        raise RuntimeError('not built in this test')
+
+    monkeypatch.setattr(notifications, 'report_outcome', lambda *a, **k: None)
+    monkeypatch.setattr(stack_builder.StackBuilder, 'load_folder', _load_folder)
+    stack_builder.build_hyperstacks_for_run(
+        tmp_path,
+        False,
+        tmp_path / 'tiling.json',
+        wait_for_images=lambda: None,
+        save_encoding='msb_aligned',
+    )
+    assert asked['save_encoding'] == 'msb_aligned'

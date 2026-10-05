@@ -750,3 +750,70 @@ class TestTheFrameBoxesRecordWhatWasTyped:
         assert ('FRAME_WIDTH', '800') in records, (
             f'a frame edit with no camera left no trace at all: {records}'
         )
+
+
+class TestTheImageModeSelectorRendersTheApi:
+    """The selector offers what the API offers, and the JPG hint is the API's
+    predicate; the panel decides neither."""
+
+    def test_every_mode_is_offered(self):
+        from types import SimpleNamespace
+
+        import modules.image_mode as image_mode_real
+
+        spinner = SimpleNamespace(values=None)
+        fn = _compile_ms_method('load_image_modes', {'image_mode': image_mode_real})
+        fn(SimpleNamespace(ids={'image_mode_spinner': spinner}))
+        assert spinner.values == image_mode_real.available_mode_labels()
+
+    @pytest.mark.parametrize(
+        ('mode', 'live', 'shown'),
+        [
+            ('12bit_scientific', 'JPG', True),
+            ('12bit_scientific', 'TIFF', False),
+            ('8bit', 'JPG', False),
+        ],
+    )
+    def test_the_jpg_hint_is_the_apis_predicate(self, mode, live, shown):
+        from types import SimpleNamespace
+
+        import modules.image_mode as image_mode_real
+
+        settings = {'image_mode': mode, 'image_output_format': {'live': live, 'sequenced': 'TIFF'}}
+        fn = _compile_ms_method(
+            '_refresh_jpg_depth_hint',
+            {
+                '_app_ctx': SimpleNamespace(ctx=SimpleNamespace(settings=settings)),
+                'image_mode': image_mode_real,
+            },
+        )
+        panel = SimpleNamespace(jpg_depth_hint_active=None)
+        fn(panel)
+        assert panel.jpg_depth_hint_active is shown
+
+    @pytest.mark.parametrize(
+        ('handler', 'spinner'),
+        [
+            ('select_live_image_output_format', 'live_image_output_format_spinner'),
+            ('select_sequenced_image_output_format', 'sequenced_image_output_format_spinner'),
+        ],
+    )
+    def test_a_format_pick_refreshes_the_jpg_hint(self, handler, spinner):
+        from types import SimpleNamespace
+
+        settings = {'image_output_format': {'live': 'TIFF', 'sequenced': 'TIFF'}}
+        refreshed = []
+        fn = _compile_ms_method(
+            handler,
+            {
+                '_app_ctx': SimpleNamespace(ctx=SimpleNamespace(settings=settings)),
+                'gui_logger': SimpleNamespace(select=lambda *a: None),
+            },
+        )
+        fn(
+            SimpleNamespace(
+                ids={spinner: SimpleNamespace(text='JPG')},
+                _refresh_jpg_depth_hint=lambda: refreshed.append(True),
+            )
+        )
+        assert refreshed == [True]

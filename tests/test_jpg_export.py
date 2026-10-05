@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import pathlib
 import sys
+import threading
 
 import cv2
 import numpy as np
@@ -141,13 +142,13 @@ def _scope_with_depth(significant_bits: int = _CAMERA_DEPTH, frame=None):
         last_significant_bits=significant_bits,
         _binning_size=1,
         _capture_and_wait_impl=lambda **kwargs: frame,
+        _state_lock=threading.Lock(),
+        _last_frame_summing=None,
     )
     # The REAL shared depth rule, bound to this stub -- the tests pin that
     # every save path resolves through one rule, so the stub must not
     # re-implement it.
-    imaging.capture_frame_depth = lambda array, sum_count=1: ImagingAPI.capture_frame_depth(
-        imaging, array, sum_count
-    )
+    imaging.capture_frame_depth = lambda array: ImagingAPI.capture_frame_depth(imaging, array)
     return SimpleNamespace(
         imaging=imaging,
         runtime_state=SimpleNamespace(resolve_current_objective=lambda: ('4x Oly', {})),
