@@ -84,8 +84,8 @@ class SerialBoard:
         self._error_log_interval = 2.0  # seconds between repeated error logs
         # monotonic() of the last failed connect(). Gates the immediate
         # auto-reconnect so a command fired right after a failed connect
-        # (e.g. the construction-time LEDS_OFF/CONFIG) does not re-run the
-        # full open+reset+detect sequence and re-log the same failure.
+        # does not re-run the full open+reset+detect sequence and re-log
+        # the same failure.
         self._last_connect_fail_time = 0.0
         # Consecutive failed connects. After ten the failure stops logging
         # at ERROR, so a board that stays unreachable cannot flood the

@@ -1,11 +1,11 @@
 """Regression for #632: a failed connect must not be immediately retried by
 the next command, which produced a duplicate startup failure log.
 
-At construction the board calls connect(); if the port is missing or held it
-logs 'connect() failed' (#1) and leaves driver=None. The very next command
-after construction -- CONFIG (motor) or LEDS_OFF (LED, from _safety_leds_off
-in __init__) -- enters the auto-reconnect path, re-runs the full
+A failed connect logs 'connect() failed' (#1) and leaves driver=None. A
+command right after it enters the auto-reconnect path, re-runs the full
 open+reset+detect sequence, and logs the identical 'connect() failed' (#2).
+Construction no longer sends a command after a failed connect, but any
+other caller's next command still meets this path.
 
 A short reconnect backoff (reuse _error_log_interval) skips the immediate
 re-attempt: a board that just failed to open won't appear within a couple
