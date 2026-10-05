@@ -246,3 +246,28 @@ class TestGoingToAStepWaitsOffTheLane:
         going.join(timeout=_TRAVEL_WAIT_S)
         assert errors == []
         assert still_travelling, 'the LED waited for the step to arrive'
+
+
+class TestAnAxisTheScopeLacks:
+    @pytest.fixture
+    def z_only(self, tmp_path):
+        s = ScopeSession.create(
+            complete_settings(microscope='LS820', live_folder=str(tmp_path)), simulate=True
+        )
+        try:
+            home_sim_scope(s.scope)
+            assert 'X' not in s.scope.capabilities.axes
+            yield s
+        finally:
+            s.shutdown()
+            s.scope.disconnect()
+
+    def test_a_move_on_it_drives_nothing_and_returns(self, z_only):
+        motion = z_only.scope.motion
+
+        motion.move_absolute('X', 1000.0)
+        motion.move_relative('X', 10.0)
+        motion.start_move_absolute('X', 1000.0).wait()
+        motion.start_move_relative('X', 10.0).wait()
+
+        assert not motion.is_moving()
