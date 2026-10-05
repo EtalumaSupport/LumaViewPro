@@ -13,7 +13,7 @@ import threading
 import numpy as np
 import pytest
 
-from modules.exceptions import SettingRefusedError
+from modules.exceptions import AccelerationLimitRefusedError, Refusal, SettingRefusedError
 from modules.protocol import ProtocolScheduleRefusedError
 from modules.scope_session import ScopeSession
 from tests.installation_fixtures import copy_installation_files
@@ -183,6 +183,14 @@ def test_an_acceleration_out_of_range_is_refused_and_not_stored(session):
     with pytest.raises(ValueError):
         session.set_acceleration_limit(500)
     assert session.settings['motion']['acceleration_max_pct'] == 60
+
+
+def test_an_acceleration_out_of_range_is_a_refusal_not_a_fault(session):
+    """Reported as a fault it read "Operation failed ... Check the main log"."""
+    with pytest.raises(AccelerationLimitRefusedError) as refused:
+        session.set_acceleration_limit(250)
+    assert isinstance(refused.value, Refusal) and isinstance(refused.value, ValueError)
+    assert '250' in str(refused.value) and '1 to 100' in str(refused.value)
 
 
 def test_an_acceleration_out_of_range_is_refused_with_no_motor_controller(session, monkeypatch):

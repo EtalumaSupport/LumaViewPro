@@ -2535,8 +2535,9 @@ class ScopeSession:
         commanded and the value is stored.
 
         Raises:
-            ValueError: ``val_pct`` is outside the range the motion API
-                accepts, on every board. Nothing is stored.
+            AccelerationLimitRefusedError: ``val_pct`` is outside the range
+                the motion API accepts, on every board (a ValueError).
+                Nothing is stored.
         """
         self.scope.motion.set_acceleration_limit(val_pct=val_pct)
         with self.settings_lock:

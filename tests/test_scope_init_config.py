@@ -172,7 +172,7 @@ class TestAccelerationBound:
     @pytest.mark.parametrize('stored', [ACCELERATION_PCT_MAX + 400, 0, -3, '50', '', None, True])
     def test_a_stored_value_no_board_may_take_is_refused(self, stored):
         settings = {**_BASE_SETTINGS, 'motion': {'acceleration_max_pct': stored}}
-        with pytest.raises(ConfigError, match='Acceleration limit'):
+        with pytest.raises(ConfigError, match='acceleration limit'):
             ScopeInitConfig.from_settings(settings, labware=None, turreted=False)
 
     def test_an_in_range_value_is_carried(self):

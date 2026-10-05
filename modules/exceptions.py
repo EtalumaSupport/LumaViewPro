@@ -1941,6 +1941,28 @@ class DiagnosticRefusedError(Refusal, Exception):
         self.holder_trigger = holder_trigger
 
 
+class AccelerationLimitRefusedError(Refusal, ValueError):
+    """An acceleration limit no board may be given was refused; nothing was commanded or stored.
+
+    A refusal, not a fault: the person typed or a caller passed a number
+    outside the range, and the words tell them the range. Raised as a bare
+    ValueError it was reported as an operation that failed, with a
+    traceback, over "Check the main log for details". Subclasses ValueError
+    so callers that catch a bad argument keep working.
+
+    Attributes:
+        value: What was given, as given.
+    """
+
+    title = 'Acceleration Limit Not Changed'
+
+    def __init__(self, value: object, low: int, high: int):
+        super().__init__(
+            f'An acceleration limit of {value!r}% cannot be set: it is a number from {low} to {high}.'
+        )
+        self.value = value
+
+
 class PositionOutOfRangeError(Refusal, ValueError):
     """An absolute move was commanded beyond the axis's travel.
 

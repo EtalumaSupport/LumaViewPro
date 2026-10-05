@@ -15,6 +15,8 @@ class attribute) keep working.
 import numbers
 from typing import NamedTuple
 
+from modules.exceptions import AccelerationLimitRefusedError
+
 # Structural axis-name vocabulary used only for input sanity checks
 # ("did the caller pass a real axis letter?"). NOT a capability query --
 # use `scope.capabilities.axes` for "what does this scope have?".
@@ -55,8 +57,9 @@ def refuse_acceleration_pct(val_pct: object) -> None:
     session.
 
     Raises:
-        ValueError: ``val_pct`` is not a number, or is outside
-            ``ACCELERATION_PCT_MIN`` to ``ACCELERATION_PCT_MAX``.
+        AccelerationLimitRefusedError: ``val_pct`` is not a number, or is
+            outside ``ACCELERATION_PCT_MIN`` to ``ACCELERATION_PCT_MAX``. A
+            ValueError, so a caller catching a bad argument keeps working.
     """
     # bool is excluded by name: True is an int, and a number to Real.
     if (
@@ -64,10 +67,7 @@ def refuse_acceleration_pct(val_pct: object) -> None:
         or not isinstance(val_pct, numbers.Real)
         or not ACCELERATION_PCT_MIN <= val_pct <= ACCELERATION_PCT_MAX
     ):
-        raise ValueError(
-            f'Acceleration limit of {val_pct!r}% is out of bounds. '
-            f'Must be a number between {ACCELERATION_PCT_MIN} and {ACCELERATION_PCT_MAX}.'
-        )
+        raise AccelerationLimitRefusedError(val_pct, ACCELERATION_PCT_MIN, ACCELERATION_PCT_MAX)
 
 
 def is_turret_slot(position: object) -> bool:

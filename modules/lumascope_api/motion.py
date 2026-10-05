@@ -1058,10 +1058,10 @@ class MotionAPI:
             val_pct: Acceleration limit as a percent of the firmware max.
 
         Raises:
-            ValueError: ``val_pct`` is not a number or is outside
-                ``ACCELERATION_PCT_MIN`` to ``ACCELERATION_PCT_MAX``. Refused
-                on every board, real, simulated or absent, before any is
-                commanded.
+            AccelerationLimitRefusedError: ``val_pct`` is not a number or
+                is outside ``ACCELERATION_PCT_MIN`` to ``ACCELERATION_PCT_MAX``
+                (a ValueError). Refused on every board, real, simulated or
+                absent, before any is commanded.
         """
         return self._dispatch_motion(
             self._set_acceleration_limit_impl,
