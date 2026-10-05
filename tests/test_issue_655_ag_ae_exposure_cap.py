@@ -84,27 +84,6 @@ def test_override_map_is_the_flat_per_class_map():
     assert config_helpers.get_ag_ae_max_exposure_ms('Blue', {'fluorescence': 123.0}) == 123.0
 
 
-def test_gui_getter_passes_the_override_map(monkeypatch):
-    """The live-view AG/AE arm resolves its ceiling through
-    config_ui_getters, which reads the per-install override map off the app
-    context. This is the regression guard for that caller: it passes today
-    and must keep passing, because the resolver's second parameter takes the
-    per-class map and a caller handing it a whole settings dict would
-    silently fall back to the table default. (#655)"""
-    from types import SimpleNamespace
-
-    import modules.config_ui_getters as config_ui_getters
-
-    monkeypatch.setattr(
-        config_ui_getters._app_ctx,
-        'ctx',
-        SimpleNamespace(settings={'ag_ae_max_exposure_ms': {'fluorescence': 123.0}}),
-    )
-    assert config_ui_getters.get_ag_ae_max_exposure_ms('Blue') == 123.0, (
-        'the GUI getter must reach the per-install fluorescence ceiling'
-    )
-
-
 def test_unknown_layer_falls_back_to_fluorescence_cap():
     assert config_helpers.get_ag_ae_max_exposure_ms('Nonexistent') == 200.0
 
@@ -211,14 +190,6 @@ def test_api_set_auto_gain_forwards_cap_from_settings_dict():
     assert recorded.get('ae_max_exposure_ms') == 800.0, (
         'imaging.set_auto_gain must forward settings["max_exposure_ms"] '
         f'to the driver as the AE cap (#655); driver saw {recorded}'
-    )
-
-
-def test_live_caller_injects_per_class_cap():
-    src = (REPO / 'ui' / 'layer_control.py').read_text()
-    assert 'get_ag_ae_max_exposure_ms' in src and 'max_exposure_ms' in src, (
-        'layer_control.apply_settings must inject the per-class AG/AE cap '
-        'into the auto-gain settings dict. (#655)'
     )
 
 

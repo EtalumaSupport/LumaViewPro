@@ -2,6 +2,12 @@
 
 ## 4.0.0 (in development)
 
+- **The camera holds a layer's settings from bring-up, and after going to a step**: new
+  `session.apply_layer_camera(layer)` puts a layer's stored exposure, gain and auto-gain on the
+  camera. Bring-up applies BF, and `session.go_to_step` applies the step's layer while the
+  stage travels. Before, only the GUI's layer controls set the camera, so a script, and the GUI
+  itself at start-up, ran at the camera's default (10 ms / 0 dB on a Pylon camera) until a
+  layer control was touched, and the files recorded those values.
 - **The scope reads its configuration from the session's settings (SDK, breaking)**: the
   labware, stage offset, turret map, the objective selected on a scope with no turret, and
   whether the scale bar is drawn are stored once, in the settings, and the scope reads them

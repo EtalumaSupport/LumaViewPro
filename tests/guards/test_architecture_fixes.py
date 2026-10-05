@@ -572,7 +572,7 @@ _UI_ANSWERER_CALL_PIN = {
     'lumaviewpro.py': 1,
     'ui/advanced_settings.py': 2,
     'ui/image_settings.py': 5,
-    'ui/layer_control.py': 6,
+    'ui/layer_control.py': 3,
     'ui/microscope_settings.py': 4,
     'ui/motion_settings.py': 1,
     'ui/protocol_settings.py': 4,
@@ -765,7 +765,7 @@ _GUI_ORCHESTRATION_PIN = {
 
 _MODULES_CONTEXT_READ_PIN = {
     'modules/config_helpers.py': 4,
-    'modules/config_ui_getters.py': 10,
+    'modules/config_ui_getters.py': 8,
     'modules/derived_output_encoding.py': 3,
     'modules/executor_registry.py': 0,
     'modules/metrics_logger.py': 0,
@@ -893,7 +893,6 @@ def _twin_answerer_names():
 # moved -- and it left when the protocol panel was routed at the Session
 # member and the forwarder deleted, the remedy below applied as written.
 _TWIN_ANSWERER_PIN = {
-    'get_auto_gain_settings': 1,
     'get_layer_configs': 1,
     'get_selected_labware_from_settings': 1,
 }

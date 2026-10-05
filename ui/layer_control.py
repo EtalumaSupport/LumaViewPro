@@ -985,24 +985,8 @@ class LayerControl(BoxLayout):
 
         ctx = _app_ctx.ctx
 
-        # While autofocus owns the camera, a live UI apply -- e.g. the
-        # exposure field losing focus because the AF button itself was
-        # clicked -- must not push values to the camera mid-scan. The LED
-        # leaf (update_led_state) carries the same guard; gating the shared
-        # funnel covers every input that routes through here (exposure /
-        # gain / illumination text and sliders, stim fields).
-        if ctx.scope.imaging.is_focusing:
-            logger.debug(
-                f'[LVP Main  ] {self.layer}_LayerControl.apply_settings '
-                'suppressed -- autofocus owns the camera'
-            )
-            return
-
-        settings = ctx.settings
         camera_executor = ctx.camera_executor
         from ui.image_settings import set_histogram_layer
-
-        lumaview = ctx.lumaview
 
         def update_shader(dt=None):
             thread = getattr(ctx, 'scope_display_thread', None)
@@ -1069,12 +1053,6 @@ class LayerControl(BoxLayout):
 
         disable_leds_for_other_layers()
 
-        # update exposure to currently selected settings
-        # -----------------------------------------------------
-
-        exposure = settings[self.layer]['exposure_ms']
-        gain = settings[self.layer]['gain_db']
-
         if not ctx.session.run_lockout:
             # Effective enable = the API's answer for the saved preference
             # (effective_auto_gain): on a camera without hardware AG/AE the
@@ -1095,32 +1073,10 @@ class LayerControl(BoxLayout):
             # an imperative .disabled write here was erased whenever the run
             # lockout cleared, because that rule re-fires on the edge.
             self.ids['auto_gain'].active = auto_gain_enabled
-            from modules.config_ui_getters import (
-                get_ag_ae_max_exposure_ms,
-                get_ag_ae_min_exposure_ms,
-                get_auto_gain_settings,
-            )
-
-            autogain_settings = get_auto_gain_settings()
-            # Cap how far AG/AE may drive exposure for this layer's
-            # channel class: without it AG runs exposure
-            # to the sensor max on dim scenes, washing out brightfield
-            # and making the live auto loop hunt.
-            autogain_settings['max_exposure_ms'] = get_ag_ae_max_exposure_ms(self.layer)
-            # The class floor rides beside the ceiling so an auto-gain
-            # lock can say whether exposure bottomed out of the
-            # usable range (AT_MINIMUM), not only whether it topped.
-            autogain_settings['min_exposure_ms'] = get_ag_ae_min_exposure_ms(self.layer)
-            imaging = lumaview.scope.imaging
+            session = ctx.session
             layer = self.layer
             submit_reported(
-                lambda: imaging.apply_layer_camera_settings(
-                    layer=layer,
-                    gain_db=gain,
-                    exposure_ms=exposure,
-                    auto_gain=auto_gain_enabled,
-                    auto_gain_settings=autogain_settings,
-                ),
+                lambda: session.apply_layer_camera(layer),
                 None,
                 f'CAMERA_SETTINGS_{layer}',
                 lane=camera_executor,

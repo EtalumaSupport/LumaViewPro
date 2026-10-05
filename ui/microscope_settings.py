@@ -311,8 +311,8 @@ class MicroscopeSettings(BoxLayout):
         # this runs BEFORE the widgets are filled, so the pinned slider and
         # the stored value agree the first time they are drawn. Its
         # explicit apply is a no-op here (the layers are still initializing
-        # from construction); the startup push to the camera is the open
-        # layer's, from complete_initialization.
+        # from construction); the startup push to the camera is bring-up's
+        # (ScopeSession.configure_scope applies BF).
         ctx.image_settings.reconcile_layers_to_camera_caps()
 
         for layer in common_utils.get_layers():

@@ -1332,8 +1332,7 @@ class ScopeSession:
         """Turn a layer's auto-gain on or off, as the GUI's Auto Gain/Exp box does.
 
         Turning it on stores the preference only: the camera arms when the
-        layer is next applied (``scope.imaging.apply_layer_camera_settings``
-        with ``auto_gain=True``). Turning it off locks a standing arm
+        layer is next applied (``apply_layer_camera``). Turning it off locks a standing arm
         (``scope.imaging.lock_auto_gain``) and stores what the camera reached
         as the layer's manual setting: the lock's ``gain_db`` and its
         ``stored_exposure_ms``, rounded to 0.1 dB and 0.01 ms, the resolution
@@ -1375,6 +1374,53 @@ class ScopeSession:
                     stored['exposure_ms'] = round(lock.stored_exposure_ms, 2)
             stored['auto_gain'] = enabled
         return lock
+
+    def apply_layer_camera(self, layer: str) -> dict | None:
+        """Put ``layer``'s stored exposure, gain and auto-gain on the camera, and wait.
+
+        The one way a layer's settings reach the camera outside a run:
+        bring-up applies BF, ``go_to_step`` applies the step's layer, and
+        the GUI applies the layer whose control changed. A stored auto-gain
+        arms the live auto loop, capped to the layer's channel class and the
+        installation's override, as the GUI's Auto Gain/Exp box does; a
+        camera without hardware auto-gain applies the layer manually
+        (``scope.imaging.apply_layer_camera_settings``).
+
+        Returns:
+            What ``scope.imaging.apply_layer_camera_settings`` returns: the
+            gain and exposure now in effect, or None when no camera is
+            active.
+
+        Raises:
+            ConfigError: this scope has no ``layer``; nothing is applied.
+            HardwareCommandRefusedError: a run or a diagnostic holds the
+                scope (an autofocus is a run); nothing is applied.
+            CameraSettingRejected: the camera refused a setting; the others
+                were applied.
+        """
+        import modules.config_helpers as config_helpers
+
+        self._refuse_layer_not_on_scope(layer, then='be applied to the camera')
+        with self.settings_lock:
+            stored = self.settings[layer]
+            gain_db = stored['gain_db']
+            exposure_ms = stored['exposure_ms']
+            auto_gain = stored['auto_gain']
+            auto_gain_settings = config_helpers.get_auto_gain_settings(self.settings)
+            overrides = copy.deepcopy(self.settings.get('ag_ae_max_exposure_ms', {}))
+        auto_gain_settings['max_exposure_ms'] = config_helpers.get_ag_ae_max_exposure_ms(
+            layer, overrides
+        )
+        # The floor rides beside the ceiling so an auto-gain lock can say
+        # whether exposure bottomed out of the usable range (AT_MINIMUM).
+        auto_gain_settings['min_exposure_ms'] = config_helpers.get_ag_ae_min_exposure_ms(layer)
+        return self.scope.imaging.apply_layer_camera_settings(
+            layer=layer,
+            gain_db=gain_db,
+            exposure_ms=exposure_ms,
+            auto_gain=auto_gain,
+            auto_gain_settings=auto_gain_settings,
+        )
 
     def new_protocol(
         self,
@@ -1667,21 +1713,34 @@ class ScopeSession:
         )
 
     def go_to_step(self, protocol: 'Protocol', step_idx: int) -> None:
-        """Go to step ``step_idx`` of ``protocol``, and return once the stage has arrived.
+        """Go to step ``step_idx`` of ``protocol``; return once the camera holds the step's layer and the stage has arrived.
 
-        ``start_go_to_step`` followed by each started move's ``wait()``; see
-        it for what going to a step does and refuses. The wait runs in this
-        caller's thread, so the IO lane takes other work while the stage
-        travels.
+        ``start_go_to_step``, then ``apply_layer_camera`` for the step's
+        layer while the stage travels, then each started move's ``wait()``;
+        see ``start_go_to_step`` for what going to a step does and refuses.
+        Both waits run in this caller's thread, so the IO lane takes other
+        work meanwhile.
 
         Raises:
             Everything ``start_go_to_step`` raises, and
             MoveNotCompletedError: an axis did not arrive at the step; see
                 ``MoveInFlight.wait``. The layer and the preview are the
                 step's.
+            CameraSettingRejected: the camera refused a setting of the
+                step's layer, raised once the stage has arrived; see
+                ``apply_layer_camera``.
         """
-        for move in self.start_go_to_step(protocol, step_idx):
-            move.wait()
+        # Read before the start, as the start reads it: the step this call
+        # was made for, whatever the list holds once the lane has run.
+        layer = protocol.step(idx=step_idx)['Color']
+        moves = self.start_go_to_step(protocol, step_idx)
+        try:
+            self.apply_layer_camera(layer)
+        finally:
+            # A refused apply still waits out the travel it started, so the
+            # caller is never handed a raise with the stage still moving.
+            for move in moves:
+                move.wait()
 
     def start_go_to_step(self, protocol: 'Protocol', step_idx: int) -> 'tuple[MoveInFlight, ...]':
         """Start going to step ``step_idx`` of ``protocol``, as a click on a step does.
@@ -1704,6 +1763,9 @@ class ScopeSession:
         A repeat of the step this session last went to (a re-click, a
         re-typed number) does everything but the preview: a channel the
         person lit or put out in between stays as they left it.
+
+        The camera is not set to the step's layer here: a click's caller
+        applies it (``apply_layer_camera``), and ``go_to_step`` does.
 
         Raises:
             StepNotFoundError: ``step_idx`` is not a step of ``protocol``.
@@ -2019,16 +2081,19 @@ class ScopeSession:
         catalogue does not have on a scope with no turret; on a turreted
         scope the objective stays unknown until the turret is in a known
         slot. The scope reads the plate and objective from these settings
-        whenever it acts on them. The
+        whenever it acts on them. Last, the camera takes BF's stored
+        settings (``apply_layer_camera``), the one step that waits on the
+        camera lane. The
         factories run this for the scope they build; a host that constructs
         the session directly, or hands ``create`` its own scope, calls it
-        once itself. Every step runs on the calling thread; nothing here
-        dispatches.
+        once itself. Every other step runs on the calling thread.
 
         Raises:
             ConfigError: a settings key ``initialize`` cannot do without is
                 missing (``frame``; ``objective_id`` on a scope with no
                 turret); or that ``objective_id`` names no shipped objective.
+            CameraSettingRejected: the camera refused a write of BF's
+                settings.
             HardwareCommandRefusedError: a run, a diagnostic or a recording
                 holds the scope. The configuration rewrites the LEDs, the
                 camera geometry and acceleration under whatever holds it,
@@ -2095,6 +2160,30 @@ class ScopeSession:
             logger.info(
                 '[Session  ] objective at bring-up: unknown until the turret is in a known slot'
             )
+        self._apply_bring_up_layer()
+
+    def _apply_bring_up_layer(self) -> None:
+        """Put BF's stored camera settings on the camera, as the GUI opens on BF.
+
+        Skipped, and said so once, when there is no camera to set (bring-up
+        has already reported it missing; a second report would only repeat
+        it) or this scope has no BF layer (a newer unit whose layers this
+        release cannot resolve still comes up). The values are capped to the
+        camera's range first, so a refusal here is the camera failing a
+        write, and it fails bring-up like any other part that does not come
+        up.
+        """
+        layer = common_utils.DEFAULT_LAYER
+        if not self.scope.camera_connected:
+            logger.info(f'[Session  ] bring-up: no camera, so {layer} is not applied to it')
+            return
+        if layer not in self._layers_on_scope():
+            logger.info(
+                f'[Session  ] bring-up: this scope has no {layer} layer, '
+                'so no layer is applied to the camera'
+            )
+            return
+        self.apply_layer_camera(layer)
 
     def bring_up_record(self) -> 'BringUpRecord':
         """What bring-up found, substituted and set aside, for a client that asks later.

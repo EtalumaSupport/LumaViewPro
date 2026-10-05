@@ -87,6 +87,10 @@ def test_a_frame_is_black_with_nothing_lit_and_shows_the_field_with_bf_lit(sessi
     assert dark is not None and dark.shape == (side, side)
     assert dark.max() == 0
 
+    # At the driver's own default exposure: bring-up puts BF's stored
+    # exposure on the camera, and how bright the field reads is not what
+    # this asks.
+    scope.imaging.set_exposure_ms(FX2Camera.DEFAULT_EXPOSURE_MS)
     scope.illumination.led_on('BF', 100)
     try:
         lit = _fresh_frame(scope)

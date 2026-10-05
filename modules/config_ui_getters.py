@@ -276,22 +276,3 @@ def get_image_capture_config_from_ui() -> ImageCaptureConfig:
     in the files.
     """
     return config_helpers.get_image_capture_config_from_settings(_app_ctx.ctx.settings)
-
-
-# ---------------------------------------------------------------------------
-# Auto gain / objective / protocol time
-# ---------------------------------------------------------------------------
-
-
-def get_auto_gain_settings() -> dict:
-    return config_helpers.get_auto_gain_settings(_app_ctx.ctx.settings)
-
-
-def get_ag_ae_max_exposure_ms(layer: str) -> float:
-    return config_helpers.get_ag_ae_max_exposure_ms(
-        layer, _app_ctx.ctx.settings.get('ag_ae_max_exposure_ms', {})
-    )
-
-
-def get_ag_ae_min_exposure_ms(layer: str) -> float:
-    return config_helpers.get_ag_ae_min_exposure_ms(layer)

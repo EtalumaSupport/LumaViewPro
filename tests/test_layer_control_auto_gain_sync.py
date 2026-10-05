@@ -152,19 +152,19 @@ class TestApplySettingsSyncsAutoGainCheckbox:
             )
 
     def test_apply_settings_sync_precedes_iotask_queue(self):
-        """The CheckBox + slider sync must precede the apply_layer_camera_settings
+        """The CheckBox + slider sync must precede the apply_layer_camera
         IOTask queue so the UI reflects the new state by the time the
         camera command lands. The opposite order would leave a brief
         window where the camera state has changed but the UI lags."""
         body = _method_body('LayerControl', 'apply_settings')
         sync_idx = body.find("self.ids['auto_gain'].active = auto_gain_enabled")
-        queue_idx = body.find('apply_layer_camera_settings')
+        queue_idx = body.find('apply_layer_camera')
         assert sync_idx >= 0, (
             'sync line missing (precondition test_apply_settings_syncs_checkbox_active)'
         )
-        assert queue_idx >= 0, 'apply_layer_camera_settings call missing (precondition)'
+        assert queue_idx >= 0, 'apply_layer_camera call missing (precondition)'
         assert sync_idx < queue_idx, (
-            'CheckBox sync must precede the apply_layer_camera_settings '
+            'CheckBox sync must precede the apply_layer_camera '
             'IOTask queue. Reverse ordering leaves a window where the '
             "camera state has changed but the UI hasn't caught up."
         )

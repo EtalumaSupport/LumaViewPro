@@ -330,7 +330,6 @@ def test_class_floor_lives_in_config_helpers():
     names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
     assert 'TRANSMITTED_MIN_EXPOSURE_MS' not in names
     assert 'FLUORESCENCE_MIN_EXPOSURE_MS' not in names
-    assert 'get_ag_ae_min_exposure_ms' in names
 
 
 def test_converged_lock_leaves_an_info_line():
