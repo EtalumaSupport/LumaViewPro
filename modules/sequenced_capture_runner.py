@@ -1198,11 +1198,10 @@ class SequencedCaptureRunner:
 
         Runs on the protocol thread, so the wait never holds the caller
         that clicked. Returns None once the camera is taken, or when the
-        run is no longer live -- a Stop during the wait, or a reset that
-        tore the run down inline in the gap between its commit and this
-        loop's dispatch -- so a run that has ended never writes the
-        camera or takes a snapshot nothing will restore; the loop's own
-        tail ends the stopped run, and cleanup finds no snapshot. An
+        run is stopping -- a Stop during the wait -- so a stopped run
+        never writes the camera or takes a snapshot nothing will restore;
+        the loop's own tail ends the stopped run, and cleanup finds no
+        snapshot. An
         ending when the lane's in-flight task is stuck past the threshold
         that already calls the file lane wedged.
         """

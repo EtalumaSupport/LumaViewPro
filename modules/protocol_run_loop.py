@@ -79,7 +79,7 @@ class ProtocolRunLoop:
                     'failed',
                     'run_loop_crashed',
                     'Protocol Crashed',
-                    'The run loop exited without cleaning up.',
+                    'The run loop stopped without saying how the run ended.',
                 ),
                 run,
             )
