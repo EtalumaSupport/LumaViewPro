@@ -112,7 +112,10 @@ def submit_reported(
             gain change does not wait behind a home. Only a call whose
             members all dispatch to this one lane may name it: a member
             that dispatches elsewhere raises on the lane worker rather than
-            wait on another lane.
+            wait on another lane. Or an executor that is not a lane, for a
+            call that waits on several lanes for minutes (the support
+            report on ``diagnostics_executor``), so it holds neither a
+            device lane nor the worker pool a Stop goes through.
         None: the GUI's worker pool, for a call that spans lanes (a run's
             start or Stop). One worker, so actions run in the order they
             were made, and a Stop submitted at high priority goes first.

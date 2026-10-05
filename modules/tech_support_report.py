@@ -59,7 +59,9 @@ from modules import recording_frames, settings_init
 from modules.exceptions import (
     DiagnosticRefusedError,
     HardwareCommandRefusedError,
+    SUPPORT_ADDRESS,
     HomingFailedError,
+    SupportReportNotSavedError,
 )
 from modules.lumascope_api.diagnostics import (
     LED_COMMANDS_V2,
@@ -1475,6 +1477,40 @@ class FirmwareDiagnostics:
 # ---------------------------------------------------------------------------
 
 
+_REPORT_TITLES = {'support report': 'Support Report Saved', 'logs zip': 'Logs Zip Saved'}
+
+
+@dataclasses.dataclass(frozen=True)
+class SupportReportSaved:
+    """A support report or logs zip that was saved, and the words that say where.
+
+    Attributes:
+        path: The ZIP.
+        report: ``'support report'`` or ``'logs zip'``.
+    """
+
+    path: pathlib.Path
+    report: str
+
+    def __post_init__(self):
+        if self.report not in _REPORT_TITLES:
+            raise ValueError(
+                f'{self.report!r} is not a report; use one of {sorted(_REPORT_TITLES)}'
+            )
+
+    @property
+    def title(self) -> str:
+        return _REPORT_TITLES[self.report]
+
+    @property
+    def message(self) -> str:
+        """Where the ZIP is and where to send it; the folder is the one it was written to."""
+        return (
+            f'Saved to {self.path.parent}:\n{self.path.name}\n\n'
+            f'Email this file to {SUPPORT_ADDRESS}.'
+        )
+
+
 class TechSupportReport:
     """Generate a comprehensive diagnostic ZIP for Etaluma tech support."""
 
@@ -1500,7 +1536,6 @@ class TechSupportReport:
         # command-line report calls ``diag.connect_standalone()`` later.
         self.diag = FirmwareDiagnostics(scope=self.scope)
 
-        self._cancelled = False
         self._meta = {}
 
     def _camera_active(self) -> bool:
@@ -1517,25 +1552,24 @@ class TechSupportReport:
         except Exception:
             return False
 
-    def cancel(self):
-        self._cancelled = True
+    def generate(
+        self,
+        callback: Callable[[int, str], None] | None = None,
+        include_bandwidth_test: bool = False,
+        output_dir: str | pathlib.Path | None = None,
+    ) -> pathlib.Path:
+        """Make the full report and return the ZIP's path.
 
-    def generate(self, callback=None, include_bandwidth_test=False, output_dir=None):
-        """Generate report. Returns path to ZIP, or None on failure."""
+        Raises:
+            SupportReportNotSavedError: no ZIP was saved; chained from the
+                failure, whose words it carries. A step that fails inside
+                the report is written into the report and does not raise.
+        """
         cb = callback or (lambda pct, msg: None)
         try:
             return self._generate(cb, include_bandwidth_test, output_dir)
-        except _Cancelled:
-            cb(100, 'Cancelled.')
-            return None
         except Exception as e:
-            logger.error(f'Report failed: {e}', exc_info=True)
-            cb(100, f'Error: {e}')
-            return None
-
-    def _check_cancel(self):
-        if self._cancelled:
-            raise _Cancelled()
+            raise SupportReportNotSavedError('support report', e) from e
 
     def _generate(self, cb, include_bw, output_dir):
         cb(0, 'Starting report generation...')
@@ -1550,57 +1584,46 @@ class TechSupportReport:
             # 11. System info  (48-52%)
             cb(49, 'Collecting system information...')
             self._step_system_info(tmp)
-            self._check_cancel()
 
             # 11b. Hardware-free diagnostics  (52%)
             self._run_hardware_free_steps(tmp, cb, 52)
-            self._check_cancel()
 
             # 12. USB devices  (52-55%)
             cb(53, 'Scanning USB devices...')
             self._step_usb_devices(tmp)
-            self._check_cancel()
 
             # 13. Disk speed test  (55-60%)
             cb(56, 'Testing disk write speed...')
             self._step_disk_speed(tmp)
-            self._check_cancel()
 
             # 14. Data folder  (60-63%)
             cb(61, 'Copying data folder...')
             self._step_data_folder(tmp)
-            self._check_cancel()
 
             # 15. Logs  (63-66%)
             cb(64, 'Copying log files...')
             self._step_logs(tmp)
-            self._check_cancel()
 
             # 16. Backlash results  (66-69%)
             cb(67, 'Collecting backlash test results...')
             self._step_backlash(tmp)
-            self._check_cancel()
 
             # 17. Recent protocols  (69-71%)
             cb(70, 'Collecting recent protocols...')
             self._step_protocols(tmp)
-            self._check_cancel()
 
             # 17b. Video recording receipts  (71-72%)
             cb(71, 'Collecting video recording receipts...')
             self._step_video_receipts(tmp)
-            self._check_cancel()
 
             # 18. Hardware serial tests (pytest)  (72-80%)
             cb(73, 'Running hardware serial tests...')
             self._step_hardware_tests(tmp)
-            self._check_cancel()
 
             # 19. Bandwidth test (optional)  (80-94%)
             if include_bw and self._camera_active():
                 cb(81, 'Running camera bandwidth test (this takes a while)...')
                 self._step_bandwidth(tmp, cb)
-                self._check_cancel()
 
             # 20. Metadata + ZIP  (94-100%)
             cb(95, 'Writing metadata...')
@@ -1812,7 +1835,6 @@ class TechSupportReport:
                 sn = 'UNKNOWN'
             else:
                 sn = self._step_firmware_info(tmp, refusal)
-            self._check_cancel()
 
             # 2. Config files from both boards via raw REPL  (5-10%)
             cb(6, 'Backing up firmware config files...')
@@ -1822,7 +1844,6 @@ class TechSupportReport:
                 self._record_skipped(
                     tmp / 'firmware_configs', 'config_backup.txt', 'Config Backup', skip
                 )
-            self._check_cancel()
 
             # 3. LED selftest  (10-15%)
             cb(11, 'Running LED selftest...')
@@ -1832,7 +1853,6 @@ class TechSupportReport:
                 self._record_skipped(
                     tmp / 'firmware_tests', 'led_selftest.txt', 'LED SELFTEST', skip
                 )
-            self._check_cancel()
 
             # 4. LED leakage check  (15-18%)
             cb(16, 'Checking LED leakage...')
@@ -1842,7 +1862,6 @@ class TechSupportReport:
                 self._record_skipped(
                     tmp / 'hardware_checks', 'led_leakage.txt', 'LED Leakage Check', skip
                 )
-            self._check_cancel()
 
             # 5. TMC5072 register dump  (18-20%)
             cb(19, 'Reading motor driver registers...')
@@ -1852,7 +1871,6 @@ class TechSupportReport:
                 self._record_skipped(
                     tmp / 'hardware_checks', 'tmc5072_registers.txt', 'TMC5072 Registers', skip
                 )
-            self._check_cancel()
 
             # 6. Fan tachometer verification  (20-23%)
             cb(21, 'Testing fan...')
@@ -1860,7 +1878,6 @@ class TechSupportReport:
                 self._step_fan_test(tmp)
             else:
                 self._record_skipped(tmp / 'hardware_checks', 'fan_test.txt', 'Fan Test', skip)
-            self._check_cancel()
 
             # 7. Serial latency measurement  (23-27%)
             cb(24, 'Measuring serial latency...')
@@ -1870,7 +1887,6 @@ class TechSupportReport:
                 self._record_skipped(
                     tmp / 'hardware_checks', 'serial_latency.txt', 'Serial Latency', skip
                 )
-            self._check_cancel()
 
             # 8. Homing test  (27-35%)
             cb(28, 'Homing all axes...')
@@ -1878,7 +1894,6 @@ class TechSupportReport:
                 self._step_homing_test(tmp)
             else:
                 self._record_skipped(tmp / 'motion_tests', 'homing_test.txt', 'Homing Test', skip)
-            self._check_cancel()
 
             # 9. Camera diagnostics (temp)  (38-41%)
             cb(39, 'Checking camera...')
@@ -1886,7 +1901,6 @@ class TechSupportReport:
                 self._record_skipped(tmp / 'camera_info', 'camera_info.txt', 'Camera', skip)
             else:
                 self._step_camera_diagnostics(tmp)
-            self._check_cancel()
         return sn
 
     @staticmethod
@@ -2630,7 +2644,7 @@ class TechSupportReport:
         self,
         callback: Callable[[int, str], None] | None = None,
         output_dir: str | pathlib.Path | None = None,
-    ) -> pathlib.Path | None:
+    ) -> pathlib.Path:
         """Quick zip of logs + data + recent protocols + video receipts.
         No hardware tests.
 
@@ -2639,7 +2653,11 @@ class TechSupportReport:
         exercise hardware needlessly. Video receipts ride along because
         they are small (manifests + inventories, no pixel data) and a
         video complaint usually arrives through this quick bundle, not
-        the full report. Returns the ZIP path, or None on failure.
+        the full report. Returns the ZIP's path.
+
+        Raises:
+            SupportReportNotSavedError: no ZIP was saved; chained from the
+                failure, whose words it carries.
         """
         cb = callback or (lambda pct, msg: None)
         try:
@@ -2721,9 +2739,7 @@ class TechSupportReport:
                 cb(100, f'Done -- {zip_path.name}')
                 return zip_path
         except Exception as e:
-            logger.error(f'Logs-only zip failed: {e}', exc_info=True)
-            cb(100, f'Error: {e}')
-            return None
+            raise SupportReportNotSavedError('logs zip', e) from e
 
     def _create_zip(self, tmp, sn, output_dir=None, report_type='tsr'):
         if output_dir is None:
@@ -2756,7 +2772,7 @@ class TechSupportReport:
                     '  - Power/sleep configuration\n\n'
                     'Please review the contents before sharing. Remove any\n'
                     'files you are not comfortable sending.\n\n'
-                    'Contact: techsupport@etaluma.com\n'
+                    f'Contact: {SUPPORT_ADDRESS}\n'
                 ),
             )
             for fp in sorted(tmp.rglob('*')):
@@ -2765,10 +2781,6 @@ class TechSupportReport:
 
         logger.info(f'Report saved: {zip_path}')
         return zip_path
-
-
-class _Cancelled(Exception):  # noqa: N818 -- module-private cancellation sentinel; non-Error suffix intentional
-    pass
 
 
 # ---------------------------------------------------------------------------
@@ -2855,7 +2867,7 @@ def main() -> int:
                 if built and not led_ok and not mot_ok:
                     logger.info('')
                     logger.info('  Still no boards found. Generating report without hardware.')
-                    logger.info('  Please include this report and contact techsupport@etaluma.com')
+                    logger.info(f'  Please include this report and contact {SUPPORT_ADDRESS}')
                     logger.info('')
 
         # Boards are owned by report.diag -- no need to copy them to report
@@ -2879,22 +2891,23 @@ def main() -> int:
         # Progress bar uses carriage return -- keep as print for CLI display
         print(f'\r  [{bar}] {pct:3d}%  {msg:<50s}', end='', flush=True)
 
-    zip_path = report.generate(
-        callback=cli_progress,
-        include_bandwidth_test=args.bandwidth_test,
-        output_dir=args.output,
-    )
+    try:
+        zip_path = report.generate(
+            callback=cli_progress,
+            include_bandwidth_test=args.bandwidth_test,
+            output_dir=args.output,
+        )
+    except SupportReportNotSavedError as e:
+        print('\n')  # Newline after progress bar
+        logger.error(f'  {e}', exc_info=e)
+        logger.info('')
+        return 1
 
     print('\n')  # Newline after progress bar
-    if zip_path:
-        logger.info(f'  Report saved: {zip_path}')
-        logger.info('  Please email to: techsupport@etaluma.com')
-    else:
-        logger.info('  Report generation failed.')
-        logger.info('  Contact techsupport@etaluma.com directly.')
+    logger.info(f'  {SupportReportSaved(zip_path, "support report").message}')
     logger.info('')
 
-    return 0 if zip_path else 1
+    return 0
 
 
 if __name__ == '__main__':

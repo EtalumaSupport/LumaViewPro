@@ -2387,3 +2387,30 @@ class FrameDepthError(Exception):
         )
         self.value = value
         self.significant_bits = significant_bits
+
+
+# Where a support report or a logs zip is sent. The one copy: the saved
+# report's words and the failed report's words both name it.
+SUPPORT_ADDRESS = 'techsupport@etaluma.com'
+
+
+class SupportReportNotSavedError(Exception):
+    """A support report or a logs zip was not saved.
+
+    A fault, not a refusal: the report ran and something under it failed.
+    Chained from that failure, whose words the message carries, so the
+    person can say what went wrong when they write to support without the
+    report.
+
+    Attributes:
+        report: ``'support report'`` or ``'logs zip'``.
+    """
+
+    title = 'Support Report Not Saved'
+
+    def __init__(self, report: str, cause: BaseException):
+        words = str(cause) or type(cause).__name__
+        super().__init__(
+            f'The {report} was not saved: {words}\n\nContact {SUPPORT_ADDRESS} directly.'
+        )
+        self.report = report

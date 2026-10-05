@@ -821,117 +821,51 @@ class MicroscopeSettings(BoxLayout):
         )
 
     def _start_support_report(self):
-        from ui.progress_popup import CustomPopup
-        from modules.tech_support_report import TechSupportReport
-        import threading
-
-        self._report_popup = CustomPopup(
-            title='Generating Support Report...',
-            auto_dismiss=False,
+        self._make_zip(
+            'Generating Support Report...',
+            'GENERATE_SUPPORT_REPORT',
+            lambda progress: _app_ctx.ctx.session.make_support_report(on_progress=progress),
         )
-        self._report_popup.open()
-
-        def run():
-            try:
-                report = TechSupportReport(session=_app_ctx.ctx.session)
-
-                def progress(pct, msg):
-                    Clock.schedule_once(lambda dt: self._update_report_progress(pct, msg), 0)
-
-                path = report.generate(callback=progress, include_bandwidth_test=False)
-                Clock.schedule_once(lambda dt: self._report_done(path), 0)
-            except Exception as e:
-                logger.error(f'Support report failed: {e}', exc_info=True)
-                Clock.schedule_once(lambda dt: self._report_done(None), 0)
-
-        threading.Thread(target=run, daemon=True).start()
-
-    def _update_report_progress(self, pct, msg):
-        if hasattr(self, '_report_popup') and self._report_popup:
-            self._report_popup.progress = pct
-            self._report_popup.text = msg
-
-    def _report_done(self, zip_path):
-        if hasattr(self, '_report_popup') and self._report_popup:
-            self._report_popup.dismiss()
-            self._report_popup = None
-
-        from ui.notification_popup import show_notification_popup
-
-        if zip_path:
-            show_notification_popup(
-                title='Report Complete',
-                message=(
-                    f'Saved to Desktop:\n{zip_path.name}\n\n'
-                    f'Please email this file to:\n'
-                    f'techsupport@etaluma.com'
-                ),
-            )
-        else:
-            show_notification_popup(
-                title='Report Failed',
-                message=(
-                    'Could not generate the report.\n'
-                    'Check the log file for details and contact\n'
-                    'techsupport@etaluma.com directly.'
-                ),
-            )
 
     def zip_logs_only(self):
         """Quick zip of logs + data + recent protocols. No hardware tests."""
         gui_logger.button('ZIP_LOGS')
-        from ui.progress_popup import CustomPopup
-        from modules.tech_support_report import TechSupportReport
-        import threading
-
-        self._zip_logs_popup = CustomPopup(
-            title='Zipping Logs...',
-            auto_dismiss=False,
+        self._make_zip(
+            'Zipping Logs...',
+            'ZIP_LOGS',
+            lambda progress: _app_ctx.ctx.session.make_logs_zip(on_progress=progress),
         )
-        self._zip_logs_popup.open()
 
-        def run():
-            try:
-                report = TechSupportReport(scope=_app_ctx.ctx.lumaview.scope)
+    def _make_zip(self, title, label, make):
+        """Run one of the Session's support zips under a progress popup, then show where it went.
 
-                def progress(pct, msg):
-                    Clock.schedule_once(lambda dt: self._update_zip_logs_progress(pct, msg), 0)
-
-                path = report.generate_logs_only(callback=progress)
-                Clock.schedule_once(lambda dt: self._zip_logs_done(path), 0)
-            except Exception as e:
-                logger.error(f'Zip-logs failed: {e}', exc_info=True)
-                Clock.schedule_once(lambda dt: self._zip_logs_done(None), 0)
-
-        threading.Thread(target=run, daemon=True).start()
-
-    def _update_zip_logs_progress(self, pct, msg):
-        if hasattr(self, '_zip_logs_popup') and self._zip_logs_popup:
-            self._zip_logs_popup.progress = pct
-            self._zip_logs_popup.text = msg
-
-    def _zip_logs_done(self, zip_path):
-        if hasattr(self, '_zip_logs_popup') and self._zip_logs_popup:
-            self._zip_logs_popup.dismiss()
-            self._zip_logs_popup = None
-
+        The zip runs on the diagnostics executor, so a Stop never waits
+        behind it. A zip that was not saved is reported by the GUI boundary
+        in the report's own words; the popup then just closes.
+        """
         from ui.notification_popup import show_notification_popup
+        from ui.progress_popup import CustomPopup
 
-        if zip_path:
-            show_notification_popup(
-                title='Logs zipped',
-                message=(
-                    f'Saved to Desktop:\n{zip_path.name}\n\n'
-                    f'Email this file to:\n'
-                    f'techsupport@etaluma.com'
-                ),
-            )
-        else:
-            show_notification_popup(
-                title='Zip failed',
-                message=(
-                    'Could not create the logs zip.\n'
-                    'Check the log file for details and contact\n'
-                    'techsupport@etaluma.com directly.'
-                ),
-            )
+        popup = CustomPopup(title=title, auto_dismiss=False)
+        popup.open()
+        produced = {}
+
+        def _progress(pct, msg):
+            def _show_progress(dt):
+                popup.progress = pct
+                popup.text = msg
+
+            Clock.schedule_once(_show_progress, 0)
+
+        def _make():
+            produced['saved'] = make(_progress)
+
+        def _show():
+            popup.dismiss()
+            saved = produced.get('saved')
+            if saved is not None:
+                show_notification_popup(title=saved.title, message=saved.message)
+
+        submit_reported(
+            _make, _show, label, lane=_app_ctx.ctx.session.executor_bundle.diagnostics_executor
+        )

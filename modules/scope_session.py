@@ -92,6 +92,7 @@ if TYPE_CHECKING:
     from modules.lumascope_api.protocols import StepTargets
     from modules.protocol_runner import ProtocolRunner
     from modules.sequential_io_executor import SequentialIOExecutor
+    from modules.tech_support_report import SupportReportSaved
 
 
 def simulated_stuck_write(seconds: float) -> None:
@@ -2029,6 +2030,80 @@ class ScopeSession:
         rejected = settings_init.rejected_current_json
         set_aside = None if rejected is None else SettingsSetAside(*rejected)
         return dataclasses.replace(self.scope.bring_up_record(), settings_set_aside=set_aside)
+
+    def make_support_report(
+        self,
+        *,
+        include_bandwidth_test: bool = False,
+        output_dir: str | pathlib.Path | None = None,
+        on_progress: Callable[[int, str], None] | None = None,
+    ) -> 'SupportReportSaved':
+        """Make the full Tech Support Report: the boards, the motors, the camera and the files.
+
+        Blocks for minutes. The hardware steps hold the scope for a
+        diagnostic, so a run cannot start under a homing or a fan sweep; a
+        report started while a run holds the scope skips those steps and
+        says so in the ZIP. A step that fails is written into the ZIP; the
+        report does not stop for it.
+
+        Args:
+            include_bandwidth_test: Also time the camera's frame delivery
+                (adds minutes).
+            output_dir: Where the ZIP is written; the Desktop by default,
+                the home folder when there is none.
+            on_progress: Called with a percentage and what the report is
+                doing, from the thread the report runs on.
+
+        Returns:
+            Where the ZIP is, and the words that say where to send it.
+
+        Raises:
+            SupportReportNotSavedError: no ZIP was saved; chained from the
+                failure, whose words it carries.
+        """
+        from modules.tech_support_report import SupportReportSaved, TechSupportReport
+
+        report = TechSupportReport(session=self)
+        return SupportReportSaved(
+            report.generate(
+                callback=on_progress,
+                include_bandwidth_test=include_bandwidth_test,
+                output_dir=output_dir,
+            ),
+            'support report',
+        )
+
+    def make_logs_zip(
+        self,
+        *,
+        output_dir: str | pathlib.Path | None = None,
+        on_progress: Callable[[int, str], None] | None = None,
+    ) -> 'SupportReportSaved':
+        """Zip the logs, the data folder, the recent protocols and the video receipts.
+
+        Touches no hardware and does not hold the scope: it is for sending
+        the record of what already happened.
+
+        Args:
+            output_dir: Where the ZIP is written; the Desktop by default,
+                the home folder when there is none.
+            on_progress: Called with a percentage and what the zip is doing,
+                from the thread it runs on.
+
+        Returns:
+            Where the ZIP is, and the words that say where to send it.
+
+        Raises:
+            SupportReportNotSavedError: no ZIP was saved; chained from the
+                failure, whose words it carries.
+        """
+        from modules.tech_support_report import SupportReportSaved, TechSupportReport
+
+        report = TechSupportReport(session=self)
+        return SupportReportSaved(
+            report.generate_logs_only(callback=on_progress, output_dir=output_dir),
+            'logs zip',
+        )
 
     def settings_are_provisional(self) -> bool:
         """Is the app running on defaults nobody has agreed to keep?

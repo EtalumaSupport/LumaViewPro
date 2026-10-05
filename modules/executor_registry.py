@@ -67,6 +67,7 @@ class ExecutorBundle:
     post_processing_executor: SequentialIOExecutor
     scope_display_thread: ScopeDisplayThread
     worker_pool: SequentialIOExecutor
+    diagnostics_executor: SequentialIOExecutor
 
     def snapshot(self) -> dict[str, int]:
         """Return ``{logical_name: queue_size}`` for every executor.
@@ -88,6 +89,7 @@ class ExecutorBundle:
             ('FILE', self.file_io_executor),
             ('POSTPROC', self.post_processing_executor),
             ('WORKER_POOL', self.worker_pool),
+            ('DIAGNOSTICS', self.diagnostics_executor),
         ]
         out = {}
         for name, ex in executors:
@@ -117,6 +119,7 @@ class ExecutorBundle:
         self.file_io_executor.shutdown(wait=False)
         self.post_processing_executor.shutdown(wait=False)
         self.worker_pool.shutdown(wait=False)
+        self.diagnostics_executor.shutdown(wait=False)
 
 
 def create_default(
@@ -164,6 +167,13 @@ def create_default(
     worker_pool = SequentialIOExecutor(
         name='WORKER_POOL', ui_dispatcher=ui_dispatcher, priority_aware=True, lane=False
     )
+    # Not a lane either, for a diagnostic that runs for minutes across both
+    # device lanes (the support report). On the worker pool it would hold
+    # the one worker, and a Stop would wait behind it; its own worker keeps
+    # the pool free, and a second request queues behind the first.
+    diagnostics_executor = SequentialIOExecutor(
+        name='DIAGNOSTICS', ui_dispatcher=ui_dispatcher, lane=False
+    )
 
     bundle = ExecutorBundle(
         io_executor=io_executor,
@@ -173,16 +183,18 @@ def create_default(
         post_processing_executor=post_processing_executor,
         scope_display_thread=scope_display_thread,
         worker_pool=worker_pool,
+        diagnostics_executor=diagnostics_executor,
     )
 
     file_io_executor.start()
     post_processing_executor.start()
     worker_pool.start()
+    diagnostics_executor.start()
     protocol_thread.start()
 
     logger.info(
-        '[LVP Main  ] ExecutorRegistry: created + started FILE, POSTPROC and '
-        "WORKER_POOL + protocol_thread around the scope's IO and CAMERA "
+        '[LVP Main  ] ExecutorRegistry: created + started FILE, POSTPROC, '
+        "WORKER_POOL and DIAGNOSTICS + protocol_thread around the scope's IO and CAMERA "
         'lanes; scope_display_thread constructed (started separately from '
         'lumaviewpro.build); stage/turret aliased to IO'
     )

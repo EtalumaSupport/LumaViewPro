@@ -118,7 +118,7 @@ def test_the_command_line_report_reads_the_same_answer(monkeypatch, caplog):
     monkeypatch.setattr(tech_support_report.FirmwareDiagnostics, 'connect_standalone', connect)
     # Enter at the power-cycle prompt: the retry asks the board again.
     monkeypatch.setattr('builtins.input', prompts.append)
-    monkeypatch.setattr(tech_support_report.TechSupportReport, 'generate', lambda *a, **k: None)
+    monkeypatch.setattr(tech_support_report.TechSupportReport, 'generate', _not_saved)
     monkeypatch.setattr('sys.argv', ['tech_support_report'])
 
     with caplog.at_level('INFO', logger=tech_support_report.logger.name):
@@ -150,3 +150,10 @@ def test_a_board_that_reports_no_axes_is_not_a_homing_pass(tmp_path, monkeypatch
 
     assert 'passed' not in result
     assert 'no axes' in result['error']
+
+
+def _not_saved(*args, **kwargs):
+    # The report itself is not under test: it stands in as one that was not saved.
+    from modules.exceptions import SupportReportNotSavedError
+
+    raise SupportReportNotSavedError('support report', OSError('not made in this test'))

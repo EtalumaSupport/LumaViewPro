@@ -46,6 +46,7 @@ from modules.exceptions import (
     Refusal,
     Remedy,
     ScopeDisconnectError,
+    SupportReportNotSavedError,
 )
 
 logger = logging.getLogger('LVP.notifications')
@@ -70,6 +71,7 @@ _TYPED_FAULTS = (
     MoveNotCompletedError,
     PluginError,
     ScopeDisconnectError,
+    SupportReportNotSavedError,
 )
 
 _UNTYPED_FAULT_BODY = 'The operation did not complete. Check the main log for details.'

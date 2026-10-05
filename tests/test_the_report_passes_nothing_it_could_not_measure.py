@@ -189,7 +189,7 @@ def test_the_command_line_says_why_and_does_not_send_the_user_to_the_cable(monke
     monkeypatch.setattr(Lumascope, 'create_diagnostic', classmethod(_cannot_build))
     prompts = []
     monkeypatch.setattr('builtins.input', prompts.append)
-    monkeypatch.setattr(tech_support_report.TechSupportReport, 'generate', lambda *a, **k: None)
+    monkeypatch.setattr(tech_support_report.TechSupportReport, 'generate', _not_saved)
     monkeypatch.setattr('sys.argv', ['tech_support_report'])
 
     with caplog.at_level('INFO', logger=tech_support_report.logger.name):
@@ -234,3 +234,10 @@ def test_a_retry_that_builds_the_scope_clears_the_failure(monkeypatch):
     assert diag.build_failure is not None and diag.scope is None
     diag.connect_standalone()
     assert diag.build_failure is None and diag.scope is built
+
+
+def _not_saved(*args, **kwargs):
+    # The report itself is not under test: it stands in as one that was not saved.
+    from modules.exceptions import SupportReportNotSavedError
+
+    raise SupportReportNotSavedError('support report', OSError('not made in this test'))

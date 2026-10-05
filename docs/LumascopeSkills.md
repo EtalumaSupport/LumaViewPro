@@ -1004,6 +1004,36 @@ it. When the block ends with such a run still live, the release waits for
 the run first; if it is still live after the wait, the claim stays held and
 the block's end raises `RuntimeError`.
 
+### Support report
+
+Two members make the ZIP Etaluma support asks for. Each blocks until the ZIP
+is written and returns where it is:
+
+```python
+from modules.exceptions import SupportReportNotSavedError
+
+try:
+    saved = session.make_support_report(        # minutes: boards, motors, camera, then the files
+        include_bandwidth_test=False,           # True adds a camera frame-delivery timing
+        output_dir=None,                        # the Desktop; the home folder when there is none
+        on_progress=lambda pct, msg: print(pct, msg),
+    )
+    saved = session.make_logs_zip(output_dir=None)   # seconds: logs, data folder, recent protocols,
+                                                     # video receipts; touches no hardware
+except SupportReportNotSavedError as e:         # no ZIP; the failure's own words, chained from it
+    print(e.report, e)                          # 'support report' or 'logs zip'
+
+saved.path      # the ZIP
+saved.title     # 'Support Report Saved' or 'Logs Zip Saved'
+saved.message   # the folder it is in, and the address to send it to
+```
+
+The full report holds the scope for a diagnostic around its hardware steps
+(see above); started while a run holds the scope, it skips those steps and
+says so in the ZIP. A step that fails is written into the ZIP and the report
+goes on: only a ZIP that could not be written raises. Neither member is
+cancellable.
+
 ### Configuration queries
 
 ```python
