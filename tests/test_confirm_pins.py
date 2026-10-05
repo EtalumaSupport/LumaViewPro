@@ -173,7 +173,7 @@ class TestTheJunitMapping:
             '<error message="collection failure">x</error></testcase></testsuite></testsuites>'
         )
         assert cp.read_outcomes(xml, self.FILES) == [
-            cp.Outcome('tests/sub/test_b.py', 'collection-error')
+            cp.Outcome('tests/sub/test_b.py', 'collection-error', 'collection failure')
         ]
 
 
@@ -225,6 +225,20 @@ class TestTheObservingSet:
     def test_a_run_that_names_nothing_collected_reports_on_nothing(self):
         stray = [cp.Outcome('tests/elsewhere.py::test_x', 'failed')]
         assert cp.reported_tests(stray, COLLECTION) == set()
+
+    def test_one_setup_error_on_more_than_half_the_collection_is_a_shared_fixture(self):
+        message = "failed on setup with \"AttributeError: module 'modules.x' has no attribute 'y'\""
+        errors = [cp.Outcome(t, 'error', message) for t in sorted(COLLECTION)[:4]]
+        assert cp.shared_fixture_error(errors, COLLECTION) == message
+
+    def test_one_setup_error_on_half_the_collection_is_not(self):
+        errors = [cp.Outcome(t, 'error', 'same') for t in sorted(COLLECTION)[:3]]
+        assert cp.shared_fixture_error(errors, COLLECTION) is None
+        assert cp.shared_fixture_error(_outcomes(), COLLECTION) is None
+
+    def test_many_different_setup_errors_are_not_a_shared_fixture(self):
+        errors = [cp.Outcome(t, 'error', f'own {t}') for t in COLLECTION]
+        assert cp.shared_fixture_error(errors, COLLECTION) is None
 
     def test_an_observing_id_the_collection_lacks_is_refused_by_name(self):
         with pytest.raises(cp.RefusedError, match=r'1 observing id.*tests/gone\.py::test_x'):
@@ -447,6 +461,10 @@ def test_end_to_end_one_hunk_per_kind_through_git_and_pytest(tmp_path):
     assert by_file['modules/moved_to.py'].startswith('GREEN  2 tests passed')
     assert 'RED 2  GREEN 4  NEUTRAL 1  (behavioural 6)' in lines
     assert lines[-1] == 'result: UNPINNED (exit 1)'
+    # The ids reach pytest through a file, never argv: 9985 of them overflowed it.
+    ids = (tmp_path / 'scratch' / 'observing_at_tip.ids').read_text().splitlines()
+    assert ids == ['tests/test_calc.py::test_add', 'tests/test_calc.py::test_fresh']
+    assert (tmp_path / 'scratch' / 'hunk_002.ids').read_text().splitlines() == ids
     # The checkout was never touched, and the scratch worktree is gone.
     status = subprocess.run(
         ['git', 'status', '--porcelain'], cwd=repo, capture_output=True, text=True, check=True
@@ -477,6 +495,59 @@ def test_end_to_end_a_pre_existing_red_refuses_with_no_hunk_lines(tmp_path):
     assert code == cp.EXIT_REFUSED, report
     assert 'refused: tests/test_calc.py::test_add is failed at the tip' in report
     assert not any('@@' in line for line in report.splitlines())
+
+
+def test_end_to_end_a_renamed_member_a_shared_fixture_reaches_is_refused(tmp_path):
+    repo = _repo(tmp_path)
+    _write(repo, 'modules/calc.py', 'def ready():\n    return True\n')
+    _write(
+        repo,
+        'tests/conftest.py',
+        """\
+        import pytest
+
+        from modules import calc
+
+
+        @pytest.fixture(autouse=True)
+        def _scope_is_ready():
+            assert calc.ready()
+        """,
+    )
+    _commit(repo, 'a fixture every test uses reaches calc.ready')
+    _write(repo, 'modules/calc.py', 'def is_ready():\n    return True\n')
+    _write(
+        repo,
+        'tests/conftest.py',
+        """\
+        import pytest
+
+        from modules import calc
+
+
+        @pytest.fixture(autouse=True)
+        def _scope_is_ready():
+            assert calc.is_ready()
+        """,
+    )
+    _write(repo, 'tests/test_calc.py', 'def test_one():\n    pass\n\n\ndef test_two():\n    pass\n')
+    _commit(repo, 'rename ready to is_ready, the fixture with it')
+    code, report, done = _run_tool(repo, tmp_path, '--base', 'HEAD~1')
+    assert code == cp.EXIT_REFUSED, report + done.stderr
+    assert 'a shared fixture breaks with the range reverse-applied: 2 of 2' in report
+    assert "has no attribute 'is_ready'" in report
+    assert 'each of the 1 hunks would cost a full suite' in report
+    assert not any('@@' in line for line in report.splitlines())
+
+
+def test_end_to_end_a_crash_is_a_refusal_never_a_verdict(tmp_path):
+    not_a_repo = tmp_path / 'not_a_repo'
+    not_a_repo.mkdir()
+    code, report, done = _run_tool(not_a_repo, tmp_path)
+    assert code == cp.EXIT_REFUSED, report + done.stderr
+    assert 'crashed' in report and 'CalledProcessError' in report
+    assert report.rstrip().endswith('(exit 2)')
+    assert 'CalledProcessError' in done.stderr
 
 
 def test_end_to_end_a_range_no_test_observes_is_a_pass(tmp_path):

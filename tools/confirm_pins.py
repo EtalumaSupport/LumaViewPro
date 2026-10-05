@@ -53,8 +53,9 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 import xml.etree.ElementTree as ET
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 
@@ -80,6 +81,7 @@ class Hunk:
 class Outcome:
     test: str
     result: str
+    message: str = ''
 
 
 # ---------------------------------------------------------------- the diff
@@ -232,22 +234,43 @@ def read_outcomes(xml_text: str, test_files: Collection[str]) -> list[Outcome]:
 
     Results: ``passed``, ``failed``, ``error``, ``skipped``, ``xfail`` (a
     skip typed ``pytest.xfail``) and ``collection-error`` (an error on a
-    testcase with no classname, keyed by its file).
+    testcase with no classname, keyed by its file). An error carries its
+    message, which for a setup error names the fixture's exception.
     """
     outcomes = []
     for case in ET.fromstring(xml_text).iter('testcase'):
         classname = case.get('classname', '')
         test = node_id(classname, case.get('name', ''), test_files)
+        message = ''
         if case.find('failure') is not None:
             result = 'failed'
-        elif case.find('error') is not None:
+        elif (error := case.find('error')) is not None:
             result = 'collection-error' if not classname else 'error'
+            message = error.get('message') or ''
         elif (skipped := case.find('skipped')) is not None:
             result = 'xfail' if skipped.get('type') == 'pytest.xfail' else 'skipped'
         else:
             result = 'passed'
-        outcomes.append(Outcome(test, result))
+        outcomes.append(Outcome(test, result, message))
     return outcomes
+
+
+def shared_fixture_error(outcomes: Iterable[Outcome], collection: Collection[str]) -> str | None:
+    """The one setup error most of the suite shares with the range reverse-applied.
+
+    A range that renames a production member a shared fixture reaches makes
+    nearly every test error at setup with the same message (9839 of 10033 on
+    the first push by another track): the observing set is then the suite,
+    every hunk would cost a full suite, and the result would say nothing
+    about the hunks the fixture does not reach. More than half of the
+    collection erroring with one message is that shape; the message is
+    returned so the refusal names the member.
+    """
+    counts = Counter(o.message for o in outcomes if o.result == 'error')
+    if not counts:
+        return None
+    message, count = counts.most_common(1)[0]
+    return message if count * 2 > len(collection) else None
 
 
 def _tests_by_file(collection: Collection[str]) -> dict[str, set[str]]:
@@ -407,11 +430,22 @@ class Worktree:
         return file.read_text(encoding='utf-8') if file.exists() else None
 
     def pytest(self, name: str, workers: str, targets: Collection[str]) -> list[Outcome]:
-        """Run pytest on ``targets`` (the whole suite when empty); outcomes from junit."""
+        """Run pytest on ``targets`` (the whole suite when empty); outcomes from junit.
+
+        The ids reach pytest through an ``@file``, one per line, never argv: a
+        range that breaks a shared fixture makes the observing set the whole
+        suite, and 9985 ids overflowed the 1 MB argument limit on the first
+        push by another track.
+        """
         junit = self.scratch / f'{name}.xml'
         log = self.scratch / f'{name}.log'
         junit.unlink(missing_ok=True)
-        command = [sys.executable, '-m', 'pytest', '-n', workers, f'--junitxml={junit}', *targets]
+        selection = []
+        if targets:
+            ids = self.scratch / f'{name}.ids'
+            ids.write_text(''.join(f'{target}\n' for target in targets), encoding='utf-8')
+            selection = [f'@{ids}']
+        command = [sys.executable, '-m', 'pytest', '-n', workers, f'--junitxml={junit}', *selection]
         with log.open('w') as out:
             subprocess.run(
                 command, cwd=self.root, stdout=out, stderr=subprocess.STDOUT, env=_NO_BYTECODE
@@ -523,6 +557,15 @@ def _confirm(worktree: Worktree, base: str, report: Report, workers: str, starte
         raise RefusedError(
             'INSTRUMENT: the suite with the diff reverse-applied reported none of the'
             ' collected tests; its log is suite_reverted.log in the scratch directory'
+        )
+    if (message := shared_fixture_error(reverted, collection)) is not None:
+        errors = sum(1 for o in reverted if o.result == 'error' and o.message == message)
+        raise RefusedError(
+            f'a shared fixture breaks with the range reverse-applied: {errors} of'
+            f' {len(collection)} collected tests error at setup with "{message}". The'
+            f' observing set would be the suite and each of the {len(hunks)} hunks would'
+            f' cost a full suite ({suite_seconds:.0f} s). Land the member the fixture'
+            ' reaches in its own push, whose pin is the fixture, or confirm this push by hand'
         )
     observing = observing_tests(reverted, collection)
     validate_observing(observing, collection)
@@ -641,6 +684,15 @@ def main(argv: list[str] | None = None) -> int:
     except RefusedError as refusal:
         report.line(f'refused: {refusal} (exit 2)')
         print(f'refused: {refusal}', file=sys.stderr)
+        code = EXIT_REFUSED
+    except Exception:
+        # The process boundary. An uncaught crash exits 1, which is this tool's
+        # code for an unpinned hunk; the first push by another track read one
+        # that way. A crash is a refusal: the traceback goes to the report and
+        # to stderr, and the exit is 2.
+        trace = traceback.format_exc()
+        report.line(f'crashed, which is a refusal, never a verdict:\n{trace.rstrip()}\n(exit 2)')
+        print(trace, file=sys.stderr, end='')
         code = EXIT_REFUSED
     finally:
         report.close()
