@@ -184,17 +184,15 @@ class MicroscopeSettings(BoxLayout):
         self.ids['image_mode_spinner'].text = image_mode.IMAGE_MODE_LABELS[mode]
 
         self.ids['live_image_output_format_spinner'].text = settings['image_output_format']['live']
-        # JPG quality slider reflects the saved preference; enable
-        # state is set by select_live_image_output_format (JPG only).
+        # JPG quality slider reflects the saved preference; its row shows
+        # and enables with the live format declaratively in the kv.
         jpg_quality = int(settings['jpg_quality'])
         self.ids['jpg_quality_slider'].value = jpg_quality
         self.ids['jpg_quality_value_label'].text = str(jpg_quality)
-        self.select_live_image_output_format()
 
         self.ids['sequenced_image_output_format_spinner'].text = settings['image_output_format'][
             'sequenced'
         ]
-        self.select_sequenced_image_output_format()
 
         # The exposure/gain slider caps from the live camera (the resolver
         # applies the documented no-camera fallback; #616). The gain cap
@@ -414,6 +412,10 @@ class MicroscopeSettings(BoxLayout):
 
     def select_live_image_output_format(self):
         fmt = self.ids['live_image_output_format_spinner'].text
+        # The settings load sets the spinner from the store, which fires this
+        # too; that is not a pick, so nothing is logged or written.
+        if fmt == _app_ctx.ctx.settings['image_output_format']['live']:
+            return
         gui_logger.select('LIVE_IMAGE_OUTPUT_FORMAT', fmt)
         run_reported(
             lambda: _app_ctx.ctx.update_settings('image_output_format.live', fmt),
@@ -433,6 +435,9 @@ class MicroscopeSettings(BoxLayout):
 
     def select_sequenced_image_output_format(self):
         fmt = self.ids['sequenced_image_output_format_spinner'].text
+        # As the live format: a spinner set from the store is not a pick.
+        if fmt == _app_ctx.ctx.settings['image_output_format']['sequenced']:
+            return
         gui_logger.select('SEQUENCED_IMAGE_OUTPUT_FORMAT', fmt)
         run_reported(
             lambda: _app_ctx.ctx.update_settings('image_output_format.sequenced', fmt),
