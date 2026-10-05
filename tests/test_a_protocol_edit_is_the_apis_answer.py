@@ -58,6 +58,7 @@ from modules.exceptions import (
 )
 from modules.protocol import ProtocolFormatError
 from tests.scope_fakes import spec_scope
+from tests.settings_fixtures import settings_writer
 
 
 def _refusal():
@@ -104,12 +105,14 @@ def _protocol(num_steps=3):
 def ctx(monkeypatch):
     session = MagicMock()
     scope = spec_scope()
+    settings = {'protocol': {'filepath': 'plate.tsv'}}
     context = SimpleNamespace(
         session=session,
         scope=scope,
         lumaview=SimpleNamespace(scope=scope),
         stage=MagicMock(),
-        settings={'protocol': {'filepath': 'plate.tsv'}},
+        settings=settings,
+        update_settings=settings_writer(settings),
         image_settings=MagicMock(),
     )
     monkeypatch.setattr(_app_ctx, 'ctx', context)

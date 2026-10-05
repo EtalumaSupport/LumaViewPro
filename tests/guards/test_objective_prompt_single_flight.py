@@ -392,7 +392,8 @@ class TestProvisionalSettings:
         for flag in ('camera_connected', 'motor_connected', 'led_connected'):
             monkeypatch.setattr(type(session.scope), flag, property(lambda self: True))
 
-        session.update_settings('objective_confirmed', True)
+        # The answer, as the objective question's popup gives it.
+        session.confirm_objective(session.settings['objective_id'], turret_position=1)
         session.save_settings()
 
         with open(data / 'current.json') as f:

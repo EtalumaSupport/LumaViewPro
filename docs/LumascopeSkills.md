@@ -406,9 +406,10 @@ With no camera connected, `set_binning_size` and `set_frame_size` return `None` 
 
 ```python
 config = session.get_layer_configs()          # read, in API names
-session.settings['live_folder'] = '/data/run7'  # write, from the host's own thread
-session.update_settings('live_folder', '/data/run7')  # write, from any other thread
+session.update_settings('live_folder', '/data/run7')  # write one setting, from any thread
+session.update_settings('video.max_fps', 30)  # a nested setting, by its dotted path
 snapshot = session.get_settings_snapshot()     # a consistent copy, taken under the lock
+session.scope.settings_template                # every setting there is, with its shipped value
 session.save_settings(force=True)             # persist to data/current.json (raises if refused)
 session.settings_are_provisional()            # True while current.json is unread and undecided
 session.retire_rejected_settings()            # resolve it: retire the unreadable file, saves work again
@@ -416,25 +417,35 @@ session.retire_rejected_settings()            # resolve it: retire the unreadabl
 
 The settings dict IS the configuration surface: its storage keys are the
 API names, so what you read is what you write. The session owns the dict
-and the lock that guards it.
+and the lock that guards it. Long-running work should take one
+`get_settings_snapshot()` at entry and read from that rather than the live
+dict.
 
-Reads may go straight to `session.settings`. A write from a thread other
-than the host's own goes through `update_settings()`, which takes the
-lock — a write that skips it can tear a snapshot another thread is taking
-concurrently. Long-running work should take one `get_settings_snapshot()`
-at entry and read from that rather than the live dict.
+**`update_settings(path, value)` is the one write.** `path` names one
+setting by its keys joined with dots (`'BF.sum'`, `'zstack.step_size'`,
+`'protocol.filepath'`); the settings that exist, and the kind each holds,
+are `session.scope.settings_template`. The write is taken under the lock,
+or refused with `SettingRefusedError` (from `modules.exceptions`) and
+nothing is written. Its `reason` says why:
 
-`update_settings('protocol', block)` holds the block's plate to the rule
-`select_labware` holds: a block that is not a mapping, or that names a
-plate the labware catalogue does not have, raises `ConfigError` and
-nothing is written; a retired plate name is stored under its catalogue
-key. Its `period` (minutes) and `duration` (hours) are the schedule a
-new protocol starts from, held to the protocol's own range (below): one a
-protocol cannot run raises `ProtocolScheduleRefusedError` and nothing is
-written. A `current.json` written before the range was enforced can hold
-one; at start-up that key alone takes the shipped value, and the session reports
-the notice `protocol_schedule_replaced` once, as it is created, naming the
-key, the saved value and the one now in its place.
+| `reason` | Refused when |
+|---|---|
+| `has_member` | the setting is changed by its own Session member, named in `member`: `microscope` (`select_model`), `objective_id` (`select_objective`), `objective_confirmed` (`confirm_objective`), `turret_objectives` (`assign_turret_objective`), `protocol.labware` (`select_labware`), `image_mode` (`set_image_mode`), `binning` (`set_binning_size`), `frame` (`set_frame_size`), a layer's `acquire` (`set_layer_acquire`), `auto_gain` (`set_layer_auto_gain`) and `focus` (`save_focus`) |
+| `not_a_setting` | no setting has the path |
+| `block` | the path names a block of settings (`'video'`); each is written by its own path |
+| `wrong_kind` | the value is not the kind the setting holds: true/false, a number (int or float), text, or a list. A setting shipped as `null` takes any single value. A numpy scalar is refused: convert it with `float()` or `int()` |
+| `out_of_range` | `video.max_fps` outside 0 to 200 (0 is no cap); `video.max_duration_seconds` outside 1 to 3600; `tiling_overlap_percent` outside 0 to 50; `image_output_format.live` / `.sequenced` not a format the writer takes |
+
+`protocol.period` (minutes) and `protocol.duration` (hours) are the
+schedule a new protocol starts from, held to the protocol's own range
+(below): one a protocol cannot run raises `ProtocolScheduleRefusedError`
+and nothing is written. A `current.json` written before the range was
+enforced can hold one; at start-up that key alone takes the shipped value,
+and the session reports the notice `protocol_schedule_replaced` once, as it
+is created, naming the key, the saved value and the one now in its place.
+
+Writing into `session.settings` directly skips every check above and the
+lock; it is not a supported write.
 
 `save_settings()` writes the dict to `data/current.json`. **A refused
 write raises `SettingsSaveRefusedError`** (from `modules.exceptions`),

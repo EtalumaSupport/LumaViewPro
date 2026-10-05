@@ -254,18 +254,16 @@ class TestTheSession:
         before = dict(session.settings['protocol'])
 
         with pytest.raises(ProtocolScheduleRefusedError):
-            session.update_settings('protocol', {**before, 'period': 0.005})
+            session.update_settings('protocol.period', 0.005)
 
         assert session.settings['protocol'] == before
 
     def test_a_runnable_stored_default_is_written(self, session):
-        before = dict(session.settings['protocol'])
-
-        session.update_settings('protocol', {**before, 'period': 3})
+        session.update_settings('protocol.period', 3)
 
         assert session.settings['protocol']['period'] == 3
 
-    def test_a_protocol_settings_value_that_is_not_a_mapping_is_still_a_config_error(self, session):
+    def test_the_protocol_block_is_not_written_whole(self, session):
         with pytest.raises(ConfigError):
             session.update_settings('protocol', 5)
 

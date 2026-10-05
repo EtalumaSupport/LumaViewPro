@@ -84,9 +84,11 @@ def writers_of_settings_keys(keys) -> set[tuple[str, str]]:
     """``(rel_path, qualname)`` for every production function that writes one of ``keys``.
 
     A write is a subscript store whose innermost literal key is in
-    ``keys``, or an ``update_settings(key, ...)`` call naming one. The
-    census a single-writer guard pins against: the guard names the one
-    home of each fact and this returns everywhere that fact is written.
+    ``keys``, or an ``update_settings(path, ...)`` / ``_store_setting(path,
+    ...)`` call whose dotted path ends in one -- the path's last segment is
+    the key a subscript store would name innermost. The census a
+    single-writer guard pins against: the guard names the one home of each
+    fact and this returns everywhere that fact is written.
     """
     found = set()
     for rel_path, tree in production_modules():
@@ -98,13 +100,21 @@ def writers_of_settings_keys(keys) -> set[tuple[str, str]]:
                 elif (
                     isinstance(node, ast.Call)
                     and isinstance(node.func, ast.Attribute)
-                    and node.func.attr == 'update_settings'
+                    and node.func.attr in ('update_settings', '_store_setting')
                     and node.args
-                    and isinstance(node.args[0], ast.Constant)
-                    and node.args[0].value in keys
+                    and _settings_path_leaf(node.args[0]) in keys
                 ):
                     found.add((rel_path, qualname))
     return found
+
+
+def _settings_path_leaf(node: ast.AST) -> str | None:
+    """The last segment of a settings path written as a literal or an f-string."""
+    if isinstance(node, ast.JoinedStr) and node.values:
+        node = node.values[-1]
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value.rsplit('.', 1)[-1]
+    return None
 
 
 def direct_call_names(fn) -> list[str]:

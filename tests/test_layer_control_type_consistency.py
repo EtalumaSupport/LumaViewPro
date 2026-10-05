@@ -40,6 +40,8 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
+from tests.settings_fixtures import settings_writer
+
 
 REPO = pathlib.Path(__file__).parent.parent
 LAYER_CONTROL_SRC = REPO / 'ui' / 'layer_control.py'
@@ -139,6 +141,7 @@ def settings(handler_globals):
         },
     }
     handler_globals['_app_ctx'].ctx.settings = s
+    handler_globals['_app_ctx'].ctx.update_settings = settings_writer(s)
     return s
 
 

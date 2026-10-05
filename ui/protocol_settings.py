@@ -237,7 +237,6 @@ class ProtocolSettings(FloatLayout):
                 return
             Clock.schedule_once(self._init_ui, 0.1)
             return
-        settings = ctx.settings
 
         tiling_config = self.tiling_config
         self.ids['tiling_size_spinner'].values = tiling_config.available_configs()
@@ -264,8 +263,7 @@ class ProtocolSettings(FloatLayout):
 
         # DISABLED: BF AF for fluorescence -- not yet tested, hidden for 4.0.0.
         # Force off regardless of saved settings to prevent untested code path.
-        if 'protocol' in settings:
-            settings['protocol']['bf_af_for_fluorescence'] = False
+        _app_ctx.ctx.update_settings('protocol.bf_af_for_fluorescence', False)
         self.ids['bf_af_for_fluorescence_btn'].state = 'normal'
 
     # Update Protocol Period
@@ -583,7 +581,7 @@ class ProtocolSettings(FloatLayout):
         ctx.scope.protocols.refuse_unaddressable_objectives(protocol.steps()['Objective'].to_list())
         self._protocol = protocol
         self._show_schedule()
-        ctx.settings['protocol']['filepath'] = ''
+        ctx.update_settings('protocol.filepath', '')
         self.curr_step = 0
         self.go_to_step(step_idx=0)
 
@@ -648,7 +646,7 @@ class ProtocolSettings(FloatLayout):
 
         if not filepath or not pathlib.Path(filepath).exists():
             logger.info('[LVP Main  ] No saved protocol loaded at startup -- using empty protocol')
-            settings['protocol']['filepath'] = ''
+            _app_ctx.ctx.update_settings('protocol.filepath', '')
         else:
             # The file is still there and something about this scope
             # refused it. Keep the name on screen as well as in settings:
@@ -677,7 +675,6 @@ class ProtocolSettings(FloatLayout):
         an answer nobody chose for it.
         """
         gui_logger.protocol_action('LOAD', filepath)
-        settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
 
         logger.info('[LVP Main  ] ProtocolSettings.load_protocol()')
@@ -711,7 +708,7 @@ class ProtocolSettings(FloatLayout):
         self._protocol = protocol
         self._show_schedule()
 
-        settings['protocol']['filepath'] = filepath
+        _app_ctx.ctx.update_settings('protocol.filepath', filepath)
         self.ids['protocol_filename'].text = os.path.basename(filepath)
 
         num_steps = self._protocol.num_steps()
@@ -795,7 +792,7 @@ class ProtocolSettings(FloatLayout):
             # Reached only once the file is written: a failed save leaves the
             # panel naming the file it had, which is still the one on disk.
             if update_protocol_filepath:
-                settings['protocol']['filepath'] = filepath
+                _app_ctx.ctx.update_settings('protocol.filepath', filepath)
             self.ids['protocol_filename'].text = os.path.basename(filepath)
 
         run_reported(_save, None, 'SAVE_PROTOCOL')
@@ -1111,8 +1108,7 @@ class ProtocolSettings(FloatLayout):
         ctx = _app_ctx.ctx
         enabled = self.ids['bf_af_for_fluorescence_btn'].state == 'down'
         gui_logger.toggle('BF_AF_FOR_FLUORESCENCE', enabled)
-        with ctx.settings_lock:
-            ctx.settings['protocol']['bf_af_for_fluorescence'] = enabled
+        ctx.update_settings('protocol.bf_af_for_fluorescence', enabled)
         logger.info(f'[Protocol  ] BF AF for fluorescence: {enabled}')
 
     def run_autofocus_scan_from_ui(self):

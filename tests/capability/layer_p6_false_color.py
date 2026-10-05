@@ -12,8 +12,7 @@ scope = s.scope
 try:
     # 1) settable through the Session's settings store?
     before = s.get_settings_snapshot()['Blue']['false_color']
-    lay = s.get_settings_snapshot()
-    s.update_settings('Blue', {**lay['Blue'], 'false_color': not before})
+    s.update_settings('Blue.false_color', not before)
     after = s.get_settings_snapshot()['Blue']['false_color']
     print('1: false_color via session.update_settings:', before, '->', after)
     print(

@@ -15,7 +15,7 @@ import time
 
 import pytest
 
-from modules.exceptions import ConfigError
+from modules.exceptions import ConfigError, SettingRefusedError
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
@@ -55,28 +55,31 @@ def test_the_shipped_template_plate_brings_up(tmp_path):
         session.shutdown()
 
 
-class TestTheProtocolBlockWriter:
+class TestThePlateHasOneWriter:
     @pytest.fixture
     def session(self, tmp_path):
         s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         yield s
         s.shutdown()
 
-    def test_an_unknown_plate_is_refused_and_nothing_is_written(self, session):
+    def test_the_settings_writer_refuses_the_plate_naming_its_member(self, session):
         stored = dict(session.settings['protocol'])
-        with pytest.raises(ConfigError, match="unknown labware 'nonexistent'"):
-            session.update_settings('protocol', {**stored, 'labware': 'nonexistent'})
+        with pytest.raises(SettingRefusedError, match='select_labware'):
+            session.update_settings('protocol.labware', 'nonexistent')
         assert session.settings['protocol'] == stored
 
-    def test_a_block_that_is_not_a_mapping_is_refused(self, session):
+    def test_the_protocol_block_is_not_written_whole(self, session):
         stored = session.settings['protocol']
-        with pytest.raises(ConfigError, match='must be a mapping'):
-            session.update_settings('protocol', 'not a block')
+        with pytest.raises(SettingRefusedError, match='block'):
+            session.update_settings('protocol', {**stored, 'labware': 'nonexistent'})
         assert session.settings['protocol'] is stored
 
+    def test_an_unknown_plate_is_refused_by_its_member(self, session):
+        stored = dict(session.settings['protocol'])
+        with pytest.raises(ConfigError, match="unknown labware 'nonexistent'"):
+            session.select_labware('nonexistent')
+        assert session.settings['protocol'] == stored
+
     def test_a_retired_spelling_is_stored_under_the_catalogue_key(self, session):
-        block = {**session.settings['protocol'], 'labware': 'Center Dish'}
-        session.update_settings('protocol', block)
+        session.select_labware('Center Dish')
         assert session.settings['protocol']['labware'] == 'Center Plate'
-        # The caller's dict is not rewritten behind its back.
-        assert block['labware'] == 'Center Dish'

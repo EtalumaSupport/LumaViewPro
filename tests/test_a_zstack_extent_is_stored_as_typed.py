@@ -20,13 +20,20 @@ import pytest
 import modules.app_context as _app_ctx
 import ui.zstack as zstack_module
 from ui.zstack import ZStack
+from tests.settings_fixtures import settings_writer
 
 
 @pytest.fixture
 def panel(monkeypatch):
     settings = {'zstack': {'step_size': 5.0, 'range': 50.0}}
     monkeypatch.setattr(
-        _app_ctx, 'ctx', SimpleNamespace(settings=settings, settings_lock=threading.Lock())
+        _app_ctx,
+        'ctx',
+        SimpleNamespace(
+            settings=settings,
+            settings_lock=threading.Lock(),
+            update_settings=settings_writer(settings),
+        ),
     )
     monkeypatch.setattr(zstack_module.gui_logger, 'text_input', lambda *a: None)
     monkeypatch.setattr(

@@ -570,7 +570,7 @@ def _ui_except_counts():
 # call site disappears when, and only when, the GUI stops answering.
 _UI_ANSWERER_CALL_PIN = {
     'lumaviewpro.py': 1,
-    'ui/advanced_settings.py': 3,
+    'ui/advanced_settings.py': 2,
     'ui/image_settings.py': 5,
     'ui/layer_control.py': 6,
     'ui/microscope_settings.py': 4,
@@ -613,7 +613,7 @@ _UI_PRIVATE_REACH_PIN = {
 # a new decision in the GUI and needs Eric's word, not a pin edit. Pinned
 # at 44f98226 from the tree, 151 handlers in 46 cells.
 _UI_EXCEPT_PIN = {
-    ('ui/advanced_settings.py', 'TypeError, ValueError'): 2,
+    ('ui/advanced_settings.py', 'TypeError, ValueError'): 0,
     ('ui/file_dialogs.py', 'Exception'): 1,
     ('ui/histogram.py', 'AttributeError, KeyError'): 0,
     ('ui/image_settings.py', 'Exception'): 0,

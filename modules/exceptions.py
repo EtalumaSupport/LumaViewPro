@@ -765,6 +765,33 @@ class SettingsSaveRefusedError(Refusal, ConfigError):
         self.file = file
 
 
+class SettingRefusedError(Refusal, ConfigError):
+    """A settings write was refused; nothing was written.
+
+    Raised by ``ScopeSession.update_settings``. A caller that maps refusals
+    to responses branches on ``reason``; a person reads the message.
+
+    Attributes:
+        reason: ``'has_member'`` -- the setting is changed by its own
+            Session member, named in ``member``. ``'not_a_setting'`` -- no
+            setting has this path. ``'block'`` -- the path names a block of
+            settings, which is written one setting at a time.
+            ``'wrong_kind'`` -- the value is not the kind the setting holds.
+            ``'out_of_range'`` -- the value is outside the setting's range.
+        path: The dotted path that was written.
+        member: The member that changes the setting, for ``'has_member'``;
+            otherwise None.
+    """
+
+    title = 'Setting Not Changed'
+
+    def __init__(self, reason: str, path: str, detail: str, *, member: str | None = None):
+        super().__init__(f'{path} was not changed: {detail}.')
+        self.reason = reason
+        self.path = path
+        self.member = member
+
+
 class SettingsFileNotReplacedError(ConfigError):
     """The unreadable settings file could not be moved aside after the user chose to start over.
 

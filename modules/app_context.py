@@ -151,6 +151,6 @@ class AppContext:
         """A deep copy of settings taken under the lock."""
         return self._require_session().get_settings_snapshot()
 
-    def update_settings(self, key: str, value: object) -> None:
-        """Write one top-level settings key under the lock."""
-        self._require_session().update_settings(key, value)
+    def update_settings(self, path: str, value: object) -> None:
+        """Write one setting by its dotted path; ``ScopeSession.update_settings``."""
+        self._require_session().update_settings(path, value)

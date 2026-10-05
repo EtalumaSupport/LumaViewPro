@@ -17,6 +17,7 @@ import pytest
 import modules.app_context as _app_ctx
 import ui.layer_control as layer_control
 from ui.layer_control import LayerControl
+from tests.settings_fixtures import settings_writer
 
 
 class _Slider:
@@ -31,7 +32,11 @@ def _blue_layer(monkeypatch, *, exposure_ms, illumination_ma):
         'Blue': {'exposure_ms': exposure_ms, 'illumination_ma': illumination_ma},
         'fx2_debug_wire_enabled': False,
     }
-    monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(settings=settings))
+    monkeypatch.setattr(
+        _app_ctx,
+        'ctx',
+        SimpleNamespace(settings=settings, update_settings=settings_writer(settings)),
+    )
     monkeypatch.setattr(layer_control, 'get_exposure_text_max', lambda: 1000.0)
     monkeypatch.setattr(layer_control, 'get_layer_illumination_text_max', lambda layer: 150.0)
     layer = LayerControl.__new__(LayerControl)

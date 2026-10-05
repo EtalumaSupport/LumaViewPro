@@ -16,6 +16,8 @@ import sys
 
 import harness as _common
 
+from modules.exceptions import SettingRefusedError
+
 s, live = _common.make_session()
 try:
     snap = s.get_settings_snapshot()
@@ -26,12 +28,10 @@ try:
     print('show_tooltips         :', snap.get('show_tooltips'))
 
     # --- live / sequenced output format ---------------------------------
-    # Nested key: update_settings() writes TOP-LEVEL keys only, so a script
-    # must rewrite the whole sub-dict.
-    fmt = dict(snap['image_output_format'])
-    fmt['live'] = 'JPG'
-    fmt['sequenced'] = 'OME-TIFF'
-    s.update_settings('image_output_format', fmt)
+    # Each is one setting, written by its dotted path.
+    before = dict(snap['image_output_format'])
+    s.update_settings('image_output_format.live', 'JPG')
+    s.update_settings('image_output_format.sequenced', 'OME-TIFF')
     back = s.get_settings_snapshot()['image_output_format']
     _common.ok(
         'live/sequenced format took effect',
@@ -40,43 +40,31 @@ try:
     )
 
     # out-of-range at the store?
-    bad = dict(back)
-    bad['live'] = 'BMP-o-matic'
     try:
-        s.update_settings('image_output_format', bad)
-        _common.void(
+        s.update_settings('image_output_format.live', 'BMP-o-matic')
+        _common.ok(
             'bogus live format refused at update_settings',
             False,
             f'stored as {s.get_settings_snapshot()["image_output_format"]["live"]!r}',
         )
-    except Exception as e:
-        _common.void(
-            'bogus live format refused at update_settings', True, f'{type(e).__name__}: {e}'
-        )
+    except SettingRefusedError as e:
+        _common.ok('bogus live format refused at update_settings', True, f'{e.reason}: {e}')
     # ... and at the run-config boundary?
-    try:
-        cfg = s.get_sequenced_capture_config()
-        print(
-            'get_sequenced_capture_config with bogus live format -> built, keys:',
-            sorted(cfg)[:6],
-            '...',
-        )
-        from modules.image_mode import ImageCaptureConfig
+    from modules.image_mode import ImageCaptureConfig
 
-        try:
-            ImageCaptureConfig.from_image_mode(
-                s.settings['image_mode'],
-                output_format_live=s.settings['image_output_format']['live'],
-                output_format_sequenced=s.settings['image_output_format']['sequenced'],
-            )
-            _common.ok('bogus live format refused at ImageCaptureConfig', False)
-        except Exception as e:
-            _common.ok(
-                'bogus live format refused at ImageCaptureConfig', True, f'{type(e).__name__}: {e}'
-            )
+    try:
+        ImageCaptureConfig.from_image_mode(
+            s.settings['image_mode'],
+            output_format_live='BMP-o-matic',
+            output_format_sequenced=s.settings['image_output_format']['sequenced'],
+        )
+        _common.ok('bogus live format refused at ImageCaptureConfig', False)
     except Exception as e:
-        print('get_sequenced_capture_config raised:', type(e).__name__, e)
-    s.update_settings('image_output_format', back)
+        _common.ok(
+            'bogus live format refused at ImageCaptureConfig', True, f'{type(e).__name__}: {e}'
+        )
+    s.update_settings('image_output_format.live', before['live'])
+    s.update_settings('image_output_format.sequenced', before['sequenced'])
 
     # --- jpg quality ------------------------------------------------------
     s.update_settings('jpg_quality', 55)
@@ -106,8 +94,15 @@ try:
     # --- video recording format ------------------------------------------
     s.update_settings('video_as_frames', True)
     _common.ok('video_as_frames took effect', s.get_settings_snapshot()['video_as_frames'] is True)
-    s.update_settings('video_as_frames', 'banana')
-    print("video_as_frames after 'banana':", repr(s.get_settings_snapshot()['video_as_frames']))
+    try:
+        s.update_settings('video_as_frames', 'banana')
+        _common.ok(
+            "video_as_frames 'banana' refused",
+            False,
+            f'stored {s.get_settings_snapshot()["video_as_frames"]!r}',
+        )
+    except SettingRefusedError as e:
+        _common.ok("video_as_frames 'banana' refused", True, f'{e.reason}: {e}')
     s.update_settings('video_as_frames', False)
 
     # --- scale bar (the one pref with a real API setter) -------------------

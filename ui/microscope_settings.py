@@ -24,7 +24,7 @@ from modules.memory_profiler import MemoryLeakProfiler
 from modules.notification_center import notifications
 import modules.image_mode as image_mode
 from modules.zstack_config import ZStackConfig
-from ui.ui_helpers import submit_reported
+from ui.ui_helpers import run_reported, submit_reported
 
 logger = logging.getLogger('LVP.ui.microscope_settings')
 
@@ -413,35 +413,37 @@ class MicroscopeSettings(BoxLayout):
         self._refresh_binning_depth_hint()
 
     def select_live_image_output_format(self):
-        settings = _app_ctx.ctx.settings
         fmt = self.ids['live_image_output_format_spinner'].text
         gui_logger.select('LIVE_IMAGE_OUTPUT_FORMAT', fmt)
-        settings['image_output_format']['live'] = fmt
+        run_reported(
+            lambda: _app_ctx.ctx.update_settings('image_output_format.live', fmt),
+            None,
+            'LIVE_IMAGE_OUTPUT_FORMAT',
+        )
         # The JPG-quality row's visibility (and disabled state) follows the
         # selected format declaratively in lumaviewpro.kv (jpg_quality_row binds
         # to live_image_output_format_spinner.text), so no toggle is needed here.
 
     def update_jpg_quality(self, value):
-        settings = _app_ctx.ctx.settings
         quality = int(value)
-        settings['jpg_quality'] = quality
+        _app_ctx.ctx.update_settings('jpg_quality', quality)
         if 'jpg_quality_value_label' in self.ids:
             self.ids['jpg_quality_value_label'].text = str(quality)
         gui_logger.slider('JPG_QUALITY', quality)
 
     def select_sequenced_image_output_format(self):
-        settings = _app_ctx.ctx.settings
         fmt = self.ids['sequenced_image_output_format_spinner'].text
         gui_logger.select('SEQUENCED_IMAGE_OUTPUT_FORMAT', fmt)
-        settings['image_output_format']['sequenced'] = fmt
+        run_reported(
+            lambda: _app_ctx.ctx.update_settings('image_output_format.sequenced', fmt),
+            None,
+            'SEQUENCED_IMAGE_OUTPUT_FORMAT',
+        )
 
     def select_video_recording_format(self) -> None:
-        settings = _app_ctx.ctx.settings
         gui_logger.select('VIDEO_RECORDING_FORMAT', self.ids['video_recording_format_spinner'].text)
-        if self.ids['video_recording_format_spinner'].text == 'mp4':
-            settings['video_as_frames'] = False
-        else:
-            settings['video_as_frames'] = True
+        as_frames = self.ids['video_recording_format_spinner'].text != 'mp4'
+        _app_ctx.ctx.update_settings('video_as_frames', as_frames)
 
     def update_scale_bar_state(self):
         ctx = _app_ctx.ctx
@@ -476,11 +478,10 @@ class MicroscopeSettings(BoxLayout):
 
     def update_show_tooltips(self):
         ctx = _app_ctx.ctx
-        settings = ctx.settings
         enabled = self.ids['show_tooltips_btn'].state == 'down'
         gui_logger.toggle('SHOW_TOOLTIPS', enabled)
         ctx.show_tooltips = enabled
-        settings['show_tooltips'] = enabled
+        ctx.update_settings('show_tooltips', enabled)
 
     def apply_stimulation_support(self):
         """Push the persisted global stimulation enable to every channel.

@@ -17,6 +17,7 @@ INSTALLATION_FILES = (
     'objectives.json',
     'scopes.json',
     'motorconfig_defaults.json',
+    'settings.json',
 )
 
 

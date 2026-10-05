@@ -684,7 +684,6 @@ class FolderChooseBTN(HoverBehavior, Button):
 
     def on_selection_function(self, *a, **k):
         ctx = _app_ctx.ctx
-        settings = ctx.settings
         logger.info('[LVP Main  ] FolderChooseBTN.on_selection_function()')
         if self.selection:
             path = self.selection[0]
@@ -704,8 +703,7 @@ class FolderChooseBTN(HoverBehavior, Button):
             return
 
         if self.context == 'live_folder':
-            with ctx.settings_lock:
-                settings['live_folder'] = str(pathlib.Path(path).resolve())
+            ctx.update_settings('live_folder', str(pathlib.Path(path).resolve()))
         elif self.context == 'apply_cell_count_method_to_folder':
             ctx.cell_count_content.apply_method_to_folder(path=path)
         elif self.context == 'apply_stitching_to_folder':

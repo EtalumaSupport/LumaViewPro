@@ -9,6 +9,8 @@ import sys
 
 import harness as _common
 
+from modules.exceptions import ScopeModelUnknownError
+
 s, live = _common.make_session()
 try:
     from modules.layer_record import load_scope_models
@@ -21,17 +23,19 @@ try:
         "(json.load(...)['Models'] + _validate_scopes)"
     )
     # selecting one
-    s.update_settings('microscope', sorted(models)[0])
+    s.select_model(sorted(models)[0])
     _common.ok(
         'model selection recorded', s.get_settings_snapshot()['microscope'] == sorted(models)[0]
     )
-    s.update_settings('microscope', 'NotAScope')
-    _common.void(
-        'a model outside the catalogue is refused',
-        False,
-        f'stored {s.get_settings_snapshot()["microscope"]!r} -- neither '
-        'update_settings nor the GUI checks membership',
-    )
+    try:
+        s.select_model('NotAScope')
+        _common.ok(
+            'a model outside the catalogue is refused',
+            False,
+            f'stored {s.get_settings_snapshot()["microscope"]!r}',
+        )
+    except ScopeModelUnknownError as e:
+        _common.ok('a model outside the catalogue is refused', True, str(e))
     # capabilities still follow the hardware, not the stored model
     print(
         'capabilities after a bogus model: '

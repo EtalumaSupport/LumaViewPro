@@ -23,6 +23,8 @@ import sys
 
 import harness as _common
 
+from modules.exceptions import SettingRefusedError
+
 s, live = _common.make_session()
 try:
     im, mo = s.scope.imaging, s.scope.motion
@@ -60,51 +62,55 @@ try:
             _common.void(f'acceleration {bad}% refused', False, 'accepted')
         except Exception as e:
             _common.void(f'acceleration {bad}% refused', True, f'{type(e).__name__}: {e}')
-    s.update_settings('motion', {**s.get_settings_snapshot()['motion'], 'acceleration_max_pct': 50})
+    s.update_settings('motion.acceleration_max_pct', 50)
     _common.ok(
         'acceleration stored', s.get_settings_snapshot()['motion']['acceleration_max_pct'] == 50
     )
 
     # --- pure settings-store rows ----------------------------------------
-    snap = s.get_settings_snapshot()
-    video = dict(snap.get('video', {}))
-    video.update(max_fps=25, max_duration_seconds=120, timestamp_overlay=False)
-    s.update_settings('video', video)
+    s.update_settings('video.max_fps', 25)
+    s.update_settings('video.max_duration_seconds', 120)
+    s.update_settings('video.timestamp_overlay', False)
     back = s.get_settings_snapshot()['video']
     _common.ok(
         'video limits took effect',
         back['max_fps'] == 25 and back['max_duration_seconds'] == 120,
         str(back),
     )
-    # out of range: widget refuses 0..200 / 1..3600; does anything else?
-    bad_video = dict(back)
-    bad_video.update(max_fps=9999, max_duration_seconds=999999)
-    s.update_settings('video', bad_video)
-    _common.void(
-        'video max_fps 9999 refused by the API',
-        False,
-        f'stored {s.get_settings_snapshot()["video"]["max_fps"]}',
-    )
-    s.update_settings('video', video)
+    # out of range: the writer owns 0..200 / 1..3600
+    for path, bad in (('video.max_fps', 9999), ('video.max_duration_seconds', 999999)):
+        try:
+            s.update_settings(path, bad)
+            _common.ok(f'{path} {bad} refused by the API', False, 'stored')
+        except SettingRefusedError as e:
+            _common.ok(f'{path} {bad} refused by the API', True, f'{e.reason}: {e}')
 
-    for key, good, bad in (
-        ('live_view_fps', 15, -3),
-        ('tiling_overlap_percent', 15, 999),
-        ('protocol_led_on', True, 'maybe'),
-        ('keep_led_between_steps', True, None),
-        ('show_step_locations', True, 'x'),
-        ('separate_folder_per_channel', True, 3),
-        ('stimulation_enabled', False, 'sure'),
-        ('microscope', 'LS620', 'NotAScope'),
+    def refused(key, bad):
+        try:
+            s.update_settings(key, bad)
+        except SettingRefusedError as e:
+            return True, f'{e.reason}: {e}'
+        return False, f'stored {s.get_settings_snapshot()[key]!r} unchecked'
+
+    # A bad value of the wrong kind, or outside a range the writer owns, is
+    # refused; a number with no owned range is not (live_view_fps).
+    for key, good, bad, is_refused in (
+        ('live_view_fps', 15, -3, False),
+        ('tiling_overlap_percent', 15.0, 999.0, True),
+        ('protocol_led_on', True, 'maybe', True),
+        ('keep_led_between_steps', True, None, True),
+        ('show_step_locations', True, 'x', True),
+        ('separate_folder_per_channel', True, 3, True),
+        ('stimulation_enabled', False, 'sure', True),
     ):
         s.update_settings(key, good)
         got = s.get_settings_snapshot()[key]
         _common.ok(f'{key} took effect', got == good, f'stored {got!r}')
-        s.update_settings(key, bad)
-        stored = s.get_settings_snapshot()[key]
-        _common.void(
-            f'{key} bad value {bad!r} refused', stored != bad, f'stored {stored!r} unchecked'
-        )
+        was_refused, detail = refused(key, bad)
+        if is_refused:
+            _common.ok(f'{key} bad value {bad!r} refused', was_refused, detail)
+        else:
+            _common.void(f'{key} bad value {bad!r} refused', was_refused, detail)
         s.update_settings(key, good)
 
     # tiling overlap: is there a validator a script can reach?
@@ -115,13 +121,8 @@ try:
         _common.ok('TilingConfig refuses 999% overlap', False)
     except Exception as e:
         _common.ok('TilingConfig refuses 999% overlap', True, f'{type(e).__name__}: {e}')
-    s.update_settings('tiling_overlap_percent', 999)
-    cfg = s.get_sequenced_capture_config()
-    print(
-        'run config built with 999% overlap ->',
-        {k: v for k, v in cfg.items() if 'tiling' in k or 'overlap' in k},
-    )
-    s.update_settings('tiling_overlap_percent', 15)
+    was_refused, detail = refused('tiling_overlap_percent', 999.0)
+    _common.ok('the settings writer refuses 999% overlap', was_refused, detail)
 
     # scope model change: what does the GUI do that a script cannot?
     print(

@@ -51,7 +51,7 @@ def test_show_step_locations_in_settings_schema():
 def test_toggle_handler_persists_setting():
     """The Advanced-modal toggle handler writes the user's choice to the setting."""
     source = _method_source(ADVANCED_SETTINGS_SRC, 'AdvancedSettings', 'update_show_step_locations')
-    assert "settings['show_step_locations']" in source, (
+    assert "update_settings('show_step_locations', enabled)" in source, (
         'update_show_step_locations must persist the toggle to settings'
     )
     assert 'show_protocol_steps' in source, (

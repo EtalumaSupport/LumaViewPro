@@ -61,3 +61,29 @@ def complete_settings_without(*keys, **overrides) -> dict:
     for key in keys:
         settings.pop(key, None)
     return settings
+
+
+def settings_writer(settings: dict):
+    """An ``update_settings(path, value)`` for a fake context holding ``settings``.
+
+    A GUI unit test stands a ``SimpleNamespace`` in for the context; the
+    widget under test now writes through ``ctx.update_settings``. This does
+    to ``settings`` what ``ScopeSession.update_settings`` does to the live
+    dict -- the same check against the shipped template, then the store --
+    so a widget that writes a path the Session would refuse fails here too.
+    """
+    import json
+
+    from modules import settings_paths
+
+    template = json.loads(_TEMPLATE.read_text(encoding='utf-8'))
+
+    def update_settings(path: str, value: object) -> None:
+        settings_paths.check_write(template, path, value)
+        *blocks, leaf = path.split('.')
+        holder = settings
+        for block in blocks:
+            holder = holder[block]
+        holder[leaf] = value
+
+    return update_settings

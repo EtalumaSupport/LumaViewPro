@@ -479,12 +479,12 @@ class TestSettingsSnapshot:
 
     def test_snapshot_after_update(self):
         session = self._session({})
-        session.update_settings('key', 'value1')
+        session.update_settings('live_folder', '/value1')
         snap = session.get_settings_snapshot()
-        session.update_settings('key', 'value2')
+        session.update_settings('live_folder', '/value2')
 
-        assert snap['key'] == 'value1'
-        assert session.settings['key'] == 'value2'
+        assert snap['live_folder'] == '/value1'
+        assert session.settings['live_folder'] == '/value2'
 
     def test_context_forwards_to_the_session_store(self):
         """One dict and one lock -- reachable two ways, stored once.
@@ -8396,22 +8396,23 @@ class TestManualVideoSpinners:
             'AdvancedSettings must define update_video_max_duration.'
         )
 
-    def test_handlers_validate_and_revert_on_invalid(self):
+    def test_handlers_hand_the_limit_to_the_writer_and_show_the_store(self):
         body = self._advanced_text()
-        # Both handlers must surface a notifications.warning AND revert
-        # the widget text on bad input -- the L1 researcher sees the
-        # error and the field doesn't silently accept garbage.
-        for handler in ('update_video_max_fps', 'update_video_max_duration'):
-            idx = body.find(f'def {handler}')
+
+        def section(name):
+            idx = body.find(f'def {name}')
             assert idx >= 0
             next_def = body.find('\n    def ', idx + 1)
-            handler_body = body[idx:next_def] if next_def > 0 else body[idx:]
-            assert 'notifications.warning' in handler_body, (
-                f'{handler} must notify on invalid input (Rule 28).'
-            )
-            assert 'widget.text =' in handler_body, (
-                f'{handler} must revert widget.text on invalid input.'
-            )
+            return body[idx:next_def] if next_def > 0 else body[idx:]
+
+        # The settings writer owns the limit's range and refuses past it;
+        # the refusal reaches the researcher through run_reported, and the
+        # box shows the stored value again rather than silently keeping garbage.
+        for handler in ('update_video_max_fps', 'update_video_max_duration'):
+            assert '_commit_video_limit(' in section(handler), handler
+        commit = section('_commit_video_limit')
+        assert 'run_reported(' in commit and 'update_settings(path, value)' in commit
+        assert 'widget.text =' in commit
 
     def test_on_open_pushes_video_settings_into_widgets(self):
         body = self._advanced_text()
@@ -10946,9 +10947,11 @@ class TestHeadlessSettingsResolutionMatchesGui:
             template = json.load(f)
         from_current = dict(template, marker='from-current')
         from_settings = dict(template, marker='from-settings')
+        # First: the installation's own files include a settings.json, which
+        # the marked one below replaces.
+        copy_installation_files(tmp_path / 'data')
         (tmp_path / 'data' / 'current.json').write_text(json.dumps(from_current))
         (tmp_path / 'data' / 'settings.json').write_text(json.dumps(from_settings))
-        copy_installation_files(tmp_path / 'data')
         session = ScopeSession.create(
             ScopeSession.load_user_settings(str(tmp_path)), source_path=str(tmp_path), simulate=True
         )

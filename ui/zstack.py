@@ -61,8 +61,7 @@ class ZStack(FloatLayout):
 
             value = typed_number(box.text, float, put_back)
             if value is not None:
-                with _app_ctx.ctx.settings_lock:
-                    settings['zstack'][key] = value
+                _app_ctx.ctx.update_settings(f'zstack.{key}', value)
 
         for wid, name in (
             ('zstack_stepsize_id', 'ZSTACK_STEP_SIZE'),
@@ -100,9 +99,7 @@ class ZStack(FloatLayout):
 
     def set_position(self) -> None:
         gui_logger.select('ZSTACK_REFERENCE_POSITION', self.ids['zstack_spinner'].text)
-        ctx = _app_ctx.ctx
-        with ctx.settings_lock:
-            ctx.settings['zstack']['position'] = self.ids['zstack_spinner'].text
+        _app_ctx.ctx.update_settings('zstack.position', self.ids['zstack_spinner'].text)
 
     def run_zstack_acquire_from_ui(self):
         """Start a z-stack, or stop the one this button started.

@@ -474,12 +474,14 @@ class TestStimIlluminationTextWritesTheSliderKey:
 
         slider_fn = find_def('ui/layer_control.py', 'stim_ill_slider', class_name='LayerControl')
         assert slider_fn is not None
+        # The slider writes f'{self.layer}.<path>' through the settings writer.
         slider_paths = {
-            _constant_key_path(target)
+            node.args[0].values[-1].value.removeprefix('.')
             for node in ast.walk(slider_fn)
-            if isinstance(node, ast.Assign)
-            for target in node.targets
-            if isinstance(target, ast.Subscript)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == 'update_settings'
+            and isinstance(node.args[0], ast.JoinedStr)
         }
 
         assert text_path == 'stim_config.illumination_ma'

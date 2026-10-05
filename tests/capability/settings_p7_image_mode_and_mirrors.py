@@ -32,7 +32,7 @@ try:
         bool(im.set_pixel_format(target)),
         f'cached={im.pixel_format_cached}',
     )
-    s.update_settings('image_mode', mode)
+    s.set_image_mode(mode)
     _common.ok('image_mode recorded in the store', s.get_settings_snapshot()['image_mode'] == mode)
     print('significant_bits after the mode change:', im.significant_bits)
 
@@ -44,13 +44,16 @@ try:
         _common.ok(
             'bogus image mode refused by resolve_image_mode', True, f'{type(e).__name__}: {e}'
         )
-    s.update_settings('image_mode', '37bit')
-    _common.void(
-        'bogus image mode refused by the store',
-        False,
-        f'stored {s.get_settings_snapshot()["image_mode"]!r}',
-    )
-    s.update_settings('image_mode', mode)
+    try:
+        s.set_image_mode('37bit')
+        _common.ok(
+            'bogus image mode refused by the store',
+            s.get_settings_snapshot()['image_mode'] != '37bit',
+            f'stored {s.get_settings_snapshot()["image_mode"]!r}',
+        )
+    except Exception as e:
+        _common.ok('bogus image mode refused by the store', True, f'{type(e).__name__}: {e}')
+    s.set_image_mode(mode)
 
     # --- TWO ANSWERERS, not a stale mirror ------------------------------
     # This probe used to demand that settings follow a camera apply. That

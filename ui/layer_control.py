@@ -227,15 +227,7 @@ class LayerControl(BoxLayout):
         upper = slider.max if value_max is None else value_max
         clipped = cast(np.clip(raw, slider.min, upper))
 
-        # Update settings
-        if settings_path:
-            parts = settings_path.split('.')
-            target = settings[self.layer]
-            for p in parts[:-1]:
-                target = target[p]
-            target[parts[-1]] = clipped
-        else:
-            settings[self.layer][settings_key] = clipped
+        _app_ctx.ctx.update_settings(f'{self.layer}.{settings_path or settings_key}', clipped)
 
         # The settings write above is the commit; this is the display half.
         self._show_value_on_widgets(slider_id, text_id, clipped, cast=cast)
@@ -339,7 +331,7 @@ class LayerControl(BoxLayout):
                 type(illumination).__name__,
             )
         gui_logger.slider(f'ILLUMINATION_{self.layer}', illumination)
-        settings[self.layer]['illumination_ma'] = illumination
+        _app_ctx.ctx.update_settings(f'{self.layer}.illumination_ma', illumination)
 
         # Update text only if changed to reduce ScrollView recalculations
         new_text = str(illumination)
@@ -377,11 +369,10 @@ class LayerControl(BoxLayout):
         self.apply_settings()
 
     def sum_slider(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.sum_slider()')
         total = int(self.ids['sum_slider'].value)
         gui_logger.slider(f'SUM_{self.layer}', total)
-        settings[self.layer]['sum'] = total
+        _app_ctx.ctx.update_settings(f'{self.layer}.sum', total)
         self._refresh_sum_depth_hint()
         self.apply_settings()
 
@@ -392,11 +383,10 @@ class LayerControl(BoxLayout):
             self.apply_settings()
 
     def video_duration_slider(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.video_duration_slider()')
         duration = self.ids['video_duration_slider'].value
         gui_logger.slider(f'VIDEO_DURATION_{self.layer}', duration)
-        settings[self.layer]['video_config']['duration'] = duration
+        _app_ctx.ctx.update_settings(f'{self.layer}.video_config.duration', duration)
         self.apply_settings()
 
     def video_duration_text(self):
@@ -439,7 +429,6 @@ class LayerControl(BoxLayout):
         )
 
     def gain_slider(self):
-        settings = _app_ctx.ctx.settings
         if _app_ctx.ctx.session.run_lockout:
             return
         # See ill_slider -- programmatic updates must not re-enter (#617).
@@ -448,7 +437,7 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.gain_slider()')
         gain = round(self.ids['gain_slider'].value, 1)  # Round to 1 decimal (step=0.1)
         gui_logger.slider(f'GAIN_{self.layer}', gain)
-        settings[self.layer]['gain_db'] = gain
+        _app_ctx.ctx.update_settings(f'{self.layer}.gain_db', gain)
         # Update text only if changed to reduce ScrollView recalculations
         new_text = str(gain)
         if self.ids['gain_text'].text != new_text:
@@ -463,11 +452,12 @@ class LayerControl(BoxLayout):
             self.apply_gain_slider()
 
     def composite_threshold_slider(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.composite_threshold_slider()')
         composite_threshold = self.ids['composite_threshold_slider'].value
         gui_logger.slider(f'COMPOSITE_THRESHOLD_{self.layer}', composite_threshold)
-        settings[self.layer]['composite_brightness_threshold'] = composite_threshold
+        _app_ctx.ctx.update_settings(
+            f'{self.layer}.composite_brightness_threshold', composite_threshold
+        )
 
     def composite_threshold_text(self):
         logger.info('[LVP Main  ] LayerControl.composite_threshold_text()')
@@ -478,7 +468,6 @@ class LayerControl(BoxLayout):
         )
 
     def exp_slider(self):
-        settings = _app_ctx.ctx.settings
         if _app_ctx.ctx.session.run_lockout:
             return
         # See ill_slider -- programmatic updates must not re-enter (#617).
@@ -488,7 +477,7 @@ class LayerControl(BoxLayout):
         exposure = round(self.ids['exp_slider'].value, 2)  # Round to 2 decimals (step=0.01)
         gui_logger.slider(f'EXPOSURE_{self.layer}', exposure)
         # exposure = 10 ** self.ids['exp_slider'].value # slider is log_10(ms)
-        settings[self.layer]['exposure_ms'] = exposure  # exposure in ms
+        _app_ctx.ctx.update_settings(f'{self.layer}.exposure_ms', exposure)  # exposure in ms
         # Update text only if changed to reduce ScrollView recalculations
         new_text = str(exposure)
         if self.ids['exp_text'].text != new_text:
@@ -510,27 +499,24 @@ class LayerControl(BoxLayout):
             self.apply_exp_slider()
 
     def stim_freq_slider(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.stim_freq_slider()')
         frequency = self.ids['stim_freq_slider'].value
         gui_logger.slider(f'STIM_FREQ_{self.layer}', frequency)
-        settings[self.layer]['stim_config']['frequency'] = frequency
+        _app_ctx.ctx.update_settings(f'{self.layer}.stim_config.frequency', frequency)
         self.apply_settings()
 
     def stim_pulse_count_slider(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.stim_pulse_count_slider()')
         pulse_count = int(self.ids['stim_pulse_count_slider'].value)
         gui_logger.slider(f'STIM_PULSE_COUNT_{self.layer}', pulse_count)
-        settings[self.layer]['stim_config']['pulse_count'] = pulse_count
+        _app_ctx.ctx.update_settings(f'{self.layer}.stim_config.pulse_count', pulse_count)
         self.apply_settings()
 
     def stim_pulse_width_slider(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.stim_pulse_width_slider()')
         pulse_width = int(self.ids['stim_pulse_width_slider'].value)
         gui_logger.slider(f'STIM_PULSE_WIDTH_{self.layer}', pulse_width)
-        settings[self.layer]['stim_config']['pulse_width'] = pulse_width
+        _app_ctx.ctx.update_settings(f'{self.layer}.stim_config.pulse_width', pulse_width)
         self.apply_settings()
 
     def stim_freq_text(self):
@@ -566,11 +552,10 @@ class LayerControl(BoxLayout):
             self.apply_settings()
 
     def stim_ill_slider(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.stim_ill_slider()')
         illumination = round(self.ids['stim_ill_slider'].value)
         gui_logger.slider(f'STIM_ILL_{self.layer}', illumination)
-        settings[self.layer]['stim_config']['illumination_ma'] = illumination
+        _app_ctx.ctx.update_settings(f'{self.layer}.stim_config.illumination_ma', illumination)
         new_text = str(illumination)
         if self.ids['stim_ill_text'].text != new_text:
             self.ids['stim_ill_text'].text = new_text
@@ -588,11 +573,10 @@ class LayerControl(BoxLayout):
             self.apply_settings()
 
     def false_color(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.false_color()')
         enabled = bool(self.ids['false_color'].active)
         gui_logger.toggle(f'FALSE_COLOR_{self.layer}', enabled)
-        settings[self.layer]['false_color'] = enabled
+        _app_ctx.ctx.update_settings(f'{self.layer}.false_color', enabled)
         self.apply_settings()
 
     def log_histogram_scale(self) -> None:
@@ -648,11 +632,10 @@ class LayerControl(BoxLayout):
         self.update_stim_controls_visibility()
 
     def update_autofocus(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.update_autofocus()')
         enabled = bool(self.ids['autofocus'].active)
         gui_logger.toggle(f'AUTOFOCUS_ENABLED_{self.layer}', enabled)
-        settings[self.layer]['autofocus'] = enabled
+        _app_ctx.ctx.update_settings(f'{self.layer}.autofocus', enabled)
 
     def save_focus(self):
         gui_logger.button(f'SAVE_FOCUS_{self.layer}')

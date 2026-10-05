@@ -24,7 +24,6 @@ from lvp_logger import logger
 from modules import gui_logger
 from modules.config_helpers import get_manual_video_max_duration
 from modules.config_ui_getters import firmware_stim_supported
-from modules.tiling_config import TilingConfig
 from ui.ui_helpers import run_reported, submit_reported, typed_number
 
 
@@ -68,7 +67,7 @@ class AdvancedSettings(Popup):
         self.conversion_gain_supported = caps.camera_supports_conversion_gain_mode
         self.line_noise_reduction_supported = caps.camera_supports_line_noise_reduction
         self.xy_stage_supported = caps.has_xy_stage
-        camera_settings = settings.setdefault('camera', {})
+        camera_settings = settings['camera']
         self.ids['high_conversion_gain'].active = bool(
             self.conversion_gain_supported and camera_settings.get('high_conversion_gain', False)
         )
@@ -161,77 +160,57 @@ class AdvancedSettings(Popup):
         # 0 = no limit: the recording rate is then bounded only by
         # exposure and the delivery constant; non-zero is the user's
         # explicit cap on the recording cadence.
-        settings = _app_ctx.ctx.settings
         widget = self.ids['video_max_fps_input']
-        try:
-            value = int(widget.text)
-        except (ValueError, TypeError):
-            value = -1
-        if value < 0 or value > 200:
-            from modules.notification_center import notifications
-
-            notifications.warning(
-                'Settings',
-                'Invalid FPS limit',
-                'Video max FPS must be between 0 and 200 (0 = no limit). '
-                'Reverting to previous value.',
-            )
-            settings.setdefault('video', {})
-            restored = str(settings['video'].get('max_fps', 0))
-            # A refused entry is still a user action, and the revert below
-            # would otherwise leave no trace that it happened. Both halves are
-            # recorded -- what was typed, and what the box was put back to --
-            # so the pair says what the user asked for and what the app did
-            # instead. Assigning .text does not dispatch the focus event this
-            # handler is bound to, so the revert cannot come back as a record.
-            gui_logger.text_input('VIDEO_MAX_FPS', widget.text)
-            gui_logger.text_input('VIDEO_MAX_FPS_APPLIED', restored)
-            widget.text = restored
-            return
-        settings.setdefault('video', {})
-        settings['video']['max_fps'] = value
-        gui_logger.text_input('VIDEO_MAX_FPS', value)
+        gui_logger.text_input('VIDEO_MAX_FPS', widget.text)
+        if self._commit_video_limit(
+            widget, 'video.max_fps', lambda settings: settings['video']['max_fps'], 'VIDEO_MAX_FPS'
+        ):
+            gui_logger.text_input('VIDEO_MAX_FPS_APPLIED', widget.text)
 
     def update_video_max_duration(self):
         # Bounds the recording's frame budget (fps * duration); the
         # record start's disk floor check guards feasibility.
-        settings = _app_ctx.ctx.settings
         widget = self.ids['video_max_duration_input']
-        try:
-            value = int(widget.text)
-        except (ValueError, TypeError):
-            value = 0
-        if value < 1 or value > 3600:
-            from modules.notification_center import notifications
+        gui_logger.text_input('VIDEO_MAX_DURATION_S', widget.text)
+        if self._commit_video_limit(
+            widget,
+            'video.max_duration_seconds',
+            get_manual_video_max_duration,
+            'VIDEO_MAX_DURATION_S',
+        ):
+            gui_logger.text_input('VIDEO_MAX_DURATION_S_APPLIED', widget.text)
 
-            notifications.warning(
-                'Settings',
-                'Invalid time limit',
-                'Video Time Limit must be between 1 and 3600 seconds. Reverting to previous value.',
-            )
-            settings.setdefault('video', {})
-            restored = str(get_manual_video_max_duration(settings))
-            # The twin of the FPS limit above, and the same reasoning: the
-            # attempt and the reverted value are both recorded.
-            gui_logger.text_input('VIDEO_MAX_DURATION_S', widget.text)
-            gui_logger.text_input('VIDEO_MAX_DURATION_S_APPLIED', restored)
-            widget.text = restored
-            return
-        settings.setdefault('video', {})
-        settings['video']['max_duration_seconds'] = value
-        gui_logger.text_input('VIDEO_MAX_DURATION_S', value)
+    @staticmethod
+    def _commit_video_limit(widget, path: str, stored, label: str) -> bool:
+        """Hand a typed video limit to the settings writer; True when the box went back.
+
+        The writer owns the limit's range and refuses a value outside it; the
+        box then shows what is stored. A refused or unparseable entry is still
+        a user action, and the box going back would otherwise leave no trace
+        of it, so the caller records what the box shows as well as what was
+        typed. Assigning .text does not dispatch the focus event the handlers
+        are bound to, so the redraw cannot come back as a record.
+        """
+        ctx = _app_ctx.ctx
+        typed = widget.text
+
+        def show_stored():
+            widget.text = str(stored(ctx.settings))
+
+        value = typed_number(typed, int, show_stored)
+        if value is not None:
+            run_reported(lambda: ctx.update_settings(path, value), show_stored, label)
+        return widget.text != typed
 
     def update_video_timestamp_overlay(self):
-        settings = _app_ctx.ctx.settings
         state = self.ids['video_timestamp_overlay_id'].active
         gui_logger.toggle('VIDEO_TIMESTAMP_OVERLAY', state)
-        settings.setdefault('video', {})['timestamp_overlay'] = state
+        _app_ctx.ctx.update_settings('video.timestamp_overlay', state)
 
     def update_separate_folders_per_channel(self):
-        settings = _app_ctx.ctx.settings
         state = self.ids['separate_folder_per_channel_id'].state == 'down'
         gui_logger.toggle('SEPARATE_FOLDERS', state)
-        settings['separate_folder_per_channel'] = state
+        _app_ctx.ctx.update_settings('separate_folder_per_channel', state)
 
     def live_view_fps_slider(self):
         ctx = _app_ctx.ctx
@@ -253,16 +232,14 @@ class AdvancedSettings(Popup):
             scope_display.start(fps=fps_val)
 
     def update_protocol_led_on(self):
-        settings = _app_ctx.ctx.settings
         enabled = self.ids['protocol_led_on_btn'].state == 'down'
         gui_logger.toggle('PROTOCOL_LED_ON', enabled)
-        settings['protocol_led_on'] = enabled
+        _app_ctx.ctx.update_settings('protocol_led_on', enabled)
 
     def update_keep_led_between_steps(self):
-        settings = _app_ctx.ctx.settings
         enabled = self.ids['keep_led_between_steps_btn'].state == 'down'
         gui_logger.toggle('KEEP_LED_BETWEEN_STEPS', enabled)
-        settings['keep_led_between_steps'] = enabled
+        _app_ctx.ctx.update_settings('keep_led_between_steps', enabled)
 
     def update_stimulation_settings(self):
         ctx = _app_ctx.ctx
@@ -275,21 +252,23 @@ class AdvancedSettings(Popup):
 
     def update_tiling_overlap(self):
         ctx = _app_ctx.ctx
-        overlap = TilingConfig.validate_overlap_percent(
-            self.ids['tiling_overlap_spinner'].text.strip().rstrip('%')
-        )
+        overlap = float(self.ids['tiling_overlap_spinner'].text.strip().rstrip('%'))
         # on_open populates the spinner with the stored value; that programmatic
         # write is not a user change, so skip the action log and redundant write.
         if overlap == ctx.settings['tiling_overlap_percent']:
             return
         gui_logger.select('TILING_OVERLAP', overlap)
-        ctx.settings['tiling_overlap_percent'] = overlap
+        run_reported(
+            lambda: ctx.update_settings('tiling_overlap_percent', overlap),
+            None,
+            'TILING_OVERLAP',
+        )
 
     def update_show_step_locations(self):
         ctx = _app_ctx.ctx
         enabled = bool(self.ids['show_step_locations_id'].active)
         gui_logger.toggle('SHOW_STEP_LOCATIONS', enabled)
-        ctx.settings['show_step_locations'] = enabled
+        ctx.update_settings('show_step_locations', enabled)
         ctx.stage.show_protocol_steps(enable=enabled)
 
     def load_scopes(self):

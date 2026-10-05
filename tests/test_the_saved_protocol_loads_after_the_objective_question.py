@@ -180,6 +180,7 @@ class TestAnEmptyPathIsNoSavedProtocol:
 
         import modules.app_context as _app_ctx
         from modules.exceptions import ProtocolNotLoadedError
+        from tests.settings_fixtures import settings_writer
         from ui.protocol_settings import ProtocolSettings
 
         empty = object()
@@ -188,7 +189,9 @@ class TestAnEmptyPathIsNoSavedProtocol:
             _app_ctx,
             'ctx',
             SimpleNamespace(
-                settings=settings, session=SimpleNamespace(create_empty_protocol=lambda: empty)
+                settings=settings,
+                update_settings=settings_writer(settings),
+                session=SimpleNamespace(create_empty_protocol=lambda: empty),
             ),
         )
         loads = []
@@ -229,7 +232,7 @@ class TestARefusedStartupLoadKeepsThePath:
             'the loader clears the remembered path without asking whether the '
             'file is still there, so a refusal reads as a missing protocol'
         )
-        cleared = src.count("settings['protocol']['filepath'] = ''")
+        cleared = src.count("update_settings('protocol.filepath', '')")
         assert cleared == 1, (
             f'the path is cleared on {cleared} branches; only the absent-file branch may clear it'
         )

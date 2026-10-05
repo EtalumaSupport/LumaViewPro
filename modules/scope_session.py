@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Any
 import modules.app_context as _app_ctx
 import modules.settings_init as settings_init
 from lvp_logger import logger
-from modules import binning, common_utils, image_mode
+from modules import binning, common_utils, image_mode, settings_paths
 from modules.activity_claim import SCOPE_HOLDING_KINDS, ActivityClaim, HeldClaim, acting
 from modules.common_utils import CustomJSONizer
 from modules.exceptions import (
@@ -1768,43 +1768,52 @@ class ScopeSession:
         with self.settings_lock:
             return copy.deepcopy(self.settings)
 
-    def update_settings(self, key: str, value: object) -> None:
-        """Write one top-level settings key under the lock.
+    def update_settings(self, path: str, value: object) -> None:
+        """Write one setting, named by its dotted path: ``'video.max_fps'``, ``'BF.sum'``.
 
-        The write path for any caller that is not on the host's own
-        thread. Reads may go straight to `settings`; a write that skips
-        this can tear a snapshot being taken concurrently.
+        The one write to the live settings for any caller, on any thread.
+        Reads take ``get_settings_snapshot``; a write that skips this can
+        tear a snapshot being taken concurrently, and takes none of the
+        checks below.
 
-        A ``'protocol'`` block names the selected plate, which every plate
-        position is converted through, so its plate is held to the rule
-        ``select_labware`` holds: the catalogue must have it, and it is
-        stored under the catalogue's spelling.
-
-        Its period (minutes) and duration (hours) are the default a new
-        protocol starts from, held to the protocol's own range.
+        A setting that has its own member -- the objective, the plate, the
+        image mode, a layer's acquire mode or focus, ... -- is changed only
+        through that member, which checks it against the scope or changes
+        another setting with it; the refusal names the member. A block
+        (``'video'``) is not written whole: each of its settings has a path.
 
         Raises:
-            ConfigError: A ``'protocol'`` value that is not a mapping, or
-                that names a plate the catalogue does not have. Nothing is
+            SettingRefusedError: ``path`` is owned by a Session member
+                (named), is not a setting, or names a block; or ``value`` is
+                not the setting's kind or is outside its range. Nothing is
                 written.
-            ProtocolScheduleRefusedError: Its period or duration is one no
-                protocol can run. Nothing is written.
+            ConfigError: these settings were never prepared from the
+                template and lack the block the path is in. Nothing is
+                written.
+            ProtocolScheduleRefusedError: a ``protocol.period`` or
+                ``protocol.duration`` no protocol can run. Nothing is
+                written.
         """
-        if key == 'protocol':
-            if not isinstance(value, dict):
-                raise ConfigError(
-                    f'the protocol settings must be a mapping, got {type(value).__name__}'
-                )
-            from modules.protocol import schedule_from_units
-
-            for time_key in ('period', 'duration'):
-                schedule_from_units(time_key, value.get(time_key))
-            value = {
-                **value,
-                'labware': self.wellplate_loader.resolve_plate_key(value.get('labware')),
-            }
+        settings_paths.check_write(self.scope.settings_template, path, value)
         with self.settings_lock:
-            self.settings[key] = value
+            self._store_setting(path, value)
+
+    def _store_setting(self, path: str, value: object) -> None:
+        """Under ``settings_lock``: put ``value`` at ``path`` in the live settings.
+
+        The Session's own members write their settings through this,
+        past ``update_settings``' refusal of the settings they own.
+        """
+        *blocks, leaf = path.split('.')
+        holder = self.settings
+        for block in blocks:
+            if not isinstance(holder.get(block), dict):
+                raise ConfigError(
+                    f'these settings have no {block!r} block for {path}: they were '
+                    'not prepared from the template'
+                )
+            holder = holder[block]
+        holder[leaf] = value
 
     def select_model(self, model: str) -> None:
         """Save the operator's scope model for the next start.
@@ -1827,7 +1836,8 @@ class ScopeSession:
         scope_models = self.scope.scope_models
         if model not in scope_models:
             raise ScopeModelUnknownError(model, scope_models)
-        self.update_settings('microscope', model)
+        with self.settings_lock:
+            self._store_setting('microscope', model)
         logger.info(f'[Session  ] scope model {model!r} saved; it applies at the next start')
 
     @property
@@ -1908,7 +1918,8 @@ class ScopeSession:
         detected = self.scope.diagnostics.get_microscope_model()
         stored = self.settings.get('microscope')
         if detected is not None and detected in scope_models and detected != stored:
-            self.update_settings('microscope', detected)
+            with self.settings_lock:
+                self._store_setting('microscope', detected)
             logger.info(
                 f'[Session  ] scope reports model {detected}; settings said {stored!r} '
                 '-- the hardware wins'

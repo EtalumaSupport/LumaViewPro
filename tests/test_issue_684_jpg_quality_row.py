@@ -65,4 +65,4 @@ def test_handler_no_longer_toggles_disabled_imperatively():
     assert 'jpg_quality_slider' not in handler
     assert '.disabled' not in handler
     # The handler still records the chosen format.
-    assert "settings['image_output_format']['live'] = fmt" in handler
+    assert "update_settings('image_output_format.live', fmt)" in handler

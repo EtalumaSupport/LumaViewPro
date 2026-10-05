@@ -238,9 +238,15 @@ class Lumascope:
         # but the identity resolved after the lanes start needs it: asked
         # here, a broken one refuses before anything is started.
         layer_record.release_catalogue()
-        return read_installation_file(
+        motorconfig_defaults = read_installation_file(
             resolve_data_file('motorconfig_defaults.json', source_path=source_path)
         )
+        # What every setting is: the shipped template, which the Session's
+        # settings writer checks a path and a value's kind against.
+        self.settings_template = read_installation_file(
+            resolve_data_file('settings.json', source_path=source_path)
+        )
+        return motorconfig_defaults
 
     def _init_minimal(self, simulated: bool, ui_dispatcher=None) -> None:
         """Shared init for state slots both __init__ and create_diagnostic need.

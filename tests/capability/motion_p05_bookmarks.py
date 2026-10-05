@@ -11,8 +11,6 @@ where does the stored value live?
 
 from harness import check, run
 
-LAYERS = ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi')
-
 
 def body(s):
     m = s.scope.motion
@@ -48,7 +46,8 @@ def body(s):
     m.move_absolute('Y', 30.0, frame='plate', wait_until_complete=True)
     here = s.get_current_plate_position()
     saved = {'x': here['x'], 'y': here['y'], 'z': m.get_current_position('Z')}
-    s.update_settings('bookmark', saved)
+    for axis, value in saved.items():
+        s.update_settings(f'bookmark.{axis}', value)
     check(
         'a script can WRITE the bookmark through update_settings',
         s.get_settings_snapshot()['bookmark'] == saved,
@@ -73,16 +72,16 @@ def body(s):
     )
 
     # 5. "Set ALL bookmarks" also stamps every layer's focus
+    # A layer's focus is saved by save_focus, the one focus writer, from the live Z.
     z = m.get_current_position('Z')
-    snap = s.get_settings_snapshot()
-    for layer in LAYERS:
-        cfg = dict(snap[layer])
-        cfg['focus'] = z
-        s.update_settings(layer, cfg)
+    protocol = s.create_empty_protocol()
+    on_scope = [record.key_name for record in s.scope.layer_identity.layers]
+    for layer in on_scope:
+        s.save_focus(protocol, layer)
     after = s.get_settings_snapshot()
     check(
         'a script can stamp every layer focus (the Set-All half)',
-        all(abs(after[layer]['focus'] - z) < 1e-6 for layer in LAYERS),
+        all(abs(after[layer]['focus'] - z) < 1e-6 for layer in on_scope),
         f'focus={z}',
     )
 

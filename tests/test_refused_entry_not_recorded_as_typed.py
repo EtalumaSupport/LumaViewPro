@@ -46,10 +46,16 @@ def _advanced_panel(monkeypatch, widget_id, widget, stored):
     """A stand-in AdvancedSettings carrying just what these handlers touch."""
     from ui import advanced_settings
 
+    from tests.settings_fixtures import settings_writer
+
     class _Panel:
         ids: ClassVar[dict] = {widget_id: widget}
+        _commit_video_limit = staticmethod(advanced_settings.AdvancedSettings._commit_video_limit)
 
-    monkeypatch.setattr(advanced_settings._app_ctx, 'ctx', type('C', (), {'settings': stored})())
+    context = type(
+        'C', (), {'settings': stored, 'update_settings': staticmethod(settings_writer(stored))}
+    )()
+    monkeypatch.setattr(advanced_settings._app_ctx, 'ctx', context)
     return _Panel()
 
 
