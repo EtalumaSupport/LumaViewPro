@@ -1527,20 +1527,6 @@ class SequencedCaptureRunner:
         executors leave protocol-mode.
         """
         logger.error(f'[{self.LOGGER_NAME} ] Run failed during start: {exc}', exc_info=True)
-        run_dir = self._run_dir
-        if run_dir is not None:
-            # A just-created EMPTY directory is noise from a run that never
-            # produced anything and is removed; a non-empty one holds
-            # forensic evidence of a real failed run and is kept, like any
-            # mid-run abort's.
-            try:
-                run_dir.rmdir()
-            except OSError as rm_ex:
-                logger.debug(f'[{self.LOGGER_NAME} ] Failed-start run dir kept: {rm_ex}')
-        # A failed start has no usable run directory; answering with the
-        # (possibly just-deleted) path would send callers' started-run
-        # follow-ups (last-save-folder shortcuts) to a dead location.
-        self._run_dir = None
         if isinstance(exc, RunStartError):
             ending = RunEnding('failed_at_start', exc.reason, exc.title, exc.message)
         else:
@@ -1554,11 +1540,7 @@ class SequencedCaptureRunner:
                 'The run could not start. See the log for details.',
             )
         self._ending.set_if_unset(ending)
-        # Waits for a late pass holding the cleanup lock rather than
-        # skipping: this run's loop never ran, so no other pass will ever
-        # unwind it, and a skipped unwind leaves its claim held, its caller
-        # unanswered and the runner live until restart.
-        self._cleanup(ending, run, wait=True)
+        self._unwind_undispatched_run(ending, run)
         # Notify AFTER cleanup: on an unattended run start() enabled the popup
         # suppression, which drops this non-fatal error until cleanup's
         # set_unattended_run(False) restores popups.
@@ -1569,6 +1551,29 @@ class SequencedCaptureRunner:
             solicited=False,
             category='Protocol',
         )
+
+    def _unwind_undispatched_run(self, ending: RunEnding, run: PendingRunOutcome) -> None:
+        """Unwind a run whose loop was never dispatched, on start()'s thread."""
+        run_dir = self._run_dir
+        if run_dir is not None:
+            # A just-created EMPTY directory is noise from a run that never
+            # produced anything and is removed; a non-empty one holds
+            # forensic evidence of a real failed run and is kept, like any
+            # mid-run abort's.
+            try:
+                run_dir.rmdir()
+            except OSError as rm_ex:
+                logger.debug(f'[{self.LOGGER_NAME} ] Failed-start run dir kept: {rm_ex}')
+        # A run that never started has no usable run directory; answering
+        # with the (possibly just-deleted) path would send callers'
+        # started-run follow-ups (last-save-folder shortcuts) to a dead
+        # location.
+        self._run_dir = None
+        # Waits for a late pass holding the cleanup lock rather than
+        # skipping: this run's loop never ran, so no other pass will ever
+        # unwind it, and a skipped unwind leaves its claim held, its caller
+        # unanswered and the runner live until restart.
+        self._cleanup(ending, run, wait=True)
 
     def abort_run_fatal(self, reason: str, title: str, message: str) -> None:
         """End the run now: abort, mark it dark, record the cause, darken.

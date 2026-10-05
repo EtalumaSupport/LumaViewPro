@@ -313,6 +313,9 @@ class TestAStartFailureCarriesItsCause:
             _cleanup=lambda ending, run, wait=False: cleaned.append((ending, wait)),
             LOGGER_NAME='TEST',
         )
+        stub._unwind_undispatched_run = lambda ending, run: (
+            scr.SequencedCaptureRunner._unwind_undispatched_run(stub, ending, run)
+        )
         scr.SequencedCaptureRunner._fail_run_at_start(
             stub,
             RunStartError('capture_location_unusable', 'Run failed to start', 'Pick a folder.'),
@@ -333,7 +336,7 @@ class TestAStartFailureCarriesItsCause:
         stub = SimpleNamespace(
             _run_dir=None,
             _ending=EndingLatch(),
-            _cleanup=lambda e, run, wait=False: None,
+            _unwind_undispatched_run=lambda ending, run: None,
             LOGGER_NAME='TEST',
         )
         scr.SequencedCaptureRunner._fail_run_at_start(
