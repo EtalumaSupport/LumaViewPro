@@ -14,7 +14,9 @@ the change removed fails by construction.
 Verdicts per hunk:
     RED        a test that passed at the tip does not pass with the hunk
                reverted alone, or a test file no longer collects
-    GREEN      every observing test still passes: the hunk is unpinned
+    GREEN      every observing test still passes: the hunk is unpinned. A red
+               that only a sibling hunk's absence produces (a hand revert's
+               TypeError against a member the range re-signatured) is not a pin
     NEUTRAL    the module's syntax tree, docstrings stripped, is the same
                with and without the hunk; not run, no pin required
     NOT-OBSERVED  a behavioural hunk in a range no test observes
@@ -60,6 +62,13 @@ from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 
 PRODUCTION_PACKAGES = ('modules', 'ui', 'drivers', 'tools')
+
+GREEN_MEANING = (
+    'GREEN means no observing test fails with the hunk reverted alone. A red that only a'
+    " sibling hunk's absence produces (a hand revert's TypeError against a member this"
+    ' range re-signatured or renamed) is not a pin: pin the behaviour, or write the'
+    ' decision not to in the commit body.'
+)
 
 EXIT_PINNED = 0
 EXIT_UNPINNED = 1
@@ -607,6 +616,7 @@ def _confirm(worktree: Worktree, base: str, report: Report, workers: str, starte
     )
     report.line(f'total {time.monotonic() - started:.1f} s')
     if counts['GREEN']:
+        report.line(GREEN_MEANING)
         report.line('result: UNPINNED (exit 1)')
         return EXIT_UNPINNED
     report.line('result: PINNED (exit 0)')

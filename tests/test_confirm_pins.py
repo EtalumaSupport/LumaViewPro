@@ -460,6 +460,7 @@ def test_end_to_end_one_hunk_per_kind_through_git_and_pytest(tmp_path):
     assert by_file['modules/moved_from.py'].startswith('GREEN  2 tests passed')
     assert by_file['modules/moved_to.py'].startswith('GREEN  2 tests passed')
     assert 'RED 2  GREEN 4  NEUTRAL 1  (behavioural 6)' in lines
+    assert cp.GREEN_MEANING in lines
     assert lines[-1] == 'result: UNPINNED (exit 1)'
     # The ids reach pytest through a file, never argv: 9985 of them overflowed it.
     ids = (tmp_path / 'scratch' / 'observing_at_tip.ids').read_text().splitlines()
