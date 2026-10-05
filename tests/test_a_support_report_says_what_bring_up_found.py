@@ -102,3 +102,19 @@ def test_a_host_with_no_plugins_says_so(session, tmp_path):
         'plugins': None,
         'why': 'no plugin registry on this host',
     }
+
+
+def test_a_full_report_on_the_simulator_is_saved_with_both_files(session, tmp_path, monkeypatch):
+    # The whole report, every step, as the panel's button makes it: a step
+    # that raises out of the report (not into it) costs the ZIP. The host's
+    # USB inventory lists this machine's real serial ports, which no test
+    # may touch; it is the one host read stood in for.
+    from modules import tech_support_report
+
+    monkeypatch.setattr(tech_support_report, '_collect_usb_devices', lambda: [])
+    saved = session.make_support_report(output_dir=tmp_path / 'out')
+    assert saved.title == 'Support Report Saved'
+    with zipfile.ZipFile(saved.path) as zf:
+        names = zf.namelist()
+    assert {'bring_up.json', 'plugins.json'} <= set(names)
+    assert not [name for name in names if name.endswith('_ERROR.txt')]

@@ -111,3 +111,16 @@ def test_the_gui_neither_builds_nor_words_a_report(words):
         if words in path.read_text(encoding='utf-8')
     ]
     assert hits == []
+
+
+def test_the_diagnostics_executor_is_reported_and_stopped_with_the_bundle(tmp_path):
+    from modules.scope_session import ScopeSession
+    from tests.settings_fixtures import complete_settings
+
+    session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+    bundle = session.executor_bundle
+    try:
+        assert 'DIAGNOSTICS' in bundle.snapshot()
+    finally:
+        session.shutdown()
+    assert bundle.diagnostics_executor.pending_shutdown
