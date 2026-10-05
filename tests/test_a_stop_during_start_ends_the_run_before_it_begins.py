@@ -14,6 +14,7 @@ is made (the run's claim is still needed by the setup after it) and just
 before the lanes enter run mode (the setup after it re-enters run mode).
 """
 
+import threading
 import time
 
 import pytest
@@ -113,3 +114,45 @@ def test_a_stop_during_setup_ends_the_run_stopped_with_nothing_left_set_up(
     assert executor._activity_claim.holder is None, 'the scope is still held'
     told = [n.title for n in centre_posts if n.title == 'Run failed to start']
     assert told == [], 'a person who pressed Stop was told the run failed to start'
+
+
+def test_a_shutdown_during_a_later_runs_setup_leaves_the_unwind_to_start(
+    executor, tmp_path, monkeypatch
+):
+    """force_reset unwinds on its own thread only a run whose loop ended
+    without unwinding it. During the setup of a run that follows another,
+    the loop it finds must be this run's (none yet), never the previous
+    run's finished one, or the shutdown tears the run down mid-setup."""
+    first = _start_run(executor, tmp_path / 'first')
+    assert first.wait(timeout_s=COMPLETION_TIMEOUT) is not None
+    assert executor.wait_for_run_idle(COMPLETION_TIMEOUT)
+    assert executor.write_batch().wait_complete(COMPLETION_TIMEOUT)
+
+    teardowns = []
+    teardown = executor._cleanup_inner
+
+    def counted(ending, run):
+        teardowns.append(threading.current_thread().name)
+        return teardown(ending, run)
+
+    monkeypatch.setattr(executor, '_cleanup_inner', counted)
+    lane = executor.camera_executor
+    protocol_start = lane.protocol_start
+
+    def shutdown_then_protocol_start(*args, **kwargs):
+        executor.force_reset(reason='app shutdown')
+        return protocol_start(*args, **kwargs)
+
+    monkeypatch.setattr(lane, 'protocol_start', shutdown_then_protocol_start)
+
+    second = _start_run(executor, tmp_path / 'second')
+    outcome = second.wait(timeout_s=COMPLETION_TIMEOUT)
+
+    assert outcome is not None
+    assert (outcome.status, outcome.reason) == ('aborted', 'force_reset')
+    assert teardowns == [threading.current_thread().name], (
+        f'the run was torn down {len(teardowns)} times, on {teardowns}; only '
+        'start() on this thread may unwind a run it is still setting up'
+    )
+    assert not executor.camera_executor.is_protocol_running(), 'the camera lane is left in run mode'
+    assert executor._activity_claim.holder is None, 'the scope is still held'
