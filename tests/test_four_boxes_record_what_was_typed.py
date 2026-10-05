@@ -174,8 +174,8 @@ class TestATypedZCommitIsNotADrag:
         assert 'root.set_position(self.value)' in kv, 'the Z slider lost its binding'
 
 
-class TestTheAccelerationBoxReportsTheAttemptAndTheClamp:
-    """T4: the typed text, then the clamp -- and the clamp only when it moved."""
+class TestTheAccelerationBoxReportsTheAttempt:
+    """T4: the typed text, handed on as typed; the motion API owns the range."""
 
     @pytest.fixture
     def emitted(self, monkeypatch):
@@ -216,17 +216,34 @@ class TestTheAccelerationBoxReportsTheAttemptAndTheClamp:
         )
         assert applied == [40]
 
-    def test_an_out_of_range_entry_reports_what_was_typed_and_what_took_effect(self, emitted):
+    def test_an_out_of_range_entry_reaches_the_session_as_typed(self, emitted):
+        """The box does not clamp: the API refuses, and the refusal is shown."""
         from ui.advanced_settings import AdvancedSettings
 
         panel, applied = self._panel('5000')
         AdvancedSettings.acceleration_pct_text(panel)
 
-        assert ('ACCELERATION', '5000') in emitted, (
-            f'the attempt is gone; the bundle would claim the user typed 100: {emitted}'
+        assert emitted == [('ACCELERATION', '5000')], emitted
+        assert applied == [5000]
+
+    def test_the_redraw_shows_the_stored_limit_in_the_slider_and_the_box(self, monkeypatch):
+        """After a refusal the slider has not moved, so its kv binding would
+        not reset the box; the redraw sets both from the store."""
+        from types import SimpleNamespace
+
+        import modules.app_context as _app_ctx
+        from ui.advanced_settings import AdvancedSettings
+
+        monkeypatch.setattr(
+            _app_ctx,
+            'ctx',
+            SimpleNamespace(settings={'motion': {'acceleration_max_pct': 60}}),
         )
-        assert ('ACCELERATION_APPLIED', '100') in emitted, f'the clamp went unreported: {emitted}'
-        assert applied == [100]
+        panel, _ = self._panel('5000')
+        AdvancedSettings._show_stored_acceleration_limit(panel)
+
+        assert panel.ids['acceleration_pct_slider'].value == 60
+        assert panel.ids['acceleration_pct_text'].text == '60'
 
     @pytest.mark.parametrize('typed', ['', '-', 'abc'])
     def test_an_unparseable_entry_puts_the_box_back_and_reports_both(self, emitted, typed):

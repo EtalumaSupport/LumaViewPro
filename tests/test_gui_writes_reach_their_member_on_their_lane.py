@@ -198,7 +198,9 @@ def test_the_acceleration_limit_is_written_on_the_io_lane(ctx, boundary, monkeyp
     import ui.advanced_settings as advanced_settings
 
     monkeypatch.setattr(advanced_settings, 'submit_reported', boundary.submit_reported)
-    widget = SimpleNamespace(_pending_acceleration_pct=40)
+    widget = SimpleNamespace(
+        _pending_acceleration_pct=40, _show_stored_acceleration_limit=lambda: None
+    )
     # The Session member commands the motors and stores what they took.
     ctx.session.set_acceleration_limit = MagicMock()
 
@@ -206,6 +208,8 @@ def test_the_acceleration_limit_is_written_on_the_io_lane(ctx, boundary, monkeyp
 
     (submit,) = boundary.submits
     assert submit.lane is ctx.io_executor
+    # The redraw shows the stored limit, so a refused entry does not stay in the box.
+    assert submit.redraw is widget._show_stored_acceleration_limit
     ctx.session.set_acceleration_limit.assert_called_once_with(40)
 
 

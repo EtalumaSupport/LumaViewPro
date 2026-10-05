@@ -318,8 +318,6 @@ class AdvancedSettings(Popup):
         self.set_acceleration_limit(val_pct=acc_val)
 
     def acceleration_pct_text(self):
-        acc_min = self.ids['acceleration_pct_slider'].min
-        acc_max = self.ids['acceleration_pct_slider'].max
         typed = self.ids['acceleration_pct_text'].text
         # Before the parse: the twin slider emits SLIDER ACCELERATION, so
         # without a line of its own a typed limit showed up in the bundle as
@@ -329,22 +327,25 @@ class AdvancedSettings(Popup):
         if acc_val is None:
             gui_logger.text_input('ACCELERATION_APPLIED', self.ids['acceleration_pct_text'].text)
             return
-
-        # The slider's [min, max] is the valid domain for the typed value. A
-        # Kivy input_filter can't enforce a minimum on partial input (typing
-        # "10" must allow the intermediate "1"), so clamp the validated value.
-        clamped = int(max(acc_min, min(acc_max, acc_val)))
-        # Only when the clamp moved it, and on the PARSED numbers: a box that
-        # already held the value reports no correction.
-        if clamped != acc_val:
-            gui_logger.text_input('ACCELERATION_APPLIED', clamped)
-        self.ids['acceleration_pct_slider'].value = clamped
-        self.ids['acceleration_pct_text'].text = str(clamped)
-        self.set_acceleration_limit(val_pct=clamped)
+        # As typed: the motion API owns the range and refuses outside it; the
+        # redraw then shows the limit that is stored.
+        self.set_acceleration_limit(val_pct=acc_val)
 
     def _show_acceleration_limit(self):
         """Show the box the limit its slider holds, as its kv binding does."""
         self.ids['acceleration_pct_text'].text = format(self.ids['acceleration_pct_slider'].value)
+
+    def _show_stored_acceleration_limit(self):
+        """Show the slider and the box the stored limit, taken or refused.
+
+        The box is set as well as the slider: a refused entry leaves the
+        slider where it was, so its kv binding would not fire and the box
+        would keep the number the API refused.
+        """
+        self.ids['acceleration_pct_slider'].value = _app_ctx.ctx.settings['motion'][
+            'acceleration_max_pct'
+        ]
+        self._show_acceleration_limit()
 
     _ACCELERATION_DEBOUNCE_S = 0.10
     _acceleration_dispatch_trigger = None
@@ -387,7 +388,7 @@ class AdvancedSettings(Popup):
         session = ctx.session
         submit_reported(
             lambda: session.set_acceleration_limit(val_pct),
-            None,
+            self._show_stored_acceleration_limit,
             'ACCELERATION_LIMIT',
             lane=ctx.io_executor,
         )
