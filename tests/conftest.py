@@ -593,6 +593,12 @@ def pytest_addoption(parser):
         help='Run FX2 hardware tests (pyusb/libusb1 + connected LS620/LS560)',
     )
     _safe(
+        '--run-tmcm6110-hardware',
+        action='store_true',
+        default=False,
+        help="Run TMCM-6110 hardware tests (the LS720's stage controller on USB)",
+    )
+    _safe(
         '--run-timing-sensitive',
         action='store_true',
         default=False,
@@ -635,6 +641,11 @@ def pytest_configure(config):
         'markers',
         'fx2_hardware: requires pyusb/libusb1 + connected FX2 scope '
         '(only runs with --run-fx2-hardware)',
+    )
+    config.addinivalue_line(
+        'markers',
+        "tmcm6110_hardware: requires the LS720's TMCM-6110 on USB "
+        '(only runs with --run-tmcm6110-hardware)',
     )
     config.addinivalue_line(
         'markers',
@@ -750,6 +761,7 @@ def pytest_collection_modifyitems(config, items):
         ('ids_hardware', '--run-ids-hardware'),
         ('pylon_hardware', '--run-pylon-hardware'),
         ('fx2_hardware', '--run-fx2-hardware'),
+        ('tmcm6110_hardware', '--run-tmcm6110-hardware'),
         ('timing_sensitive', '--run-timing-sensitive'),
     ]
     for marker, flag in gates:
