@@ -27,6 +27,7 @@ from modules.exceptions import (
 )
 from modules.image_save import save_image
 from modules.lumascope_api.imaging import capture_failure_cause
+from modules.recording_frames import frame_fact
 
 logger = logging.getLogger('LVP.modules.manual_capture')
 
@@ -260,6 +261,14 @@ class ManualCaptureController:
         # else the per-frame delivery stamp), taken now, before any later grab
         # can change what the camera reports.
         significant_bits = scope.imaging.capture_frame_depth(array)
+        # Where the stage was, read beside the grab with the reader a
+        # recording uses for every frame: an axis without its reference
+        # answers no position, and the file then states none for it.
+        fact = frame_fact(
+            scope,
+            channel_tiebreak=request.layer,
+            to_plate=scope.runtime_state.plate_transform(),
+        )
 
         raw_path = save_image(
             scope,
@@ -274,6 +283,9 @@ class ManualCaptureController:
             output_format=capture_config.output_format_live,
             jpeg_quality=capture_config.jpg_quality,
             save_encoding=capture_config.save_encoding,
+            plate_x_mm=fact.plate_x_mm,
+            plate_y_mm=fact.plate_y_mm,
+            stage_z_um=fact.z_um,
             objective_id=objective_id,
             frame_record=frame_record,
             labware=labware,
@@ -309,6 +321,9 @@ class ManualCaptureController:
                     output_format=capture_config.output_format_live,
                     jpeg_quality=capture_config.jpg_quality,
                     save_encoding=capture_config.save_encoding,
+                    plate_x_mm=fact.plate_x_mm,
+                    plate_y_mm=fact.plate_y_mm,
+                    stage_z_um=fact.z_um,
                     objective_id=objective_id,
                     frame_record=frame_record,
                     labware=labware,

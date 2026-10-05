@@ -1,11 +1,10 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A capture with no position records no position, rather than inventing one.
 
-Three of the four save_image callers pass no position at all: the manual live
-capture and both composite captures. They have nothing to pass -- a live
-capture is not a protocol step and has no planned coordinate. The metadata
-builder answered that by defaulting the missing value to zero and writing it,
-so every one of those files carried a plate coordinate that reads downstream
+A save_image caller can have no position to pass: an axis that has lost its
+reference, or a scope with no X and Y, knows no place. The metadata builder
+answered a missing position by defaulting it to zero and writing it, so every
+one of those files carried a plate coordinate that reads downstream
 exactly like a measured one. It is a real point on the plate, in a key whose
 siblings are all measurements.
 

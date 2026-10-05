@@ -553,6 +553,10 @@ folder (`live_folder/Manual`, per channel when `separate_folder_per_channel`),
 the name, summing, format and encoding come from the session's settings. It
 returns at once with a `concurrent.futures.Future` of the paths written, the
 unmarked file first; an overlay adds a second file from the same frame.
+Each file records where the stage was when the frame was grabbed: the plate
+position (`PositionX`, `PositionY`, mm) and Z (`PositionZ`, um), each absent
+when the scope did not know it (an axis that has lost its reference, or a
+scope with no X and Y).
 
 ```python
 paths = session.manual_capture.capture(

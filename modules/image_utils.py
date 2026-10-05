@@ -959,8 +959,8 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
     # Position, exposure, gain and illumination are the writer's optional
     # fields: the producer omits the key when the value was genuinely unknown
     # at capture (a failed camera read; an LED that was off, as on every dark
-    # or luminescence frame; a manual or composite capture, which has no
-    # planned coordinate to state). Mirror that here -- reconstruct them only
+    # or luminescence frame; an axis that had lost its reference, or a scope
+    # with no X and Y). Mirror that here -- reconstruct them only
     # when present -- so such a frame still forwards everything it DOES state
     # and no fabricated stand-in is invented on the way back out to a derived
     # output. Discarding the whole file over one absent field is the
@@ -2312,8 +2312,8 @@ def generate_tiff_data(
     # follows the same optional-fields contract as the exposure, gain and
     # illumination below it: a producer that has no position omits the keys,
     # and a stand-in written here would be measured off the file downstream
-    # as the place the capture was taken. A manual live capture and both
-    # composite captures are exactly that producer.
+    # as the place the capture was taken. A capture whose axis has lost its
+    # reference, or a scope with no X and Y, is exactly that producer.
     plane = {
         'Objective': metadata['objective'],
     }

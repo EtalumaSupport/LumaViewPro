@@ -48,6 +48,8 @@ def capture_ctx(tmp_path):
     # The objective the frame is taken with, read at capture.
     scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
     scope.illumination.get_led_states.return_value = {}
+    # No axis knows its position, so the files state none.
+    scope.motion.axis_positions.return_value = {}
     scope.imaging._capture_and_wait_impl.return_value = np.zeros((4, 4), dtype=np.uint8)
     scope.imaging.capture_frame_depth.return_value = 8
     scope.imaging.last_capture_info = {'frame_record': frame_record()}
