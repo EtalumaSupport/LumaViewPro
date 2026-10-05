@@ -803,11 +803,19 @@ class TestTheImageModeSelectorRendersTheApi:
 
         settings = {'image_output_format': {'live': 'TIFF', 'sequenced': 'TIFF'}}
         refreshed = []
+
+        def update_settings(path, value):
+            section, key = path.split('.')
+            settings[section][key] = value
+
         fn = _compile_ms_method(
             handler,
             {
-                '_app_ctx': SimpleNamespace(ctx=SimpleNamespace(settings=settings)),
+                '_app_ctx': SimpleNamespace(
+                    ctx=SimpleNamespace(settings=settings, update_settings=update_settings)
+                ),
                 'gui_logger': SimpleNamespace(select=lambda *a: None),
+                'run_reported': lambda fn, on_done, name: fn(),
             },
         )
         fn(

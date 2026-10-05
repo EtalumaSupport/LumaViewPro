@@ -55,7 +55,10 @@ def test_the_stored_format_is_not_logged_or_written(recorded, handler, spinner, 
 def test_a_picked_format_is_logged_and_written(recorded, handler, spinner, key):
     from ui.microscope_settings import MicroscopeSettings
 
-    panel = SimpleNamespace(ids={spinner: SimpleNamespace(text='JPG')})
+    # A pick also refreshes the JPG depth hint, which this test does not observe.
+    panel = SimpleNamespace(
+        ids={spinner: SimpleNamespace(text='JPG')}, _refresh_jpg_depth_hint=lambda: None
+    )
     getattr(MicroscopeSettings, handler)(panel)
 
     assert recorded == (['JPG'], [f'image_output_format.{key}'])
