@@ -115,13 +115,24 @@ class PluginSpec:
 
 @dataclass(frozen=True)
 class PluginStatus:
-    """Snapshot of a plugin's load state for health reports."""
+    """A loaded plugin, for health reports."""
 
     name: str
     version: str
     namespace: str
-    loaded: bool
-    error: str = ''
+
+
+@dataclass(frozen=True)
+class PluginNotLoaded:
+    """A plugin that did not load, and why.
+
+    It has no namespace: a plugin is filed under one only by registering,
+    which a plugin that never loaded did not do.
+    """
+
+    name: str
+    version: str
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -148,7 +159,6 @@ class NamespaceHealth:
 
     namespace: str
     loaded: tuple[PluginStatus, ...]
-    failed: tuple[PluginStatus, ...]
     last_runtime_errors: tuple[PluginRuntimeError, ...]
 
 
@@ -177,7 +187,6 @@ class _BaseNamespace:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._loaded: dict[str, PluginStatus] = {}
-        self._failed: list[PluginStatus] = []
         self._runtime_errors: list[PluginRuntimeError] = []
         self._handlers: dict[str, Any] = {}
 
@@ -186,20 +195,8 @@ class _BaseNamespace:
             name=spec.name,
             version=spec.version,
             namespace=self.NAMESPACE,
-            loaded=True,
         )
         self._loaded[spec.name] = status
-
-    def _record_failed(self, name: str, version: str, error: str) -> None:
-        self._failed.append(
-            PluginStatus(
-                name=name,
-                version=version,
-                namespace=self.NAMESPACE,
-                loaded=False,
-                error=error,
-            )
-        )
 
     def _record_runtime_error(
         self, plugin_name: str, hook: str, exc_type: str, message: str
@@ -219,7 +216,6 @@ class _BaseNamespace:
             return NamespaceHealth(
                 namespace=self.NAMESPACE,
                 loaded=tuple(self._loaded.values()),
-                failed=tuple(self._failed),
                 last_runtime_errors=tuple(self._runtime_errors),
             )
 
@@ -474,6 +470,7 @@ class PluginRegistry:
         self.rest = RESTRegistry()
         self._loaded_plugins: list[tuple[str, Any]] = []  # (name, module)
         self._loaded_lock = threading.Lock()
+        self._not_loaded: list[PluginNotLoaded] = []
 
     def _track(self, name: str, module: Any) -> None:
         with self._loaded_lock:
@@ -531,9 +528,8 @@ class PluginRegistry:
         """Record that a plugin did not load, and report it.
 
         The one place a load failure becomes an outcome, so no path that
-        drops a plugin can keep it without telling anyone. A plugin that
-        never loaded has no namespace yet; its record is kept with the ui
-        namespace's.
+        drops a plugin can keep it without telling anyone. The record is
+        kept in ``not_loaded()``.
 
         Args:
             name: The plugin's name, or its entry point's when it has no spec.
@@ -542,7 +538,8 @@ class PluginRegistry:
             cause: The plugin's own exception, when there is one; its
                 traceback is carried into the one log record.
         """
-        self.ui._record_failed(name, version, reason)
+        with self._loaded_lock:
+            self._not_loaded.append(PluginNotLoaded(name, version, reason))
         outcome = PluginNotLoadedError(name, reason)
         outcome.__cause__ = cause
         notifications.report_outcome(outcome, solicited=False, category='Plugins')
@@ -580,6 +577,11 @@ class PluginRegistry:
         outcome = PluginFailedError(name, hook, detail)
         outcome.__cause__ = exc
         notifications.report_outcome(outcome, solicited=False, category='Plugins')
+
+    def not_loaded(self) -> tuple[PluginNotLoaded, ...]:
+        """The plugins that did not load, in the order they were found, for tech-support reports."""
+        with self._loaded_lock:
+            return tuple(self._not_loaded)
 
     def all_health(self) -> tuple[NamespaceHealth, ...]:
         """Return per-namespace health snapshots for tech-support reports."""

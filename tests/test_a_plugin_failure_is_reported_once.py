@@ -123,7 +123,7 @@ def test_a_plugin_that_cannot_be_imported_is_reported(harness_ctx, shown, outcom
     _assert_one_report(
         shown, outcome_records, PluginNotLoadedError, 'Plugin Not Loaded: broken_import', cause=boom
     )
-    assert 'broken_import' in [s.name for s in harness_ctx.plugins.ui.health().failed]
+    assert 'broken_import' in [s.name for s in harness_ctx.plugins.not_loaded()]
 
 
 def test_a_package_that_is_not_a_plugin_is_reported(harness_ctx, shown, outcome_records):
@@ -142,7 +142,7 @@ def test_a_plugin_for_another_version_is_reported(harness_ctx, shown, outcome_re
 
     _assert_one_report(shown, outcome_records, PluginNotLoadedError, 'Plugin Not Loaded: too_new')
     assert '>=5.0.0' in shown[0].message and '4.0.0' in shown[0].message
-    assert 'too_new' in [s.name for s in harness_ctx.plugins.ui.health().failed]
+    assert 'too_new' in [s.name for s in harness_ctx.plugins.not_loaded()]
 
 
 def test_a_plugin_with_no_register_is_reported(harness_ctx, shown, outcome_records):
@@ -388,3 +388,15 @@ def test_a_failed_mount_goes_to_the_recorder():
         if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
     ]
     assert calls == ['record_runtime_error'], calls
+
+
+def test_a_plugin_that_never_loaded_is_in_no_namespace(harness_ctx, shown, outcome_records):
+    # A plugin is filed under a namespace by registering, which this one
+    # never did: its record is the registry's own, not the ui namespace's.
+    _load(harness_ctx, _EntryPoint('no_register', _module('no_register')))
+
+    not_loaded = harness_ctx.plugins.not_loaded()
+    assert [entry.name for entry in not_loaded] == ['no_register']
+    assert not_loaded[0].reason
+    for health in harness_ctx.plugins.all_health():
+        assert 'no_register' not in [status.name for status in health.loaded]

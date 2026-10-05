@@ -125,8 +125,7 @@ def test_ui_health_after_register(harness_ctx):
     assert health.namespace == 'ui'
     assert len(health.loaded) == 1
     assert health.loaded[0].name == 'healthy'
-    assert health.loaded[0].loaded is True
-    assert health.failed == ()
+    assert harness_ctx.plugins.not_loaded() == ()
 
 
 def test_ui_mount_points_constant_is_frozen():
@@ -453,8 +452,8 @@ def test_all_health_returns_four_namespaces(harness_ctx):
 def test_all_health_initial_state_empty(harness_ctx):
     for ns in harness_ctx.plugins.all_health():
         assert ns.loaded == ()
-        assert ns.failed == ()
         assert ns.last_runtime_errors == ()
+    assert harness_ctx.plugins.not_loaded() == ()
 
 
 # ---------------------------------------------------------------------------
@@ -556,9 +555,7 @@ def test_load_plugins_skips_version_incompatible(harness_ctx):
     with patch('importlib.metadata.entry_points', return_value=eps):
         load_plugins(harness_ctx)
     assert mod._register_calls == []
-    health = harness_ctx.plugins.ui.health()
-    failed_names = [s.name for s in health.failed]
-    assert 'too_new' in failed_names
+    assert 'too_new' in [s.name for s in harness_ctx.plugins.not_loaded()]
 
 
 @pytest.mark.parametrize(

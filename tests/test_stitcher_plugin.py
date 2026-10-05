@@ -74,7 +74,7 @@ def test_register_marks_namespace_loaded(harness_ctx):
     health = harness_ctx.plugins.post_processing.health()
     loaded_names = [s.name for s in health.loaded]
     assert 'stitcher' in loaded_names
-    assert health.failed == ()
+    assert harness_ctx.plugins.not_loaded() == ()
 
 
 def test_register_twice_raises(harness_ctx):
