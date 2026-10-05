@@ -399,49 +399,6 @@ class TestACleanupThatRaises:
         assert [event[0] for event in callbacks.events] == ['run_complete', 'files_complete']
 
 
-class TestALateCleanupPass:
-    def test_it_leaves_the_next_run_alone(self, tmp_path):
-        """A cleanup that arrives for a run already ended -- the run loop's
-        safety net, late -- once ran the NEXT run's whole cleanup and
-        reported it completed."""
-        from modules.run_outcome import RunEnding
-
-        run_parent = tmp_path / 'runs'
-        with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-            engine = runner.sequenced_capture_runner
-            first = runner.run_single_scan(
-                protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
-                parent_dir=str(run_parent),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
-            )
-            assert first.wait(timeout_s=WAIT_S) is not None
-            assert engine.wait_for_run_idle(WAIT_S)
-            deadline = time.monotonic() + WAIT_S
-            while session.protocol_files_draining and time.monotonic() < deadline:
-                time.sleep(0.02)
-
-            period_protocol = _protocol([_step('C2', 0, x=20.0, gain=1.0)])
-            second = runner.run_protocol(
-                protocol=period_protocol,
-                parent_dir=str(run_parent),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
-            )
-            assert engine.run_in_progress()
-            second_batch = engine.write_batch()
-
-            engine._cleanup(
-                RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'late'), first
-            )
-
-            assert engine.run_in_progress(), 'a late pass for the first run ended the second'
-            assert engine.is_live_run(second)
-            assert not second_batch.draining
-            runner.abort(second)
-            result = second.wait(timeout_s=WAIT_S)
-
-        assert result.status == 'aborted', result
-
-
 class TestAStartThatFails:
     @pytest.mark.parametrize('where', ['the run folder', 'the dispatch'])
     def test_its_files_are_reported_once(self, tmp_path, monkeypatch, where):

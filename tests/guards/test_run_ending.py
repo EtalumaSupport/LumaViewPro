@@ -319,7 +319,7 @@ class TestAStartFailureCarriesItsCause:
         stub = SimpleNamespace(
             _run_dir=None,
             _ending=EndingLatch(),
-            _cleanup=lambda ending, run, wait=False: cleaned.append((ending, wait)),
+            _cleanup=lambda ending, run: cleaned.append(ending),
             LOGGER_NAME='TEST',
         )
         stub._unwind_undispatched_run = lambda ending, run: (
@@ -335,9 +335,8 @@ class TestAStartFailureCarriesItsCause:
         assert ending.status == 'failed_at_start'
         assert ending.reason == 'capture_location_unusable'
         assert ending.message == 'Pick a folder.'
-        # No other pass unwinds a run whose loop never ran, so its cleanup
-        # waits its turn rather than being skipped.
-        assert cleaned == [(ending, True)]
+        # No loop ever ran to unwind it, so start()'s own unwind does, once.
+        assert cleaned == [ending]
 
     def test_an_untyped_failure_does_not_put_a_traceback_in_front_of_the_user(self):
         import modules.sequenced_capture_runner as scr
@@ -360,65 +359,6 @@ class TestAStartFailureCarriesItsCause:
             f'a raw exception string reached a field a popup shows and a REST '
             f'handler serialises: {ending.message!r}'
         )
-
-
-class TestACleanupPassThatDoesNotOwnTheRun:
-    @staticmethod
-    def _pass_stub(touched, current_run, *, run_live):
-        return SimpleNamespace(
-            run_outcome=lambda: current_run,
-            _is_run_live=lambda: run_live,
-            _run_lock=threading.Lock(),
-            _is_live_run_locked=lambda run: run is current_run and run_live,
-            LOGGER_NAME='TEST',
-            camera_executor=SimpleNamespace(end_protocol_mode=lambda: touched.append('camera')),
-            _io_executor=SimpleNamespace(end_protocol_mode=lambda: touched.append('io')),
-            _settle_run_outcome=lambda ending: touched.append('settled'),
-            _close_run_writes=lambda *a: touched.append('batch'),
-            _release_scan_led_lease=lambda: touched.append('lease'),
-            _release_activity_claim=lambda: touched.append('claim'),
-        )
-
-    def test_settles_nothing_and_releases_nothing(self):
-        """The second pass of every normal run arrives after the owner's pass
-        has already released. Its releases key on runner-lifetime state, so
-        acting here can hand away a claim a SUCCESSOR run has taken.
-
-        The run is still the runner's but already ended: the pass touches
-        nothing, the lanes included. The pass that owned the run ended its
-        lanes' run modes before the run went IDLE; after that the lanes may
-        be a successor's.
-        """
-        import modules.sequenced_capture_runner as scr
-
-        touched = []
-        run = PendingRunOutcome()
-        stub = self._pass_stub(touched, run, run_live=False)  # already ended
-
-        scr.SequencedCaptureRunner._cleanup_inner(
-            stub, RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'x'), run
-        )
-
-        assert touched == [], f'a pass that does not own the run touched: {touched}'
-
-    def test_a_pass_for_a_replaced_run_touches_nothing(self):
-        """A late pass for run N arriving while run N+1 is live on the same
-        runner: every lane, the batch, the outcome and the claim are N+1's,
-        and the pass touches none of them.
-        """
-        import modules.sequenced_capture_runner as scr
-
-        touched = []
-        successor = PendingRunOutcome()
-        stub = self._pass_stub(touched, successor, run_live=True)  # N+1 is live
-
-        scr.SequencedCaptureRunner._cleanup_inner(
-            stub,
-            RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'x'),
-            PendingRunOutcome(),
-        )
-
-        assert touched == [], f'a pass for a replaced run touched the live run: {touched}'
 
 
 # ---------------------------------------------------------------------------

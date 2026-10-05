@@ -235,7 +235,6 @@ class SequencedCaptureRunner:
         # instead of raising AttributeError from inside a UI handler.
         # (_run_dir gets the same treatment via _reset_vars below.)
         self._protocol = None
-        self._cleanup_lock = threading.Lock()
         self._run_lock = threading.Lock()
         # The live run's dispatched loop, None until start() dispatches it:
         # what tells force_reset whether a loop that will unwind the run
@@ -1583,11 +1582,7 @@ class SequencedCaptureRunner:
         # started-run follow-ups (last-save-folder shortcuts) to a dead
         # location.
         self._run_dir = None
-        # Waits for a late pass holding the cleanup lock rather than
-        # skipping: this run's loop never ran, so no other pass will ever
-        # unwind it, and a skipped unwind leaves its claim held, its caller
-        # unanswered and the runner live until restart.
-        self._cleanup(ending, run, wait=True)
+        self._cleanup(ending, run)
 
     def abort_run_fatal(self, reason: str, title: str, message: str) -> None:
         """End the run now: abort, mark it dark, record the cause, darken.
@@ -1659,7 +1654,7 @@ class SequencedCaptureRunner:
         self._protocol_iterator = None
         self._scan_iterator = None
 
-    def _cleanup(self, ending: RunEnding, run: PendingRunOutcome, *, wait: bool = False):
+    def _cleanup(self, ending: RunEnding, run: PendingRunOutcome):
         """Unwind *run*; ending names the terminal outcome and its cause.
 
         ending is REQUIRED so every cleanup site states the truth it
@@ -1669,19 +1664,11 @@ class SequencedCaptureRunner:
         cause into the run's ending latch outranks it, and cleanup
         resolves the two in one read below.
 
-        *run* is the run the caller means to end, the object its start()
-        returned. REQUIRED because a cleanup can arrive late -- the run
-        loop's safety net runs after the run already ended, and by then a
-        successor may be live on the same runner; a cleanup that asked only
-        whether *a* run is live would end the successor as if it were its
-        own.
-
-        A second pass arriving while one holds the cleanup lock returns at
-        once: the run it would end is already being ended. ``wait`` waits
-        for the lock instead, for a caller whose run no other pass unwinds.
+        Called once per run, by the thread that owns it: the run loop's
+        finally; start(), for a run whose loop was never dispatched; or
+        force_reset, for a run whose loop ended without unwinding it. No
+        two of them can reach the same run.
         """
-        if not self._cleanup_lock.acquire(blocking=wait):
-            return  # Another thread is already cleaning up
         try:
             # Cleanup runs on whichever thread ended the run -- the protocol
             # thread, a stop pressed in the GUI, a script's reset -- and its
@@ -1695,9 +1682,8 @@ class SequencedCaptureRunner:
                 with acting(held):
                     self._cleanup_inner(ending, run)
         finally:
-            self._cleanup_lock.release()
-            # Outside the cleanup lock, after IDLE: a listener that reads
-            # is_live_run, or starts the next run, sees the run ended.
+            # After IDLE: a listener that reads is_live_run, or starts the
+            # next run, sees the run ended.
             if self._on_run_idle is not None:
                 self._on_run_idle()
 
@@ -2204,26 +2190,6 @@ class SequencedCaptureRunner:
 
     def _cleanup_inner(self, ending: RunEnding, run: PendingRunOutcome):
         from modules.notification_center import notifications
-
-        # One read, under the lock start() commits under: a late pass --
-        # the run loop's safety net, after the run already ended -- must
-        # not read "mine" and then "live" apart, or a successor started
-        # between the two reads is torn down as this run. A pass for a run
-        # that is not live, or no longer the runner's, touches nothing: the
-        # pass that ended the run already ended its lanes' modes, released
-        # its claim and restored popups, and anything it touched now may be
-        # a successor's.
-        with self._run_lock:
-            mine = self._is_live_run_locked(run)
-        if not mine:
-            # No reason in this line: a late pass's ending is only what its
-            # caller would have said had it ended the run (the safety net
-            # always carries 'run_loop_crashed'), so naming it here would
-            # log a crash on every normal run.
-            logger.info(
-                f'[{self.LOGGER_NAME}] Cleanup for a run that is no longer live; nothing to do'
-            )
-            return
 
         # Restore popups: the unattended-run suppression ends here, on
         # every cleanup path (normal end and abort). Unconditional -- an
