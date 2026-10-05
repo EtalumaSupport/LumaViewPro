@@ -500,7 +500,7 @@ class ImageSettings(BoxLayout):
         self.reconcile_layers_to_camera_caps()
 
     def reconcile_layers_to_camera_caps(self):
-        """Render and re-apply every layer the attached camera cannot fully reach.
+        """Render every layer the attached camera cannot fully reach, and re-apply the open one.
 
         A camera swap can leave a layer's persisted gain_db/exposure_ms above
         the new body's maximum. The stored value is the user's committed
@@ -512,8 +512,10 @@ class ImageSettings(BoxLayout):
 
         The divergence itself is the trigger. Firing for every layer would
         drive each one's LED state through apply_settings, changing what
-        startup does to the illuminators; firing for none would leave the
-        widgets showing a value never pushed to the camera.
+        startup does to the illuminators. Only the open layer is applied: the
+        camera holds one layer, and applying each capped layer in turn left it
+        on the last of them, not the one on screen; a closed layer reaches the
+        camera, capped, when it is next applied.
 
         Runs BEFORE anything renders the store, on every path that reaches it,
         so the slider's pinned position and the box's stored value are in
@@ -527,13 +529,15 @@ class ImageSettings(BoxLayout):
         ctx = _app_ctx.ctx
         settings = ctx.settings
         imaging = ctx.lumaview.scope.imaging
+        opened = common_utils.get_opened_layer(self)
         for layer in common_utils.get_layers():
             gain = imaging.applied_gain_db_for(settings[layer]['gain_db'])
             exposure = imaging.applied_exposure_ms_for(settings[layer]['exposure_ms'])
             if gain.capped or exposure.capped:
                 layer_obj = self.layer_lookup(layer=layer)
                 layer_obj.render_layer_values_from_settings()
-                layer_obj.apply_settings()
+                if layer == opened:
+                    layer_obj.apply_settings()
 
     def open_or_default_layer(self):
         """The layer whose accordion is expanded, or 'BF' when none is open.
