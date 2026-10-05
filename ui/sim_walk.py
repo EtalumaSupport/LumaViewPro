@@ -287,9 +287,9 @@ class SimWalk:
                     f'{path} is inside the collapsed drawer {parent.title!r}; open it first'
                 )
         popups = _open_popups()
-        if popups and not _contains(popups[-1], target):
+        if popups and not _contains(popups[0], target):
             raise WalkStepError(
-                f'a popup is open ({getattr(popups[-1], "title", "")!r}); answer it first'
+                f'a popup is open ({getattr(popups[0], "title", "")!r}); answer it first'
             )
 
     def _touch(self, target, path: str):
@@ -353,6 +353,7 @@ def _class_matches(widget, segment: str) -> bool:
 
 
 def _open_popups() -> list:
+    """The open popups, the one on top first: Kivy puts the newest window child at index 0."""
     return [w for w in Window.children if isinstance(w, ModalView)]
 
 

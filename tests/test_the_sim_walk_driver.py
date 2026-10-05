@@ -169,6 +169,12 @@ Builder.load_string('''
         size_hint: None, None
         size: 100, 40
         pos: 380, 300
+    Button:
+        id: stackbtn
+        text: 'stack'
+        size_hint: None, None
+        size: 100, 40
+        pos: 500, 300
 ''')
 
 root = FloatLayout()
@@ -210,6 +216,14 @@ ids.popbtn.bind(on_release=open_popup)
 def open_modal(*_):
     Popup(title='Busy', content=Button(text='nothing'), size_hint=(0.3, 0.3), auto_dismiss=False).open()
 ids.modalbtn.bind(on_release=open_modal)
+
+def open_stacked(*_):
+    # A popup whose own button opens a second one over it, as a refusal opens
+    # over the panel that asked.
+    inner = Button(text='inner')
+    inner.bind(on_release=open_popup)
+    Popup(title='Outer', content=inner, size_hint=(0.6, 0.6), auto_dismiss=False).open()
+ids.stackbtn.bind(on_release=open_stacked)
 
 def native():
     raise AssertionError('the native picker ran during a scripted walk')
@@ -335,6 +349,19 @@ def test_a_press_under_an_open_modal_stops(tmp_path):
     assert result['outcome'].startswith('stopped at step 2'), result
     assert 'popup' in result['outcome'], result
     assert 'btn' not in result['hits'], result
+
+
+def test_the_popup_on_top_is_the_one_answered(tmp_path):
+    result = _run(
+        tmp_path,
+        [
+            {'do': 'press', 'path': 'Panel/stackbtn'},
+            {'do': 'press', 'path': 'Popup/Button[text=inner]'},
+            {'do': 'answer', 'button': 'OK'},
+        ],
+    )
+    assert result['outcome'] == 'done', result
+    assert result['hits'] == ['ok'], result
 
 
 def test_a_missing_control_stops_the_walk_and_no_later_step_runs(tmp_path):
