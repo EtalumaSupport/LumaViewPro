@@ -21,6 +21,7 @@ def frame_record(**overrides) -> FrameRecord:
         'black_level': None,
         'illumination_ma': {},
         'frames_summed': 1,
+        'frame_significant_bits': 8,
         'camera_timestamp_ticks': None,
         'camera_tick_hz': None,
         'frame_id': None,

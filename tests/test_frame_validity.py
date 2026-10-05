@@ -819,6 +819,11 @@ class TestCaptureTimeChunkVerification:
         def get_array(self):
             return self._np.full((4, 4), 128, dtype=self._np.uint8)
 
+        def last_stamped_significant_bits(self):
+            # The depth each delivered frame is stamped with: 8, as the
+            # uint8 frames above are.
+            return 8
+
         def is_device_removed(self):
             return False
 

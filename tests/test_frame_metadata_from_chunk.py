@@ -53,6 +53,9 @@ def _imaging(live=None, chunk_reads=None):
     )
     imaging._camera_cache_lock = threading.Lock()
     imaging._camera_cache = {'binning': 1}
+    # The reducer's account of the frame just made: one frame, 12 bits.
+    imaging._state_lock = threading.Lock()
+    imaging._last_frame_summing = (1, 12)
     answer = {'gain_db': LIVE_GAIN_DB, 'exposure_ms': LIVE_EXPOSURE_MS} if live is None else live
     imaging.get_live_camera_settings = lambda: answer
     return imaging
@@ -60,7 +63,7 @@ def _imaging(live=None, chunk_reads=None):
 
 def _record(imaging, chunks):
     return imaging._build_frame_record(
-        chunks=chunks or {}, lit=frozenset({(3, 50.0)}), captured_at=GRABBED_AT, frames_summed=1
+        chunks=chunks or {}, lit=frozenset({(3, 50.0)}), captured_at=GRABBED_AT
     )
 
 

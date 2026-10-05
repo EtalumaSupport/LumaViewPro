@@ -739,10 +739,12 @@ def save_image(
             # color baking, and metadata are format-specific: JPG is an
             # 8-bit rendered display image, TIFF / OME-TIFF carry the
             # 16-bit data + metadata.
+            # Rendered as it is shown: a sum against one frame's white.
             jpg_bytes = image_utils.encode_display_jpg(
                 _apply_save_orientation(array),
                 render_color,
                 significant_bits=significant_bits,
+                white_bits=frame_record.frame_significant_bits,
                 jpeg_quality=jpeg_quality,
             )
             pathlib.Path(file_loc).write_bytes(jpg_bytes)

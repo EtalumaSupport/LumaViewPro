@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 
 from tests.protocol_drives import lent_run_claim
-from tests.frame_records import plate
+from tests.frame_records import frame_record, plate
 from modules.protocol_image_writer import RunWriteBatch
 import modules.app_context as _app_ctx
 from modules.image_mode import ImageCaptureConfig
@@ -70,6 +70,8 @@ def _writer(callbacks):
     scope.led_connected = False
     scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
     scope.imaging.capture_frame_depth.return_value = 8
+    scope.imaging.capture_frame_full_scale.return_value = 255
+    scope.imaging.last_capture_info = {'frame_record': frame_record()}
     return writer
 
 

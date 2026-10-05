@@ -58,6 +58,7 @@ def _record():
         black_level=4.0,
         illumination_ma={'BF': 40.0},
         frames_summed=2,
+        frame_significant_bits=12,
         camera_timestamp_ticks=1000,
         camera_tick_hz=1_000_000_000,
         frame_id=7,

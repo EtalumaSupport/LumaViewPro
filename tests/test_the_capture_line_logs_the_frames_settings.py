@@ -46,7 +46,7 @@ def test_a_camera_without_chunks_logs_the_applied_values_marked_applied(live_sco
     info = live_scope.imaging.last_capture_info
     assert info['chunk_exposure_us'] is None, 'the simulator stamps no chunks'
 
-    evidence = _writer_over(live_scope)._capture_evidence(image, 8)
+    evidence = _writer_over(live_scope)._capture_evidence(image, 255)
 
     assert f'exp_ms={applied_exp:.2f}(applied)' in evidence
     assert f'gain_db={applied_gain:.2f}(applied)' in evidence
@@ -61,6 +61,7 @@ def test_a_camera_with_chunks_logs_the_frames_own_values_unmarked():
         black_level=None,
         illumination_ma={},
         frames_summed=1,
+        frame_significant_bits=12,
         camera_timestamp_ticks=None,
         camera_tick_hz=None,
         frame_id=None,
@@ -70,7 +71,7 @@ def test_a_camera_with_chunks_logs_the_frames_own_values_unmarked():
     info = {'chunk_exposure_us': 62003.0, 'chunk_gain_db': 3.5, 'frame_record': record}
     writer = _writer_over(SimpleNamespace(imaging=SimpleNamespace(last_capture_info=info)))
 
-    evidence = writer._capture_evidence(np.zeros((8, 8), dtype=np.uint8), 8)
+    evidence = writer._capture_evidence(np.zeros((8, 8), dtype=np.uint8), 255)
 
     assert 'exp_ms=62.00 ' in evidence
     assert 'gain_db=3.50' in evidence

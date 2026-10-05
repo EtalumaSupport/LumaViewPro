@@ -33,6 +33,11 @@ class FrameRecord:
         illumination_ma: Drive current of each channel lit for the grab,
             by layer name. A channel that was off is absent.
         frames_summed: Number of frames summed into the image.
+        frame_significant_bits: The depth each summed frame was delivered at
+            (the driver's per-frame stamp). With ``frames_summed`` it is what
+            the sum's tag, its rendering and its saturation are worked out
+            from (``image_utils.summed_significant_bits``, ``summed_full_scale``,
+            ``convert_sum_to_8bit``).
         camera_timestamp_ticks: The camera's own clock for the frame
             (for a summed capture, the last frame's).
         camera_tick_hz: Ticks per second of that clock.
@@ -47,6 +52,7 @@ class FrameRecord:
     black_level: float | None
     illumination_ma: Mapping[str, float]
     frames_summed: int
+    frame_significant_bits: int
     camera_timestamp_ticks: int | None
     camera_tick_hz: int | None
     frame_id: int | None

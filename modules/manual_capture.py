@@ -256,10 +256,10 @@ class ManualCaptureController:
         # anything on this lane can capture again.
         frame_record = scope.imaging.last_capture_info['frame_record']
         labware = scope.runtime_state.get_labware()
-        # The frame's own depth (8 for uint8, 16 for a summed container, else
-        # the per-frame delivery stamp), taken now, before any later grab can
-        # change what the camera reports.
-        significant_bits = scope.imaging.capture_frame_depth(array, sum_count)
+        # The frame's own depth (8 for uint8, a sum's the bits it can reach,
+        # else the per-frame delivery stamp), taken now, before any later grab
+        # can change what the camera reports.
+        significant_bits = scope.imaging.capture_frame_depth(array)
 
         raw_path = save_image(
             scope,
@@ -282,10 +282,12 @@ class ManualCaptureController:
         paths = [raw_path]
 
         if request.bullseye or request.crosshairs:
-            # The overlay is drawn on the 8-bit rendering, scaled against the
-            # frame's own depth: a summed frame exceeds the per-frame range,
-            # and scaling it against that range refuses the frame.
-            overlay = image_utils.convert_to_8bit(array, significant_bits)
+            # The overlay is drawn on the 8-bit rendering the frame is shown
+            # as: a sum against one frame's white, brighter, so its bullseye
+            # bands sit where the sum is bright.
+            overlay = image_utils.convert_sum_to_8bit(
+                array, frame_record.frames_summed, frame_record.frame_significant_bits
+            )
             if request.bullseye:
                 overlay = capture_overlays.transform_to_bullseye(overlay)
             if request.crosshairs:

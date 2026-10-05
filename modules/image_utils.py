@@ -667,6 +667,49 @@ def resolve_output_depth(input_depths) -> int:
     return max(depths)
 
 
+def summed_significant_bits(frames_summed: int, frame_bits: int) -> int:
+    """The depth a sum of frames is tagged with: the bits its largest value needs.
+
+    A sum of N frames of b bits reaches N x (2^b - 1), so that is the range its
+    file claims -- 10 bits for four 8-bit frames, 14 for four 12-bit ones --
+    up to the 16-bit container the sum is stored in, where it saturates. A
+    single frame is its own depth. Tagging a sum with the container width
+    instead would scale it against a range it never reaches and render it
+    near-black wherever the tag sets the scale.
+
+    Args:
+        frames_summed: How many frames the sum holds; 1 for a single frame.
+        frame_bits: The depth of each summed frame, as delivered.
+
+    Returns:
+        The significant bits the summed frame carries.
+    """
+    if frames_summed < 1:
+        raise ValueError(f'a frame holds at least one capture, not {frames_summed}')
+    return min(16, (frames_summed * ((1 << frame_bits) - 1)).bit_length())
+
+
+def summed_full_scale(frames_summed: int, frame_bits: int) -> int:
+    """The largest value a sum of frames can hold: where it saturates.
+
+    N frames at full scale, or the uint16 container's ceiling where that comes
+    first. A sum's saturation is measured against this, never against its tag:
+    the tag is a whole number of bits, so for N not a power of two a sum of
+    blown frames sits well below the tag's maximum (three blown 8-bit frames
+    are 765 of a 10-bit 1023) and would read as unsaturated.
+
+    Args:
+        frames_summed: How many frames the sum holds; 1 for a single frame.
+        frame_bits: The depth of each summed frame, as delivered.
+
+    Returns:
+        The full-scale value of the summed frame.
+    """
+    if frames_summed < 1:
+        raise ValueError(f'a frame holds at least one capture, not {frames_summed}')
+    return min(frames_summed * ((1 << frame_bits) - 1), int(np.iinfo(np.uint16).max))
+
+
 def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
     """Recover the flat metadata dict from a tifffile-auto-OME description.
 
@@ -1624,7 +1667,14 @@ def encode_image(image: np.ndarray, fmt: str = 'png', jpeg_quality: int = 80) ->
     return buf.tobytes()
 
 
-def encode_display_jpg(array, color, significant_bits: int, jpeg_quality: int = 90) -> bytes:
+def encode_display_jpg(
+    array: np.ndarray,
+    color: str,
+    significant_bits: int,
+    jpeg_quality: int = 90,
+    *,
+    white_bits: int | None = None,
+) -> bytes:
     """Encode an image to JPEG bytes the way it appears on screen.
 
     JPEG is 8-bit and cannot carry the mono-pixels-plus-color-metadata
@@ -1639,14 +1689,17 @@ def encode_display_jpg(array, color, significant_bits: int, jpeg_quality: int = 
         array: Source image (2D mono, 8/12/16-bit) for one channel.
         color: Channel color label (BF, Blue, Green, Red, Lumi, ...).
         significant_bits: Payload depth of ``array`` so the 8-bit downconvert
-            scales against the real range -- a summed 16-bit frame is not
-            indexed as 12-bit (out of range) and a 10-bit frame is not crushed.
+            scales against the real range -- a summed frame is not indexed as
+            12-bit (out of range) and a 10-bit frame is not crushed.
         jpeg_quality: JPEG quality, 1-100.
+        white_bits: The depth whose full scale is white, below
+            ``significant_bits`` for a sum: one frame's depth, so the JPG of a
+            sum is as bright as it is on screen. None is ``significant_bits``.
 
     Returns:
         bytes: JPEG-encoded image.
     """
-    img8 = convert_to_8bit(array, significant_bits)
+    img8 = convert_to_8bit(array, significant_bits, white_bits=white_bits)
     if img8.ndim == 3:
         # Already a display RGB image (e.g. a crosshairs / bullseye
         # overlay). These share the false-color RGB convention, so take
@@ -1670,41 +1723,58 @@ def convert_12bit_to_8bit(image, out=None):
 
 
 @functools.cache
-def _lut_to_8bit(significant_bits: int) -> np.ndarray:
-    """Build (once per depth) a payload-to-8-bit LUT sized to the value range.
+def _lut_to_8bit(significant_bits: int, white_bits: int) -> np.ndarray:
+    """Build (once per depth pair) a payload-to-8-bit LUT sized to the value range.
 
     The table spans ``0 .. (1 << significant_bits) - 1`` so every legal payload
-    value indexes in bounds, and full scale maps to 255. Cached: the handful of
-    depths in use (8/10/12/16) each build a single shared table.
+    value indexes in bounds, and ``(1 << white_bits) - 1`` maps to 255: full
+    scale when the two are equal, one frame's white for a sum, whose values
+    above it are white. Cached: the handful of depth pairs in use each build a
+    single shared table.
     """
     max_value = (1 << significant_bits) - 1
-    # Linear rescale (value / max * 255) then a truncating .astype(uint8),
+    white_value = (1 << white_bits) - 1
+    # Linear rescale (value / white * 255) then a truncating .astype(uint8),
     # chosen over the legacy >>8 (i.e. /256) used for 16-bit. Both truncate and
     # map full scale to 255; they differ by at most 1 LSB at 32640 of the 65536
     # 16-bit inputs because the divisor differs (65535 vs 65536), NOT because one
     # rounds. The rescale carries a systematic ~0.5-LSB low bias against the exact
     # real-valued map -- it is the deliberate choice, and the converter pin test
-    # locks the <=1-LSB bound so a change is caught here.
-    return np.clip(np.arange(max_value + 1, dtype=np.float64) / max_value * 255, 0, 255).astype(
+    # locks the <=1-LSB bound so a change is caught here. A white below full
+    # scale puts the values above it past 255, and they render white.
+    return np.clip(np.arange(max_value + 1, dtype=np.float64) / white_value * 255, 0, 255).astype(
         np.uint8
     )
 
 
-def convert_to_8bit(image, significant_bits: int, out=None):
+def convert_to_8bit(
+    image: np.ndarray,
+    significant_bits: int,
+    out: np.ndarray | None = None,
+    *,
+    white_bits: int | None = None,
+) -> np.ndarray:
     """Downconvert a frame to 8-bit, scaling against its significant bits.
 
     ``significant_bits`` names the meaningful payload range -- 12 for a Mono12
-    frame, 16 for a frame summed into a 16-bit container -- so the divisor and
-    the LUT span both follow the real depth. This is what keeps a summed 12-bit
-    value (which exceeds 4095) from indexing the 12-bit table out of range, and
-    what maps a 10-bit full-white frame to 255 instead of treating it as 12-bit.
-    Already-8-bit frames pass through. ``out`` reuses a caller buffer to avoid a
-    per-call allocation on the preview path.
+    frame, 10 for four 8-bit frames summed -- so the LUT span follows the real
+    depth: a value above it is a depth-contract violation and raises, and a
+    10-bit full-white frame maps to 255 instead of being treated as 12-bit.
+    ``white_bits`` puts white lower than full scale, which is how a sum is
+    rendered: against one frame's white, brighter than one frame, white
+    wherever it passes that (``convert_sum_to_8bit``). Already-8-bit frames
+    pass through. ``out`` reuses a caller buffer to avoid a per-call
+    allocation on the preview path.
     """
     if image.dtype == np.uint8:
         return image
     significant_bits = int(significant_bits)
-    lut = _lut_to_8bit(significant_bits)
+    white_bits = significant_bits if white_bits is None else int(white_bits)
+    if white_bits > significant_bits:
+        raise ValueError(
+            f'white at {white_bits} bits lies above the {significant_bits}-bit range it renders'
+        )
+    lut = _lut_to_8bit(significant_bits, white_bits)
     # The LUT has exactly one entry per in-range value, so a payload above the
     # declared depth indexes it out of range and raises. Re-raise that as a typed
     # FrameDepthError so a depth-contract violation is loud and named -- without a
@@ -1719,6 +1789,31 @@ def convert_to_8bit(image, significant_bits: int, out=None):
         return lut[image]
     except IndexError:
         raise FrameDepthError(int(image.max()), significant_bits) from None
+
+
+def convert_sum_to_8bit(
+    image: np.ndarray, frames_summed: int, frame_bits: int, out: np.ndarray | None = None
+) -> np.ndarray:
+    """Render a captured frame to 8 bits the way it is shown: a sum brighter.
+
+    Summing is for a brighter image, so a sum of N frames is rendered against
+    one frame's white: N times brighter than one frame, and white wherever it
+    passes one frame's white. Its full range stays in the frame (and in a
+    full-depth file); only the rendering saturates. A single frame renders
+    against its own depth, as ``convert_to_8bit`` does.
+
+    Args:
+        image: The captured frame, a sum or a single frame.
+        frames_summed: How many frames it holds.
+        frame_bits: The depth of each frame, as delivered.
+        out: Optional caller buffer, as for ``convert_to_8bit``.
+    """
+    return convert_to_8bit(
+        image,
+        summed_significant_bits(frames_summed, frame_bits),
+        out=out,
+        white_bits=frame_bits,
+    )
 
 
 def convert_16bit_to_8bit(image):
@@ -2578,9 +2673,9 @@ def _compute_scale_bar_overlay(
         scale_bar_value = 255
     else:
         # White bar = the payload max for this frame's depth, so it downconverts
-        # to full 8-bit white. A summed frame rides in a 16-bit container (depth
-        # 16 -> 65535); a single 12-bit frame is 4095. A fixed 4095 would render
-        # a summed-frame bar as a dim ~16/255 gray.
+        # to full 8-bit white. A sum is tagged with the bits it can reach (four
+        # 12-bit frames: 14 -> 16383); a single 12-bit frame is 4095. A fixed
+        # 4095 would render a summed-frame bar gray in its full-depth file.
         scale_bar_value = (1 << significant_bits) - 1
 
     x_end = width - scale_bar_right_offset

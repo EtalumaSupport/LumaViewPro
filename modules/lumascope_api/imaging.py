@@ -490,6 +490,11 @@ class ImagingAPI:
         # cause ladder's camera-inactive default. Cleared at the start of every
         # capture -- a stale True would misattribute the NEXT failure.
         self._dark_saved = False
+        # (frames summed, each frame's delivered depth) of the frame the last
+        # capture produced, set by the reducer that summed it, or None before
+        # the first. The one account of a capture's sum: its record and
+        # capture_frame_depth both read it, so no caller restates the count.
+        self._last_frame_summing: tuple[int, int] | None = None
 
         # The commanded continuous auto-gain arm, or None. Only the API
         # commands the auto mode and no driver reads it back, so this is
@@ -3130,7 +3135,7 @@ class ImagingAPI:
         try:
             if image is not None:
                 extra['frame_record'] = self._build_frame_record(
-                    chunks=chunks, lit=lit, captured_at=grabbed_at, frames_summed=sum_count
+                    chunks=chunks, lit=lit, captured_at=grabbed_at
                 )
             _record_capture_info(
                 chunk_exposure_us=chunks.get('ExposureTime'),
@@ -3148,7 +3153,6 @@ class ImagingAPI:
         chunks: dict,
         lit: frozenset[tuple[int, float]],
         captured_at: datetime.datetime,
-        frames_summed: int,
     ) -> FrameRecord:
         """The instrument's account of the frame just grabbed, on the grab's lane.
 
@@ -3193,6 +3197,8 @@ class ImagingAPI:
         ticks = chunks.get('Timestamp')
         frame_id = chunks.get('FrameID')
         tick_hz = getattr(self._driver, 'timestamp_tick_frequency_hz', None)
+        with self._state_lock:
+            frames_summed, frame_significant_bits = self._last_frame_summing
         return FrameRecord(
             captured_at=captured_at,
             exposure_ms=exposure_ms,
@@ -3200,6 +3206,7 @@ class ImagingAPI:
             black_level=self._black_level_for_record(),
             illumination_ma={illumination.state_ch2color(ch): ma for ch, ma in lit},
             frames_summed=frames_summed,
+            frame_significant_bits=frame_significant_bits,
             camera_timestamp_ticks=int(ticks) if ticks is not None else None,
             camera_tick_hz=int(tick_hz) if tick_hz is not None else None,
             frame_id=int(frame_id) if frame_id is not None else None,
@@ -3617,6 +3624,12 @@ class ImagingAPI:
         # frame indefinitely between calls. The _state_lock around per-write
         # didn't actually serialize concurrent get_image calls anyway (chained
         # writes from different threads could still interleave).
+        # The depth each frame was delivered at, read beside the grabs that
+        # produced them: with the count, it is the sum's whole account.
+        frame_bits = self.last_significant_bits
+        with self._state_lock:
+            self._last_frame_summing = (sum_count, frame_bits)
+
         if sum_count == 1:
             image = tmp if len(tmp_buffer) < 1 else tmp_buffer[0]
         else:
@@ -3637,15 +3650,13 @@ class ImagingAPI:
 
         need_8bit = force_to_8bit and image.dtype != np.uint8
 
-        # A summed capture lives in a 16-bit container; a single frame carries
-        # the camera's native payload depth. The scale bar's white value and the
-        # 8-bit downconvert divisor both follow this depth so a summed 12-bit
-        # value never indexes the 12-bit display table, a 10-bit frame is not
-        # crushed as if 12-bit, and the bar maps to full white not a dim gray.
-        # Query the driver only when a consumer needs it -- a raw passthrough
-        # frame returns without touching the driver's depth.
-        if use_scale_bar or need_8bit:
-            significant_bits = self.capture_frame_depth(image, sum_count)
+        # A sum carries the bits it can reach; a single frame carries the
+        # camera's native payload depth. The scale bar's white value follows
+        # that depth so the bar is full white in the file, and the 8-bit
+        # rendering scales a single frame against it and a sum against one
+        # frame's white -- a sum is rendered brighter, which is what summing
+        # is for.
+        significant_bits = image_utils.summed_significant_bits(sum_count, frame_bits)
 
         if use_scale_bar:
             image = image_utils.add_scale_bar(
@@ -3658,7 +3669,7 @@ class ImagingAPI:
             )
 
         if need_8bit:
-            image = image_utils.convert_to_8bit(image, significant_bits)
+            image = image_utils.convert_sum_to_8bit(image, sum_count, frame_bits)
 
         return image
 
@@ -3777,10 +3788,10 @@ class ImagingAPI:
         """Meaningful payload bits of frames the current camera delivers.
 
         The depth a single captured frame should be scaled / tagged by (12 for a
-        Mono12 sensor, 8 for an 8-bit one). A summed frame is promoted to a
-        16-bit container by get_image and is not described by this -- summed
-        callers declare 16 themselves. Falls back to the container width when no
-        camera is attached.
+        Mono12 sensor, 8 for an 8-bit one). A summed frame carries the bits
+        the sum can reach and is not described by this -- ``capture_frame_depth``
+        answers for it. Falls back to the container width when no camera is
+        attached.
 
         Derived from the CACHED pixel format (the validated last-known-good)
         via the driver's own depth rule (``significant_bits_for_format``, so
@@ -3818,22 +3829,44 @@ class ImagingAPI:
         stamped = driver.last_stamped_significant_bits()
         return int(stamped) if stamped is not None else self.significant_bits
 
-    def capture_frame_depth(self, array: np.ndarray | None, sum_count: int = 1) -> int:
+    def capture_frame_depth(self, array: np.ndarray | None) -> int:
         """Payload depth of a frame just produced by a capture call.
 
         The one depth-classification rule every save / evidence / display
-        consumer shares: an 8-bit container carries 8 significant bits, a
-        summed capture fills its promoted 16-bit container, and a single
-        wider frame carries the per-frame delivery stamp. Read it at
-        capture time, next to the grab that produced ``array``, and hand
-        it DOWN with the frame -- re-deriving depth later reads the
-        camera's state at that later moment, not the frame's.
+        consumer shares: an 8-bit array carries 8 significant bits (a single
+        8-bit frame, or a capture already rendered to 8 bits), a sum carries
+        the bits it can reach (``image_utils.summed_significant_bits``), and
+        a single wider frame carries the per-frame delivery stamp. The count
+        and the stamp are the capture's own, recorded by the reducer that
+        made the frame, so no caller restates how many frames it summed. Read
+        it at capture time, before this scope captures again, and hand it
+        DOWN with the frame -- re-deriving depth later reads the camera's
+        state at that later moment, not the frame's.
         """
         if array is not None and getattr(array, 'dtype', None) == np.uint8:
             return 8
-        if sum_count > 1:
-            return 16
-        return self.last_significant_bits
+        with self._state_lock:
+            summing = self._last_frame_summing
+        if summing is None:
+            return self.last_significant_bits
+        return image_utils.summed_significant_bits(*summing)
+
+    def capture_frame_full_scale(self, array: np.ndarray | None) -> int:
+        """The value at which a frame just produced by a capture call is saturated.
+
+        The saturation evidence's full scale: 255 for an 8-bit array, and
+        for a wider frame what it can hold -- one frame's full scale, or N
+        of them for a sum (``image_utils.summed_full_scale``), never the
+        tag's power of two, which a sum of blown frames does not reach when N
+        is not a power of two. Read it beside ``capture_frame_depth``.
+        """
+        if array is not None and getattr(array, 'dtype', None) == np.uint8:
+            return 255
+        with self._state_lock:
+            summing = self._last_frame_summing
+        if summing is None:
+            return (1 << self.last_significant_bits) - 1
+        return image_utils.summed_full_scale(*summing)
 
     # --- Streaming control ---
     def start_streaming(self) -> None:

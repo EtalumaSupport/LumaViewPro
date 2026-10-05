@@ -597,9 +597,15 @@ save_image(
 # (the capture calls above always force one). (None, None) when unavailable.
 frame, timestamp = session.scope.imaging.get_image_from_buffer()
 
-# Payload bit depth (8 / 12 / 16) of a frame this scope just produced --
-# needed to interpret or rescale full-depth payloads before saving.
+# Payload bit depth of a frame this scope just produced (8, 12, or for a sum
+# the bits it can reach) -- needed to interpret or rescale full-depth payloads
+# before saving. The capture knows how many frames it summed; pass only the
+# frame, and ask before the scope captures again.
 session.scope.imaging.capture_frame_depth(image)
+# The value that frame saturates at: one frame's full scale, or N of them for
+# a sum (not the tag's power of two, which a sum of blown frames misses when N
+# is not a power of two).
+session.scope.imaging.capture_frame_full_scale(image)
 ```
 
 ### Running protocols
@@ -1667,6 +1673,10 @@ if frac > 0.01:
     print(f"{frac:.1%} of pixels are clipped -- lower the exposure or the illumination")
 ```
 
+For a sum, measure against `capture_frame_full_scale(image)`, the value N blown frames reach, rather than a bit depth: `capture_and_wait(all_ones_check=True)` already checks each summed frame against its own depth before summing.
+
+A sum carries the bits it can reach: N frames of b bits reach N x (2^b - 1), so four 12-bit frames are a 14-bit sum, up to 16, where its 16-bit container saturates. Summing is for a brighter image, so every 8-bit rendering of a sum -- a JPG, LumaViewPro's display and overlays -- is drawn against one frame's white: four frames look four times brighter, and white wherever the sum passes one frame's full scale. A full-depth file keeps every count.
+
 A whole-frame mean cannot answer this question: an evenly lit field at 70% of full scale and a field that is 70% blown white and 30% black report the same mean. Any caller deciding whether an operating point is usable needs the pixel count.
 
 For deeper introspection (diagnostic tooling, plugin authors writing custom capture loops, advanced timing analysis), the underlying `FrameValidity` instance is available as `scope.imaging.frame_validity` and is part of the L2-stable surface:
@@ -1949,7 +1959,8 @@ frame is ``0..4095``) and declare the true depth in the OME-TIFF
 ``SignificantBits`` tag (e.g. ``SignificantBits=12`` inside a 16-bit
 container). To render or scale such a file to 8-bit, divide by
 ``(1 << SignificantBits) - 1`` -- treating the values as full 16-bit will
-render a 12-bit frame ~16x too dark. ``image_utils.read_tiff_significant_bits``
+render a 12-bit frame ~16x too dark. A sum's tag is the bits it can reach
+(``SignificantBits=14`` for four 12-bit frames). ``image_utils.read_tiff_significant_bits``
 returns the tag (falling back to the container width for older files that were
 left-justified into the 16-bit range and carry no payload-depth tag).
 

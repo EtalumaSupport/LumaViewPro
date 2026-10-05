@@ -28,6 +28,7 @@ import numpy as np
 import pytest
 
 from tests.ast_seams import parse_module
+from tests.frame_records import frame_record
 from tests.scope_fakes import spec_scope
 
 LAYER = 'Lumi'
@@ -49,6 +50,7 @@ def capture_ctx(tmp_path):
     scope.illumination.get_led_states.return_value = {}
     scope.imaging._capture_and_wait_impl.return_value = np.zeros((4, 4), dtype=np.uint8)
     scope.imaging.capture_frame_depth.return_value = 8
+    scope.imaging.last_capture_info = {'frame_record': frame_record()}
     scope.imaging._dispatch_camera.side_effect = (
         lambda impl, name, args=(), kwargs=None, *, timeout_s: impl(*args, **(kwargs or {}))
     )
@@ -180,19 +182,6 @@ class TestSummingSurvivesAnOverlay:
             'count, so an overlay silently reduced a summed capture to one frame'
         )
         assert kwargs['sum_delay_s'] == pytest.approx(0.1)
-
-    def test_saved_depth_accounts_for_the_summed_range(self, capture_ctx):
-        """Summing widens the real range, and the file has to say so."""
-        capture_ctx.engineering_mode = False
-        capture_ctx.use_crosshairs = True
-
-        _run_capture(capture_ctx, sum_count=3)
-
-        depth_calls = capture_ctx.scope.imaging.capture_frame_depth.call_args_list
-        assert any(len(call.args) == 2 and call.args[1] == 3 for call in depth_calls), (
-            'the clean image was stamped at its unsummed depth; the depth is '
-            'resolved with the frame count'
-        )
 
 
 class TestEngineeringModeNamesTheTurretPosition:

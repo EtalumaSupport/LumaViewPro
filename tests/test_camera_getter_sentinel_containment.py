@@ -575,8 +575,10 @@ def test_chunkless_metadata_omits_keys_when_live_reads_fail():
     # driver has no chunks, so the record takes the live-confirmed surface.
     driver.get_model_name = lambda: 'simcam'
     imaging._scope = scope
+    # The reducer's account of the frame just made: one frame, 12 bits.
+    imaging._last_frame_summing = (1, 12)
     record = imaging._build_frame_record(
-        chunks={}, lit=frozenset(), captured_at=datetime.datetime.now(), frames_summed=1
+        chunks={}, lit=frozenset(), captured_at=datetime.datetime.now()
     )
 
     metadata = generate_image_metadata(

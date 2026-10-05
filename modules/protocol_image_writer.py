@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import numpy as np
 
 import modules.common_utils as common_utils
+import modules.image_utils as image_utils
 import modules.protocol_recording as protocol_recording
 from lib import profile_trace
 from lvp_logger import protocol_logger as logger
@@ -984,7 +985,7 @@ class ProtocolImageWriter:
             return None
         return self._labware.get_well_label(x=x, y=y)
 
-    def _capture_evidence(self, image, significant_bits: int) -> str:
+    def _capture_evidence(self, image, full_scale: int) -> str:
         """One-line provenance for a captured frame: brightness statistics
         plus the frame's exposure / gain and capture-hold timing.
 
@@ -996,16 +997,17 @@ class ProtocolImageWriter:
         stamps them, otherwise the applied settings read beside the grab,
         marked ``(applied)`` so a reader never takes them for a measurement
         of the frame. Brightness is computed on a strided sample so the
-        cost stays negligible at full frame rate. ``significant_bits`` is
-        the frame's true bit depth, required because the container dtype
-        can be wider than the data (12-bit frames ride in uint16); a
-        container-derived full scale reads a saturated frame as sat=0%.
+        cost stays negligible at full frame rate. ``full_scale`` is the value
+        the frame saturates at (``ImagingAPI.capture_frame_full_scale``),
+        required because neither the container dtype nor the depth tag is
+        it: a 12-bit frame rides in uint16, and three blown 8-bit frames
+        summed are 765 under a 10-bit tag -- either read as full scale, a
+        saturated frame logs sat=0%.
         """
         try:
             parts = []
             if image is not None and getattr(image, 'size', 0) > 0:
                 sample = image[::8, ::8]
-                full_scale = (1 << significant_bits) - 1
                 sat_fraction = float(np.count_nonzero(sample >= 0.99 * full_scale)) / sample.size
                 parts.append(f'mean={float(sample.mean()):.1f}')
                 parts.append(f'sat={sat_fraction * 100.0:.1f}%')
@@ -1383,17 +1385,16 @@ class ProtocolImageWriter:
                         )
 
                     # Depth travels with the frame so the evidence line's
-                    # saturation threshold, the hold-display downconvert, AND
-                    # the eventual file save all scale against the real range
-                    # (summed -> 16-bit). Resolved here at capture time -- the
-                    # async save must not re-derive it later, when the camera
-                    # may be at a different format or unreadable.
-                    frame_significant_bits = self._scope.imaging.capture_frame_depth(
-                        captured_image, sum_count
-                    )
+                    # saturation threshold AND the eventual file save scale
+                    # against the real range (a sum: the bits it can reach,
+                    # saturated at what it can hold). Resolved here at capture
+                    # time -- the async save must not re-derive it later, when
+                    # the camera may be at a different format or unreadable.
+                    frame_significant_bits = self._scope.imaging.capture_frame_depth(captured_image)
+                    full_scale = self._scope.imaging.capture_frame_full_scale(captured_image)
                     logger.info(
                         f'Protocol Image Captured: {name} '
-                        f'{self._capture_evidence(captured_image, frame_significant_bits)}'
+                        f'{self._capture_evidence(captured_image, full_scale)}'
                     )
 
                     # Hold the captured image on screen for at least 500 ms so
@@ -1405,10 +1406,18 @@ class ProtocolImageWriter:
                     # frame (one deeper than its declared depth, a shape the
                     # display cannot draw) is reported here and the capture's
                     # write goes on.
+                    # The display is handed the frame as it is shown: a sum
+                    # rendered against one frame's white, brighter, as on
+                    # every other 8-bit rendering of it.
                     try:
                         if self._callbacks.hold_protocol_saved_image:
                             self._callbacks.hold_protocol_saved_image(
-                                captured_image, frame_significant_bits
+                                image_utils.convert_sum_to_8bit(
+                                    captured_image,
+                                    frame_record.frames_summed,
+                                    frame_record.frame_significant_bits,
+                                ),
+                                8,
                             )
                     except Exception as hold_failure:
                         notifications.report_outcome(
@@ -1569,8 +1578,8 @@ class ProtocolImageWriter:
                 return
 
             # The frame arrives coupled with the payload depth it was
-            # captured at (uint8 -> 8, summed -> 16, else the per-frame
-            # delivery stamp) -- recorded at capture time on the executor
+            # captured at (uint8 -> 8, a sum -> the bits it can reach, else
+            # the per-frame delivery stamp) -- recorded at capture time on the executor
             # thread, because by the time this save runs the camera may
             # be at a different format or unreadable.
             # A raise from save_image must not leave the record without
