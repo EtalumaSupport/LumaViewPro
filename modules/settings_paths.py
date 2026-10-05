@@ -38,6 +38,7 @@ SETTINGS_WITH_A_MEMBER: typing.Final[dict[str, str]] = {
     'camera.line_noise_reduction': 'set_line_noise_reduction',
     'scale_bar.enabled': 'set_scale_bar',
     'motion.acceleration_max_pct': 'set_acceleration_limit',
+    'bookmark': 'save_bookmark',
     '*.acquire': 'set_layer_acquire',
     '*.auto_gain': 'set_layer_auto_gain',
     '*.focus': 'save_focus',

@@ -574,7 +574,7 @@ _UI_ANSWERER_CALL_PIN = {
     'ui/image_settings.py': 5,
     'ui/layer_control.py': 6,
     'ui/microscope_settings.py': 4,
-    'ui/motion_settings.py': 3,
+    'ui/motion_settings.py': 1,
     'ui/protocol_settings.py': 4,
     'ui/scope_display.py': 1,
     'ui/shader.py': 2,

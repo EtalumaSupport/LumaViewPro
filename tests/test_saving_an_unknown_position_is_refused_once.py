@@ -104,16 +104,19 @@ def unknown(monkeypatch):
             layer: {'focus': 7000.0} for layer in ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi')
         },
     }
-    # Save Focus and Apply Focus are the Session's: its real members, over
-    # the real protocols API, on this scope.
+    # Save Focus, Apply Focus and the bookmarks are the Session's: its real
+    # members, over the real protocols API, on this scope.
     scope.protocols = ProtocolsAPI(scope)
     scope.layer_identity = SimpleNamespace(model='LS850', layers=[SimpleNamespace(key_name='BF')])
     session = SimpleNamespace(scope=scope, settings=settings, settings_lock=MagicMock())
     for name in (
         'save_focus',
         'apply_focus_to_layer_steps',
+        'save_bookmark',
+        'save_all_bookmarks',
         '_refuse_layer_not_on_scope',
         '_layers_on_scope',
+        '_store_setting',
     ):
         setattr(session, name, getattr(ScopeSession, name).__get__(session))
     ctx = SimpleNamespace(

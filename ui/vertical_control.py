@@ -208,11 +208,7 @@ class VerticalControl(BoxLayout):
         run_reported(self.ex_set_bookmark, None, 'SET_Z_BOOKMARK')
 
     def ex_set_bookmark(self):
-        ctx = _app_ctx.ctx
-        ctx.scope.motion.refuse_unknown_positions(('Z',), recording=True, then='save the bookmark')
-        height = ctx.lumaview.scope.motion.get_current_position('Z')  # Get current z height in um
-        with ctx.settings_lock:
-            ctx.settings['bookmark']['z'] = height
+        _app_ctx.ctx.session.save_bookmark(('Z',))
 
     def set_all_bookmarks(self):
         gui_logger.button('SET_ALL_BOOKMARKS')
@@ -220,20 +216,8 @@ class VerticalControl(BoxLayout):
         run_reported(self.ex_set_all_bookmarks, None, 'SET_ALL_BOOKMARKS')
 
     def ex_set_all_bookmarks(self):
-        ctx = _app_ctx.ctx
-        # This one also writes every layer's focus from the Z.
-        ctx.scope.motion.refuse_unknown_positions(('Z',), recording=True, then='save the bookmarks')
-        height = ctx.lumaview.scope.motion.get_current_position('Z')  # Get current z height in um
-        with ctx.settings_lock:
-            settings = ctx.settings
-            settings['bookmark']['z'] = height
-            settings['BF']['focus'] = height
-            settings['PC']['focus'] = height
-            settings['DF']['focus'] = height
-            settings['Blue']['focus'] = height
-            settings['Green']['focus'] = height
-            settings['Red']['focus'] = height
-            settings['Lumi']['focus'] = height
+        # Also writes every layer's focus from the Z.
+        _app_ctx.ctx.session.save_all_bookmarks()
 
     def goto_bookmark(self):
         gui_logger.button('GOTO_Z_BOOKMARK')

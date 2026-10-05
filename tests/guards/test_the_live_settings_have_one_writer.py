@@ -32,11 +32,7 @@ _DIRECT_WRITE_PIN = {
     ('ui/layer_control.py', 'LayerControl.update_stim_enable'): 3,
     ('ui/microscope_settings.py', 'MicroscopeSettings.load_settings'): 1,
     ('ui/microscope_settings.py', 'MicroscopeSettings.apply_stimulation_support'): 2,
-    ('ui/motion_settings.py', 'XYStageControl.ex_set_xbookmark'): 1,
-    ('ui/motion_settings.py', 'XYStageControl.ex_set_ybookmark'): 1,
     ('ui/ui_helpers.py', 'reset_stim_ui'): 1,
-    ('ui/vertical_control.py', 'VerticalControl.ex_set_bookmark'): 1,
-    ('ui/vertical_control.py', 'VerticalControl.ex_set_all_bookmarks'): 8,
     ('ui/vertical_control.py', 'VerticalControl._autofocus_run_complete'): 1,
 }
 

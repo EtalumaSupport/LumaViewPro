@@ -1482,13 +1482,58 @@ class ScopeSession:
         step = None if step_idx is None else protocol.step(idx=step_idx)
         z = self.scope.protocols.focus_z(then='save the focus')
         with self.settings_lock:
-            self.settings[layer]['focus'] = z
+            self._store_setting(f'{layer}.focus', z)
         if step is None or step['Color'] != layer:
             logger.info(f'[Session  ] Focus saved: {layer} Z={z}, no step written')
             return SavedFocus(z=z, step_idx=None)
         self.scope.protocols.set_step_z(protocol, step_idx, z)
         logger.info(f'[Session  ] Focus saved: {layer} Z={z}, and as the Z of step {step_idx}')
         return SavedFocus(z=z, step_idx=step_idx)
+
+    def save_bookmark(self, axes: 'Iterable[str]') -> dict:
+        """Save where the stage is on ``axes`` as the bookmark, as the bookmark buttons do.
+
+        X and Y are stored in plate millimetres on the selected plate, Z in
+        micrometres: the frame the go-to-bookmark moves read them in. The one
+        writer of ``bookmark``.
+
+        Returns:
+            The values stored, by lower-case axis name.
+
+        Raises:
+            AxisStateUnknownError: an axis's position is not known, so the
+                number it reports is not one to save. Nothing is written.
+            HardwareCommandRefusedError: ``'not_connected'`` -- the motor
+                controller is not connected. Nothing is written.
+        """
+        axes = tuple(axes)
+        self.scope.motion.refuse_unknown_positions(axes, recording=True, then='save the bookmark')
+        position = self.get_current_plate_position()
+        saved = {axis.lower(): position[axis.lower()] for axis in axes}
+        with self.settings_lock:
+            for key, value in saved.items():
+                self._store_setting(f'bookmark.{key}', value)
+        logger.info(f'[Session  ] Bookmark saved: {saved}')
+        return saved
+
+    def save_all_bookmarks(self) -> float:
+        """Save the live Z as the Z bookmark and as the focus of every layer this scope has.
+
+        What Set All Bookmarks does. Returns the Z.
+
+        Raises:
+            ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
+                has no Z axis. Nothing is written.
+            AxisStateUnknownError: Z lost its reference. Nothing is written.
+        """
+        z = self.scope.protocols.focus_z(then='save the bookmarks')
+        layers = sorted(self._layers_on_scope())
+        with self.settings_lock:
+            self._store_setting('bookmark.z', z)
+            for layer in layers:
+                self._store_setting(f'{layer}.focus', z)
+        logger.info(f'[Session  ] Bookmarks saved: Z={z}, and as the focus of {layers}')
+        return z
 
     def apply_focus_to_layer_steps(self, protocol: 'Protocol', layer: str) -> int:
         """Save the live Z as ``layer``'s focus and as the Z of its every step.
@@ -1504,7 +1549,7 @@ class ScopeSession:
         self._refuse_layer_not_on_scope(layer, then='take a focus')
         z = self.scope.protocols.focus_z(then='apply the focus')
         with self.settings_lock:
-            self.settings[layer]['focus'] = z
+            self._store_setting(f'{layer}.focus', z)
         updated = self.scope.protocols.apply_focus_to_layer_steps(protocol, layer, z)
         logger.info(f'[Session  ] Focus applied: {layer} Z={z} to {updated} step(s)')
         return updated

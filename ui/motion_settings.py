@@ -386,21 +386,7 @@ class XYStageControl(BoxLayout):
         run_reported(self.ex_set_xbookmark, None, 'SET_X_BOOKMARK')
 
     def ex_set_xbookmark(self):
-        ctx = _app_ctx.ctx
-        ctx.scope.motion.refuse_unknown_positions(('X',), recording=True, then='save the bookmark')
-
-        # Get current stage x-position in um
-        x_pos = ctx.lumaview.scope.motion.get_current_position('X')
-
-        # Save plate x-position to settings
-        _, labware = get_selected_labware()
-        settings = ctx.settings
-        coordinate_transformer = ctx.coordinate_transformer
-        plate_x, _ = coordinate_transformer.stage_to_plate(
-            labware=labware, stage_offset=settings['stage_offset'], sx=x_pos, sy=0
-        )
-
-        settings['bookmark']['x'] = plate_x
+        _app_ctx.ctx.session.save_bookmark(('X',))
 
     def set_ybookmark(self):
         gui_logger.button('SET_Y_BOOKMARK')
@@ -408,19 +394,7 @@ class XYStageControl(BoxLayout):
         run_reported(self.ex_set_ybookmark, None, 'SET_Y_BOOKMARK')
 
     def ex_set_ybookmark(self):
-        ctx = _app_ctx.ctx
-        ctx.scope.motion.refuse_unknown_positions(('Y',), recording=True, then='save the bookmark')
-        y_pos = ctx.lumaview.scope.motion.get_current_position('Y')  # Get current y pos in um
-
-        # Save plate y-position to settings
-        _, labware = get_selected_labware()
-        settings = ctx.settings
-        coordinate_transformer = ctx.coordinate_transformer
-        _, plate_y = coordinate_transformer.stage_to_plate(
-            labware=labware, stage_offset=settings['stage_offset'], sx=0, sy=y_pos
-        )
-
-        settings['bookmark']['y'] = plate_y
+        _app_ctx.ctx.session.save_bookmark(('Y',))
 
     def goto_xbookmark(self):
         gui_logger.button('GOTO_X_BOOKMARK')

@@ -42,13 +42,9 @@ CLASSIFIED = {
     'modules/protocol_image_writer.py::ProtocolImageWriter.capture': RUN,
     'modules/protocol_step_runner.py::ProtocolStepRunner._grease_redist_w_pos': RUN,
     'ui/motion_settings.py::XYStageControl.get_xy_targets': DISPLAYS,
-    'ui/motion_settings.py::XYStageControl.ex_set_xbookmark': SAVES,
-    'ui/motion_settings.py::XYStageControl.ex_set_ybookmark': SAVES,
     'ui/shader.py::ShaderViewer._update_status_bar': DISPLAYS,
     'ui/stage.py::Stage.draw_labware_io_calculations': DISPLAYS,
     'ui/vertical_control.py::VerticalControl._show_z_target': DISPLAYS,
-    'ui/vertical_control.py::VerticalControl.ex_set_bookmark': SAVES,
-    'ui/vertical_control.py::VerticalControl.ex_set_all_bookmarks': SAVES,
 }
 
 

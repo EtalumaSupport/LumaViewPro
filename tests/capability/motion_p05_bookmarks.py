@@ -11,6 +11,8 @@ where does the stored value live?
 
 from harness import check, run
 
+from modules.exceptions import SettingRefusedError
+
 
 def body(s):
     m = s.scope.motion
@@ -24,8 +26,8 @@ def body(s):
             if 'bookmark' in n.lower() and not n.startswith('__')
         ]
     check(
-        'no bookmark member exists on Session / Lumascope / MotionAPI',
-        not api_names,
+        'the Session has bookmark members',
+        bool(api_names),
         f'found: {api_names}' if api_names else 'none -- the capability has no API facade',
     )
 
@@ -44,12 +46,9 @@ def body(s):
     m.move_absolute('Z', 3300.0, wait_until_complete=True)
     m.move_absolute('X', 40.0, frame='plate', wait_until_complete=True)
     m.move_absolute('Y', 30.0, frame='plate', wait_until_complete=True)
-    here = s.get_current_plate_position()
-    saved = {'x': here['x'], 'y': here['y'], 'z': m.get_current_position('Z')}
-    for axis, value in saved.items():
-        s.update_settings(f'bookmark.{axis}', value)
+    saved = s.save_bookmark(('X', 'Y', 'Z'))
     check(
-        'a script can WRITE the bookmark through update_settings',
+        'a script can SAVE the bookmark through the Session',
         s.get_settings_snapshot()['bookmark'] == saved,
         str(saved),
     )
@@ -72,12 +71,8 @@ def body(s):
     )
 
     # 5. "Set ALL bookmarks" also stamps every layer's focus
-    # A layer's focus is saved by save_focus, the one focus writer, from the live Z.
-    z = m.get_current_position('Z')
-    protocol = s.create_empty_protocol()
+    z = s.save_all_bookmarks()
     on_scope = [record.key_name for record in s.scope.layer_identity.layers]
-    for layer in on_scope:
-        s.save_focus(protocol, layer)
     after = s.get_settings_snapshot()
     check(
         'a script can stamp every layer focus (the Set-All half)',
@@ -85,13 +80,16 @@ def body(s):
         f'focus={z}',
     )
 
-    # 6. does the bookmark survive a save? (the GUI never explicitly saves it)
-    check(
-        'update_settings is a settings-store write, not a bookmark API',
-        True,
-        'no validation, no bounds, no frame declared -- the caller supplies plate mm for '
-        'x/y and um for z from its own knowledge',
-    )
+    # 6. the bookmark is not a plain setting: the writer names its members
+    try:
+        s.update_settings('bookmark.x', 1.0)
+        check('update_settings refuses the bookmark, naming its member', False, 'written')
+    except SettingRefusedError as e:
+        check(
+            'update_settings refuses the bookmark, naming its member',
+            e.member == 'save_bookmark',
+            str(e),
+        )
 
 
 run(body)

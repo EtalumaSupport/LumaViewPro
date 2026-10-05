@@ -188,3 +188,20 @@ def test_an_acceleration_the_motors_refuse_is_not_stored(session, monkeypatch):
     with pytest.raises(ValueError):
         session.set_acceleration_limit(500)
     assert session.settings['motion']['acceleration_max_pct'] == 60
+
+
+def test_a_bookmark_is_the_live_position_in_the_go_to_frame(session):
+    session.scope.motion.home('ALL')
+    saved = session.save_bookmark(('X', 'Y', 'Z'))
+    here = session.get_current_plate_position()
+    assert saved == {'x': here['x'], 'y': here['y'], 'z': here['z']}
+    assert session.settings['bookmark'] == {**session.settings['bookmark'], **saved}
+
+
+def test_set_all_bookmarks_stamps_the_focus_of_the_scopes_own_layers(session):
+    session.scope.motion.home('ALL')
+    z = session.save_all_bookmarks()
+    on_scope = {record.key_name for record in session.scope.layer_identity.layers}
+    assert session.settings['bookmark']['z'] == z
+    for layer in on_scope:
+        assert session.settings[layer]['focus'] == z
