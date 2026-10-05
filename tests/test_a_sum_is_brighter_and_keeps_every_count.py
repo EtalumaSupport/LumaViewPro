@@ -9,17 +9,23 @@ capture's own, recorded with the frame, so no caller restates them.
 
 Before this, a 12-bit sum was tagged 16 (rendered at about a quarter of one
 frame's brightness), and ``capture_frame_depth(image)`` after a sum answered
-one frame's depth, which the sum's values overran.
+one frame's depth, which the sum's values overran. A sum z-projection of
+uint8 slices was clipped at 255, and one of 12-bit slices was tagged 12 and
+failed its read-back.
 """
 
 from __future__ import annotations
 
+import pathlib
+
 import numpy as np
+import pandas as pd
 import pytest
 
-from modules import image_utils
+from modules import image_utils, zprojection
 from modules.exceptions import FrameDepthError
 from modules.protocol_image_writer import ProtocolImageWriter
+from modules.zprojector import ZProjector
 from tests.scope_fakes import build_scope
 
 WHITE = {'Mono8': 255, 'Mono12': 4095}
@@ -118,3 +124,81 @@ def test_a_sum_of_blown_frames_reads_saturated(sim_camera, pixel_format, frames)
     writer._scope = scope
     evidence = writer._capture_evidence(image, scope.imaging.capture_frame_full_scale(image))
     assert 'sat=100.0%' in evidence
+
+
+# --- the products -------------------------------------------------------------
+
+
+def _write(path: pathlib.Path, array: np.ndarray, bits: int, encoding: str, color: str = 'Blue'):
+    image_utils.write_tiff(
+        data=array,
+        file_loc=path,
+        metadata={
+            'datetime': '2026-10-04T12:00:00',
+            'plate_pos_mm': {'x': 0.0, 'y': 0.0},
+            'z_pos_um': 0.0,
+            'exposure_time_ms': 50.0,
+            'gain_db': 0.0,
+            'illumination_ma': 0.0,
+            'pixel_size_um': 0.5,
+            'channel': color,
+            'objective': {
+                'model': 'PlanFluor20x',
+                'manufacturer': 'Nikon',
+                'magnification': 20,
+                'aperture': 0.45,
+                'working_distance': 8.1,
+                'immersion': 'Air',
+            },
+            'instrument': {
+                'manufacturer': 'Etaluma',
+                'model': 'LS620',
+                'serial_number': 'SN0',
+                'camera_model': 'MT9P031',
+            },
+            'plate': {'name': '96-well', 'rows': 8, 'columns': 12},
+            'well_label': 'A1',
+        },
+        ome=False,
+        color=color,
+        significant_bits=bits,
+        save_encoding=encoding,
+    )
+
+
+def test_a_sum_projection_of_8bit_slices_keeps_its_counts():
+    slices = [np.full((4, 4), 200, dtype=np.uint8) for _ in range(3)]
+    projected = zprojection.zproject(slices, zprojection.ZProjectMethod.Sum)
+    assert projected.dtype == np.uint16
+    assert int(projected.max()) == 600
+
+
+def test_a_colour_sum_projection_does_not_wrap():
+    slices = []
+    for _ in range(3):
+        rgb = np.zeros((4, 4, 3), dtype=np.uint8)
+        rgb[:, :, 2] = 200
+        slices.append(rgb)
+    result = ZProjector(has_turret=False)._zproject_for_multi_channel(
+        slices, zprojection.ZProjectMethod.Sum
+    )
+    assert result['image'].dtype == np.uint16
+    assert int(result['image'][:, :, 2].max()) == 600
+
+
+def test_a_12bit_sum_projection_is_tagged_by_its_reach_and_reads_back(tmp_path):
+    rows = []
+    for z in range(3):
+        name = f'A1_Blue_Z{z}.tiff'
+        _write(tmp_path / name, np.full((8, 8), 4000, dtype=np.uint16), 12, 'right_aligned')
+        rows.append({'Color': 'Blue', 'Filepath': name})
+    result = ZProjector(has_turret=False)._zproject(
+        path=tmp_path,
+        df=pd.DataFrame(rows),
+        method='Sum',
+        output_file_loc=pathlib.Path('projected.tiff'),
+    )
+    assert result['significant_bits'] == 14
+    pixels, bits = image_utils.load_pixels(tmp_path / 'projected.tiff')
+    assert bits == 14
+    assert int(pixels.max()) == 12000

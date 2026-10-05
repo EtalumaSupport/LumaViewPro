@@ -8,7 +8,8 @@ implementation, replacing the former ImageJ/JVM round-trip.
 
 The function operates on a list of 2-D arrays -- the exact contract the
 ZProjector post-processor feeds it (per-color-plane slices for color images,
-whole frames for mono). Output dtype always matches the input dtype.
+whole frames for mono). Output dtype matches the input dtype, except that a
+Sum of uint8 frames is uint16: its counts pass 255.
 """
 
 import enum
@@ -33,6 +34,18 @@ class ZProjectMethod(enum.Enum):
         return [c.name for c in cls]
 
 
+def projected_dtype(method: ZProjectMethod, input_dtype: np.typing.DTypeLike) -> np.dtype:
+    """The dtype a projection of frames of ``input_dtype`` comes out in.
+
+    The input's, except a Sum of uint8 frames: a sum's counts pass 255, so it
+    is stored in a 16-bit container, as a summed capture is.
+    """
+    input_dtype = np.dtype(input_dtype)
+    if method == ZProjectMethod.Sum and input_dtype == np.uint8:
+        return np.dtype(np.uint16)
+    return input_dtype
+
+
 def zproject(images_data: list[np.ndarray], method: ZProjectMethod) -> np.ndarray | None:
     """Project a stack of equal-shape arrays into a single array.
 
@@ -43,15 +56,18 @@ def zproject(images_data: list[np.ndarray], method: ZProjectMethod) -> np.ndarra
         method: Which reduction to apply.
 
     Returns:
-        The projected array with the same dtype as the input frames, or None
-        if images_data is empty.
+        The projected array, or None if images_data is empty. Its dtype is the
+        input frames', except a Sum of uint8 frames, which is uint16.
 
     Notes:
         Average/Median/StdDev finish with round-half-to-even then cast back to
         the input dtype -- byte-identical to the finishing step the ImageJ
         backend used. Min/Max are exact integer reductions. Sum accumulates in
-        a wide integer type and saturates at the input dtype max rather than
-        wrapping, so a deep bright stack rails to white instead of overflowing.
+        a wide integer type and is stored in a 16-bit container, a uint8 stack
+        included, so it keeps its counts the way a summed capture does; it
+        saturates at the container's ceiling rather than wrapping. Its depth
+        tag is ``image_utils.summed_significant_bits`` of the slice count and
+        the input depth.
     """
     if not images_data:
         logger.error('[ZProject] No images provided')
@@ -65,6 +81,7 @@ def zproject(images_data: list[np.ndarray], method: ZProjectMethod) -> np.ndarra
     )
 
     orig_dtype = images_data[0].dtype
+    out_dtype = projected_dtype(method, orig_dtype)
     stack = np.stack(images_data, axis=0)
 
     if method == ZProjectMethod.Min:
@@ -77,15 +94,15 @@ def zproject(images_data: list[np.ndarray], method: ZProjectMethod) -> np.ndarra
         result = np.median(stack, axis=0).round()
     elif method == ZProjectMethod.Sum:
         # Accumulate in a wide integer so the sum itself never overflows, then
-        # saturate to the output dtype's range. A uint16 stack would need
+        # saturate at the 16-bit container's ceiling. A uint16 stack would need
         # ~2.8e14 frames to overflow uint64.
         acc_dtype = np.uint64 if np.issubdtype(orig_dtype, np.unsignedinteger) else np.int64
         summed = stack.sum(axis=0, dtype=acc_dtype)
-        result = np.clip(summed, 0, np.iinfo(orig_dtype).max)
+        result = np.clip(summed, 0, np.iinfo(out_dtype).max)
     elif method == ZProjectMethod.StdDev:
         result = stack.std(axis=0, dtype=np.float64).round()
     else:
         logger.error(f'[ZProject] Unknown method: {method!r}')
         return None
 
-    return result.astype(orig_dtype)
+    return result.astype(out_dtype)
