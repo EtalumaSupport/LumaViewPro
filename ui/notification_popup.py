@@ -569,6 +569,7 @@ def show_objective_selection_popup(
         size_hint=(0.4, 0.32),
         auto_dismiss=False,
     )
+    popup.must_answer = True
 
     def _on_confirm(*_a):
         global _objective_popup_folded

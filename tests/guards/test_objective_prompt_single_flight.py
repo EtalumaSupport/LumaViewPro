@@ -261,6 +261,31 @@ class TestSingleFlight:
 # ---------------------------------------------------------------------------
 
 
+class TestTheObjectivePromptHasNoCloseButton:
+    def test_the_objective_prompt_gets_no_x(self, monkeypatch, popups, session):
+        """The prompt has no cancel path: an X would close it unanswered and
+        drop the startup work folded into it."""
+        from ui.popup_close import add_popup_close
+
+        _install_ctx(monkeypatch, session)
+        _Stand().prompt_if_objective_unknown()
+        (popup,) = popups
+
+        reached = []
+
+        class _Container:
+            @property
+            def parent(self):
+                reached.append(True)
+                return None
+
+        popup._container = _Container()
+        add_popup_close(popup)
+
+        assert popup.must_answer is True
+        assert reached == []
+
+
 class TestNoHardwareSuppression:
     def test_no_hardware_suppresses_the_objective_prompt(self, monkeypatch, popups, session):
         _install_ctx(monkeypatch, session, no_hardware=True)

@@ -52,3 +52,40 @@ class TestGlobalRuleWiring:
     def test_imported_at_startup_for_side_effect(self):
         src = (REPO_ROOT / 'lumaviewpro.py').read_text()
         assert 'import ui.popup_close' in src
+
+
+class _ContainerProbe:
+    """A popup's internal container that records whether the injector reached it."""
+
+    def __init__(self):
+        self.reached = False
+
+    @property
+    def parent(self):
+        self.reached = True
+        return None
+
+
+class TestAPopupThatMustBeAnswered:
+    def test_a_popup_that_must_be_answered_gets_no_x(self):
+        from types import SimpleNamespace
+
+        from ui.popup_close import add_popup_close
+
+        probe = _ContainerProbe()
+        popup = SimpleNamespace(must_answer=True, _container=probe)
+
+        add_popup_close(popup)
+
+        assert not probe.reached
+        assert not getattr(popup, '_etaluma_close_added', False)
+
+    def test_an_ordinary_popup_still_goes_on_to_get_its_x(self):
+        from types import SimpleNamespace
+
+        from ui.popup_close import add_popup_close
+
+        probe = _ContainerProbe()
+        add_popup_close(SimpleNamespace(_container=probe))
+
+        assert probe.reached
