@@ -79,7 +79,7 @@ def settings_writer(settings: dict):
     template = json.loads(_TEMPLATE.read_text(encoding='utf-8'))
 
     def update_settings(path: str, value: object) -> None:
-        settings_paths.check_write(template, path, value)
+        value = settings_paths.check_write(template, path, value, installation=str(_REPO_ROOT))
         *blocks, leaf = path.split('.')
         holder = settings
         for block in blocks:

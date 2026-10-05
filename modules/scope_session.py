@@ -1776,6 +1776,9 @@ class ScopeSession:
         tear a snapshot being taken concurrently, and takes none of the
         checks below.
 
+        ``live_folder`` is stored as it is at load: a folder given relative
+        to the installation is made absolute, and created.
+
         A setting that has its own member -- the objective, the plate, the
         image mode, a layer's acquire mode or focus, ... -- is changed only
         through that member, which checks it against the scope or changes
@@ -1794,7 +1797,9 @@ class ScopeSession:
                 ``protocol.duration`` no protocol can run. Nothing is
                 written.
         """
-        settings_paths.check_write(self.scope.settings_template, path, value)
+        value = settings_paths.check_write(
+            self.scope.settings_template, path, value, installation=self.scope.source_path
+        )
         with self.settings_lock:
             self._store_setting(path, value)
 

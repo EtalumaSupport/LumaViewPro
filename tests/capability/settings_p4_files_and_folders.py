@@ -23,6 +23,8 @@ import sys
 
 import harness as _common
 
+from modules.exceptions import SettingRefusedError
+
 s, live = _common.make_session()
 try:
     # --- live_folder ------------------------------------------------------
@@ -31,14 +33,16 @@ try:
     _common.ok(
         'live_folder set through Session', s.get_settings_snapshot()['live_folder'] == str(newdir)
     )
-    _common.void(
-        'live_folder creates/validates the directory',
-        newdir.exists(),
-        'the API stores a destination it never validates, so a run '
-        'discovers the bad path at save time',
-    )
-    s.update_settings('live_folder', '/definitely/not/a/real/place/\x00bad')
-    print('live_folder after a nonsense path:', repr(s.get_settings_snapshot()['live_folder']))
+    _common.ok('live_folder creates the directory', newdir.exists(), str(newdir))
+    try:
+        s.update_settings('live_folder', '/definitely/not/a/real/place/\x00bad')
+        _common.ok(
+            'a live_folder that is not a path is refused',
+            False,
+            repr(s.get_settings_snapshot()['live_folder']),
+        )
+    except SettingRefusedError as e:
+        _common.ok('a live_folder that is not a path is refused', True, str(e))
     s.update_settings('live_folder', str(live))
 
     # --- protocol load / save --------------------------------------------

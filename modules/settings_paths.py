@@ -14,6 +14,8 @@ from __future__ import annotations
 import typing
 
 import modules.common_utils as common_utils
+import modules.settings_init as settings_init
+from lvp_logger import logger
 from modules.exceptions import SettingRefusedError
 from modules.image_mode import VALID_LIVE_OUTPUT_FORMATS, VALID_SEQUENCED_OUTPUT_FORMATS
 from modules.protocol import schedule_from_units
@@ -82,6 +84,21 @@ _RANGES: typing.Final[dict[str, typing.Callable[[typing.Any], None]]] = {
 }
 
 
+def _live_folder(value: str, installation: str) -> str:
+    try:
+        return settings_init.bring_up_live_folder(logger, value, installation)
+    except ValueError as e:
+        # pathlib's answer to a string no file system can name (a NUL byte).
+        raise SettingRefusedError('out_of_range', 'live_folder', f'{value!r} is not a path') from e
+
+
+# A setting stored in a form of its own rather than as given, by the same
+# rule its value takes when the settings file is loaded.
+_STORED_FORM: typing.Final[dict[str, typing.Callable[[typing.Any, str], typing.Any]]] = {
+    'live_folder': _live_folder,
+}
+
+
 def _kind(value: object) -> str:
     # bool first: True is an int. Exact types, so a numpy scalar -- a float
     # subclass that json cannot save -- is its own kind and refused.
@@ -116,12 +133,14 @@ def member_for(path: str) -> str | None:
     return None
 
 
-def check_write(template: dict, path: str, value: object) -> None:
-    """Refuse a write of ``value`` at ``path`` that the store must not take.
+def check_write(template: dict, path: str, value: object, *, installation: str) -> object:
+    """The value to store at ``path``, or a refusal of a write the store must not take.
 
     ``template`` is the shipped ``settings.json``, which describes every
     setting there is. A leaf the template holds as null is one with no
-    shipped value; it takes any scalar.
+    shipped value; it takes any scalar. ``installation`` is the folder the
+    scope was started on: a live folder given relative to it is stored
+    absolute, and created.
 
     Raises:
         SettingRefusedError: ``path`` is owned by a Session member (named),
@@ -153,3 +172,5 @@ def check_write(template: dict, path: str, value: object) -> None:
     rule = _RANGES.get(path)
     if rule is not None:
         rule(value)
+    stored_form = _STORED_FORM.get(path)
+    return value if stored_form is None else stored_form(value, installation)

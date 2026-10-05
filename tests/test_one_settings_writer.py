@@ -16,6 +16,7 @@ import pytest
 from modules.exceptions import SettingRefusedError
 from modules.protocol import ProtocolScheduleRefusedError
 from modules.scope_session import ScopeSession
+from tests.installation_fixtures import copy_installation_files
 from tests.settings_fixtures import complete_settings
 
 
@@ -56,6 +57,7 @@ def test_a_leaf_with_no_shipped_value_takes_a_number(session):
         ('video.max_duration_seconds', 0, 'out_of_range'),
         ('tiling_overlap_percent', 75.0, 'out_of_range'),
         ('image_output_format.live', 'BMP', 'out_of_range'),
+        ('live_folder', '/no/such\x00place', 'out_of_range'),
     ],
 )
 def test_a_refused_write_names_why_and_writes_nothing(session, path, value, reason):
@@ -125,3 +127,22 @@ def test_a_snapshot_never_sees_a_write_half_done(session):
         stop.set()
         writer.join()
     assert torn == []
+
+
+def test_a_relative_live_folder_is_stored_absolute_and_created(tmp_path):
+    # The load rule, wherever the value enters: relative means the installation's.
+    data = tmp_path / 'data'
+    data.mkdir()
+    copy_installation_files(data)
+    s = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path / 'live')),
+        source_path=str(tmp_path),
+        simulate=True,
+    )
+    try:
+        s.update_settings('live_folder', 'captures/run7')
+        stored = s.settings['live_folder']
+        assert stored == str((tmp_path / 'captures' / 'run7').resolve())
+        assert (tmp_path / 'captures' / 'run7').is_dir()
+    finally:
+        s.shutdown()

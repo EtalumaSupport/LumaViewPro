@@ -434,7 +434,7 @@ nothing is written. Its `reason` says why:
 | `not_a_setting` | no setting has the path |
 | `block` | the path names a block of settings (`'video'`); each is written by its own path |
 | `wrong_kind` | the value is not the kind the setting holds: true/false, a number (int or float), text, or a list. A setting shipped as `null` takes any single value. A numpy scalar is refused: convert it with `float()` or `int()` |
-| `out_of_range` | `video.max_fps` outside 0 to 200 (0 is no cap); `video.max_duration_seconds` outside 1 to 3600; `tiling_overlap_percent` outside 0 to 50; `image_output_format.live` / `.sequenced` not a format the writer takes |
+| `out_of_range` | `video.max_fps` outside 0 to 200 (0 is no cap); `video.max_duration_seconds` outside 1 to 3600; `tiling_overlap_percent` outside 0 to 50; `image_output_format.live` / `.sequenced` not a format the writer takes; a `live_folder` that is not a path (a NUL byte) |
 
 `protocol.period` (minutes) and `protocol.duration` (hours) are the
 schedule a new protocol starts from, held to the protocol's own range
@@ -443,6 +443,9 @@ and nothing is written. A `current.json` written before the range was
 enforced can hold one; at start-up that key alone takes the shipped value,
 and the session reports the notice `protocol_schedule_replaced` once, as it
 is created, naming the key, the saved value and the one now in its place.
+
+`live_folder` is stored as it is at start-up: a folder given relative to
+the installation is made absolute, and the folder is created.
 
 Writing into `session.settings` directly skips every check above and the
 lock; it is not a supported write.
