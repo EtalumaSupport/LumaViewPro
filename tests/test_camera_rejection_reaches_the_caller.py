@@ -169,25 +169,19 @@ class TestARemovedCameraIsNotAValueRejection:
 
         assert imaging.set_gain_db(9.0) is None
 
-    def test_a_removed_camera_reads_as_absent_not_as_refused(self, sim_imaging, monkeypatch):
+    def test_a_removed_camera_reads_as_absent_not_as_refused(
+        self, sim_imaging, monkeypatch, centre_posts
+    ):
         imaging, cam = sim_imaging
-        warned, errored = [], []
-        monkeypatch.setattr(
-            'modules.lumascope_api.imaging.notifications.warning',
-            lambda *a, **kw: warned.append(a),
-        )
-        monkeypatch.setattr(
-            'modules.lumascope_api.imaging.notifications.error',
-            lambda *a, **kw: errored.append(a),
-        )
         monkeypatch.setattr(cam, 'gain', lambda v: False)
         monkeypatch.setattr(cam, 'is_device_removed', lambda: True)
 
         imaging.set_gain_db(9.0)
 
+        warned = [n for n in centre_posts if n.severity == Severity.WARNING]
         assert warned, 'a vanished camera still has to reach the user'
-        assert 'not connected' in warned[0][1].lower()
-        assert not errored, 'and must not be reported as a refused value'
+        assert 'not connected' in warned[0].title.lower()
+        assert not _errors(centre_posts), 'and must not be reported as a refused value'
 
     def test_a_live_camera_still_reports_its_refusal(self, sim_imaging, monkeypatch):
         """The discrimination must not swallow a real refusal -- the whole

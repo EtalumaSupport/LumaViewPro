@@ -1025,16 +1025,11 @@ class TestARunThatCannotResolveItsDataRootFailsAtStart:
     once.
     """
 
-    def test_an_unresolvable_data_root_fails_the_run_at_start(self, tmp_path, monkeypatch):
-        import modules.notification_center as notification_center
+    def test_an_unresolvable_data_root_fails_the_run_at_start(
+        self, tmp_path, monkeypatch, centre_posts
+    ):
+        from modules.notification_center import Severity
         from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
-
-        notified = []
-        monkeypatch.setattr(
-            notification_center.notifications,
-            'error',
-            lambda *args, **kwargs: notified.append(args),
-        )
 
         output_dir = tmp_path / 'out'
         runner = bare_capture_runner()
@@ -1071,6 +1066,9 @@ class TestARunThatCannotResolveItsDataRootFailsAtStart:
         assert completions[0].get('status') == 'failed_at_start', (
             f'run_complete must carry the failed-at-start status; got {completions[0]}'
         )
+        notified = [
+            (n.category, n.title, n.message) for n in centre_posts if n.severity == Severity.ERROR
+        ]
         failed_to_start = [args for args in notified if 'Run failed to start' in args]
         assert len(failed_to_start) == 1, (
             f'the user must be told once that the run failed to start; got {notified}'

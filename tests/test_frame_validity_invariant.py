@@ -28,6 +28,7 @@ from modules.exceptions import CameraSettingRejected
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.lumascope_api.motion import MotionAPI
+from modules.notification_center import Severity
 from tests.scope_fakes import build_scope, give_stub_lanes, home_sim_scope
 
 
@@ -305,13 +306,8 @@ class TestRejectedSettingRaisesAndKeepsCache:
     the camera streams at the old setting while the cache claims the
     new one -- the silent stale-settings shape."""
 
-    def test_rejected_gain_raises_and_keeps_cache(self, sim_imaging, monkeypatch):
+    def test_rejected_gain_raises_and_keeps_cache(self, sim_imaging, monkeypatch, centre_posts):
         imaging, cam = sim_imaging
-        captured = []
-        monkeypatch.setattr(
-            'modules.lumascope_api.imaging.notifications.error',
-            lambda *a, **kw: captured.append(a),
-        )
         imaging.set_gain_db(2.0)  # establish a known cache value
         monkeypatch.setattr(cam, 'gain', lambda v: False)
 
@@ -321,18 +317,14 @@ class TestRejectedSettingRaisesAndKeepsCache:
         with pytest.raises(CameraSettingRejected):
             imaging.set_gain_db(7.0)
 
+        captured = [n for n in centre_posts if n.severity == Severity.ERROR]
         assert not captured, 'A confirmed gain rejection is shown by its reporter, not the API'
         assert imaging.gain_db_cached == 2.0, (
             'A rejected gain write must not be recorded in the cache'
         )
 
-    def test_rejected_exposure_raises_and_keeps_cache(self, sim_imaging, monkeypatch):
+    def test_rejected_exposure_raises_and_keeps_cache(self, sim_imaging, monkeypatch, centre_posts):
         imaging, cam = sim_imaging
-        captured = []
-        monkeypatch.setattr(
-            'modules.lumascope_api.imaging.notifications.error',
-            lambda *a, **kw: captured.append(a),
-        )
         imaging.set_exposure_ms(20.0)  # establish a known cache value
         monkeypatch.setattr(cam, 'exposure_t', lambda v: False)
 
@@ -341,6 +333,7 @@ class TestRejectedSettingRaisesAndKeepsCache:
         with pytest.raises(CameraSettingRejected):
             imaging.set_exposure_ms(50.0)
 
+        captured = [n for n in centre_posts if n.severity == Severity.ERROR]
         assert not captured, 'A confirmed exposure rejection is shown by its reporter, not the API'
         assert imaging.exposure_ms_cached == 20.0, (
             'A rejected exposure write must not be recorded in the cache'

@@ -30,6 +30,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from modules.exceptions import ProtocolRunRefusedError
+from modules.notification_center import Severity
 from modules.protocol import Protocol
 from tests.test_run_zstack_entry_point import _POSITION, _zstack_settings
 from tests.scope_fakes import build_scope
@@ -158,12 +159,7 @@ class TestTheRefusalReachesTheUser:
     is the Rule 2 failure the whole refusal work is undoing.
     """
 
-    def test_it_posts_exactly_one_notification(self, monkeypatch, sim_scope):
-        import modules.notification_center as nc
-
-        posted: list[dict] = []
-        monkeypatch.setattr(nc.notifications, 'warning', lambda *a, **kw: posted.append(kw))
-
+    def test_it_posts_exactly_one_notification(self, sim_scope, centre_posts):
         with pytest.raises(ProtocolRunRefusedError):
             Protocol.from_config(
                 input_config=_standalone_config({'range': 0.0, 'step_size': 5.0}),
@@ -173,19 +169,15 @@ class TestTheRefusalReachesTheUser:
                 wellplate_loader=sim_scope.wellplate_loader,
             )
 
+        posted = [n for n in centre_posts if n.severity == Severity.WARNING]
         assert len(posted) == 1, f'the refusal must reach the user exactly once: {posted}'
 
-    def test_the_notification_survives_a_run_in_flight(self, monkeypatch, sim_scope):
+    def test_the_notification_survives_a_run_in_flight(self, sim_scope, centre_posts):
         """Solicited is the difference between told and silently dropped.
 
         An unsolicited notification is suppressed while a run is running,
         which is exactly when a user is most likely to be clicking.
         """
-        import modules.notification_center as nc
-
-        posted: list[dict] = []
-        monkeypatch.setattr(nc.notifications, 'warning', lambda *a, **kw: posted.append(kw))
-
         with pytest.raises(ProtocolRunRefusedError):
             Protocol.from_config(
                 input_config=_standalone_config({'range': 0.0, 'step_size': 5.0}),
@@ -195,9 +187,8 @@ class TestTheRefusalReachesTheUser:
                 wellplate_loader=sim_scope.wellplate_loader,
             )
 
-        assert posted[0].get('solicited') is True, (
-            'a refusal answers something the caller just asked for'
-        )
+        posted = [n for n in centre_posts if n.severity == Severity.WARNING]
+        assert posted[0].solicited is True, 'a refusal answers something the caller just asked for'
 
 
 class TestTheHeadlessCallerGetsIt:

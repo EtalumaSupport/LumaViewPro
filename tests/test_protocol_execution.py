@@ -2462,22 +2462,17 @@ class TestRunReturnValueContract:
         assert executor.current_step_color() is None
 
     def test_dir_setup_failure_fails_at_start_and_recovers(
-        self, executor, scope, tmp_path, monkeypatch
+        self, executor, scope, tmp_path, monkeypatch, centre_posts
     ):
         """A run-directory setup failure is a failed-at-start run, not a
         wedge: exactly one user notification, the terminal run_complete
         callback fires with the failed-at-start status, the runner is
         idle afterwards, and a subsequent prepare() succeeds."""
-        import modules.notification_center as notification_center
+        from modules.notification_center import Severity
 
         protocol = _make_single_step_protocol(color='BF')
 
-        notified = []
-        monkeypatch.setattr(
-            notification_center.notifications,
-            'error',
-            lambda *args, **kwargs: notified.append(args),
-        )
+        start = len(centre_posts)
         monkeypatch.setattr(
             executor,
             '_create_run_dir',
@@ -2491,6 +2486,7 @@ class TestRunReturnValueContract:
             callbacks={'run_complete': lambda **kwargs: completions.append(kwargs)},
         )
         executor.start(plan)
+        notified = [n for n in centre_posts[start:] if n.severity == Severity.ERROR]
         assert len(notified) == 1, (
             'A run that fails at directory setup must notify the user exactly '
             f'once; got {len(notified)}: {notified}'

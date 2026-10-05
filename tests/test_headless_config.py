@@ -25,6 +25,7 @@ from modules.config_helpers import (
 from modules.exceptions import ConfigError
 from modules.objectives_loader import ObjectiveLoader
 from modules.labware_loader import WellPlateLoader
+from modules.notification_center import Severity
 from modules.zstack_config import ZStackConfig
 from tests.settings_fixtures import complete_settings
 
@@ -154,17 +155,13 @@ class TestGetSelectedLabware:
         # The message lists what the user can pick instead.
         assert '96 well microplate' in str(refused.value)
 
-    def test_an_unknown_plate_posts_nothing(self, monkeypatch):
+    def test_an_unknown_plate_posts_nothing(self, centre_posts):
         # The raise is the report: the caller that waits on it shows it, once.
-        posted = []
-        import modules.notification_center as nc
-
-        monkeypatch.setattr(nc.notifications, 'warning', lambda *a, **k: posted.append(a))
         with pytest.raises(ConfigError):
             get_selected_labware_from_settings(
                 {'protocol': {'labware': 'nonexistent'}}, _wellplate_loader()
             )
-        assert posted == []
+        assert [n for n in centre_posts if n.severity == Severity.WARNING] == []
 
     def test_an_empty_name_is_refused_not_defaulted(self):
         with pytest.raises(ConfigError, match="unknown labware ''"):

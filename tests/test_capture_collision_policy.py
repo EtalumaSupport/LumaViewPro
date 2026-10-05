@@ -751,17 +751,7 @@ def test_labels_differing_only_in_stripped_chars_collide(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_same_base_different_objective_is_not_a_collision(tmp_path, monkeypatch):
-    from modules import protocol as protocol_mod
-
-    notified: list = []
-
-    class _RecordingNotifier:
-        def warning(self, category, title, message, **kw):
-            notified.append(message)
-
-    monkeypatch.setattr(protocol_mod, 'notifications', _RecordingNotifier())
-
+def test_same_base_different_objective_is_not_a_collision(tmp_path, centre_posts):
     # Load leg: same rendered base, different Objective -> no warning.
     rows = ''
     rows += _step_row('A1_BF', 'A1', '', -1, 0, 46.5, 34.6, 4972.9).replace('20x Oly', '4x Oly')
@@ -770,7 +760,7 @@ def test_same_base_different_objective_is_not_a_collision(tmp_path, monkeypatch)
     tsv.write_text(_build_tsv(rows))
     proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
     assert proto.num_steps() == 2
-    assert notified == [], notified
+    assert centre_posts == [], centre_posts
 
     # Run leg: no collision errors either.
     p = _make_protocol(

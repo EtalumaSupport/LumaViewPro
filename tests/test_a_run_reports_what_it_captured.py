@@ -290,21 +290,10 @@ class TestTheFileCountCountsImages:
         assert batch.not_written_reason == 'write_batch_disk_full'
         assert len(lost) == 1 and lost[0].reason == 'write_batch_disk_full', lost
 
-    def test_the_disk_floor_is_told_once(self, tmp_path, monkeypatch):
+    def test_the_disk_floor_is_told_once(self, tmp_path, monkeypatch, centre_posts):
         # The floor's own popup says the run stopped to protect the data.
         # The image it refused and the record row never written are that
         # same cause, and showed as two more popups after it.
-        from modules.notification_center import notifications
-
-        shown = []
-        notify = notifications.notify
-
-        def _shown(severity, category, title, message, **kw):
-            delivered = notify(severity, category, title, message, **kw)
-            if delivered:
-                shown.append(title)
-            return delivered
-
         files = []
         with (
             _reports_of(RunImagesNotSavedError) as lost,
@@ -313,7 +302,7 @@ class TestTheFileCountCountsImages:
             import modules.protocol_run_loop  # noqa: F401
 
             monkeypatch.setattr(common_utils, 'check_disk_space_ok', lambda path, mb: (False, 1.0))
-            monkeypatch.setattr(notifications, 'notify', _shown)
+            start = len(centre_posts)
             outcome = _run(
                 runner,
                 tmp_path / 'runs',
@@ -324,6 +313,7 @@ class TestTheFileCountCountsImages:
         assert (outcome.status, outcome.reason) == ('failed', 'disk_space_critical'), outcome
         assert files == ['incomplete'], files
         assert len(lost) == 1, 'the lost image is still reported, to the log'
+        shown = [n.title for n in centre_posts[start:] if n.shown]
         assert shown == ['Disk Space Critical'], shown
 
     def test_a_video_whose_file_did_not_finish_is_not_written(self):
@@ -495,18 +485,10 @@ class TestTheFilesLineAndItsReport:
 
 
 class TestACompositeThatCannotMerge:
-    def test_its_one_report_names_the_channel_that_failed(self, tmp_path, monkeypatch):
-        from modules.notification_center import notifications
+    def test_its_one_report_names_the_channel_that_failed(self, tmp_path, centre_posts):
+        from modules.notification_center import Severity
         from tests.test_composite_run_failures import _FAILING, _fail_these_channels
 
-        shown = []
-        error = notifications.error
-
-        def _error(category, title, message, *args, **kwargs):
-            shown.append((title, message))
-            return error(category, title, message, *args, **kwargs)
-
-        monkeypatch.setattr(notifications, 'error', _error)
         settings = headless_settings(tmp_path, acquiring=('BF', _FAILING))
         with open_composite_session(settings) as (session, runner):
             settled = runner.start_composite(
@@ -517,6 +499,7 @@ class TestACompositeThatCannotMerge:
                 ),
             ).wait(timeout_s=WAIT_S)
         assert settled is not None and not settled.merged, settled
+        shown = [(n.title, n.message) for n in centre_posts if n.severity == Severity.ERROR]
         failed = [message for title, message in shown if title == 'Composite Failed']
         assert len(failed) == 1, shown
         assert _FAILING in failed[0], failed[0]

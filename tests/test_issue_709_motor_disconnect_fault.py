@@ -22,17 +22,9 @@ def _wait_until(predicate, timeout=3.0, interval=0.02):
     return predicate()
 
 
-def test_disconnect_mid_move_faults_axis_and_notifies(monkeypatch):
+def test_disconnect_mid_move_faults_axis_and_notifies(centre_posts):
     from modules.lumascope_api import AxisState
-
-    errors = []
-    import modules.notification_center as nc
-
-    monkeypatch.setattr(
-        nc.notifications,
-        'error',
-        lambda category, title, message, **k: errors.append((category, title, message)),
-    )
+    from modules.notification_center import Severity
 
     scope = build_scope(simulate=True)
     motion = scope.motion
@@ -50,5 +42,6 @@ def test_disconnect_mid_move_faults_axis_and_notifies(monkeypatch):
     )
     assert motion._axis_state['Z'] == AxisState.UNKNOWN
     assert motion._arrival_events['Z'].is_set()
+    errors = [n for n in centre_posts if n.severity == Severity.ERROR]
     assert len(errors) == 1, f'exactly one disconnect notification expected, got {errors}'
-    assert 'Motor' in errors[0][1]
+    assert 'Motor' in errors[0].title

@@ -38,8 +38,14 @@ from modules.exceptions import HomingFailedError, PositionOutOfRangeError
 # ---------------------------------------------------------------------------
 
 
+from modules.notification_center import Severity
 from modules.run_outcome import EndingLatch, PendingRunOutcome, RunEnding
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
+
+
+def _posted(centre_posts, *severities):
+    """The (category, title, message) of every post at one of ``severities``."""
+    return [(n.category, n.title, n.message) for n in centre_posts if n.severity in severities]
 
 
 def _build_mock_logger():
@@ -1440,35 +1446,30 @@ class TestG3_AutofocusFailureNotification:
     mute, not autofocus, keeps them off the screen during a run
     (tests/test_an_unattended_runs_autofocus_shows_nothing.py)."""
 
-    def test_af_exception_notifies_user(self, monkeypatch):
+    def test_af_exception_notifies_user(self, centre_posts):
         """A raising AF loop must pop 'Autofocus Failed'."""
-        from modules.notification_center import notifications
         from tests.af_drives import af_runner_and_scope, drive_af
-
-        captured = []
-        monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
 
         runner, scope = af_runner_and_scope()
         scope.imaging.capture_and_wait.side_effect = RuntimeError('camera fault')
         with pytest.raises(RuntimeError, match='camera fault'):
             drive_af(runner)
+        captured = _posted(centre_posts, Severity.ERROR)
         assert captured and captured[0][1] == 'Autofocus Failed', (
             f'interactive AF failure must pop Autofocus Failed; got {captured}'
         )
 
-    def test_af_degenerate_curve_notifies_user(self, monkeypatch):
+    def test_af_degenerate_curve_notifies_user(self, monkeypatch, centre_posts):
         """A flat focus curve must pop 'Autofocus Failed' and report no
         result: the sweep chose no focus, so there is no position to
         report and the stage goes back where it started."""
-        from modules.notification_center import notifications
         from tests.af_drives import af_runner_and_scope, drive_af
 
-        captured = []
-        monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
         monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 0.0)
 
         runner, _scope = af_runner_and_scope()
         result = drive_af(runner)
+        captured = _posted(centre_posts, Severity.ERROR)
         assert captured and captured[0][1] == 'Autofocus Failed', (
             f'degenerate curve must notify the user; got {captured}'
         )
@@ -1560,7 +1561,7 @@ class TestRule14_A4_PreRunValidationNotify:
 class TestRule14_A5_AreAllConnectedExceptionNotify:
     """A5: are_all_connected() exception branch must notify (Rule 14)."""
 
-    def test_are_all_connected_exception_branch_notifies(self, monkeypatch):
+    def test_are_all_connected_exception_branch_notifies(self, centre_posts):
         """A raising connectivity check aborts the run with a typed fault that shows as an error.
 
         The fault is not reported where it is raised: the caller that asked
@@ -1569,16 +1570,17 @@ class TestRule14_A5_AreAllConnectedExceptionNotify:
         from modules.exceptions import RunCheckFailedError
         from modules.notification_center import notifications
 
-        captured = []
-        monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
         runner = _bare_capture_runner()
         runner._scope.are_all_connected.side_effect = RuntimeError('usb tree gone')
         with pytest.raises(RunCheckFailedError) as raised:
             runner.prepare(**_scr_run_kwargs())
-        assert not captured, 'the fault is reported by its caller, not where it is raised'
+        assert not _posted(centre_posts, Severity.ERROR), (
+            'the fault is reported by its caller, not where it is raised'
+        )
         assert raised.value.reason == 'hardware_state_unknown'
         assert isinstance(raised.value.__cause__, RuntimeError), 'the crash must stay chained'
         notifications.report_outcome(raised.value, solicited=True, category='UI:RUN')
+        captured = _posted(centre_posts, Severity.ERROR)
         assert captured, 'a reported check fault must post an error (A5 -- Rule 14)'
         assert captured[0][1] == 'Cannot verify hardware state', (
             f"notification title must be 'Cannot verify hardware state'; got {captured[0]}"
@@ -1669,7 +1671,6 @@ class TestRule14_A7_HyperstackBuildNotify:
         monkeypatch.setattr(
             notifications, 'report_outcome', lambda ex, **kw: reported.append((ex, kw))
         )
-        monkeypatch.setattr(notifications, 'notice', lambda *a, **k: None)
         failure = RuntimeError('corrupt tile map')
         builder = MagicMock()
         builder.return_value.load_folder.side_effect = failure
@@ -1846,15 +1847,13 @@ class TestSetBinningSizeFailureNotifies:
     """A failed binning change must surface a user notification -- the
     camera silently staying at the old binning is invisible otherwise."""
 
-    def test_set_binning_size_exception_notifies(self, monkeypatch):
+    def test_set_binning_size_exception_notifies(self, monkeypatch, centre_posts):
         import pytest
 
         from modules.exceptions import CameraSettingRejected
         from modules.notification_center import notifications
 
         imaging, cam = _sim_backed_imaging()
-        captured = []
-        monkeypatch.setattr(notifications, 'error', lambda *args, **kwargs: captured.append(args))
 
         def raising_set_binning_size(size):
             raise RuntimeError('simulated SDK failure')
@@ -1867,8 +1866,11 @@ class TestSetBinningSizeFailureNotifies:
         # that ends its flight, in the words it carries.
         with pytest.raises(CameraSettingRejected) as excinfo:
             imaging.set_binning_size(2)
-        assert captured == [], 'the setter must leave the showing to the reporter'
+        assert _posted(centre_posts, Severity.ERROR) == [], (
+            'the setter must leave the showing to the reporter'
+        )
         notifications.report_outcome(excinfo.value, solicited=True, category='Camera')
+        captured = _posted(centre_posts, Severity.ERROR)
         assert len(captured) == 1, captured
         assert captured[0][1] == 'Binning change failed', (
             f'notification title must name the failed operation; got {captured[0]}'
@@ -3536,12 +3538,13 @@ class TestPIW2_DisksUsageDeduped:
             'PIW-2: corresponding warn log should be removed.'
         )
 
-    def test_protocol_image_writer_disk_exhaustion_aborts(self, monkeypatch, tmp_path):
+    def test_protocol_image_writer_disk_exhaustion_aborts(
+        self, monkeypatch, tmp_path, centre_posts
+    ):
         """A failed save-folder disk check must notify, abort the protocol,
         and never reach save_image -- the useful check stays load-bearing."""
         import numpy as np
 
-        from modules.notification_center import notifications
         from modules.protocol_image_writer import CapturedFrame
 
         aborts = []
@@ -3555,8 +3558,6 @@ class TestPIW2_DisksUsageDeduped:
             'modules.protocol_image_writer.save_image',
             lambda scope, **kwargs: saves.append(kwargs) or (tmp_path / 'out.tiff'),
         )
-        notes = []
-        monkeypatch.setattr(notifications, 'critical', lambda *args, **kwargs: notes.append(args))
         from modules.exceptions import DiskSpaceCriticalError
 
         # Raised, so the run's file count reads the image as not written.
@@ -3577,7 +3578,9 @@ class TestPIW2_DisksUsageDeduped:
             )
         assert aborts == [1], 'low disk must abort the protocol'
         assert not saves, 'no write may happen after a failed disk check'
-        assert notes, 'low disk must surface a critical notification'
+        assert _posted(centre_posts, Severity.CRITICAL), (
+            'low disk must surface a critical notification'
+        )
 
 
 class TestProtocolCleanupRestoresLayerShader_ShaderHygiene:
@@ -6622,20 +6625,14 @@ class TestSequentialIOExecutorCancelledNotErrorLogged:
         executor.queue.get_nowait()
         executor._on_task_done(task, None, exception)
 
-    def test_cancelled_does_not_call_notifications_error(self, monkeypatch):
+    def test_cancelled_does_not_call_notifications_error(self, centre_posts):
         from concurrent.futures import CancelledError
         from modules.sequential_io_executor import SequentialIOExecutor
-        from modules import notification_center
 
         executor = SequentialIOExecutor(max_workers=1, name='TEST_CANCEL')
         try:
-            calls = []
-            monkeypatch.setattr(
-                notification_center.notifications,
-                'error',
-                lambda *a, **kw: calls.append(('error', a, kw)),
-            )
             self._run_on_task_done(executor, CancelledError())
+            calls = _posted(centre_posts, Severity.ERROR)
             assert calls == [], (
                 f'_on_task_done(..., CancelledError()) must not fire '
                 f'notifications.error; got {calls}'
@@ -6643,19 +6640,13 @@ class TestSequentialIOExecutorCancelledNotErrorLogged:
         finally:
             executor.shutdown(wait=False)
 
-    def test_runtime_error_still_calls_notifications_error(self, monkeypatch):
+    def test_runtime_error_still_calls_notifications_error(self, centre_posts):
         from modules.sequential_io_executor import SequentialIOExecutor
-        from modules import notification_center
 
         executor = SequentialIOExecutor(max_workers=1, name='TEST_REAL_FAIL')
         try:
-            calls = []
-            monkeypatch.setattr(
-                notification_center.notifications,
-                'error',
-                lambda *a, **kw: calls.append(('error', a, kw)),
-            )
             self._run_on_task_done(executor, RuntimeError('test failure'))
+            calls = _posted(centre_posts, Severity.ERROR)
             assert len(calls) == 1, (
                 f'_on_task_done(..., RuntimeError) must fire one notifications.error; got {calls}'
             )
@@ -6684,44 +6675,32 @@ class TestSequentialIOExecutorSilentOnFailure:
             silent_on_failure=silent,
         )
 
-    def test_silent_on_failure_suppresses_notification(self, monkeypatch):
+    def test_silent_on_failure_suppresses_notification(self, centre_posts):
         from modules.sequential_io_executor import SequentialIOExecutor
-        from modules import notification_center
 
         executor = SequentialIOExecutor(max_workers=1, name='TEST_SILENT')
         try:
-            calls = []
-            monkeypatch.setattr(
-                notification_center.notifications,
-                'error',
-                lambda *a, **kw: calls.append(('error', a, kw)),
-            )
             task = self._build_task(silent=True)
             executor.queue.put(task)
             executor.queue.get_nowait()  # mirror worker dequeue
             executor._on_task_done(task, None, RuntimeError('expected'))
+            calls = _posted(centre_posts, Severity.ERROR)
             assert calls == [], (
                 f'silent_on_failure=True must suppress notifications.error; got {calls}'
             )
         finally:
             executor.shutdown(wait=False)
 
-    def test_silent_on_failure_default_does_fire_notification(self, monkeypatch):
+    def test_silent_on_failure_default_does_fire_notification(self, centre_posts):
         from modules.sequential_io_executor import SequentialIOExecutor
-        from modules import notification_center
 
         executor = SequentialIOExecutor(max_workers=1, name='TEST_LOUD')
         try:
-            calls = []
-            monkeypatch.setattr(
-                notification_center.notifications,
-                'error',
-                lambda *a, **kw: calls.append(('error', a, kw)),
-            )
             task = self._build_task(silent=False)
             executor.queue.put(task)
             executor.queue.get_nowait()  # mirror worker dequeue
             executor._on_task_done(task, None, RuntimeError('expected'))
+            calls = _posted(centre_posts, Severity.ERROR)
             assert len(calls) == 1, (
                 f'silent_on_failure=False (default) must fire one notifications.error; got {calls}'
             )
@@ -10243,16 +10222,13 @@ class TestProtocolCleanupLedRestoreKey:
     sentinel migration.
     """
 
-    def test_restore_uses_illumination_ma_key(self, monkeypatch):
+    def test_restore_uses_illumination_ma_key(self, centre_posts):
         """Restoring an enabled LED must carry the snapshot's mA value into
         the RUN_END transition; a stale-key read would raise and silently
         skip the restore (the original swallowed-KeyError bug)."""
-        from modules.notification_center import notifications
         from modules.lumascope_api.illumination import LedTransition
         from modules.protocol_cleanup import run_cleanup
 
-        captured = []
-        monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
         scope = MagicMock()
         scope.illumination.color2ch.side_effect = lambda c: {'Red': 0, 'Green': 1}.get(c)
         scope.illumination.state_color2ch.side_effect = lambda c: {'Red': 0, 'Green': 1}.get(c)
@@ -10273,6 +10249,7 @@ class TestProtocolCleanupLedRestoreKey:
         # Red was lit at 250 mA pre-run; Green was off and excluded. The mA
         # value must survive the snapshot-shape read intact.
         assert ctx.snapshot_lit == frozenset({(0, 250.0)})
+        captured = _posted(centre_posts, Severity.WARNING, Severity.ERROR, Severity.CRITICAL)
         assert captured == [], (
             f'the snapshot-shape read must not raise into the summary; got {captured}'
         )
@@ -11222,22 +11199,23 @@ class TestRunPreValidationFiresNotificationOnException:
     error, fire notifications.error popup, return.
     """
 
-    def test_validate_for_run_exception_fires_notification_and_returns(self, monkeypatch):
+    def test_validate_for_run_exception_fires_notification_and_returns(self, centre_posts):
         """A raising validate_for_run must pop a user-facing error and
         abort the run -- not log a warning and proceed anyway."""
         from modules.exceptions import RunCheckFailedError
         from modules.notification_center import notifications
 
-        captured = []
-        monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
         runner = _bare_capture_runner()
         kwargs = _scr_run_kwargs()
         kwargs['protocol'].validate_for_run.side_effect = OSError('labware load failed')
         with pytest.raises(RunCheckFailedError) as raised:
             runner.prepare(**kwargs)
         assert isinstance(raised.value.__cause__, OSError), 'the crash must stay chained'
-        assert not captured, 'the fault is reported by its caller, not where it is raised'
+        assert not _posted(centre_posts, Severity.ERROR), (
+            'the fault is reported by its caller, not where it is raised'
+        )
         notifications.report_outcome(raised.value, solicited=True, category='UI:RUN')
+        captured = _posted(centre_posts, Severity.ERROR)
         assert captured, (
             'a reported validation crash must post an error, not only a log line, '
             'so the user sees the failure popup.'
@@ -12836,20 +12814,23 @@ class TestCaptureFailureAbortNotificationOrdering:
     against a failing disk) gets a chance to run.
     """
 
-    def test_abort_notification_precedes_record_and_leds_off(self, monkeypatch):
+    def test_abort_notification_precedes_record_and_leds_off(self, centre_posts):
         from unittest.mock import MagicMock
 
-        import modules.notification_center as nc
+        # Each event records how many posts had been made when it happened.
+        posts_at = {}
 
-        order = []
+        def at(event):
+            posts_at.setdefault(event, len(centre_posts))
+
         file_io_executor = MagicMock()
         # The lane takes the record write (a truthy answer; None would be a
         # refused lane) and says when.
-        file_io_executor.put.side_effect = lambda *a, **k: order.append('record') or True
+        file_io_executor.put.side_effect = lambda *a, **k: at('record') or True
         writer = _bare_protocol_writer(
             write_batch=RunWriteBatch(file_io_executor),
-            leds_off_fn=lambda: order.append('leds_off'),
-            abort_fn=lambda: order.append('abort'),
+            leds_off_fn=lambda: at('leds_off'),
+            abort_fn=lambda: at('abort'),
         )
         scope = writer._scope
         # The objective the frame is taken with, read at capture.
@@ -12858,7 +12839,6 @@ class TestCaptureFailureAbortNotificationOrdering:
         scope.capabilities.has_turret = False
         # Force the capture to fail (returns no frame) so the failure branch runs.
         scope.imaging.capture_and_wait.return_value = None
-        monkeypatch.setattr(nc.notifications, 'critical', lambda *a, **k: order.append('notify'))
         protocol = MagicMock()
         protocol.capture_root.return_value = ''
 
@@ -12876,16 +12856,18 @@ class TestCaptureFailureAbortNotificationOrdering:
         )
 
         assert result is False
-        assert 'notify' in order, 'abort notification must fire on the 3rd consecutive failure'
-        assert order.index('notify') < order.index('record'), (
-            f'notification must precede the failed-step record queue; order={order}'
+        criticals = [i for i, n in enumerate(centre_posts) if n.severity == Severity.CRITICAL]
+        assert criticals, 'abort notification must fire on the 3rd consecutive failure'
+        notify = criticals[0]
+        assert posts_at['record'] > notify, (
+            f'notification must precede the failed-step record queue; posts_at={posts_at}'
         )
-        assert order.index('notify') < order.index('leds_off'), (
-            f'notification must precede leds_off; order={order}'
+        assert posts_at['leds_off'] > notify, (
+            f'notification must precede leds_off; posts_at={posts_at}'
         )
-        assert order.index('abort') < order.index('notify'), (
+        assert posts_at['abort'] <= notify, (
             f'the abort must precede everything -- it is a free Event.set '
-            f'that closes the step-lighting gates; order={order}'
+            f'that closes the step-lighting gates; posts_at={posts_at}'
         )
 
 

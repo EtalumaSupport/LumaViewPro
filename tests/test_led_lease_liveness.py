@@ -135,22 +135,13 @@ def test_dead_probe_reclaims_regardless_of_thread_state(scope, caplog):
 # ---------------------------------------------------------------------------
 
 
-def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch):
+def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
     """Autofocus that cannot take the LED lease from a LIVE holder must abort
     its own run: AutofocusAborted raised, no focus sweep, no Z walk, camera
     state restored, in-progress flags cleared, the user notified -- and the
     live holder's lease and lit channel are untouched."""
-    import modules.autofocus_runner as autofocus_runner_module
     from modules.exceptions import AutofocusAborted
-
-    notified = []
-    # error severity, not warning: the likeliest contention (a running
-    # protocol) suppresses non-fatal popups, which would swallow this.
-    monkeypatch.setattr(
-        autofocus_runner_module.notifications,
-        'error',
-        lambda *args, **kwargs: notified.append(args),
-    )
+    from modules.notification_center import Severity
 
     ill = scope.illumination
     # AF is handed the lease of a run that already ended; the live holder
@@ -197,6 +188,11 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch):
     assert scope.imaging.get_exposure_ms() == pre_exposure, 'camera exposure must be restored'
     assert scope.imaging.is_focusing is False
     assert not runner.in_progress(), 'the in-progress flag must clear on the refused run'
+    # error severity, not warning: the likeliest contention (a running
+    # protocol) suppresses non-fatal popups, which would swallow this.
+    notified = [
+        (n.category, n.title, n.message) for n in centre_posts if n.severity == Severity.ERROR
+    ]
     assert any('Autofocus Did Not Start' in str(args) for args in notified), (
         f'the refused run must notify the user; got {notified}'
     )

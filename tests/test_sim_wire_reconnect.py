@@ -26,9 +26,8 @@ import time
 import pytest
 
 import drivers.sim_wire.backend as sim_backend
-import modules.notification_center as notification_center
-
 from modules.exceptions import HardwareCommandRefusedError, HomingFailedError
+from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
@@ -82,7 +81,7 @@ def test_after_a_reboot_the_api_no_longer_claims_to_know_the_stage(scope):
 
 
 def test_a_cable_pulled_mid_move_faults_the_axis_within_the_deadline_and_says_so_once(
-    monkeypatch,
+    monkeypatch, centre_posts
 ):
     # The pull must land while the stage is still travelling, so the board
     # runs in realistic timing: a session has no setting for it yet, so the
@@ -91,12 +90,6 @@ def test_a_cable_pulled_mid_move_faults_the_axis_within_the_deadline_and_says_so
         sim_backend,
         'MotorBoardSpec',
         functools.partial(sim_backend.MotorBoardSpec, timing='realistic'),
-    )
-    errors = []
-    monkeypatch.setattr(
-        notification_center.notifications,
-        'error',
-        lambda category, title, message, **kwargs: errors.append((category, title)),
     )
     session = ScopeSession.create(
         complete_settings(simulator_tier='firmware', microscope='LS850T'), simulate=True
@@ -115,6 +108,7 @@ def test_a_cable_pulled_mid_move_faults_the_axis_within_the_deadline_and_says_so
             time.sleep(0.05)
         assert time.monotonic() - pulled >= motion._DISCONNECT_FAULT_S
         assert motion.axes_without_position() == {'X': 'unknown'}
+        errors = [(n.category, n.title) for n in centre_posts if n.severity == Severity.ERROR]
         assert errors == [('Motion', 'Motor Board Disconnected')]
     finally:
         session.shutdown()

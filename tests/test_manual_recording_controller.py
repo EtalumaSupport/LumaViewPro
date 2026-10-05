@@ -20,6 +20,7 @@ from modules.activity_claim import ActivityClaim
 import modules.manual_recording as manual_recording_module
 from modules.exceptions import RecordingRefusedError
 from modules.manual_recording import ManualRecordingController
+from modules.notification_center import Severity
 from modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
 from tests.video_engine_harness import FakeClock, ManualFireScheduler, NotifyRecorder
 from modules.lumascope_api import AxisPosition, AxisState
@@ -1310,14 +1311,8 @@ class TestARecordingThatCannotBeOneHyperstackSaysWhy:
     """
 
     def test_the_notification_carries_the_builders_reason_and_the_frames_stand(
-        self, tmp_path, monkeypatch
+        self, tmp_path, centre_posts
     ):
-        shown = []
-        monkeypatch.setattr(
-            manual_recording_module.notifications,
-            'error',
-            lambda category, title, message, **kwargs: shown.append((title, message)),
-        )
         controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='Blue')
         controller.start(layer='Blue', false_color_on=False)
         feed_frames(scope, clock, 2, fps=10.0)
@@ -1329,6 +1324,7 @@ class TestARecordingThatCannotBeOneHyperstackSaysWhy:
         folder = next((tmp_path / 'Manual').glob('Video_*'))
         assert len(list(folder.glob('*.tiff'))) == 4, 'the frames are saved as recorded'
         assert not (folder / MANUAL_HYPERSTACK_FILENAME).exists()
+        shown = [(n.title, n.message) for n in centre_posts if n.severity == Severity.ERROR]
         (message,) = [m for t, m in shown if t == 'Hyperstack Not Built']
         assert message.startswith('Cannot build a hyperstack for this recording')
         assert '2 channels' in message

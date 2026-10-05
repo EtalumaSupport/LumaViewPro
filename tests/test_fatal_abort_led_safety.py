@@ -26,7 +26,7 @@ from unittest.mock import MagicMock
 
 from modules.lumascope_api.illumination import LedEndPolicy, LedTransition
 from modules.exceptions import RecordIncompleteError
-from modules.notification_center import notifications
+from modules.notification_center import Severity
 from modules.protocol_callbacks import ProtocolCallbacks
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.protocol_state_machine import ProtocolState
@@ -49,11 +49,18 @@ from modules.run_outcome import RunEnding
 from tests.scope_fakes import swap_lanes
 
 
-def test_wedge_funnel_order_abort_then_dark_then_notify(monkeypatch):
-    order = []
+def test_wedge_funnel_order_abort_then_dark_then_notify(monkeypatch, centre_posts):
+    # Each of the test's own events records how many critical posts the
+    # centre had made by then, so the post's place among them can be read.
+    events = []
+
+    def _event(name):
+        criticals = sum(1 for n in centre_posts if n.severity == Severity.CRITICAL)
+        events.append((name, criticals))
+
     fatal_event = threading.Event()
     orig_set = fatal_event.set
-    fatal_event.set = lambda: (order.append('fatal'), orig_set())[1]
+    fatal_event.set = lambda: (_event('fatal'), orig_set())[1]
 
     # The writer is stuck: the backlog is full (a bound of 0 is full at
     # once) past the stall budget, and the write in flight is stalled, so
@@ -65,17 +72,16 @@ def test_wedge_funnel_order_abort_then_dark_then_notify(monkeypatch):
     file_io_executor.describe_running_task.return_value = "write_capture 'x' 32s in flight"
 
     record = MagicMock()
-    record.mark_target_unresponsive.side_effect = lambda: order.append('latch')
-    record.add_step.side_effect = lambda **kw: order.append('row')
+    record.mark_target_unresponsive.side_effect = lambda: _event('latch')
+    record.add_step.side_effect = lambda **kw: _event('row')
 
     writer = _bare_protocol_writer(
         write_batch=RunWriteBatch(file_io_executor),
         execution_record=record,
-        abort_fn=lambda: order.append('abort'),
+        abort_fn=lambda: _event('abort'),
         fatal_abort_event=fatal_event,
     )
-    writer._scope.illumination.force_off.side_effect = lambda: order.append('force_off')
-    monkeypatch.setattr(notifications, 'critical', lambda *a, **k: order.append('critical'))
+    writer._scope.illumination.force_off.side_effect = lambda: _event('force_off')
 
     submitted = writer._submit_write(
         kwargs={},
@@ -87,6 +93,13 @@ def test_wedge_funnel_order_abort_then_dark_then_notify(monkeypatch):
     )
 
     assert submitted is False
+    _event('end')
+    order, seen = [], 0
+    for name, criticals in events:
+        order.extend(['critical'] * (criticals - seen))
+        seen = criticals
+        if name != 'end':
+            order.append(name)
     assert order == ['abort', 'fatal', 'force_off', 'critical', 'latch', 'row'], (
         'fatal abort must close the step gates and darken the sample BEFORE '
         'any notification or record write can run (or block): ' + repr(order)

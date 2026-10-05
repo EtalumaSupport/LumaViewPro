@@ -144,9 +144,9 @@ def test_every_instrument_write_of_a_run_executes_on_its_lane(sim_session, tmp_p
 
 
 def test_a_rejected_camera_setting_is_reported_and_the_run_goes_on(
-    sim_session, tmp_path, monkeypatch
+    sim_session, tmp_path, monkeypatch, centre_posts
 ):
-    from modules.notification_center import notifications
+    from modules.notification_center import Severity
 
     rejected_gain = 7.5
     camera = sim_session.scope._camera_driver
@@ -158,15 +158,14 @@ def test_a_rejected_camera_setting_is_reported_and_the_run_goes_on(
         return real_gain(value)
 
     monkeypatch.setattr(camera, 'gain', _refuse_one_gain)
-    errors = []
-    monkeypatch.setattr(notifications, 'error', lambda *a, **k: errors.append(a))
     base, _ = _steps()
 
     _run_protocol(sim_session, tmp_path, [{**base, 'Gain': rejected_gain}])
 
     images = [p for p in tmp_path.rglob('*') if p.suffix.lower() in ('.tif', '.tiff')]
     assert len(images) == 1, f'the step must still capture once; wrote {images}'
-    assert any(a[0] == 'Camera' for a in errors), (
+    errors = [n for n in centre_posts if n.severity == Severity.ERROR]
+    assert any(n.category == 'Camera' for n in errors), (
         f'the rejected gain must be reported to the user; notified {errors}'
     )
 

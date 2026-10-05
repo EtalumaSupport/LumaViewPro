@@ -283,19 +283,10 @@ def test_load_warns_on_cross_tgid_filename_collision(tmp_path, monkeypatch):
     )
 
 
-def test_load_no_warning_when_no_collisions(tmp_path, monkeypatch):
+def test_load_no_warning_when_no_collisions(tmp_path, centre_posts):
     """Happy path: unique (Name, Well, Tile, Z-Slice) tuples produce
     no notification."""
-    from modules import protocol as protocol_mod
     from modules.protocol import Protocol
-
-    captured_notifications: list = []
-
-    class _RecordingNotifier:
-        def warning(self, category, title, message, **kw):
-            captured_notifications.append((category, title, message))
-
-    monkeypatch.setattr(protocol_mod, 'notifications', _RecordingNotifier())
 
     rows = ''
     rows += _step_row('_PC_TA1', 'A1', '', -1, 0, 46.5, 34.6, 4972.9)
@@ -307,9 +298,8 @@ def test_load_no_warning_when_no_collisions(tmp_path, monkeypatch):
         file_path=tsv,
         tiling_configs_file_loc=TILING_CONFIGS,
     )
-    assert captured_notifications == [], (
-        f'No notification should fire for a well-formed protocol. '
-        f'Captured: {captured_notifications}'
+    assert centre_posts == [], (
+        f'No notification should fire for a well-formed protocol. Captured: {centre_posts}'
     )
 
 

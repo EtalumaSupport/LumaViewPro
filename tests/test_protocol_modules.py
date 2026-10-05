@@ -806,22 +806,21 @@ class TestRunCleanupCancelledHandoff:
         helper = TestRunCleanup()
         return helper._make_cleanup_args(**overrides)
 
-    def test_cancelled_led_restore_is_not_a_cleanup_error(self):
+    def test_cancelled_led_restore_is_not_a_cleanup_error(self, centre_posts):
         from concurrent.futures import CancelledError
-        from unittest.mock import patch
+        from modules.notification_center import Severity
         from modules.protocol_cleanup import run_cleanup
 
         def cancelled_apply(transition, ctx):
             raise CancelledError()
 
         args, _ = self._args(apply_led_transition_fn=cancelled_apply)
-        with patch('modules.notification_center.notifications') as mock_notif:
-            run_cleanup(**args)
-            mock_notif.warning.assert_not_called()
+        run_cleanup(**args)
+        assert [n for n in centre_posts if n.severity >= Severity.WARNING] == []
 
-    def test_cancelled_return_move_is_not_a_cleanup_error(self):
+    def test_cancelled_return_move_is_not_a_cleanup_error(self, centre_posts):
         from concurrent.futures import CancelledError
-        from unittest.mock import patch
+        from modules.notification_center import Severity
         from modules.protocol_cleanup import run_cleanup
 
         def cancelled_move(**kw):
@@ -831,9 +830,8 @@ class TestRunCleanupCancelledHandoff:
             return_to_position={'x': 1.0, 'y': 2.0, 'z': 3.0},
             default_move_fn=cancelled_move,
         )
-        with patch('modules.notification_center.notifications') as mock_notif:
-            run_cleanup(**args)
-            mock_notif.warning.assert_not_called()
+        run_cleanup(**args)
+        assert [n for n in centre_posts if n.severity >= Severity.WARNING] == []
 
     def test_real_led_restore_failure_still_surfaces(self):
         from unittest.mock import patch
