@@ -34,6 +34,8 @@ SETTINGS_WITH_A_MEMBER: typing.Final[dict[str, str]] = {
     'image_mode': 'set_image_mode',
     'binning': 'set_binning_size',
     'frame': 'set_frame_size',
+    'camera.high_conversion_gain': 'set_high_conversion_gain',
+    'camera.line_noise_reduction': 'set_line_noise_reduction',
     '*.acquire': 'set_layer_acquire',
     '*.auto_gain': 'set_layer_auto_gain',
     '*.focus': 'save_focus',

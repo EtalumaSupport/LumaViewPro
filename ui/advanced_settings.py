@@ -67,14 +67,7 @@ class AdvancedSettings(Popup):
         self.conversion_gain_supported = caps.camera_supports_conversion_gain_mode
         self.line_noise_reduction_supported = caps.camera_supports_line_noise_reduction
         self.xy_stage_supported = caps.has_xy_stage
-        camera_settings = settings['camera']
-        self.ids['high_conversion_gain'].active = bool(
-            self.conversion_gain_supported and camera_settings.get('high_conversion_gain', False)
-        )
-        self.ids['line_noise_reduction'].active = bool(
-            self.line_noise_reduction_supported
-            and camera_settings.get('line_noise_reduction', False)
-        )
+        self._show_camera_modes()
 
         video_settings = settings.get('video', {})
         self.ids['video_max_fps_input'].text = str(video_settings.get('max_fps', 0))
@@ -127,31 +120,36 @@ class AdvancedSettings(Popup):
         # populate does not re-run the handler -- no phantom toggle on open.
         self.ids['show_step_locations_id'].active = settings['show_step_locations']
 
+    def _show_camera_modes(self):
+        """Show the stored conversion gain and line-noise filter, where the camera has them."""
+        camera_settings = _app_ctx.ctx.settings['camera']
+        self.ids['high_conversion_gain'].active = bool(
+            self.conversion_gain_supported and camera_settings['high_conversion_gain']
+        )
+        self.ids['line_noise_reduction'].active = bool(
+            self.line_noise_reduction_supported and camera_settings['line_noise_reduction']
+        )
+
     def update_high_conversion_gain(self):
         ctx = _app_ctx.ctx
-        settings = ctx.settings
         state = self.ids['high_conversion_gain'].active
         gui_logger.select('HIGH_CONVERSION_GAIN', state)
-        settings.setdefault('camera', {})['high_conversion_gain'] = state
-        mode = 'High' if state else 'Low'
-        imaging = ctx.lumaview.scope.imaging
+        session = ctx.session
         submit_reported(
-            lambda: imaging.set_conversion_gain_mode(mode),
-            None,
+            lambda: session.set_high_conversion_gain(state),
+            self._show_camera_modes,
             'HIGH_CONVERSION_GAIN',
             lane=ctx.camera_executor,
         )
 
     def update_line_noise_reduction(self):
         ctx = _app_ctx.ctx
-        settings = ctx.settings
         state = self.ids['line_noise_reduction'].active
         gui_logger.select('LINE_NOISE_REDUCTION', state)
-        settings.setdefault('camera', {})['line_noise_reduction'] = state
-        imaging = ctx.lumaview.scope.imaging
+        session = ctx.session
         submit_reported(
-            lambda: imaging.set_line_noise_reduction(state),
-            None,
+            lambda: session.set_line_noise_reduction(state),
+            self._show_camera_modes,
             'LINE_NOISE_REDUCTION',
             lane=ctx.camera_executor,
         )

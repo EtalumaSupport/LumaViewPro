@@ -146,3 +146,23 @@ def test_a_relative_live_folder_is_stored_absolute_and_created(tmp_path):
         assert (tmp_path / 'captures' / 'run7').is_dir()
     finally:
         s.shutdown()
+
+
+@pytest.mark.parametrize(
+    ('member', 'imaging_setter', 'path'),
+    [
+        ('set_high_conversion_gain', 'set_conversion_gain_mode', 'high_conversion_gain'),
+        ('set_line_noise_reduction', 'set_line_noise_reduction', 'line_noise_reduction'),
+    ],
+)
+def test_a_camera_mode_is_stored_only_once_the_camera_took_it(
+    session, monkeypatch, member, imaging_setter, path
+):
+    imaging = session.scope.imaging
+    monkeypatch.setattr(imaging, imaging_setter, lambda value: True)
+    assert getattr(session, member)(True) is True
+    assert session.settings['camera'][path] is True
+
+    monkeypatch.setattr(imaging, imaging_setter, lambda value: False)
+    assert getattr(session, member)(False) is False
+    assert session.settings['camera'][path] is True, 'a mode the camera refused is not stored'

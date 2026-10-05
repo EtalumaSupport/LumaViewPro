@@ -158,8 +158,8 @@ def test_the_layer_apply_writes_the_camera_on_the_camera_lane(boundary, monkeypa
         (
             'update_high_conversion_gain',
             'high_conversion_gain',
-            'set_conversion_gain_mode',
-            ('High',),
+            'set_high_conversion_gain',
+            (True,),
         ),
         (
             'update_line_noise_reduction',
@@ -176,14 +176,17 @@ def test_an_advanced_camera_switch_writes_its_member_on_the_camera_lane(
 
     monkeypatch.setattr(advanced_settings, 'submit_reported', boundary.submit_reported)
     monkeypatch.setattr(advanced_settings.gui_logger, 'select', MagicMock())
-    ctx.settings['camera'] = {}
-    widget = SimpleNamespace(ids={widget_id: SimpleNamespace(active=True)})
+    # The Session member commands the camera and stores what it took.
+    setattr(ctx.session, member, MagicMock(return_value=True))
+    widget = SimpleNamespace(
+        ids={widget_id: SimpleNamespace(active=True)}, _show_camera_modes=MagicMock()
+    )
 
     getattr(advanced_settings.AdvancedSettings, handler)(widget)
 
     (submit,) = boundary.submits
     assert submit.lane is ctx.camera_executor
-    getattr(ctx.scope.imaging, member).assert_called_once_with(*expected_args)
+    getattr(ctx.session, member).assert_called_once_with(*expected_args)
 
 
 # ---------------------------------------------------------------------------

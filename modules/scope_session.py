@@ -2471,6 +2471,42 @@ class ScopeSession:
     # The camera's capture settings: applied, then stored
     # ------------------------------------------------------------------
 
+    def set_high_conversion_gain(self, enabled: bool) -> bool:
+        """Turn the camera's high conversion gain on or off, then store it.
+
+        High conversion gain lowers the sensor's read-noise floor at the cost
+        of dynamic range. The one writer of ``camera.high_conversion_gain``:
+        the setting is stored only once the camera took it, so the store
+        never names a mode the camera is not in.
+
+        Returns:
+            True when the camera took it and it is stored. False when no
+            camera is connected, the camera has no such mode, or it refused
+            (each reported by the imaging API); nothing is stored.
+        """
+        if not self.scope.imaging.set_conversion_gain_mode('High' if enabled else 'Low'):
+            return False
+        with self.settings_lock:
+            self._store_setting('camera.high_conversion_gain', enabled)
+        return True
+
+    def set_line_noise_reduction(self, enabled: bool) -> bool:
+        """Turn the camera's line-noise filter on or off, then store it.
+
+        The one writer of ``camera.line_noise_reduction``, stored only once
+        the camera took it, as ``set_high_conversion_gain`` is.
+
+        Returns:
+            True when the camera took it and it is stored. False when no
+            camera is connected, the camera has no such filter, or it refused
+            (each reported by the imaging API); nothing is stored.
+        """
+        if not self.scope.imaging.set_line_noise_reduction(enabled):
+            return False
+        with self.settings_lock:
+            self._store_setting('camera.line_noise_reduction', enabled)
+        return True
+
     def set_image_mode(self, mode: str) -> bool:
         """Capture in ``mode``: apply the camera format it needs, then store it.
 

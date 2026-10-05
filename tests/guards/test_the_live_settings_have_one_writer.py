@@ -28,8 +28,6 @@ _MUTATORS = frozenset(
 # Each a setting that is also an instrument state, or a write that carries a
 # decision; each moves to its own Session member and its count goes to 0.
 _DIRECT_WRITE_PIN = {
-    ('ui/advanced_settings.py', 'AdvancedSettings.update_high_conversion_gain'): 1,
-    ('ui/advanced_settings.py', 'AdvancedSettings.update_line_noise_reduction'): 1,
     ('ui/advanced_settings.py', 'AdvancedSettings.live_view_fps_slider'): 1,
     ('ui/advanced_settings.py', 'AdvancedSettings.update_stimulation_settings'): 1,
     ('ui/advanced_settings.py', 'AdvancedSettings.set_acceleration_limit'): 1,
