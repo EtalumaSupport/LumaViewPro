@@ -5,7 +5,7 @@ The fixture is the board characterization tool's record of an LS850T bench
 unit on field firmware: four runs of the same API calls, with each reply and
 how long each call took. The simulated motor board is booted as that unit
 (its own config, read from its CONFIG reply), the calls are replayed through
-the API in realistic timing, and each result is held to the bench:
+the API, and each result is held to the bench:
 
 - a reply must equal the reply of the one run that began at power-up, as
   the simulated board does; the other runs began where an earlier session
@@ -16,7 +16,13 @@ the API in realistic timing, and each result is held to the bench:
   same state, pooled across runs and repetitions. Four samples of one record
   are too few: correct query times fall outside them half the time.
 
-One repetition of each call is replayed; the pools hold all of them.
+One repetition of each call is replayed; the pools hold all of them. The
+replay runs twice: once in realistic timing, where a home and a move take
+as long as on the board (about a minute of real waits, so the tests that
+need it are marked slow), and once in instant timing, which takes seconds
+and answers every reply the same except where the record stopped a move in
+flight. Durations and the stopped positions read the realistic replay; every
+other reply reads the instant one.
 
 Where the model does not yet behave like the board, the check is a strict
 xfail naming the difference, so it turns red when the model is fixed and the
@@ -50,9 +56,9 @@ if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
         'the firmware-backed simulator runs on macOS and Linux only', allow_module_level=True
     )
 
-# The replay is a module fixture of about a minute; under xdist each worker
-# that draws one of these tests would run it again. One group sends them all
-# to one worker (`--dist loadgroup`, in the pytest addopts).
+# The replays are module fixtures, the realistic one about a minute; under
+# xdist each worker that draws one of these tests would run them again. One
+# group sends them all to one worker (`--dist loadgroup`, in the pytest addopts).
 pytestmark = pytest.mark.xdist_group('sim_wire_conformance')
 
 
@@ -106,14 +112,13 @@ _DURATIONS = _pools('api_ms')
 _POSITIONS = _pools('reply')
 
 
-@pytest.fixture(scope='module')
-def replayed_on_the_firmware():
-    """The bench's calls replayed on the simulated unit; index -> (reply, ms)."""
+def _replayed(timing: str) -> dict:
+    """The bench's calls replayed on the simulated unit in ``timing``; index -> (reply, ms)."""
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(
             sim_backend,
             'LedBoardSpec',
-            functools.partial(sim_backend.LedBoardSpec, timing='realistic'),
+            functools.partial(sim_backend.LedBoardSpec, timing=timing),
         )
         mp.setattr(
             sim_backend,
@@ -121,7 +126,7 @@ def replayed_on_the_firmware():
             functools.partial(
                 sim_backend.MotorBoardSpec,
                 dialect='field',
-                timing='realistic',
+                timing=timing,
                 unit_config=_UNIT_CONFIG,
             ),
         )
@@ -131,6 +136,18 @@ def replayed_on_the_firmware():
             warn_pre_release=False,
         )
     return replay(session)
+
+
+@pytest.fixture(scope='module')
+def replayed_on_the_firmware():
+    """The replay in realistic timing: what durations and stopped positions are held to."""
+    return _replayed('realistic')
+
+
+@pytest.fixture(scope='module')
+def replayed_instantly():
+    """The replay in instant timing: every other reply, in seconds."""
+    return _replayed('instant')
 
 
 def _duration_group(record) -> str | None:
@@ -156,6 +173,9 @@ def _duration_group(record) -> str | None:
 
 _REPLY_GROUPS = groups(reply_group)
 _DURATION_GROUPS = groups(_duration_group)
+# A reply that depends on the boards' timing: where the record stopped a move
+# in flight, the position it rests at is set by how far the move had got.
+_TIMED_REPLY_GROUPS = frozenset(name for name in _REPLY_GROUPS if name.startswith('stop_position'))
 
 # What the model does not yet do as the board does. Each is fixed in the
 # model, and its entry removed, on its own.
@@ -200,13 +220,17 @@ def _microstep_um(axis: str) -> float:
     return 1000.0 / _UNIT_CONFIG['Axis Microsteps per mm / Objective'][axis]
 
 
-@pytest.mark.slow
-@pytest.mark.parametrize('group', marked(_REPLY_GROUPS, _REPLY_GAPS, _FLAKY_REPLY_GAPS))
-def test_replies_match_the_bench(replayed_on_the_firmware, group):
+@pytest.mark.parametrize(
+    'group', marked(_REPLY_GROUPS, _REPLY_GAPS, _FLAKY_REPLY_GAPS, slow=_TIMED_REPLY_GROUPS)
+)
+def test_replies_match_the_bench(request, group):
+    replayed = request.getfixturevalue(
+        'replayed_on_the_firmware' if group in _TIMED_REPLY_GROUPS else 'replayed_instantly'
+    )
     wrong = []
     for index in _REPLY_GROUPS[group]:
         record = FRESH[index]
-        reply, _ms = replayed_on_the_firmware[index]
+        reply, _ms = replayed[index]
         if record['kind'] == 'stop_position':
             slack = _microstep_um(record['axis'])
             bench = _POSITIONS[_KEYS[index]]

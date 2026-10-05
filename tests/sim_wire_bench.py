@@ -188,21 +188,20 @@ LED_ON_RECORDED_BEFORE_ITS_RETURN = (
 )
 
 
-def marked(grouped: dict, gaps: dict, flaky: dict | None = None) -> list:
+def marked(grouped: dict, gaps: dict, flaky: dict | None = None, slow=()) -> list:
     """The group names as test parameters: a known difference is a strict
-    xfail naming it, and one whose outcome varies from run to run is a
-    non-strict one."""
+    xfail naming it, one whose outcome varies from run to run is a
+    non-strict one, and a group in ``slow`` is marked so (it needs the
+    realistic replay, a minute of real waits)."""
     flaky = flaky or {}
     params = []
     for name in grouped:
+        marks = []
         if name in gaps:
-            params.append(
-                pytest.param(name, marks=pytest.mark.xfail(strict=True, reason=gaps[name]))
-            )
+            marks.append(pytest.mark.xfail(strict=True, reason=gaps[name]))
         elif name in flaky:
-            params.append(
-                pytest.param(name, marks=pytest.mark.xfail(strict=False, reason=flaky[name]))
-            )
-        else:
-            params.append(name)
+            marks.append(pytest.mark.xfail(strict=False, reason=flaky[name]))
+        if name in slow:
+            marks.append(pytest.mark.slow)
+        params.append(pytest.param(name, marks=marks) if marks else name)
     return params
