@@ -978,9 +978,14 @@ class ScopeSession:
             cls._report_teardown_failure(session.shutdown)
             raise
         session._stop_acquiring_absent_layers()
-        # The one marker for "the camera is grabbing and the session is
-        # up": a host measures its own consumer's start against it.
-        logger.info('[Session  ] bring-up complete: scope configured, camera streaming')
+        # The one marker for "the session is up": a host measures its own
+        # consumer's start against it. It says whether the camera is
+        # grabbing, which a launch without a camera does not.
+        streaming = session.scope.imaging.is_streaming()
+        logger.info(
+            '[Session  ] bring-up complete: scope configured, '
+            f'camera {"streaming" if streaming else "not streaming"}'
+        )
 
     @staticmethod
     def _build_autofocus_pair(*, scope, ui_update_func=None):
