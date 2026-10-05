@@ -191,11 +191,11 @@ class RunHandle:
     @property
     def step_number(self) -> int | None:
         """The step executing now, counted from 1; None once this run is not live."""
-        return self._engine.live_run_value(self, self._engine.run_step_number)
+        return self._engine.live_run_value(self, self._engine._step_number)
 
     @property
     def num_steps(self) -> int | None:
-        return self._engine.live_run_value(self, self._engine.run_num_steps)
+        return self._engine.live_run_value(self, self._engine._num_steps)
 
     @property
     def remaining_scans(self) -> int | None:

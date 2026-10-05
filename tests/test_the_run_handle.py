@@ -9,6 +9,7 @@ the run's outcome.
 """
 
 import ast
+import threading
 
 from modules.sequenced_capture_runner import RunHandle
 from tests.ast_seams import iter_package_modules
@@ -67,6 +68,63 @@ def test_a_handle_keeps_its_own_folder_after_the_next_run_starts(tmp_path):
     assert first_dir is not None and first_dir.is_dir()
     assert second.run_dir is not None and second.run_dir != first_dir
     assert first.run_dir == first_dir, "a handle answered with the next run's folder"
+
+
+class _RunLockThatRefusesReentry:
+    """The engine's run lock, raising where the real one would wait forever.
+
+    The real lock is not reentrant, so a read that takes it while its own
+    call already holds it never returns; this one says so instead.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._holder = None
+
+    def __enter__(self):
+        if self._holder == threading.get_ident():
+            raise AssertionError('the run lock was taken by the thread already holding it')
+        self._lock.acquire()
+        self._holder = threading.get_ident()
+        return self
+
+    def __exit__(self, *_exc):
+        self._holder = None
+        self._lock.release()
+
+
+def test_every_answer_about_a_live_run_returns(tmp_path, monkeypatch):
+    """A live run's handle answers every read; none waits on the run lock it holds.
+
+    The run is held live in its teardown, before it lets go of the scope.
+    """
+    handle_reads = sorted(
+        name for name, member in vars(RunHandle).items() if isinstance(member, property)
+    )
+    with open_composite_session(headless_settings(tmp_path)) as (session, runner):
+        engine = session.sequenced_capture_runner
+        monkeypatch.setattr(engine, '_run_lock', _RunLockThatRefusesReentry())
+        release = engine._release_activity_claim
+        held = threading.Event()
+        let_go = threading.Event()
+
+        def held_release():
+            held.set()
+            let_go.wait(WAIT_S)
+            release()
+
+        monkeypatch.setattr(engine, '_release_activity_claim', held_release)
+
+        run = _scan(runner, tmp_path / 'runs', 'C1')
+        try:
+            assert held.wait(WAIT_S), 'the run never reached its teardown'
+            answers = {name: getattr(run, name) for name in handle_reads}
+        finally:
+            let_go.set()
+        assert run.wait(timeout_s=WAIT_S) is not None
+
+    assert answers['is_live'] is True
+    assert (answers['step_number'], answers['num_steps']) == (1, 1)
 
 
 def test_an_ended_runs_progress_is_none(tmp_path):

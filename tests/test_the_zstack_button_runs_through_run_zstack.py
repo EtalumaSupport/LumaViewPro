@@ -165,8 +165,8 @@ def test_a_refusal_is_shown_once_draws_idle_and_links_no_folder(clicked):
 def test_progress_reads_the_runs_own_step_and_count(clicked):
     clicked.engine.is_live_run.side_effect = lambda run: run is clicked.handle
     clicked.engine.is_stopping.return_value = False
-    clicked.engine.run_step_number.return_value = 3
-    clicked.engine.run_num_steps.return_value = 7
+    clicked.engine._step_number.return_value = 3
+    clicked.engine._num_steps.return_value = 7
 
     clicked.starter.run_zstack_acquire_from_ui()
     progress = clicked.runner.run_zstack.call_args.kwargs['callbacks']['update_step_number']
