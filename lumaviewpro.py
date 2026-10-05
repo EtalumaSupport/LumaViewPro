@@ -827,11 +827,17 @@ class LumaViewProApp(TooltipMixin, App):
         resolves, and the display shows a frame once the display thread
         delivers one. A walk started on the timer pressed a control
         mid-layout and shot the black placeholder.
+
+        While the objective question is showing, the load is owed by the
+        walk's answer, not by bring-up: a walk of that question is the
+        one that answers it, so a popup up is bring-up waiting on the walk.
         """
+        from ui.sim_walk import open_popups
+
         owed = []
         if not ctx.ready:
             owed.append('initialization')
-        if not self._persisted_protocol_loaded:
+        if not self._persisted_protocol_loaded and not open_popups():
             owed.append('the saved protocol load')
         if ctx.scope_display.frames_shown == 0:
             owed.append('a displayed frame')

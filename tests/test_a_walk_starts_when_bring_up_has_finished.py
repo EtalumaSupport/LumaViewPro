@@ -17,7 +17,12 @@ import ast
 from tests.ast_seams import find_def
 
 
-def _app_owing(*, ready: bool, protocol_loaded: bool, frames_shown: int) -> list[str]:
+def _app_owing(
+    *, ready: bool, protocol_loaded: bool, frames_shown: int, popups: list | None = None
+) -> list[str]:
+    import sys
+    import types
+
     import modules.app_context as _app_ctx
 
     class _App:
@@ -27,6 +32,13 @@ def _app_owing(*, ready: bool, protocol_loaded: bool, frames_shown: int) -> list
         ).LumaViewProApp._bring_up_owes
 
     original = _app_ctx.ctx
+    # The driver imports Kivy's test touch, which the suite's Kivy mock does
+    # not carry; the predicate asks it one thing, which popups are open, so
+    # a stand-in answers that for the call and is gone afterwards.
+    driver = types.ModuleType('ui.sim_walk')
+    driver.open_popups = lambda: list(popups or [])
+    real_driver = sys.modules.get('ui.sim_walk')
+    sys.modules['ui.sim_walk'] = driver
     try:
         _app_ctx.ctx = type(
             'C',
@@ -39,6 +51,10 @@ def _app_owing(*, ready: bool, protocol_loaded: bool, frames_shown: int) -> list
         return _App()._bring_up_owes()
     finally:
         _app_ctx.ctx = original
+        if real_driver is None:
+            del sys.modules['ui.sim_walk']
+        else:
+            sys.modules['ui.sim_walk'] = real_driver
 
 
 class TestWhatBringUpOwes:
@@ -54,6 +70,18 @@ class TestWhatBringUpOwes:
 
     def test_the_frame_is_owed_until_one_is_shown(self):
         assert _app_owing(ready=True, protocol_loaded=True, frames_shown=0) == ['a displayed frame']
+
+    def test_the_protocol_load_is_not_owed_while_a_question_is_showing(self):
+        """The load is hung on the objective question; a walk of that question
+        answers it, so a popup up is bring-up waiting on the walk (docs, 2026-10-05:
+        an LS850T with the objective unconfirmed, a shot as step 1; at 65232950 the
+        walk stopped after 30 s still owed the load)."""
+        assert (
+            _app_owing(ready=True, protocol_loaded=False, frames_shown=1, popups=[object()]) == []
+        )
+        assert _app_owing(ready=True, protocol_loaded=False, frames_shown=1) == [
+            'the saved protocol load'
+        ]
 
 
 class TestTheDisplayCountsWhatItShows:

@@ -199,7 +199,7 @@ class SimWalk:
         while True:
             buttons = [
                 w
-                for view in _open_popups()
+                for view in open_popups()
                 for w in view.walk(restrict=True)
                 if isinstance(w, ButtonBehavior) and getattr(w, 'text', None) == step['button']
             ]
@@ -261,7 +261,7 @@ class SimWalk:
     def _wait(self, step):
         timeout = step.get('timeout_s', _WAIT_TIMEOUT_S)
         deadline = time.monotonic() + timeout
-        while _open_popups() or getattr(App.get_running_app(), 'run_lockout', False):
+        while open_popups() or getattr(App.get_running_app(), 'run_lockout', False):
             if time.monotonic() > deadline:
                 raise WalkStepError(f'a popup or a run was still up after {timeout:g} s')
             yield _POLL_S
@@ -299,7 +299,7 @@ class SimWalk:
                 raise WalkStepError(
                     f'{path} is inside the collapsed drawer {parent.title!r}; open it first'
                 )
-        popups = _open_popups()
+        popups = open_popups()
         if popups and not _contains(popups[0], _placed_by(target)):
             raise WalkStepError(
                 f'a popup is open ({getattr(popups[0], "title", "")!r}); answer it first'
@@ -378,7 +378,7 @@ def _class_matches(widget, segment: str) -> bool:
     return str(getattr(widget, attr, None)) == value
 
 
-def _open_popups() -> list:
+def open_popups() -> list:
     """The open popups, the one on top first: Kivy puts the newest window child at index 0."""
     return [w for w in Window.children if isinstance(w, ModalView)]
 
