@@ -90,8 +90,8 @@ if __name__ == '__main__':
         except ValueError as _stall_error:
             sys.exit(f'--sim-file-stall=AFTER,FOR (seconds): {_stall_error}')
     # --sim-walk=<file> performs a sim walk's steps on the GUI once bring-up
-    # has finished (ui/sim_walk.py). Simulator only: a walk on hardware would
-    # move a real stage. Removed from argv here, before Kivy is imported,
+    # has finished (ui/sim_walk.py; what it waits on is _bring_up_owes
+    # below). Simulator only: a walk on hardware would move a real stage. Removed from argv here, before Kivy is imported,
     # because Kivy exits on a flag it does not know.
     from ui.sim_walk_file import take_walk_flag
 
@@ -730,7 +730,7 @@ class LumaViewProApp(TooltipMixin, App):
             self._sim_walk = SimWalk(
                 _walk_steps,
                 source=str(_walk_path),
-                ready=lambda: ctx.ready,
+                bring_up_owes=self._bring_up_owes,
                 shot_dir=_walk_path.parent,
             )
             self._sim_walk.start()
@@ -818,6 +818,24 @@ class LumaViewProApp(TooltipMixin, App):
             ),
             0,
         )
+
+    def _bring_up_owes(self) -> list[str]:
+        """What bring-up has not finished, for a sim walk waiting to start.
+
+        ``ctx.ready`` is a timer, 0.3 s after on_start, and nothing it names
+        has finished: the saved protocol loads once the objective question
+        resolves, and the display shows a frame once the display thread
+        delivers one. A walk started on the timer pressed a control
+        mid-layout and shot the black placeholder.
+        """
+        owed = []
+        if not ctx.ready:
+            owed.append('initialization')
+        if not self._persisted_protocol_loaded:
+            owed.append('the saved protocol load')
+        if ctx.scope_display.frames_shown == 0:
+            owed.append('a displayed frame')
+        return owed
 
     def _load_persisted_protocol_once(self) -> None:
         """Load the saved protocol, the first time the objective settles.

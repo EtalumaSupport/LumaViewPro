@@ -246,10 +246,21 @@ ids.filebtn.bind(on_release=lambda b: file_dialogs._run_native_dialog_async(
     b, native, lambda path: hits.append('file ' + path),
     on_cancel=lambda: hits.append('file cancelled')))
 
-def run(steps, shot_dir):
+def run(steps, shot_dir, bring_up):
     hits.clear(); frames.clear(); records.clear(); walk_lines.clear(); closes.clear()
+    # The app's bring-up, standing in: owes the named facts for the first
+    # ``clears_after`` polls, then nothing. None is a bring-up already done.
+    polls = []
+    def bring_up_owes():
+        polls.append(1)
+        if bring_up is None or len(polls) > bring_up['clears_after']:
+            return []
+        return list(bring_up['owes'])
+    if bring_up is not None and 'timeout_s' in bring_up:
+        import ui.sim_walk as _driver
+        _driver._BRING_UP_TIMEOUT_S = bring_up['timeout_s']
     walk = SimWalk(parse_walk(json.dumps(steps), source='fragment'), source='fragment',
-                   ready=lambda: True, shot_dir=pathlib.Path(shot_dir))
+                   bring_up_owes=bring_up_owes, shot_dir=pathlib.Path(shot_dir))
     walk.start()
     for _ in range(4000):
         EventLoop.idle()
@@ -261,18 +272,22 @@ def run(steps, shot_dir):
         EventLoop.idle()
     return {'outcome': walk.outcome, 'hits': list(hits), 'frames': dict(frames),
             'records': list(records), 'walk_lines': list(walk_lines), 'reads': walk.reads, 'shots': walk.shots,
-            'two_collapsed': drawers.ids.two.collapse, 'closes': len(closes)}
+            'two_collapsed': drawers.ids.two.collapse, 'closes': len(closes), 'polls': len(polls)}
 
 steps = json.loads(sys.argv[2])
-print('RESULT ' + json.dumps(run(steps, sys.argv[3])))
+bring_up = json.loads(sys.argv[4]) if len(sys.argv) > 4 else None
+print('RESULT ' + json.dumps(run(steps, sys.argv[3], bring_up)))
 """
 
 
-def _run(tmp_path, steps):
+def _run(tmp_path, steps, bring_up=None):
     script = tmp_path / 'harness.py'
     script.write_text(_HARNESS)
+    argv = [sys.executable, str(script), str(REPO), json.dumps(steps), str(tmp_path)]
+    if bring_up is not None:
+        argv.append(json.dumps(bring_up))
     r = subprocess.run(
-        [sys.executable, str(script), str(REPO), json.dumps(steps), str(tmp_path)],
+        argv,
         capture_output=True,
         text=True,
         timeout=120,
@@ -498,3 +513,32 @@ def test_a_walk_ending_in_quit_closes_the_app_when_it_finishes(tmp_path):
     assert result['outcome'] == 'done', result
     assert result['closes'] == 1, result
     assert result['shots'] == [], result
+
+
+def test_step_1_waits_until_bring_up_owes_nothing(tmp_path):
+    """The app's ready flag is a timer; the walk waits on bring-up's facts."""
+    result = _run(
+        tmp_path,
+        [{'do': 'press', 'path': 'Panel/btn'}],
+        bring_up={'owes': ['a displayed frame'], 'clears_after': 5},
+    )
+    assert result['outcome'] == 'done', result
+    assert result['hits'] == ['btn'], result
+    assert result['polls'] > 5, result
+
+
+def test_a_bring_up_that_never_finishes_stops_the_walk_before_step_1(tmp_path):
+    result = _run(
+        tmp_path,
+        [{'do': 'press', 'path': 'Panel/btn'}],
+        bring_up={
+            'owes': ['the saved protocol load', 'a displayed frame'],
+            'clears_after': 10**9,
+            'timeout_s': 0.5,
+        },
+    )
+    assert result['outcome'] == (
+        'stopped before step 1: bring-up did not finish within 0.5 s; '
+        'still owed: the saved protocol load, a displayed frame'
+    ), result
+    assert result['hits'] == [], result

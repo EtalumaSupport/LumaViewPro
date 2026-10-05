@@ -55,6 +55,7 @@ _TOUCH_ARRIVAL_S = 0.6
 _ANSWER_TIMEOUT_S = 10.0
 _OPTIONAL_ANSWER_TIMEOUT_S = 3.0
 _WAIT_TIMEOUT_S = 30.0
+_BRING_UP_TIMEOUT_S = 30.0
 _POLL_S = 0.05
 # What an action's generator gives when it has run out: the step is done.
 _STEP_DONE = object()
@@ -67,16 +68,19 @@ class WalkStepError(Exception):
 class SimWalk:
     """Performs a checked list of walk steps on the Kivy thread, one at a time.
 
-    ``ready`` says when bring-up has finished (the app passes ``ctx.ready``);
+    ``bring_up_owes`` names what bring-up has not finished (the app passes
+    its ``_bring_up_owes``): the walk starts once it names nothing, and stops
+    before step 1, saying what was still owed, when it never does.
     ``shot_dir`` receives the window pictures. ``finished``, ``outcome``
     (``'done'`` or ``'stopped at step N (...)'``), ``reads`` and ``shots`` are
     the result.
     """
 
-    def __init__(self, steps: list[dict], *, source: str, ready, shot_dir: pathlib.Path):
+    def __init__(self, steps: list[dict], *, source: str, bring_up_owes, shot_dir: pathlib.Path):
         self._steps = steps
         self._source = source
-        self._ready = ready
+        self._bring_up_owes = bring_up_owes
+        self._bring_up_deadline = 0.0
         self._shot_dir = shot_dir
         self._number = 0
         self._action = None
@@ -89,11 +93,19 @@ class SimWalk:
         self.shots: list[str] = []
 
     def start(self) -> None:
-        Clock.schedule_once(self._await_ready, 0)
+        self._bring_up_deadline = time.monotonic() + _BRING_UP_TIMEOUT_S
+        Clock.schedule_once(self._await_bring_up, 0)
 
-    def _await_ready(self, _dt) -> None:
-        if not self._ready():
-            Clock.schedule_once(self._await_ready, 0.1)
+    def _await_bring_up(self, _dt) -> None:
+        owed = self._bring_up_owes()
+        if owed:
+            if time.monotonic() < self._bring_up_deadline:
+                Clock.schedule_once(self._await_bring_up, 0.1)
+                return
+            self._finish(
+                f'stopped before step 1: bring-up did not finish within '
+                f'{_BRING_UP_TIMEOUT_S:g} s; still owed: {", ".join(owed)}'
+            )
             return
         gui_logger.walk_scripted(self._source)
         logger.info(f'[SIM WALK  ] {self._source}: {len(self._steps)} steps')

@@ -151,6 +151,10 @@ class ScopeDisplay(Image):
         # readouts) that scales by per-sensor-pixel size must read this instead
         # -- using the downscaled texture under-reports by the downscale factor.
         self._full_res_frame_wh = None
+        # Live-view frames put on this widget's texture so far, the mono view
+        # and the bullseye alike. Zero means the window still shows the black
+        # placeholder, which a sim walk waits out before its first step.
+        self.frames_shown = 0
 
         # FPS tracking -- capture thread (frames grabbed from camera)
         self._capture_fps_count = 0
@@ -1107,6 +1111,7 @@ class ScopeDisplay(Image):
             self._bullseye_texture.mag_filter = 'nearest'
         self._bullseye_texture.blit_buffer(image_bytes, colorfmt='rgb', bufferfmt='ubyte')
         self.texture = self._bullseye_texture
+        self.frames_shown += 1
         self.canvas.ask_update()
         self._count_display_fps()
         # _schedule_next retired; ScopeDisplayThread loop owns pacing.
@@ -1141,6 +1146,7 @@ class ScopeDisplay(Image):
             self._mono_texture = Texture.create(size=size, colorfmt='luminance', mipmap=True)
         self._mono_texture.blit_buffer(image_bytes, colorfmt='luminance', bufferfmt='ubyte')
         self.texture = self._mono_texture
+        self.frames_shown += 1
         self.canvas.ask_update()
         self._count_display_fps()
         # _schedule_next retired; ScopeDisplayThread loop owns pacing.
