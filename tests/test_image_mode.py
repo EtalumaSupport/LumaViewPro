@@ -137,9 +137,9 @@ def test_available_modes_are_every_mode_in_selector_order():
     ]
     assert available_mode_labels() == [
         '8-bit',
-        'Full depth (scientific)',
-        'Full depth (scaled)',
-        'Full depth RGB',
+        'Scientific (full depth)',
+        'Scaled (full depth)',
+        'RGB (full depth)',
     ]
 
 
@@ -924,3 +924,13 @@ def test_manual_capture_path_passes_save_encoding():
             f'a {call.func.id} call at line {call.lineno} still passes a '
             'retired color argument alongside the channel'
         )
+
+
+def test_the_mode_labels_differ_in_their_first_word():
+    """A spinner shortens text too wide for it from the right, so labels that
+    share their opening read the same in the closed selector; each mode's
+    label is told apart by its first word."""
+    from modules.image_mode import IMAGE_MODE_LABELS
+
+    first_words = [label.split()[0] for label in IMAGE_MODE_LABELS.values()]
+    assert len(set(first_words)) == len(first_words), first_words

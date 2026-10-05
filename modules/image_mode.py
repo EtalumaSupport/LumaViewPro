@@ -319,14 +319,16 @@ def migrate_legacy_settings(use_full_pixel_depth: bool, false_color_16bit: bool)
 # User-facing labels for the Image mode selector. The selector is the only
 # place these strings appear; storage and the resolver use the enum values.
 # The strings must stay distinct, because LABEL_TO_IMAGE_MODE inverts this map
-# and a collision would silently drop a mode. The ids keep their 12bit_ names:
+# and a collision would silently drop a mode, and must differ in their first
+# words: a spinner shortens text too wide for it from the right, so two
+# labels that share a long opening read the same in the closed selector. The ids keep their 12bit_ names:
 # a full-depth mode keeps the payload at the depth the frame has, 12 bits where
 # the camera delivers 12, and a sum at the bits it can reach.
 IMAGE_MODE_LABELS = {
     IMAGE_MODE_8BIT: '8-bit',
-    IMAGE_MODE_12BIT_SCIENTIFIC: 'Full depth (scientific)',
-    IMAGE_MODE_12BIT_SCALED: 'Full depth (scaled)',
-    IMAGE_MODE_12BIT_FALSE_COLOR_RGB: 'Full depth RGB',
+    IMAGE_MODE_12BIT_SCIENTIFIC: 'Scientific (full depth)',
+    IMAGE_MODE_12BIT_SCALED: 'Scaled (full depth)',
+    IMAGE_MODE_12BIT_FALSE_COLOR_RGB: 'RGB (full depth)',
 }
 
 LABEL_TO_IMAGE_MODE = {label: mode for mode, label in IMAGE_MODE_LABELS.items()}
