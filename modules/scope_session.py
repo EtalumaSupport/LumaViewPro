@@ -52,7 +52,7 @@ from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.manual_capture import ManualCaptureController
 from modules.manual_recording import ManualRecordingController
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
-from modules.run_outcome import PendingRunOutcome, RunEnding
+from modules.run_outcome import RunEnding
 from modules.scheduler import Scheduler, ThreadingTimerScheduler
 from modules.sequential_io_executor import IOTask, slow_task_budget
 
@@ -98,6 +98,7 @@ if TYPE_CHECKING:
     from modules.objectives_loader import ObjectiveLoader
     from modules.protocol import Protocol, ProtocolSizeAdvisory
     from modules.lumascope_api.protocols import StepTargets
+    from modules.sequenced_capture_runner import RunHandle
     from modules.protocol_runner import ProtocolRunner
     from modules.sequential_io_executor import SequentialIOExecutor
     from modules.plugins import PluginHealth
@@ -457,7 +458,7 @@ class ScopeSession:
         """
         return self.sequenced_capture_runner.run_in_progress()
 
-    def held_by_other(self, run: 'PendingRunOutcome | None') -> bool:
+    def held_by_other(self, run: 'RunHandle | None') -> bool:
         """Whether the scope is held by anything but *run*, a run start() returned.
 
         What a run control greys on while leaving its own run's Stop live;
@@ -3061,21 +3062,19 @@ class ScopeSession:
         # answer that is no longer coming.
         runner = self.sequenced_capture_runner
         if runner is not None:
-            outcome = runner.run_outcome()
-            if outcome is not None:
-                # The fallback is used only when the run never reached
-                # cleanup and so recorded no ending of its own; a run that
-                # already reported one keeps it, and 'shutdown' says only
-                # that the merge is what the teardown cut short.
-                outcome.settle_unfinished(
+            # The fallback is used only when the run never reached
+            # cleanup and so recorded no ending of its own; a run that
+            # already reported one keeps it, and 'shutdown' says only
+            # that the merge is what the teardown cut short.
+            runner.settle_unfinished_run(
+                'shutdown',
+                fallback=RunEnding(
+                    'aborted',
                     'shutdown',
-                    fallback=RunEnding(
-                        'aborted',
-                        'shutdown',
-                        'Session Shutdown',
-                        'The session shut down before the run reported.',
-                    ),
-                )
+                    'Session Shutdown',
+                    'The session shut down before the run reported.',
+                ),
+            )
             # A finished run's images still being written get a bounded
             # chance to land before the lanes go down below; whatever is
             # still outstanding then is given up on and counted, never

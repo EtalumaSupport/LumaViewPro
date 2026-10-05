@@ -9,7 +9,10 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules import gui_logger
 from modules.debounce import debounce
-from modules.run_outcome import PendingRunOutcome
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from modules.sequenced_capture_runner import RunHandle
 from ui.ui_helpers import (
     _handle_ui_update_for_axis,
     live_display_callbacks,
@@ -52,9 +55,9 @@ class VerticalControl(BoxLayout):
         self._af_safety_event = None
         # The handle this button's last start returned: what its Stop and
         # its stuck-AF bound name. The engine answers whether it is live.
-        self._autofocus_run: PendingRunOutcome | None = None
+        self._autofocus_run: RunHandle | None = None
         # The run the stuck-AF bound was last armed for: one bound per run.
-        self._af_safety_run: PendingRunOutcome | None = None
+        self._af_safety_run: RunHandle | None = None
 
         self.queue_slider_position_trigger = Clock.create_trigger(
             lambda dt: self.queue_slider_position(), 0.1
@@ -324,7 +327,7 @@ class VerticalControl(BoxLayout):
         logger.info('[LVP Main  ] VerticalControl.run_autofocus_from_ui()')
         ctx = _app_ctx.ctx
         run = self._autofocus_run
-        if ctx.sequenced_capture_runner.is_live_run(run):
+        if run is not None and run.is_live:
             self._stop_autofocus(run)
             return
 
@@ -348,9 +351,8 @@ class VerticalControl(BoxLayout):
 
         self._submit_autofocus_request(_start)
 
-    def _stop_autofocus(self, run: PendingRunOutcome | None) -> None:
-        runner = _app_ctx.ctx.sequenced_capture_runner
-        self._submit_autofocus_request(lambda: runner.reset(run), stop=True)
+    def _stop_autofocus(self, run: 'RunHandle') -> None:
+        self._submit_autofocus_request(run.stop, stop=True)
 
     def _submit_autofocus_request(self, call, stop: bool = False) -> None:
         # The button is disabled until this request's own redraw, so a
@@ -371,16 +373,15 @@ class VerticalControl(BoxLayout):
         protocol's autofocus steps are not this button's to show.
         """
         ctx = _app_ctx.ctx
-        runner = ctx.sequenced_capture_runner
         run = self._autofocus_run
         self.autofocus_held = ctx.session.held_by_other(run)
         button = self.ids['autofocus_id']
-        if not runner.is_live_run(run):
+        if run is None or not run.is_live:
             button.state = 'normal'
             button.text = 'Autofocus'
             return
         button.state = 'down'
-        button.text = 'Stopping...' if runner.is_stopping(run) else 'Focusing...'
+        button.text = 'Stopping...' if run.is_stopping else 'Focusing...'
         # Armed by the run it bounds, the first time that run is seen live,
         # and once per run: a timer armed before the run existed outlived
         # every exit that started nothing and reached forward to abort the
@@ -394,13 +395,12 @@ class VerticalControl(BoxLayout):
             Clock.unschedule(self._af_safety_event)
             self._af_safety_event = None
 
-    def _schedule_af_safety_timer(self, run: PendingRunOutcome) -> None:
+    def _schedule_af_safety_timer(self, run: 'RunHandle') -> None:
         """Arm the stuck-AF bound for *run*: a standalone AF that stops
         progressing is force-aborted rather than holding the lockout until
         the user notices. The run pipeline bounds stalled MOTION, not a
         stalled AF algorithm, so the bound lives with this starter.
         """
-        ctx = _app_ctx.ctx
         self._unschedule_af_safety_timer()
 
         def _af_safety(dt):
@@ -409,7 +409,7 @@ class VerticalControl(BoxLayout):
             # being busy: a timer that outlived its run must stay out of
             # reach of the next autofocus, and a rival run's AF step is
             # never this button's to stop.
-            if ctx.sequenced_capture_runner.is_live_run(run):
+            if run.is_live:
                 logger.warning('[AF Safety] Autofocus appeared stuck. Forced abort.')
                 self._stop_autofocus(run)
 
@@ -418,13 +418,6 @@ class VerticalControl(BoxLayout):
     def _autofocus_run_complete(self, **kwargs):
         ctx = _app_ctx.ctx
         self._unschedule_af_safety_timer()
-
-        # Defensive abort -- if the AF thread is somehow still in flight
-        # at the completion path, this is a no-op; if not, it unwinds.
-        # Ahead of the store write below, which is allowed to raise: the
-        # unwind must not be skippable by a failure in the focus update.
-        if ctx.autofocus_thread is not None:
-            ctx.autofocus_thread.abort()
 
         # Ask the autofocus what it found. Sampling the stage instead
         # reads an in-transit coordinate: the pre-AF restore is issued

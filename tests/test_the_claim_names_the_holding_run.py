@@ -191,9 +191,10 @@ class TestTheFlagAndTheClaimEndTogether:
         # cleanup names it, and closes its batch on the way out.
         from modules.protocol_image_writer import RunWriteBatch
         from modules.run_outcome import PendingRunOutcome
+        from modules.sequenced_capture_runner import RunHandle
 
-        run = PendingRunOutcome()
-        runner._run_outcome = run
+        runner._run_outcome = PendingRunOutcome()
+        run = runner._run_handle = RunHandle(runner, runner._run_outcome)
         runner._write_batch = RunWriteBatch(runner.file_io_executor)
         assert runner.run_in_progress()
 

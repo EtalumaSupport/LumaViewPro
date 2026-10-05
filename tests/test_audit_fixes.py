@@ -40,6 +40,7 @@ from modules.exceptions import HomingFailedError, PositionOutOfRangeError
 
 from modules.notification_center import Severity
 from modules.run_outcome import EndingLatch, PendingRunOutcome, RunEnding
+from modules.sequenced_capture_runner import RunHandle
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 
@@ -9170,7 +9171,8 @@ class TestSCEResetSignalsAbort:
         # before it publishes liveness, under one lock. Leaving IDLE alone
         # builds a run nobody started, which reset() is right to refuse.
         runner._run_trigger_source = 'test'
-        run = runner._run_outcome = PendingRunOutcome()
+        runner._run_outcome = PendingRunOutcome()
+        run = runner._run_handle = RunHandle(runner, runner._run_outcome)
         # _cleanup() has side effects we don't want to actually run; patch it.
         runner._cleanup = MagicMock()
 
@@ -9192,7 +9194,8 @@ class TestSCEResetSignalsAbort:
         # before it publishes liveness, under one lock. Leaving IDLE alone
         # builds a run nobody started, which reset() is right to refuse.
         runner._run_trigger_source = 'test'
-        run = runner._run_outcome = PendingRunOutcome()
+        runner._run_outcome = PendingRunOutcome()
+        run = runner._run_handle = RunHandle(runner, runner._run_outcome)
         runner.protocol_thread.is_running = True
         runner._cleanup = MagicMock()
 
@@ -9214,7 +9217,8 @@ class TestSCEResetSignalsAbort:
         # before it publishes liveness, under one lock. Leaving IDLE alone
         # builds a run nobody started, which reset() is right to refuse.
         runner._run_trigger_source = 'test'
-        run = runner._run_outcome = PendingRunOutcome()
+        runner._run_outcome = PendingRunOutcome()
+        run = runner._run_handle = RunHandle(runner, runner._run_outcome)
         runner.protocol_thread.is_running = False
         runner._cleanup = MagicMock()
 

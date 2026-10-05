@@ -43,6 +43,7 @@ import modules.app_context as _app_ctx
 import ui.zstack as zs
 from modules.exceptions import ProtocolRunRefusedError
 from modules.run_outcome import PendingRunOutcome
+from modules.sequenced_capture_runner import RunHandle
 from tests.pool_fakes import run_task_now
 
 
@@ -73,11 +74,15 @@ def clicked(monkeypatch):
     pool.put.side_effect = _run_now
     monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
     member_runner = MagicMock()
-    handle = PendingRunOutcome()
-    member_runner.run_zstack.return_value = handle
-    member_runner.run_dir.return_value = '/runs/zstack_1'
     engine = MagicMock()
+    handle = RunHandle(engine, PendingRunOutcome())
+    handle._run_dir = '/runs/zstack_1'
+    member_runner.run_zstack.return_value = handle
     engine.is_live_run.return_value = False
+    # A handle's progress: the engine's reading while the handle is live.
+    engine.live_run_value.side_effect = lambda run, read: (
+        read() if engine.is_live_run(run) else None
+    )
     session = MagicMock()
     session.create_protocol_runner.return_value = member_runner
     # Nothing holds the scope; a MagicMock's own answer would be truthy.
@@ -320,7 +325,7 @@ def test_the_button_greys_while_anything_else_holds_the_scope(clicked):
     its own run leaves it live as that run's Stop."""
     import modules.app_context as app_context
 
-    own = object()
+    own = RunHandle(app_context.ctx.sequenced_capture_runner, PendingRunOutcome())
     clicked.starter._zstack_run = own
     asked = []
 

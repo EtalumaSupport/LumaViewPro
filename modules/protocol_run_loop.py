@@ -18,10 +18,10 @@ from modules.common_utils import MIN_REQUIRED_DISK_MB, check_disk_space_ok
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.protocol_state_machine import ProtocolState
 from modules.exceptions import RunFailedError, describe_unknown_positions
-from modules.run_outcome import PendingRunOutcome, RunEnding
+from modules.run_outcome import RunEnding
 
 if TYPE_CHECKING:
-    from modules.sequenced_capture_runner import SequencedCaptureRunner
+    from modules.sequenced_capture_runner import RunHandle, SequencedCaptureRunner
 
 from modules.kivy_utils import schedule_ui as _schedule_ui
 
@@ -54,7 +54,7 @@ class ProtocolRunLoop:
     def __init__(self, parent: SequencedCaptureRunner):
         self._p = parent
 
-    def run_loop(self, run: PendingRunOutcome) -> None:
+    def run_loop(self, run: RunHandle) -> None:
         """Main entry point -- runs the loop, then unwinds the run once.
 
         ``run`` is the run this loop was dispatched for. The loop body only
@@ -149,7 +149,7 @@ class ProtocolRunLoop:
         first_step = p._protocol.step(idx=0)
         p._step_executor.default_move(px=first_step['X'], py=first_step['Y'], z=first_step['Z'])
 
-    def _run_loop_inner(self, run: PendingRunOutcome) -> RunEnding:
+    def _run_loop_inner(self, run: RunHandle) -> RunEnding:
         """The run loop body; returns how the run ended, for run_loop to unwind."""
         p = self._p
         last_connection_check = time.monotonic()

@@ -132,6 +132,7 @@ class TestTheRunnerHandsOverItsOwnDirectory:
         the claim still held -- not later, from a subscriber."""
         from modules.protocol_image_writer import RunWriteBatch
         from modules.run_outcome import PendingRunOutcome
+        from modules.sequenced_capture_runner import RunHandle
         from tests.protocol_drives import autofocus_snapshot, protocol_step, scan_ready_runner
 
         run_dir = pathlib.Path('/tmp/this_runs_dir')
@@ -144,8 +145,8 @@ class TestTheRunnerHandsOverItsOwnDirectory:
             _autofocus_snapshot=autofocus_snapshot(states={}),
         )
         # The run start() would have committed, with its writes.
-        run = PendingRunOutcome()
-        runner._run_outcome = run
+        runner._run_outcome = PendingRunOutcome()
+        run = runner._run_handle = RunHandle(runner, runner._run_outcome)
         runner._write_batch = RunWriteBatch(runner.file_io_executor)
 
         runner._callbacks = ProtocolCallbacks(

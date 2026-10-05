@@ -31,6 +31,7 @@ from tests.test_the_autofocus_button_runs_through_run_autofocus import (  # noqa
 )
 from modules.exceptions import ProtocolRunRefusedError
 from modules.run_outcome import PendingRunOutcome
+from modules.sequenced_capture_runner import RunHandle
 
 
 REFUSAL = ProtocolRunRefusedError(
@@ -78,7 +79,7 @@ class TestARefusedAutofocusClick:
         )
 
     def test_the_next_run_gets_its_own(self, pressed):
-        first, second = pressed.handle, PendingRunOutcome()
+        first, second = pressed.handle, RunHandle(pressed.engine, PendingRunOutcome())
         _live(pressed.engine, first)
         pressed.button.run_autofocus_from_ui()
         _live(pressed.engine)

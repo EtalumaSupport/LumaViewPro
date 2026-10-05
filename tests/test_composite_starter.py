@@ -199,10 +199,11 @@ def test_a_second_press_on_its_own_live_composite_stops_it_ahead_of_queued_work(
     app_ctx, runner, engine
 ):
     from modules.run_outcome import PendingRunOutcome
+    from modules.sequenced_capture_runner import RunHandle
     from modules.sequential_io_executor import PRIORITY_HIGH
 
     starter = _Starter()
-    starter._composite_run = PendingRunOutcome()
+    starter._composite_run = RunHandle(engine, PendingRunOutcome())
     engine.is_live_run.side_effect = lambda run: run is starter._composite_run
 
     _click(starter)
@@ -223,7 +224,6 @@ def test_a_press_during_someone_elses_run_is_not_a_stop(app_ctx, runner, engine)
 
     _click(starter)
 
-    engine.is_live_run.assert_any_call(None)
     assert not engine.reset.called, 'a rival run must not be stopped from here'
     runner.start_composite.assert_called_once()
 
@@ -257,8 +257,11 @@ def test_the_button_is_disabled_while_its_own_request_is_in_flight(app_ctx, runn
 def test_the_button_greys_while_anything_else_holds_the_scope(app_ctx):
     """The Session answers for this button's own run: another holder greys it,
     its own run leaves it live as that run's Stop."""
+    from modules.run_outcome import PendingRunOutcome
+    from modules.sequenced_capture_runner import RunHandle
+
     starter = _Starter()
-    own = object()
+    own = RunHandle(app_ctx.sequenced_capture_runner, PendingRunOutcome())
     starter._composite_run = own
     asked = []
 

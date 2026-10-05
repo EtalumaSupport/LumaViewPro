@@ -20,7 +20,10 @@ from modules.config_ui_getters import (
 )
 from modules.labware_loader import CENTER_PLATE
 from modules.protocol import Protocol, schedule_from_units
-from modules.run_outcome import PendingRunOutcome
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from modules.sequenced_capture_runner import RunHandle
 from ui.step_navigation import go_to_step
 from modules.timedelta_formatter import strfdelta
 from modules import gui_logger
@@ -92,11 +95,33 @@ _PANEL_RUN_BUTTONS = {
 }
 
 
-def _protocol_remaining_text(engine) -> str:
-    """The Full Protocol button's running label, from the live run's own count."""
-    remaining_scans = engine.remaining_scans()
+def _running_label(run: 'RunHandle | None', trigger: str, look: _PanelRunButton) -> str | None:
+    """What a panel button says while its run is live; None when it is not.
+
+    None also when the run ended between the live read and the progress
+    reads, so the button draws what it read rather than a running label for
+    a run that has ended.
+    """
+    if run is None or not run.is_live:
+        return None
+    if run.is_stopping:
+        return 'Stopping...'
+    if trigger == 'protocol':
+        return _protocol_remaining_text(run)
+    return look.running_text
+
+
+def _protocol_remaining_text(run: 'RunHandle') -> str | None:
+    """The Full Protocol button's running label, from the run's own count.
+
+    None once the run has ended, between the caller's live read and these;
+    the caller then draws the button idle.
+    """
+    remaining_scans, interval = run.remaining_scans, run.interval
+    if remaining_scans is None or interval is None:
+        return None
     remaining_duration_str = strfdelta(
-        tdelta=remaining_scans * engine.protocol_interval(),
+        tdelta=remaining_scans * interval,
         fmt='{H}h {M}m',
         inputtype='timedelta',
     )
@@ -133,7 +158,7 @@ class ProtocolSettings(FloatLayout):
         # The handle each of this panel's run buttons' last start returned,
         # by trigger: what that button's Stop names. The engine answers
         # whether it is still the live run.
-        self._runs_started_here: dict[str, PendingRunOutcome] = {}
+        self._runs_started_here: dict[str, RunHandle] = {}
         # The drain display's tick: one pending at a time, however many
         # redraws ask for it.
         self._drain_tick_trigger = Clock.create_trigger(self._drain_tick, 0.5)
@@ -1009,7 +1034,6 @@ class ProtocolSettings(FloatLayout):
         finished run's files; idle.
         """
         ctx = _app_ctx.ctx
-        engine = ctx.sequenced_capture_runner
         session = ctx.session
         # A finished run's writes still going. A start pressed now is the
         # engine's to refuse; the button that started the run shows the count.
@@ -1019,20 +1043,16 @@ class ProtocolSettings(FloatLayout):
             button = self.ids[look.button_id]
             run = self._runs_started_here.get(trigger)
             setattr(self, look.held_flag, session.held_by_other(run))
-            if engine.is_live_run(run):
+            label = _running_label(run, trigger, look)
+            if label is not None:
                 button.state = 'down'
-                if engine.is_stopping(run):
-                    button.text = 'Stopping...'
-                elif trigger == 'protocol':
-                    button.text = _protocol_remaining_text(engine)
-                else:
-                    button.text = look.running_text
+                button.text = label
                 if look.running_background is not None:
                     button.background_down = look.running_background
                 continue
 
             button.state = 'normal'
-            if draining and run is not None and run is engine.run_outcome():
+            if draining and run is not None and run.is_last_run:
                 button.text = (
                     'File writer stalled'
                     if session.protocol_files_stalled
@@ -1068,12 +1088,11 @@ class ProtocolSettings(FloatLayout):
         engine's answer; draw_protocol_buttons shows it. Every refusal is
         the engine's to raise and the boundary's to show, once.
         """
-        runner = _app_ctx.ctx.sequenced_capture_runner
         run = self._runs_started_here.get(trigger)
-        if runner.is_live_run(run):
+        if run is not None and run.is_live:
             if log_stop is not None:
                 log_stop()
-            self._submit_panel_request(trigger, lambda: runner.reset(run), stop=True)
+            self._submit_panel_request(trigger, run.stop, stop=True)
             return
         # The click that left a refused edit: starting would run the value
         # the person just tried to change. The toggle Kivy flipped is put back.
@@ -1298,7 +1317,7 @@ class ProtocolSettings(FloatLayout):
 
     def _sequenced_capture_start(
         self,
-        start_run: typing.Callable[..., PendingRunOutcome],
+        start_run: typing.Callable[..., 'RunHandle'],
         run_trigger_source: str,
         protocol: Protocol,
         callbacks: dict[str, typing.Callable],
@@ -1313,7 +1332,6 @@ class ProtocolSettings(FloatLayout):
         logger.info('[LVP Main  ] ProtocolSettings._sequenced_capture_start()')
 
         ctx = _app_ctx.ctx
-        engine = ctx.sequenced_capture_runner
 
         def restore_layer_shader_for_open_accordion():
             """Re-apply the shader for the currently-open accordion's
@@ -1352,7 +1370,7 @@ class ProtocolSettings(FloatLayout):
         engineering_mode = ctx.engineering_mode
 
         def _start():
-            self._runs_started_here[run_trigger_source] = start_run(
+            started = start_run(
                 protocol,
                 sequence_name=sequence_name,
                 image_capture_config=image_capture_config,
@@ -1361,10 +1379,11 @@ class ProtocolSettings(FloatLayout):
                 run_trigger_source=run_trigger_source,
                 engineering_mode=engineering_mode,
             )
-            # A start() that failed during setup unwound as a failed run: it
-            # nulled run_dir (set_last_save_folder no-ops on None), so the
+            self._runs_started_here[run_trigger_source] = started
+            # A start() that failed during setup unwound as a failed run: its
+            # run_dir is None (set_last_save_folder no-ops on None), so the
             # saved folder never names a run that did not happen.
-            set_last_save_folder(dir=engine.run_dir())
+            set_last_save_folder(dir=started.run_dir)
 
         return _start
 

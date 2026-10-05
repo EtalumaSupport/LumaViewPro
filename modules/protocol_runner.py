@@ -32,8 +32,9 @@ import modules.image_mode as image_mode_module
 from modules.activity_claim import HeldClaim
 from modules.exceptions import CaptureError, ConfigError
 from modules.protocol import Protocol
-from modules.run_outcome import PendingRunOutcome, RunOutcome
+from modules.run_outcome import RunOutcome
 from modules.sequenced_capture_runner import (
+    RunHandle,
     RunPlan,
     SequencedCaptureRunner,
     SequencedCaptureRunMode,
@@ -74,7 +75,7 @@ class ProtocolRunner:
         # wait_for_completion answers from. None until a run commits, and
         # None again the moment a later call is refused: a refusal ran
         # nothing, so the previous run's result is not an answer about it.
-        self._last_outcome: PendingRunOutcome | None = None
+        self._last_outcome: RunHandle | None = None
 
     @property
     def sequenced_capture_runner(self) -> SequencedCaptureRunner:
@@ -127,7 +128,7 @@ class ProtocolRunner:
         return_to_position: dict | None = None,
         run_trigger_source: str = 'api_scan',
         engineering_mode: bool | None = None,
-    ) -> PendingRunOutcome:
+    ) -> RunHandle:
         """Run a single scan through the protocol steps.
 
         Args:
@@ -185,7 +186,7 @@ class ProtocolRunner:
         callbacks: dict[str, typing.Callable] | None = None,
         run_trigger_source: str = 'api_protocol',
         engineering_mode: bool | None = None,
-    ) -> PendingRunOutcome:
+    ) -> RunHandle:
         """Run a full protocol (multiple scans over time).
 
         Args:
@@ -238,7 +239,7 @@ class ProtocolRunner:
         callbacks: dict[str, typing.Callable] | None = None,
         run_trigger_source: str = 'api_composite',
         engineering_mode: bool | None = None,
-    ) -> PendingRunOutcome:
+    ) -> RunHandle:
         """Assemble a composite run and launch it, returning once committed.
 
         Split out of run_composite so a caller that must not block -- a GUI
@@ -315,7 +316,7 @@ class ProtocolRunner:
         claim: HeldClaim | None = None,
         run_trigger_source: str = 'api_autofocus',
         engineering_mode: bool | None = None,
-    ) -> PendingRunOutcome:
+    ) -> RunHandle:
         """Autofocus once on *layer*, at the current stage position.
 
         The headless twin of the standalone autofocus button: a
@@ -433,7 +434,7 @@ class ProtocolRunner:
         callbacks: dict[str, typing.Callable] | None = None,
         run_trigger_source: str = 'api_autofocus_scan',
         engineering_mode: bool | None = None,
-    ) -> PendingRunOutcome:
+    ) -> RunHandle:
         """Autofocus at every step of *protocol*, and write the focus into it.
 
         One scan that visits each step with autofocus on, whatever each
@@ -499,7 +500,7 @@ class ProtocolRunner:
         run_trigger_source: str = 'api_zstack',
         engineering_mode: bool | None = None,
         enable_image_saving: bool = True,
-    ) -> PendingRunOutcome:
+    ) -> RunHandle:
         """Capture a z-stack on *layer*, around the current stage position.
 
         The one implementation of a z-stack run, for a script and for the
@@ -696,7 +697,7 @@ class ProtocolRunner:
         save_autofocus_data: bool = False,
         claim: HeldClaim | None = None,
         write_focus_to: Protocol | None = None,
-    ) -> PendingRunOutcome:
+    ) -> RunHandle:
         """Internal: configure and launch the sequenced capture executor.
 
         Returns:
@@ -826,15 +827,15 @@ class ProtocolRunner:
         run holds it."""
         return self._executor.run_trigger_source()
 
-    def run_outcome(self) -> PendingRunOutcome | None:
+    def run_outcome(self) -> RunHandle | None:
         """The live or last run's handle -- what abort() names to stop it."""
         return self._executor.run_outcome()
 
-    def is_live_run(self, run: PendingRunOutcome | None) -> bool:
+    def is_live_run(self, run: RunHandle | None) -> bool:
         """Whether *run*, a handle a run call returned, is the live run."""
         return self._executor.is_live_run(run)
 
-    def is_stopping(self, run: PendingRunOutcome | None) -> bool:
+    def is_stopping(self, run: RunHandle | None) -> bool:
         """Whether *run* is live and a Stop of it has been accepted.
 
         True from the accepted Stop until the run's teardown has finished;
@@ -876,7 +877,7 @@ class ProtocolRunner:
         """
         return self._executor.prepare(**kwargs)
 
-    def start(self, plan: RunPlan) -> PendingRunOutcome:
+    def start(self, plan: RunPlan) -> RunHandle:
         """Forward to the engine's start() -- the commitment point.
 
         Records the committed run as this runner's last, so a caller that
@@ -895,7 +896,7 @@ class ProtocolRunner:
         caller about to start something else."""
         return self._executor.wait_for_run_idle(timeout_s)
 
-    def abort(self, run: PendingRunOutcome | None) -> None:
+    def abort(self, run: RunHandle | None) -> None:
         """Abort *run*, the handle a run call returned.
 
         Anyone may stop the live run. A handle naming a run that has ended

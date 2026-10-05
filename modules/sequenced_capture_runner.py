@@ -49,6 +49,7 @@ from modules.run_outcome import (
     EndingLatch,
     PendingRunOutcome,
     RunEnding,
+    RunOutcome,
 )
 
 from modules.scheduler import Scheduler
@@ -114,6 +115,96 @@ step_dict = {
 # disagree with each other, and settling that is its own change with its
 # own evidence. This set answers one question: raise popups, or log them.
 _ATTENDED_RUN_TRIGGERS = frozenset({'autofocus'})
+
+T = typing.TypeVar('T')
+
+
+class RunHandle:
+    """One run, as the caller that started it holds it: watch it, wait for it, stop it.
+
+    What every start returns, and the only thing a caller needs about its
+    run: whether it is live, whether a Stop has been accepted, its folder,
+    its progress, its outcome, and its Stop. Every answer is about THIS
+    run -- a handle never answers for whichever run happens to be live --
+    and the handle cannot write the run's outcome: the outcome it waits
+    on is the engine's, and only the engine settles it.
+    """
+
+    def __init__(self, engine: 'SequencedCaptureRunner', outcome: PendingRunOutcome) -> None:
+        self._engine = engine
+        self._pending = outcome
+        # Written once, by the start() that made this handle, after the
+        # run's setup: None for a run that saves nothing, or that never
+        # started.
+        self._run_dir: pathlib.Path | None = None
+
+    def wait(self, timeout_s: float | None) -> 'RunOutcome | None':
+        """How this run ended, once it no longer holds the scope.
+
+        Blocks for the outcome, then, inside the same bound, for the run's
+        teardown to finish, so a caller woken here can start the next run,
+        move the stage or write a setting without a second wait. A new run
+        can still be refused while this run's files finish writing; that
+        refusal is the drain's.
+
+        Returns:
+            The run's outcome, or None when the bound passes first.
+        """
+        deadline = None if timeout_s is None else time.monotonic() + timeout_s
+        outcome = self._pending.wait(timeout_s=timeout_s)
+        if outcome is None:
+            return None
+        while self.is_live:
+            if deadline is not None and time.monotonic() >= deadline:
+                return None
+            time.sleep(0.02)
+        return outcome
+
+    def stop(self) -> None:
+        """Stop this run. Only asks: the run ends on its own thread.
+
+        Raises:
+            RunAlreadyEndedError: no run is live.
+            ProtocolRunRefusedError: reason 'run_not_live' -- another run
+                is live and this one is not it.
+        """
+        self._engine.reset(self)
+
+    @property
+    def is_live(self) -> bool:
+        return self._engine.is_live_run(self)
+
+    @property
+    def is_stopping(self) -> bool:
+        """Live, and a Stop of it accepted: True until its teardown finishes."""
+        return self._engine.is_stopping(self)
+
+    @property
+    def is_last_run(self) -> bool:
+        """Whether this is the engine's most recent run, live or finished."""
+        return self._engine.run_outcome() is self
+
+    @property
+    def run_dir(self) -> pathlib.Path | None:
+        return self._run_dir
+
+    @property
+    def step_number(self) -> int | None:
+        """The step executing now, counted from 1; None once this run is not live."""
+        return self._engine.live_run_value(self, self._engine.run_step_number)
+
+    @property
+    def num_steps(self) -> int | None:
+        return self._engine.live_run_value(self, self._engine.run_num_steps)
+
+    @property
+    def remaining_scans(self) -> int | None:
+        return self._engine.live_run_value(self, self._engine.remaining_scans)
+
+    @property
+    def interval(self) -> datetime.timedelta | None:
+        """This run's scan period; None once it is not live."""
+        return self._engine.live_run_value(self, self._engine.protocol_interval)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -328,6 +419,7 @@ class SequencedCaptureRunner:
         # under the run lock. A run that never started must leave nothing
         # for a caller to wait on.
         self._run_outcome = None
+        self._run_handle = None
         self._write_focus_to = None
         # Fresh object per run, never a shared Event cleared in place: queued
         # write tasks keep draining after a run ends, and a drain task hitting
@@ -485,7 +577,7 @@ class SequencedCaptureRunner:
 
         return True
 
-    def reset(self, run: 'PendingRunOutcome | None') -> None:
+    def reset(self, run: 'RunHandle | None') -> None:
         """Stop *run*, the object its start() returned. Non-blocking for the caller.
 
         Anyone may stop the live run, and the stop names the run rather
@@ -563,7 +655,7 @@ class SequencedCaptureRunner:
             ending = RunEnding('aborted', 'force_reset', 'Protocol Stopped', reason)
             self._ending.set_if_unset(ending)
             self.protocol_thread.abort()
-            run = self._run_outcome
+            run = self._run_handle
             loop = self._run_loop_future
             loop_ended_without_unwinding = loop is not None and loop.done()
 
@@ -645,9 +737,12 @@ class SequencedCaptureRunner:
         not the answer to a question about the run in flight.
         """
         with self._run_lock:
-            if not self._is_run_live() or self._protocol is None:
+            if not self._is_run_live():
                 return None
-            return self._protocol.num_steps()
+            return self._num_steps()
+
+    def _num_steps(self) -> int | None:
+        return self._protocol.num_steps() if self._protocol is not None else None
 
     def run_step_number(self) -> int | None:
         """Which step of the live run is executing, counted from 1; None when no run is live.
@@ -660,9 +755,12 @@ class SequencedCaptureRunner:
         with self._run_lock:
             if not self._is_run_live():
                 return None
-            # One int, written only by the step runner as it advances; the
-            # step's colour is read from the same index.
-            return self._curr_step + 1
+            return self._step_number()
+
+    def _step_number(self) -> int:
+        # One int, written only by the step runner as it advances; the
+        # step's colour is read from the same index.
+        return self._curr_step + 1
 
     @staticmethod
     def _the_run_holding_the_scope(holder_trigger: 'str | None') -> str:
@@ -1227,7 +1325,7 @@ class SequencedCaptureRunner:
         self._take_auto_gain_arm_for_run()
         return None
 
-    def start(self, plan: RunPlan) -> 'PendingRunOutcome':
+    def start(self, plan: RunPlan) -> RunHandle:
         """Commit to the prepared run and dispatch it.
 
         The commitment point: once entered, the run's terminal callback
@@ -1246,9 +1344,9 @@ class SequencedCaptureRunner:
         clearing running-state the live activity still owns.
 
         Returns:
-            This run's outcome. Already resolved for every run kind that
-            has no merge, so a caller always gets an answer rather than
-            the bound.
+            This run's handle. Its outcome is already resolved for every
+            run kind that has no merge, so a caller always gets an answer
+            rather than the bound.
 
         Raises:
             ProtocolRunRefusedError: reason 'already_running' for the
@@ -1372,6 +1470,10 @@ class SequencedCaptureRunner:
             if plan.write_focus_to is not None:
                 outcome.record_focus_written(False)
             self._run_outcome = outcome
+            # What the caller holds: the run's identity for every question
+            # and Stop, published with the outcome it waits on.
+            handle = RunHandle(self, outcome)
+            self._run_handle = handle
             # The run's writes, created with its outcome and for the same
             # reasons: after the refusals, so a refused start leaves the live
             # run's batch in place; before anything can fail, so every run
@@ -1457,7 +1559,7 @@ class SequencedCaptureRunner:
                 stopped = self._ending.get()
                 if stopped is None:
                     dispatch_future = self.protocol_thread.run_protocol(
-                        functools.partial(self._run_loop_under_claim, outcome)
+                        functools.partial(self._run_loop_under_claim, handle)
                     )
                     self._run_loop_future = dispatch_future
             # A dispatch refusal is synchronous: run_protocol seals the
@@ -1477,14 +1579,18 @@ class SequencedCaptureRunner:
                     str(dispatch_future.exception()),
                 ) from dispatch_future.exception()
         except Exception as exc:
-            self._fail_run_at_start(exc, outcome)
+            self._fail_run_at_start(exc, handle)
         else:
             if stopped is not None:
-                self._unwind_undispatched_run(stopped, outcome)
+                self._unwind_undispatched_run(stopped, handle)
+
+        # The run's folder, as its setup left it: None when it saves
+        # nothing, and when a failed or stopped start unwound it.
+        handle._run_dir = self._run_dir
 
         # Reached on the failed-at-start and stopped-before-dispatch paths too, where the unwind has
         # already resolved the outcome: the caller waits and is told at once.
-        return outcome
+        return handle
 
     def _setup_run_dir(self) -> None:
         """Create and initialize the run directory; raise on failure.
@@ -1525,7 +1631,7 @@ class SequencedCaptureRunner:
                 'The run folder could not be initialized. See the log for details.',
             ) from ex
 
-    def _fail_run_at_start(self, exc: Exception, run: PendingRunOutcome) -> None:
+    def _fail_run_at_start(self, exc: Exception, run: RunHandle) -> None:
         """Unwind a run that failed during start()'s setup phase.
 
         Routes the failure through the normal run cleanup so the terminal
@@ -1558,7 +1664,7 @@ class SequencedCaptureRunner:
             category='Protocol',
         )
 
-    def _unwind_undispatched_run(self, ending: RunEnding, run: PendingRunOutcome) -> None:
+    def _unwind_undispatched_run(self, ending: RunEnding, run: RunHandle) -> None:
         """Unwind a run whose loop was never dispatched, on start()'s thread.
 
         Two ways to get here: the setup failed, or a Stop was accepted
@@ -1653,7 +1759,7 @@ class SequencedCaptureRunner:
         self._protocol_iterator = None
         self._scan_iterator = None
 
-    def _cleanup(self, ending: RunEnding, run: PendingRunOutcome):
+    def _cleanup(self, ending: RunEnding, run: RunHandle):
         """Unwind *run*; ending names the terminal outcome and its cause.
 
         ending is REQUIRED so every cleanup site states the truth it
@@ -1686,7 +1792,7 @@ class SequencedCaptureRunner:
             if self._on_run_idle is not None:
                 self._on_run_idle()
 
-    def _run_loop_under_claim(self, run: PendingRunOutcome) -> None:
+    def _run_loop_under_claim(self, run: RunHandle) -> None:
         """The run loop, on the protocol thread, acting under the run's taking.
 
         Every move, LED and camera task the run submits is stamped with the
@@ -1713,7 +1819,7 @@ class SequencedCaptureRunner:
             led_lease.release(leave_on=True)
             self._led_lease = None
 
-    def _write_focus(self, ending: RunEnding, run: PendingRunOutcome) -> None:
+    def _write_focus(self, ending: RunEnding, run: RunHandle) -> None:
         """Write a completed autofocus scan's focus into the caller's protocol.
 
         Here, on the run's thread before run_complete is sent, because the
@@ -1733,7 +1839,7 @@ class SequencedCaptureRunner:
 
             notifications.report_outcome(failed, solicited=False, category='Protocol')
             return
-        run.record_focus_written(True)
+        run._pending.record_focus_written(True)
 
     def _account_for_captures(self, ending: RunEnding) -> RunEnding:
         """Record what the run captured, and say 'incomplete' when it fell short.
@@ -1830,9 +1936,21 @@ class SequencedCaptureRunner:
             )
             outcome.force_resolve('cleanup_error', fallback=ending)
 
-    def run_outcome(self) -> 'PendingRunOutcome | None':
-        """This run's outcome, or None when no run has started."""
-        return getattr(self, '_run_outcome', None)
+    def run_outcome(self) -> 'RunHandle | None':
+        """The live or last run's handle, or None when no run has started."""
+        return getattr(self, '_run_handle', None)
+
+    def settle_unfinished_run(self, merge_reason: str, *, fallback: RunEnding) -> None:
+        """Settle the last run's outcome now, for a teardown that will not wait for it.
+
+        The session's shutdown, which tears the lanes down without waiting
+        for a merge still waiting on this run's writes. A run that already
+        recorded its own ending keeps it; *fallback* is used only when the
+        run never reached cleanup.
+        """
+        outcome = getattr(self, '_run_outcome', None)
+        if outcome is not None:
+            outcome.settle_unfinished(merge_reason, fallback=fallback)
 
     def write_batch(self) -> RunWriteBatch | None:
         """The live or last run's writes, or None when no run has started."""
@@ -1879,7 +1997,7 @@ class SequencedCaptureRunner:
         )
         notifications.report_outcome(stalled, solicited=False, category='Protocol')
 
-    def is_live_run(self, run: 'PendingRunOutcome | None') -> bool:
+    def is_live_run(self, run: 'RunHandle | None') -> bool:
         """Whether *run* -- the object a start() returned -- is the live run.
 
         What a stop control asks to decide that a click means Stop: the
@@ -1888,7 +2006,7 @@ class SequencedCaptureRunner:
         with self._run_lock:
             return self._is_live_run_locked(run)
 
-    def is_stopping(self, run: 'PendingRunOutcome | None') -> bool:
+    def is_stopping(self, run: 'RunHandle | None') -> bool:
         """Whether *run* is live and a Stop of it has been accepted.
 
         A stopped run stays live until its teardown finishes -- the LEDs,
@@ -1903,7 +2021,7 @@ class SequencedCaptureRunner:
             ending = self._ending.get()
             return ending is not None and ending.status == 'aborted'
 
-    def held_by_other(self, run: 'PendingRunOutcome | None') -> bool:
+    def held_by_other(self, run: 'RunHandle | None') -> bool:
         """Whether the scope is held by anything but *run* -- the object a start() returned.
 
         What a run control greys on: anything else holding the scope --
@@ -1917,8 +2035,21 @@ class SequencedCaptureRunner:
                 return False
             return not self._is_live_run_locked(run)
 
-    def _is_live_run_locked(self, run: 'PendingRunOutcome | None') -> bool:
-        return run is not None and run is self.run_outcome() and self._is_run_live()
+    def live_run_value(self, run: RunHandle, read: typing.Callable[[], T]) -> T | None:
+        """*read*'s answer while *run* is the live run; None once it is not.
+
+        One hold of the run lock across the liveness read and *read*, so a
+        handle never answers with a successor's value: a run cannot end and
+        another start while the lock is held. *read* must not take the run
+        lock itself.
+        """
+        with self._run_lock:
+            if not self._is_live_run_locked(run):
+                return None
+            return read()
+
+    def _is_live_run_locked(self, run: 'RunHandle | None') -> bool:
+        return run is not None and run is self._run_handle and self._is_run_live()
 
     def _release_activity_claim(self):
         """Release the run's exclusivity claim (idempotent).
@@ -2187,7 +2318,7 @@ class SequencedCaptureRunner:
         except Exception as ex:
             notifications.report_outcome(ex, solicited=False, category='Protocol')
 
-    def _cleanup_inner(self, ending: RunEnding, run: PendingRunOutcome):
+    def _cleanup_inner(self, ending: RunEnding, run: RunHandle):
         from modules.notification_center import notifications
 
         # Restore popups: the unattended-run suppression ends here, on
@@ -2245,7 +2376,7 @@ class SequencedCaptureRunner:
                 run_complete=run_complete,
                 logger_name=self.LOGGER_NAME,
                 ending=ending,
-                record_cleanup_failures=run.record_cleanup_failures,
+                record_cleanup_failures=run._pending.record_cleanup_failures,
             )
             self._start_hyperstack_build()
         finally:

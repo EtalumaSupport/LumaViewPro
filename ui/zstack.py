@@ -10,7 +10,10 @@ import modules.common_utils as common_utils
 import modules.app_context as _app_ctx
 from modules import gui_logger
 from modules.config_ui_getters import is_image_saving_enabled
-from modules.run_outcome import PendingRunOutcome
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from modules.sequenced_capture_runner import RunHandle
 from ui.ui_helpers import (
     _handle_ui_update_for_axis,
     live_display_callbacks,
@@ -30,7 +33,7 @@ logger = logging.getLogger('LVP.ui.zstack')
 class ZStack(FloatLayout):
     # The handle this button's last start returned: what its Stop names.
     # The engine answers whether it is still the live run.
-    _zstack_run: PendingRunOutcome | None = None
+    _zstack_run: 'RunHandle | None' = None
     # True while this button's own request is on its way to the engine; the
     # button is disabled until that request's redraw.
     zstack_pending = BooleanProperty(False)
@@ -123,9 +126,9 @@ class ZStack(FloatLayout):
         # second press cannot race the first one to the pool.
         self.zstack_pending = True
 
-        if ctx.sequenced_capture_runner.is_live_run(run):
+        if run is not None and run.is_live:
             submit_reported(
-                lambda: ctx.sequenced_capture_runner.reset(run),
+                run.stop,
                 self._zstack_request_done,
                 'ZSTACK',
                 stop=True,
@@ -159,17 +162,18 @@ class ZStack(FloatLayout):
         }
 
         def _start():
-            self._zstack_run = runner.run_zstack(
+            started = runner.run_zstack(
                 layer=layer,
                 callbacks=callbacks,
                 run_trigger_source='zstack',
                 engineering_mode=engineering_mode,
                 enable_image_saving=enable_image_saving,
             )
+            self._zstack_run = started
             # A refusal raises out of run_zstack before this line, so the
             # save folder can only ever point at THIS run's directory,
             # never a previous run's stale data.
-            set_last_save_folder(dir=runner.run_dir())
+            set_last_save_folder(dir=started.run_dir)
 
         submit_reported(_start, self._zstack_request_done, 'ZSTACK')
 
@@ -188,17 +192,28 @@ class ZStack(FloatLayout):
         """
         ctx = _app_ctx.ctx
         self.zstack_held = ctx.session.held_by_other(self._zstack_run)
-        engine = ctx.sequenced_capture_runner
         button = self.ids['zstack_aqr_btn']
-        if not engine.is_live_run(self._zstack_run):
+        label = _running_label(self._zstack_run)
+        if label is None:
             button.state = 'normal'
             button.text = 'Acquire'
             return
         button.state = 'down'
-        if engine.is_stopping(self._zstack_run):
-            button.text = 'Stopping...'
-            return
-        step, total = engine.run_step_number(), engine.run_num_steps()
-        # Both are None only once the run has ended, between the live read
-        # above and these; the run-state edge that follows draws it idle.
-        button.text = 'Running Z-Stack' if step is None or total is None else f'Z {step}/{total}'
+        button.text = label
+
+
+def _running_label(run: 'RunHandle | None') -> str | None:
+    """What the button says while its run is live; None when it is not.
+
+    None also when the run ended between the live read and the progress
+    reads -- its progress is None then -- so the button draws what it read
+    rather than a running label for a run that has ended.
+    """
+    if run is None or not run.is_live:
+        return None
+    if run.is_stopping:
+        return 'Stopping...'
+    step, total = run.step_number, run.num_steps
+    if step is None or total is None:
+        return None
+    return f'Z {step}/{total}'

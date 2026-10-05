@@ -186,7 +186,7 @@ def test_every_stop_goes_ahead_of_queued_work():
                 in _SUBMITTERS
             ):
                 continue
-            if not any('.reset(' in ast.unparse(arg) for arg in node.args):
+            if not any(ast.unparse(arg) == 'run.stop' for arg in node.args):
                 continue
             stop = next((kw.value for kw in node.keywords if kw.arg == 'stop'), None)
             stops.append((source_file.name, ast.unparse(node), stop))
@@ -260,79 +260,49 @@ def test_no_retired_runner_run_call_sites_remain():
 # ---------------------------------------------------------------------------
 
 
-def _runner_reset_calls():
-    """Every UI run teardown under ui/, derived, with the run it names.
+def _ui_run_stops():
+    """Every UI run teardown under ui/, derived: each `run.stop` and any engine reset.
 
-    A teardown is a `<something>runner.reset(...)` call, direct or bound by
-    a functools.partial. Derived rather than listed: the starter tuple above
-    is hand-maintained and had already drifted -- it names four starters
-    while the autofocus and composite buttons tear runs down too. A list
-    that has to be updated by hand is the thing this test exists to
-    prevent, so it must not depend on one.
+    A teardown is the Stop of the handle a button's own start returned
+    (`run.stop`), or -- the shape this guard exists to keep out -- a
+    `<something>runner.reset(...)` / `<something>engine.reset(...)` call
+    that asks the engine directly. Derived rather than listed: a hand-kept
+    roster of starters had already drifted once.
 
-    Yields (file, source, run argument or None when absent, keywords).
+    Yields (file, source).
     """
-
-    def _callee_and_args(node):
-        """The callee this call reaches and the arguments it is handed.
-
-        functools.partial(f, a, b) carries the arguments on the binding
-        rather than the call, so the partial's own arguments are the ones
-        that answer which run the teardown names.
-        """
-        func = node.func
-        if isinstance(func, ast.Attribute) and func.attr == 'partial' and node.args:
-            return node.args[0], node.args[1:], node.keywords
-        return func, node.args, node.keywords
-
-    def _run_argument(position, args, keywords):
-        if len(args) > position:
-            return args[position]
-        return next((kw.value for kw in keywords if kw.arg == 'run'), None)
-
     for source_file in sorted((REPO_ROOT / 'ui').glob('*.py')):
         tree = ast.parse(source_file.read_text())
         for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            callee, args, keywords = _callee_and_args(node)
-            if (
-                isinstance(callee, ast.Attribute)
-                and callee.attr == 'reset'
-                and 'runner' in ast.unparse(callee.value).lower()
+            if isinstance(node, ast.Attribute) and node.attr == 'stop':
+                if isinstance(node.value, ast.Name) and node.value.id == 'run':
+                    yield source_file.name, ast.unparse(node)
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == 'reset'
+                and any(
+                    word in ast.unparse(node.func.value).lower() for word in ('runner', 'engine')
+                )
             ):
-                run = _run_argument(0, args, keywords)
-            else:
-                continue
-            yield source_file.name, ast.unparse(node), run, keywords
+                yield source_file.name, ast.unparse(node)
 
 
 def test_every_ui_run_teardown_names_its_run():
-    """A UI teardown names the run it means to stop, by its handle.
+    """A UI teardown is the Stop of the handle its own start returned.
 
     The defect this locks: a stale autofocus toggle reached reset() during
     someone else's scan and destroyed it, because nothing in the call said
-    which run it meant. The engine now stops only the run a stop names and
-    refuses a handle naming any other -- but only if the caller passes the
-    handle its own start returned, so no ui/ call site may omit it, pass a
-    literal in its place, or still say who is asking instead.
+    which run it meant. A handle's Stop names its run by construction, so
+    every teardown in ui/ is a held handle's `.stop`, and none asks the
+    engine to stop a run it names by passing it back in.
     """
-    calls = list(_runner_reset_calls())
-    assert calls, 'derivation found no teardown calls -- the AST shapes drifted'
-    assert any(src.startswith('runner.reset') for _, src, _, _ in calls), (
-        'derivation found no engine reset() call -- the AST shapes drifted'
-    )
-
-    unnamed = [
-        (where, src)
-        for where, src, run, keywords in calls
-        if run is None
-        or isinstance(run, ast.Constant)
-        or any(kw.arg == 'requester' for kw in keywords)
-    ]
-    assert not unnamed, (
-        'run teardown that does not name a run by its handle -- the engine '
-        f'cannot tell the run this control started from the live one: {unnamed}'
+    stops = list(_ui_run_stops())
+    assert len(stops) >= 4, 'derivation found too few teardowns -- the AST shapes drifted'
+    by_the_engine = [(where, src) for where, src in stops if src != 'run.stop']
+    assert not by_the_engine, (
+        'a run teardown that asks the engine instead of stopping the handle '
+        f'its own start returned: {by_the_engine}'
     )
 
 

@@ -56,6 +56,7 @@ import ui.protocol_settings as ps
 import ui.zstack as zs
 from modules.exceptions import ProtocolRunRefusedError
 from modules.run_outcome import PendingRunOutcome
+from modules.sequenced_capture_runner import RunHandle
 
 
 # The refusal the engine raises when a stop names a run that has ended
@@ -85,7 +86,7 @@ class _ZStackStarter(zs.ZStack):
         self.ids = {'zstack_aqr_btn': self.button}
         self.zstack_pending = False
         # The handle this button's start returned.
-        self._zstack_run = PendingRunOutcome()
+        self._zstack_run = RunHandle(_app_ctx.ctx.sequenced_capture_runner, PendingRunOutcome())
 
 
 @pytest.fixture
@@ -111,7 +112,7 @@ def refusing_runner():
     runner = MagicMock()
     runner.run_in_progress.return_value = True
     runner.run_trigger_source.return_value = 'zstack'
-    runner.is_live_run.side_effect = lambda run: isinstance(run, PendingRunOutcome)
+    runner.is_live_run.side_effect = lambda run: isinstance(run, RunHandle)
     runner.reset.side_effect = RUN_NOT_LIVE
     return runner
 

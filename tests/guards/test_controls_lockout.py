@@ -248,15 +248,21 @@ class TestStandaloneAfLockout:
         ast, node = self._starter_def()
         first_line: dict[str, int] = {}
         for sub in ast.walk(node):
-            if isinstance(sub, ast.Call):
+            # The own-run question is the handle's `is_live`; the start is
+            # the member's run_autofocus call.
+            if isinstance(sub, ast.Attribute) and sub.attr == 'is_live':
+                first_line['is_live'] = min(first_line.get('is_live', sub.lineno), sub.lineno)
+            elif isinstance(sub, ast.Call):
                 name = (
                     sub.func.attr
                     if isinstance(sub.func, ast.Attribute)
                     else getattr(sub.func, 'id', '')
                 )
-                if name in ('is_live_run', 'run_autofocus'):
-                    first_line.setdefault(name, sub.lineno)
-        assert 0 < first_line.get('is_live_run', 0) < first_line.get('run_autofocus', 0), (
+                if name == 'run_autofocus':
+                    first_line['run_autofocus'] = min(
+                        first_line.get('run_autofocus', sub.lineno), sub.lineno
+                    )
+        assert 0 < first_line.get('is_live', 0) < first_line.get('run_autofocus', 0), (
             'the own-run stop must be decided before the member starts the run; '
             'a start ahead of it runs an autofocus the press should have stopped. '
             f'Found: {first_line}'

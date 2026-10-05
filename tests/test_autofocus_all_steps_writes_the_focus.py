@@ -25,6 +25,7 @@ import pytest
 
 from modules.exceptions import FocusNotWrittenError, Refusal
 from modules.run_outcome import PendingRunOutcome, RunEnding
+from modules.sequenced_capture_runner import RunHandle
 
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
@@ -184,7 +185,9 @@ class TestOnlyACompletedScanWritesItsFocus:
         pending = PendingRunOutcome()
         engine = self._engine_after_a_scan(protocol)
 
-        engine._write_focus(RunEnding('completed', 'completed', 't', 'm'), pending)
+        engine._write_focus(
+            RunEnding('completed', 'completed', 't', 'm'), RunHandle(engine, pending)
+        )
 
         assert protocol.steps()['Z'].tolist() == [5111.0, 5222.0]
         pending.resolve_if_pending(RunEnding('completed', 'completed', 't', 'm'))
@@ -217,11 +220,16 @@ class TestOnlyACompletedScanWritesItsFocus:
                 write_focus_to=_two_steps(),
             )
         )
-        pending = engine.start(plan)
+        run = engine.start(plan)
 
-        pending.force_resolve('shutdown', fallback=RunEnding('aborted', 'shutdown', 't', 'm'))
+        # Session shutdown's settle. The run is never unwound here, so the
+        # handle's wait (which waits for the scope to be free) would only
+        # time out; the outcome the engine settled is read directly.
+        engine.settle_unfinished_run(
+            'shutdown', fallback=RunEnding('aborted', 'shutdown', 't', 'm')
+        )
 
-        assert pending.wait(timeout_s=1.0).focus_written is False
+        assert run._pending.wait(timeout_s=1.0).focus_written is False
 
 
 class TestARunThatWritesNoFocusSaysNone:

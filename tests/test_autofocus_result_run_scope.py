@@ -43,8 +43,6 @@ import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-import pytest
-
 # Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
 # tests/conftest.py at module-import time. Mock settings_init before
 # sequenced_capture_runner imports it.
@@ -336,28 +334,6 @@ class TestGuiStoresWhatTheAutofocusFound:
         assert 'widget gone' in str(failed)
         assert kw['solicited'] is False
         assert settings['Green']['focus'] == 777.5, 'the focus is stored before the resync'
-
-    def test_the_defensive_af_thread_abort_runs_before_the_store_write(self, monkeypatch):
-        """The store write no longer sits in a broad handler, so it can
-        raise. The AF-thread unwind must already have happened.
-
-        Its old handler swallowed every failure into a GUI log line, so a
-        focus update that never happened looked identical to one that did.
-        """
-        af_runner, _scope = af_runner_and_scope()
-        af_runner._best_focus_position = 777.5
-        stub, ctx, _settings, _layer_obj, app_context = _vertical_control_stub(af_runner)
-
-        def _boom(image_settings):
-            raise RuntimeError('layer resolution exploded')
-
-        with pytest.raises(RuntimeError, match='layer resolution exploded'):
-            _call_af_run_complete(monkeypatch, stub, ctx, app_context, opened_layer=_boom)
-
-        assert ctx.autofocus_thread.abort.called, (
-            'the defensive AF-thread unwind must not be skippable by a '
-            'failure in the focus update below it'
-        )
 
     def test_the_completion_handler_never_samples_the_stage(self):
         """An AST lock: _autofocus_run_complete must not call

@@ -254,6 +254,7 @@ def _stop_stub(trigger='test', loop_ended=False):
         _run_trigger_source=trigger,
         # The handle start() returned for the live run, which a stop names.
         _run_outcome=PendingRunOutcome(),
+        _run_handle=None,
         _ending=EndingLatch(),
         protocol_thread=SimpleNamespace(abort=lambda: None),
         # The live run's dispatched loop: still running unless loop_ended.
@@ -262,6 +263,7 @@ def _stop_stub(trigger='test', loop_ended=False):
         LOGGER_NAME='TEST',
     )
     # The runner's own liveness answer, so the stub cannot disagree with it.
+    stub._run_handle = scr.RunHandle(stub, stub._run_outcome)
     stub.run_outcome = lambda: scr.SequencedCaptureRunner.run_outcome(stub)
     stub._is_live_run_locked = lambda run: scr.SequencedCaptureRunner._is_live_run_locked(stub, run)
     return scr, stub, cleaned
@@ -272,7 +274,7 @@ class TestTheRunnerRecordsTheStop:
         """A stop names the run, not the caller, so the ending records that
         the run was stopped and nothing about who asked."""
         scr, stub, _cleaned = _stop_stub()
-        scr.SequencedCaptureRunner.reset(stub, stub._run_outcome)
+        scr.SequencedCaptureRunner.reset(stub, stub._run_handle)
 
         ending = stub._ending.get()
         assert (ending.status, ending.reason, ending.message) == (
@@ -287,7 +289,7 @@ class TestTheRunnerRecordsTheStop:
         scr, stub, _ = _stop_stub()
         stub._is_run_live = lambda: False
         with pytest.raises(RunAlreadyEndedError):
-            scr.SequencedCaptureRunner.reset(stub, stub._run_outcome)
+            scr.SequencedCaptureRunner.reset(stub, stub._run_handle)
         assert stub._ending.get() is None
 
     def test_the_shutdown_unwind_gets_the_same_record(self):
@@ -377,17 +379,17 @@ def _cleanup_stub(latched=None, forced_dark=False):
     # MagicMock-backed: _cleanup_inner builds run_cleanup's whole kwarg list
     # before calling it, so every attribute it reads must exist. Only the ones
     # this test reasons about are pinned; the rest are inert.
+    import modules.sequenced_capture_runner as scr
+
     stub = MagicMock()
     # The run this cleanup is for is the runner's current run.
-    stub.run_outcome.return_value = PendingRunOutcome()
+    stub.run_outcome.return_value = scr.RunHandle(stub, PendingRunOutcome())
     stub._is_run_live = lambda: True
     stub._ending = latch
     stub._fatal_abort_event = fatal
     stub._image_writer = None  # no video lane to drain
     # The ending is read through the runner's own account of its captures;
     # with no writer it hands the ending back unchanged.
-    import modules.sequenced_capture_runner as scr
-
     stub._account_for_captures = lambda ending: scr.SequencedCaptureRunner._account_for_captures(
         stub, ending
     )

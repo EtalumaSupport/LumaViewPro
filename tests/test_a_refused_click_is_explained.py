@@ -91,7 +91,10 @@ def _returning_branches(method: ast.FunctionDef):
 
 
 def _is_own_stop(node: ast.If) -> bool:
-    return 'is_live_run' in _called_names(node.test)
+    # The own-run question: the handle the button's start returned is live.
+    return any(
+        isinstance(sub, ast.Attribute) and sub.attr == 'is_live' for sub in ast.walk(node.test)
+    )
 
 
 def _is_a_refused_edits_touch(node: ast.If) -> bool:
@@ -148,8 +151,9 @@ def test_the_guard_leaves_the_own_run_stop_alone():
     module = ast.parse(
         'class X:\n'
         '    def starter(self):\n'
-        '        if engine.is_live_run(self._run):\n'
-        '            engine.reset(self._run)\n'
+        '        run = self._run\n'
+        '        if run is not None and run.is_live:\n'
+        '            submit(run.stop)\n'
         '            return\n'
         '        def _start():\n'
         '            if nothing_to_do:\n'
