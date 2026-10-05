@@ -360,30 +360,37 @@ _TRANSPORT_NAMES = {
 }
 
 
+def declared_unit(genicam_unit: str) -> str | None:
+    """A GenICam node's unit as the node declares it; the empty string
+    GenICam returns for a node with no unit is None, the unit unknown."""
+    return genicam_unit if genicam_unit else None
+
+
 def link_info(
     *,
     transport: str | None = None,
-    link_speed_mbps: float | None = None,
+    link_speed: float | None = None,
+    link_speed_unit: str | None = None,
     packet_size_bytes: int | None = None,
     inter_packet_delay: int | None = None,
 ) -> dict:
     """The one shape of a camera's link report; None where the camera does
     not report a field. ``transport`` is mapped to 'USB3' / 'GigE' / 'USB2'
-    where the SDK's name is a known one."""
+    where the SDK's name is a known one.
+
+    The speed is carried with the unit the camera declares for it, never
+    converted: Basler's DeviceLinkSpeed is in a unit that varies by model
+    (bits per second on newer bodies), so a fixed conversion would be wrong
+    on some. A camera that declares no unit reports ``link_speed_unit``
+    None.
+    """
     return {
         'transport': _TRANSPORT_NAMES.get(transport, transport),
-        'link_speed_mbps': link_speed_mbps,
+        'link_speed': link_speed,
+        'link_speed_unit': link_speed_unit,
         'packet_size_bytes': packet_size_bytes,
         'inter_packet_delay': inter_packet_delay,
     }
-
-
-def link_speed_mbps_from_bps(bytes_per_second: float | None) -> float | None:
-    """GenICam's DeviceLinkSpeed is in bytes per second (SFNC); the report
-    is megabits per second."""
-    if bytes_per_second is None:
-        return None
-    return float(bytes_per_second) * 8 / 1e6
 
 
 def no_hardware_auto_mode(driver: str, member: str, mode: str) -> NotImplementedError:
@@ -1197,8 +1204,9 @@ class Camera(ABC):
         return None
 
     def get_link_info(self) -> dict | None:
-        """Read the camera's link, live: ``{transport, link_speed_mbps,
-        packet_size_bytes, inter_packet_delay}`` (``link_info``), None where
+        """Read the camera's link, live: ``{transport, link_speed,
+        link_speed_unit, packet_size_bytes, inter_packet_delay}``
+        (``link_info``), None where
         the camera does not report a field. The default describes a camera
         that reports none.
 

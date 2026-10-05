@@ -34,7 +34,8 @@ def fx2_session():
 def test_the_fx2_is_usb2_at_the_speed_it_negotiated(fx2_session):
     assert fx2_session.scope.diagnostics.get_camera_link_info() == {
         'transport': 'USB2',
-        'link_speed_mbps': 480.0,
+        'link_speed': 480.0,
+        'link_speed_unit': 'Mbps',
         'packet_size_bytes': None,
         'inter_packet_delay': None,
     }
@@ -60,7 +61,7 @@ def test_unknown_sdk_transport_names_pass_through():
 # --- Pylon --------------------------------------------------------------------
 
 
-def _pylon(values, device_class='BaslerUsb'):
+def _pylon(values, device_class='BaslerUsb', speed_unit='bps'):
     cam = bare_pylon_camera()
 
     def get_node(name):
@@ -72,27 +73,38 @@ def _pylon(values, device_class='BaslerUsb'):
     cam.active.GetDeviceInfo.return_value.GetDeviceClass.return_value = device_class
     for name, value in values.items():
         getattr(cam.active, name).GetValue.return_value = value
+    cam.active.DeviceLinkSpeed.GetUnit.return_value = speed_unit
     return cam
 
 
-def test_pylon_usb3_reports_its_link_speed_in_megabits():
-    cam = _pylon({'DeviceLinkSpeed': 400_000_000})
+def test_pylon_usb3_reports_its_link_speed_in_the_unit_it_declares():
+    cam = _pylon({'DeviceLinkSpeed': 5_000_000_000})
     assert cam.get_link_info() == {
         'transport': 'USB3',
-        'link_speed_mbps': 3200.0,
+        'link_speed': 5_000_000_000,
+        'link_speed_unit': 'bps',
         'packet_size_bytes': None,
         'inter_packet_delay': None,
     }
+
+
+def test_pylon_speed_with_no_declared_unit_says_its_unit_is_unknown():
+    cam = _pylon({'DeviceLinkSpeed': 400_000_000}, speed_unit='')
+    info = cam.get_link_info()
+    assert info['link_speed'] == 400_000_000
+    assert info['link_speed_unit'] is None
 
 
 def test_pylon_gige_reports_its_stream_packet_settings():
     cam = _pylon(
         {'DeviceLinkSpeed': 125_000_000, 'GevSCPSPacketSize': 9000, 'GevSCPD': 1000},
         device_class='BaslerGigE',
+        speed_unit='Bps',
     )
     assert cam.get_link_info() == {
         'transport': 'GigE',
-        'link_speed_mbps': 1000.0,
+        'link_speed': 125_000_000,
+        'link_speed_unit': 'Bps',
         'packet_size_bytes': 9000,
         'inter_packet_delay': 1000,
     }
@@ -114,6 +126,7 @@ def _ids(values, tl_type='USB3Vision'):
     nodes = {name: MagicMock() for name in values}
     for name, value in values.items():
         nodes[name].Value.return_value = value
+        nodes[name].Unit.return_value = 'Bps'
     if tl_type is not None:
         nodes['DeviceTLType'] = MagicMock()
         nodes['DeviceTLType'].CurrentEntry.return_value.SymbolicValue.return_value = tl_type
@@ -124,7 +137,19 @@ def _ids(values, tl_type='USB3Vision'):
 
 def test_ids_usb3_reports_its_transport_and_link_speed():
     cam, _nodes = _ids({'DeviceLinkSpeed': 400_000_000})
-    assert cam.get_link_info() == link_info(transport='USB3Vision', link_speed_mbps=3200.0)
+    assert cam.get_link_info() == {
+        'transport': 'USB3',
+        'link_speed': 400_000_000,
+        'link_speed_unit': 'Bps',
+        'packet_size_bytes': None,
+        'inter_packet_delay': None,
+    }
+
+
+def test_ids_speed_with_no_declared_unit_says_its_unit_is_unknown():
+    cam, nodes = _ids({'DeviceLinkSpeed': 400_000_000})
+    nodes['DeviceLinkSpeed'].Unit.return_value = ''
+    assert cam.get_link_info()['link_speed_unit'] is None
 
 
 def test_ids_without_the_nodes_reports_none_for_each():

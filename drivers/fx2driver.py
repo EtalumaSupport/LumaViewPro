@@ -2593,7 +2593,7 @@ class FX2Camera(Camera):
             speed = self._fx2.link_speed_mbps()
         except Exception as e:
             raise HardwareError(f'Link speed read failed: {type(e).__name__}: {e}') from e
-        return link_info(transport='USB2', link_speed_mbps=speed)
+        return link_info(transport='USB2', link_speed=speed, link_speed_unit='Mbps')
 
     def auto_gain(
         self,

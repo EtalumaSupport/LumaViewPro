@@ -15,8 +15,8 @@ from drivers.camera import (
     Camera,
     FrameGrid,
     ImageHandlerBase,
+    declared_unit,
     link_info,
-    link_speed_mbps_from_bps,
 )
 from drivers.exceptions import HardwareError
 from drivers.registry import camera_registry
@@ -2542,9 +2542,14 @@ class PylonCamera(Camera):
                     return None
                 return getattr(self.active, name).GetValue()
 
+            speed = speed_unit = None
+            if self._has_node(nodemap, 'DeviceLinkSpeed'):
+                speed = self.active.DeviceLinkSpeed.GetValue()
+                speed_unit = declared_unit(self.active.DeviceLinkSpeed.GetUnit())
             return link_info(
                 transport=self.active.GetDeviceInfo().GetDeviceClass(),
-                link_speed_mbps=link_speed_mbps_from_bps(_read('DeviceLinkSpeed')),
+                link_speed=speed,
+                link_speed_unit=speed_unit,
                 packet_size_bytes=_read('GevSCPSPacketSize'),
                 inter_packet_delay=_read('GevSCPD'),
             )

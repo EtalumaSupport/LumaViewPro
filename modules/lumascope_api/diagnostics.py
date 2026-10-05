@@ -150,14 +150,17 @@ class DiagnosticsAPI:
         with a camera write, and a run does not stop them.
 
         Returns:
-            dict | None: ``{'transport', 'link_speed_mbps',
+            dict | None: ``{'transport', 'link_speed', 'link_speed_unit',
                 'packet_size_bytes', 'inter_packet_delay'}``, each None where
                 the camera does not report it. ``transport`` is 'USB3', 'GigE'
-                or 'USB2' (the SDK's own name when it is none of these);
-                ``link_speed_mbps`` is the negotiated speed (GenICam's
-                DeviceLinkSpeed, in bytes per second, times 8; libusb's
-                speed on the FX2); the packet size and inter-packet delay
-                are GigE's stream settings. None when no camera is active.
+                or 'USB2' (the SDK's own name when it is none of these).
+                ``link_speed`` is the negotiated speed in the unit the camera
+                declares, ``link_speed_unit`` (GenICam's DeviceLinkSpeed,
+                whose unit varies by Basler model; 'Mbps' from libusb on the
+                FX2); it is never converted, and a camera that declares no
+                unit reports the unit None. The packet size and inter-packet
+                delay are GigE's stream settings. None when no camera is
+                active.
 
         Raises:
             HardwareError: A field the camera reports could not be read.

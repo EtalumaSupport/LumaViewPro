@@ -1718,8 +1718,10 @@ info = scope.diagnostics.get_camera_diagnostic_info()
 temps = scope.diagnostics.get_camera_temperatures_degc()
 
 # The camera's link, live: {'transport': 'USB3' | 'GigE' | 'USB2',
-# 'link_speed_mbps', 'packet_size_bytes', 'inter_packet_delay'}, each None
-# where the camera does not report it (packet size and delay are GigE's).
+# 'link_speed', 'link_speed_unit', 'packet_size_bytes', 'inter_packet_delay'},
+# each None where the camera does not report it (packet size and delay are
+# GigE's). The speed is in the unit the camera declares, never converted:
+# Basler's varies by model; the FX2's is 'Mbps'.
 # None when no camera is active; a failed read raises HardwareError.
 link = scope.diagnostics.get_camera_link_info()
 

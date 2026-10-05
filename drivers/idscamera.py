@@ -29,8 +29,8 @@ from drivers.camera import (
     Camera,
     FrameGrid,
     ImageHandlerBase,
+    declared_unit,
     link_info,
-    link_speed_mbps_from_bps,
     no_hardware_auto_mode,
 )
 from drivers.exceptions import HardwareError
@@ -3140,9 +3140,14 @@ class IDSCamera(Camera):
             transport = None
             if nodemap.HasNode('DeviceTLType'):
                 transport = nodemap.FindNode('DeviceTLType').CurrentEntry().SymbolicValue()
+            speed = speed_unit = None
+            if nodemap.HasNode('DeviceLinkSpeed'):
+                node = nodemap.FindNode('DeviceLinkSpeed')
+                speed, speed_unit = node.Value(), declared_unit(node.Unit())
             return link_info(
                 transport=transport,
-                link_speed_mbps=link_speed_mbps_from_bps(_read('DeviceLinkSpeed')),
+                link_speed=speed,
+                link_speed_unit=speed_unit,
                 packet_size_bytes=_read('GevSCPSPacketSize'),
                 inter_packet_delay=_read('GevSCPD'),
             )
