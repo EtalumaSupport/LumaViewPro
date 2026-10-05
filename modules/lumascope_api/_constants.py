@@ -12,6 +12,7 @@ so existing callers (`scope._VALID_AXIS_NAMES`, tests reading the
 class attribute) keep working.
 """
 
+import numbers
 from typing import NamedTuple
 
 # Structural axis-name vocabulary used only for input sanity checks
@@ -44,6 +45,29 @@ TURRET_SLOT_MAX = 4
 # boards took any number and the Session stored it.
 ACCELERATION_PCT_MIN = 1
 ACCELERATION_PCT_MAX = 100
+
+
+def refuse_acceleration_pct(val_pct: object) -> None:
+    """Refuse an acceleration limit no board may be given.
+
+    The one check of the range, for every place a limit enters: the motion
+    API's setter, a stored value at load and a settings dict handed to a
+    session.
+
+    Raises:
+        ValueError: ``val_pct`` is not a number, or is outside
+            ``ACCELERATION_PCT_MIN`` to ``ACCELERATION_PCT_MAX``.
+    """
+    # bool is excluded by name: True is an int, and a number to Real.
+    if (
+        isinstance(val_pct, bool)
+        or not isinstance(val_pct, numbers.Real)
+        or not ACCELERATION_PCT_MIN <= val_pct <= ACCELERATION_PCT_MAX
+    ):
+        raise ValueError(
+            f'Acceleration limit of {val_pct!r}% is out of bounds. '
+            f'Must be a number between {ACCELERATION_PCT_MIN} and {ACCELERATION_PCT_MAX}.'
+        )
 
 
 def is_turret_slot(position: object) -> bool:

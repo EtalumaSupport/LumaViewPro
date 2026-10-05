@@ -446,9 +446,17 @@ nothing is written. Its `reason` says why:
 schedule a new protocol starts from, held to the protocol's own range
 (below): one a protocol cannot run raises `ProtocolScheduleRefusedError`
 and nothing is written. A `current.json` written before the range was
-enforced can hold one; at start-up that key alone takes the shipped value,
-and the session reports the notice `protocol_schedule_replaced` once, as it
-is created, naming the key, the saved value and the one now in its place.
+enforced can hold one.
+
+At start-up, a stored value the writer would refuse -- the wrong kind, or
+outside a range above, a protocol schedule, or a `motion.acceleration_max_pct`
+outside 1 to 100 -- is replaced for that key alone by the shipped value, and
+the session reports one notice `stored_setting_replaced` as it is created,
+naming each replaced setting, its saved value and the one now in its place
+(`replacements`: a list of `(path, saved, used)`).
+A settings dict handed straight to `ScopeSession.create` holding an
+acceleration limit outside 1 to 100 is refused with `ConfigError` before
+anything is commanded.
 
 `live_folder` is stored as it is at start-up: a folder given relative to
 the installation is made absolute, and the folder is created.

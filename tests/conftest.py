@@ -363,7 +363,7 @@ def _no_refused_edit_outlives_its_test():
 
 @pytest.fixture(autouse=True)
 def _no_settings_replacement_outlives_its_test():
-    """Each test starts with no stored-schedule replacement waiting to be reported.
+    """Each test starts with no stored-value replacement waiting to be reported.
 
     A preparation that replaced one leaves it for the next session to report;
     a test that prepared settings and built no session would hand it to the
@@ -371,7 +371,7 @@ def _no_settings_replacement_outlives_its_test():
     """
     init = sys.modules.get('modules.settings_init')
     if init is not None:
-        init.take_schedule_replacements()
+        init.take_stored_replacements()
     yield
 
 

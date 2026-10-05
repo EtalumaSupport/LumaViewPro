@@ -377,32 +377,29 @@ class ImageModeSubstitutedNotice(Notice, Exception):  # noqa: N818 -- a notice, 
         self.used = used
 
 
-class ProtocolScheduleReplacedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
-    """A saved default period or duration no protocol can run, replaced by the shipped one.
+class StoredSettingReplacedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """Saved settings no write could store, replaced by the shipped values at load.
 
-    The saved value is replaced for that key alone, in the settings the app
-    runs on and so in the file at its next save.
+    One notice names every value one load replaced: the notification centre
+    shows one notice of a kind at a time, so a notice per value showed the
+    first and hid the rest. Each value is replaced for its key alone, in the
+    settings the app runs on and so in the file at its next save.
 
     Attributes:
-        key: ``'period'`` or ``'duration'``.
-        saved: The value the settings file held.
-        used: The shipped value now in its place.
+        replacements: ``(path, saved, used)`` for each replaced setting: its
+            dotted path, the value the settings file held, and the shipped
+            value now in its place.
     """
 
-    title = 'Saved protocol timing replaced'
-    reason = 'protocol_schedule_replaced'
+    title = 'Saved settings replaced'
+    reason = 'stored_setting_replaced'
 
-    _UNITS: ClassVar[dict] = {'period': 'minutes', 'duration': 'hours'}
-
-    def __init__(self, key: str, saved: object, used: object):
-        units = self._UNITS[key]
+    def __init__(self, replacements: list[tuple[str, object, object]]):
+        listed = '; '.join(f'{path} {saved!r} -> {used!r}' for path, saved, used in replacements)
         super().__init__(
-            f'The saved default protocol {key} of {saved!r} {units} cannot be run, so a new '
-            f'protocol starts from the shipped {used} {units}, which is now the saved {key}.'
+            f'These saved settings cannot be used, so they now hold the shipped values: {listed}.'
         )
-        self.key = key
-        self.saved = saved
-        self.used = used
+        self.replacements = replacements
 
 
 class ProtocolError(Exception):

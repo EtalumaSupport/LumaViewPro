@@ -734,7 +734,7 @@ class ScopeSession:
             notifications.add_listener(outcome_listener, min_severity=Severity.DEBUG)
         # What the settings preparation replaced, told now that someone can
         # hear it: the preparation runs before any host has a listener.
-        for replaced in settings_init.take_schedule_replacements():
+        for replaced in settings_init.take_stored_replacements():
             notifications.report_outcome(replaced, solicited=False, category='Settings')
         try:
             built_scope = False

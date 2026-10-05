@@ -7,43 +7,10 @@ import modules.image_mode as image_mode
 import modules.layer_record as layer_record
 from modules.exceptions import ConfigError
 from modules.lumascope_api._constants import (
-    ACCELERATION_PCT_MAX,
-    ACCELERATION_PCT_MIN,
     is_turret_slot,
+    refuse_acceleration_pct,
 )
 from lvp_logger import logger
-
-
-def _bounded_acceleration_pct(raw: object) -> int:
-    """The stored acceleration percentage, forced into what the driver accepts.
-
-    A settings dict is not a trusted input. It can be hand-edited on disk, and
-    it can be handed to a session directly instead of being read from a file,
-    so neither the slider that used to be the only thing holding this in range
-    nor any load-time repair is on every path that gets here. Bounding it at
-    this read -- the one place stored settings become hardware commands -- is
-    what makes the limit hold for a caller that never draws a GUI.
-
-    A non-numeric value is repaired rather than raised on, because this runs
-    during bring-up: refusing to start is a worse answer than starting at the
-    acceleration a fresh install already uses.
-    """
-    try:
-        val_pct = int(float(raw))
-    except (TypeError, ValueError):
-        logger.warning(
-            f'[Settings ] acceleration_max_pct {raw!r} is not a number; '
-            f'using {ACCELERATION_PCT_MAX}'
-        )
-        return ACCELERATION_PCT_MAX
-
-    bounded = max(ACCELERATION_PCT_MIN, min(ACCELERATION_PCT_MAX, val_pct))
-    if bounded != val_pct:
-        logger.warning(
-            f'[Settings ] acceleration_max_pct {val_pct} is outside '
-            f'[{ACCELERATION_PCT_MIN}, {ACCELERATION_PCT_MAX}]; using {bounded}'
-        )
-    return bounded
 
 
 @dataclass
@@ -118,27 +85,39 @@ class ScopeInitConfig:
         entry here because a unit's own config can differ from its model.
 
         Raises:
-            ConfigError: ``frame``, ``binning`` or ``stage_offset`` is
-                missing, or ``objective_id`` is missing on a scope with no
-                turret. Every other field has a value ``initialize`` can
-                apply harmlessly when absent; these do not -- a frame the
+            ConfigError: ``frame``, ``binning``, ``stage_offset`` or
+                ``motion.acceleration_max_pct`` is missing, or
+                ``objective_id`` is missing on a scope with no turret. Every
+                other field has a value ``initialize`` can apply harmlessly
+                when absent; these do not -- a frame the
                 camera never held is silent-wrong geometry, the binning is the
                 other half of that geometry and bring-up stores what the
                 camera delivered at into the same slot, an invented stage
                 offset puts every plate position somewhere else on the stage,
-                and an objective default that names no shipped objective was
+                an objective default that names no shipped objective was
                 prefix-matched to a real one and stamped into every saved
-                image's scale.
+                image's scale, and an invented acceleration limit commands the
+                motors at a limit nobody chose. A present one no board may be
+                given is refused too, before bring-up commands anything: a
+                dict handed to a session never went through the load that
+                replaces such a value.
         """
-        required = ('frame', 'binning', 'stage_offset')
+        required = ('frame', 'binning', 'stage_offset', 'motion')
         if not turreted:
             required += ('objective_id',)
         missing = [key for key in required if key not in settings]
+        if 'motion' in settings and 'acceleration_max_pct' not in settings['motion']:
+            missing.append('motion.acceleration_max_pct')
         if missing:
             raise ConfigError(
                 f'settings cannot configure a scope: missing {missing}; '
                 'a factory-built session needs them, a file-sourced one has them'
             )
+        acceleration_pct = settings['motion']['acceleration_max_pct']
+        try:
+            refuse_acceleration_pct(acceleration_pct)
+        except ValueError as e:
+            raise ConfigError(f'settings cannot configure a scope: {e}') from e
         binning_size = binning.binning_size_str_to_int(text=settings['binning']['size'])
         expects_motion = layer_record.entry_expects_motion(scope_config)
         preferred_turret_slot = settings.get('turret_position')
@@ -164,9 +143,7 @@ class ScopeInitConfig:
             binning_size=binning_size,
             frame_width=settings['frame']['width'],
             frame_height=settings['frame']['height'],
-            acceleration_pct=_bounded_acceleration_pct(
-                settings.get('motion', {}).get('acceleration_max_pct', ACCELERATION_PCT_MAX)
-            ),
+            acceleration_pct=acceleration_pct,
             stage_offset=settings['stage_offset'],
             scale_bar_enabled=settings.get('scale_bar', {}).get('enabled', False),
             image_mode=image_mode.resolve_settings_image_mode(settings),

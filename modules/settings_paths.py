@@ -16,9 +16,10 @@ import typing
 import modules.common_utils as common_utils
 import modules.settings_init as settings_init
 from lvp_logger import logger
-from modules.exceptions import SettingRefusedError
+from modules.exceptions import SettingRefusedError, StoredSettingReplacedNotice
 from modules.image_mode import VALID_LIVE_OUTPUT_FORMATS, VALID_SEQUENCED_OUTPUT_FORMATS
-from modules.protocol import schedule_from_units
+from modules.lumascope_api._constants import refuse_acceleration_pct
+from modules.protocol import ProtocolScheduleRefusedError, schedule_from_units
 from modules.tiling_config import TilingConfig
 
 # A setting changed by its own Session member, because the member does more
@@ -72,7 +73,17 @@ def _overlap(value: float) -> None:
         raise SettingRefusedError('out_of_range', 'tiling_overlap_percent', str(e)) from e
 
 
+def _acceleration(value: float) -> None:
+    try:
+        refuse_acceleration_pct(value)
+    except ValueError as e:
+        raise SettingRefusedError('out_of_range', 'motion.acceleration_max_pct', str(e)) from e
+
+
+# A member's setting is here too: its range is held at load as well, though
+# a write to it is refused for its member before the range is read.
 _RANGES: typing.Final[dict[str, typing.Callable[[typing.Any], None]]] = {
+    'motion.acceleration_max_pct': _acceleration,
     'protocol.period': lambda value: schedule_from_units('period', value),
     'protocol.duration': lambda value: schedule_from_units('duration', value),
     'tiling_overlap_percent': _overlap,
@@ -168,6 +179,12 @@ def check_write(template: dict, path: str, value: object, *, installation: str) 
         raise SettingRefusedError(
             'block', path, 'it is a block of settings; change each by its own path'
         )
+    _refuse_kind_or_range(shipped, path, value)
+    stored_form = _STORED_FORM.get(path)
+    return value if stored_form is None else stored_form(value, installation)
+
+
+def _refuse_kind_or_range(shipped: object, path: str, value: object) -> None:
     want, got = _kind(shipped), _kind(value)
     scalar = ('bool', 'number', 'string', 'null')
     if want == 'null' and got not in scalar:
@@ -177,5 +194,38 @@ def check_write(template: dict, path: str, value: object, *, installation: str) 
     rule = _RANGES.get(path)
     if rule is not None:
         rule(value)
-    stored_form = _STORED_FORM.get(path)
-    return value if stored_form is None else stored_form(value, installation)
+
+
+def replace_refused_stored_values(
+    settings: dict, template: dict
+) -> StoredSettingReplacedNotice | None:
+    """Replace each stored value the writer would refuse with the shipped one.
+
+    The load's half of the writer's ranges: a file written before a range
+    was held, or edited by hand, can hold a value no write could store. That
+    key alone takes the template's value, in the settings the app runs on and
+    so in the file at its next save; every other setting stays the person's.
+
+    Returns:
+        One notice naming every replaced value, for the Session to report
+        once a host can hear it; None when nothing was replaced.
+    """
+    replaced = []
+    for path in _RANGES:
+        *parents, leaf = path.split('.')
+        stored = settings
+        for segment in parents:
+            stored = stored.get(segment)
+            if not isinstance(stored, dict):
+                break
+        if not isinstance(stored, dict) or leaf not in stored:
+            continue
+        shipped = template
+        for segment in path.split('.'):
+            shipped = shipped[segment]
+        try:
+            _refuse_kind_or_range(shipped, path, stored[leaf])
+        except (SettingRefusedError, ProtocolScheduleRefusedError):
+            replaced.append((path, stored[leaf], shipped))
+            stored[leaf] = shipped
+    return StoredSettingReplacedNotice(replaced) if replaced else None

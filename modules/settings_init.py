@@ -7,16 +7,16 @@ import pathlib
 import time
 
 from modules import labware_loader
-from modules.exceptions import ProtocolScheduleReplacedNotice, SettingsFileNotReplacedError
+from modules.exceptions import SettingsFileNotReplacedError, StoredSettingReplacedNotice
 from modules.path_utils import read_installation_file
 
 
 settings = None
 
-# The stored default periods and durations the last preparation replaced, as
-# notices not yet reported. The preparation runs before any host has a
-# listener to show them to, so the Session reports them once it has one.
-_schedule_replacements: list[ProtocolScheduleReplacedNotice] = []
+# The stored values the last preparation replaced, as notices not yet
+# reported. The preparation runs before any host has a listener to show them
+# to, so the Session reports them once it has one.
+_stored_replacements: list[StoredSettingReplacedNotice] = []
 
 debug_setting = None
 
@@ -435,34 +435,10 @@ def forget_shipped_focus(settings_dict: dict) -> list[str]:
     return forgotten
 
 
-def _replace_unrunnable_schedule(settings_dict: dict, template: dict) -> None:
-    """Replace a stored default period or duration no protocol can run.
-
-    That key alone takes the template's value, and the replacement is kept
-    for the Session to report (``take_schedule_replacements``). Refused
-    rather than repaired at its two writers; this is the one value repaired,
-    because a file written before the range was enforced can hold one.
-    """
-    from modules.protocol import ProtocolScheduleRefusedError, schedule_from_units
-
-    stored = settings_dict.get('protocol')
-    if not isinstance(stored, dict):
-        return
-    for key in ('period', 'duration'):
-        if key not in stored:
-            continue
-        try:
-            schedule_from_units(key, stored[key])
-        except ProtocolScheduleRefusedError:
-            used = template['protocol'][key]
-            _schedule_replacements.append(ProtocolScheduleReplacedNotice(key, stored[key], used))
-            stored[key] = used
-
-
-def take_schedule_replacements() -> list[ProtocolScheduleReplacedNotice]:
+def take_stored_replacements() -> list[StoredSettingReplacedNotice]:
     """The replacements not yet reported, handed over once."""
-    taken = list(_schedule_replacements)
-    _schedule_replacements.clear()
+    taken = list(_stored_replacements)
+    _stored_replacements.clear()
     return taken
 
 
@@ -618,7 +594,12 @@ def prepare_settings(
         added = _deep_merge_defaults(prepared, template, logger=logger)
         if added:
             logger.info(f'[Settings ] Merged {len(added)} missing keys from settings.json: {added}')
-        _replace_unrunnable_schedule(prepared, template)
+        # Imported here: settings_paths imports this module.
+        from modules.settings_paths import replace_refused_stored_values
+
+        replaced = replace_refused_stored_values(prepared, template)
+        if replaced is not None:
+            _stored_replacements.append(replaced)
 
         _normalize_turret_slot_keys(prepared)
         prepared['live_folder'] = bring_up_live_folder(logger, prepared['live_folder'], directory)

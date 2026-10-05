@@ -289,7 +289,7 @@ class TestAStoredDefaultOutOfRange:
 
         assert settings['protocol']['period'] == template['period']
         assert settings['protocol']['duration'] == 5
-        settings_init.take_schedule_replacements()
+        settings_init.take_stored_replacements()
 
     def test_the_replacement_is_told_once_when_the_session_has_a_listener(self, tmp_path):
         root = _appdata_with_stored_protocol(tmp_path, period=0.001)
@@ -301,7 +301,7 @@ class TestAStoredDefaultOutOfRange:
 
         built = ScopeSession.create(settings, simulate=True, outcome_listener=heard.append)
         try:
-            told = [n for n in heard if n.title == 'Saved protocol timing replaced']
+            told = [n for n in heard if n.title == 'Saved settings replaced']
             assert len(told) == 1 and told[0].shown
             assert '0.001' in told[0].message and 'period' in told[0].message
         finally:
@@ -313,7 +313,7 @@ class TestAStoredDefaultOutOfRange:
             outcome_listener=heard.append,
         )
         try:
-            assert len([n for n in heard if n.title == 'Saved protocol timing replaced']) == 1
+            assert len([n for n in heard if n.title == 'Saved settings replaced']) == 1
         finally:
             again.shutdown()
 
@@ -325,7 +325,7 @@ class TestAStoredDefaultOutOfRange:
         )
 
         assert (settings['protocol']['period'], settings['protocol']['duration']) == (0, 0)
-        assert settings_init.take_schedule_replacements() == []
+        assert settings_init.take_stored_replacements() == []
 
 
 def test_the_clamp_is_gone():

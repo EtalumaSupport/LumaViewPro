@@ -70,8 +70,6 @@ _TURRET_MOVE_SLOW_TASK_S = 15.0
 _api_log = _logging.getLogger('LVP.api')
 
 from modules.lumascope_api._constants import (
-    ACCELERATION_PCT_MAX,
-    ACCELERATION_PCT_MIN,
     AxisPosition,
     AxisState,
     MOTOR_POSITION_LIMIT,
@@ -79,6 +77,7 @@ from modules.lumascope_api._constants import (
     TURRET_SLOT_MIN,
     _VALID_AXIS_NAMES,
     is_turret_slot,
+    refuse_acceleration_pct,
 )
 
 if TYPE_CHECKING:
@@ -1059,9 +1058,10 @@ class MotionAPI:
             val_pct: Acceleration limit as a percent of the firmware max.
 
         Raises:
-            ValueError: ``val_pct`` is outside ``ACCELERATION_PCT_MIN`` to
-                ``ACCELERATION_PCT_MAX``. Refused on every board, real,
-                simulated or absent, before any is commanded.
+            ValueError: ``val_pct`` is not a number or is outside
+                ``ACCELERATION_PCT_MIN`` to ``ACCELERATION_PCT_MAX``. Refused
+                on every board, real, simulated or absent, before any is
+                commanded.
         """
         return self._dispatch_motion(
             self._set_acceleration_limit_impl,
@@ -1071,11 +1071,7 @@ class MotionAPI:
         )
 
     def _set_acceleration_limit_impl(self, val_pct: int) -> None:
-        if not ACCELERATION_PCT_MIN <= val_pct <= ACCELERATION_PCT_MAX:
-            raise ValueError(
-                f'Acceleration limit of {val_pct}% is out of bounds. '
-                f'Must be between {ACCELERATION_PCT_MIN} and {ACCELERATION_PCT_MAX}.'
-            )
+        refuse_acceleration_pct(val_pct)
         if not self._scope.motor_connected:
             return
         self._driver.set_acceleration_limits(val_pct=val_pct)

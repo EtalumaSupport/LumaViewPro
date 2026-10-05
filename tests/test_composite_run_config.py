@@ -69,6 +69,7 @@ def _settings(acquiring=(), sequenced_format=OUTPUT_FORMAT_TIFF, focus_by_layer=
             'binning': {'size': '1x1'},
             'frame': {'width': 800, 'height': 600},
             'stage_offset': {'x': 0.0, 'y': 0.0},
+            'motion': {'acceleration_max_pct': 100},
             'image_output_format': {'live': OUTPUT_FORMAT_TIFF, 'sequenced': sequenced_format},
             'live_folder': '.',
             'protocol': {
