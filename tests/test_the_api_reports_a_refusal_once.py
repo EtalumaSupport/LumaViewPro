@@ -10,17 +10,14 @@ of going through the reporter leaves no mark, and the boundary shows the
 refusal twice.
 
 Also here: the Session wires the run's return to IDLE to its run-state
-listeners, and the ProtocolRunner passes its two run reads through.
+listeners.
 """
-
-from unittest.mock import MagicMock
 
 import pytest
 
 from modules.exceptions import AxisStateUnknownError, ProtocolRunRefusedError
 from modules.notification_center import Severity
 from modules.protocol import Protocol
-from modules.run_outcome import PendingRunOutcome
 from tests.test_a_zstack_with_no_range_is_refused import (  # noqa: F401
     _TILING,
     _standalone_config,
@@ -87,17 +84,3 @@ def test_the_sessions_listeners_hear_a_run_return_to_idle(tmp_path):
         assert heard == [True], 'the idle edge must reach the run-state listeners'
     finally:
         session.shutdown()
-
-
-def test_the_protocol_runner_passes_its_run_reads_through():
-    from modules.protocol_runner import ProtocolRunner
-
-    runner = ProtocolRunner.__new__(ProtocolRunner)
-    runner._executor = MagicMock()
-    run = PendingRunOutcome()
-    runner._executor.is_stopping.return_value = True
-    runner._executor.run_step_number.return_value = 4
-
-    assert runner.is_stopping(run) is True
-    runner._executor.is_stopping.assert_called_once_with(run)
-    assert runner.run_step_number() == 4

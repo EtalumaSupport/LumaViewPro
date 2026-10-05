@@ -5,10 +5,8 @@ ProtocolRunner commits caller-side running state (the session's
 protocol_running Event) between prepare() and start(). The session
 activity claim is gated inside start(), so a refusal for a held claim
 (a live video recording) raises AFTER that commit: session.protocol_
-running strands True with no run to ever clear it, and a caller asking
-how the run went is answered about a run that never started. Both
-contradict the documented refusal contract ("no state was committed
-... wait_for_completion() answers None").
+running strands True with no run to ever clear it, contradicting the
+documented refusal contract ("no state was committed").
 
 The prepare-side refusal contract (refusals that raise before the
 commit) is covered by tests/test_run_refusal_contract.py; this file
@@ -139,7 +137,7 @@ class TestClaimRefusalLeavesNoState:
             # refusal below has prior state to preserve (mirrors the
             # prepare-side contract test).
             first_done = threading.Event()
-            runner.run_single_scan(
+            first = runner.run_single_scan(
                 protocol=_make_single_step_protocol(),
                 sequence_name='pre_refusal_scan',
                 parent_dir=str(tmp_path),
@@ -150,7 +148,7 @@ class TestClaimRefusalLeavesNoState:
                 },
             )
             assert first_done.wait(timeout=COMPLETION_TIMEOUT), 'first run did not end'
-            settled = runner.wait_for_completion(timeout=COMPLETION_TIMEOUT)
+            settled = first.wait(timeout_s=COMPLETION_TIMEOUT)
             assert settled is not None, 'the first run never reported an outcome'
             assert (settled.status, settled.reason) == ('completed', 'completed'), (
                 f'the first run reported {settled.status!r} ({settled.reason!r})'
@@ -190,24 +188,11 @@ class TestClaimRefusalLeavesNoState:
             assert excinfo.value.holder == 'recording'
             assert excinfo.value.holder_trigger is None
 
-            assert not runner.is_running()
             assert not session.is_protocol_running, (
                 'a claim-refused run must not leave session.protocol_running '
                 'set: no run exists to ever clear it, so every reader of the '
                 'protocol-running state is wedged until app restart'
             )
-
-            # The documented contract: a refusal does not arm
-            # wait_for_completion. A caller polling it must return
-            # immediately instead of blocking until timeout on a run
-            # that never started.
-            t0 = time.monotonic()
-            assert runner.wait_for_completion(timeout=2) is None, (
-                'a claim-refused run committed nothing, so wait_for_completion '
-                'must answer None at once rather than blocking on a run that '
-                "never started or handing back an older run's result"
-            )
-            assert time.monotonic() - t0 < 1.0
 
             # The session is not wedged: once the recording releases the
             # claim, a valid run starts and completes.
@@ -241,7 +226,7 @@ class TestTheHolderIsTheLiveRun:
     """Who holds the microscope is answered by the thing that knows
     whether anything holds it: the session's activity claim."""
 
-    def test_the_claim_and_the_getter_name_the_run_while_it_holds_the_scope(self, tmp_path):
+    def test_the_claim_names_the_run_while_it_holds_the_scope(self, tmp_path):
         from modules.scope_session import ScopeSession
 
         session = ScopeSession.create(
@@ -261,16 +246,15 @@ class TestTheHolderIsTheLiveRun:
                 holder = session.activity_claim.holder
                 observed['kind'] = holder.kind if holder is not None else None
                 observed['trigger'] = holder.run_trigger_source if holder is not None else None
-                observed['getter'] = runner.run_trigger_source()
 
-            runner.run_single_scan(
+            run = runner.run_single_scan(
                 protocol=_make_single_step_protocol(),
                 sequence_name='holder_scan',
                 parent_dir=str(tmp_path),
                 image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 callbacks={'run_complete': _observe, 'files_complete': lambda **kw: None},
             )
-            assert runner.wait_for_completion(timeout=COMPLETION_TIMEOUT) is not None
+            assert run.wait(timeout_s=COMPLETION_TIMEOUT) is not None
 
             assert observed['kind'] == 'protocol', (
                 'the run did not hold the claim while it was running'
@@ -278,15 +262,8 @@ class TestTheHolderIsTheLiveRun:
             assert observed['trigger'] == 'api_scan', (
                 "the claim must carry the run's own trigger, not a constant"
             )
-            assert observed['getter'] == 'api_scan', (
-                'the getter must answer off the claim the live run holds'
-            )
 
             assert wait_until_not_running(session)
-            assert runner.run_trigger_source() is None, (
-                'the getter outlived the run it named: between runs it must '
-                'answer for nobody, not for whoever ran last'
-            )
             assert session.activity_claim.holder is None
         finally:
             session.shutdown()

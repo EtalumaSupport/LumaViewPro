@@ -285,14 +285,18 @@ class TestStartComposite:
             sequence_name='start_token',
             parent_dir=str(tmp_path),
             run_trigger_source='composite',
-            callbacks={'run_complete': lambda **kw: held_by.append(runner.run_trigger_source())},
+            callbacks={
+                'run_complete': lambda **kw: held_by.append(
+                    session.activity_claim.holder.run_trigger_source
+                )
+            },
         )
         assert outcome.wait(timeout_s=120) is not None, 'the run never settled'
         assert held_by == ['composite']
 
         assert wait_until_not_running(session), 'the run never released the claim'
-        assert runner.run_trigger_source() is None, (
-            'the getter answers for the run HOLDING the scope; nothing holds it now'
+        assert session.activity_claim.holder is None, (
+            'the claim answers for the run HOLDING the scope; nothing holds it now'
         )
 
     def test_each_run_gets_the_outcome_it_started(self, composite_session):

@@ -110,11 +110,11 @@ def _run(session, tmp_path, protocol=None, scans=1):
         'callbacks': {'run_complete': lambda **kw: done.set(), 'files_complete': lambda **kw: None},
     }
     if scans == 1:
-        runner.run_single_scan(**kwargs)
+        run = runner.run_single_scan(**kwargs)
     else:
-        runner.run_protocol(**kwargs)
+        run = runner.run_protocol(**kwargs)
     assert done.wait(COMPLETION_TIMEOUT), 'the run never ended'
-    outcome = runner.wait_for_completion(timeout=COMPLETION_TIMEOUT)
+    outcome = run.wait(timeout_s=COMPLETION_TIMEOUT)
     assert outcome is not None
     return outcome
 

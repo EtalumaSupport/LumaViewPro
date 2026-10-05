@@ -139,9 +139,9 @@ def main():
     #       image_capture_config=capture_config,
     #   )
     #
-    #   # Monitor progress
-    #   print(f"Running: {runner.is_running()}")
-    #   print(f"Output dir: {runner.run_dir()}")
+    #   # Monitor progress through the run's handle
+    #   print(f"Running: {pending.is_live}, step {pending.step_number} of {pending.num_steps}")
+    #   print(f"Output dir: {pending.run_dir}")
     #
     #   # Wait for the run to end, then read HOW it ended. None means the
     #   # bound expired; otherwise status is completed/incomplete/aborted/
@@ -151,14 +151,15 @@ def main():
     #   print(f"Ended: {result.status} ({result.reason}) -- {result.message}")
     #
     #   # For a full timed protocol (repeats scans over duration):
-    #   runner.run_protocol(
+    #   pending = runner.run_protocol(
     #       protocol=protocol,
     #       sequence_name="my_protocol",
     #       image_capture_config=capture_config,
     #   )
     #
-    #   # To abort a running protocol:
-    #   runner.abort()
+    #   # To stop it, through its handle; wait says when it has ended:
+    #   pending.stop()
+    #   pending.wait(timeout_s=60)
 
     print('\nProtocol setup complete (not executed in simulate-only example)')
     print('See comments in source for full execution flow')

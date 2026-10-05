@@ -167,14 +167,17 @@ def aborted_composite(tmp_path):
 
         aborted_at = []
         fired = threading.Event()
+        started = []
+        have_handle = threading.Event()
 
         def _abort_after_the_first_step(step):
             if aborted_at:
                 return
             aborted_at.append(step)
-            # The live run's handle, fetched rather than taken from
-            # start_composite()'s return, which this callback may beat.
-            runner.abort(runner.run_outcome())
+            # This callback can beat start_composite()'s return, so the Stop
+            # waits for the handle the caller holds.
+            assert have_handle.wait(120), 'start_composite never returned its handle'
+            started[0].stop()
             fired.set()
 
         outcome = runner.start_composite(
@@ -183,8 +186,9 @@ def aborted_composite(tmp_path):
             callbacks={'update_step_number': _abort_after_the_first_step},
             run_trigger_source='composite',
         )
+        started.append(outcome)
+        have_handle.set()
         settled = outcome.wait(timeout_s=120)
-        assert runner.wait_for_run_idle(timeout_s=60), 'the aborted run never went idle'
 
         yield {
             'session': session,

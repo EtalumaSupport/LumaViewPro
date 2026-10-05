@@ -18,6 +18,16 @@
   `ScopeInitConfig` no longer carries these values, and a settings dict without
   `scale_bar.enabled` or `turret_objectives` is refused at bring-up. New:
   `session.get_setting(path)`, a copy of one setting.
+- **A run is watched, waited for and stopped through its handle (SDK, breaking)**: `run_single_scan`,
+  `run_protocol`, `run_autofocus`, `run_autofocus_all_steps`, `run_zstack` and
+  `start_composite` return a handle with `wait(timeout_s)`, `stop()`, `is_live`,
+  `is_stopping`, `run_dir`, `step_number`, `num_steps`, `remaining_scans` and `interval`, all
+  about that run only; `wait` returns once the run no longer holds the scope. Removed from
+  `ProtocolRunner`: `abort`, `wait_for_completion`, `wait_for_run_idle`, `is_running`,
+  `run_dir`, `run_trigger_source`, `run_outcome`, `is_live_run`, `is_stopping`,
+  `run_step_number`, `run_num_steps`, `remaining_scans`, `protocol_interval` and
+  `current_step_color`. They answered about whichever run was live or last, so a caller could
+  read or stop a run it did not start. The engineering plugin needs 1.0.13 or later.
 - **A move returns once it has arrived (SDK, breaking)**: `scope.motion.move_absolute` and
   `move_relative` wait for the axis and raise `MoveNotCompletedError` when it did not arrive;
   the `wait_until_complete` argument is removed. They used to return as soon as the board took

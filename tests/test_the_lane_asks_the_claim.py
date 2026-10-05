@@ -551,7 +551,7 @@ class TestTheRunsOwnWorkRunsUnderItsClaim:
             protocol = _build_real_protocol([af_step, video_step])
             runner = session.create_protocol_runner()
             files_written = threading.Event()
-            runner.run_single_scan(
+            run = runner.run_single_scan(
                 protocol=protocol,
                 sequence_name='gating',
                 parent_dir=str(tmp_path),
@@ -562,7 +562,7 @@ class TestTheRunsOwnWorkRunsUnderItsClaim:
                 },
             )
             assert files_written.wait(COMPLETION_TIMEOUT), 'the run never finished its files'
-            outcome = runner.wait_for_completion(timeout=COMPLETION_TIMEOUT)
+            outcome = run.wait(timeout_s=COMPLETION_TIMEOUT)
             assert outcome.status == 'completed', outcome
             assert greased == [session.io_executor.executor_name], greased
         finally:

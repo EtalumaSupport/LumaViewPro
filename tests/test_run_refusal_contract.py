@@ -392,10 +392,9 @@ class TestHeadlessRefusalDoesNotHang:
         home_sim_scope(session.scope)
         runner = session.create_protocol_runner()
         try:
-            # First: a valid run that completes, and so becomes the run
-            # wait_for_completion answers for.
+            # First: a valid run that completes.
             done = threading.Event()
-            runner.run_single_scan(
+            first = runner.run_single_scan(
                 protocol=_make_single_step_protocol(),
                 sequence_name='refusal_headless_first',
                 parent_dir=str(tmp_path),
@@ -406,11 +405,10 @@ class TestHeadlessRefusalDoesNotHang:
                 },
             )
             assert done.wait(timeout=COMPLETION_TIMEOUT), 'first run did not end'
-            settled = runner.wait_for_completion(timeout=COMPLETION_TIMEOUT)
+            settled = first.wait(timeout_s=COMPLETION_TIMEOUT)
             assert settled is not None, 'the first run never reported an outcome'
             assert (settled.status, settled.reason) == ('completed', 'completed'), (
-                f'wait_for_completion must report the first run it committed; '
-                f'it reported {settled.status!r} ({settled.reason!r})'
+                f'the first run reported {settled.status!r} ({settled.reason!r})'
             )
             assert wait_until_not_running(session)
             # The completed run is still writing its files, and prepare()
@@ -429,20 +427,6 @@ class TestHeadlessRefusalDoesNotHang:
             assert excinfo.value.reason == 'empty_protocol'
             assert not session.is_protocol_running, (
                 'a refused run must not leave the session reporting a live run'
-            )
-            # The refused call committed no run, so there is nothing to
-            # wait on and nothing to report. Answering None AT ONCE is the
-            # contract: blocking would hang a caller on a run that never
-            # started, and handing back the first run's 'completed' would
-            # answer a question about THIS call with an older run's result.
-            t0 = time.monotonic()
-            assert runner.wait_for_completion(timeout=2) is None, (
-                'a refused run committed nothing, so wait_for_completion has '
-                'no outcome to report; a non-None answer here is the previous '
-                "run's result attributed to a run that never started"
-            )
-            assert time.monotonic() - t0 < 1.0, (
-                'wait_for_completion should return immediately after a refusal'
             )
 
             # The session is not wedged: a subsequent valid run works.

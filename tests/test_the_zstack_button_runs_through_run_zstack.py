@@ -9,7 +9,7 @@ button states only what a running GUI knows (the open drawer, its own
 trigger token, the live engineering flag, the engineering panel's saving
 switch) and the member decides everything else, every refusal included.
 
-The button's "Z n/total" readout asks the engine for the run's step count:
+The button's "Z n/total" readout asks the run's handle for its step count:
 the member built the protocol, so the widget never holds it, and a second
 count computed from settings could disagree with the run.
 """
@@ -226,45 +226,6 @@ def test_the_button_is_disabled_while_its_own_request_is_in_flight(clicked):
     )
     run_task_now(held[0])
     assert clicked.starter.zstack_pending is False, "the request's own redraw brings it back"
-
-
-class TestTheEnginesStepCount:
-    def test_no_run_has_no_count(self):
-        from tests.protocol_drives import bare_capture_runner
-
-        runner = bare_capture_runner()
-        runner._protocol = SimpleNamespace(num_steps=lambda: 5)
-
-        assert runner.run_num_steps() is None
-
-    def test_a_live_run_answers_its_protocols_count(self):
-        from modules.sequenced_capture_runner import ProtocolState
-        from tests.protocol_drives import bare_capture_runner
-
-        runner = bare_capture_runner()
-        runner._protocol = SimpleNamespace(num_steps=lambda: 5)
-        runner._set_state(ProtocolState.RUNNING)
-
-        assert runner.run_num_steps() == 5
-
-    def test_no_run_has_no_step_in_flight(self):
-        from tests.protocol_drives import bare_capture_runner
-
-        runner = bare_capture_runner()
-        runner._curr_step = 4
-
-        assert runner.run_step_number() is None, "a finished run's last index is not a live step"
-
-    def test_a_live_run_answers_the_step_it_is_on_counted_from_one(self):
-        from modules.sequenced_capture_runner import ProtocolState
-        from tests.protocol_drives import bare_capture_runner
-
-        runner = bare_capture_runner()
-        runner._protocol = SimpleNamespace(num_steps=lambda: 5)
-        runner._set_state(ProtocolState.RUNNING)
-        runner._curr_step = 2
-
-        assert runner.run_step_number() == 3
 
 
 def test_a_missing_layer_is_named_in_words():

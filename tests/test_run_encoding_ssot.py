@@ -545,6 +545,6 @@ class TestNoSilentHeadlessDefault:
             runner = session.create_protocol_runner()
             with pytest.raises(ConfigError, match='image_mode'):
                 runner.run_protocol(_build_protocol(), parent_dir=str(tmp_path))
-            assert not runner.is_running(), 'a refused config-less run must not be running'
+            assert not session.is_protocol_running, 'a refused config-less run must not be running'
         finally:
             session.shutdown()

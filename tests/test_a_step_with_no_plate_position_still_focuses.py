@@ -50,7 +50,7 @@ def _step_at(z_um):
 def _run_and_wait_for_files(session, tmp_path, protocol):
     runner = session.create_protocol_runner()
     files_written = threading.Event()
-    runner.run_single_scan(
+    run = runner.run_single_scan(
         protocol=protocol,
         sequence_name='zonly',
         parent_dir=str(tmp_path),
@@ -61,7 +61,7 @@ def _run_and_wait_for_files(session, tmp_path, protocol):
         },
     )
     assert files_written.wait(COMPLETION_TIMEOUT), 'the run never finished its files'
-    assert runner.wait_for_completion(timeout=COMPLETION_TIMEOUT) is not None
+    assert run.wait(timeout_s=COMPLETION_TIMEOUT) is not None
 
 
 def test_the_run_ends_at_the_steps_z_and_the_image_says_so(zonly_session, tmp_path):

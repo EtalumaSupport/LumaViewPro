@@ -166,7 +166,7 @@ try:
     outcome = runner.run_zstack(layer='BF', sequence_name='probe_zstack')
     settled = outcome.wait(timeout_s=300)
     print('status :', settled.status, settled.reason)
-    run_dir = runner.run_dir()
+    run_dir = outcome.run_dir
     print('run_dir:', run_dir)
     deadline = time.time() + 90
     # Until the run has let go of the scope AND its files have landed.

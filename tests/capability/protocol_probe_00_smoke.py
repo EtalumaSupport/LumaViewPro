@@ -10,8 +10,8 @@ try:
     runner = ProtocolRunner(session)
     banner('session up')
     print('live_folder      :', live)
-    print('is_running       :', runner.is_running())
-    print('run_trigger_src  :', runner.run_trigger_source())
+    print('is_protocol_running:', session.is_protocol_running)
+    print('exclusive_activity :', session.exclusive_activity)
 
     banner('flagged facade methods')
     for name in ('video_pending_writes', 'discard_video_pending'):

@@ -21,7 +21,7 @@ Usage
         sequence_name="test_scan",
         image_capture_config=runner.build_image_capture_config(image_mode="8bit"),
     )
-    result = pending.wait(timeout_s=300)     # or runner.wait_for_completion()
+    result = pending.wait(timeout_s=300)     # pending.stop() stops it
     print(result.status, result.reason, result.message)
 """
 
@@ -68,14 +68,8 @@ class ProtocolRunner:
                 'inject protocol_thread at session construction.'
             )
         self.session = session
-        self._protocol_thread = session.protocol_thread
         self._file_io_executor = session.file_io_executor
         self._executor = session.sequenced_capture_runner
-        # The outcome of the last run THIS runner committed, and what
-        # wait_for_completion answers from. None until a run commits, and
-        # None again the moment a later call is refused: a refusal ran
-        # nothing, so the previous run's result is not an answer about it.
-        self._last_outcome: RunHandle | None = None
 
     @property
     def sequenced_capture_runner(self) -> SequencedCaptureRunner:
@@ -157,8 +151,8 @@ class ProtocolRunner:
                 no silent default image mode; the caller states the run's
                 bit depth explicitly.
             ProtocolRunRefusedError: The run was refused before any state
-                was committed; is_running() stays False and
-                wait_for_completion() answers None.
+                was committed; no handle is returned and
+                session.is_protocol_running stays False.
         """
         return self._run(
             protocol=protocol,
@@ -214,8 +208,8 @@ class ProtocolRunner:
                 no silent default image mode; the caller states the run's
                 bit depth explicitly.
             ProtocolRunRefusedError: The run was refused before any state
-                was committed; is_running() stays False and
-                wait_for_completion() answers None.
+                was committed; no handle is returned and
+                session.is_protocol_running stays False.
         """
         return self._run(
             protocol=protocol,
@@ -711,11 +705,6 @@ class ProtocolRunner:
                 hardware not connected); no state was committed and the
                 user was already notified once.
         """
-        # Cleared before the gate, stored only once a run has committed:
-        # whatever this call does, wait_for_completion must not go on
-        # answering with the previous run's result.
-        self._last_outcome = None
-
         # No silent default: an unstated image mode silently decided the
         # data's bit depth (an older-release script that captured full depth
         # would quietly produce 8-bit files). The caller states intent once;
@@ -802,64 +791,12 @@ class ProtocolRunner:
         )
 
         # Run-state truth is the session claim, committed inside
-        # start()'s gate-and-commit -- a refusal means no state changed,
-        # and leaves _last_outcome None so a caller that waits is told
-        # "nothing ran" rather than blocked on a run that never started.
-        # The local is what this call returns: reading the attribute back
-        # is a race, because a run that fails at start releases the claim
-        # synchronously and a rival can commit in between.
-        outcome = self._executor.start(plan)
-        self._last_outcome = outcome
-        return outcome
+        # start()'s gate-and-commit -- a refusal means no state changed.
+        return self._executor.start(plan)
 
     # ------------------------------------------------------------------
     # Status
     # ------------------------------------------------------------------
-
-    def is_running(self) -> bool:
-        return self._executor.run_in_progress()
-
-    def run_dir(self) -> pathlib.Path | None:
-        return self._executor.run_dir()
-
-    def run_trigger_source(self) -> 'str | None':
-        """The trigger kind of the run holding the scope; None when no
-        run holds it."""
-        return self._executor.run_trigger_source()
-
-    def run_outcome(self) -> RunHandle | None:
-        """The live or last run's handle -- what abort() names to stop it."""
-        return self._executor.run_outcome()
-
-    def is_live_run(self, run: RunHandle | None) -> bool:
-        """Whether *run*, a handle a run call returned, is the live run."""
-        return self._executor.is_live_run(run)
-
-    def is_stopping(self, run: RunHandle | None) -> bool:
-        """Whether *run* is live and a Stop of it has been accepted.
-
-        True from the accepted Stop until the run's teardown has finished;
-        then the run is no longer live and this is False.
-        """
-        return self._executor.is_stopping(run)
-
-    def run_step_number(self) -> int | None:
-        """Which step of the live run is executing, counted from 1; None when no run is live."""
-        return self._executor.run_step_number()
-
-    def run_num_steps(self) -> int | None:
-        """How many steps the live run has; None when no run is live."""
-        return self._executor.run_num_steps()
-
-    def remaining_scans(self) -> int:
-        return self._executor.remaining_scans()
-
-    def protocol_interval(self):
-        """The loaded protocol's scan period; None before the first run."""
-        return self._executor.protocol_interval()
-
-    def current_step_color(self) -> 'str | None':
-        return self._executor.current_step_color()
 
     @property
     def video_pending_writes(self) -> int:
@@ -878,56 +815,5 @@ class ProtocolRunner:
         return self._executor.prepare(**kwargs)
 
     def start(self, plan: RunPlan) -> RunHandle:
-        """Forward to the engine's start() -- the commitment point.
-
-        Records the committed run as this runner's last, so a caller that
-        drove prepare/start directly still has wait_for_completion.
-        """
-        self._last_outcome = None
-        outcome = self._executor.start(plan)
-        self._last_outcome = outcome
-        return outcome
-
-    def wait_for_run_idle(self, timeout_s: float) -> bool:
-        """Block until the engine's cleanup fully lands (claim released).
-
-        Distinct from wait_for_completion, which answers with the run's
-        outcome: this one answers only whether the runner is idle, for a
-        caller about to start something else."""
-        return self._executor.wait_for_run_idle(timeout_s)
-
-    def abort(self, run: RunHandle | None) -> None:
-        """Abort *run*, the handle a run call returned.
-
-        Anyone may stop the live run. A handle naming a run that has ended
-        raises out of reset() below -- RunAlreadyEndedError when nothing is
-        live, the 'run_not_live' refusal when another run is -- ahead of
-        every side effect here, because a
-        refused abort must leave the protocol thread running and its
-        waiters waiting. Ordering is the guard: the thread signal is
-        unconditional once reset() has returned.
-
-        Waiters are NOT released here. The run's outcome settles inside
-        cleanup's finally, so a caller that wakes from
-        wait_for_completion knows the teardown happened rather than only
-        that someone asked for it.
-        """
-        self._executor.reset(run)
-        self._protocol_thread.abort()
-
-    def wait_for_completion(self, timeout: float | None = None) -> RunOutcome | None:
-        """How did the last run this runner committed end?
-
-        Blocks until that run settles, then returns its outcome: the
-        status and reason it ended with, the title and message a user
-        would read, and what the merge produced.
-
-        None when the bound expires, and None AT ONCE when the last call
-        was refused or no run has ever been committed -- a refused start
-        ran nothing, and answering with an earlier run's 'completed'
-        would be a stale answer to a question about this one.
-        """
-        outcome = self._last_outcome
-        if outcome is None:
-            return None
-        return outcome.wait(timeout_s=timeout)
+        """Forward to the engine's start() -- the commitment point."""
+        return self._executor.start(plan)

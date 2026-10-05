@@ -55,7 +55,7 @@ try:
     print('status          :', getattr(settled, 'status', None))
     print('reason          :', getattr(settled, 'reason', None))
     print('message         :', getattr(settled, 'message', None))
-    run_dir = runner.run_dir()
+    run_dir = outcome.run_dir
     print('run_dir         :', run_dir)
 
     banner('5. did it actually write files?')

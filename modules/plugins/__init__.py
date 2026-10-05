@@ -47,7 +47,7 @@ ENTRY_POINT_GROUP = 'lvp.plugins'
 # fail mid-use. A host change the plugin must follow raises the value
 # here, in the same commit, to the plugin version that follows it.
 MINIMUM_PLUGIN_VERSIONS = {
-    'etaluma_engineering': '1.0.12',
+    'etaluma_engineering': '1.0.13',
 }
 
 # Mount points are locked to the set the host knows how to attach.

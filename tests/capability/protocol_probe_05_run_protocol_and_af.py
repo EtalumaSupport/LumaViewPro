@@ -53,7 +53,7 @@ try:
     )
     settled = outcome.wait(timeout_s=300)
     print('status:', settled.status, settled.reason)
-    run_dir = runner.run_dir()
+    run_dir = outcome.run_dir
     deadline = time.time() + 90
     # Until the run has let go of the scope AND its files have landed.
     while time.time() < deadline and session.run_lockout:
@@ -62,8 +62,6 @@ try:
     print('run_dir:', run_dir)
     print('images :', len(imgs), [p.name for p in imgs][:6])
     print('ASSERT >=2 scans worth of images:', 'PASS' if len(imgs) >= 2 else f'FAIL ({len(imgs)})')
-
-    runner.wait_for_run_idle(timeout_s=60)
 
     banner('B. AUTOFOCUS ALL STEPS through ProtocolRunner.run_autofocus_all_steps')
     z_before = session.scope.motion.get_current_position('Z')

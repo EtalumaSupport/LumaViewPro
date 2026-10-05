@@ -20,7 +20,7 @@ try:
     try:
         out = runner.start_composite(sequence_name='composite', parent_dir=parent)
         print('a: start_composite while NOT streaming -> ACCEPTED', out)
-        res = runner.wait_for_completion(timeout=90)
+        res = out.wait(timeout_s=90)
         print('a: outcome', res)
     except Exception as e:
         print('a: start_composite while NOT streaming -> REFUSED', type(e).__name__, e)
@@ -29,7 +29,7 @@ try:
     try:
         out = runner.start_composite(sequence_name='composite2', parent_dir=parent)
         print('b: start_composite streaming -> ACCEPTED', out)
-        res = runner.wait_for_completion(timeout=120)
+        res = out.wait(timeout_s=120)
         print('b: outcome', res)
     except Exception as e:
         print('b: REFUSED', type(e).__name__, e)

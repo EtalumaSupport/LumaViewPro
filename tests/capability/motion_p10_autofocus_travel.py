@@ -31,7 +31,6 @@ def _autofocus_from(session, runner, z, heard):
     motion.move_absolute('Z', z)
     heard.clear()
     outcome = runner.run_autofocus(layer=LAYER).wait(timeout_s=TIMEOUT_S)
-    runner.wait_for_run_idle(60)
     while motion.is_moving():
         pass
     refused = [n for n in heard if getattr(n, 'reason', None) == 'out_of_travel']

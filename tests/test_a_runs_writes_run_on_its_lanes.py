@@ -77,7 +77,7 @@ def _run_protocol(session, tmp_path, steps) -> None:
 
     runner = session.create_protocol_runner()
     files_written = threading.Event()
-    runner.run_single_scan(
+    run = runner.run_single_scan(
         protocol=_build_real_protocol(steps),
         sequence_name='lanes',
         parent_dir=str(tmp_path),
@@ -88,7 +88,7 @@ def _run_protocol(session, tmp_path, steps) -> None:
         },
     )
     assert files_written.wait(COMPLETION_TIMEOUT), 'the run never finished its files'
-    outcome = runner.wait_for_completion(timeout=COMPLETION_TIMEOUT)
+    outcome = run.wait(timeout_s=COMPLETION_TIMEOUT)
     assert outcome.status == 'completed', outcome
 
 

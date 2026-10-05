@@ -51,7 +51,6 @@ try:
         if af.focus_written and seen.get('z_on_mine') == protocol.steps()['Z'].tolist()
         else 'FAIL',
     )
-    runner.wait_for_run_idle(timeout_s=60)
 
     banner('2. multi-scan full protocol: period 5s, duration 20s')
     protocol.modify_time_params(
@@ -62,11 +61,11 @@ try:
         sequence_name='multi',
         image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
     )
-    print('remaining_scans at start:', runner.remaining_scans())
-    print('protocol_interval       :', runner.protocol_interval())
+    print('remaining_scans at start:', out.remaining_scans)
+    print('protocol_interval       :', out.interval)
     s = out.wait(timeout_s=300)
     print('status:', s.status, s.reason)
-    rd = runner.run_dir()
+    rd = out.run_dir
     deadline = time.time() + 90
     # Until the run has let go of the scope AND its files have landed.
     while time.time() < deadline and session.run_lockout:

@@ -615,62 +615,6 @@ class TestTheCallerHoldsTheEndingOfTheRunItStarted:
         )
         assert settled.artifact_path is None
 
-    def test_wait_for_completion_answers_for_the_last_committed_run(self, tmp_path):
-        from tests.test_composite_run_e2e import headless_settings, open_composite_session
-
-        with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-            runner.run_single_scan(
-                _plain_scan_protocol(session),
-                sequence_name='runner_wait_scan',
-                parent_dir=str(tmp_path),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
-            )
-            settled = runner.wait_for_completion(timeout=60)
-
-        assert settled is not None, 'wait_for_completion reported nothing for a committed run'
-        assert settled.status == 'completed'
-
-
-class TestWaitForCompletionWithNothingToReport:
-    """The two answers that are not a run's outcome.
-
-    Both were the same bit before: False meant "timed out" and also
-    "never started", so a caller could not tell a slow run from one that
-    was refused before it began.
-    """
-
-    def _runner_with(self, outcome):
-        from modules.protocol_runner import ProtocolRunner
-
-        runner = ProtocolRunner.__new__(ProtocolRunner)
-        runner._last_outcome = outcome
-        return runner
-
-    def test_a_fresh_runner_answers_none_at_once(self):
-        import time as _time
-
-        from modules.protocol_runner import ProtocolRunner
-
-        runner = ProtocolRunner.__new__(ProtocolRunner)
-        runner._last_outcome = None
-
-        t0 = _time.monotonic()
-        assert runner.wait_for_completion(timeout=30) is None
-        assert _time.monotonic() - t0 < 1.0, (
-            'a runner that has committed no run must answer at once rather '
-            'than blocking out the bound for a run that does not exist'
-        )
-
-    def test_a_live_run_answers_none_when_the_bound_expires(self):
-        from modules.run_outcome import PendingRunOutcome
-
-        runner = self._runner_with(PendingRunOutcome())
-
-        assert runner.wait_for_completion(timeout=0.05) is None, (
-            'an unsettled run must time out as None, distinct from a settled '
-            'outcome that reports the run did not merge'
-        )
-
 
 class TestSessionShutdownDoesNotRewriteAReportedEnding:
     def test_a_composite_armed_at_shutdown_keeps_completed(self, tmp_path):

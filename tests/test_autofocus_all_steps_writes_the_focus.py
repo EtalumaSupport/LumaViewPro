@@ -150,13 +150,24 @@ class TestAProtocolThatChangedDuringTheScanIsLeftAlone:
 
         protocol = _two_steps()
         with _focusing_session(tmp_path) as (_session, runner):
+            # The callback can fire before the start returns the handle, so
+            # the Stop waits for the handle the caller holds.
+            started = []
+            have_handle = threading.Event()
+
+            def _stop_once_held():
+                assert have_handle.wait(WAIT_S), 'the start never returned its handle'
+                started[0].stop()
 
             def _stop():
-                threading.Thread(target=lambda: runner.abort(runner.run_outcome())).start()
+                threading.Thread(target=_stop_once_held).start()
 
-            outcome = runner.run_autofocus_all_steps(
+            run = runner.run_autofocus_all_steps(
                 protocol, callbacks={'autofocus_in_progress': _stop}
-            ).wait(timeout_s=WAIT_S)
+            )
+            started.append(run)
+            have_handle.set()
+            outcome = run.wait(timeout_s=WAIT_S)
 
         assert outcome.status == 'aborted', outcome
         assert outcome.focus_written is False, outcome

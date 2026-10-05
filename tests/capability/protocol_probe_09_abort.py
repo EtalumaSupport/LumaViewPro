@@ -1,7 +1,7 @@
 """Probe 09 -- stop a running protocol from a script (the Stop half of the
-run buttons: ui/protocol_settings.py _press_panel_run ->
-reset(run), ui/zstack.py likewise). A stop names the run by the handle its
-call returned."""
+run buttons: ui/protocol_settings.py _press_panel_run -> run.stop(),
+ui/zstack.py likewise). A stop goes through the handle the run's call
+returned."""
 
 import datetime
 import time
@@ -12,7 +12,6 @@ session, live = make_session('abort', home=True)
 try:
     import modules.config_helpers as config_helpers
     from modules.protocol_runner import ProtocolRunner
-    from modules.run_outcome import PendingRunOutcome
 
     settings = session.settings
     runner = ProtocolRunner(session)
@@ -32,6 +31,18 @@ try:
         period=datetime.timedelta(seconds=5), duration=datetime.timedelta(seconds=120)
     )
 
+    banner('an earlier scan, run to its end: its handle is the stale one below')
+    earlier = runner.run_single_scan(
+        p,
+        sequence_name='earlier',
+        image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
+    )
+    print('earlier:', earlier.wait(timeout_s=120).status)
+    deadline = time.time() + 90
+    # A new run is refused while the earlier run's files still write.
+    while time.time() < deadline and session.run_lockout:
+        time.sleep(0.5)
+
     banner('start a long protocol, then stop it')
     out = runner.run_protocol(
         p,
@@ -39,22 +50,20 @@ try:
         image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
     )
     time.sleep(3)
-    print('is_running:', runner.is_running(), '| trigger:', runner.run_trigger_source())
-    print('is_live_run(out):', runner.is_live_run(out))
+    print('is_protocol_running:', session.is_protocol_running, '| out.is_live:', out.is_live)
 
-    banner('a stop naming a run that is not the live one must be refused')
+    banner('a stop through the handle of a run that is not the live one must be refused')
     try:
-        runner.abort(PendingRunOutcome())
+        earlier.stop()
         print('NOT REFUSED (FAIL)')
     except Exception as e:
         print(f'refused: {type(e).__name__}: {getattr(e, "reason", "")}: {e}')
 
     banner('the run is stopped by its own handle')
-    runner.abort(out)
+    out.stop()
     s = out.wait(timeout_s=120)
     print('status:', s.status, s.reason)
-    print('idle  :', runner.wait_for_run_idle(timeout_s=60))
-    print('ASSERT stopped:', 'PASS' if not runner.is_running() else 'FAIL')
+    print('ASSERT stopped:', 'PASS' if not session.is_protocol_running else 'FAIL')
 finally:
     session.shutdown()
 print('\nPROBE 09 DONE')

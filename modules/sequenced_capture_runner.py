@@ -195,6 +195,12 @@ class RunHandle:
 
     @property
     def num_steps(self) -> int | None:
+        """This run's step count; None once this run is not live.
+
+        The run's own count: a caller that started the run through a member
+        never holds the protocol the member built, so a count it made from
+        settings could disagree with the run.
+        """
         return self._engine.live_run_value(self, self._engine._num_steps)
 
     @property
@@ -726,36 +732,8 @@ class SequencedCaptureRunner:
         # crash in a UI handler, not an answer.
         return self._protocol.period() if self._protocol is not None else None
 
-    def run_num_steps(self) -> int | None:
-        """How many steps the live run's protocol has; None when no run is live.
-
-        The run's own count, for a progress readout ("step n of total"). A
-        caller that started the run through a member never holds the
-        protocol the member built, so without this it would compute the
-        count a second time from settings and could disagree with the run.
-        None rather than the last run's count: a finished run's total is
-        not the answer to a question about the run in flight.
-        """
-        with self._run_lock:
-            if not self._is_run_live():
-                return None
-            return self._num_steps()
-
     def _num_steps(self) -> int | None:
         return self._protocol.num_steps() if self._protocol is not None else None
-
-    def run_step_number(self) -> int | None:
-        """Which step of the live run is executing, counted from 1; None when no run is live.
-
-        The other half of the progress readout beside run_num_steps, read
-        from the step index the run itself advances, so the readout and the
-        run cannot disagree about which step is live. None once the run is
-        over rather than its last step: a finished run has no step in flight.
-        """
-        with self._run_lock:
-            if not self._is_run_live():
-                return None
-            return self._step_number()
 
     def _step_number(self) -> int:
         # One int, written only by the step runner as it advances; the

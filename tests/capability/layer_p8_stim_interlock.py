@@ -54,9 +54,9 @@ try:
     runner = s.create_protocol_runner()
     refused = False
     try:
-        runner.start_composite(sequence_name='stimpair', parent_dir=pathlib.Path(live) / 'C')
+        run = runner.start_composite(sequence_name='stimpair', parent_dir=pathlib.Path(live) / 'C')
         print('5: prepare()/start_composite with the illegal pair -> ACCEPTED')
-        print('5: outcome', runner.wait_for_completion(timeout=180).status)
+        print('5: outcome', run.wait(timeout_s=180).status)
     except Exception as e:
         refused = True
         print('5: REFUSED', type(e).__name__, e)
