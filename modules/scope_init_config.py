@@ -66,8 +66,9 @@ class ScopeInitConfig:
 
         turreted: the session's one has-a-turret answer
         (``ScopeSession.scope_has_turret``). On a turreted scope the stored
-        ``objective_id`` is neither required nor carried: the objective is
-        the slot's assignment, derived when asked.
+        ``objective_id`` is not required: the objective is the slot's
+        assignment, derived when asked. It is never carried: the scope
+        reads the selected objective from the settings.
 
         scope_config: the entry for the active scope from scopes.json
         (e.g. ``{"Focus": false, "XYStage": false, "Turret": false, ...}``).

@@ -2008,10 +2008,13 @@ class ScopeSession:
         the stored selection; a model outside the catalogue, or no motor
         board to ask, leaves the stored one), normalize the turret slot
         keys a caller-supplied dict may still carry as JSON strings,
-        resolve the model's catalogue entry, select the labware, build the
-        init config and run ``Lumascope.initialize`` -- which selects the
-        stored objective on a scope with no turret; on a turreted scope the
-        objective stays unknown until the turret is in a known slot. The
+        resolve the model's catalogue entry, refuse a stored plate the
+        catalogue does not have, build the init config and run
+        ``Lumascope.initialize`` -- which refuses a stored objective the
+        catalogue does not have on a scope with no turret; on a turreted
+        scope the objective stays unknown until the turret is in a known
+        slot. The scope reads the plate and objective from these settings
+        whenever it acts on them. The
         factories run this for the scope they build; a host that constructs
         the session directly, or hands ``create`` its own scope, calls it
         once itself. Every step runs on the calling thread; nothing here
