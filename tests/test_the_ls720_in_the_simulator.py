@@ -11,7 +11,7 @@ import pytest
 
 from drivers.tmcm6110 import Tmcm6110Board
 from modules.exceptions import HardwareCommandRefusedError
-from tests.scope_fakes import build_scope, record_turret_answer
+from tests.scope_fakes import bind_settings_like_a_session, build_scope, record_turret_answer
 from tests.test_integration import (  # noqa: F401 -- the fixtures are used by name
     _make_protocol,
     _run_and_wait,
@@ -27,8 +27,7 @@ def scope():
     # mounted and writes the stage offset; a bare scope skipped all three,
     # and a run reads each.
     record_turret_answer(s)
-    s.runtime_state.set_objective('10x Oly')
-    s.runtime_state.set_stage_offset({'x': 0.0, 'y': 0.0})
+    bind_settings_like_a_session(s, objective_id='10x Oly', stage_offset={'x': 0.0, 'y': 0.0})
     s.imaging.start_streaming()
     yield s
     s.disconnect()
