@@ -124,3 +124,40 @@ def test_the_diagnostics_executor_is_reported_and_stopped_with_the_bundle(tmp_pa
     finally:
         session.shutdown()
     assert bundle.diagnostics_executor.pending_shutdown
+
+
+def test_the_panel_submits_the_report_with_the_members_budget(monkeypatch):
+    # The panel names the member it calls, so the task carries that member's
+    # declared budget and a report that takes minutes is not a slow task.
+    import types
+
+    import modules.app_context as app_context
+    import ui.microscope_settings as panel
+    import ui.progress_popup as progress_popup
+
+    class _Popup:
+        def __init__(self, **kwargs):
+            pass
+
+        def open(self):
+            pass
+
+        def dismiss(self):
+            pass
+
+    submitted = {}
+    session = types.SimpleNamespace(
+        make_support_report=lambda **kwargs: None,
+        executor_bundle=types.SimpleNamespace(diagnostics_executor=object()),
+    )
+    monkeypatch.setattr(app_context, 'ctx', types.SimpleNamespace(session=session))
+    monkeypatch.setattr(progress_popup, 'CustomPopup', _Popup)
+    monkeypatch.setattr(
+        panel, 'submit_reported', lambda call, redraw, label, **kwargs: submitted.update(kwargs)
+    )
+    host = types.SimpleNamespace()
+    host._make_zip = types.MethodType(panel.MicroscopeSettings._make_zip, host)
+    panel.MicroscopeSettings._start_support_report(host)
+
+    assert submitted['budget_of'] is session.make_support_report
+    assert submitted['lane'] is session.executor_bundle.diagnostics_executor
