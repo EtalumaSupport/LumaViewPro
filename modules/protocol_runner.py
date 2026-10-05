@@ -68,7 +68,6 @@ class ProtocolRunner:
                 'inject protocol_thread at session construction.'
             )
         self.session = session
-        self._file_io_executor = session.file_io_executor
         self._executor = session.sequenced_capture_runner
 
     @property
