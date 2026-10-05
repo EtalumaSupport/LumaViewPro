@@ -40,10 +40,10 @@ def _two_steps():
 
 
 class TestANormalRunLogsNoCrash:
-    def test_the_late_cleanup_passes_name_no_crash(self, tmp_path):
-        # Cleanup is asked three times on every run; the safety net's pass
-        # carries a 'run_loop_crashed' ending it never uses. Naming that
-        # ending in the log recorded a crash on every normal run.
+    def test_a_normal_run_names_no_crash(self, tmp_path):
+        # The run loop's one teardown carries a 'run_loop_crashed' fallback
+        # it uses only when the loop body never said how the run ended; a
+        # normal run must not log it.
         with (
             _info_lines() as info,
             open_composite_session(headless_settings(tmp_path)) as (
@@ -55,9 +55,6 @@ class TestANormalRunLogsNoCrash:
         assert outcome.status == 'completed', outcome
         crash_lines = [line for line in info if 'crash' in line.lower()]
         assert crash_lines == [], crash_lines
-        assert any('no longer live' in line for line in info), (
-            'the late passes stopped logging at all; this test no longer sees them'
-        )
 
 
 def _record_rows(run_parent):

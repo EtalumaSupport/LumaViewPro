@@ -9201,10 +9201,11 @@ class TestSCEResetSignalsAbort:
         runner.protocol_thread.abort.assert_called_once()
         runner._cleanup.assert_not_called()
 
-    def test_reset_falls_back_inline_when_thread_not_running(self):
-        """With the run flagged in progress but no live run loop (dispatch
-        failed / thread died before its finally), reset() must still clean
-        up so run state is not orphaned."""
+    def test_reset_signals_and_never_cleans_up_without_a_running_loop(self):
+        """A Stop only asks, even when no loop is running yet: the run is
+        then still being set up by start(), which unwinds it itself once
+        the setup is done. Cleaning up here, mid-setup, left both lanes in
+        run mode under an idle runner."""
         from modules.protocol_state_machine import ProtocolState
 
         runner = self._make_runner()
@@ -9219,31 +9220,9 @@ class TestSCEResetSignalsAbort:
 
         runner.reset(run)
 
-        runner._cleanup.assert_called_once()
-
-    def test_reset_abort_called_before_cleanup(self):
-        """Abort must precede any teardown so cleanup never races the
-        in-flight scan step (exercised on the inline-fallback path; the
-        deferred path orders abort before the run loop's own cleanup by
-        construction)."""
-        from modules.protocol_state_machine import ProtocolState
-
-        runner = self._make_runner()
-        runner._set_state(ProtocolState.RUNNING)
-        # A live run always has a trigger and a handle: start() writes both
-        # before it publishes liveness, under one lock. Leaving IDLE alone
-        # builds a run nobody started, which reset() is right to refuse.
-        runner._run_trigger_source = 'test'
-        run = runner._run_outcome = PendingRunOutcome()
-        runner.protocol_thread.is_running = False
-
-        order: list[str] = []
-        runner.protocol_thread.abort.side_effect = lambda: order.append('abort')
-        runner._cleanup = MagicMock(side_effect=lambda *args, **kwargs: order.append('cleanup'))
-
-        runner.reset(run)
-
-        assert order == ['abort', 'cleanup'], f'abort must be called before cleanup; got {order}'
+        runner.protocol_thread.abort.assert_called_once()
+        runner._cleanup.assert_not_called()
+        assert runner._ending.get().reason == 'stopped'
 
     def test_wait_for_run_idle_returns_true_when_idle(self):
         runner = self._make_runner()

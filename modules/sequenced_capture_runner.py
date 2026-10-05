@@ -237,6 +237,10 @@ class SequencedCaptureRunner:
         self._protocol = None
         self._cleanup_lock = threading.Lock()
         self._run_lock = threading.Lock()
+        # The live run's dispatched loop, None until start() dispatches it:
+        # what tells force_reset whether a loop that will unwind the run
+        # ever existed. Written and read under _run_lock.
+        self._run_loop_future = None
         # Session-tier exclusivity: a protocol run and a video recording
         # can never run concurrently, arbitrated by one compare-and-claim
         # both acquire. Required, so no runner exists with a claim of its
@@ -493,13 +497,16 @@ class SequencedCaptureRunner:
         it is refused (logged and notified); when nothing is live it is a
         Stop that arrived after its run ended, raised but not notified.
 
-        Hardware cleanup (queued LED-off, camera restore, multi-second
-        return-to-position moves) runs on the protocol thread via the run
-        loop's finally-block -- never on the caller. A UI abort lands here
-        on the Kivy main thread; running cleanup inline froze the GUI for
-        the full duration of the queued futures (seconds typical, minutes
-        with wedged hardware). Callers that must wait for the teardown to
-        finish (app shutdown) use wait_for_run_idle().
+        A Stop only asks: it records the run's ending and signals it, and
+        the thread that owns the run tears it down -- the run loop's
+        finally, or start() itself for a run stopped before its loop was
+        dispatched. Never on the caller: a UI Stop lands on the Kivy main
+        thread, and a teardown there froze the GUI for the duration of the
+        queued hardware work (seconds typical, minutes with wedged
+        hardware); a teardown on the Stop's thread while start() was still
+        setting the run up left both lanes in run mode under an idle
+        runner. Callers that must wait for the teardown to finish (app
+        shutdown) use wait_for_run_idle().
 
         Raises:
             RunAlreadyEndedError: no run is live.
@@ -525,12 +532,10 @@ class SequencedCaptureRunner:
             # Recorded only past the guard above: a Stop that was refused
             # ended no run, and must not leave a reason behind for the next
             # one to report.
-            ending = RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped')
-            self._ending.set_if_unset(ending)
-            needs_inline_cleanup = self._signal_abort_locked()
-
-        if needs_inline_cleanup:
-            self._cleanup(ending, run)
+            self._ending.set_if_unset(
+                RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped')
+            )
+            self.protocol_thread.abort()
 
     def force_reset(self, reason: str) -> None:
         """Unwind the live run without naming it -- app shutdown only.
@@ -540,6 +545,13 @@ class SequencedCaptureRunner:
         handle value: a value meaning "whatever is live" would be
         reachable by callers that should not have it, and invisible to a
         grep for the override's users.
+
+        Like a Stop it records and signals, with one difference: a run
+        whose loop has finished without unwinding it is unwound here, on
+        the shutdown's thread. App close is the last chance to release the
+        scope, and nothing else will. A run whose loop was never
+        dispatched is not this method's: start() is still setting it up
+        and unwinds it itself when it sees the ending.
         """
         with self._run_lock:
             if not self._is_run_live():
@@ -551,40 +563,17 @@ class SequencedCaptureRunner:
             )
             ending = RunEnding('aborted', 'force_reset', 'Protocol Stopped', reason)
             self._ending.set_if_unset(ending)
+            self.protocol_thread.abort()
             run = self._run_outcome
-            needs_inline_cleanup = self._signal_abort_locked()
+            loop = self._run_loop_future
+            loop_ended_without_unwinding = loop is not None and loop.done()
 
-        if needs_inline_cleanup:
+        if loop_ended_without_unwinding:
+            logger.warning(
+                f'[{self.LOGGER_NAME}] force_reset({reason}): the run loop ended '
+                'without unwinding the run -- unwinding it on the calling thread'
+            )
             self._cleanup(ending, run)
-
-    def _signal_abort_locked(self) -> bool:
-        """Signal the run loop to unwind. The caller holds _run_lock.
-
-        Returns True when no live run loop will run the cleanup, so the
-        caller must run it inline -- and OUTSIDE the lock, because that
-        cleanup runs the whole teardown (hardware restores, bounded
-        drains) on the calling thread. Holding the run lock across it
-        would block every prepare(), start() and stop for its duration.
-        """
-        # Signal abort before any cleanup runs hardware. Without this, an
-        # abort tears down LEDs / camera / position while the protocol
-        # thread is still mid-step.
-        self.protocol_thread.abort()
-
-        if self.protocol_thread.is_running:
-            # The run loop notices the abort within one tick and its
-            # finally-block calls _cleanup() on the protocol thread.
-            return False
-
-        # No live run loop to unwind (dispatch failed, or the thread died
-        # before its cleanup). Last-resort inline cleanup so run state is
-        # not orphaned; _cleanup is idempotent if the loop raced us here.
-        logger.warning(
-            f'[{self.LOGGER_NAME}] run flagged in-progress but the protocol '
-            'thread is not running -- running cleanup inline on the calling '
-            'thread as a fallback'
-        )
-        return True
 
     def wait_for_run_idle(self, timeout_s: float) -> bool:
         """Block until the run (including its cleanup) has fully unwound.
@@ -1391,8 +1380,12 @@ class SequencedCaptureRunner:
             # that reaches cleanup has a batch to close.
             self._write_batch = RunWriteBatch(self.file_io_executor)
 
+            self._run_loop_future = None
             self._set_state(ProtocolState.RUNNING)
 
+        # How a Stop accepted during the setup below ended the run; None
+        # while no Stop has been seen, and for every dispatched run.
+        stopped = None
         try:
             # Declare whether anyone is watching, so non-fatal popups are
             # suppressed for a batch nobody is in front of and delivered for
@@ -1457,17 +1450,29 @@ class SequencedCaptureRunner:
             # signalled by the run phase returning to IDLE inside _cleanup.
             # run_protocol also clears _aborted under its state lock
             # atomically with publishing the new Future, mirroring the
-            # AutofocusThread fix.
-            dispatch_future = self.protocol_thread.run_protocol(
-                functools.partial(self._run_loop_under_claim, outcome)
-            )
+            # AutofocusThread fix -- so a Stop accepted during the setup
+            # above, whose signal reached no loop, is read here from the
+            # run's ending instead. Read and dispatched under the run lock
+            # every Stop takes, so no Stop falls between the two: one
+            # before is seen here, one after reaches the dispatched loop.
+            with self._run_lock:
+                stopped = self._ending.get()
+                if stopped is None:
+                    dispatch_future = self.protocol_thread.run_protocol(
+                        functools.partial(self._run_loop_under_claim, outcome)
+                    )
+                    self._run_loop_future = dispatch_future
             # A dispatch refusal is synchronous: run_protocol seals the
             # returned Future with its error BEFORE returning, while a
             # genuinely dispatched run loop leaves it unresolved for the
             # run's whole duration. A done Future here therefore means the
             # loop will never execute -- raise so the failed-at-start unwind
             # runs instead of the runner sitting committed forever.
-            if dispatch_future.done() and dispatch_future.exception() is not None:
+            if (
+                stopped is None
+                and dispatch_future.done()
+                and dispatch_future.exception() is not None
+            ):
                 raise RunStartError(
                     'dispatch_refused',
                     'Run failed to start',
@@ -1475,8 +1480,11 @@ class SequencedCaptureRunner:
                 ) from dispatch_future.exception()
         except Exception as exc:
             self._fail_run_at_start(exc, outcome)
+        else:
+            if stopped is not None:
+                self._unwind_undispatched_run(stopped, outcome)
 
-        # Reached on the failed-at-start path too, where the unwind has
+        # Reached on the failed-at-start and stopped-before-dispatch paths too, where the unwind has
         # already resolved the outcome: the caller waits and is told at once.
         return outcome
 
@@ -1553,7 +1561,13 @@ class SequencedCaptureRunner:
         )
 
     def _unwind_undispatched_run(self, ending: RunEnding, run: PendingRunOutcome) -> None:
-        """Unwind a run whose loop was never dispatched, on start()'s thread."""
+        """Unwind a run whose loop was never dispatched, on start()'s thread.
+
+        Two ways to get here: the setup failed, or a Stop was accepted
+        while it ran. Either way no loop exists to unwind the run, so
+        start() does it, after the setup has finished or failed -- never
+        in the middle of it.
+        """
         run_dir = self._run_dir
         if run_dir is not None:
             # A just-created EMPTY directory is noise from a run that never
@@ -2307,13 +2321,8 @@ class SequencedCaptureRunner:
                 ),
             )
             # Settle (or arm) the run's merge outcome before the releases
-            # below. Cleanup is asked THREE times on a normal run -- the
-            # loop's 'completed' call, its call after the scan loop, then
-            # the safety net's 'failed' call, the last two returning early
-            # above -- and settling is arm-or-first-wins, never a plain
-            # assignment: a later pass reaching here carries a contradictory
-            # status and would otherwise report 'failed' over a real merge
-            # result.
+            # below, while the fields it reads are still this run's: once
+            # the run is IDLE a successor's start() replaces them.
             # Non-raising by construction, because the claim release below
             # has to run whatever happens here; a raise would leak the claim
             # and refuse every future run.

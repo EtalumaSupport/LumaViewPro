@@ -239,10 +239,15 @@ def test_every_error_state_write_aborts_the_run_in_the_same_function():
 # ---------------------------------------------------------------------------
 
 
-def _stop_stub(trigger='test', signals_inline_cleanup=False):
+def _stop_stub(trigger='test', loop_ended=False):
+    import concurrent.futures
+
     import modules.sequenced_capture_runner as scr
 
     cleaned = []
+    loop = concurrent.futures.Future()
+    if loop_ended:
+        loop.set_result(None)
     stub = SimpleNamespace(
         _run_lock=threading.RLock(),
         _is_run_live=lambda: True,
@@ -250,7 +255,9 @@ def _stop_stub(trigger='test', signals_inline_cleanup=False):
         # The handle start() returned for the live run, which a stop names.
         _run_outcome=PendingRunOutcome(),
         _ending=EndingLatch(),
-        _signal_abort_locked=lambda: signals_inline_cleanup,
+        protocol_thread=SimpleNamespace(abort=lambda: None),
+        # The live run's dispatched loop: still running unless loop_ended.
+        _run_loop_future=loop,
         _cleanup=lambda ending, run: cleaned.append(ending),
         LOGGER_NAME='TEST',
     )
@@ -283,9 +290,11 @@ class TestTheRunnerRecordsTheStop:
             scr.SequencedCaptureRunner.reset(stub, stub._run_outcome)
         assert stub._ending.get() is None
 
-    def test_the_inline_cleanup_gets_the_same_record(self):
-        scr, stub, cleaned = _stop_stub(signals_inline_cleanup=True)
-        scr.SequencedCaptureRunner.reset(stub, stub._run_outcome)
+    def test_the_shutdown_unwind_gets_the_same_record(self):
+        """A run whose loop ended without unwinding it is unwound by
+        force_reset, with the ending it recorded."""
+        scr, stub, cleaned = _stop_stub(loop_ended=True)
+        scr.SequencedCaptureRunner.force_reset(stub, 'app shutdown')
         assert len(cleaned) == 1
         assert cleaned[0] is stub._ending.get(), (
             'cleanup was handed a different object than the one recorded, so '

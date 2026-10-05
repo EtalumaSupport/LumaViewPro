@@ -55,33 +55,26 @@ class ProtocolRunLoop:
         self._p = parent
 
     def run_loop(self, run: PendingRunOutcome) -> None:
-        """Main entry point -- wraps inner loop with crash recovery.
+        """Main entry point -- runs the loop, then unwinds the run once.
 
-        ``run`` is the run this loop was dispatched for. Every cleanup the
-        loop asks for names it, so a cleanup that arrives after the run
-        ended -- the safety net below, on a thread the next run may already
-        be waiting behind -- can only ever end this run, never the next.
+        ``run`` is the run this loop was dispatched for. The loop body only
+        decides how the run ended and returns that; the one teardown is
+        here, in the finally, so it runs on every way out of the body --
+        a return, an exception, or anything that skips the except below.
         """
-        crash = None
+        ending = None
         try:
-            self._run_loop_inner(run)
+            ending = self._run_loop_inner(run)
         except Exception as ex:
             logger.error(
                 f'[PROTOCOL] Run loop aborted by exception; cleanup will run: {ex}',
                 exc_info=True,
             )
-            crash = RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', str(ex))
-            self._p._ending.set_if_unset(crash)
+            ending = RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', str(ex))
+            self._p._ending.set_if_unset(ending)
         finally:
-            # Safety net: ensure cleanup always runs so LEDs are turned off,
-            # protocol state is reset, and resources are released even if an
-            # unhandled exception occurs.  _cleanup() is idempotent (guarded
-            # by _cleanup_lock and the run-phase check) so duplicate calls
-            # from the normal path are harmless -- the inner loop's own
-            # cleanup already ran and this no-ops, so the ending below only
-            # ever reaches subscribers for a loop that died on the way out.
             self._p._cleanup(
-                crash
+                ending
                 or RunEnding(
                     'failed',
                     'run_loop_crashed',
@@ -156,8 +149,8 @@ class ProtocolRunLoop:
         first_step = p._protocol.step(idx=0)
         p._step_executor.default_move(px=first_step['X'], py=first_step['Y'], z=first_step['Z'])
 
-    def _run_loop_inner(self, run: PendingRunOutcome):
-        """Inner run loop body."""
+    def _run_loop_inner(self, run: PendingRunOutcome) -> RunEnding:
+        """The run loop body; returns how the run ended, for run_loop to unwind."""
         p = self._p
         last_connection_check = time.monotonic()
 
@@ -182,8 +175,7 @@ class ProtocolRunLoop:
             if p._state not in (ProtocolState.COMPLETING, ProtocolState.IDLE):
                 p._set_state(ProtocolState.ERROR)
             p.abort_run_fatal(stalled.reason, stalled.title, stalled.message)
-            p._cleanup(stalled, run)
-            return
+            return stalled
 
         while p._is_run_live() and not p._aborted.is_set():
             try:
@@ -215,14 +207,12 @@ class ProtocolRunLoop:
                         if p._state not in (ProtocolState.COMPLETING, ProtocolState.IDLE):
                             p._set_state(ProtocolState.ERROR)
                         p.abort_run_fatal(ending.reason, ending.title, ending.message)
-                        p._cleanup(ending, run)
-                        break
+                        return ending
 
                 # Check if we've completed all scans
                 remaining_scans = p.remaining_scans()
                 if remaining_scans <= 0:
-                    p._cleanup(RUN_COMPLETED, run)
-                    break
+                    return RUN_COMPLETED
 
                 # Check if enough time has elapsed for the next scan
                 # Skip this check for the first scan (scan_count == 0)
@@ -291,8 +281,9 @@ class ProtocolRunLoop:
                 # forced the following same-color led_on to re-fire, blinking
                 # the LED off->on at the start of every scan.
                 p._step_executor.go_to_step(step_idx=p._curr_step)
-                # Guard: if cleanup already ran (e.g. button spam), don't proceed
-                if p._aborted.is_set() or p._state == ProtocolState.IDLE:
+                # A Stop that landed during the step move ends the run here,
+                # before the scan starts.
+                if p._aborted.is_set():
                     break
                 p._scan_in_progress.set()
                 p._set_state(ProtocolState.SCANNING)
@@ -398,8 +389,7 @@ class ProtocolRunLoop:
                         except ValueError:
                             pass
                     p.abort_run_fatal(ending.reason, ending.title, ending.message)
-                    p._cleanup(ending, run)
-                    break
+                    return ending
 
                 # A lost axis position is not transient: nothing in a run
                 # re-homes, so every retry is refused the same way, and the
@@ -430,8 +420,7 @@ class ProtocolRunLoop:
                         except ValueError:
                             pass
                     p.abort_run_fatal(ending.reason, ending.title, ending.message)
-                    p._cleanup(ending, run)
-                    break
+                    return ending
 
                 # Transient: log warning, do NOT increment scan_count,
                 # do NOT break. The outer while loop's next iteration
@@ -470,8 +459,7 @@ class ProtocolRunLoop:
                         category='Protocol',
                     )
                     p._ending.set_if_unset(ending)
-                    p._cleanup(ending, run)
-                    break
+                    return ending
 
                 # The failed scan may have died with a channel lit (an
                 # exception between the step's illuminate and its boundary
@@ -483,7 +471,6 @@ class ProtocolRunLoop:
                 # end state would immediately reverse (an off-then-on blink).
                 self._enter_inter_scan_idle()
 
-        # Ensure cleanup runs when exiting the while loop. The while
-        # condition goes false on an abort (aborted set) or when the run
-        # flag cleared; name which one so subscribers see the truth.
-        p._cleanup(RUN_STOPPED if p._aborted.is_set() else RUN_COMPLETED, run)
+        # The while condition goes false on an abort (aborted set) or when
+        # the run flag cleared; name which one so subscribers see the truth.
+        return RUN_STOPPED if p._aborted.is_set() else RUN_COMPLETED
