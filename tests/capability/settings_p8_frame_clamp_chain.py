@@ -1,41 +1,38 @@
 """Probe 8 -- where a typed frame size of 13414 actually goes.
 
-Two clamps sit in series, neither of which refuses:
-  1. the GUI's own, ui/microscope_settings.py:1152 ->
-     modules/binning.displayed_to_native(..., cap=native_max)
-  2. the driver's, behind ImagingAPI.set_frame_size, which RETURNS the
-     delivered geometry (modules/lumascope_api/imaging.py:1339 contract).
+The API refuses a frame the camera cannot take
+(ImagingAPI.set_frame_size raises CameraSettingOutOfRangeError) rather than
+clamping it and reporting the clamp only in its return value.
 """
 
 import sys
 
 import harness as _common
-from modules import binning
+
+from modules.exceptions import CameraSettingOutOfRangeError
 
 s, live = _common.make_session()
 try:
     im = s.scope.imaging
-    native_max = im.get_native_resolution()
-    typed = {'width': 13414, 'height': 13414}
-    alignment = im.get_pixel_alignment()
-    native = binning.displayed_to_native(typed, 1, native_max)
-    displayed = binning.native_to_displayed(native, 1, alignment)
-    print('native_max        :', native_max)
-    print('pixel alignment   :', alignment)
-    print('GUI clamp of 13414:', native, '->', displayed)
-    delivered = im.set_frame_size(typed['width'], typed['height'])
-    print('API delivered     :', delivered)
-    _common.ok('the two clamps agree', displayed == delivered, f'{displayed} vs {delivered}')
-    _common.void(
-        '13414 is REFUSED somewhere in the chain',
-        False,
-        'both layers clamp; the GUI clamp is silent, the API clamp is '
-        'reported only in the return value',
+    before = im.frame_size_cached
+    print('native_max        :', im.get_native_resolution())
+    try:
+        delivered = im.set_frame_size(13414, 13414)
+        _common.ok('13414 is REFUSED by the API', False, f'delivered {delivered}')
+    except CameraSettingOutOfRangeError as e:
+        _common.ok('13414 is REFUSED by the API', True, str(e))
+    _common.ok(
+        'a refused frame leaves the frame as it was',
+        im.frame_size_cached == before,
+        f'{before} -> {im.frame_size_cached}',
     )
 except Exception:
     import traceback
 
     traceback.print_exc()
+    # Re-raised: a probe that crashed has no verdict, and exiting 0
+    # here read as a pass.
+    raise
 finally:
     s.shutdown()
 

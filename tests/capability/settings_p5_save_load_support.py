@@ -10,7 +10,6 @@ GUI entry points:
 """
 
 import json
-import pathlib
 import shutil
 import sys
 
@@ -53,9 +52,7 @@ try:
     if root.exists():
         shutil.rmtree(root)
     (root / 'data').mkdir(parents=True)
-    shutil.copy(
-        pathlib.Path(_common.WT) / 'data' / 'settings.json', root / 'data' / 'settings.json'
-    )
+    shutil.copy(_common.REPO / 'data' / 'settings.json', root / 'data' / 'settings.json')
     shutil.copy(out, root / 'data' / 'current.json')
     import modules.settings_init as settings_init
     from lvp_logger import logger
@@ -96,6 +93,9 @@ except Exception:
     import traceback
 
     traceback.print_exc()
+    # Re-raised: a probe that crashed has no verdict, and exiting 0
+    # here read as a pass.
+    raise
 finally:
     s.shutdown()
 

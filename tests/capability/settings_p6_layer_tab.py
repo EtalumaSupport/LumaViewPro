@@ -29,13 +29,13 @@ try:
             continue
         st = ill.get_led_state(channel=layer)
         if st.get('enabled'):
-            ill.led_off(layer, owner='probe')
+            ill.led_off(layer)
     im.apply_layer_camera_settings(
         gain_db=float(cfg['gain_db']),
         exposure_ms=float(cfg['exposure_ms']),
         layer=target,
     )
-    ill.led_on(target, float(cfg['illumination_ma']), owner='probe')
+    ill.led_on(target, float(cfg['illumination_ma']))
     states = ill.get_led_states()
     lit = [k for k, v in states.items() if v.get('enabled')]
     _common.ok('exactly the target layer is lit', lit == [target], f'lit={lit}')
@@ -49,7 +49,7 @@ try:
         abs(im.get_exposure_ms() - float(cfg['exposure_ms'])) < 0.51,
         f'exp={im.get_exposure_ms()} wanted={cfg["exposure_ms"]}',
     )
-    ill.led_off(target, owner='probe')
+    ill.led_off(target)
 
     # Is there a single API call for "make this layer active"?
     names = [
@@ -59,24 +59,25 @@ try:
 
     # Range refusal on the per-layer values the drawer renders
     print('max gain / max exposure cached:', im.max_gain_db_cached, im.max_exposure_ms_cached)
-    # Exposure IS refused; both gain bounds are not, so they are voids and
-    # exposure stays a check. One loop, per-value disposition.
-    for fn, bad, label, is_void in (
-        (im.set_gain_db, 999.0, 'gain 999 dB', True),
-        (im.set_exposure_ms, 1e7, 'exposure 10,000,000 ms', False),
-        (im.set_gain_db, -50.0, 'gain -50 dB', True),
+    # The camera's range refuses each of them (CameraSettingOutOfRangeError).
+    for fn, bad, label in (
+        (im.set_gain_db, 999.0, 'gain 999 dB'),
+        (im.set_exposure_ms, 1e7, 'exposure 10,000,000 ms'),
+        (im.set_gain_db, -50.0, 'gain -50 dB'),
     ):
-        record = _common.void if is_void else _common.ok
         try:
             r = fn(bad)
-            record(f'{label} refused', False, f'returned {r}')
+            _common.ok(f'{label} refused', False, f'returned {r}')
         except Exception as e:
-            record(f'{label} refused', True, f'{type(e).__name__}: {e}')
+            _common.ok(f'{label} refused', True, f'{type(e).__name__}: {e}')
     print('gain/exposure after the bad writes:', im.get_gain_db(), im.get_exposure_ms())
 except Exception:
     import traceback
 
     traceback.print_exc()
+    # Re-raised: a probe that crashed has no verdict, and exiting 0
+    # here read as a pass.
+    raise
 finally:
     s.shutdown()
 

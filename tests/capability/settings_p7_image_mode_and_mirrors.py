@@ -84,6 +84,9 @@ except Exception:
     import traceback
 
     traceback.print_exc()
+    # Re-raised: a probe that crashed has no verdict, and exiting 0
+    # here read as a pass.
+    raise
 finally:
     s.shutdown()
 
