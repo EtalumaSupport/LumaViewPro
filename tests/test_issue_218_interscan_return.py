@@ -18,7 +18,7 @@ from modules.protocol_run_loop import ProtocolRunLoop
 
 def _make_loop(remaining, aborted=False):
     p = SimpleNamespace()
-    p.remaining_scans = lambda: remaining
+    p._remaining_scans = lambda: remaining
     p._aborted = MagicMock()
     p._aborted.is_set.return_value = aborted
     p._protocol = MagicMock()

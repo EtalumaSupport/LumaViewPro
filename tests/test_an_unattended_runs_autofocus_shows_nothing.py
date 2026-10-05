@@ -101,7 +101,7 @@ def test_a_sweep_the_stop_aborts_shows_nothing(tmp_path, shown, trigger):
         _wait_for_live_sweep(rig)
         sweep = rig.af_thread.current_future
         sweep.add_done_callback(lambda _f: sweep_ended.set())
-        rig.runner.reset(pending)
+        rig.runner._reset(pending)
         rig.protocol_thread.abort()
         assert pending.wait(timeout_s=COMPLETION_TIMEOUT) is not None, 'the run never settled'
         assert sweep_ended.wait(timeout=COMPLETION_TIMEOUT), 'the sweep never ended'

@@ -111,7 +111,7 @@ class TestAHeldLane:
             outcome = runner.start_composite(sequence_name='stopped', parent_dir=str(tmp_path))
             assert session.is_protocol_running
             # The run is waiting on the protocol thread; Stop it there.
-            session.sequenced_capture_runner.reset(outcome)
+            session.sequenced_capture_runner._reset(outcome)
             assert session.sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
         finally:
             hold.release()

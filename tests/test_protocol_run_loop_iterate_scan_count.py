@@ -31,7 +31,7 @@ def _make_two_scan_parent():
     p._scan_count = 0
     # Real remaining-scan semantics: n_scans - scan_count, counting down as
     # scans complete (scan_count is incremented inside the loop).
-    p.remaining_scans = lambda: p._n_scans - p._scan_count
+    p._remaining_scans = lambda: p._n_scans - p._scan_count
     p._aborted = threading.Event()
     p._state = ProtocolState.RUNNING
     # The production predicate over the stub's own state, so the stub

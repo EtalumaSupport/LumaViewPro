@@ -105,7 +105,7 @@ class TestTheRefusalNamesTheHolder:
         an_ended_scan = PendingRunOutcome()
         try:
             with pytest.raises(ProtocolRunRefusedError) as refusal:
-                executor.reset(an_ended_scan)
+                executor._reset(an_ended_scan)
         finally:
             executor._set_state(ProtocolState.IDLE)
 

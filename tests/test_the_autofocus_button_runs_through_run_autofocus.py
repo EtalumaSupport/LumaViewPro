@@ -91,8 +91,8 @@ def pressed(monkeypatch, held):
     engine = MagicMock()
     handle = RunHandle(engine, PendingRunOutcome())
     member.run_autofocus.return_value = handle
-    engine.is_live_run.return_value = False
-    engine.is_stopping.return_value = False
+    engine._is_live_run.return_value = False
+    engine._is_stopping.return_value = False
     session = MagicMock()
     session.create_protocol_runner.return_value = member
     # Nothing holds the scope; a MagicMock's own answer would be truthy.
@@ -117,7 +117,7 @@ def pressed(monkeypatch, held):
 
 
 def _live(engine, *runs):
-    engine.is_live_run.side_effect = lambda run: run is not None and any(run is r for r in runs)
+    engine._is_live_run.side_effect = lambda run: run is not None and any(run is r for r in runs)
 
 
 def test_the_button_states_only_what_the_gui_knows(pressed):
@@ -184,13 +184,13 @@ def test_a_second_press_stops_its_own_run_ahead_of_queued_work(pressed):
 
     pressed.button._autofocus_run = pressed.handle
     _live(pressed.engine, pressed.handle)
-    pressed.engine.is_stopping.side_effect = lambda run: pressed.engine.reset.called
+    pressed.engine._is_stopping.side_effect = lambda run: pressed.engine._reset.called
 
     pressed.button.run_autofocus_from_ui()
 
     task = pressed.pool.put.call_args.args[0]
     assert task.priority == PRIORITY_HIGH, 'a Stop must not wait behind queued work'
-    pressed.engine.reset.assert_called_once_with(pressed.handle)
+    pressed.engine._reset.assert_called_once_with(pressed.handle)
     assert not pressed.member.run_autofocus.called, 'a Stop is not a start'
     assert pressed.button.button.text == 'Stopping...'
 
@@ -203,7 +203,7 @@ def test_a_stop_that_finds_its_run_already_ended_shows_nothing(pressed):
         _live(pressed.engine)  # the run ended between the press and the pool
         raise RunAlreadyEndedError('the run already ended')
 
-    pressed.engine.reset.side_effect = _ended
+    pressed.engine._reset.side_effect = _ended
 
     pressed.button.run_autofocus_from_ui()
 
@@ -214,7 +214,7 @@ def test_a_stop_that_finds_its_run_already_ended_shows_nothing(pressed):
 def test_a_refused_stop_leaves_the_button_showing_its_own_run(pressed):
     pressed.button._autofocus_run = pressed.handle
     _live(pressed.engine, pressed.handle)
-    pressed.engine.reset.side_effect = ProtocolRunRefusedError(
+    pressed.engine._reset.side_effect = ProtocolRunRefusedError(
         reason='run_not_live', title='Not Running', message='That run is not the one running.'
     )
 
@@ -310,7 +310,7 @@ def test_a_stuck_autofocus_is_stopped_by_its_bound(pressed, real):
 
     bound(0)
 
-    pressed.engine.reset.assert_called_once_with(pressed.handle)
+    pressed.engine._reset.assert_called_once_with(pressed.handle)
 
 
 def test_a_bound_that_outlived_its_run_leaves_the_next_autofocus_alone(pressed, real):
@@ -326,7 +326,7 @@ def test_a_bound_that_outlived_its_run_leaves_the_next_autofocus_alone(pressed, 
 
     stale(0)
 
-    assert not pressed.engine.reset.called, (
+    assert not pressed.engine._reset.called, (
         'a timer armed for the first run fired while the second was live, and stopped it'
     )
 

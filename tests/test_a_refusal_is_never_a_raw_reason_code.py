@@ -112,8 +112,8 @@ def refusing_runner():
     runner = MagicMock()
     runner.run_in_progress.return_value = True
     runner.run_trigger_source.return_value = 'zstack'
-    runner.is_live_run.side_effect = lambda run: isinstance(run, RunHandle)
-    runner.reset.side_effect = RUN_NOT_LIVE
+    runner._is_live_run.side_effect = lambda run: isinstance(run, RunHandle)
+    runner._reset.side_effect = RUN_NOT_LIVE
     return runner
 
 
@@ -153,10 +153,10 @@ class TestARefusedZStackTeardown:
 
         starter.run_zstack_acquire_from_ui()
 
-        assert app_ctx.reset.called, (
+        assert app_ctx._reset.called, (
             'the click never reached the teardown -- the test is not exercising the refusal'
         )
-        app_ctx.reset.assert_called_with(starter._zstack_run)
+        app_ctx._reset.assert_called_with(starter._zstack_run)
         assert [p for p in popups if p.get('title') == 'Error'] == [], (
             'a refused teardown is a designed outcome the engine already reported; '
             f'it must not surface as an Error dialog. Popups: {popups}'

@@ -47,7 +47,7 @@ def _make_parent(clock, n_scans, period_s, first_scan_lead_s=30.0, later_scan_le
     p = SimpleNamespace()
     p._n_scans = n_scans
     p._scan_count = 0
-    p.remaining_scans = lambda: p._n_scans - p._scan_count
+    p._remaining_scans = lambda: p._n_scans - p._scan_count
     p._aborted = threading.Event()
     p._state = ProtocolState.RUNNING
     # The production predicate over the stub's own state, so the stub

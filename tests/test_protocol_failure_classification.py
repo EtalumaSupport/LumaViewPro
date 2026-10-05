@@ -123,7 +123,7 @@ class TestRunLoopInnerClassifiesByConnection:
         runner = run_loop_ready_runner(protocol_step())
         runner._protocol.step.side_effect = RuntimeError('serial dropped mid-step')
         runner._scope.are_all_connected = MagicMock(return_value=connected)
-        runner._run_loop_executor.run_loop(runner.run_outcome())
+        runner._run_loop_executor.run_loop(runner._last_run())
         captured = [
             (n.category, n.title, n.message)
             for n in centre_posts

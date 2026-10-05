@@ -264,7 +264,7 @@ def _stop_stub(trigger='test', loop_ended=False):
     )
     # The runner's own liveness answer, so the stub cannot disagree with it.
     stub._run_handle = scr.RunHandle(stub, stub._run_outcome)
-    stub.run_outcome = lambda: scr.SequencedCaptureRunner.run_outcome(stub)
+    stub._last_run = lambda: scr.SequencedCaptureRunner._last_run(stub)
     stub._is_live_run_locked = lambda run: scr.SequencedCaptureRunner._is_live_run_locked(stub, run)
     return scr, stub, cleaned
 
@@ -274,7 +274,7 @@ class TestTheRunnerRecordsTheStop:
         """A stop names the run, not the caller, so the ending records that
         the run was stopped and nothing about who asked."""
         scr, stub, _cleaned = _stop_stub()
-        scr.SequencedCaptureRunner.reset(stub, stub._run_handle)
+        scr.SequencedCaptureRunner._reset(stub, stub._run_handle)
 
         ending = stub._ending.get()
         assert (ending.status, ending.reason, ending.message) == (
@@ -289,7 +289,7 @@ class TestTheRunnerRecordsTheStop:
         scr, stub, _ = _stop_stub()
         stub._is_run_live = lambda: False
         with pytest.raises(RunAlreadyEndedError):
-            scr.SequencedCaptureRunner.reset(stub, stub._run_handle)
+            scr.SequencedCaptureRunner._reset(stub, stub._run_handle)
         assert stub._ending.get() is None
 
     def test_the_shutdown_unwind_gets_the_same_record(self):
@@ -383,7 +383,7 @@ def _cleanup_stub(latched=None, forced_dark=False):
 
     stub = MagicMock()
     # The run this cleanup is for is the runner's current run.
-    stub.run_outcome.return_value = scr.RunHandle(stub, PendingRunOutcome())
+    stub._last_run.return_value = scr.RunHandle(stub, PendingRunOutcome())
     stub._is_run_live = lambda: True
     stub._ending = latch
     stub._fatal_abort_event = fatal
@@ -407,7 +407,7 @@ def _run_cleanup_args(monkeypatch, stub, stated):
         return True
 
     monkeypatch.setattr(scr, 'run_cleanup', _fake_run_cleanup)
-    scr.SequencedCaptureRunner._cleanup_inner(stub, stated, stub.run_outcome())
+    scr.SequencedCaptureRunner._cleanup_inner(stub, stated, stub._last_run())
     return seen
 
 
@@ -495,7 +495,7 @@ class TestTheRunLoopsOwnEndings:
         loop = runner._run_loop_executor
         loop._run_loop_inner = MagicMock(side_effect=RuntimeError('the loop died here'))
 
-        loop.run_loop(runner.run_outcome())
+        loop.run_loop(runner._last_run())
 
         ending = runner._ending.get()
         assert (ending.status, ending.reason) == ('failed', 'run_loop_crashed')
@@ -525,7 +525,7 @@ class TestTheRunLoopsOwnEndings:
         runner._video_max_fps = 30.0
         monkeypatch.setattr(prl, 'check_disk_space_ok', lambda folder, needed: (False, 12.0))
 
-        runner._run_loop_executor.run_loop(runner.run_outcome())
+        runner._run_loop_executor.run_loop(runner._last_run())
 
         aborts = runner._image_writer._abort_run_fatal.call_args_list
         assert len(aborts) >= 1, 'a disk floor below the run estimate must end the run'

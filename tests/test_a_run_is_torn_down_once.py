@@ -57,7 +57,7 @@ def test_a_stopped_run_is_torn_down_once(executor, tmp_path, monkeypatch):
     teardowns = _count_teardowns(executor, monkeypatch)
     run = _start_run(executor, tmp_path, threading.Event())
 
-    executor.reset(run)
+    executor._reset(run)
     outcome = _ended(executor, run)
 
     assert (outcome.status, outcome.reason) == ('aborted', 'stopped')

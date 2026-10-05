@@ -66,7 +66,7 @@ def engine():
     """The session's sequenced-capture engine: what a Stop is handed to,
     and what the button asks whether its run is live."""
     e = MagicMock()
-    e.is_live_run.return_value = False
+    e._is_live_run.return_value = False
     return e
 
 
@@ -137,7 +137,7 @@ def test_the_button_hands_the_press_to_the_engine_and_decides_nothing(app_ctx, r
     assert 'parent_dir' not in kwargs, 'the button composed a folder the API already owns'
     assert kwargs['run_trigger_source'] == 'composite'
     assert kwargs['engineering_mode'] is False
-    assert not app_ctx.sequenced_capture_runner.reset.called, 'a start is not a stop'
+    assert not app_ctx.sequenced_capture_runner._reset.called, 'a start is not a stop'
 
 
 def test_a_refused_start_is_shown_once_and_the_button_draws_idle(app_ctx, runner, shown):
@@ -167,7 +167,7 @@ def test_an_unexpected_failure_is_one_fault_and_the_button_draws_idle(app_ctx, r
 
 
 def test_a_started_run_keeps_its_handle_and_draws_running(app_ctx, runner, engine):
-    engine.is_live_run.side_effect = lambda run: run is runner.start_composite.return_value
+    engine._is_live_run.side_effect = lambda run: run is runner.start_composite.return_value
     starter = _Starter()
 
     _click(starter)
@@ -204,7 +204,7 @@ def test_a_second_press_on_its_own_live_composite_stops_it_ahead_of_queued_work(
 
     starter = _Starter()
     starter._composite_run = RunHandle(engine, PendingRunOutcome())
-    engine.is_live_run.side_effect = lambda run: run is starter._composite_run
+    engine._is_live_run.side_effect = lambda run: run is starter._composite_run
 
     _click(starter)
 
@@ -212,7 +212,7 @@ def test_a_second_press_on_its_own_live_composite_stops_it_ahead_of_queued_work(
     assert task.priority == PRIORITY_HIGH, 'a Stop must not wait behind queued work'
     # The Stop names the run this button's own start returned, so the
     # engine can tell it from a rival's.
-    engine.reset.assert_called_once_with(starter._composite_run)
+    engine._reset.assert_called_once_with(starter._composite_run)
     runner.start_composite.assert_not_called()
 
 
@@ -220,11 +220,11 @@ def test_a_press_during_someone_elses_run_is_not_a_stop(app_ctx, runner, engine)
     # A rival run is the engine's to refuse. Treating this as a second press
     # would let the composite button stop a scan it never started.
     starter = _Starter()
-    engine.is_live_run.side_effect = lambda run: False
+    engine._is_live_run.side_effect = lambda run: False
 
     _click(starter)
 
-    assert not engine.reset.called, 'a rival run must not be stopped from here'
+    assert not engine._reset.called, 'a rival run must not be stopped from here'
     runner.start_composite.assert_called_once()
 
 
@@ -236,7 +236,7 @@ def test_a_press_is_a_start_whatever_the_toggle_reads(app_ctx, runner, engine):
 
     _click(starter)
 
-    assert not engine.reset.called, "a toggle reading 'normal' is not a Stop"
+    assert not engine._reset.called, "a toggle reading 'normal' is not a Stop"
     runner.start_composite.assert_called_once()
 
 

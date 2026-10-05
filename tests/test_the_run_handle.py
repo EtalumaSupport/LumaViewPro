@@ -159,13 +159,12 @@ def test_the_handle_has_no_way_to_write_the_outcome():
 
 
 _ENGINE_RUN_MEMBERS = {
-    'is_live_run',
-    'is_stopping',
-    'run_outcome',
-    'run_step_number',
-    'run_num_steps',
-    'remaining_scans',
-    'protocol_interval',
+    '_is_live_run',
+    '_is_stopping',
+    '_last_run',
+    '_live_run_value',
+    '_remaining_scans',
+    '_protocol_interval',
 }
 
 
@@ -186,7 +185,7 @@ def test_the_gui_asks_its_runs_through_their_handles():
             asks_the_engine = name in _ENGINE_RUN_MEMBERS and (
                 'runner' in receiver or 'engine' in receiver
             )
-            stops_through_the_engine = name == 'reset' and (
+            stops_through_the_engine = name == '_reset' and (
                 'runner' in receiver or 'engine' in receiver
             )
             if asks_the_engine or stops_through_the_engine:

@@ -84,12 +84,12 @@ class _Panel(ps.ProtocolSettings):
 @pytest.fixture
 def engine():
     e = MagicMock()
-    e.is_live_run.return_value = False
-    e.is_stopping.return_value = False
-    e.run_outcome.return_value = None
+    e._is_live_run.return_value = False
+    e._is_stopping.return_value = False
+    e._last_run.return_value = None
     e.run_dir.return_value = None
     # A handle's progress: the engine's reading while the handle is live.
-    e.live_run_value.side_effect = lambda run, read: read() if e.is_live_run(run) else None
+    e._live_run_value.side_effect = lambda run, read: read() if e._is_live_run(run) else None
     return e
 
 
@@ -168,7 +168,7 @@ def _handle(engine):
 
 
 def _live(engine, *runs):
-    engine.is_live_run.side_effect = lambda run: run is not None and any(run is r for r in runs)
+    engine._is_live_run.side_effect = lambda run: run is not None and any(run is r for r in runs)
 
 
 @pytest.mark.parametrize(
@@ -199,7 +199,7 @@ def test_a_press_starts_its_run_through_the_apis_runner(
         "the run gets the copy taken at the click; the panel's protocol is the person's"
     )
     assert panel._runs_started_here[trigger] is handle, 'the handle is what its Stop names'
-    assert not engine.reset.called, 'a start is not a stop'
+    assert not engine._reset.called, 'a start is not a stop'
 
 
 def test_a_refused_start_is_shown_once_and_the_button_draws_idle(app_ctx, engine, shown):
@@ -258,8 +258,8 @@ def test_the_full_protocol_button_counts_the_live_runs_own_scans(app_ctx, engine
     panel = _Panel()
     handle = _handle(engine)
     engine.start.return_value = handle
-    engine.remaining_scans.return_value = 3
-    engine.protocol_interval.return_value = timedelta(minutes=20)
+    engine._remaining_scans.return_value = 3
+    engine._protocol_interval.return_value = timedelta(minutes=20)
     _live(engine, handle)
 
     panel.run_protocol_from_ui()
@@ -274,7 +274,7 @@ def test_a_run_that_ended_between_the_reads_draws_idle(app_ctx, engine):
     handle = _handle(engine)
     panel._runs_started_here = {'protocol': handle}
     _live(engine, handle)
-    engine.live_run_value.side_effect = lambda run, read: None
+    engine._live_run_value.side_effect = lambda run, read: None
 
     panel.draw_protocol_buttons()
 
@@ -289,13 +289,13 @@ def test_a_second_press_stops_its_own_run_ahead_of_queued_work(app_ctx, engine):
     handle = _handle(engine)
     panel._runs_started_here['protocol'] = handle
     _live(engine, handle)
-    engine.is_stopping.side_effect = lambda run: run is handle and engine.reset.called
+    engine._is_stopping.side_effect = lambda run: run is handle and engine._reset.called
 
     panel.run_protocol_from_ui()
 
     task = app_ctx.worker_pool.put.call_args.args[0]
     assert task.priority == PRIORITY_HIGH, 'a Stop must not wait behind queued work'
-    engine.reset.assert_called_once_with(handle)
+    engine._reset.assert_called_once_with(handle)
     assert not engine.prepare.called, 'a Stop is not a start'
     assert panel.ids['run_protocol_btn'].text == 'Stopping...'
 
@@ -310,7 +310,7 @@ def test_a_stop_that_finds_its_run_already_ended_shows_nothing(app_ctx, engine, 
         _live(engine)  # the run ended between the press and the pool
         raise RunAlreadyEndedError('the run already ended')
 
-    engine.reset.side_effect = _ended
+    engine._reset.side_effect = _ended
 
     panel.run_scan_from_ui()
 
@@ -324,7 +324,7 @@ def test_a_refused_stop_leaves_every_button_showing_its_own_run(app_ctx, engine,
     panel._runs_started_here['scan'] = mine
     panel._runs_started_here['protocol'] = theirs
     _live(engine, mine, theirs)
-    engine.reset.side_effect = ProtocolRunRefusedError(
+    engine._reset.side_effect = ProtocolRunRefusedError(
         'run_not_live', 'Not Running', 'That run is not the one running.'
     )
 
@@ -351,7 +351,7 @@ def test_a_finished_runs_drain_shows_its_count(app_ctx, engine, session):
     panel = _Panel()
     finished = _handle(engine)
     panel._runs_started_here['protocol'] = finished
-    engine.run_outcome.return_value = finished
+    engine._last_run.return_value = finished
     session.protocol_files_draining = True
     session.protocol_files_pending = 7
 

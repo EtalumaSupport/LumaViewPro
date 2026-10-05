@@ -1408,7 +1408,7 @@ class TestCancellationMidRun:
 
         # Let it run briefly then cancel
         time.sleep(1.0)
-        executor.reset(run)
+        executor._reset(run)
 
         completed = done.wait(timeout=COMPLETION_TIMEOUT)
         assert completed, 'Protocol did not complete after reset()'
@@ -1446,7 +1446,7 @@ class TestCancellationMidRun:
 
         # Cancel almost immediately
         time.sleep(0.2)
-        executor.reset(run)
+        executor._reset(run)
 
         completed = done.wait(timeout=COMPLETION_TIMEOUT)
         assert completed, 'Protocol did not complete after early reset()'
@@ -1461,7 +1461,7 @@ class TestResetWhenNotRunning:
 
     def test_reset_no_crash(self, executor, scope, tmp_path):
         with pytest.raises(RunAlreadyEndedError) as exc:
-            executor.reset(None)
+            executor._reset(None)
         assert not isinstance(exc.value, ProtocolRunRefusedError)
 
 
@@ -1852,7 +1852,7 @@ class TestCleanupConcurrency:
 
         def _stop():
             try:
-                executor.reset(run)
+                executor._reset(run)
             except RunAlreadyEndedError:
                 pass
             except Exception as e:
@@ -1874,11 +1874,11 @@ class TestCleanupConcurrency:
         assert completed
         # Protocol already completed and cleaned up -- each further stop is
         # told the run has ended, and neither disturbs the other.
-        run = executor.run_outcome()
+        run = executor._last_run()
         with pytest.raises(RunAlreadyEndedError):
-            executor.reset(run)
+            executor._reset(run)
         with pytest.raises(RunAlreadyEndedError):
-            executor.reset(run)
+            executor._reset(run)
         assert not executor.run_in_progress()
 
 
@@ -2107,7 +2107,7 @@ class TestCameraStateRestoration:
         )
         run = executor.start(plan)
         time.sleep(0.2)
-        executor.reset(run)
+        executor._reset(run)
         done.wait(timeout=COMPLETION_TIMEOUT)
 
         assert scope.imaging.get_gain_db() == pytest.approx(original_gain, abs=0.1)
@@ -2168,7 +2168,7 @@ class TestCleanupCorrectness:
         )
         run = executor.start(plan)
         time.sleep(0.2)
-        executor.reset(run)
+        executor._reset(run)
         done.wait(timeout=COMPLETION_TIMEOUT)
 
         for color in scope._led_driver.led_ma:

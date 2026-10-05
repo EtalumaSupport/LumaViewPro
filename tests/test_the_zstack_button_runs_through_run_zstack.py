@@ -78,10 +78,10 @@ def clicked(monkeypatch):
     handle = RunHandle(engine, PendingRunOutcome())
     handle._run_dir = '/runs/zstack_1'
     member_runner.run_zstack.return_value = handle
-    engine.is_live_run.return_value = False
+    engine._is_live_run.return_value = False
     # A handle's progress: the engine's reading while the handle is live.
-    engine.live_run_value.side_effect = lambda run, read: (
-        read() if engine.is_live_run(run) else None
+    engine._live_run_value.side_effect = lambda run, read: (
+        read() if engine._is_live_run(run) else None
     )
     session = MagicMock()
     session.create_protocol_runner.return_value = member_runner
@@ -163,8 +163,8 @@ def test_a_refusal_is_shown_once_draws_idle_and_links_no_folder(clicked):
 
 
 def test_progress_reads_the_runs_own_step_and_count(clicked):
-    clicked.engine.is_live_run.side_effect = lambda run: run is clicked.handle
-    clicked.engine.is_stopping.return_value = False
+    clicked.engine._is_live_run.side_effect = lambda run: run is clicked.handle
+    clicked.engine._is_stopping.return_value = False
     clicked.engine._step_number.return_value = 3
     clicked.engine._num_steps.return_value = 7
 
@@ -190,14 +190,14 @@ def test_a_second_press_stops_its_own_stack_ahead_of_queued_work(clicked):
     from modules.sequential_io_executor import PRIORITY_HIGH
 
     clicked.starter._zstack_run = clicked.handle
-    clicked.engine.is_live_run.side_effect = lambda run: run is clicked.handle
-    clicked.engine.is_stopping.side_effect = lambda run: clicked.engine.reset.called
+    clicked.engine._is_live_run.side_effect = lambda run: run is clicked.handle
+    clicked.engine._is_stopping.side_effect = lambda run: clicked.engine._reset.called
 
     clicked.starter.run_zstack_acquire_from_ui()
 
     task = _app_ctx.ctx.worker_pool.put.call_args.args[0]
     assert task.priority == PRIORITY_HIGH, 'a Stop must not wait behind queued work'
-    clicked.engine.reset.assert_called_once_with(clicked.handle)
+    clicked.engine._reset.assert_called_once_with(clicked.handle)
     assert not clicked.runner.run_zstack.called, 'a Stop is not a start'
     assert clicked.starter.button.text == 'Stopping...'
 
@@ -209,7 +209,7 @@ def test_a_press_is_a_start_whatever_the_toggle_reads(clicked):
 
     clicked.starter.run_zstack_acquire_from_ui()
 
-    assert not clicked.engine.reset.called, "a toggle reading 'normal' is not a Stop"
+    assert not clicked.engine._reset.called, "a toggle reading 'normal' is not a Stop"
     clicked.runner.run_zstack.assert_called_once()
 
 

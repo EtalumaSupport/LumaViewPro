@@ -160,7 +160,7 @@ class ProtocolStepRunner:
                 f'camera_gain={_cam_gain} camera_exp={_cam_exp} step={p._curr_step}'
             )
 
-        remaining_scans = p.remaining_scans()
+        remaining_scans = p._remaining_scans()
         if remaining_scans <= 0:
             return
 
@@ -459,7 +459,7 @@ class ProtocolStepRunner:
                         and step['Z-Stack Group ID'] != -1
                         and next_step['Z-Stack Group ID'] == step['Z-Stack Group ID']
                     )
-                elif p.remaining_scans() <= 1:
+                elif p._remaining_scans() <= 1:
                     # Final step of the final scan -- the run-end boundary. The
                     # authority holds this channel only if the run-end target
                     # re-lights it, so the boundary off plus the restore a few

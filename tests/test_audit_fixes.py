@@ -9195,7 +9195,7 @@ class TestSCEResetSignalsAbort:
         # _cleanup() has side effects we don't want to actually run; patch it.
         runner._cleanup = MagicMock()
 
-        runner.reset(run)
+        runner._reset(run)
 
         runner.protocol_thread.abort.assert_called_once()
 
@@ -9218,7 +9218,7 @@ class TestSCEResetSignalsAbort:
         runner.protocol_thread.is_running = True
         runner._cleanup = MagicMock()
 
-        runner.reset(run)
+        runner._reset(run)
 
         runner.protocol_thread.abort.assert_called_once()
         runner._cleanup.assert_not_called()
@@ -9241,7 +9241,7 @@ class TestSCEResetSignalsAbort:
         runner.protocol_thread.is_running = False
         runner._cleanup = MagicMock()
 
-        runner.reset(run)
+        runner._reset(run)
 
         runner.protocol_thread.abort.assert_called_once()
         runner._cleanup.assert_not_called()
@@ -9285,7 +9285,7 @@ class TestSCEResetSignalsAbort:
         runner._cleanup = MagicMock()
 
         with pytest.raises(RunAlreadyEndedError):
-            runner.reset(None)
+            runner._reset(None)
 
         runner.protocol_thread.abort.assert_not_called()
         runner._cleanup.assert_not_called()
@@ -10411,7 +10411,7 @@ class TestAutoGainArmedInScanIterate:
         from tests.protocol_drives import protocol_step, run_loop_ready_runner
 
         runner = run_loop_ready_runner(protocol_step(Auto_Gain=True), n_scans=2)
-        runner._run_loop_executor.run_loop(runner.run_outcome())
+        runner._run_loop_executor.run_loop(runner._last_run())
         assert runner._scan_count == 2, 'both scans must complete'
         assert len(self._queued_ag_applies(runner)) == 2, (
             'each scan must arm AG once -- the armed-step guard must reset '
@@ -12741,7 +12741,7 @@ class TestRemainingScansAtomicSnapshot:
         assert runner.progress_snapshot() == (10, 3)
         assert runner.num_scans() == 10
         assert runner.scan_count() == 3
-        assert runner.remaining_scans() == 7
+        assert runner._remaining_scans() == 7
 
     def test_advance_scan_count_increments_and_returns_new_value(self):
         runner = self._make_runner()
@@ -12750,7 +12750,7 @@ class TestRemainingScansAtomicSnapshot:
         assert runner.advance_scan_count() == 1
         assert runner.advance_scan_count() == 2
         assert runner.scan_count() == 2
-        assert runner.remaining_scans() == 3
+        assert runner._remaining_scans() == 3
 
     def test_remaining_scans_blocks_on_the_writer_lock(self):
         """A correctly-locked reader serializes behind the lock the worker
@@ -12768,7 +12768,7 @@ class TestRemainingScansAtomicSnapshot:
 
         def reader():
             started.set()
-            result.append(runner.remaining_scans())
+            result.append(runner._remaining_scans())
 
         with runner._protocol_state_lock:
             t = threading.Thread(target=reader)

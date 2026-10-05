@@ -69,7 +69,7 @@ class TestProtocolRunLoopNoCacheClearingLedsOffAtScanStart:
             return MagicMock()
 
         runner._io_executor.protocol_put.side_effect = recording_put
-        runner._run_loop_executor.run_loop(runner.run_outcome())
+        runner._run_loop_executor.run_loop(runner._last_run())
         assert 'go_to_step' in events, 'the scan must reach go_to_step'
         before_step_zero = events[: events.index('go_to_step')]
         assert 'leds_off' not in before_step_zero, (

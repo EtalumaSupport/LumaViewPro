@@ -59,7 +59,7 @@ def _start_run(executor, tmp_path):
 
 
 def _stop_the_run_being_started(executor):
-    executor.reset(executor.run_outcome())
+    executor._reset(executor._last_run())
 
 
 def _inject_at_setup_run_dir(executor, monkeypatch):

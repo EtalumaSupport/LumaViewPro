@@ -94,7 +94,7 @@ class ProtocolRunLoop:
         diverge.
         """
         p = self._p
-        return p.remaining_scans() > 0 and not p._aborted.is_set()
+        return p._remaining_scans() > 0 and not p._aborted.is_set()
 
     def _enter_inter_scan_idle(self):
         """Guarantee the sample is dark before the inter-scan period wait.
@@ -210,7 +210,7 @@ class ProtocolRunLoop:
                         return ending
 
                 # Check if we've completed all scans
-                remaining_scans = p.remaining_scans()
+                remaining_scans = p._remaining_scans()
                 if remaining_scans <= 0:
                     return RUN_COMPLETED
 

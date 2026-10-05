@@ -168,21 +168,21 @@ class RunHandle:
             ProtocolRunRefusedError: reason 'run_not_live' -- another run
                 is live and this one is not it.
         """
-        self._engine.reset(self)
+        self._engine._reset(self)
 
     @property
     def is_live(self) -> bool:
-        return self._engine.is_live_run(self)
+        return self._engine._is_live_run(self)
 
     @property
     def is_stopping(self) -> bool:
         """Live, and a Stop of it accepted: True until its teardown finishes."""
-        return self._engine.is_stopping(self)
+        return self._engine._is_stopping(self)
 
     @property
     def is_last_run(self) -> bool:
         """Whether this is the engine's most recent run, live or finished."""
-        return self._engine.run_outcome() is self
+        return self._engine._last_run() is self
 
     @property
     def run_dir(self) -> pathlib.Path | None:
@@ -191,7 +191,7 @@ class RunHandle:
     @property
     def step_number(self) -> int | None:
         """The step executing now, counted from 1; None once this run is not live."""
-        return self._engine.live_run_value(self, self._engine._step_number)
+        return self._engine._live_run_value(self, self._engine._step_number)
 
     @property
     def num_steps(self) -> int | None:
@@ -201,16 +201,16 @@ class RunHandle:
         never holds the protocol the member built, so a count it made from
         settings could disagree with the run.
         """
-        return self._engine.live_run_value(self, self._engine._num_steps)
+        return self._engine._live_run_value(self, self._engine._num_steps)
 
     @property
     def remaining_scans(self) -> int | None:
-        return self._engine.live_run_value(self, self._engine.remaining_scans)
+        return self._engine._live_run_value(self, self._engine._remaining_scans)
 
     @property
     def interval(self) -> datetime.timedelta | None:
         """This run's scan period; None once it is not live."""
-        return self._engine.live_run_value(self, self._engine.protocol_interval)
+        return self._engine._live_run_value(self, self._engine._protocol_interval)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -440,7 +440,7 @@ class SequencedCaptureRunner:
         self._reset_scan_state()
         # _n_scans and _scan_count are the cross-thread progress pair, read
         # together under _protocol_state_lock by progress_snapshot(). Zero them
-        # under the same lock so a concurrent remaining_scans() poll during run
+        # under the same lock so a concurrent _remaining_scans() poll during run
         # re-init cannot observe a half-reset pair (n_scans already 0 while
         # scan_count still holds the prior run's value -> negative remaining).
         with self._protocol_state_lock:
@@ -524,7 +524,7 @@ class SequencedCaptureRunner:
         with self._protocol_state_lock:
             return self._scan_count
 
-    def remaining_scans(self) -> int:
+    def _remaining_scans(self) -> int:
         n_scans, scan_count = self.progress_snapshot()
         return n_scans - scan_count
 
@@ -583,7 +583,7 @@ class SequencedCaptureRunner:
 
         return True
 
-    def reset(self, run: 'RunHandle | None') -> None:
+    def _reset(self, run: 'RunHandle | None') -> None:
         """Stop *run*, the object its start() returned. Non-blocking for the caller.
 
         Anyone may stop the live run, and the stop names the run rather
@@ -726,7 +726,7 @@ class SequencedCaptureRunner:
         if writer is not None:
             writer.discard_video_pending()
 
-    def protocol_interval(self):
+    def _protocol_interval(self):
         # None before the first run: a status poller may ask before any
         # protocol is loaded, and an AttributeError from a getter is a
         # crash in a UI handler, not an answer.
@@ -748,7 +748,7 @@ class SequencedCaptureRunner:
         already; before this they each printed a literal instead, so a
         user turned away from a Z-stack by their own protocol read "a
         protocol run is already in progress" and had to guess which
-        control to go back to. The stop refusal in reset() has always
+        control to go back to. The stop refusal in _reset() has always
         named it; this is that sentence's other half.
 
         Falls back to the indefinite form rather than printing None: a
@@ -1434,7 +1434,8 @@ class SequencedCaptureRunner:
             # refusals: a refused start leaves no outcome object at all, so a
             # caller that never started a run cannot wait on one. It must
             # exist BEFORE the run leaves IDLE, because leaving IDLE is
-            # what lets reset() drive cleanup into a finally that reads it.
+            # what lets a Stop be accepted, and the teardown's finally
+            # settles this outcome.
             #
             # Bound to a local as well, and the local is what start() returns:
             # a caller then holds the outcome belonging to the run it actually
@@ -1687,7 +1688,7 @@ class SequencedCaptureRunner:
         the run's phase. ERROR counts as live deliberately: it is
         written on three in-run paths and cleanup holds it through the
         whole teardown, so an answer that excluded it would tell a
-        shutdown the run was already idle and make reset() and
+        shutdown the run was already idle and make _reset() and
         force_reset() silently return with a run still unwinding.
 
         Lock-free, like the flag it replaces. Callers whose decision
@@ -1914,7 +1915,7 @@ class SequencedCaptureRunner:
             )
             outcome.force_resolve('cleanup_error', fallback=ending)
 
-    def run_outcome(self) -> 'RunHandle | None':
+    def _last_run(self) -> 'RunHandle | None':
         """The live or last run's handle, or None when no run has started."""
         return getattr(self, '_run_handle', None)
 
@@ -1975,7 +1976,7 @@ class SequencedCaptureRunner:
         )
         notifications.report_outcome(stalled, solicited=False, category='Protocol')
 
-    def is_live_run(self, run: 'RunHandle | None') -> bool:
+    def _is_live_run(self, run: 'RunHandle | None') -> bool:
         """Whether *run* -- the object a start() returned -- is the live run.
 
         What a stop control asks to decide that a click means Stop: the
@@ -1984,7 +1985,7 @@ class SequencedCaptureRunner:
         with self._run_lock:
             return self._is_live_run_locked(run)
 
-    def is_stopping(self, run: 'RunHandle | None') -> bool:
+    def _is_stopping(self, run: 'RunHandle | None') -> bool:
         """Whether *run* is live and a Stop of it has been accepted.
 
         A stopped run stays live until its teardown finishes -- the LEDs,
@@ -2013,7 +2014,7 @@ class SequencedCaptureRunner:
                 return False
             return not self._is_live_run_locked(run)
 
-    def live_run_value(self, run: RunHandle, read: typing.Callable[[], T]) -> T | None:
+    def _live_run_value(self, run: RunHandle, read: typing.Callable[[], T]) -> T | None:
         """*read*'s answer while *run* is the live run; None once it is not.
 
         One hold of the run lock across the liveness read and *read*, so a
