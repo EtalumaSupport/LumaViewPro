@@ -2530,12 +2530,13 @@ class ScopeSession:
     def set_acceleration_limit(self, val_pct: int) -> None:
         """Set the motors' acceleration limit, as a percent of the firmware's maximum, and store it.
 
-        The one writer of ``motion.acceleration_max_pct``: stored only once
-        the motor controller took it.
+        The one writer of ``motion.acceleration_max_pct``. With a motor
+        controller, stored once it took the value; with none, nothing is
+        commanded and the value is stored.
 
         Raises:
-            ValueError: ``val_pct`` is outside the percentage range the
-                driver accepts. Nothing is stored.
+            ValueError: ``val_pct`` is outside the range the motion API
+                accepts, on every board. Nothing is stored.
         """
         self.scope.motion.set_acceleration_limit(val_pct=val_pct)
         with self.settings_lock:

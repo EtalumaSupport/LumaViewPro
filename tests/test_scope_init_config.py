@@ -12,7 +12,8 @@ those expectations is pinned in `tests/test_bring_up_is_a_record.py`.
 import pytest
 
 from modules.scope_init_config import ScopeInitConfig
-from drivers.motorboard import ACCELERATION_PCT_MAX, ACCELERATION_PCT_MIN, MotorBoard
+from modules.lumascope_api._constants import ACCELERATION_PCT_MAX, ACCELERATION_PCT_MIN
+from tests.scope_fakes import build_scope
 
 
 # ---------- ScopeInitConfig.from_settings ----------
@@ -194,8 +195,8 @@ class TestAccelerationBound:
         config = ScopeInitConfig.from_settings(settings, labware=None, turreted=False)
         assert ACCELERATION_PCT_MIN <= config.acceleration_pct <= ACCELERATION_PCT_MAX
 
-    def test_the_bound_is_the_drivers_own_rather_than_a_second_copy(self):
-        """The clamp here and the driver's rejection read the same constants.
+    def test_the_bound_is_the_apis_own_rather_than_a_second_copy(self):
+        """The clamp here and the motion API's refusal read the same constants.
 
         Asserted as a pairing rather than against the numbers: a future edit
         that hand-copies 1 and 100 into either side would still satisfy a
@@ -206,8 +207,6 @@ class TestAccelerationBound:
         config = ScopeInitConfig.from_settings(settings, labware=None, turreted=False)
         assert config.acceleration_pct == ACCELERATION_PCT_MAX
 
-        board = MotorBoard.__new__(MotorBoard)
+        scope = build_scope(simulate=True)
         with pytest.raises(ValueError):
-            MotorBoard.set_acceleration_limit(
-                board, axis='X', parameter='acceleration', val_pct=ACCELERATION_PCT_MAX + 1
-            )
+            scope.motion.set_acceleration_limit(val_pct=ACCELERATION_PCT_MAX + 1)

@@ -413,7 +413,7 @@ session.scope.settings_template                # every setting there is, with it
 session.set_high_conversion_gain(True)        # the camera takes it, then it is stored; False: neither
 session.set_line_noise_reduction(True)        # likewise for the line-noise filter
 session.set_scale_bar(True)                   # the capture overlay and its setting, together
-session.set_acceleration_limit(80)            # the motors take it, then it is stored (ValueError: neither)
+session.set_acceleration_limit(80)            # 1-100 or ValueError, nothing stored; the motors take it (if any), then it is stored
 session.save_bookmark(('X', 'Y'))             # the live position as the bookmark: X/Y plate mm, Z um
 session.save_all_bookmarks()                  # the live Z as the Z bookmark and every layer's focus
 session.save_settings(force=True)             # persist to data/current.json (raises if refused)
@@ -1106,7 +1106,7 @@ scope.motion.get_actual_position('Z')            # hardware position via serial 
 scope.motion.stop_motion()                       # stop all in-flight moves (the app-level abort for the move_* family)
 # A STOP the board did not take raises MotorStopFailedError (title 'Motor Stop
 # Failed', chained from the driver's error): the stage may still be moving.
-scope.motion.set_acceleration_limit(50)          # motor acceleration cap, percent of max
+scope.motion.set_acceleration_limit(50)          # motor acceleration cap, percent of max (1-100, else ValueError on every board)
 scope.motion.set_precision_mode('Z', True)       # per-axis precision mode on the motor board
 
 # Absolute moves (µm)

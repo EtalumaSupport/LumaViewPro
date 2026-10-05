@@ -5,9 +5,12 @@ from dataclasses import dataclass
 import modules.binning as binning
 import modules.image_mode as image_mode
 import modules.layer_record as layer_record
-from drivers.motorboard import ACCELERATION_PCT_MAX, ACCELERATION_PCT_MIN
 from modules.exceptions import ConfigError
-from modules.lumascope_api._constants import is_turret_slot
+from modules.lumascope_api._constants import (
+    ACCELERATION_PCT_MAX,
+    ACCELERATION_PCT_MIN,
+    is_turret_slot,
+)
 from lvp_logger import logger
 
 

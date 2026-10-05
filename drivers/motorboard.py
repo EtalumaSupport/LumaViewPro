@@ -60,15 +60,6 @@ _ZHOME_REPLY_TIMEOUT_S = 30.0
 _THOME_REPLY_TIMEOUT_S = 45.0
 _HOME_REPLY_TIMEOUT_S = 100.0
 
-# The acceleration limit a caller may ask for, as a percentage of the
-# firmware's own maximum. Public because callers that build a value BEFORE a
-# board is connected -- a settings load, a headless session -- have to bound it
-# against the same numbers the driver rejects on, and a second copy of a pair
-# like this drifts silently: the widget that used to hold it is how an
-# out-of-range value reached the driver in the first place.
-ACCELERATION_PCT_MIN = 1
-ACCELERATION_PCT_MAX = 100
-
 # What every consumer gets when FULLINFO is missing, unsupported, or
 # unparseable. Every key the parsed record has, so a caller reading a
 # field off a fallback record gets a safe answer instead of a KeyError.
@@ -634,21 +625,16 @@ class MotorBoard(SerialBoard):
         Args:
             axis: Axis letter ('X' or 'Y').
             parameter: ``'acceleration'`` or ``'deceleration'``.
-            val_pct: Percentage of the maximum (1-100, inclusive).
+            val_pct: Percentage of the maximum. The range is the API's: it
+                refuses a value outside it before any board is commanded,
+                so the simulated and absent boards refuse it too.
 
         Raises:
             NotImplementedError: ``axis`` or ``parameter`` is not
                 supported.
-            ValueError: ``val_pct`` is outside [1, 100].
         """
         if not self._acceleration_validate_inputs(axis=axis, parameter=parameter):
             return
-
-        if (val_pct < ACCELERATION_PCT_MIN) or (val_pct > ACCELERATION_PCT_MAX):
-            raise ValueError(
-                f'Acceleration limit of {val_pct}% is out of bounds. '
-                f'Must be between {ACCELERATION_PCT_MIN} and {ACCELERATION_PCT_MAX}.'
-            )
 
         limit = self.acceleration_limit(axis=axis, parameter=parameter)
         setpoint = round(limit * (val_pct / 100))
@@ -674,11 +660,7 @@ class MotorBoard(SerialBoard):
         """Apply ``val_pct`` to acceleration + deceleration on every axis.
 
         Args:
-            val_pct: Percentage of the maximum (1-100, inclusive).
-
-        Raises:
-            ValueError: ``val_pct`` is outside [1, 100] (raised by
-                ``set_acceleration_limit``).
+            val_pct: Percentage of the maximum, as ``set_acceleration_limit``.
         """
         config = self._acceleration_supported_info()
         for axis in config['axes']:

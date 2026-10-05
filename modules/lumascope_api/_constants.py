@@ -38,6 +38,13 @@ MOTOR_POSITION_LIMIT = 1_000_000  # 1 meter in um
 TURRET_SLOT_MIN = 1
 TURRET_SLOT_MAX = 4
 
+# The acceleration limit a caller may ask for, as a percentage of the
+# firmware's own maximum. The API refuses outside it before any board is
+# commanded: held in the real motor driver alone, the simulated and absent
+# boards took any number and the Session stored it.
+ACCELERATION_PCT_MIN = 1
+ACCELERATION_PCT_MAX = 100
+
 
 def is_turret_slot(position: object) -> bool:
     """Whether ``position`` names a turret slot.

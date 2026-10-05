@@ -59,9 +59,9 @@ try:
     for bad in (0, 250, -5):
         try:
             mo.set_acceleration_limit(val_pct=bad)
-            _common.void(f'acceleration {bad}% refused', False, 'accepted')
-        except Exception as e:
-            _common.void(f'acceleration {bad}% refused', True, f'{type(e).__name__}: {e}')
+            _common.ok(f'acceleration {bad}% refused', False, 'accepted')
+        except ValueError as e:
+            _common.ok(f'acceleration {bad}% refused', True, f'{type(e).__name__}: {e}')
     s.set_acceleration_limit(50)
     _common.ok(
         'acceleration stored', s.get_settings_snapshot()['motion']['acceleration_max_pct'] == 50

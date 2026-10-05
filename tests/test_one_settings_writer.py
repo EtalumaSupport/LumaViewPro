@@ -177,17 +177,21 @@ def test_the_scale_bar_overlay_and_its_setting_change_together(session):
     assert session.settings['scale_bar']['enabled'] is False
 
 
-def test_an_acceleration_the_motors_refuse_is_not_stored(session, monkeypatch):
+def test_an_acceleration_out_of_range_is_refused_and_not_stored(session):
     session.set_acceleration_limit(60)
     assert session.settings['motion']['acceleration_max_pct'] == 60
-
-    def refuse(val_pct):
-        raise ValueError(f'{val_pct} is not a percentage')
-
-    monkeypatch.setattr(session.scope.motion, 'set_acceleration_limit', refuse)
     with pytest.raises(ValueError):
         session.set_acceleration_limit(500)
     assert session.settings['motion']['acceleration_max_pct'] == 60
+
+
+def test_an_acceleration_out_of_range_is_refused_with_no_motor_controller(session, monkeypatch):
+    monkeypatch.setattr(type(session.scope), 'motor_connected', property(lambda self: False))
+    session.set_acceleration_limit(37)
+    assert session.settings['motion']['acceleration_max_pct'] == 37
+    with pytest.raises(ValueError):
+        session.set_acceleration_limit(500)
+    assert session.settings['motion']['acceleration_max_pct'] == 37
 
 
 def test_a_bookmark_is_the_live_position_in_the_go_to_frame(session):
