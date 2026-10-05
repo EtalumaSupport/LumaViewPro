@@ -11,7 +11,11 @@ written to answer.
 Run on a Mac with the LS720's 6110 on USB and nothing else holding its
 port (no LumaViewPro running):
 
-    python3 -m pytest tests/test_tmcm6110_hardware.py --run-tmcm6110-hardware -s --driver-log
+    python3 -m pytest tests/test_tmcm6110_hardware.py --run-hardware --run-tmcm6110-hardware \
+        -s --driver-log -p no:randomly
+
+``--run-hardware`` lets a test reach a real serial port at all. The
+``SAP 1`` test moves X's origin; every test after it homes first.
 
 Each test writes what it read to ``$TMCM6110_RECORD_DIR`` (default
 ``build/tmcm6110_bench_<date>/``) as ``<test>.json``, for the bench record.
@@ -20,9 +24,9 @@ The lid and supply test reads the inputs in the state the operator states in
 ``TMCM6110_EXPECT`` (``lid=closed,power=on`` and so on) and checks the board
 reads that state; run it once per state.
 
-The motion tests home the stage first, and move only well inside the travel
-an LS720 is known to have. The last one sets X's actual position to 0 with
-``SAP 1``, so the stage must be homed again before any later use.
+The motion tests home the stage first. Rows 2 and 7 move only well inside
+the travel an LS720 is known to have; rows 5 and 6 drive onto the limit
+switches, and the far-corner home and row 6 need the plate off the stage.
 """
 
 import datetime
@@ -460,3 +464,17 @@ def test_row6_each_axis_driven_to_both_ends(board):
     for axis, end in ends.items():
         assert any(end['far']['switches'].values()), (axis, 'no switch at the far end', end)
         assert any(end['near']['switches'].values()), (axis, 'no switch at the near end', end)
+
+
+def test_row5_a_home_from_the_far_corner(board):
+    """The longest home: X and Y at the far end of their configured travel,
+    Z near its top. The plate must be off the stage."""
+    assert board.home()
+    for axis, fraction in (('Z', 0.95), ('X', 0.95), ('Y', 0.95)):
+        board.move_abs_pos(axis, board.motorconfig.travel_limit_um(axis) * fraction)
+        _wait_arrived(board, axis)
+    start = {axis: _registers(board, axis) for axis in MOTORS}
+    started = time.monotonic()
+    assert board.home()
+    seconds = round(time.monotonic() - started, 1)
+    _record('row5_home_from_far_corner', {'start': start, 'seconds': seconds})
