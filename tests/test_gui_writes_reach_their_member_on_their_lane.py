@@ -199,12 +199,14 @@ def test_the_acceleration_limit_is_written_on_the_io_lane(ctx, boundary, monkeyp
 
     monkeypatch.setattr(advanced_settings, 'submit_reported', boundary.submit_reported)
     widget = SimpleNamespace(_pending_acceleration_pct=40)
+    # The Session member commands the motors and stores what they took.
+    ctx.session.set_acceleration_limit = MagicMock()
 
     advanced_settings.AdvancedSettings._dispatch_acceleration_to_motor(widget)
 
     (submit,) = boundary.submits
     assert submit.lane is ctx.io_executor
-    ctx.scope.motion.set_acceleration_limit.assert_called_once_with(val_pct=40)
+    ctx.session.set_acceleration_limit.assert_called_once_with(40)
 
 
 def test_goto_focus_moves_z_to_the_layers_saved_focus(ctx, monkeypatch):

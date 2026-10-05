@@ -62,7 +62,7 @@ try:
             _common.void(f'acceleration {bad}% refused', False, 'accepted')
         except Exception as e:
             _common.void(f'acceleration {bad}% refused', True, f'{type(e).__name__}: {e}')
-    s.update_settings('motion.acceleration_max_pct', 50)
+    s.set_acceleration_limit(50)
     _common.ok(
         'acceleration stored', s.get_settings_snapshot()['motion']['acceleration_max_pct'] == 50
     )

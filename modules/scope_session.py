@@ -2471,6 +2471,31 @@ class ScopeSession:
     # The camera's capture settings: applied, then stored
     # ------------------------------------------------------------------
 
+    def set_scale_bar(self, enabled: bool) -> None:
+        """Draw the scale bar on captured images, or stop, and store it.
+
+        The one writer of ``scale_bar.enabled``: the imaging API's overlay
+        and the stored setting change together, so a capture never draws
+        what the settings do not say.
+        """
+        self.scope.imaging.set_scale_bar(enabled=enabled)
+        with self.settings_lock:
+            self._store_setting('scale_bar.enabled', enabled)
+
+    def set_acceleration_limit(self, val_pct: int) -> None:
+        """Set the motors' acceleration limit, as a percent of the firmware's maximum, and store it.
+
+        The one writer of ``motion.acceleration_max_pct``: stored only once
+        the motor controller took it.
+
+        Raises:
+            ValueError: ``val_pct`` is outside the percentage range the
+                driver accepts. Nothing is stored.
+        """
+        self.scope.motion.set_acceleration_limit(val_pct=val_pct)
+        with self.settings_lock:
+            self._store_setting('motion.acceleration_max_pct', val_pct)
+
     def set_high_conversion_gain(self, enabled: bool) -> bool:
         """Turn the camera's high conversion gain on or off, then store it.
 

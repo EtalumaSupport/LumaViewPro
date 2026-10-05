@@ -28,12 +28,9 @@ _MUTATORS = frozenset(
 # Each a setting that is also an instrument state, or a write that carries a
 # decision; each moves to its own Session member and its count goes to 0.
 _DIRECT_WRITE_PIN = {
-    ('ui/advanced_settings.py', 'AdvancedSettings.live_view_fps_slider'): 1,
     ('ui/advanced_settings.py', 'AdvancedSettings.update_stimulation_settings'): 1,
-    ('ui/advanced_settings.py', 'AdvancedSettings.set_acceleration_limit'): 1,
     ('ui/layer_control.py', 'LayerControl.update_stim_enable'): 3,
     ('ui/microscope_settings.py', 'MicroscopeSettings.load_settings'): 1,
-    ('ui/microscope_settings.py', 'MicroscopeSettings.update_scale_bar_state'): 1,
     ('ui/microscope_settings.py', 'MicroscopeSettings.apply_stimulation_support'): 2,
     ('ui/motion_settings.py', 'XYStageControl.ex_set_xbookmark'): 1,
     ('ui/motion_settings.py', 'XYStageControl.ex_set_ybookmark'): 1,

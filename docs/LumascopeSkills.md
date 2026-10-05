@@ -412,6 +412,8 @@ snapshot = session.get_settings_snapshot()     # a consistent copy, taken under 
 session.scope.settings_template                # every setting there is, with its shipped value
 session.set_high_conversion_gain(True)        # the camera takes it, then it is stored; False: neither
 session.set_line_noise_reduction(True)        # likewise for the line-noise filter
+session.set_scale_bar(True)                   # the capture overlay and its setting, together
+session.set_acceleration_limit(80)            # the motors take it, then it is stored (ValueError: neither)
 session.save_settings(force=True)             # persist to data/current.json (raises if refused)
 session.settings_are_provisional()            # True while current.json is unread and undecided
 session.retire_rejected_settings()            # resolve it: retire the unreadable file, saves work again
@@ -432,7 +434,7 @@ nothing is written. Its `reason` says why:
 
 | `reason` | Refused when |
 |---|---|
-| `has_member` | the setting is changed by its own Session member, named in `member`: `microscope` (`select_model`), `objective_id` (`select_objective`), `objective_confirmed` (`confirm_objective`), `turret_objectives` (`assign_turret_objective`), `protocol.labware` (`select_labware`), `image_mode` (`set_image_mode`), `binning` (`set_binning_size`), `frame` (`set_frame_size`), `camera.high_conversion_gain` (`set_high_conversion_gain`), `camera.line_noise_reduction` (`set_line_noise_reduction`), a layer's `acquire` (`set_layer_acquire`), `auto_gain` (`set_layer_auto_gain`) and `focus` (`save_focus`) |
+| `has_member` | the setting is changed by its own Session member, named in `member`: `microscope` (`select_model`), `objective_id` (`select_objective`), `objective_confirmed` (`confirm_objective`), `turret_objectives` (`assign_turret_objective`), `protocol.labware` (`select_labware`), `image_mode` (`set_image_mode`), `binning` (`set_binning_size`), `frame` (`set_frame_size`), `camera.high_conversion_gain` (`set_high_conversion_gain`), `camera.line_noise_reduction` (`set_line_noise_reduction`), `scale_bar.enabled` (`set_scale_bar`), `motion.acceleration_max_pct` (`set_acceleration_limit`), a layer's `acquire` (`set_layer_acquire`), `auto_gain` (`set_layer_auto_gain`) and `focus` (`save_focus`) |
 | `not_a_setting` | no setting has the path |
 | `block` | the path names a block of settings (`'video'`); each is written by its own path |
 | `wrong_kind` | the value is not the kind the setting holds: true/false, a number (int or float), text, or a list. A setting shipped as `null` takes any single value. A numpy scalar is refused: convert it with `float()` or `int()` |

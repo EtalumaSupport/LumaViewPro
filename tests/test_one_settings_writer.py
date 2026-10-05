@@ -166,3 +166,25 @@ def test_a_camera_mode_is_stored_only_once_the_camera_took_it(
     monkeypatch.setattr(imaging, imaging_setter, lambda value: False)
     assert getattr(session, member)(False) is False
     assert session.settings['camera'][path] is True, 'a mode the camera refused is not stored'
+
+
+def test_the_scale_bar_overlay_and_its_setting_change_together(session):
+    session.set_scale_bar(True)
+    assert session.scope.imaging.scale_bar_config['enabled'] is True
+    assert session.settings['scale_bar']['enabled'] is True
+    session.set_scale_bar(False)
+    assert session.scope.imaging.scale_bar_config['enabled'] is False
+    assert session.settings['scale_bar']['enabled'] is False
+
+
+def test_an_acceleration_the_motors_refuse_is_not_stored(session, monkeypatch):
+    session.set_acceleration_limit(60)
+    assert session.settings['motion']['acceleration_max_pct'] == 60
+
+    def refuse(val_pct):
+        raise ValueError(f'{val_pct} is not a percentage')
+
+    monkeypatch.setattr(session.scope.motion, 'set_acceleration_limit', refuse)
+    with pytest.raises(ValueError):
+        session.set_acceleration_limit(500)
+    assert session.settings['motion']['acceleration_max_pct'] == 60

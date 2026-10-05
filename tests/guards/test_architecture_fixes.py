@@ -703,7 +703,13 @@ def _gui_orchestration_counts():
                 name = fn.id
             elif isinstance(fn, _ast.Attribute):
                 chain = _attribute_chain(fn.value)
-                through_scope = 'scope' in chain or 'session' in chain or 'lumaview' in chain
+                # A member called on the Session itself is the owner doing its
+                # own step for the GUI, as it does for a headless caller; only
+                # a reach past it to the scope is the GUI orchestrating.
+                on_the_session = chain[:1] == ['session']
+                through_scope = not on_the_session and (
+                    'scope' in chain or 'session' in chain or 'lumaview' in chain
+                )
                 if (
                     fn.attr in _ORCHESTRATION_CONSTRUCTORS
                     or (fn.attr in _ORCHESTRATION_MEMBERS and through_scope)

@@ -446,17 +446,10 @@ class MicroscopeSettings(BoxLayout):
         _app_ctx.ctx.update_settings('video_as_frames', as_frames)
 
     def update_scale_bar_state(self):
-        ctx = _app_ctx.ctx
-        settings = ctx.settings
-
-        if self.ids['enable_scale_bar_btn'].state == 'down':
-            enabled = True
-        else:
-            enabled = False
+        enabled = self.ids['enable_scale_bar_btn'].state == 'down'
         gui_logger.toggle('SCALE_BAR', enabled)
-
-        ctx.lumaview.scope.imaging.set_scale_bar(enabled=enabled)
-        settings['scale_bar']['enabled'] = enabled
+        session = _app_ctx.ctx.session
+        run_reported(lambda: session.set_scale_bar(enabled), None, 'SCALE_BAR')
 
     def update_crosshairs_state(self):
         enabled = self.ids['enable_crosshairs_btn'].state == 'down'

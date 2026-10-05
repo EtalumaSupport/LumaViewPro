@@ -218,8 +218,7 @@ class AdvancedSettings(Popup):
         if fps_val > 60:
             fps_val = 0
         ctx.live_view_fps = fps_val
-        with ctx.settings_lock:
-            ctx.settings['live_view_fps'] = fps_val
+        ctx.update_settings('live_view_fps', fps_val)
         logger.info(
             f'[LVP Main  ] Live view FPS set to {"Max (uncapped)" if fps_val == 0 else fps_val}'
         )
@@ -352,22 +351,17 @@ class AdvancedSettings(Popup):
     _pending_acceleration_pct = None
 
     def set_acceleration_limit(self, val_pct):
-        """Apply acceleration limit (writes settings + dispatches motor command).
+        """Hand the acceleration limit to the Session, which commands the motors and stores it.
 
         The motor serial write goes through ``io_executor`` instead of running
         synchronously on MainThread. The slider's ``on_value`` event can fire at
         up to 60 Hz on a smooth drag -- without the executor route, every tick
-        blocks the UI on a serial write. The settings dict is still updated
-        synchronously so other UI code reading the slider sees the committed
-        value immediately.
+        blocks the UI on a serial write.
 
         The 100 ms ``Clock.create_trigger`` debounce coalesces rapid slider
         ticks into one motor write per debounce window. Final settle of the
         slider always lands on the last value the user picked.
         """
-        ctx = _app_ctx.ctx
-        with ctx.settings_lock:
-            ctx.settings['motion']['acceleration_max_pct'] = val_pct
         # Stash the most recent value; the trigger reads it when it fires.
         self._pending_acceleration_pct = int(val_pct)
         if self._acceleration_dispatch_trigger is None:
@@ -381,7 +375,7 @@ class AdvancedSettings(Popup):
         """Send the most-recent acceleration value to the motor on IO_WORKER.
 
         Reads ``self._pending_acceleration_pct`` (latest stash from
-        ``set_acceleration_limit``) and submits the motion member on the IO
+        ``set_acceleration_limit``) and submits the Session member on the IO
         lane. If the slider moved again while the trigger was
         pending, only the latest value reaches the motor -- no queued command
         burst.
@@ -390,12 +384,9 @@ class AdvancedSettings(Popup):
         if ctx is None or self._pending_acceleration_pct is None:
             return
         val_pct = self._pending_acceleration_pct
-        scope = ctx.lumaview.scope if ctx.lumaview else None
-        if scope is None:
-            return
-        motion = scope.motion
+        session = ctx.session
         submit_reported(
-            lambda: motion.set_acceleration_limit(val_pct=val_pct),
+            lambda: session.set_acceleration_limit(val_pct),
             None,
             'ACCELERATION_LIMIT',
             lane=ctx.io_executor,
