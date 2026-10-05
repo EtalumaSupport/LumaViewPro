@@ -259,6 +259,10 @@ def run(steps, shot_dir, bring_up):
     if bring_up is not None and 'timeout_s' in bring_up:
         import ui.sim_walk as _driver
         _driver._BRING_UP_TIMEOUT_S = bring_up['timeout_s']
+    if bring_up is not None and 'opens_drawer' in bring_up:
+        # What the app's bring-up does to the layer drawers: sets one open
+        # in the frame the walk starts, its expand animation still to run.
+        drawers.ids[bring_up['opens_drawer']].collapse = False
     walk = SimWalk(parse_walk(json.dumps(steps), source='fragment'), source='fragment',
                    bring_up_owes=bring_up_owes, shot_dir=pathlib.Path(shot_dir))
     walk.start()
@@ -542,3 +546,16 @@ def test_a_bring_up_that_never_finishes_stops_the_walk_before_step_1(tmp_path):
         'still owed: the saved protocol load, a displayed frame'
     ), result
     assert result['hits'] == [], result
+
+
+def test_a_press_waits_for_the_drawer_it_sits_in_to_settle(tmp_path):
+    """Bring-up opens a drawer in the frame the walk starts; the first
+    press went out while the drawer was still animating open and never
+    reached its control (triage, 2026-10-05, LS850 sim)."""
+    result = _run(
+        tmp_path,
+        [{'do': 'press', 'path': 'Drawers/hidden'}],
+        bring_up={'owes': [], 'clears_after': 0, 'opens_drawer': 'two'},
+    )
+    assert result['outcome'] == 'done', result
+    assert result['hits'] == ['hidden'], result

@@ -35,7 +35,7 @@ from kivy.app import App
 from kivy.clock import Clock
 from kivy.core.window import Window
 from kivy.tests.common import UnitTestTouch
-from kivy.uix.accordion import AccordionItem
+from kivy.uix.accordion import Accordion, AccordionItem
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.dropdown import DropDown
 from kivy.uix.modalview import ModalView
@@ -307,6 +307,19 @@ class SimWalk:
 
     def _touch(self, target, path: str):
         self._check_reachable(target, path)
+        # A drawer is where its state says it is only once its animation has
+        # run and the accordion has laid out again; a touch sent before that
+        # lands on whatever the stale layout put under it. Bring-up opens the
+        # BF drawer in the frame the walk starts, so the first press met this.
+        deadline = time.monotonic() + _WAIT_TIMEOUT_S
+        while _moving_drawers(target):
+            if time.monotonic() > deadline:
+                raise WalkStepError(
+                    f'{path}: a drawer around it was still moving after {_WAIT_TIMEOUT_S:g} s'
+                )
+            yield _POLL_S
+        # The accordion lays out on the frame after its last animation tick.
+        yield _POLL_S
         scrolled = False
         for parent in _ancestors(target):
             if isinstance(parent, ScrollView):
@@ -386,6 +399,19 @@ def _placed_by(widget):
 
 def _contains(ancestor, widget) -> bool:
     return widget is ancestor or any(p is ancestor for p in _ancestors(widget))
+
+
+def _moving_drawers(widget) -> list:
+    """The drawers of every accordion around ``widget`` not yet drawn as their ``collapse`` says."""
+    moving = []
+    for parent in _ancestors(widget):
+        if isinstance(parent, Accordion):
+            moving.extend(
+                item
+                for item in parent.children
+                if isinstance(item, AccordionItem) and item.collapse_alpha != float(item.collapse)
+            )
+    return moving
 
 
 def _ancestors(widget):
