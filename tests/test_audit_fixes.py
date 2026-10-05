@@ -2526,9 +2526,12 @@ class TestG4_MotorLogSuppression:
         """MotorBoard whose _open_serial always raises, with a recording
         logger swapped into the module. connect() is the real method."""
         import drivers.motorboard as motorboard_mod
+        import drivers.serialboard as serialboard_mod
 
         recorder = self._RecordingLogger()
         monkeypatch.setattr(motorboard_mod, 'logger', recorder)
+        # The connect failure is logged by the base class's one failure path.
+        monkeypatch.setattr(serialboard_mod, 'logger', recorder)
 
         board = motorboard_mod.MotorBoard.__new__(motorboard_mod.MotorBoard)
         board._lock = threading.RLock()
@@ -2554,12 +2557,15 @@ class TestG4_MotorLogSuppression:
         real firmware whose cable is out, so every connect() fails the way
         it does on a scope with the motor board unplugged."""
         import drivers.motorboard as motorboard_mod
+        import drivers.serialboard as serialboard_mod
 
         recorder = self._RecordingLogger()
         monkeypatch.setattr(motorboard_mod, 'logger', recorder)
+        # The connect failure is logged by the base class's one failure path.
+        monkeypatch.setattr(serialboard_mod, 'logger', recorder)
         board, _sim = _firmware_motorboard('LS850T', 'XYZT', unplugged=True)
         try:
-            # Construction already made its own attempts; make it twelve.
+            # Construction sends nothing to a board not on USB; make it twelve.
             while board._connect_fails < 12:
                 board.connect()
         finally:

@@ -75,11 +75,17 @@ class LEDBoard(SerialBoard):
         # label varies.
         self.last_command_error: dict | None = None
 
+        # A board the port search did not find, or whose connect failed, is
+        # sent nothing: the registry judges it and bring-up reports it once.
+        if not self.found:
+            return
         try:
             self.connect()
         except Exception:
             logger.error('[LED Class ] Failed to connect to LED controller')
             raise
+        if not self.is_connected():
+            return
 
         # Safety: immediately turn off all LEDs after connecting.
         # Old crashed LED firmware (pre-v3.0.4) can leave all LEDs stuck on

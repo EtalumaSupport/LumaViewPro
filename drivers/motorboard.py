@@ -144,8 +144,6 @@ class MotorBoard(SerialBoard):
         self.initial_homing_complete = False
         self.initial_t_homing_complete = False
         self._fullinfo = None
-        self._connect_fails = 0
-        self._connect_log_suppressed = False
 
         # Hardware config: the shipped defaults, with the board's per-unit
         # motorconfig.json merged over them once it is read.
@@ -167,8 +165,14 @@ class MotorBoard(SerialBoard):
 
         # 1. Build cached values from defaults
         self._rebuild_cached_values()
+        # A board the port search did not find, or whose connect failed, is
+        # sent nothing: the registry judges it and bring-up reports it once.
+        if not self.found:
+            return
         # 2. Open port, reset firmware, verify connection
         self._initial_connect()
+        if not self.is_connected():
+            return
         # 3. Load per-unit config from board, rebuild cache with real values
         self._load_board_config()
 
@@ -301,25 +305,15 @@ class MotorBoard(SerialBoard):
                 self.driver.open()
                 logger.debug('[XYZ Class ] connect() port reopened after reset')
 
-                self._connect_fails = 0
-                self._connect_log_suppressed = False
-
                 self._reset_firmware()
                 info = self.fullinfo()
                 with self._state_lock:
                     self._fullinfo = info
+                self._connect_succeeded()
 
                 logger.info('[XYZ Class ] Connected to motor controller')
             except Exception as e:
-                self._close_driver()
-                self._connect_fails += 1
-                if self._connect_fails >= 10 and not self._connect_log_suppressed:
-                    logger.critical(
-                        '[XYZ Class ] MotorBoard.connect() failed 10 times -- suppressing further connect errors (other logging continues)'
-                    )
-                    self._connect_log_suppressed = True
-                if not self._connect_log_suppressed:
-                    logger.error(f'[XYZ Class ] MotorBoard.connect() failed: {e}')
+                self._connect_failed(e)
 
     # v3.0 STUB: Motor command builders for JSON Lines protocol
     # When v3.0 is active, commands will use structured JSON format:

@@ -87,6 +87,11 @@ class SerialBoard:
         # (e.g. the construction-time LEDS_OFF/CONFIG) does not re-run the
         # full open+reset+detect sequence and re-log the same failure.
         self._last_connect_fail_time = 0.0
+        # Consecutive failed connects. After ten the failure stops logging
+        # at ERROR, so a board that stays unreachable cannot flood the
+        # error log; a successful connect resets it (per outage).
+        self._connect_fails = 0
+        self._connect_log_suppressed = False
         self._min_command_interval = 0.0  # seconds; 0 = no rate limit (subclass can override)
         self._last_command_time = 0.0
         self.baudrate = 115200
@@ -493,7 +498,7 @@ class SerialBoard:
     # ------------------------------------------------------------------
     # Connection
     # ------------------------------------------------------------------
-    def connect(self):
+    def connect(self) -> None:
         """Open serial connection, reset firmware, detect version.
 
         On a genuinely silent board (zero bytes across entire connect
@@ -506,8 +511,7 @@ class SerialBoard:
             try:
                 self._open_serial()
                 self._reset_firmware()
-                # Connected: clear the reconnect-backoff window.
-                self._last_connect_fail_time = 0.0
+                self._connect_succeeded()
                 if self.firmware_version is not None:
                     logger.info(f'{self._label} Connected (firmware v{self.firmware_version})')
                 elif self.firmware_date is not None:
@@ -527,9 +531,28 @@ class SerialBoard:
                 else:
                     logger.info(f'{self._label} Connected (legacy firmware, no version info)')
             except Exception as e:
-                self._close_driver()
-                self._last_connect_fail_time = time.monotonic()
-                logger.error(f'{self._label} connect() failed: {e}')
+                self._connect_failed(e)
+
+    def _connect_succeeded(self) -> None:
+        """Clear the reconnect-backoff window and the failure count."""
+        self._last_connect_fail_time = 0.0
+        self._connect_fails = 0
+        self._connect_log_suppressed = False
+
+    def _connect_failed(self, exc: Exception) -> None:
+        """The one failure path of every board's connect: close, arm the
+        reconnect backoff, and log, until ten failures in a row."""
+        self._close_driver()
+        self._last_connect_fail_time = time.monotonic()
+        self._connect_fails += 1
+        if self._connect_fails >= 10 and not self._connect_log_suppressed:
+            logger.critical(
+                f'{self._label} connect() failed 10 times -- suppressing further connect '
+                'errors (other logging continues)'
+            )
+            self._connect_log_suppressed = True
+        if not self._connect_log_suppressed:
+            logger.error(f'{self._label} connect() failed: {exc}')
 
     def disconnect(self):
         """Close serial connection and clear cached state."""
