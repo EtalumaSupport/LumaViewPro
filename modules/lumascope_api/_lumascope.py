@@ -50,7 +50,6 @@ from modules.exceptions import (
     FrameRefittedNotice,
     CameraNotAvailableError,
     CameraSettingRejected,
-    ImageModeSubstitutedNotice,
     LedBoardUnavailableError,
     LedSafetyOffNotTakenError,
     NoHardwareDetectedNotice,
@@ -959,26 +958,16 @@ class Lumascope:
         # push that the image-mode spinner enqueues -- removes the race where
         # the format lands after streaming begins and forces a redundant
         # grab-loop restart. The spinner handler returns early during init.
-        # A saved 12-bit mode on a camera with no 12-bit format is the same
-        # case as the binning above: the camera decides what it can deliver,
-        # and the substitution is on the record. Only against a connected
-        # camera: with none, no formats are reported and nothing is known
-        # about what the mode needs.
-        mode = config.image_mode
-        formats = self.imaging.get_supported_pixel_formats()
-        if self.camera_connected and mode not in image_mode.available_modes(formats):
-            used = image_mode.IMAGE_MODE_8BIT
-            self._bring_up_substitutions.append(Substitution('image_mode', saved=mode, used=used))
-            notifications.report_outcome(
-                ImageModeSubstitutedNotice(
-                    image_mode.IMAGE_MODE_LABELS[mode], image_mode.IMAGE_MODE_LABELS[used]
-                ),
-                solicited=False,
-                category='Camera',
-            )
-            mode = used
+        # The saved mode runs as saved on every camera: a mode is a save
+        # policy (reduce to 8 bits, or keep the depth the frame has), and the
+        # format is chosen from the ones this camera reports -- its 12-bit
+        # format where it has one, else its own 8-bit format, which a
+        # full-depth mode keeps at the depth delivered. Nothing is
+        # substituted. None means no camera reported formats, as before:
+        # there is nothing to apply until one does.
         pixel_format = image_mode.select_capture_pixel_format(
-            image_mode.resolve_image_mode(mode)['capture_depth'], formats
+            image_mode.resolve_image_mode(config.image_mode)['capture_depth'],
+            self.imaging.get_supported_pixel_formats(),
         )
         if pixel_format is not None:
             try:

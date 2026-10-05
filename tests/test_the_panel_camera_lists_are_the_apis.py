@@ -54,19 +54,6 @@ def test_a_raise_from_the_binning_read_is_not_turned_into_a_list(monkeypatch):
     assert panel.ids['binning_spinner'].values is None
 
 
-def test_a_raise_from_the_pixel_format_read_is_not_turned_into_8_bit(monkeypatch):
-    def _defect():
-        raise RuntimeError('a defect')
-
-    imaging = types.SimpleNamespace(get_supported_pixel_formats=_defect)
-    cls, panel = _panel_with(monkeypatch, imaging)
-    panel._supported_pixel_formats = lambda: cls._supported_pixel_formats(panel)
-
-    with pytest.raises(RuntimeError):
-        cls.load_image_modes(panel)
-    assert panel.ids['image_mode_spinner'].values is None
-
-
 def test_a_camera_profile_defect_is_not_turned_into_one_size(monkeypatch):
     """Behind the panel the API answered [1] for a profile it could not read.
 

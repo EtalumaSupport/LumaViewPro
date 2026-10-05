@@ -57,6 +57,7 @@ class TestRunnerHyperstackTrigger:
             has_turret=False,
             tiling_configs_file_loc=tmp_path / 'data' / 'tiling.json',
             wait_for_images=ANY,
+            save_encoding='8bit',
         )
 
     def test_a_held_batch_builds_nothing_and_reports_the_timeout(self, tmp_path, monkeypatch):
@@ -119,7 +120,11 @@ class TestRunnerHyperstackTrigger:
             build_fn()
 
         build.assert_called_once_with(
-            run_dir=tmp_path, has_turret=False, tiling_configs_file_loc=armed, wait_for_images=ANY
+            run_dir=tmp_path,
+            has_turret=False,
+            tiling_configs_file_loc=armed,
+            wait_for_images=ANY,
+            save_encoding='8bit',
         )
         # The images it waits for are its own run's, not the successor's.
         build.call_args.kwargs['wait_for_images']()

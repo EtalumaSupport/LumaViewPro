@@ -550,7 +550,11 @@ class TestImageModeMirrorAgreesWithTheStore:
                 'gui_logger': log,
             },
         )
-        fake_self = SimpleNamespace(ids=ids, _refresh_binning_depth_hint=lambda: None)
+        fake_self = SimpleNamespace(
+            ids=ids,
+            _refresh_binning_depth_hint=lambda: None,
+            _refresh_jpg_depth_hint=lambda: None,
+        )
         return (lambda: fn(fake_self)), settings, scope_display, ids, log
 
     def test_every_mode_the_mirror_can_hold_resolves_to_itself(self):

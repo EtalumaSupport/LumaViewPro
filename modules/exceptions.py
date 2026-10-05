@@ -358,25 +358,6 @@ class FrameRefittedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an 
         )
 
 
-class ImageModeSubstitutedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
-    """The saved image mode needs a pixel depth this camera lacks; bring-up used one it has.
-
-    Attributes:
-        saved: The saved mode's label.
-        used: The label of the mode bring-up started in.
-    """
-
-    title = 'Image mode not supported'
-    reason = 'image_mode_substituted'
-
-    def __init__(self, saved: str, used: str):
-        super().__init__(
-            f'This camera does not support the saved {saved} image mode; it runs in {used} instead.'
-        )
-        self.saved = saved
-        self.used = used
-
-
 class StoredSettingReplacedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
     """Saved settings no write could store, replaced by the shipped values at load.
 

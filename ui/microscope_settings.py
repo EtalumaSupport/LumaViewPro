@@ -169,18 +169,12 @@ class MicroscopeSettings(BoxLayout):
         # label + stage redraw, in that order).
         self.reconfigure_for_scope()
 
-        # Image mode selector: populate the options from the camera's
-        # capability, then show the mode bring-up resolved. A stored
-        # 12-bit mode on an 8-bit-only camera was substituted at bring-up,
-        # which said so; the record carries what it used.
+        # Image mode selector: every mode on every camera, showing the stored
+        # one, which bring-up ran as saved.
         # Setting the spinner text fires select_image_mode (on_text), which
         # caches the mode and applies the pixel format.
         self.load_image_modes()
         mode = image_mode.resolve_settings_image_mode(settings)
-        substituted = ctx.session.bring_up_record().substitution('image_mode')
-        if substituted is not None:
-            mode = substituted.used
-            settings['image_mode'] = mode
         self.ids['image_mode_spinner'].text = image_mode.IMAGE_MODE_LABELS[mode]
 
         self.ids['live_image_output_format_spinner'].text = settings['image_output_format']['live']
@@ -340,20 +334,9 @@ class MicroscopeSettings(BoxLayout):
 
             _app_ctx.ctx.scope_display.use_bullseye = False
 
-    def _supported_pixel_formats(self):
-        """The active camera's supported pixel formats; empty without a camera."""
-        return _app_ctx.ctx.lumaview.scope.imaging.get_supported_pixel_formats()
-
     def load_image_modes(self):
-        """Populate the image-mode spinner with the modes this camera supports.
-
-        A camera without Mono12/Mono12p offers 8-bit only, so the 12-bit
-        options never appear where they cannot work. Returns the queried
-        formats so the load-time sync can reuse them.
-        """
-        formats = self._supported_pixel_formats()
-        self.ids['image_mode_spinner'].values = image_mode.available_mode_labels(formats)
-        return formats
+        """Populate the image-mode spinner: every mode, on every camera."""
+        self.ids['image_mode_spinner'].values = image_mode.available_mode_labels()
 
     # Drives the 8-bit binning depth-loss hint row; the row height follows the
     # label's wrapped texture so the multi-line warning is not clipped.
@@ -371,6 +354,20 @@ class MicroscopeSettings(BoxLayout):
         binning_size = self._ui_binning_size()
         self.binning_depth_hint_active = image_mode.depth_truncation_warning_active(
             binning_size, scope_display.image_mode
+        )
+
+    # Drives the JPG depth hint row: the API's predicate, rendered.
+    jpg_depth_hint_active = BooleanProperty(False)
+
+    def _refresh_jpg_depth_hint(self):
+        """Show the JPG depth hint when a full-depth mode is paired with a JPG output."""
+        settings = _app_ctx.ctx.settings
+        self.jpg_depth_hint_active = image_mode.jpg_depth_warning_active(
+            image_mode.resolve_settings_image_mode(settings),
+            (
+                settings['image_output_format']['live'],
+                settings['image_output_format']['sequenced'],
+            ),
         )
 
     def select_image_mode(self):
@@ -409,6 +406,7 @@ class MicroscopeSettings(BoxLayout):
             gui_logger.note_write_back('IMAGE_MODE', mode)
             self.ids['image_mode_spinner'].text = label
         self._refresh_binning_depth_hint()
+        self._refresh_jpg_depth_hint()
 
     def select_live_image_output_format(self):
         fmt = self.ids['live_image_output_format_spinner'].text
@@ -422,6 +420,7 @@ class MicroscopeSettings(BoxLayout):
             None,
             'LIVE_IMAGE_OUTPUT_FORMAT',
         )
+        self._refresh_jpg_depth_hint()
         # The JPG-quality row's visibility (and disabled state) follows the
         # selected format declaratively in lumaviewpro.kv (jpg_quality_row binds
         # to live_image_output_format_spinner.text), so no toggle is needed here.
@@ -444,6 +443,7 @@ class MicroscopeSettings(BoxLayout):
             None,
             'SEQUENCED_IMAGE_OUTPUT_FORMAT',
         )
+        self._refresh_jpg_depth_hint()
 
     def select_video_recording_format(self) -> None:
         gui_logger.select('VIDEO_RECORDING_FORMAT', self.ids['video_recording_format_spinner'].text)

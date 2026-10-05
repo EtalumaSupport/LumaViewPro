@@ -156,6 +156,7 @@ class TestVideoWellStackBuild:
             path=tmp_path,
             df=group.reset_index(drop=True),
             output_file_loc=pathlib.Path('out.ome.tiff'),
+            save_encoding='right_aligned',
         )
 
         assert result.status, f'video-well stack build failed: {result.error}'
@@ -204,6 +205,7 @@ class TestVideoWellStackBuild:
             path=tmp_path,
             df=group.reset_index(drop=True),
             output_file_loc=pathlib.Path('out.ome.tiff'),
+            save_encoding='right_aligned',
         )
         assert result.status, f'stack build failed: {result.error}'
 
@@ -228,6 +230,7 @@ class TestVideoWellStackBuild:
             path=tmp_path,
             df=group.reset_index(drop=True),
             output_file_loc=pathlib.Path('out.ome.tiff'),
+            save_encoding='right_aligned',
         )
         assert result.status, f'stack build failed: {result.error}'
 
@@ -250,6 +253,7 @@ class TestVideoWellStackBuild:
             path=tmp_path,
             df=group.reset_index(drop=True),
             output_file_loc=pathlib.Path('out.ome.tiff'),
+            save_encoding='right_aligned',
         )
 
         assert not result.status

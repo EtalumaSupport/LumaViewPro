@@ -909,6 +909,7 @@ class ManualRecordingController:
             df=df,
             path=plan.save_folder,
             output_file_loc=output,
+            save_encoding=plan.save_encoding,
         )
         # The builder reports refusal in its return value rather than by
         # raising. Raise it as the typed refusal so the finish handler tells

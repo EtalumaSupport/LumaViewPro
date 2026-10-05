@@ -38,7 +38,10 @@ def _rows(*, well=None):
 
 def test_a_protocol_frame_set_is_refused_naming_its_well(tmp_path):
     result = StackBuilder._create_stack(
-        path=tmp_path, df=_rows(well='B3'), output_file_loc=pathlib.Path('out.ome.tiff')
+        path=tmp_path,
+        df=_rows(well='B3'),
+        output_file_loc=pathlib.Path('out.ome.tiff'),
+        save_encoding='right_aligned',
     )
     assert result['status'] is False
     assert 'for well B3' in result['error']
@@ -49,6 +52,7 @@ def test_a_recordings_frame_set_is_refused_naming_the_recording(tmp_path):
         path=tmp_path,
         df=_rows(),
         output_file_loc=pathlib.Path('out.ome.tiff'),
+        save_encoding='right_aligned',
         sort_order=['Scan Count'],
     )
     assert result['status'] is False

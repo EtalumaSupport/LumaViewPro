@@ -402,6 +402,10 @@ session.get_binning_size()                   # the binning factor in force, e.g.
 
 With no camera connected, `set_binning_size` and `set_frame_size` return `None` and store nothing. `set_image_mode` stores the mode for bring-up to apply.
 
+The image mode is a save policy, and every camera honours every mode. `'8bit'` reduces each frame to 8 bits. The three full-depth modes keep the payload at the depth the frame has: `'12bit_scientific'` (labelled "Full depth (scientific)") stores it right-aligned, `'12bit_scaled'` ("Full depth (scaled)") left-justifies it to fill its 16-bit container, and `'12bit_false_color_rgb'` ("Full depth RGB") writes it as false-colour RGB. The ids keep their `12bit_` names: a camera with a 12-bit format is asked for it in a full-depth mode, and an 8-bit camera (LS560/620/720) delivers 8 bits in every mode. Bring-up runs the saved mode as saved.
+
+A sum (`sum_count` > 1) is stored in a uint16 array on every camera, an 8-bit one included, so a full-depth file keeps every count: four 8-bit frames are a 10-bit sum. Under "Full depth (scaled)" a sum is left-justified like any narrow payload (a 4-sum on an 8-bit camera, tagged 10, is shifted by 6). Under "Full depth RGB" a summed channel is coloured, and an unsummed frame from an 8-bit camera is written as the 8-bit file it is. A hyperstack whose planes mix 8-bit and 16-bit files is built at 16 bits: under scientific each plane keeps its counts; under scaled and RGB each fills its container, as its own file does.
+
 ### Reading and persisting configuration
 
 ```python
@@ -961,12 +965,12 @@ record.part('led').cause                   # None, or why: 'not_detected', 'port
                                            # 'connect_failed', 'no_driver'; for the camera 'camera_in_use',
                                            # 'camera_port_in_use', 'camera_not_detected', 'camera_not_initialized';
                                            # on an LED board that came up, 'safety_off_failed'
-record.substitution('binning')             # Substitution(setting, saved, used), or None; also 'image_mode'
+record.substitution('binning')             # Substitution(setting, saved, used), or None; also 'frame'
 record.settings_set_aside                  # SettingsSetAside(path, reason) while the app runs on the shipped
                                            # template because the user's file could not be used; else None
 ```
 
-Bring-up reports these once, as outcomes, to the listener given to `create`: a camera that did not come up is a fault under its own heading (`reason` as above), an LED board missing on a scope whose other parts came up is `LedBoardUnavailableError` (`reason` the cause), a part the model has and lacks is listed in one `PartialHardwareError` (`'partial_hardware'`, each part with its cause), a refused connect-time LEDs-off is `LedSafetyOffNotTakenError`, and when nothing came up the one outcome is the notice `NoHardwareDetectedNotice` (`'no_hardware'`). A saved binning or image mode the camera cannot take is substituted and reported once as a notice (`'binning_substituted'`, `'image_mode_substituted'`); the record holds the saved value beside the one that ran. A saved frame larger than the scope delivers at the binning applied is refitted to its maximum, reported once as the notice `FrameRefittedNotice` (`'frame_refitted'`) and recorded the same way (`substitution('frame')`), and the session stores the frame that ran, so the next bring-up has nothing to refit. The session stores the binning that ran in the saved one's place, with the frame the camera delivered (the two are one geometry), and leaves the image mode saved; LumaViewPro's own GUI stores the substituted image mode when it loads, so its next save carries it. A manual scope's missing motor board is expected and reported nowhere.
+Bring-up reports these once, as outcomes, to the listener given to `create`: a camera that did not come up is a fault under its own heading (`reason` as above), an LED board missing on a scope whose other parts came up is `LedBoardUnavailableError` (`reason` the cause), a part the model has and lacks is listed in one `PartialHardwareError` (`'partial_hardware'`, each part with its cause), a refused connect-time LEDs-off is `LedSafetyOffNotTakenError`, and when nothing came up the one outcome is the notice `NoHardwareDetectedNotice` (`'no_hardware'`). A saved binning the camera cannot take is substituted and reported once as a notice (`'binning_substituted'`); the record holds the saved value beside the one that ran. A saved frame larger than the scope delivers at the binning applied is refitted to its maximum, reported once as the notice `FrameRefittedNotice` (`'frame_refitted'`) and recorded the same way (`substitution('frame')`), and the session stores the frame that ran, so the next bring-up has nothing to refit. The session stores the binning that ran in the saved one's place, with the frame the camera delivered (the two are one geometry). The image mode is never substituted: every camera honours every mode. A manual scope's missing motor board is expected and reported nowhere.
 
 ### Holding the scope for a diagnostic
 
@@ -1369,8 +1373,8 @@ image = scope.imaging.capture_and_wait(
     accept_dark=False,                     # True skips the darkness measurement
     all_ones_check=True,                   # detect saturated frames
     sum_count=4,                           # SUM 4 frames (not an average); a
-                                           # summed capture is promoted to a
-                                           # 16-bit container and clipped there
+                                           # sum is uint16 on every camera and
+                                           # saturates at 65535
     sum_delay_s=0.05,                      # delay between sum frames
     exclude_sources=('z_move',),           # don't wait for this source (AF uses this)
 )
@@ -1960,7 +1964,7 @@ frame is ``0..4095``) and declare the true depth in the OME-TIFF
 container). To render or scale such a file to 8-bit, divide by
 ``(1 << SignificantBits) - 1`` -- treating the values as full 16-bit will
 render a 12-bit frame ~16x too dark. A sum's tag is the bits it can reach
-(``SignificantBits=14`` for four 12-bit frames). ``image_utils.read_tiff_significant_bits``
+(``SignificantBits=14`` for four 12-bit frames, 10 for four 8-bit ones). ``image_utils.read_tiff_significant_bits``
 returns the tag (falling back to the container width for older files that were
 left-justified into the 16-bit range and carry no payload-depth tag).
 

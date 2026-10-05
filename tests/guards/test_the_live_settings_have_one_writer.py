@@ -30,7 +30,6 @@ _MUTATORS = frozenset(
 _DIRECT_WRITE_PIN = {
     ('ui/advanced_settings.py', 'AdvancedSettings.update_stimulation_settings'): 1,
     ('ui/layer_control.py', 'LayerControl.update_stim_enable'): 3,
-    ('ui/microscope_settings.py', 'MicroscopeSettings.load_settings'): 1,
     ('ui/microscope_settings.py', 'MicroscopeSettings.apply_stimulation_support'): 2,
     ('ui/ui_helpers.py', 'reset_stim_ui'): 1,
     ('ui/vertical_control.py', 'VerticalControl._autofocus_run_complete'): 1,

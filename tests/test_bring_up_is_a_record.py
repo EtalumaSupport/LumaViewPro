@@ -27,7 +27,6 @@ from drivers.simulated_camera import SimulatedCamera
 from modules.exceptions import (
     BinningSubstitutedNotice,
     CameraNotAvailableError,
-    ImageModeSubstitutedNotice,
     LedBoardUnavailableError,
     LedSafetyOffNotTakenError,
     NoHardwareDetectedNotice,
@@ -294,20 +293,17 @@ class TestSubstitutions:
             s.shutdown()
             s.scope.disconnect()
 
-    def test_a_saved_12_bit_mode_on_an_8_bit_camera_is_recorded_and_reported_once(
+    def test_a_saved_full_depth_mode_on_an_8_bit_camera_runs_as_saved(
         self, monkeypatch, tmp_path, heard
     ):
+        # Every mode is a save policy every camera honours: an 8-bit camera
+        # keeps the depth it delivers, so nothing is substituted or reported.
         monkeypatch.setattr(SimulatedCamera, 'get_supported_pixel_formats', lambda self: ('Mono8',))
         s = _bring_up(monkeypatch, tmp_path, microscope='LS850T', image_mode='12bit_scientific')
         try:
-            sub = s.bring_up_record().substitution('image_mode')
-            assert (sub.saved, sub.used) == ('12bit_scientific', '8bit')
-            notices = [n for n in heard if n.reason == ImageModeSubstitutedNotice.reason]
-            assert len(notices) == 1
-            assert '12-bit (scientific)' in notices[0].message
-            assert s.settings['image_mode'] == '12bit_scientific', (
-                'the saved preference stays saved'
-            )
+            assert s.bring_up_record().substitution('image_mode') is None
+            assert _outcomes(heard, OutcomeKind.NOTICE) == []
+            assert s.settings['image_mode'] == '12bit_scientific'
         finally:
             s.shutdown()
             s.scope.disconnect()

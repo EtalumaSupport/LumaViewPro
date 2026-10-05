@@ -121,43 +121,26 @@ def test_config_helper_derives_image_mode_from_settings():
 
 
 # ---------------------------------------------------------------------------
-# Capability gate: which modes a camera can offer
+# The modes offered: every one, on every camera
 # ---------------------------------------------------------------------------
 
 
-def test_available_modes_8bit_only_camera():
-    """A camera without Mono12/Mono12p (LS560/620/720 class) offers 8-bit only."""
-    from modules.image_mode import available_mode_labels, available_modes, camera_supports_12bit
+def test_available_modes_are_every_mode_in_selector_order():
+    """A mode is a save policy every camera honours, so all four are offered."""
+    from modules.image_mode import available_mode_labels, available_modes
 
-    assert camera_supports_12bit(['Mono8']) is False
-    assert available_modes(['Mono8']) == ['8bit']
-    assert available_mode_labels(['Mono8']) == ['8-bit']
-    # Empty / None capability set is treated as 8-bit-only, never as "all".
-    assert available_modes([]) == ['8bit']
-    assert available_modes(None) == ['8bit']
-
-
-def test_available_modes_12bit_camera():
-    """A Mono12-capable camera offers all four modes in selector order."""
-    from modules.image_mode import available_modes, camera_supports_12bit
-
-    assert camera_supports_12bit(['Mono8', 'Mono10', 'Mono12', 'Mono12p']) is True
-    assert available_modes(['Mono8', 'Mono12']) == [
+    assert available_modes() == [
         '8bit',
         '12bit_scientific',
         '12bit_scaled',
         '12bit_false_color_rgb',
     ]
-
-
-def test_camera_supports_12bit_ids_packed_format():
-    """The IDS packed 12-bit format counts; the packed 10-bit one does not."""
-    from modules.image_mode import camera_supports_12bit
-
-    assert camera_supports_12bit(['Mono12g24IDS']) is True
-    assert camera_supports_12bit(['Mono10g40IDS']) is False
-    # An IDS sensor exposing both still offers 12-bit (via the 12-bit entry).
-    assert camera_supports_12bit(['Mono10g40IDS', 'Mono12g24IDS']) is True
+    assert available_mode_labels() == [
+        '8-bit',
+        'Full depth (scientific)',
+        'Full depth (scaled)',
+        'Full depth RGB',
+    ]
 
 
 def test_select_capture_pixel_format_ids_no_mono8():

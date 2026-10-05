@@ -17,10 +17,7 @@ from modules import image_mode
 s, live = _common.make_session()
 try:
     im = s.scope.imaging
-    print(
-        'modes available with this camera:',
-        image_mode.available_modes(im.get_supported_pixel_formats()),
-    )
+    print('modes available (every camera):', image_mode.available_modes())
 
     # The whole capability, done by the caller (there is no API for it)
     mode = '12bit_scientific'

@@ -746,13 +746,15 @@ class ProtocolRunner:
 
         # One self-describing record per scan: the per-frame save path runs
         # thousands of times per session and cannot log its depth at info
-        # level, so a scan's capture depth / on-disk encoding is otherwise
+        # level, so a scan's pixel format / on-disk encoding is otherwise
         # recoverable only by inspecting the output file tags afterward. This
-        # line lets a support bundle state the mode the scan ran in.
+        # line lets a support bundle state the mode the scan ran in and the
+        # format the camera is delivering -- the mode's own depth is only
+        # what it asked for, and an 8-bit camera delivers 8 in every mode.
         logger.info(
             f'[Protocol] scan "{sequence_name}" '
             f'image_mode={image_capture_config.image_mode} '
-            f'capture_depth={image_capture_config.capture_depth} '
+            f'pixel_format={self.session.scope.imaging.pixel_format_cached} '
             f'save_encoding={image_capture_config.save_encoding}'
         )
 

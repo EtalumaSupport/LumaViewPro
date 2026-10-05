@@ -236,6 +236,7 @@ class TestNothingBuildsFromAFolderMissingImages:
             has_turret=False,
             tiling_configs_file_loc=tmp_path / 'tiling.json',
             wait_for_images=_abandoned,
+            save_encoding='8bit',
         )
 
         loaded.assert_not_called()

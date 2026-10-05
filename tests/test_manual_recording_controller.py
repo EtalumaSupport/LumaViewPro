@@ -606,7 +606,7 @@ def _block_the_finish(monkeypatch):
         def __init__(self, **kwargs):
             pass
 
-        def create_single_recording_stack(self, df, path, output_file_loc):
+        def create_single_recording_stack(self, df, path, output_file_loc, *, save_encoding):
             entered.set()
             release.wait(timeout=15)
             return {'status': True, 'error': None, 'metadata': {}}
@@ -764,7 +764,7 @@ def _capture_hyperstack_df(monkeypatch):
         def __init__(self, **kwargs):
             pass
 
-        def create_single_recording_stack(self, df, path, output_file_loc):
+        def create_single_recording_stack(self, df, path, output_file_loc, *, save_encoding):
             captured['df'] = df
             return {'status': True, 'error': None, 'metadata': {}}
 

@@ -3401,11 +3401,12 @@ class ImagingAPI:
                 at the display / encode boundary via
                 `image_utils.mono_to_rgb_falsecolor(img, layer)`.
 
-                Dtype is uint8 when force_to_8bit=True or for 8-bit
-                cameras; uint16 when force_to_8bit=False for 12/16-bit
-                cameras (uint16 container holds the native bit width).
-                Probe `scope.capabilities.native_bit_depth` for the
-                source depth.
+                Dtype is uint8 when force_to_8bit=True, and for a single
+                frame from an 8-bit camera; uint16 when force_to_8bit=False
+                for 12/16-bit cameras (uint16 container holds the native bit
+                width), and for a sum on every camera (its counts pass one
+                frame's range). ``capture_frame_depth`` gives the depth the
+                frame carries.
         """
 
         if not self._driver or not self._driver.active:
@@ -3633,14 +3634,16 @@ class ImagingAPI:
         if sum_count == 1:
             image = tmp if len(tmp_buffer) < 1 else tmp_buffer[0]
         else:
-            orig_dtype = tmp_buffer[0].dtype
-            max_value = np.iinfo(orig_dtype).max
+            # A sum is stored in a 16-bit container on every camera, an 8-bit
+            # one included: its counts pass any one frame's range, and the
+            # container is where they saturate.
+            container_max = np.iinfo(np.uint16).max
 
             combined = np.zeros_like(tmp_buffer[0], dtype=np.uint32)
             for img in tmp_buffer:
                 combined += img
 
-            image = np.clip(combined, None, max_value).astype(orig_dtype)
+            image = np.minimum(combined, container_max).astype(np.uint16)
 
         # One snapshot for the whole overlay decision: enabled and color must
         # come from the same configuration even if the GUI toggles mid-frame.

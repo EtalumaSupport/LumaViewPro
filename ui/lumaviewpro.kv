@@ -2448,7 +2448,7 @@
 				Label:
 					font_size: '12sp'
 					text: 'Image Mode'
-					tooltip_text: 'Pixel depth and how images are saved:\n8-bit; 12-bit scientific (right-aligned, dark in\nWindows); 12-bit scaled (bright everywhere); or\n12-bit RGB (false colour). 12-bit options appear only\non cameras that support 12-bit capture.'
+					tooltip_text: 'How images are saved: 8-bit; or at full depth,\nkeeping the pixel depth the camera delivers (and a\nsum\'s added range): scientific (right-aligned, dark\nin Windows), scaled (bright everywhere) or RGB\n(false colour).'
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
@@ -2466,13 +2466,14 @@
 				id: image_mode_jpg_hint_row
 				orientation: 'horizontal'
 				size_hint_y: None
-				# Shown only when a 12-bit mode is paired with a JPG output
-				# format: JPG is 8-bit, so it cannot carry the 12-bit capture
-				# at full depth. Collapse height + hide rather than grey out.
-				height: '30dp' if '12-bit' in image_mode_spinner.text and (live_image_output_format_spinner.text == 'JPG' or sequenced_image_output_format_spinner.text == 'JPG') else 0
-				opacity: 1 if '12-bit' in image_mode_spinner.text and (live_image_output_format_spinner.text == 'JPG' or sequenced_image_output_format_spinner.text == 'JPG') else 0
+				# Shown (toggled via jpg_depth_hint_active, the API's predicate)
+				# only when a full-depth mode is paired with a JPG output format:
+				# JPG is 8-bit, so it cannot carry the payload at full depth.
+				# Collapse height + hide rather than grey out.
+				height: '30dp' if root.jpg_depth_hint_active else 0
+				opacity: 1 if root.jpg_depth_hint_active else 0
 				Label:
-					text: 'JPG saves 8-bit; the 12-bit capture is not preserved at full depth.'
+					text: 'JPG saves 8-bit; the full-depth payload is kept only in TIFF.'
 					color: 1, 0.6, 0, 1
 					font_size: '11sp'
 					halign: 'left'
@@ -2516,7 +2517,7 @@
 				opacity: 1 if root.binning_depth_hint_active else 0
 				Label:
 					id: binning_depth_hint_label
-					text: '8-bit mode saves at 8-bit -- the added range from summing/binning is not kept. Switch to a 12-bit mode to preserve it.'
+					text: '8-bit mode saves at 8-bit -- the added range from summing/binning is not kept. Switch to a full-depth mode to preserve it.'
 					color: 1, 0.6, 0, 1
 					font_size: '11sp'
 					halign: 'left'
@@ -3254,7 +3255,7 @@
 				opacity: 1 if root.sum_depth_hint_active else 0
 				Label:
 					id: sum_depth_hint_label
-					text: '8-bit mode saves at 8-bit -- the added range from summing/binning is not kept. Switch to a 12-bit mode to preserve it.'
+					text: '8-bit mode saves at 8-bit -- the added range from summing/binning is not kept. Switch to a full-depth mode to preserve it.'
 					color: 1, 0.6, 0, 1
 					font_size: '11sp'
 					halign: 'left'

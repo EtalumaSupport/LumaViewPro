@@ -207,7 +207,7 @@ def _hyperstack_build(monkeypatch, tmp_path, answer):
     monkeypatch.setattr(stack_builder.StackBuilder, 'load_folder', _load_folder)
     # The run's images are already on disk: the wait returns at once.
     stack_builder.build_hyperstacks_for_run(
-        tmp_path, False, TILING_CONFIGS, wait_for_images=lambda: None
+        tmp_path, False, TILING_CONFIGS, wait_for_images=lambda: None, save_encoding='8bit'
     )
     return notices, reports
 

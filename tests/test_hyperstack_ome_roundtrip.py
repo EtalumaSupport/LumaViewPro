@@ -60,6 +60,7 @@ def _build(tmp_path, df, out_name='out.ome.tiff'):
         path=tmp_path,
         df=group.reset_index(drop=True),
         output_file_loc=pathlib.Path(out_name),
+        save_encoding='right_aligned',
     )
     assert result.status, f'stack build failed: {result.error}'
     with tf.TiffFile(str(tmp_path / out_name)) as tif:

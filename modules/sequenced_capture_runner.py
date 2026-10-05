@@ -1961,6 +1961,7 @@ class SequencedCaptureRunner:
                 has_turret=has_turret,
                 tiling_configs_file_loc=tiling_configs_file_loc,
                 wait_for_images=lambda: write_batch.wait_until_written(_POST_RUN_WRITES_WAIT_S),
+                save_encoding=config.save_encoding,
             ),
         )
 

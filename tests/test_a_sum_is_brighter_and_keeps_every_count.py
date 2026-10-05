@@ -1,17 +1,19 @@
-"""A sum is brighter and keeps every count (#786).
+"""A sum is brighter and keeps every count, on every camera (#786).
 
 Summing is for a brighter image, primarily in luminescence. A sum of N frames
-of b bits is tagged with the bits it can reach, N x (2^b - 1); every 8-bit
-rendering of it is drawn against one frame's white, so it looks N times
-brighter; and its saturation is measured against what it can hold, not
-against its tag's power of two. The count and the per-frame depth are the
-capture's own, recorded with the frame, so no caller restates them.
+of b bits is stored in a uint16 array on every camera, an 8-bit one included,
+tagged with the bits it can reach, N x (2^b - 1); every 8-bit rendering of it
+is drawn against one frame's white, so it looks N times brighter; and its
+saturation is measured against what it can hold, not against its tag's power
+of two. The count and the per-frame depth are the capture's own, recorded with
+the frame, so no caller restates them.
 
-Before this, a 12-bit sum was tagged 16 (rendered at about a quarter of one
-frame's brightness), and ``capture_frame_depth(image)`` after a sum answered
-one frame's depth, which the sum's values overran. A sum z-projection of
-uint8 slices was clipped at 255, and one of 12-bit slices was tagged 12 and
-failed its read-back.
+Before this, an 8-bit camera's sum was clipped to 255 (the counts lost from
+every file), a 12-bit sum was tagged 16 (rendered at about a quarter of one
+frame's brightness), ``capture_frame_depth(image)`` after a sum answered one
+frame's depth, a sum z-projection of 12-bit slices was tagged 12 and failed
+its read-back, a hyperstack mixing 8-bit and 16-bit planes was refused, and
+an 8-bit camera was offered only the 8-bit image mode.
 """
 
 from __future__ import annotations
@@ -21,12 +23,16 @@ import pathlib
 import numpy as np
 import pandas as pd
 import pytest
+import tifffile as tf
 
-from modules import image_utils, zprojection
+from modules import image_mode, image_utils, zprojection
 from modules.exceptions import FrameDepthError
 from modules.protocol_image_writer import ProtocolImageWriter
+from modules.scope_session import ScopeSession
+from modules.stack_builder import StackBuilder
 from modules.zprojector import ZProjector
 from tests.scope_fakes import build_scope
+from tests.settings_fixtures import complete_settings
 
 WHITE = {'Mono8': 255, 'Mono12': 4095}
 
@@ -88,6 +94,15 @@ def test_a_value_past_what_the_sum_can_reach_is_still_refused():
 # --- the capture --------------------------------------------------------------
 
 
+def test_an_8bit_cameras_sum_keeps_every_count(sim_camera):
+    scope = sim_camera('Mono8')
+    image = scope.imaging.get_image(force_to_8bit=False, sum_count=4)
+    assert image.dtype == np.uint16
+    assert int(image.max()) == 4 * WHITE['Mono8']
+    assert scope.imaging.capture_frame_depth(image) == 10
+    assert scope.imaging.capture_frame_full_scale(image) == 4 * WHITE['Mono8']
+
+
 def test_a_12bit_sum_renders_brighter_not_dimmer(sim_camera):
     scope = sim_camera('Mono12')
     one = scope.imaging.get_image(force_to_8bit=True, sum_count=1)
@@ -116,7 +131,7 @@ def test_the_record_carries_the_count_and_each_frames_depth(sim_camera):
     assert record.frame_significant_bits == 12
 
 
-@pytest.mark.parametrize(('pixel_format', 'frames'), [('Mono12', 3)])
+@pytest.mark.parametrize(('pixel_format', 'frames'), [('Mono8', 3), ('Mono8', 4), ('Mono12', 3)])
 def test_a_sum_of_blown_frames_reads_saturated(sim_camera, pixel_format, frames):
     scope = sim_camera(pixel_format)
     image = scope.imaging.get_image(force_to_8bit=False, sum_count=frames)
@@ -124,6 +139,53 @@ def test_a_sum_of_blown_frames_reads_saturated(sim_camera, pixel_format, frames)
     writer._scope = scope
     evidence = writer._capture_evidence(image, scope.imaging.capture_frame_full_scale(image))
     assert 'sat=100.0%' in evidence
+
+
+@pytest.fixture(scope='module')
+def ls620_session():
+    settings = complete_settings(microscope='LS620')
+    settings['image_mode'] = image_mode.IMAGE_MODE_12BIT_SCIENTIFIC
+    session = ScopeSession.create(settings, simulate=True, warn_pre_release=False)
+    yield session
+    session.shutdown()
+
+
+def test_an_ls620_sum_is_16bit_and_tagged_by_its_reach(ls620_session):
+    imaging = ls620_session.scope.imaging
+    image = imaging.capture_and_wait(
+        force_to_8bit=False, sum_count=4, accept_dark=True, timeout_s=2.0
+    )
+    assert image is not None
+    assert image.dtype == np.uint16
+    assert imaging.capture_frame_depth(image) == 10
+    assert imaging.last_capture_info['frame_record'].frame_significant_bits == 8
+
+
+def test_an_ls620_runs_the_full_depth_mode_it_was_saved_in(ls620_session):
+    assert ls620_session.settings['image_mode'] == image_mode.IMAGE_MODE_12BIT_SCIENTIFIC
+    assert ls620_session.bring_up_record().substitution('image_mode') is None
+
+
+def test_every_camera_is_offered_every_mode():
+    assert image_mode.available_modes() == [
+        image_mode.IMAGE_MODE_8BIT,
+        image_mode.IMAGE_MODE_12BIT_SCIENTIFIC,
+        image_mode.IMAGE_MODE_12BIT_SCALED,
+        image_mode.IMAGE_MODE_12BIT_FALSE_COLOR_RGB,
+    ]
+
+
+@pytest.mark.parametrize(
+    ('mode', 'formats', 'warned'),
+    [
+        ('12bit_scientific', ('JPG', 'TIFF'), True),
+        ('12bit_false_color_rgb', ('TIFF', 'JPG'), True),
+        ('12bit_scaled', ('TIFF', 'OME-TIFF'), False),
+        ('8bit', ('JPG', 'JPG'), False),
+    ],
+)
+def test_a_jpg_beside_a_full_depth_mode_is_warned(mode, formats, warned):
+    assert image_mode.jpg_depth_warning_active(mode, formats) is warned
 
 
 # --- the products -------------------------------------------------------------
@@ -202,3 +264,36 @@ def test_a_12bit_sum_projection_is_tagged_by_its_reach_and_reads_back(tmp_path):
     pixels, bits = image_utils.load_pixels(tmp_path / 'projected.tiff')
     assert bits == 14
     assert int(pixels.max()) == 12000
+
+
+@pytest.mark.parametrize(
+    ('encoding', 'unsummed', 'summed'),
+    [
+        # Scientific keeps counts: the single frame beside the 4-sum, 1:4.
+        ('right_aligned', 200, 800),
+        # Scaled fills each plane's container, as each plane's own file does.
+        ('msb_aligned', 200 << 8, 800 << 6),
+    ],
+)
+def test_a_hyperstack_of_8bit_and_16bit_planes_is_built_at_16bit(
+    tmp_path, encoding, unsummed, summed
+):
+    _write(tmp_path / 'blue.tiff', np.full((4, 4), 200, dtype=np.uint8), 8, encoding)
+    _write(tmp_path / 'lumi.tiff', np.full((4, 4), 800, dtype=np.uint16), 10, encoding, 'Lumi')
+    df = pd.DataFrame(
+        [
+            {'Filepath': 'blue.tiff', 'Color': 'Blue', 'Scan Count': 0, 'Z-Slice': 0},
+            {'Filepath': 'lumi.tiff', 'Color': 'Lumi', 'Scan Count': 0, 'Z-Slice': 0},
+        ]
+    ).assign(X=0.0, Y=0.0, Z=0.0)
+    result = StackBuilder._create_stack(
+        path=tmp_path,
+        df=df,
+        output_file_loc=pathlib.Path('stack.ome.tiff'),
+        save_encoding=encoding,
+    )
+    assert result['status'], result.get('error')
+    stack = tf.imread(str(tmp_path / 'stack.ome.tiff'))
+    assert stack.dtype == np.uint16
+    planes = sorted(int(plane.max()) for plane in stack.reshape(-1, *stack.shape[-2:]))
+    assert planes == sorted([unsummed, summed])

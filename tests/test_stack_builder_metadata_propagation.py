@@ -125,6 +125,7 @@ class TestStackBuilderPropagatesPlanePositions:
             path=tmp_path,
             df=df,
             output_file_loc=output_file_loc,
+            save_encoding='right_aligned',
         )
         assert result['status'], f'_create_stack failed: {result.get("error")}'
 
@@ -181,6 +182,7 @@ class TestStackBuilderPropagatesPlanePositions:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
+            save_encoding='right_aligned',
         )
         with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
             ome_xml = tif.ome_metadata or ''
@@ -231,6 +233,7 @@ class TestStackBuilderPropagatesPixelSizeAndChannels:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
+            save_encoding='right_aligned',
         )
         with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
             ome_xml = tif.ome_metadata or ''
@@ -273,6 +276,7 @@ class TestStackBuilderPropagatesPixelSizeAndChannels:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
+            save_encoding='right_aligned',
         )
         with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
             ome_xml = tif.ome_metadata or ''
@@ -314,6 +318,7 @@ class TestStackBuilderHandlesInputsWithoutStructuredMetadata:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
+            save_encoding='right_aligned',
         )
         assert result['status'], f'Bare-input fallback path must not crash: {result.get("error")}'
         # Output should still be a valid OME-TIFF.
@@ -358,6 +363,7 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
+            save_encoding='right_aligned',
         )
 
         recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
@@ -407,6 +413,7 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
+            save_encoding='right_aligned',
         )
 
         recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
@@ -442,6 +449,7 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
+            save_encoding='right_aligned',
         )
 
         recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
@@ -482,6 +490,7 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
+            save_encoding='right_aligned',
         )
 
         recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
@@ -585,6 +594,7 @@ class TestHyperstackChannelColor:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
+            save_encoding='right_aligned',
         )
 
         with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
@@ -631,6 +641,7 @@ class TestHyperstackChannelColor:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
+            save_encoding='right_aligned',
         )
 
         recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
@@ -681,6 +692,7 @@ class TestHyperstackScaleComesFromTheInput:
             path=tmp_path,
             df=pd.DataFrame(rows),
             output_file_loc=pathlib.Path('out.ome.tiff'),
+            save_encoding='right_aligned',
         )
 
         with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
@@ -723,6 +735,7 @@ class TestHyperstackScaleComesFromTheInput:
             path=tmp_path,
             df=pd.DataFrame(rows),
             output_file_loc=pathlib.Path('out.ome.tiff'),
+            save_encoding='right_aligned',
         )
 
         out = tmp_path / 'out.ome.tiff'
@@ -817,7 +830,9 @@ def test_nondense_scan_counts_build_by_rank(tmp_path):
     df = pd.DataFrame(rows)
 
     output_file_loc = pathlib.Path('out.ome.tiff')
-    result = StackBuilder._create_stack(path=tmp_path, df=df, output_file_loc=output_file_loc)
+    result = StackBuilder._create_stack(
+        path=tmp_path, df=df, output_file_loc=output_file_loc, save_encoding='right_aligned'
+    )
     assert result['status'], f'_create_stack failed: {result.get("error")}'
 
     with tf.TiffFile(str(tmp_path / output_file_loc)) as tif:
@@ -828,19 +843,21 @@ def test_nondense_scan_counts_build_by_rank(tmp_path):
 
 
 def test_mixed_dtype_inputs_refused_naming_the_file(tmp_path):
-    """A well mixing pixel dtypes cannot share one hyperstack; the build
-    fails with a typed error naming the offending frame. The cube build
-    silently CAST the mismatched plane into the stack dtype (uint16 into a
-    uint8 cube truncates), producing wrong data with a success status."""
+    """A well mixing pixel dtypes a stack cannot promote cannot share one
+    hyperstack; the build fails with a typed error naming the offending frame.
+    The cube build silently CAST the mismatched plane into the stack dtype,
+    producing wrong data with a success status. The one mixture a stack
+    promotes is uint8 beside uint16 (a sum beside an unsummed channel);
+    anything else -- here a float32 frame beside a uint8 one -- is refused."""
     from modules.exceptions import CaptureError
 
     plate_pos = {'x': 1.0, 'y': 2.0}
     _write_structured_input(
         tmp_path / 'frame_s0.tiff', channel='Green', plate_pos_mm=plate_pos, z_pos_um=10.0
     )
-    # A bare uint16 TIFF simulates a foreign / re-captured frame landing in
-    # the same well folder.
-    tf.imwrite(tmp_path / 'frame_s1.tiff', np.full((4, 4), 4000, dtype=np.uint16))
+    # A bare float32 TIFF simulates a foreign frame landing in the same well
+    # folder.
+    tf.imwrite(tmp_path / 'frame_s1.tiff', np.full((4, 4), 40.0, dtype=np.float32))
 
     rows = [
         {
@@ -856,10 +873,14 @@ def test_mixed_dtype_inputs_refused_naming_the_file(tmp_path):
     ]
     df = pd.DataFrame(rows)
 
-    with pytest.raises(CaptureError, match=r'frame_s1\.tiff'):
+    with pytest.raises(CaptureError, match=r'frame_s1\.tiff') as refused:
         StackBuilder._create_stack(
-            path=tmp_path, df=df, output_file_loc=pathlib.Path('out.ome.tiff')
+            path=tmp_path,
+            df=df,
+            output_file_loc=pathlib.Path('out.ome.tiff'),
+            save_encoding='right_aligned',
         )
+    assert refused.value.reason == 'mixed_pixel_types'
 
 
 def test_hyperstack_output_uses_strips(tmp_path):
@@ -886,7 +907,9 @@ def test_hyperstack_output_uses_strips(tmp_path):
         ]
     )
     output_file_loc = pathlib.Path('out.ome.tiff')
-    result = StackBuilder._create_stack(path=tmp_path, df=df, output_file_loc=output_file_loc)
+    result = StackBuilder._create_stack(
+        path=tmp_path, df=df, output_file_loc=output_file_loc, save_encoding='right_aligned'
+    )
     assert result['status'], f'_create_stack failed: {result.get("error")}'
 
     with tf.TiffFile(str(tmp_path / output_file_loc)) as tif:

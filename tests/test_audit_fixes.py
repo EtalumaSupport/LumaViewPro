@@ -1682,6 +1682,7 @@ class TestRule14_A7_HyperstackBuildNotify:
             tiling_configs_file_loc=pathlib.Path('.') / 'data' / 'tiling.json',
             # The run's images are all on disk: the build goes on to load.
             wait_for_images=lambda: None,
+            save_encoding='8bit',
         )
 
         # The announcement is reported too; what went wrong is the rest.
