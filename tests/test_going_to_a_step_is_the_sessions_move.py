@@ -88,7 +88,7 @@ def _objective_of(built: ScopeSession) -> str:
 
 
 def _settled_position(built: ScopeSession) -> dict:
-    assert built.scope.motion.wait_until_finished_moving(timeout_s=_MOVE_WAIT_S)
+    built.scope.motion.wait_until_finished_moving(timeout_s=_MOVE_WAIT_S)
     return {axis: built.scope.motion.get_current_position(axis) for axis in ('X', 'Y', 'Z')}
 
 

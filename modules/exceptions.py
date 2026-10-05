@@ -2123,7 +2123,13 @@ class MoveNotCompletedError(Exception):
             bound ran out before the axis arrived. Each of those leaves
             the axis UNKNOWN. ``'stopped'`` -- a stop was issued while it
             moved; the axis is where the stop left it, which its position
-            reports, and a turret is in no known slot.
+            reports, and a turret is in no known slot. ``'superseded'`` --
+            another move on the same axis started before this one arrived;
+            the axis is going where that move sent it, and that move's own
+            outcome says whether it got there. ``'still_moving'`` -- a wait
+            for motion the caller did not start ran out of time with the
+            axis still moving; the axis keeps the state its own move gives
+            it.
         title: The heading shown with the sentence, which follows the reason.
     """
 
@@ -2149,6 +2155,11 @@ class MoveNotCompletedError(Exception):
             'is now unknown -- home the scope before moving it again.'
         ),
         'stopped': 'the motors were stopped before it arrived.',
+        'superseded': (
+            'another move on the {axis} axis started before it arrived, so the axis '
+            'is going where that move sent it.'
+        ),
+        'still_moving': 'the {axis} axis was still moving when the wait ran out of time.',
     }
 
     _TITLES: ClassVar[dict[str, str]] = {

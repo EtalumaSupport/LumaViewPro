@@ -136,7 +136,7 @@ class _Panel(ps.ProtocolSettings):
 def env(monkeypatch):
     held = []
 
-    def submit_move(label, *, axes, call, on_moved=None):
+    def submit_move(label, *, axes, call, lane, on_moved=None):
         held.append((call, on_moved))
 
     # The X of each step the Session was asked to go to, in the order the

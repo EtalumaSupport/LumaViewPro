@@ -52,7 +52,7 @@ def _protocol_on_one_plate_scope_on_another(session):
 
 def _move_stage(session, position):
     for axis, um in position.items():
-        session.scope.motion.move_absolute(axis, um, wait_until_complete=True)
+        session.scope.motion.move_absolute(axis, um)
 
 
 def _xy(step):

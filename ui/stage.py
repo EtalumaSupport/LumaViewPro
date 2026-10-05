@@ -188,8 +188,8 @@ class Stage(Widget):
                 motion = ctx.scope.motion
 
                 def moves():
-                    motion.move_absolute('X', plate_x, frame='plate')
-                    motion.move_absolute('Y', plate_y, frame='plate')
+                    motion.start_move_absolute('X', plate_x, frame='plate')
+                    motion.start_move_absolute('Y', plate_y, frame='plate')
 
                 submit_gesture('STAGE_CLICK', axes=('X', 'Y'), then='move the stage', moves=moves)
 

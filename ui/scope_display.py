@@ -467,8 +467,8 @@ class ScopeDisplay(Image):
                 motion = _app_ctx.ctx.scope.motion
 
                 def moves():
-                    motion.move_relative('X', x_dist_um, overshoot_enabled=True)
-                    motion.move_relative('Y', y_dist_um, overshoot_enabled=True)
+                    motion.start_move_relative('X', x_dist_um, overshoot_enabled=True)
+                    motion.start_move_relative('Y', y_dist_um, overshoot_enabled=True)
 
                 submit_gesture(
                     'SCOPE_CLICK_TO_CENTER', axes=('X', 'Y'), then='move the stage', moves=moves

@@ -37,7 +37,7 @@ def zonly_session(tmp_path):
         complete_settings(**_settings(tmp_path, microscope='LS820')), simulate=True
     )
     home_sim_scope(session.scope)
-    session.scope.motion.move_absolute('Z', START_Z_UM, wait_until_complete=True)
+    session.scope.motion.move_absolute('Z', START_Z_UM)
     yield session
     session.shutdown()
 

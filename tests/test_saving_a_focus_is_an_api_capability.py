@@ -54,7 +54,7 @@ def _protocol_bf_bf_blue(session):
     """Three steps, all at the layer focus: BF, BF, Blue."""
     protocol = session.create_empty_protocol()
     for x_um in (10000, 20000):
-        session.scope.motion.move_absolute('X', x_um, wait_until_complete=True)
+        session.scope.motion.move_absolute('X', x_um)
         session.set_layer_acquire('Blue', None)
         session.add_step(protocol, after_step=protocol.num_steps() - 1)
     session.set_layer_acquire('Blue', 'image')
@@ -67,7 +67,7 @@ def _protocol_bf_bf_blue(session):
 
 
 def _go_to_z(session, z):
-    session.scope.motion.move_absolute('Z', z, wait_until_complete=True)
+    session.scope.motion.move_absolute('Z', z)
 
 
 def _zs(protocol):

@@ -186,8 +186,10 @@ class TestMotionValiditySources:
             # The public door refuses T; the turret's own move is the body
             # move_turret drives between its Z park and restore, whose Z
             # moves would record 'z_move' beside the source under test.
-            mover = scope.motion._move_absolute_impl if axis == 'T' else scope.motion.move_absolute
-            mover(axis, pos, wait_until_complete=True)
+            if axis == 'T':
+                scope.motion._move_absolute_impl(axis, pos).wait()
+            else:
+                scope.motion.move_absolute(axis, pos)
             assert source in recorded, (
                 f'move_absolute({axis!r}) must invalidate {source!r}; recorded {recorded}'
             )
@@ -206,7 +208,7 @@ class TestMotionValiditySources:
     def test_move_relative_invalidates_axis_source(self, axis, source):
         scope, recorded = self._scope_with_invalidate_recorder()
         try:
-            scope.motion.move_relative(axis, 100.0, wait_until_complete=True)
+            scope.motion.move_relative(axis, 100.0)
             assert source in recorded, (
                 f'move_relative({axis!r}) must invalidate {source!r}; recorded {recorded}'
             )

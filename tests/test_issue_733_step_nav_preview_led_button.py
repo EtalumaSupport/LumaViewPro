@@ -180,10 +180,12 @@ class TestStepNavPreviewRespectsLedEnable:
         _run_manual_nav(stepnav_env)
         assert stepnav_env.ctx.scope.illumination.apply_transition.call_count == 0
         assert stepnav_env.ctx.session.go_to_step.call_count == 1
-        # The move rides the IO lane; with no motor board no axis is redrawn.
+        # The Session's member waits for the stage, so it runs on the worker
+        # pool, not the IO lane; with no motor board no axis is redrawn.
         move = sys.modules['ui.ui_helpers'].submit_move
         assert move.call_count == 1
         assert move.call_args.kwargs['axes'] == ()
+        assert move.call_args.kwargs['lane'] is None
 
     def test_apply_settings_cannot_rederive_led_from_widget(self, stepnav_env):
         """apply_settings must receive update_led=False once the Session has

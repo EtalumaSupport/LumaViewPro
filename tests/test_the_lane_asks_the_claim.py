@@ -322,7 +322,7 @@ class TestTheSession:
     def test_a_diagnostic_moves_and_a_bystander_is_refused(self, sim_session):
         motion = sim_session.scope.motion
         with sim_session.diagnostic_claim():
-            motion.move_absolute('Z', 1000.0, wait_until_complete=True)
+            motion.move_absolute('Z', 1000.0)
             box = {}
 
             def _bystander():
@@ -495,7 +495,6 @@ class TestTheHoldersWorkRunsOnTheLane:
                 IOTask(
                     action=motion.move_absolute,
                     args=('Z', 1500.0),
-                    kwargs={'wait_until_complete': True},
                 ),
                 return_future=True,
             )

@@ -94,6 +94,7 @@ if TYPE_CHECKING:
     from modules.labware_loader import WellPlateLoader
     from modules.lumascope_api.bring_up import BringUpRecord
     from modules.lumascope_api.imaging import AutoGainLock
+    from modules.lumascope_api.motion import MoveInFlight
     from modules.objectives_loader import ObjectiveLoader
     from modules.protocol import Protocol, ProtocolSizeAdvisory
     from modules.lumascope_api.protocols import StepTargets
@@ -1658,14 +1659,16 @@ class ScopeSession:
 
         One task on the scope's IO lane: the axes are asked once whether
         they know their position; the turret turns to the step's objective
-        and X, Y and Z move to the step, on the protocol's own plate
-        (``ProtocolsAPI.step_targets``, the targets a run computes; the
-        moves are commanded, not waited out); the step's values go into its
-        layer's live settings, the layer acquiring as the step does and its
-        focus at the step's Z, so the layer and the step agree; and the
-        step's LED preview is applied -- its channel at its current when
-        ``protocol_led_on`` is set, every channel dark when not. A scope
-        with no motor board moves nothing and does the rest.
+        and X, Y and Z are started towards the step together, on the
+        protocol's own plate (``ProtocolsAPI.step_targets``, the targets a
+        run computes); the step's values go into its layer's live settings,
+        the layer acquiring as the step does and its focus at the step's Z,
+        so the layer and the step agree; and the step's LED preview is
+        applied -- its channel at its current when ``protocol_led_on`` is
+        set, every channel dark when not. Then this call waits, off the
+        lane, until X, Y and Z have arrived, so the lane takes other work
+        while the stage travels. A scope with no motor board moves nothing
+        and does the rest.
 
         A repeat of the step this session last went to (a re-click, a
         re-typed number) does everything but the preview: a channel the
@@ -1685,6 +1688,9 @@ class ScopeSession:
                 scope. Nothing changes.
             PositionOutOfRangeError: the step lies outside an axis's travel;
                 the axes before it have moved, nothing else changes.
+            MoveNotCompletedError: an axis did not arrive at the step; see
+                ``MoveInFlight.wait``. The layer and the preview are the
+                step's.
         """
         step = protocol.step(idx=step_idx)
         self.scope.protocols.refuse_unaddressable_objectives([step['Objective']])
@@ -1706,16 +1712,23 @@ class ScopeSession:
         )
         # Every member inside bounds its own wait, so the task has no bound
         # of its own to add.
-        self.io_executor.call(
+        moves = self.io_executor.call(
             IOTask(action=self._go_to_step_on_lane, args=(protocol, step_idx, step, targets)),
             'go_to_step',
             timeout_s=None,
         )
+        for move in moves:
+            move.wait()
 
     def _go_to_step_on_lane(
         self, protocol: 'Protocol', step_idx: int, step, targets: 'StepTargets | None'
-    ) -> None:
-        """The lane half of ``go_to_step``: ask once, move, load the layer, preview."""
+    ) -> 'tuple[MoveInFlight, ...]':
+        """The lane half of ``go_to_step``: ask once, start the moves, load the layer, preview.
+
+        Returns the started X, Y and Z moves, for ``go_to_step`` to wait on
+        off the lane; none when there is no motor board.
+        """
+        moves: tuple[MoveInFlight, ...] = ()
         if targets is not None:
             motion = self.scope.motion
             # The turret included: a failed turret home leaves T unknown
@@ -1726,19 +1739,22 @@ class ScopeSession:
             if targets.turret_slot is not None:
                 # The step's own Z move follows, so the turret need not put Z back.
                 motion.move_turret(targets.turret_slot, restore_z=False)
-            motion.move_absolute('X', targets.x)
-            motion.move_absolute('Y', targets.y)
-            motion.move_absolute('Z', targets.z)
+            moves = (
+                motion.start_move_absolute('X', targets.x),
+                motion.start_move_absolute('Y', targets.y),
+                motion.start_move_absolute('Z', targets.z),
+            )
         self._load_step_into_layer(step)
         last = self._last_step_gone_to
         self._last_step_gone_to = (protocol, step_idx)
         if last is not None and last[0] is protocol and last[1] == step_idx:
-            return
-        # After the step's moves, in the same task: a toggle the person
-        # makes while the stage travels lands after the step's preview.
+            return moves
+        # After the step's moves are started, in the same task: a toggle the
+        # person makes while the stage travels lands after the step's preview.
         self.scope.illumination.apply_transition(
             LedTransition.MANUAL_STEP, self._step_led_ctx(step)
         )
+        return moves
 
     def _load_step_into_layer(self, step) -> None:
         """The step's values into its layer's live settings, under ``settings_lock``.

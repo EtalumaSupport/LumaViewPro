@@ -1369,10 +1369,11 @@ class Lumascope:
         focal_plane = getattr(self._camera_driver, 'get_focal_z', None)
         if focal_plane is None:
             return
-        # Waited, like the home before it: bring-up reports the stage ready,
-        # and a caller that starts a sweep against a Z still in flight reads
-        # a position that is not where the sample is.
-        self.motion.move_absolute('Z', focal_plane(), wait_until_complete=True)
+        # Waited, like the home before it: move_absolute returns only once Z
+        # has arrived, and raises if it did not. Bring-up reports the stage
+        # ready, and a caller that starts a sweep against a Z still in flight
+        # reads a position that is not where the sample is.
+        self.motion.move_absolute('Z', focal_plane())
 
     def are_all_connected(self) -> bool:
         """Check if LED, motion, and camera boards are all connected.

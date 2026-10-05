@@ -85,6 +85,52 @@ if TYPE_CHECKING:
     from drivers.protocols import MotorBoardProtocol
 
 
+class MoveInFlight:
+    """A move that has started; ``wait()`` gives its outcome.
+
+    Returned by ``MotionAPI.start_move_absolute`` and ``start_move_relative``
+    once the board has taken the command and the axis is MOVING. ``wait()``
+    returns when this move's axis arrived and raises otherwise -- the same
+    verdict ``move_absolute`` and ``move_relative`` give, because each of
+    them is a start followed by this wait. It blocks the calling thread,
+    never the scope's IO lane.
+
+    A move on an axis this scope does not have drives nothing, and its
+    ``wait()`` returns at once.
+
+    Attributes:
+        axis: The axis this move drove.
+    """
+
+    def __init__(
+        self,
+        motion: MotionAPI,
+        axis: str,
+        stop_generation: int | None,
+        drive_seq: int | None,
+    ) -> None:
+        self._motion = motion
+        self.axis = axis
+        self._stop_generation = stop_generation
+        # None when nothing was driven: the axis is not on this scope.
+        self._drive_seq = drive_seq
+
+    def wait(self) -> None:
+        """Return once this move's axis has arrived at its target.
+
+        Raises:
+            MoveNotCompletedError: The axis did not arrive. ``'stalled'`` or
+                ``'board_lost'``, the motion monitor gave it up;
+                ``'faulted'``, something else set it UNKNOWN; ``'timed_out'``,
+                the motion bound ran out (each of these leaves the axis
+                UNKNOWN); ``'stopped'``, a stop halted it; ``'superseded'``,
+                another move on the same axis started before it arrived.
+        """
+        if self._drive_seq is None:
+            return
+        self._motion._await_arrival(self.axis, self._stop_generation, self._drive_seq)
+
+
 class MotionAPI:
     """Motion sub-API. Hosts stateless (Phase 2b) and stateful (Phase 2c) bodies."""
 
@@ -179,6 +225,13 @@ class MotionAPI:
         # follows one -- so a later wait never raises a stale one. Under
         # _axis_state_lock.
         self._axis_fault: dict[str, MoveNotCompletedError] = {}
+        # Per-axis count of the times the axis has been driven (gone MOVING
+        # or HOMING). A started move records the count its own drive made,
+        # and its wait compares: an IDLE or a fault reached after a later
+        # move on the same axis began is that move's outcome, not this
+        # one's. The wait runs off the lane, so nothing else orders the
+        # two. Under _axis_state_lock.
+        self._drive_seq: dict[str, int] = {}
 
         # Per-axis state dicts -- empty until _init_axes() fills them.
         self._pos_cache: dict = {}
@@ -245,6 +298,7 @@ class MotionAPI:
         self._arrival_events = {ax: threading.Event() for ax in present_axes}
         for ev in self._arrival_events.values():
             ev.set()  # Start as "arrived" (not moving)
+        self._drive_seq = dict.fromkeys(present_axes, 0)
         self._move_profile = dict.fromkeys(present_axes)
 
     def _start_monitor(self) -> None:
@@ -689,7 +743,7 @@ class MotionAPI:
         # have established it is the operation being recovered. Refusing
         # here would mean an UNKNOWN Z could never be re-homed without
         # restarting the application.
-        self._move_absolute_impl('Z', position=0, wait_until_complete=True, force=True)
+        self._move_absolute_impl('Z', position=0, force=True).wait()
         self._is_turreting = True
         try:
             yield
@@ -704,9 +758,7 @@ class MotionAPI:
                 # force for the same reason as the retract: this is the
                 # other half of one recovery, and refusing it would park
                 # the stage at Z=0 with no way back.
-                self._move_absolute_impl(
-                    'Z', position=initial_z, wait_until_complete=True, force=True
-                )
+                self._move_absolute_impl('Z', position=initial_z, force=True).wait()
             else:
                 logger.info(
                     '[SCOPE API ] Skipping Z restore -- caller will overwrite Z next',
@@ -734,9 +786,8 @@ class MotionAPI:
             logger.warning('[SCOPE API ] turret home requested with motor not connected')
             raise HardwareCommandRefusedError('not_connected', 'home')
 
-        # Move turret -- set HOMING after Z is safe, not before.
-        # Setting T to HOMING clears its arrival event, which would block
-        # wait_until_finished_moving() inside _safe_turret_move's Z move.
+        # T goes HOMING once Z is parked, not before: until then nothing
+        # is turning it.
         _api_log.info('T home START')
         # A homing turret is in no known slot until the home succeeds.
         self._last_turret_position = None
@@ -750,15 +801,12 @@ class MotionAPI:
                     result = self._driver.thome()
                 finally:
                     # Transition T out of HOMING on EVERY exit, including a
-                    # raised driver call, BEFORE _safe_turret_move's finally
-                    # restores Z via wait_until_complete=True. That restore
-                    # calls wait_until_finished_moving, which iterates EVERY
-                    # axis arrival event; a still-HOMING T has a cleared event
-                    # the motion monitor never sets (it polls MOVING, not
-                    # HOMING), so the restore would hang on T until the 120s
-                    # default timeout. Failure -> UNKNOWN, success -> IDLE;
-                    # both set the arrival event so the restore waits only on
-                    # the axis actually moving.
+                    # raised driver call. The motion monitor polls MOVING, not
+                    # HOMING, so nothing else ever takes T out of it: a
+                    # still-HOMING T reads as the scope moving to every
+                    # reader, and holds any wait_until_finished_moving begun
+                    # during the home until its timeout. Failure -> UNKNOWN,
+                    # success -> IDLE; both set the arrival event.
                     self._set_axis_state('T', AxisState.IDLE if result else AxisState.UNKNOWN)
             if result is False:
                 raise HomingFailedError('T', 'failed', ('T',))
@@ -835,7 +883,7 @@ class MotionAPI:
         self._last_turret_position = None
         with self._safe_turret_move(restore_z=restore_z):
             logger.info(f'[SCOPE API ] Moving T to position {position}')
-            self._move_absolute_impl('T', position, wait_until_complete=True)
+            self._move_absolute_impl('T', position).wait()
         self._last_turret_position = int(position)
         self._preferred_turret_slot = int(position)
 
@@ -1580,18 +1628,20 @@ class MotionAPI:
         self,
         axis: str,
         position: float,
-        wait_until_complete: bool = False,
         overshoot_enabled: bool = True,
         ignore_limits: bool = False,
         force: bool = False,
         frame: str = 'stage',
-    ) -> None:
-        """Move an axis to an absolute position.
+    ) -> MoveInFlight:
+        """Start an axis moving to an absolute position; return the started move.
+
+        Returns once the board has taken the command and the axis is
+        MOVING. The returned handle's ``wait()`` is the move's outcome; a
+        caller that needs the axis where it was sent waits on it.
 
         Args:
             axis (str): Axis name ("X", "Y", "Z", "T").
             position (float): Target position -- um for X/Y/Z; turret slot (1-4) for T.
-            wait_until_complete: If True, block until move finishes.
             overshoot_enabled: Allow Z overshoot for backlash compensation.
             ignore_limits: If True, skip software limit checks.
             force: Drive even when the axis position is unknown. For the
@@ -1604,8 +1654,8 @@ class MotionAPI:
                 ValueError subclass.
             AxisStateUnknownError: The axis position is unknown and
                 ``force`` is False.
-            MoveNotCompletedError: ``wait_until_complete`` was set and the
-                axis did not arrive; see ``_await_arrival``.
+            MoveNotCompletedError: ``'driver_failed'``, the board did not
+                take the command.
         """
         if axis not in _VALID_AXIS_NAMES:
             raise ValueError(f'Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}')
@@ -1616,7 +1666,7 @@ class MotionAPI:
         # so this is the canonical "is this axis trackable" check.
         if axis not in self._arrival_events:
             _api_log.debug(f'move_abs ignored: {axis} not present on this scope')
-            return
+            return MoveInFlight(self, axis, stop_generation=None, drive_seq=None)
 
         if frame == 'plate':
             position = self._plate_target_to_stage(axis, position, ignore_limits=ignore_limits)
@@ -1700,7 +1750,7 @@ class MotionAPI:
         # the hardware actually received the new target. During that window
         # the motion monitor could poll STATUS_R, observe the PRIOR move's
         # still-valid position_reached bit, and falsely set the arrival
-        # event -- causing wait_until_finished_moving to return before the
+        # event -- causing a waiter to return before the
         # new move even began. See issue #618. With this order, by the
         # time the axis is marked MOVING the hardware XTARGET is already
         # the new value, so position_reached is reliably False and the
@@ -1728,13 +1778,21 @@ class MotionAPI:
         self._scope.imaging.frame_validity.invalidate(
             self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move')
         )
-        _api_log.info(f'move_abs {axis}={position:.1f}um{" wait" if wait_until_complete else ""}')
+        _api_log.info(f'move_abs {axis}={position:.1f}um')
+        return self._started(axis, stop_generation)
 
-        if wait_until_complete is True:
-            self._await_arrival(axis, stop_generation)
+    def _started(self, axis: str, stop_generation: int) -> MoveInFlight:
+        """The handle for the move a body just drove on ``axis``.
 
-    def _await_arrival(self, axis: str, stop_generation: int) -> None:
-        """Return only once ``axis`` confirmably reached its target; raise otherwise.
+        Read on the lane, right after the body set the axis MOVING, so the
+        drive count is the one this move made.
+        """
+        with self._axis_state_lock:
+            drive_seq = self._drive_seq[axis]
+        return MoveInFlight(self, axis, stop_generation, drive_seq)
+
+    def _await_arrival(self, axis: str, stop_generation: int, drive_seq: int) -> None:
+        """Return only once this move's axis confirmably reached its target; raise otherwise.
 
         Arrival is the motion monitor's verdict: it sets the axis IDLE when
         the firmware reports the target reached, or UNKNOWN when it gives
@@ -1744,14 +1802,16 @@ class MotionAPI:
         here after the wait, whatever it returned, made a stalled move read
         as arrived.
 
-        The wait watches every axis, so it can time out on one this move
-        never touched. That axis's outcome belongs to whatever moved it:
-        the monitor's own stall clock faults a MOVING axis, and a home
-        decides its own axis. Only this move's axis is judged here.
+        Only this move's axis is waited on and judged. Another axis's
+        outcome belongs to whatever moved it, and waiting on it would hold
+        this caller while, say, a person scrolls the focus.
 
-        This axis's event is read only when the wait timed out. After a wait
-        that saw every axis stop, a cleared event means a later move on
-        this axis has started, and faulting it would fault that move.
+        The wait runs in the caller's thread, not on the lane, so another
+        move on the same axis can start before it ends. ``drive_seq`` is
+        the count this move's drive made; a different count now means a
+        later move owns the axis, and its IDLE, its fault or its cleared
+        event is not this move's -- the move was superseded, and the axis
+        is left to the move that superseded it.
 
         A STOP sets target = actual on every axis, so the firmware then
         reports the target reached wherever the axis halted and the monitor
@@ -1761,21 +1821,27 @@ class MotionAPI:
         Args:
             axis: The axis this move drove.
             stop_generation: ``_stop_generation`` read before the drive.
+            drive_seq: ``_drive_seq[axis]`` right after the drive.
 
         Raises:
-            MoveNotCompletedError: The axis was faulted UNKNOWN during the
+            MoveNotCompletedError: Another move on the axis started first
+                (``'superseded'``); the axis was faulted UNKNOWN during the
                 wait (the monitor's own ``'stalled'`` or ``'board_lost'``
-                object when it gave the axis up), or had not arrived when the wait's bound ran out (the
-                axis is UNKNOWN either way), or a stop was issued while it
-                moved (the axis is where the stop left it).
+                object when it gave the axis up); it had not arrived when
+                the wait's bound ran out (``'timed_out'``, the axis is
+                UNKNOWN either way); or a stop was issued while it moved
+                (the axis is where the stop left it).
         """
-        all_stopped = self.wait_until_finished_moving(timeout_s=self._MOTION_SETTLE_TIMEOUT_S)
-        if not all_stopped and not self._arrival_events[axis].is_set():
-            self._set_axis_state(axis, AxisState.UNKNOWN)
-            raise MoveNotCompletedError(axis, 'timed_out')
+        stopped = self._wait_for_axis_to_stop(axis, self._MOTION_SETTLE_TIMEOUT_S)
         with self._axis_state_lock:
+            superseded = self._drive_seq[axis] != drive_seq
             unknown = self._axis_state.get(axis) == AxisState.UNKNOWN
             fault = self._axis_fault.get(axis)
+        if superseded:
+            raise MoveNotCompletedError(axis, 'superseded')
+        if not stopped:
+            self._set_axis_state(axis, AxisState.UNKNOWN)
+            raise MoveNotCompletedError(axis, 'timed_out')
         if unknown:
             # The monitor's own object when it gave the axis up, so the
             # person is shown it once; otherwise something else set it
@@ -1783,6 +1849,14 @@ class MotionAPI:
             raise fault if fault is not None else MoveNotCompletedError(axis, 'faulted')
         if self._stopped_since(stop_generation):
             raise MoveNotCompletedError(axis, 'stopped')
+
+    def _wait_for_axis_to_stop(self, axis: str, timeout_s: float) -> bool:
+        """Wait for ``axis``'s arrival event; True when it was set within ``timeout_s``.
+
+        The event is set when the axis goes IDLE or UNKNOWN, so True says
+        only that the axis stopped moving; the state says how.
+        """
+        return self._arrival_events[axis].wait(timeout=timeout_s)
 
     def _stopped_since(self, stop_generation: int) -> bool:
         """Whether a stop landed after ``_stop_generation`` read ``stop_generation``.
@@ -1798,22 +1872,23 @@ class MotionAPI:
         self,
         axis: str,
         distance: float,
-        wait_until_complete: bool = False,
         overshoot_enabled: bool = False,
-    ) -> None:
-        """Move an axis by a relative distance.
+    ) -> MoveInFlight:
+        """Start an axis moving by a relative distance; return the started move.
+
+        Returns as ``_move_absolute_impl`` does: once the axis is MOVING,
+        with the handle whose ``wait()`` is the move's outcome.
 
         Args:
             axis (str): Axis name ("X", "Y", "Z", "T").
             distance (float): Distance to move -- um for X/Y/Z; turret slots for T.
-            wait_until_complete: If True, block until move finishes.
             overshoot_enabled: Allow Z overshoot for backlash compensation.
 
         Raises:
             ValueError: If axis is invalid or distance is not numeric / out of bounds.
             AxisStateUnknownError: The axis position is unknown.
-            MoveNotCompletedError: ``wait_until_complete`` was set and the
-                axis did not arrive; see ``_await_arrival``.
+            MoveNotCompletedError: ``'driver_failed'``, the board did not
+                take the command.
 
         There is deliberately no ``force`` hatch here. Every caller is a
         user jog or an autofocus sweep, and none of them is a recovery
@@ -1840,7 +1915,7 @@ class MotionAPI:
         # See move_absolute for the rationale.
         if axis not in self._arrival_events:
             _api_log.debug(f'move_rel ignored: {axis} not present on this scope')
-            return
+            return MoveInFlight(self, axis, stop_generation=None, drive_seq=None)
 
         # This path does NOT route through the absolute one -- it calls
         # move_rel_pos directly -- so it needs the gate of its own.
@@ -1908,13 +1983,11 @@ class MotionAPI:
         self._scope.imaging.frame_validity.invalidate(
             self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move')
         )
-        _api_log.info(f'move_rel {axis}={distance:+.1f}um{" wait" if wait_until_complete else ""}')
-
-        if wait_until_complete is True:
-            self._await_arrival(axis, stop_generation)
+        _api_log.info(f'move_rel {axis}={distance:+.1f}um')
+        return self._started(axis, stop_generation)
 
     # --- Public dispatch ---
-    # These six are what every caller reaches: an SDK script, a REST
+    # These are what every caller reaches: an SDK script, a REST
     # handler, the GUI -- and the run, the autofocus sweep and the diagnostics,
     # which call them under their taking so the lane admits their work while
     # they hold the scope. From a task already on the lane's worker the lane
@@ -1926,9 +1999,9 @@ class MotionAPI:
     # or home is never timed out by its own liveness bound.
     _MOTION_WAIT_BASE_S = 30.0
 
-    # One physically-waited motion's own bound: what
-    # wait_until_finished_moving allows a single move, and what the homing
-    # routine legitimately takes on long travel.
+    # One physically-waited motion's own bound: what a started move's
+    # wait allows it, and what the homing routine legitimately takes on
+    # long travel.
     _MOTION_SETTLE_TIMEOUT_S = 120.0
 
     def _dispatch_motion(
@@ -1975,60 +2048,120 @@ class MotionAPI:
             timeout_s,
         )
 
+    def _start(self, member: str, body, axis: str, target: float, **kwargs) -> MoveInFlight:
+        """Start one X, Y or Z move through ``member``: refuse the turret, then command it on the lane.
+
+        The lane carries only the command -- the body's checks, the board
+        write and the MOVING transition -- so its bound is the command's
+        alone; the wait for arrival is the handle's, in the caller's thread.
+        """
+        self._refuse_turret_on_generic_door(axis, member)
+        return self._dispatch_motion(
+            body,
+            member,
+            args=(axis, target),
+            kwargs=kwargs,
+            timeout_s=self._MOTION_WAIT_BASE_S,
+        )
+
+    def start_move_absolute(
+        self,
+        axis: str,
+        position: float,
+        overshoot_enabled: bool = True,
+        ignore_limits: bool = False,
+        frame: str = 'stage',
+    ) -> MoveInFlight:
+        """Start X, Y or Z moving to an absolute position, in um; return the started move.
+
+        For a caller that works while the axis travels -- measuring during
+        the motion, or starting several axes together. It refuses exactly
+        what ``move_absolute`` refuses, before anything moves, and returns
+        once the board has taken the command. ``wait()`` on the returned
+        handle gives the outcome ``move_absolute`` would have given. See
+        ``_move_absolute_impl`` for the argument contract.
+        """
+        return self._start(
+            'start_move_absolute',
+            self._move_absolute_impl,
+            axis,
+            position,
+            overshoot_enabled=overshoot_enabled,
+            ignore_limits=ignore_limits,
+            frame=frame,
+        )
+
+    def start_move_relative(
+        self,
+        axis: str,
+        distance: float,
+        overshoot_enabled: bool = False,
+    ) -> MoveInFlight:
+        """Start X, Y or Z moving by a relative distance, in um; return the started move.
+
+        As ``start_move_absolute``, for ``move_relative``. See
+        ``_move_relative_impl`` for the argument contract.
+        """
+        return self._start(
+            'start_move_relative',
+            self._move_relative_impl,
+            axis,
+            distance,
+            overshoot_enabled=overshoot_enabled,
+        )
+
     def move_absolute(
         self,
         axis: str,
         position: float,
-        wait_until_complete: bool = False,
         overshoot_enabled: bool = True,
         ignore_limits: bool = False,
         frame: str = 'stage',
     ) -> None:
-        """Move X, Y or Z to an absolute position, in um. The turret moves by slot: ``move_turret``.
+        """Move X, Y or Z to an absolute position, in um, and return once it has arrived.
 
-        Waits for the command. See ``_move_absolute_impl`` for the argument contract and
-        the errors it raises; this adds only the dispatch described on
-        ``_dispatch_motion``. With ``wait_until_complete`` the wait bound
-        also covers the physical motion the body waits out.
+        The turret moves by slot: ``move_turret``. This is
+        ``start_move_absolute`` followed by the handle's ``wait()``: the
+        command goes on the scope's IO lane, and the wait for arrival
+        blocks this caller, not the lane. A move on an axis this scope does
+        not have drives nothing and returns.
+
+        Raises:
+            MoveNotCompletedError: The axis did not arrive; see
+                ``MoveInFlight.wait``.
         """
-        self._refuse_turret_on_generic_door(axis, 'move_absolute')
-        return self._dispatch_motion(
-            self._move_absolute_impl,
+        self._start(
             'move_absolute',
-            args=(axis, position),
-            kwargs={
-                'wait_until_complete': wait_until_complete,
-                'overshoot_enabled': overshoot_enabled,
-                'ignore_limits': ignore_limits,
-                'frame': frame,
-            },
-            timeout_s=self._MOTION_WAIT_BASE_S
-            + (self._MOTION_SETTLE_TIMEOUT_S if wait_until_complete else 0.0),
-        )
+            self._move_absolute_impl,
+            axis,
+            position,
+            overshoot_enabled=overshoot_enabled,
+            ignore_limits=ignore_limits,
+            frame=frame,
+        ).wait()
 
     def move_relative(
         self,
         axis: str,
         distance: float,
-        wait_until_complete: bool = False,
         overshoot_enabled: bool = False,
     ) -> None:
-        """Move X, Y or Z by a relative distance, in um. The turret moves by slot: ``move_turret``.
+        """Move X, Y or Z by a relative distance, in um, and return once it has arrived.
 
-        Waits for the command. See ``_move_relative_impl`` for the argument contract.
+        The turret moves by slot: ``move_turret``. As ``move_absolute``:
+        ``start_move_relative`` followed by the handle's ``wait()``.
+
+        Raises:
+            MoveNotCompletedError: The axis did not arrive; see
+                ``MoveInFlight.wait``.
         """
-        self._refuse_turret_on_generic_door(axis, 'move_relative')
-        return self._dispatch_motion(
-            self._move_relative_impl,
+        self._start(
             'move_relative',
-            args=(axis, distance),
-            kwargs={
-                'wait_until_complete': wait_until_complete,
-                'overshoot_enabled': overshoot_enabled,
-            },
-            timeout_s=self._MOTION_WAIT_BASE_S
-            + (self._MOTION_SETTLE_TIMEOUT_S if wait_until_complete else 0.0),
-        )
+            self._move_relative_impl,
+            axis,
+            distance,
+            overshoot_enabled=overshoot_enabled,
+        ).wait()
 
     def home(self, axis: str = 'ALL') -> None:
         """Home the given axis set, and wait for it.
@@ -2091,37 +2224,48 @@ class MotionAPI:
             falsifies_recording=True,
         )
 
-    def wait_until_finished_moving(self, timeout_s: float = 120.0) -> bool:
-        """Block until all axes have reached their target positions.
+    def wait_until_finished_moving(self, timeout_s: float = 120.0) -> None:
+        """Block until every axis moving now has stopped; raise if one did not stop well.
 
-        Waits on per-axis arrival events set by the motion monitor thread.
-        Zero serial I/O from the calling thread -- all firmware queries
-        happen on the monitor thread at 50 Hz.
+        For motion the caller did not start, or started without keeping its
+        handle. A move the caller started is judged by its handle's
+        ``wait()``, which also knows when a stop or a later move ended it;
+        this wait judges only whether each axis stopped with a known
+        position. An axis a stop halted is IDLE where it stopped, so after a
+        stop this returns.
+
+        The axes it waits for are those MOVING or HOMING when it is called.
+        An axis that was not moving is not this wait's business -- one that
+        was never homed among them -- so a scope with unhomed X and Y can
+        still wait on its Z. Waits on the per-axis arrival events the motion
+        monitor sets; no serial I/O from the calling thread.
 
         Args:
-            timeout_s: Maximum seconds to wait (default 120s).
+            timeout_s: Maximum seconds to wait for all of them (default 120s).
 
-        Returns:
-            bool: True if all axes arrived, False if timed out.
+        Raises:
+            MoveNotCompletedError: An axis it waited for ended UNKNOWN (the
+                monitor's own ``'stalled'`` or ``'board_lost'`` object when it
+                gave the axis up, else ``'faulted'``), or was still moving
+                when ``timeout_s`` ran out (``'still_moving'``; its state is
+                left to its own move).
         """
+        with self._axis_state_lock:
+            moving = [
+                ax
+                for ax, state in self._axis_state.items()
+                if state in (AxisState.MOVING, AxisState.HOMING)
+            ]
         deadline = time.monotonic() + timeout_s
-        # Iterate arrival events directly (not axes_present) so a transient
-        # motion.detect_present_axes() failure at call time can never cause
-        # this to return True without actually waiting for the in-flight
-        # move. _arrival_events was sized to detect_present_axes() at init
-        # and never changes shape thereafter, so iterating its keys is the
-        # canonical "every axis this scope can track" set. Events for
-        # non-moving axes are .set() by construction.
-        for ax in self._arrival_events:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                logger.warning(f'[SCOPE API ] wait_until_finished_moving timed out on axis {ax}')
-                return False
-            if not self._arrival_events[ax].wait(timeout=remaining):
-                logger.warning(f'[SCOPE API ] wait_until_finished_moving timed out on axis {ax}')
-                return False
-
-        return True
+        for ax in moving:
+            if not self._wait_for_axis_to_stop(ax, max(0.0, deadline - time.monotonic())):
+                raise MoveNotCompletedError(ax, 'still_moving')
+        for ax in moving:
+            with self._axis_state_lock:
+                unknown = self._axis_state.get(ax) == AxisState.UNKNOWN
+                fault = self._axis_fault.get(ax)
+            if unknown:
+                raise fault if fault is not None else MoveNotCompletedError(ax, 'faulted')
 
     def _set_axis_state(self, axis: str, state: str):
         """Set the state of an axis (internal use only).
@@ -2159,6 +2303,7 @@ class MotionAPI:
             # this one's.
             with self._axis_state_lock:
                 self._axis_fault.pop(axis, None)
+                self._drive_seq[axis] += 1
             # Clear arrival event -- axis is now in motion
             self._arrival_events[axis].clear()
             # Wake the motion monitor to start polling

@@ -841,6 +841,8 @@ _BROKEN_SCOPE_METHODS = frozenset(
         # scope.diagnostics.X / scope.capabilities.X / scope.io.X / scope.runtime_state.X.
         'move_absolute',
         'move_relative',
+        'start_move_absolute',
+        'start_move_relative',
         'get_current_position',
         'get_target_position',
         'get_target_status',

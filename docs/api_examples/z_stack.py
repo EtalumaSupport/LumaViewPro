@@ -90,12 +90,8 @@ def main():
     z_pos_um = Z_START_UM
 
     for i in range(num_slices):
-        # Move Z to target position (um) and wait for completion
-        scope.motion.move_absolute(
-            'Z',
-            z_pos_um,
-            wait_until_complete=True,
-        )
+        # Move Z to target position (um); returns once Z has arrived
+        scope.motion.move_absolute('Z', z_pos_um)
 
         # Read back the actual position (um, from the push-based cache)
         actual_z_um = scope.motion.get_current_position('Z')

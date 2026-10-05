@@ -359,11 +359,13 @@ def _user_motion_locked(axis: str) -> bool:
 def move_absolute(
     axis: str,
     position: float,
-    wait_until_complete: bool = False,
     overshoot_enabled: bool = True,
     frame: str = 'stage',
 ):
-    """Move an axis for a person's gesture, keeping the gesture lock in one place.
+    """Start an axis moving for a person's gesture, keeping the gesture lock in one place.
+
+    Started, not waited: a gesture returns at once, and a move that fails
+    on the way is the motion monitor's to report.
 
     A turret slot goes to the turret widget, which asks the API to move and
     then shows where the API says the turret is.
@@ -383,10 +385,9 @@ def move_absolute(
         return
 
     submit_reported(
-        lambda: ctx.scope.motion.move_absolute(
+        lambda: ctx.scope.motion.start_move_absolute(
             axis,
             position,
-            wait_until_complete=wait_until_complete,
             overshoot_enabled=overshoot_enabled,
             frame=frame,
         ),
@@ -396,17 +397,15 @@ def move_absolute(
     )
 
 
-def move_relative(
-    axis: str, distance: float, wait_until_complete: bool = False, overshoot_enabled: bool = True
-):
+def move_relative(axis: str, distance: float, overshoot_enabled: bool = True):
+    """Start an axis jogging for a person's gesture; started, not waited, as ``move_absolute``."""
     if _user_motion_locked(axis):
         return
     ctx = _app_ctx.ctx
     submit_reported(
-        lambda: ctx.scope.motion.move_relative(
+        lambda: ctx.scope.motion.start_move_relative(
             axis,
             distance,
-            wait_until_complete=wait_until_complete,
             overshoot_enabled=overshoot_enabled,
         ),
         lambda: _handle_ui_update_for_axis(axis=axis),
@@ -453,7 +452,7 @@ def submit_gesture(
             _app_ctx.ctx.scope.motion.refuse_unknown_positions(axes, recording=False, then=then)
         moves()
 
-    submit_move(label, axes=axes, call=call, on_moved=on_moved)
+    submit_move(label, axes=axes, call=call, on_moved=on_moved, lane=_app_ctx.ctx.io_executor)
 
 
 def submit_move(
@@ -461,21 +460,24 @@ def submit_move(
     *,
     axes: typing.Iterable[str],
     call: typing.Callable[[], None],
+    lane: 'SequentialIOExecutor | None',
     on_moved: typing.Callable[[], None] | None = None,
 ) -> None:
-    """Run a person's move on the IO lane, redraw its axes, then its GUI work.
+    """Run a person's move, redraw its axes, then its GUI work.
 
-    The lane half of ``submit_gesture``, for a move an API member composes
-    itself (asking about its axes included): the control-surface lock is
-    enforced here, *call* runs as one task on the IO lane, the axes are
-    redrawn once the task has ended whatever its outcome, and *on_moved*
-    runs on the GUI thread only when *call* returned.
+    The half of ``submit_gesture`` that runs, for a move an API member
+    composes itself (asking about its axes included): the control-surface
+    lock is enforced here, *call* runs where *lane* says, as
+    ``submit_reported`` defines it, the axes are redrawn once *call* has
+    ended whatever its outcome, and *on_moved* runs on the GUI thread only
+    when *call* returned. *lane* is the IO lane for moves that are started
+    and not waited on; None, the worker pool, for a member that waits for
+    the stage to arrive, which must not hold the lane while it travels.
     """
-    ctx = _app_ctx.ctx
     axes = tuple(axes)
     if _user_motion_locked(label):
         return
-    # Written on the lane, read by the redraw, which submit_reported runs
+    # Written by the call, read by the redraw, which submit_reported runs
     # once after the task has ended: the one thing the redraw needs to know
     # about the outcome the reporter has already shown.
     moved = False
@@ -490,7 +492,7 @@ def submit_move(
         if moved and on_moved is not None:
             on_moved()
 
-    submit_reported(moving, redraw, label, lane=ctx.io_executor)
+    submit_reported(moving, redraw, label, lane=lane)
 
 
 def _redraw_gesture_axes(axes: tuple[str, ...]) -> None:

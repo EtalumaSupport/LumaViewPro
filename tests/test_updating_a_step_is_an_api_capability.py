@@ -215,7 +215,7 @@ class TestAScriptUpdatesAStepThroughTheSession:
     def test_the_session_composes_the_update_from_its_own_settings_and_position(self, session):
         protocol = _session_protocol(session)
         session.scope._motion_driver.set_timing_mode('instant')
-        session.scope.motion.move_absolute('X', 20000.0, wait_until_complete=True)
+        session.scope.motion.move_absolute('X', 20000.0)
 
         session.update_step(protocol, 0, layer='BF')
 

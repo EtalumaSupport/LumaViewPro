@@ -62,7 +62,9 @@ def test_a_refused_move_raises_instead_of_being_skipped():
 
     parent = SimpleNamespace(
         _io_executor=None,
-        _scope=SimpleNamespace(motion=SimpleNamespace(move_absolute=_refuse, move_turret=_refuse)),
+        _scope=SimpleNamespace(
+            motion=SimpleNamespace(start_move_absolute=_refuse, move_turret=_refuse)
+        ),
     )
     step_runner = ProtocolStepRunner(parent)
 

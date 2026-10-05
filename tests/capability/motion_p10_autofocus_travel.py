@@ -28,7 +28,7 @@ TIMEOUT_S = 300
 def _autofocus_from(session, runner, z, heard):
     """Autofocus once from ``z``; return (outcome, travel refusals heard, Z after)."""
     motion = session.scope.motion
-    motion.move_absolute('Z', z, wait_until_complete=True)
+    motion.move_absolute('Z', z)
     heard.clear()
     outcome = runner.run_autofocus(layer=LAYER).wait(timeout_s=TIMEOUT_S)
     runner.wait_for_run_idle(60)

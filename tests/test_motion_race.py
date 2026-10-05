@@ -88,7 +88,7 @@ class TestRuntimeOrder_618:
         scope = home_sim_scope(build_scope(simulate=True))
         scope._motion_driver.set_timing_mode('fast')
         call_order = self._track_calls(scope, 'Z')
-        scope.motion.move_absolute('Z', 5000.0, wait_until_complete=False)
+        scope.motion.start_move_absolute('Z', 5000.0)
         # The hardware write must come before the MOVING transition
         assert 'motion.move_abs_pos' in call_order
         assert 'set_state_MOVING' in call_order
@@ -103,7 +103,7 @@ class TestRuntimeOrder_618:
         scope = home_sim_scope(build_scope(simulate=True))
         scope._motion_driver.set_timing_mode('fast')
         call_order = self._track_calls(scope, 'Z')
-        scope.motion.move_relative('Z', 100.0, wait_until_complete=False)
+        scope.motion.start_move_relative('Z', 100.0)
         assert 'motion.move_rel_pos' in call_order
         assert 'set_state_MOVING' in call_order
         move_idx = call_order.index('motion.move_rel_pos')
@@ -153,11 +153,11 @@ class TestRaceSimulation_618:
         scope._motion_driver.move_abs_pos = observe_during_move
 
         # Prime: do one move to set Z to a known IDLE state
-        scope.motion.move_absolute('Z', 1000.0, wait_until_complete=True)
+        scope.motion.move_absolute('Z', 1000.0)
         observations.clear()  # reset after the priming move
 
         # Now do a back-to-back move
-        scope.motion.move_absolute('Z', 5000.0, wait_until_complete=False)
+        scope.motion.start_move_absolute('Z', 5000.0)
 
         assert len(observations) == 1, (
             f'motion.move_abs_pos should be called once, got {len(observations)}'
@@ -190,11 +190,11 @@ class TestBackToBackMoves_618:
         scope = home_sim_scope(build_scope(simulate=True))
         scope._motion_driver.set_timing_mode('fast')
 
-        scope.motion.move_absolute('Z', 2000.0, wait_until_complete=True)
+        scope.motion.move_absolute('Z', 2000.0)
         pos1 = scope._motion_driver.current_pos('Z')
         assert abs(pos1 - 2000.0) < 5.0, f'first move ended at {pos1}, expected ~2000'
 
-        scope.motion.move_absolute('Z', 8000.0, wait_until_complete=True)
+        scope.motion.move_absolute('Z', 8000.0)
         pos2 = scope._motion_driver.current_pos('Z')
         assert abs(pos2 - 8000.0) < 5.0, f'second move ended at {pos2}, expected ~8000'
 
@@ -206,7 +206,7 @@ class TestBackToBackMoves_618:
         # 20 rapid back-to-back moves, alternating direction
         targets = [3000.0, 7000.0] * 10
         for target in targets:
-            scope.motion.move_absolute('Z', target, wait_until_complete=True)
+            scope.motion.move_absolute('Z', target)
             actual = scope._motion_driver.current_pos('Z')
             assert abs(actual - target) < 5.0, f'move to {target} ended at {actual}'
 
@@ -250,7 +250,7 @@ class TestMoveRelProfile_674:
         scope = home_sim_scope(build_scope(simulate=True))
         scope._motion_driver.set_timing_mode('fast')
 
-        scope.motion.move_absolute('X', 1000.0, wait_until_complete=True)
+        scope.motion.move_absolute('X', 1000.0)
 
         observed = {}
         orig_move_abs = scope._motion_driver.move_abs_pos
@@ -264,7 +264,7 @@ class TestMoveRelProfile_674:
 
         scope._motion_driver.move_abs_pos = snapshot_at_driver_return
 
-        scope.motion.move_absolute('X', 1400.0, wait_until_complete=False)
+        scope.motion.start_move_absolute('X', 1400.0)
 
         assert observed.get('profile_at_driver_return') is None, (
             'profile must be UNSET when move_abs_pos returns -- the outer '
@@ -288,7 +288,7 @@ class TestMoveRelProfile_674:
         scope = home_sim_scope(build_scope(simulate=True))
         scope._motion_driver.set_timing_mode('fast')
 
-        scope.motion.move_absolute('X', 1000.0, wait_until_complete=True)
+        scope.motion.move_absolute('X', 1000.0)
 
         observed = {}
         orig_set_state = scope.motion._set_axis_state
@@ -303,9 +303,9 @@ class TestMoveRelProfile_674:
         scope.motion._set_axis_state = snapshot_at_moving
 
         if move == 'absolute':
-            scope.motion.move_absolute('X', 1400.0, wait_until_complete=False)
+            scope.motion.start_move_absolute('X', 1400.0)
         else:
-            scope.motion.move_relative('X', 400.0, wait_until_complete=False)
+            scope.motion.start_move_relative('X', 400.0)
 
         assert 'profile_at_moving' in observed, 'the move must transition X to MOVING'
         assert observed['profile_at_moving'] is not None, (
@@ -324,7 +324,7 @@ class TestMoveRelProfile_674:
         scope._motion_driver.set_timing_mode('fast')
 
         # Prime: move to a known non-zero start; wait_until_complete clears profile.
-        scope.motion.move_absolute('X', 1000.0, wait_until_complete=True)
+        scope.motion.move_absolute('X', 1000.0)
         with scope.motion._move_profile_lock:
             assert scope.motion._move_profile.get('X') is None, (
                 'profile should be cleared after IDLE transition'
@@ -347,7 +347,7 @@ class TestMoveRelProfile_674:
         scope._motion_driver.move_rel_pos = snapshot_at_driver_return
 
         delta = 300.0
-        scope.motion.move_relative('X', delta, wait_until_complete=False)
+        scope.motion.start_move_relative('X', delta)
 
         # H3 invariant: profile not yet written at driver-return.
         assert observed.get('profile_at_driver_return') is None, (
@@ -379,8 +379,8 @@ class TestMoveRelProfile_674:
         scope = home_sim_scope(build_scope(simulate=True))
         scope._motion_driver.set_timing_mode('fast')
 
-        scope.motion.move_absolute('X', 1000.0, wait_until_complete=True)
-        scope.motion.move_relative('X', 500.0, wait_until_complete=False)
+        scope.motion.move_absolute('X', 1000.0)
+        scope.motion.start_move_relative('X', 500.0)
 
         # Observation AFTER the move method returns: profile must be set,
         # state must be MOVING (or just transitioned), and predictor must
@@ -408,7 +408,7 @@ class TestMoveRelProfile_674:
         scope = home_sim_scope(build_scope(simulate=True))
         scope._motion_driver.set_timing_mode('fast')
 
-        scope.motion.move_absolute('X', 1000.0, wait_until_complete=True)
+        scope.motion.move_absolute('X', 1000.0)
 
         DELAY_S = (
             0.040  # 40 ms -- well above scheduler jitter; below an arrow's perception threshold
@@ -422,7 +422,7 @@ class TestMoveRelProfile_674:
         scope._motion_driver.move_rel_pos = slow_driver
 
         t_before = _time.monotonic()
-        scope.motion.move_relative('X', 300.0, wait_until_complete=False)
+        scope.motion.start_move_relative('X', 300.0)
         t_after = _time.monotonic()
 
         with scope.motion._move_profile_lock:

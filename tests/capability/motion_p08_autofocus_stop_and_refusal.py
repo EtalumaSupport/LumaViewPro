@@ -16,7 +16,7 @@ def body(s):
     m = s.scope.motion
     m.home('ALL')
     s.select_labware('96 well microplate')
-    m.move_absolute('Z', 3000.0, wait_until_complete=True)
+    m.move_absolute('Z', 3000.0)
     runner = ProtocolRunner(s)
 
     check('ProtocolRunner exposes abort(run)', callable(runner.abort))

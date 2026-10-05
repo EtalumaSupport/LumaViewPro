@@ -54,6 +54,26 @@ def _homed(motion, axis) -> bool:
     return True
 
 
+def _started(motion, axis, target) -> None:
+    """The recorded reply of a move started and not waited on: None.
+
+    The record was taken when an unwaited ``move_absolute`` returned None.
+    The start now returns the started move, which the record never held.
+    """
+    motion.start_move_absolute(axis, target, overshoot_enabled=False)
+
+
+def _settled(motion) -> bool:
+    """The recorded reply of the stop-settle wait: True when every axis stopped.
+
+    The record was taken when ``wait_until_finished_moving`` answered a
+    bool. It now returns when every axis stopped well and raises when one
+    did not, so its True is a return.
+    """
+    motion.wait_until_finished_moving(timeout_s=_STOP_SETTLE_TIMEOUT_S)
+    return True
+
+
 def _call(scope, record):
     """The API call the characterization tool made for this record."""
     if record['board'] == 'led':
@@ -68,23 +88,18 @@ def _call(scope, record):
         )
     if kind == 'home':
         return functools.partial(_homed, motion, _AXIS_ARG.search(command).group(1))
-    if kind in ('position', 'move', 'stop_move_start'):
+    if kind == 'stop_move_start':
         axis, target = _TARGET.fullmatch(command).groups()
-        return functools.partial(
-            motion.move_absolute,
-            axis,
-            float(target),
-            wait_until_complete=kind != 'stop_move_start',
-            overshoot_enabled=False,
-        )
+        return functools.partial(_started, motion, axis, float(target))
+    if kind in ('position', 'move'):
+        axis, target = _TARGET.fullmatch(command).groups()
+        return functools.partial(motion.move_absolute, axis, float(target), overshoot_enabled=False)
     if kind == 'turret':
         return functools.partial(motion.move_turret, record['slot'])
     if kind == 'stop':
         return motion.stop_motion
     if kind == 'stop_settle':
-        return functools.partial(
-            motion.wait_until_finished_moving, timeout_s=_STOP_SETTLE_TIMEOUT_S
-        )
+        return functools.partial(_settled, motion)
     if kind == 'stop_position':
         return functools.partial(motion.get_current_position, record['axis'])
     raise AssertionError(f'no replay for a {kind!r} record')

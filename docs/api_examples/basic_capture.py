@@ -67,8 +67,8 @@ def main():
     scope.illumination.led_on(channel='BF', illumination_ma=100)
     print('BF LED set to 100 mA')
 
-    # Move Z axis to 5000 um and wait for the move to complete
-    scope.motion.move_absolute('Z', 5000, wait_until_complete=True)
+    # Move Z axis to 5000 um; returns once the move has arrived
+    scope.motion.move_absolute('Z', 5000)
 
     # Read the target Z position (returns um). Zero serial I/O --
     # the API serves this from the push-based position cache.

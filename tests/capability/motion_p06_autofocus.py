@@ -13,9 +13,9 @@ def body(s):
     m = s.scope.motion
     m.home('ALL')
     s.select_labware('96 well microplate')
-    m.move_absolute('Z', 3000.0, wait_until_complete=True)
-    m.move_absolute('X', 40.0, frame='plate', wait_until_complete=True)
-    m.move_absolute('Y', 30.0, frame='plate', wait_until_complete=True)
+    m.move_absolute('Z', 3000.0)
+    m.move_absolute('X', 40.0, frame='plate')
+    m.move_absolute('Y', 30.0, frame='plate')
 
     runner = ProtocolRunner(s)
     z_before = m.get_current_position('Z')

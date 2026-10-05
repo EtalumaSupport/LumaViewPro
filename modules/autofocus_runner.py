@@ -934,14 +934,16 @@ class AutofocusRunner:
         self._saved_data_path = None
 
     def _move_absolute_position(self, position):
-        self._scope.motion.move_absolute('Z', position)
+        # Started, not waited: _iterate holds the next frame while the
+        # scope reports motion.
+        self._scope.motion.start_move_absolute('Z', position)
         with self._callbacks_lock:
             cb = self._callbacks.get('move_position')
         if cb is not None:
             _schedule_ui(lambda dt: cb('Z'))
 
     def _move_relative_position(self, distance):
-        self._scope.motion.move_relative('Z', distance)
+        self._scope.motion.start_move_relative('Z', distance)
         with self._callbacks_lock:
             cb = self._callbacks.get('move_position')
         if cb is not None:

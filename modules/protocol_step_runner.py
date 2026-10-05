@@ -629,13 +629,15 @@ class ProtocolStepRunner:
                 _schedule_ui(lambda dt: p._callbacks.move_position('Z'), 0)
 
     def _move_axis_through_io(self, axis: str, position):
-        """Start a single-axis move on the io lane and wait for the command.
+        """Start a single-axis move on the io lane and wait for the command, not the arrival.
 
         The public member, under the run's taking: it goes through the run's
         door on the lane, and a refusal raises rather than letting the step
-        capture wherever the last move left the stage.
+        capture wherever the last move left the stage. X, Y and Z are started
+        one after another and travel together; the run's tick waits for them
+        by polling ``is_moving``.
         """
-        self._p._scope.motion.move_absolute(axis, position, wait_until_complete=False)
+        self._p._scope.motion.start_move_absolute(axis, position)
 
     def _move_turret_through_io(self, slot: int) -> None:
         """Turn the turret to ``slot`` on the io lane and wait for it.
@@ -707,14 +709,12 @@ class ProtocolStepRunner:
             # This routine RUNS on the io worker, so the lane runs these moves
             # inline there: enqueueing them back onto the single worker and
             # waiting could never complete.
-            p._scope.motion.move_absolute(axis, 0, wait_until_complete=True, overshoot_enabled=True)
+            p._scope.motion.move_absolute(axis, 0, overshoot_enabled=True)
 
             if p._callbacks.move_position:
                 _schedule_ui(lambda dt, a=axis: p._callbacks.move_position(a))
 
-            p._scope.motion.move_absolute(
-                axis, z_orig, wait_until_complete=True, overshoot_enabled=True
-            )
+            p._scope.motion.move_absolute(axis, z_orig, overshoot_enabled=True)
 
             if p._callbacks.move_position:
                 _schedule_ui(lambda dt, a=axis: p._callbacks.move_position(a))

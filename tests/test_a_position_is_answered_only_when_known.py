@@ -33,7 +33,7 @@ def scope():
 
 def _home_and_park_x(scope, x_um=1500.0):
     scope.motion.home()
-    scope.motion.move_absolute('X', x_um, wait_until_complete=True)
+    scope.motion.move_absolute('X', x_um)
     assert scope.motion.get_current_position('X') == pytest.approx(x_um, abs=1.0)
 
 

@@ -1,8 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A waited move tells the truth about arriving.
 
-A move called with ``wait_until_complete`` returns only when its axis
-confirmably reached the target. When the wait ends any other way -- the
+A move returns only when its axis confirmably reached the target. When the wait ends any other way -- the
 motion monitor faulted the axis UNKNOWN (a stall, a lost board) or the
 wait's bound ran out before the axis arrived -- the move raises
 ``MoveNotCompletedError`` and the axis stays UNKNOWN. The earlier body
@@ -43,7 +42,7 @@ def _z_target(motion):
 
 def test_a_waited_move_that_arrives_returns_idle(session):
     motion = session.scope.motion
-    motion.move_absolute('Z', _z_target(motion), wait_until_complete=True)
+    motion.move_absolute('Z', _z_target(motion))
     assert motion.get_axis_state('Z') == AxisState.IDLE
 
 
@@ -56,7 +55,7 @@ def test_a_stalled_waited_move_raises_and_the_axis_stays_unknown(session, monkey
     monkeypatch.setattr(motion, '_MOTION_SETTLE_TIMEOUT_S', 0.3)
 
     with pytest.raises(MoveNotCompletedError) as exc:
-        motion.move_absolute('Z', _z_target(motion), wait_until_complete=True)
+        motion.move_absolute('Z', _z_target(motion))
 
     assert exc.value.axis == 'Z'
     assert motion.get_axis_state('Z') == AxisState.UNKNOWN
@@ -74,7 +73,7 @@ def test_a_board_lost_during_the_wait_raises_board_lost(session, monkeypatch):
     monkeypatch.setattr(motion, '_DISCONNECT_FAULT_S', 0.1)
 
     with pytest.raises(MoveNotCompletedError) as exc:
-        motion.move_absolute('Z', _z_target(motion), wait_until_complete=True)
+        motion.move_absolute('Z', _z_target(motion))
 
     assert exc.value.axis == 'Z'
     assert exc.value.reason == 'board_lost'
@@ -91,25 +90,29 @@ def test_a_waited_move_whose_axis_never_arrives_raises_timed_out(session, monkey
     monkeypatch.setattr(motion, '_MOTION_SETTLE_TIMEOUT_S', 0.3)
 
     with pytest.raises(MoveNotCompletedError) as exc:
-        motion.move_relative('Z', 20.0, wait_until_complete=True)
+        motion.move_relative('Z', 20.0)
 
     assert exc.value.axis == 'Z'
     assert exc.value.reason == 'timed_out'
     assert motion.get_axis_state('Z') == AxisState.UNKNOWN
 
 
-def test_a_later_move_on_the_same_axis_is_not_faulted_by_this_one(session, monkeypatch):
-    """The wait saw every axis stop, then another move on Z began before
-    this move looked: that move's cleared event is not this move's timeout."""
+def test_a_later_move_on_the_same_axis_supersedes_this_one(session, monkeypatch):
+    """The wait saw Z stop, then another move on Z began before this move
+    looked: the axis is that move's, so this one is superseded -- neither
+    faulted with the later move's state nor reported as arrived."""
     motion = session.scope.motion
+    move = motion.start_move_absolute('Z', _z_target(motion))
 
-    def _stopped_then_a_later_move_starts(timeout_s):
+    def _stopped_then_a_later_move_starts(axis, timeout_s):
         motion._set_axis_state('Z', AxisState.MOVING)
         return True
 
-    monkeypatch.setattr(motion, 'wait_until_finished_moving', _stopped_then_a_later_move_starts)
+    monkeypatch.setattr(motion, '_wait_for_axis_to_stop', _stopped_then_a_later_move_starts)
     try:
-        motion._await_arrival('Z', motion._stop_generation)
+        with pytest.raises(MoveNotCompletedError) as exc:
+            move.wait()
+        assert exc.value.reason == 'superseded'
         assert motion.get_axis_state('Z') == AxisState.MOVING
     finally:
         motion._set_axis_state('Z', AxisState.IDLE)
@@ -148,7 +151,7 @@ def test_another_axis_timing_out_does_not_fail_an_arrived_move(session, monkeypa
     # wait times out on X while Z arrives.
     motion._set_axis_state('X', AxisState.HOMING)
     try:
-        motion.move_absolute('Z', _z_target(motion), wait_until_complete=True)
+        motion.move_absolute('Z', _z_target(motion))
         assert motion.get_axis_state('Z') == AxisState.IDLE
         assert motion.get_axis_state('X') == AxisState.HOMING
     finally:

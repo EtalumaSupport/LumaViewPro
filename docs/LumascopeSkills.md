@@ -522,7 +522,7 @@ session.scope.illumination.leds_off()
 
 # Motion
 session.scope.motion.home('ALL')
-session.scope.motion.move_absolute('Z', 5000, wait_until_complete=True)
+session.scope.motion.move_absolute('Z', 5000)
 session.scope.motion.move_relative('X', 500)
 
 # Imaging
@@ -802,11 +802,10 @@ targets = scope.protocols.step_targets(protocol, 2)   # StepTargets(turret_slot=
 sx, sy = scope.protocols.plate_to_stage(protocol, 60.0, 40.0)
 ```
 
-**Going to a step.** `session.go_to_step(protocol, step_idx)` does what a click on a step does, as one task on the scope's IO lane: it asks every axis once whether it knows its position, turns the turret to the slot carrying the step's objective, moves X, Y and Z to the step's targets (`scope.protocols.step_targets`, above), puts the step's values into its layer's live settings (the layer acquiring as the step does, its focus at the step's Z, its stimulation from the step's), and applies the step's LED preview: the step's channel at its current when `protocol_led_on` is set, every channel dark when not. The moves are commanded, not waited out: `scope.motion.wait_until_finished_moving()` waits for them. A scope with no motor board moves nothing and does the rest. A repeat of the step the session last went to (a re-click) does everything but the preview, so a channel lit or put out in between stays as it was; a run transition forgets it. It is refused before anything changes: a `step_idx` that is not a step of `protocol` with `StepNotFoundError`; a step whose objective this scope cannot put in the light path with `ProtocolRunRefusedError`; a step on a layer this scope lacks, or a stimulation naming no layer, with `ConfigError`; an axis that does not know its position with `AxisStateUnknownError` (logged and notified once); a scope held by a run or a diagnostic with `HardwareCommandRefusedError`. A step outside an axis's travel raises `PositionOutOfRangeError` from that axis's move; the axes before it have moved and nothing else changes. The step's camera settings are not pushed to the camera: `scope.imaging.apply_layer_camera_settings(...)` does that from the layer's values.
+**Going to a step.** `session.go_to_step(protocol, step_idx)` does what a click on a step does, as one task on the scope's IO lane: it asks every axis once whether it knows its position, turns the turret to the slot carrying the step's objective, starts X, Y and Z towards the step's targets together (`scope.protocols.step_targets`, above), puts the step's values into its layer's live settings (the layer acquiring as the step does, its focus at the step's Z, its stimulation from the step's), and applies the step's LED preview: the step's channel at its current when `protocol_led_on` is set, every channel dark when not. It then returns once X, Y and Z have arrived, waiting off the IO lane so the lane takes other work while the stage travels; a move that does not arrive raises `MoveNotCompletedError`, with the layer and the preview already the step's. A scope with no motor board moves nothing and does the rest. A repeat of the step the session last went to (a re-click) does everything but the preview, so a channel lit or put out in between stays as it was; a run transition forgets it. It is refused before anything changes: a `step_idx` that is not a step of `protocol` with `StepNotFoundError`; a step whose objective this scope cannot put in the light path with `ProtocolRunRefusedError`; a step on a layer this scope lacks, or a stimulation naming no layer, with `ConfigError`; an axis that does not know its position with `AxisStateUnknownError` (logged and notified once); a scope held by a run or a diagnostic with `HardwareCommandRefusedError`. A step outside an axis's travel raises `PositionOutOfRangeError` from that axis's move; the axes before it have moved and nothing else changes. The step's camera settings are not pushed to the camera: `scope.imaging.apply_layer_camera_settings(...)` does that from the layer's values.
 
 ```python
-session.go_to_step(protocol, 2)                       # turret, X, Y, Z, the layer, the LED
-scope.motion.wait_until_finished_moving()
+session.go_to_step(protocol, 2)                       # turret, X, Y, Z, the layer, the LED; returns on arrival
 ```
 
 **A step the run will refuse.** Every step cell is read as its column's type when a protocol is loaded or built: numbers for X, Y, Z, Illumination, Gain and Exposure, whole numbers for Sum, Z-Slice and the group IDs, True or False for Auto_Focus, Auto_Gain, False_Color, Custom Step and Auto_Named, `'image'` or `'video'` for Acquire, and a parsable config for Video Config and Stim_Config. A cell of the wrong type -- text in a number column, `maybe` in a True/False column, an empty position -- refuses the load with `ProtocolFormatError`, naming the file, the step and the column; nothing is guessed for it. A protocol built in memory (`config=`) is refused the same way, and the protocol's own writers refuse a value of the wrong type with `StepEditRefusedError`. A step index the protocol lacks is refused with `StepNotFoundError` by every writer and by `protocol.step(i)`. Both are `ProtocolError`s and refusals (`modules.protocol`): the reporter shows them as a warning, under "Step Not Changed" and "No Such Step", with no traceback. A step whose cells are the right type can still hold a value the run gate rejects (an exposure of 0, an objective not in the catalogue, an illumination above the board's maximum), and an add or update composed from live settings can too. Neither is refused: the load and the edit succeed, so the step can be fixed, and `session.load_protocol`, `add_step`, `update_step`, `delete_step` and `rename_step` report one notice, reason `protocol_steps_invalid`, listing the validator's lines. The run start refuses the protocol until every step is valid. A step on a layer this scope does not have is refused at load and when a run starts, reason `layer_not_on_scope`, naming the layers and the steps.
@@ -1168,12 +1167,22 @@ scope.motion.stop_motion()                       # stop all in-flight moves (the
 scope.motion.set_acceleration_limit(50)          # motor acceleration cap, percent of max (1-100, else AccelerationLimitRefusedError on every board)
 scope.motion.set_precision_mode('Z', True)       # per-axis precision mode on the motor board
 
-# Absolute moves (µm)
+# Absolute moves (µm). Each returns once the axis has arrived, or raises
+# MoveNotCompletedError saying why it did not.
 scope.motion.move_absolute('Z', 5000)
-scope.motion.move_absolute('X', 60000, wait_until_complete=True)
+scope.motion.move_absolute('X', 60000)
 
-# Relative moves (µm)
+# Started moves: return once the board has taken the command, for work done
+# while the axis travels or axes moved together. The handle's wait() gives
+# the outcome move_absolute would have given.
+x = scope.motion.start_move_absolute('X', 60000)
+y = scope.motion.start_move_absolute('Y', 40000)
+x.wait()
+y.wait()
+
+# Relative moves (µm), waited like move_absolute; start_move_relative is the started form
 scope.motion.move_relative('Z', 100)
+scope.motion.start_move_relative('Z', 100).wait()
 
 # A move that does not complete raises MoveNotCompletedError, one object with
 # .axis, .reason and .title, and the axis is UNKNOWN afterwards (except
@@ -1181,7 +1190,9 @@ scope.motion.move_relative('Z', 100)
 # from the driver's error), 'stalled' / 'board_lost' (the motion monitor gave
 # the axis up; a waited move raises the very object the monitor reported),
 # 'timed_out' (the wait's bound ran out), 'faulted' (set UNKNOWN by something
-# else during the wait), 'stopped' (stop_motion landed on it).
+# else during the wait), 'stopped' (stop_motion landed on it), 'superseded'
+# (another move on the same axis started before it arrived; the axis keeps
+# what that move gives it).
 
 # Jog step under the active objective (z_coarse / z_fine for Z, xy_coarse / xy_fine for X, Y);
 # ObjectiveUnknownError when the objective is unknown -- no step is guessed
@@ -1191,7 +1202,8 @@ scope.motion.move_relative('Z', -step)
 # Status
 scope.motion.get_target_status('Z')              # True if target reached
 scope.motion.is_moving()                         # any axis moving?
-scope.motion.wait_until_finished_moving()        # block until all idle
+scope.motion.wait_until_finished_moving()        # block until the axes moving now stop; raises MoveNotCompletedError
+                                                 # if one ended UNKNOWN, or 'still_moving' if the wait ran out
 scope.motion.position_is_known('Z')              # False until homed: an absolute move would refuse
 
 # Limit switches -- why a move stopped short. Reaching a limit is reported,
@@ -2110,17 +2122,16 @@ if the ideas are ever wanted.
 from modules.lumascope_api import Lumascope
 
 scope = Lumascope()
-scope.motion.home()
-scope.motion.wait_until_finished_moving()
+scope.motion.home()                        # returns once the home has established the reference
 
 scope.initialize(config)   # a ScopeInitConfig (see "Initialization"): records whether the scope has a turret and, with
                            # none, selects config.objective_id; on a turret model, move the turret to the objective's slot
 scope.imaging.set_exposure_ms(50)
 scope.imaging.set_gain_db(5.0)
 
-scope.motion.move_absolute('X', 60000, wait_until_complete=True)
-scope.motion.move_absolute('Y', 40000, wait_until_complete=True)
-scope.motion.move_absolute('Z', 5000, wait_until_complete=True)
+scope.motion.move_absolute('X', 60000)
+scope.motion.move_absolute('Y', 40000)
+scope.motion.move_absolute('Z', 5000)
 
 from modules.image_save import save_image
 
@@ -2208,7 +2219,7 @@ z_start, z_end, z_step = 4000, 6000, 50    # µm
 scope.illumination.led_on('BF', 100)
 z = z_start
 while z <= z_end:
-    scope.motion.move_absolute('Z', z, wait_until_complete=True)
+    scope.motion.move_absolute('Z', z)
     objective_id, _ = scope.runtime_state.resolve_current_objective()  # the objective this frame is taken with
     image = scope.imaging.capture_and_wait()
     save_image(
@@ -2237,8 +2248,8 @@ wells = [('A1', 10.0, 20.0), ('A2', 19.0, 20.0), ('A3', 28.0, 20.0)]
 scope.illumination.led_on('BF', 100)
 for well_name, px, py in wells:
     sx, sy = ct.plate_to_stage(labware=labware_obj, stage_offset=offset, px=px, py=py)
-    scope.motion.move_absolute('X', sx, wait_until_complete=True)
-    scope.motion.move_absolute('Y', sy, wait_until_complete=True)
+    scope.motion.move_absolute('X', sx)
+    scope.motion.move_absolute('Y', sy)
 
     objective_id, _ = scope.runtime_state.resolve_current_objective()  # the objective this frame is taken with
     image = scope.imaging.capture_and_wait()

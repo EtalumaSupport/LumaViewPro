@@ -15,7 +15,7 @@ import ast
 
 from tests.ast_seams import iter_package_modules
 
-_MOVES = frozenset({'move_absolute', 'move_relative'})
+_MOVES = frozenset({'move_absolute', 'move_relative', 'start_move_absolute', 'start_move_relative'})
 
 
 def _called_name(call):

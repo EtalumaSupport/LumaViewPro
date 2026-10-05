@@ -61,10 +61,10 @@ def _bf_steps_at(session, xs_um):
         session.settings[layer]['acquire'] = None
     session.settings['BF']['acquire'] = 'image'
     session.settings['BF']['focus'] = 5000.0
-    session.scope.motion.move_absolute('Y', 40000, wait_until_complete=True)
+    session.scope.motion.move_absolute('Y', 40000)
     protocol = session.create_empty_protocol()
     for x_um in xs_um:
-        session.scope.motion.move_absolute('X', x_um, wait_until_complete=True)
+        session.scope.motion.move_absolute('X', x_um)
         session.add_step(protocol, after_step=protocol.num_steps() - 1)
     return protocol
 

@@ -77,13 +77,9 @@ try:
     # What a script must do instead: read the step and drive motion itself.
     st = p.step(idx=0)
     print('step0 X/Y/Z/Color/Objective:', st['X'], st['Y'], st['Z'], st['Color'], st['Objective'])
-    session.scope.motion.move_absolute(
-        axis='X', position=st['X'], frame='plate', wait_until_complete=True
-    )
-    session.scope.motion.move_absolute(
-        axis='Y', position=st['Y'], frame='plate', wait_until_complete=True
-    )
-    session.scope.motion.move_absolute(axis='Z', position=st['Z'], wait_until_complete=True)
+    session.scope.motion.move_absolute(axis='X', position=st['X'], frame='plate')
+    session.scope.motion.move_absolute(axis='Y', position=st['Y'], frame='plate')
+    session.scope.motion.move_absolute(axis='Z', position=st['Z'])
     now = session.get_current_plate_position()
     print('landed at:', now)
     print(

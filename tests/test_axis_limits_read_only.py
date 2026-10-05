@@ -62,7 +62,7 @@ def test_an_edit_through_a_read_is_refused_and_the_bound_holds(session, which):
 
     assert motion.get_axis_limits('Z')['max'] == travel_max
     with pytest.raises(PositionOutOfRangeError):
-        motion.move_absolute('Z', travel_max + 10000, wait_until_complete=True)
+        motion.move_absolute('Z', travel_max + 10000)
 
 
 def test_the_hardware_driver_builds_a_read_only_config():

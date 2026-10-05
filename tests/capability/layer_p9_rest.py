@@ -56,7 +56,7 @@ try:
     # goto_focus == a Z move to the stored focus
     show(
         'motion.move_absolute(Z, focus)',
-        sc.motion.move_absolute('Z', z + 9, wait_until_complete=True),
+        sc.motion.move_absolute('Z', z + 9),
     )
     show('Z after goto', sc.motion.get_current_position('Z'))
     harness.assert_no_ui()

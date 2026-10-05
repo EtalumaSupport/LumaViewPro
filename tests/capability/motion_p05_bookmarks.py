@@ -43,9 +43,9 @@ def body(s):
     s.select_labware('96 well microplate')
 
     # 3. reconstruct the SET half by hand, the way the GUI handler does
-    m.move_absolute('Z', 3300.0, wait_until_complete=True)
-    m.move_absolute('X', 40.0, frame='plate', wait_until_complete=True)
-    m.move_absolute('Y', 30.0, frame='plate', wait_until_complete=True)
+    m.move_absolute('Z', 3300.0)
+    m.move_absolute('X', 40.0, frame='plate')
+    m.move_absolute('Y', 30.0, frame='plate')
     saved = s.save_bookmark(('X', 'Y', 'Z'))
     check(
         'a script can SAVE the bookmark through the Session',
@@ -54,13 +54,13 @@ def body(s):
     )
 
     # 4. reconstruct the GOTO half
-    m.move_absolute('Z', 500.0, wait_until_complete=True)
-    m.move_absolute('X', 10.0, frame='plate', wait_until_complete=True)
-    m.move_absolute('Y', 10.0, frame='plate', wait_until_complete=True)
+    m.move_absolute('Z', 500.0)
+    m.move_absolute('X', 10.0, frame='plate')
+    m.move_absolute('Y', 10.0, frame='plate')
     bm = s.get_settings_snapshot()['bookmark']
-    m.move_absolute('Z', bm['z'], wait_until_complete=True)
-    m.move_absolute('X', bm['x'], frame='plate', wait_until_complete=True)
-    m.move_absolute('Y', bm['y'], frame='plate', wait_until_complete=True)
+    m.move_absolute('Z', bm['z'])
+    m.move_absolute('X', bm['x'], frame='plate')
+    m.move_absolute('Y', bm['y'], frame='plate')
     back = s.get_current_plate_position()
     check(
         'a script can RETURN to the bookmark and the stage arrives',

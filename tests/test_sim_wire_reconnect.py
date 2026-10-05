@@ -97,7 +97,7 @@ def test_a_cable_pulled_mid_move_faults_the_axis_within_the_deadline_and_says_so
     try:
         motion = session.scope.motion
         motion.home()
-        motion.move_absolute('X', 5000.0)  # about 55 mm from home: over a second of travel
+        motion.start_move_absolute('X', 5000.0)  # about 55 mm from home: over a second of travel
         time.sleep(0.3)
         assert motion.is_moving()
 

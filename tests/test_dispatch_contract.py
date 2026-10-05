@@ -25,9 +25,10 @@ both states are driven here and both must refuse identically.
 
 Parametrized across all three families because they do not share a dispatch
 shape: each has its own dispatcher (``_dispatch_led``, ``_dispatch_camera``,
-``_dispatch_motion``) with its own wait bound, and ``wait_until_complete``
-exists only on motion. A contract pinned on one
-family would not catch the other two diverging from it.
+``_dispatch_motion``) with its own wait bound. A contract pinned on one
+family would not catch the other two diverging from it. Motion is pinned on
+its start member, whose body is the lane's whole work; the waited
+``move_absolute`` is that start followed by a wait off the lane.
 
 The probe replaces ``_impl`` with a recorder rather than asserting hardware
 side effects: what is under test is WHERE and WHETHER the body runs, not
@@ -61,7 +62,7 @@ FAMILIES = [
     ('imaging', 'set_gain_db', {'gain_db': 1.0}, 'camera'),
     (
         'motion',
-        'move_absolute',
+        'start_move_absolute',
         {'axis': 'Z', 'position': 100.0},
         'io',
     ),
@@ -119,6 +120,10 @@ FAMILIES = [
 
 FAMILY_IDS = [f'{family}.{member}' for family, member, _, _ in FAMILIES]
 
+# A member whose body is not named after it: the start members share the
+# move bodies with the waited members.
+_BODY_OF = {'start_move_absolute': '_move_absolute_impl'}
+
 
 @pytest.fixture
 def executors(sim_scope):
@@ -152,7 +157,7 @@ def _install_probe(scope, family, member):
         threads.append(threading.current_thread().name)
         return IMPL_RESULT
 
-    setattr(sub, f'_{member}_impl', _probe)
+    setattr(sub, _BODY_OF.get(member, f'_{member}_impl'), _probe)
     return sub, threads
 
 

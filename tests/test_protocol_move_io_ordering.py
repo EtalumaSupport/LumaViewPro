@@ -38,7 +38,7 @@ def test_a_run_axis_move_goes_through_the_public_member():
 
     step_runner._move_axis_through_io('X', 1234.0)
 
-    motion.move_absolute.assert_called_once_with('X', 1234.0, wait_until_complete=False)
+    motion.start_move_absolute.assert_called_once_with('X', 1234.0)
     # Never the body on protocol_thread itself -- that is the bypass that
     # races leds_off -- and never a put of the runner's own.
     motion._move_absolute_impl.assert_not_called()
