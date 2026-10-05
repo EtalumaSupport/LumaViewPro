@@ -1667,7 +1667,7 @@ def format_disk_size_mb(mb: float) -> str:
     return f'{gb / 1024:.1f} TB'
 
 
-def check_disk_space_ok(path, required_mb: float) -> tuple[bool, float]:
+def check_disk_space_ok(path: str | os.PathLike, required_mb: float) -> tuple[bool, float]:
     """Probe free disk space and compare against a threshold.
 
     Single canonical disk probe shared by protocol_image_writer, the
@@ -1678,7 +1678,10 @@ def check_disk_space_ok(path, required_mb: float) -> tuple[bool, float]:
     mounts) or unit conversion.
 
     Args:
-        path: Filesystem path to probe (str or pathlib.Path).
+        path: Filesystem path to probe (str or pathlib.Path). It need not
+            exist yet: a run's output folder is often made only when its
+            first file is written, and it lands on the volume of its
+            nearest existing ancestor, which is what is measured.
         required_mb: Minimum free space the caller needs, in MB.
 
     Returns:
@@ -1689,7 +1692,10 @@ def check_disk_space_ok(path, required_mb: float) -> tuple[bool, float]:
             callers can decide whether to swallow (best-effort probes)
             or abort (load-bearing probes).
     """
-    disk = psutil.disk_usage(str(path))
+    probe = pathlib.Path(path)
+    while not probe.exists() and probe.parent != probe:
+        probe = probe.parent
+    disk = psutil.disk_usage(str(probe))
     free_mb = disk.free / (1024**2)
     return (free_mb >= required_mb, free_mb)
 
