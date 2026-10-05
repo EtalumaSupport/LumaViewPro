@@ -344,3 +344,119 @@ def test_row7_target_after_setting_the_actual_position(homed):
     _record('row7_target_after_sap1', {'before': before, 'after': after, 'settled': settled})
     logger.warning('[6110 bench] X actual set to 0 by SAP 1: home the stage before using it')
     assert after['actual'] == 0
+
+
+# ---------------------------------------------------------------------------
+# Rows 5 and 6: homes timed, the index's repeat, and the ends of travel
+# ---------------------------------------------------------------------------
+
+HOMES = 10
+# The ends are approached at a fraction of the axis's configured speed, and
+# driven toward a target this far past the configured travel, so a switch
+# ends the drive, not the target.
+END_SPEED_FRACTION = {'X': 0.25, 'Y': 0.25, 'Z': 0.5}
+PAST_TRAVEL_UM = {'X': 30_000, 'Y': 30_000, 'Z': 4_000}
+END_DRIVE_TIMEOUT_S = 240.0
+
+
+def _switches(board, axis):
+    return {
+        'left': _gap(board, tmcm6110.AP_LEFT_SWITCH, axis),
+        'right': _gap(board, tmcm6110.AP_RIGHT_SWITCH, axis),
+    }
+
+
+def _drive_to_switch(board, axis, toward_reference):
+    """Drive ``axis`` slowly until a limit switch stops it; return where.
+
+    The board stops a motor at an engaged switch itself (the switches are
+    enabled at a home). The lid is read first under the driver's lock, as
+    every command the driver sends to start X or Y does. Whatever happens,
+    the axis is stopped and its speed restored before this returns or
+    raises.
+    """
+    motor = MOTORS[axis]
+    params = board.motorconfig.axis_parameters(axis)
+    speed = params['Max Positioning Speed']
+    sense = -1 if toward_reference else 1
+    distance_um = board.motorconfig.travel_limit_um(axis) + PAST_TRAVEL_UM[axis]
+    steps = board._to_board(axis, sense * board._um2ustep(axis, distance_um))
+    started = time.monotonic()
+    try:
+        with board._lock:
+            board._refuse_if_lid_open(axis)
+            board._exchange(
+                SAP,
+                tmcm6110.AP_MAX_POSITIONING_SPEED,
+                motor,
+                max(1, int(speed * END_SPEED_FRACTION[axis])),
+            )
+            board._exchange(tmcm6110.MVP, tmcm6110.MVP_REL, motor, steps)
+        time.sleep(0.2)
+        while _gap(board, AP_ACTUAL_VELOCITY, axis) != 0:
+            if time.monotonic() - started > END_DRIVE_TIMEOUT_S:
+                raise AssertionError(f'{axis} still moving after {END_DRIVE_TIMEOUT_S} s')
+            time.sleep(0.05)
+        actual = _gap(board, AP_ACTUAL_POSITION, axis)
+        return {
+            'toward_reference': toward_reference,
+            'switches': _switches(board, axis),
+            'board_usteps': actual,
+            'api_um': round(board._usteps_to_um(axis, board._to_board(axis, actual)), 2),
+            'seconds': round(time.monotonic() - started, 1),
+        }
+    finally:
+        board.motor_stop()
+        board._exchange(SAP, tmcm6110.AP_MAX_POSITIONING_SPEED, motor, speed)
+
+
+def test_row5_ten_homes_timed_and_the_index_repeat(board):
+    homes = []
+    try:
+        for _ in range(HOMES):
+            started = time.monotonic()
+            assert board.home()
+            seconds = round(time.monotonic() - started, 1)
+            # Where the home switch sits from the index the home set as 0:
+            # its spread across homes is the index's repeat.
+            switch = {axis: _drive_to_switch(board, axis, True) for axis in ('X', 'Y')}
+            homes.append({'seconds': seconds, 'home_switch_from_index': switch})
+            _record('row5_homes', {'homes': homes})
+    finally:
+        board.home()
+    spread = {
+        axis: round(
+            max(h['home_switch_from_index'][axis]['api_um'] for h in homes)
+            - min(h['home_switch_from_index'][axis]['api_um'] for h in homes),
+            2,
+        )
+        for axis in ('X', 'Y')
+    }
+    _record(
+        'row5_homes',
+        {
+            'homes': homes,
+            'home_seconds': [h['seconds'] for h in homes],
+            'switch_from_index_spread_um': spread,
+        },
+    )
+    for home in homes:
+        for axis in ('X', 'Y'):
+            assert any(home['home_switch_from_index'][axis]['switches'].values()), (axis, home)
+
+
+def test_row6_each_axis_driven_to_both_ends(board):
+    """The plate must be off the stage: Z is driven up to its top end."""
+    assert board.home()
+    ends = {}
+    try:
+        for axis in ('Z', 'X', 'Y'):
+            far = _drive_to_switch(board, axis, False)
+            near = _drive_to_switch(board, axis, True)
+            ends[axis] = {'far': far, 'near': near}
+            _record('row6_ends', ends)
+    finally:
+        board.home()
+    for axis, end in ends.items():
+        assert any(end['far']['switches'].values()), (axis, 'no switch at the far end', end)
+        assert any(end['near']['switches'].values()), (axis, 'no switch at the near end', end)
