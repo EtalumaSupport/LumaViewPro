@@ -271,3 +271,33 @@ class TestAnAxisTheScopeLacks:
         motion.start_move_relative('X', 10.0).wait()
 
         assert not motion.is_moving()
+
+
+class TestAStartedGoToStep:
+    """``start_go_to_step`` is the click's form: it returns once the lane
+    task has run, before the stage arrives, so a second click re-targets the
+    stage at once. That the GUI uses it is the guard in
+    ``tests/guards/test_the_gui_starts_its_moves.py``."""
+
+    def _two_step_protocol(self, session):
+        from tests.test_going_to_a_step_is_the_sessions_move import _PLATE, _protocol, _step
+
+        objective = session.scope.runtime_state.get_current_objective_id()
+        return _protocol(
+            _PLATE, _step(20.0, 20.0, 5000.0, objective), _step(80.0, 60.0, 5200.0, objective)
+        )
+
+    def test_a_second_click_retargets_the_stage_at_once(self, session):
+        motion = session.scope.motion
+        motion._driver.set_timing_mode('realistic')
+        protocol = self._two_step_protocol(session)
+
+        session.start_go_to_step(protocol, 0)
+        assert motion.is_moving(), 'the started form returned after the stage arrived'
+        moves = session.start_go_to_step(protocol, 1)
+        for move in moves:
+            move.wait()
+
+        step_two = session.scope.protocols.step_targets(protocol, 1)
+        assert motion.get_current_position('X') == pytest.approx(step_two.x, abs=1.0)
+        assert motion.get_current_position('Y') == pytest.approx(step_two.y, abs=1.0)

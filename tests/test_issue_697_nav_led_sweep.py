@@ -111,7 +111,7 @@ def test_nav_applies_the_camera_once_and_drives_no_led_itself(stepnav_env, previ
     ill, layer_obj = _run_nav(stepnav_env, preview_on=preview_on)
     assert ill.apply_transition.call_count == 0
     assert ill.led_off.call_count == 0, 'nav must not queue its own led_off'
-    assert stepnav_env.ctx.session.go_to_step.call_count == 1
+    assert stepnav_env.ctx.session.start_go_to_step.call_count == 1
     # Camera + histogram no longer depend on the accordion reconcile:
     # protocol=False runs the camera block and histogram sync;
     # update_led=False keeps the enable button out of it.
@@ -127,7 +127,7 @@ def test_go_to_step_no_longer_gates_the_authority_on_protocol_led_on():
     """protocol_led_on decides only preview_on inside the step's LED context;
     it is no longer the gate for whether the authority runs. The context is
     built by the Session, where the navigation now lives."""
-    for name in ('go_to_step', '_go_to_step_on_lane'):
+    for name in ('go_to_step', 'start_go_to_step', '_go_to_step_on_lane'):
         fn = _find_function(_SESSION_TREE, name)
         branches = [
             n for n in ast.walk(fn) if isinstance(n, ast.If) and _reads_protocol_led_on(n.test)

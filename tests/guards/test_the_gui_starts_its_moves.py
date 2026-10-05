@@ -56,3 +56,21 @@ def test_the_scan_sees_the_gesture_moves_it_was_written_for():
             ):
                 started.append(rel)
     assert {'ui/stage.py', 'ui/scope_display.py', 'ui/ui_helpers.py'} <= set(started)
+
+
+def test_the_gui_goes_to_a_step_without_waiting_for_the_stage():
+    """A click on a step is a gesture too: ``start_go_to_step``, not the
+    waiting ``go_to_step``. Waiting made rapid Next clicks travel to every
+    step in turn, and made the person's own scroll during the travel a
+    'superseded' failure popup."""
+    found = []
+    for rel, tree in iter_package_modules(['ui']):
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == 'go_to_step'
+                and ast.unparse(node.func.value).split('.')[-1] == 'session'
+            ):
+                found.append(f'{rel}:{node.lineno}')
+    assert found == []

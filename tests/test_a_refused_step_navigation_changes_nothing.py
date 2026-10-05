@@ -144,7 +144,7 @@ def nav_env(monkeypatch):
             run_in_progress=False,
             # The Session's member, refusing through the real rule and
             # recording the step it was asked to go to.
-            go_to_step=MagicMock(
+            start_go_to_step=MagicMock(
                 side_effect=lambda protocol, step_idx: (
                     scope.protocols.refuse_unaddressable_objectives(
                         [protocol.step(idx=step_idx)['Objective']]
@@ -172,7 +172,7 @@ def nav_env(monkeypatch):
         carried=carried,
         scope=scope,
         protocol_settings=protocol_settings,
-        session_go_to_step=ctx.session.go_to_step,
+        session_go_to_step=ctx.session.start_go_to_step,
         layer_obj=layer_obj,
     )
 

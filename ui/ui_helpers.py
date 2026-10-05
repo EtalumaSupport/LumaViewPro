@@ -452,7 +452,7 @@ def submit_gesture(
             _app_ctx.ctx.scope.motion.refuse_unknown_positions(axes, recording=False, then=then)
         moves()
 
-    submit_move(label, axes=axes, call=call, on_moved=on_moved, lane=_app_ctx.ctx.io_executor)
+    submit_move(label, axes=axes, call=call, on_moved=on_moved)
 
 
 def submit_move(
@@ -460,24 +460,23 @@ def submit_move(
     *,
     axes: typing.Iterable[str],
     call: typing.Callable[[], None],
-    lane: 'SequentialIOExecutor | None',
     on_moved: typing.Callable[[], None] | None = None,
 ) -> None:
-    """Run a person's move, redraw its axes, then its GUI work.
+    """Run a person's move on the IO lane, redraw its axes, then its GUI work.
 
-    The half of ``submit_gesture`` that runs, for a move an API member
-    composes itself (asking about its axes included): the control-surface
-    lock is enforced here, *call* runs where *lane* says, as
-    ``submit_reported`` defines it, the axes are redrawn once *call* has
-    ended whatever its outcome, and *on_moved* runs on the GUI thread only
-    when *call* returned. *lane* is the IO lane for moves that are started
-    and not waited on; None, the worker pool, for a member that waits for
-    the stage to arrive, which must not hold the lane while it travels.
+    The lane half of ``submit_gesture``, for a move an API member composes
+    itself (asking about its axes included): the control-surface lock is
+    enforced here, *call* runs as one task on the IO lane, the axes are
+    redrawn once the task has ended whatever its outcome, and *on_moved*
+    runs on the GUI thread only when *call* returned. A gesture's moves are
+    started, never waited on, so the task holds the lane only for the
+    commands.
     """
+    ctx = _app_ctx.ctx
     axes = tuple(axes)
     if _user_motion_locked(label):
         return
-    # Written by the call, read by the redraw, which submit_reported runs
+    # Written on the lane, read by the redraw, which submit_reported runs
     # once after the task has ended: the one thing the redraw needs to know
     # about the outcome the reporter has already shown.
     moved = False
@@ -492,7 +491,7 @@ def submit_move(
         if moved and on_moved is not None:
             on_moved()
 
-    submit_reported(moving, redraw, label, lane=lane)
+    submit_reported(moving, redraw, label, lane=ctx.io_executor)
 
 
 def _redraw_gesture_axes(axes: tuple[str, ...]) -> None:

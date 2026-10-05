@@ -123,7 +123,7 @@ def stepnav_env(monkeypatch):
             run_in_progress=False,
             # The Session's member: the moves, the layer write and the LED
             # preview are its (tests/test_going_to_a_step_is_the_sessions_move.py).
-            go_to_step=MagicMock(),
+            start_go_to_step=MagicMock(),
         ),
         stage=SimpleNamespace(draw_labware=MagicMock()),
         io_executor=object(),
@@ -179,13 +179,11 @@ class TestStepNavPreviewRespectsLedEnable:
         the GUI asks the Session once and lights nothing itself."""
         _run_manual_nav(stepnav_env)
         assert stepnav_env.ctx.scope.illumination.apply_transition.call_count == 0
-        assert stepnav_env.ctx.session.go_to_step.call_count == 1
-        # The Session's member waits for the stage, so it runs on the worker
-        # pool, not the IO lane; with no motor board no axis is redrawn.
+        assert stepnav_env.ctx.session.start_go_to_step.call_count == 1
+        # The move rides the IO lane; with no motor board no axis is redrawn.
         move = sys.modules['ui.ui_helpers'].submit_move
         assert move.call_count == 1
         assert move.call_args.kwargs['axes'] == ()
-        assert move.call_args.kwargs['lane'] is None
 
     def test_apply_settings_cannot_rederive_led_from_widget(self, stepnav_env):
         """apply_settings must receive update_led=False once the Session has
@@ -203,5 +201,5 @@ def test_a_step_click_on_a_scope_with_no_motor_board_warns_nothing(stepnav_env, 
     with caplog.at_level(logging.WARNING, logger='LVP.ui.step_navigation'):
         _run_manual_nav(stepnav_env)
 
-    assert stepnav_env.ctx.session.go_to_step.call_count == 1
+    assert stepnav_env.ctx.session.start_go_to_step.call_count == 1
     assert [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING] == []

@@ -1655,7 +1655,24 @@ class ScopeSession:
         )
 
     def go_to_step(self, protocol: 'Protocol', step_idx: int) -> None:
-        """Go to step ``step_idx`` of ``protocol``, as a click on a step does.
+        """Go to step ``step_idx`` of ``protocol``, and return once the stage has arrived.
+
+        ``start_go_to_step`` followed by each started move's ``wait()``; see
+        it for what going to a step does and refuses. The wait runs in this
+        caller's thread, so the IO lane takes other work while the stage
+        travels.
+
+        Raises:
+            Everything ``start_go_to_step`` raises, and
+            MoveNotCompletedError: an axis did not arrive at the step; see
+                ``MoveInFlight.wait``. The layer and the preview are the
+                step's.
+        """
+        for move in self.start_go_to_step(protocol, step_idx):
+            move.wait()
+
+    def start_go_to_step(self, protocol: 'Protocol', step_idx: int) -> 'tuple[MoveInFlight, ...]':
+        """Start going to step ``step_idx`` of ``protocol``, as a click on a step does.
 
         One task on the scope's IO lane: the axes are asked once whether
         they know their position; the turret turns to the step's objective
@@ -1665,10 +1682,12 @@ class ScopeSession:
         the layer acquiring as the step does and its focus at the step's Z,
         so the layer and the step agree; and the step's LED preview is
         applied -- its channel at its current when ``protocol_led_on`` is
-        set, every channel dark when not. Then this call waits, off the
-        lane, until X, Y and Z have arrived, so the lane takes other work
-        while the stage travels. A scope with no motor board moves nothing
-        and does the rest.
+        set, every channel dark when not. It returns the started X, Y and Z
+        moves once that task has run, before the stage arrives: each move's
+        ``wait()`` says whether it got there, and ``go_to_step`` waits on
+        them. A person's click is a gesture and does not wait; a fault on
+        the way is the motion monitor's to report. A scope with no motor
+        board moves nothing, does the rest and returns no moves.
 
         A repeat of the step this session last went to (a re-click, a
         re-typed number) does everything but the preview: a channel the
@@ -1688,9 +1707,8 @@ class ScopeSession:
                 scope. Nothing changes.
             PositionOutOfRangeError: the step lies outside an axis's travel;
                 the axes before it have moved, nothing else changes.
-            MoveNotCompletedError: an axis did not arrive at the step; see
-                ``MoveInFlight.wait``. The layer and the preview are the
-                step's.
+            MoveNotCompletedError: the turret did not reach the step's slot,
+                or the board did not take an axis's command.
         """
         step = protocol.step(idx=step_idx)
         self.scope.protocols.refuse_unaddressable_objectives([step['Objective']])
@@ -1712,21 +1730,19 @@ class ScopeSession:
         )
         # Every member inside bounds its own wait, so the task has no bound
         # of its own to add.
-        moves = self.io_executor.call(
+        return self.io_executor.call(
             IOTask(action=self._go_to_step_on_lane, args=(protocol, step_idx, step, targets)),
             'go_to_step',
             timeout_s=None,
         )
-        for move in moves:
-            move.wait()
 
     def _go_to_step_on_lane(
         self, protocol: 'Protocol', step_idx: int, step, targets: 'StepTargets | None'
     ) -> 'tuple[MoveInFlight, ...]':
         """The lane half of ``go_to_step``: ask once, start the moves, load the layer, preview.
 
-        Returns the started X, Y and Z moves, for ``go_to_step`` to wait on
-        off the lane; none when there is no motor board.
+        Returns the started X, Y and Z moves; none when there is no motor
+        board.
         """
         moves: tuple[MoveInFlight, ...] = ()
         if targets is not None:

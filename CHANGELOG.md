@@ -10,8 +10,9 @@
   a started move whose `wait()` gives the same outcome. A waited move no longer holds the IO
   lane while it travels. `wait_until_finished_moving` waits for the axes moving when it is
   called and raises instead of returning `False` on a timeout or `True` for an axis left
-  unknown. `session.go_to_step` returns once X, Y and Z have arrived. The engineering plugin
-  needs 1.0.12 or later.
+  unknown. `session.go_to_step` returns once X, Y and Z have arrived;
+  `session.start_go_to_step` is its started form. The engineering plugin needs 1.0.12 or
+  later.
 - **A run with a failed image save ends `incomplete` (SDK, breaking)**: `files_complete`'s
   `files` is now `'written'` or `'incomplete'` (was `'abandoned'`). A save that failed on
   disk used to count as written, so the composite merge, the hyperstack build and the

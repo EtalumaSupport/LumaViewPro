@@ -28,10 +28,11 @@ def go_to_step(
     ``include_move=False`` is the run's display of the step it is executing:
     the run moves the scope itself, so this only moves the step pointer.
     ``include_move=True`` is a person going to a step: the Session goes to
-    it (``ScopeSession.go_to_step``: the moves, the step's settings into
-    its layer, the LED preview, one task on the IO lane, then the wait for
-    the stage to arrive); the pointer, the step panel, the camera and the
-    layer's widgets follow only once it has returned without a refusal.
+    it (``ScopeSession.start_go_to_step``: the moves started, the step's
+    settings into its layer, the LED preview, one task on the IO lane); the
+    pointer, the step panel, the camera and the layer's widgets follow only
+    once that task has run without a refusal. A click is a gesture: it does
+    not wait for the stage to arrive.
     """
     # Deferred import: ui_helpers imports the display modules, and
     # step_navigation still reaches upward here, which the display-only
@@ -73,7 +74,7 @@ def go_to_step(
     def call():
         if superseded():
             return
-        session.go_to_step(protocol, step_idx)
+        session.start_go_to_step(protocol, step_idx)
 
     def on_moved():
         if superseded():
@@ -99,7 +100,6 @@ def go_to_step(
         axes=ctx.scope.capabilities.axes if ctx.scope.motor_connected else (),
         call=call,
         on_moved=on_moved,
-        lane=None,
     )
 
 

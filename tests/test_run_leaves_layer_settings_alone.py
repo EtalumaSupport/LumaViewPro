@@ -119,7 +119,9 @@ class TestManualNavigationWritesNothingInTheGui:
         env = stepnav_env
         before = copy.deepcopy(env.ctx.settings['Green'])
         order = []
-        env.ctx.session.go_to_step.side_effect = lambda protocol, step_idx: order.append('session')
+        env.ctx.session.start_go_to_step.side_effect = lambda protocol, step_idx: order.append(
+            'session'
+        )
         env.layer_obj.apply_settings.side_effect = lambda **kwargs: order.append('apply')
 
         _go_to_step(_make_step())

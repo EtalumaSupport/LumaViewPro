@@ -31,7 +31,7 @@ def inline_submit_gesture(scope) -> typing.Callable[..., None]:
     return submit_gesture
 
 
-def inline_submit_move(label, *, axes, call, lane, on_moved=None) -> None:
+def inline_submit_move(label, *, axes, call, on_moved=None) -> None:
     """A ``submit_move`` stand-in: *call* at once, then *on_moved* if it returned."""
     try:
         call()
