@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import threading
 from concurrent.futures import CancelledError
+from datetime import timedelta
 
 import pytest
 
@@ -21,6 +22,7 @@ from modules.exceptions import (
     HardwareCommandRefusedError,
     ObjectiveUnknownError,
     RunAlreadyEndedError,
+    SingleScanNotice,
 )
 from modules.notification_center import REFUSAL_OPERATION_KEY, NotificationCenter, Severity
 
@@ -75,6 +77,18 @@ class TestARefusal:
         assert 'slot_unknown' in caplog.records[-1].getMessage()
 
 
+class TestANotice:
+    def test_shown_is_one_notice_line_naming_its_reason(self, centre, caplog):
+        notice = SingleScanNotice(period=timedelta(0), duration=timedelta(minutes=5))
+        with caplog.at_level(logging.DEBUG):
+            centre.report_outcome(notice, solicited=True, category='Protocol')
+
+        assert [(n.severity, n.title) for n in centre.shown] == [(Severity.NOTICE, 'Single Scan')]
+        assert _records(caplog) == [(NOTIFICATIONS, int(Severity.NOTICE), False)]
+        (line,) = [r.getMessage() for r in caplog.records if r.name == NOTIFICATIONS]
+        assert '(single_scan)' in line, line
+
+
 class TestAFault:
     def test_typed_is_shown_in_its_own_words_and_logged_with_its_traceback(self, centre, caplog):
         fault = _raised(ConfigError('the camera stopped delivering frames'))
@@ -86,10 +100,20 @@ class TestAFault:
         assert [(n.severity, n.title, n.message) for n in centre.shown] == [
             (Severity.ERROR, 'Grab failed', 'the camera stopped delivering frames')
         ]
-        assert _records(caplog) == [
-            (OUTCOMES, logging.ERROR, True),
-            (NOTIFICATIONS, logging.ERROR, False),
-        ]
+        # One line: the reporter's, naming the type, with its traceback; the
+        # display post writes none of its own beside it.
+        assert _records(caplog) == [(OUTCOMES, logging.ERROR, True)]
+
+    def test_its_one_line_names_its_reason_code(self, centre, caplog):
+        # Two faults can share a type; a support bundle tells them apart by
+        # the reason the one line carries.
+        fault = _raised(CaptureError('camera inactive or not grabbing', 'no_frame_returned'))
+        with caplog.at_level(logging.DEBUG):
+            centre.report_outcome(fault, solicited=True, category='UI:LIVE_CAPTURE')
+
+        assert _records(caplog) == [(OUTCOMES, logging.ERROR, True)]
+        (line,) = [r.getMessage() for r in caplog.records if r.name == OUTCOMES]
+        assert 'CaptureError (no_frame_returned)' in line, line
 
     def test_a_capture_failure_is_shown_under_its_types_title(self, centre):
         fault = _raised(CaptureError('camera inactive or not grabbing', 'no_frame_returned'))

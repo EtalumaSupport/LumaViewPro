@@ -17,6 +17,8 @@ import pytest
 from modules.sequential_io_executor import IOTask
 
 NOTIFICATION_LOGGER = 'LVP.notifications'
+# A shown fault's one line is the reporter's, on this logger, not a display line.
+OUTCOME_LOGGER = 'LVP.outcomes'
 
 
 class _BoomError(RuntimeError):
@@ -48,7 +50,7 @@ def _notices(caplog):
     return [
         r.getMessage()
         for r in caplog.records
-        if r.name == NOTIFICATION_LOGGER and '_boom' in r.getMessage()
+        if r.name in (NOTIFICATION_LOGGER, OUTCOME_LOGGER) and '_boom' in r.getMessage()
     ]
 
 

@@ -49,9 +49,10 @@ from modules.exceptions import (
 )
 
 logger = logging.getLogger('LVP.notifications')
-# The reporter's own record -- what happened, with the traceback when it
-# is a fault -- kept apart from the display line notify() writes, so the
-# two are never read as one event twice.
+# The reporter's own record -- what happened, with the traceback when it is
+# a fault: a fault's one line, shown or not, and the line of any outcome no
+# one is shown. A shown refusal's or notice's one line is its display line,
+# on the notifications logger, so an outcome is never read as two events.
 _outcome_logger = logging.getLogger('LVP.outcomes')
 
 # Faults whose message is written for the person. Any other exception's
@@ -195,6 +196,23 @@ class Notification:
     wall_time: float = field(default_factory=time.time)
 
 
+def _log_display_line(
+    severity: Severity, category: str, title: str, message: str, reason: str
+) -> None:
+    """The line a displayed post leaves: ``[category] title (reason): message``.
+
+    Collapsed to one physical line: message prose may span paragraphs, and
+    raw continuation lines carry no level or timestamp prefix.
+    """
+    from modules import gui_logger
+
+    because = f' ({reason})' if reason else ''
+    logger.log(
+        int(severity),
+        f'[{category}] {gui_logger.one_line(title)}{because}: {gui_logger.one_line(message)}',
+    )
+
+
 class NotificationCenter:
     """Thread-safe notification bus.
 
@@ -272,7 +290,7 @@ class NotificationCenter:
         kind: OutcomeKind | None = None,
         outcome_id: int | None = None,
     ) -> bool:
-        """Post a notification.  Thread-safe.  Always logs.
+        """Post a notification and log its display line.  Thread-safe.
 
         Returns whether it was shown: False when shutdown, an unattended run's
         mute or the dedup window suppressed it. Every listener receives it
@@ -304,16 +322,45 @@ class NotificationCenter:
         here directly declares no kind; it is a notice at NOTICE and below and
         unclassified above, and gets an id of its own.
         """
-        # Always log at the matching level. Collapsed to one physical
-        # line: message prose may span paragraphs, and raw continuation
-        # lines carry no level/timestamp prefix.
-        from modules import gui_logger
-
-        because = f' ({reason})' if reason else ''
-        logger.log(
-            int(severity),
-            f'[{category}] {gui_logger.one_line(title)}{because}: {gui_logger.one_line(message)}',
+        _log_display_line(severity, category, title, message, reason)
+        return self._deliver(
+            severity,
+            category,
+            title,
+            message,
+            source=source,
+            fatal=fatal,
+            operation_key=operation_key,
+            solicited=solicited,
+            reason=reason,
+            remedy=remedy,
+            kind=kind,
+            outcome_id=outcome_id,
         )
+
+    def _deliver(
+        self,
+        severity: Severity,
+        category: str,
+        title: str,
+        message: str,
+        *,
+        source: str = '',
+        fatal: bool = False,
+        operation_key: str = '',
+        solicited: bool = False,
+        reason: str = '',
+        remedy: Remedy | None = None,
+        kind: OutcomeKind | None = None,
+        outcome_id: int | None = None,
+    ) -> bool:
+        """Deliver a post, writing no display line: its interaction record,
+        whether it is shown, and every listener. Returns whether it was shown.
+
+        ``notify()`` writes the display line first; ``report_outcome`` writes
+        each outcome's one line itself, so an outcome is never logged twice.
+        """
+        from modules import gui_logger
 
         # Forensics: every notification (independent of any UI popup
         # bridge that may suppress it post-shutdown) lands in
@@ -443,12 +490,15 @@ class NotificationCenter:
         asked (``solicited``), which ``category`` it belongs to, and, with
         ``log_only``, that no one is to be shown it.
 
-        A fault is logged at ERROR with its traceback; a quiet outcome at INFO;
-        a refusal that is not shown at WARNING and a notice that is not shown
-        at NOTICE, with no traceback. A shown outcome's display line is
-        ``notify()``'s own, naming the type's reason code when it has one, so
-        a shown refusal is one WARNING line, a shown notice one NOTICE line,
-        and a shown fault is its traceback line and that one. A refusal is
+        An outcome is one log line, and this is where each is written. A
+        fault's, shown or not: ERROR, naming its type, its reason code and its
+        own words, with its traceback, so the record says what failed even
+        when the person is shown the generic sentence; its display writes no
+        line. A shown refusal's or notice's is its display line, the one
+        ``notify()`` writes for a direct post, naming the type's reason code
+        when it has one: one WARNING line for a refusal, one NOTICE line for
+        a notice. One no one is shown: a quiet outcome at INFO, a refusal at
+        WARNING and a notice at NOTICE, with no traceback. A refusal is
         shown as a warning and a notice as a notice, each under its
         ``title``; a fault as an error, or as critical when its type says
         ``fatal``, in its own words when its type writes them for a person
@@ -499,14 +549,17 @@ class NotificationCenter:
                 if not do_show:
                     _outcome_logger.log(int(Severity.NOTICE), f'[{category}] {type_name}: {words}')
             else:
+                because = f' ({reason})' if reason else ''
                 _outcome_logger.error(
-                    f'[{category}] raised {type_name}: {words}', exc_info=exception
+                    f'[{category}] raised {type_name}{because}: {words}', exc_info=exception
                 )
         if not do_show:
             return
         remedy = getattr(exception, 'remedy', None)
         if refusal:
-            delivered = self.warning(
+            _log_display_line(Severity.WARNING, category, exception.title, words, reason)
+            delivered = self._deliver(
+                Severity.WARNING,
                 category,
                 exception.title,
                 words,
@@ -518,7 +571,9 @@ class NotificationCenter:
                 outcome_id=outcome_id,
             )
         elif notice:
-            delivered = self.notice(
+            _log_display_line(Severity.NOTICE, category, exception.title, words, reason)
+            delivered = self._deliver(
+                Severity.NOTICE,
                 category,
                 exception.title,
                 words,
@@ -533,7 +588,9 @@ class NotificationCenter:
             body = words if isinstance(exception, _TYPED_FAULTS) and words else _UNTYPED_FAULT_BODY
             title = getattr(exception, 'title', None) or fault_title
             fatal = bool(getattr(exception, 'fatal', False))
-            delivered = (self.critical if fatal else self.error)(
+            # The fault's one line is the reporter's, written above.
+            delivered = self._deliver(
+                Severity.CRITICAL if fatal else Severity.ERROR,
                 category,
                 title,
                 body,
