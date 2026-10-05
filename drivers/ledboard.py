@@ -79,11 +79,7 @@ class LEDBoard(SerialBoard):
         # sent nothing: the registry judges it and bring-up reports it once.
         if not self.found:
             return
-        try:
-            self.connect()
-        except Exception:
-            logger.error('[LED Class ] Failed to connect to LED controller')
-            raise
+        self.connect()
         if not self.is_connected():
             return
 
