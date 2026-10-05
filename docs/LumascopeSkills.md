@@ -1026,6 +1026,10 @@ except SupportReportNotSavedError as e:         # no ZIP; the failure's own word
 saved.path      # the ZIP
 saved.title     # 'Support Report Saved' or 'Logs Zip Saved'
 saved.message   # the folder it is in, and the address to send it to
+
+health = session.plugin_health()   # modules.plugins.PluginHealth, or None when no plugins load here
+health.namespaces                  # each namespace's NamespaceHealth: loaded, last_runtime_errors
+health.not_loaded                  # PluginNotLoaded(name, version, reason) for each that did not load
 ```
 
 The full report holds the scope for a diagnostic around its hardware steps
@@ -1033,6 +1037,13 @@ The full report holds the scope for a diagnostic around its hardware steps
 says so in the ZIP. A step that fails is written into the ZIP and the report
 goes on: only a ZIP that could not be written raises. Neither member is
 cancellable.
+
+Both ZIPs carry `bring_up.json` (the session's `bring_up_record()`, each
+part with `cause_words` beside its `cause`) and `plugins.json` (each plugin
+namespace's health, and `not_loaded`: the plugins that did not load and
+why). A session gets plugin health only from a host that loads plugins and
+passes `ScopeSession.create(..., plugin_health=registry.health)`; any other
+writes `{"plugins": null, "why": "no plugin registry on this host"}`.
 
 ### Configuration queries
 

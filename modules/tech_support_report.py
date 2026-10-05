@@ -63,6 +63,7 @@ from modules.exceptions import (
     HomingFailedError,
     SupportReportNotSavedError,
 )
+from modules.lumascope_api.bring_up import CAUSE_PHRASES
 from modules.lumascope_api.diagnostics import (
     LED_COMMANDS_V2,
     NOT_CONNECTED,
@@ -2625,20 +2626,60 @@ class TechSupportReport:
         `_step_usb_devices` issues wmic calls that are timeouts rather
         than data on current Windows.
 
-        Each step is guarded on its own: both bundle paths wrap their
-        body in a catch-all that discards the entire archive, so an
-        unguarded diagnostic here could cost the user the very bundle it
-        was added to enrich. A failure is recorded INTO the artifact,
+        Each step is guarded on its own: a raise out of either bundle path
+        means no archive at all, so an unguarded diagnostic here could cost
+        the user the very bundle it was added to enrich. A failure is recorded INTO the artifact,
         where support reads it.
         """
         cb(pct, 'Recording runtime census...')
-        try:
-            self._step_runtime_census(tmp)
-        except Exception as e:
+        for step, name in (
+            (self._step_runtime_census, 'runtime_census'),
+            (self._step_bring_up, 'bring_up'),
+            (self._step_plugins, 'plugins'),
+        ):
             try:
-                (tmp / 'runtime_census_ERROR.txt').write_text(f'runtime census failed: {e}\n')
-            except OSError:
-                pass
+                step(tmp)
+            except Exception as e:
+                try:
+                    (tmp / f'{name}_ERROR.txt').write_text(f'{name} failed: {e}\n')
+                except OSError:
+                    pass
+
+    def _step_bring_up(self, tmp):
+        """What bring-up found: each part and why it is not up, the substitutions, the settings set aside.
+
+        The session's record when there is one; the command-line report's
+        diagnostic scope's otherwise, which holds the two boards and no
+        camera and expects every board. No scope, no record: the file says
+        why there is none.
+        """
+        if self._session is not None:
+            record = self._session.bring_up_record()
+        elif self.diag.scope is not None:
+            record = self.diag.scope.bring_up_record()
+        else:
+            failure = self.diag.build_failure
+            why = (
+                f'the scope could not be built: {type(failure).__name__}: {failure}'
+                if failure is not None
+                else 'the report ran without connecting to the scope'
+            )
+            body = {'record': None, 'why': why}
+            (tmp / 'bring_up.json').write_text(json.dumps(body, indent=2))
+            return
+        body = dataclasses.asdict(record)
+        for part in body['parts']:
+            part['cause_words'] = CAUSE_PHRASES.get(part['cause']) if part['cause'] else None
+        (tmp / 'bring_up.json').write_text(json.dumps(body, indent=2, default=str))
+
+    def _step_plugins(self, tmp):
+        """The loaded plugins, the ones that did not load and why, and their runtime errors."""
+        health = self._session.plugin_health() if self._session is not None else None
+        if health is None:
+            body = {'plugins': None, 'why': 'no plugin registry on this host'}
+        else:
+            body = dataclasses.asdict(health)
+        (tmp / 'plugins.json').write_text(json.dumps(body, indent=2, default=str))
 
     def generate_logs_only(
         self,

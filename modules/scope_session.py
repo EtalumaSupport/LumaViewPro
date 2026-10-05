@@ -92,6 +92,7 @@ if TYPE_CHECKING:
     from modules.lumascope_api.protocols import StepTargets
     from modules.protocol_runner import ProtocolRunner
     from modules.sequential_io_executor import SequentialIOExecutor
+    from modules.plugins import PluginHealth
     from modules.tech_support_report import SupportReportSaved
 
 
@@ -167,6 +168,7 @@ class ScopeSession:
         scheduler: Scheduler | None = None,
         settings_saved_hook=None,
         engineering_mode: bool = False,
+        plugin_health: 'Callable[[], PluginHealth] | None' = None,
     ):
         self.settings = settings
         # The lock lives with the dict it guards. Every host hands the same
@@ -179,6 +181,10 @@ class ScopeSession:
         # written. The GUI passes its plugin notifier; a headless host
         # passes nothing, because there is no plugin registry to notify.
         self._settings_saved_hook = settings_saved_hook
+        # The plugins' health, read when asked (the support report). The GUI
+        # passes its registry's; a headless host has no registry and passes
+        # nothing.
+        self._plugin_health = plugin_health
         self.scope = scope
         # One scheduler per session, owned here and shared by every
         # periodic consumer -- metrics, camera-temp logging, and the
@@ -628,6 +634,7 @@ class ScopeSession:
         af_ui_update_func: Callable[[float], None] | None = None,
         settings_saved_hook: Callable[[dict], None] | None = None,
         engineering_mode: bool = False,
+        plugin_health: 'Callable[[], PluginHealth] | None' = None,
         display_ctx_provider: Callable[[], Any] | None = None,
         sim_camera_stall: 'SimulatedStall | None' = None,
         sim_file_stall: 'SimulatedStall | None' = None,
@@ -677,6 +684,9 @@ class ScopeSession:
                 successful ``save_settings``.
             engineering_mode: stored on the session as the mode it was
                 built in.
+            plugin_health: returns the plugin registry's health when the
+                support report asks (host-only: the GUI's registry; None
+                for a host that loads no plugins).
             display_ctx_provider: the display thread's context provider
                 (host-only: the GUI's app context; None for a host with
                 no display).
@@ -790,6 +800,7 @@ class ScopeSession:
                     owns_scope=built_scope,
                     settings_saved_hook=settings_saved_hook,
                     engineering_mode=engineering_mode,
+                    plugin_health=plugin_health,
                 )
             except BaseException:
                 # No session exists to tear down -- a scope another session holds
@@ -2104,6 +2115,13 @@ class ScopeSession:
             report.generate_logs_only(callback=on_progress, output_dir=output_dir),
             'logs zip',
         )
+
+    def plugin_health(self) -> 'PluginHealth | None':
+        """The loaded plugins, the ones that did not load, and their runtime errors.
+
+        None on a host with no plugin registry: only the GUI loads plugins.
+        """
+        return None if self._plugin_health is None else self._plugin_health()
 
     def settings_are_provisional(self) -> bool:
         """Is the app running on defaults nobody has agreed to keep?

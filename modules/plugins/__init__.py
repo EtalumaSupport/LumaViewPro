@@ -162,6 +162,14 @@ class NamespaceHealth:
     last_runtime_errors: tuple[PluginRuntimeError, ...]
 
 
+@dataclass(frozen=True)
+class PluginHealth:
+    """Every namespace's health and the plugins that did not load, for tech-support reports."""
+
+    namespaces: tuple[NamespaceHealth, ...]
+    not_loaded: tuple[PluginNotLoaded, ...]
+
+
 # Processor result for post_processing namespace.
 # Plugins return this from their processor callable so the host knows
 # what artifacts to surface in the run-complete dialog and where to
@@ -582,6 +590,10 @@ class PluginRegistry:
         """The plugins that did not load, in the order they were found, for tech-support reports."""
         with self._loaded_lock:
             return tuple(self._not_loaded)
+
+    def health(self) -> PluginHealth:
+        """Every namespace's health and the plugins that did not load, in one snapshot."""
+        return PluginHealth(namespaces=self.all_health(), not_loaded=self.not_loaded())
 
     def all_health(self) -> tuple[NamespaceHealth, ...]:
         """Return per-namespace health snapshots for tech-support reports."""

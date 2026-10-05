@@ -1030,6 +1030,7 @@ class LumaViewProApp(TooltipMixin, App):
                 af_ui_update_func=_handle_autofocus_ui,
                 settings_saved_hook=_notify_plugins_of_settings_save,
                 engineering_mode=ENGINEERING_MODE,
+                plugin_health=lambda: app_context.ctx.plugins.health(),
                 display_ctx_provider=lambda: app_context.ctx,
                 sim_camera_stall=sim_camera_stall,
                 sim_file_stall=sim_file_stall,
