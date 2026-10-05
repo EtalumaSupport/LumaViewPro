@@ -266,7 +266,7 @@ def test_a_12bit_sum_projection_is_tagged_by_its_reach_and_reads_back(tmp_path):
     assert int(pixels.max()) == 12000
 
 
-@pytest.mark.parametrize(
+MIXED_PLANES = pytest.mark.parametrize(
     ('encoding', 'unsummed', 'summed'),
     [
         # Scientific keeps counts: the single frame beside the 4-sum, 1:4.
@@ -275,28 +275,65 @@ def test_a_12bit_sum_projection_is_tagged_by_its_reach_and_reads_back(tmp_path):
         ('msb_aligned', 200 << 8, 800 << 6),
     ],
 )
-def test_a_hyperstack_of_8bit_and_16bit_planes_is_built_at_16bit(
-    tmp_path, encoding, unsummed, summed
-):
-    _write(tmp_path / 'blue.tiff', np.full((4, 4), 200, dtype=np.uint8), 8, encoding)
-    _write(tmp_path / 'lumi.tiff', np.full((4, 4), 800, dtype=np.uint16), 10, encoding, 'Lumi')
-    df = pd.DataFrame(
+
+
+def _mixed_planes(path: pathlib.Path, encoding: str) -> pd.DataFrame:
+    """An unsummed 8-bit Blue plane beside a 4-sum 10-bit Lumi plane, on disk."""
+    _write(path / 'blue.tiff', np.full((4, 4), 200, dtype=np.uint8), 8, encoding)
+    _write(path / 'lumi.tiff', np.full((4, 4), 800, dtype=np.uint16), 10, encoding, 'Lumi')
+    return pd.DataFrame(
         [
             {'Filepath': 'blue.tiff', 'Color': 'Blue', 'Scan Count': 0, 'Z-Slice': 0},
             {'Filepath': 'lumi.tiff', 'Color': 'Lumi', 'Scan Count': 0, 'Z-Slice': 0},
         ]
     ).assign(X=0.0, Y=0.0, Z=0.0)
+
+
+def _plane_maxima(stack_file: pathlib.Path) -> list[int]:
+    stack = tf.imread(str(stack_file))
+    assert stack.dtype == np.uint16
+    return sorted(int(plane.max()) for plane in stack.reshape(-1, *stack.shape[-2:]))
+
+
+@MIXED_PLANES
+def test_a_hyperstack_of_8bit_and_16bit_planes_is_built_at_16bit(
+    tmp_path, encoding, unsummed, summed
+):
     result = StackBuilder._create_stack(
         path=tmp_path,
-        df=df,
+        df=_mixed_planes(tmp_path, encoding),
         output_file_loc=pathlib.Path('stack.ome.tiff'),
         save_encoding=encoding,
     )
     assert result['status'], result.get('error')
-    stack = tf.imread(str(tmp_path / 'stack.ome.tiff'))
-    assert stack.dtype == np.uint16
-    planes = sorted(int(plane.max()) for plane in stack.reshape(-1, *stack.shape[-2:]))
-    assert planes == sorted([unsummed, summed])
+    assert _plane_maxima(tmp_path / 'stack.ome.tiff') == sorted([unsummed, summed])
+
+
+@MIXED_PLANES
+def test_a_runs_stack_is_built_in_the_runs_encoding(tmp_path, encoding, unsummed, summed):
+    # The run's post-run build reaches the stack through the group algorithm.
+    result = StackBuilder(has_turret=False)._group_algorithm(
+        path=tmp_path,
+        df=_mixed_planes(tmp_path, encoding),
+        output_file_loc=pathlib.Path('stack.ome.tiff'),
+        save_encoding=encoding,
+    )
+    assert result.status, result.error
+    assert _plane_maxima(tmp_path / 'stack.ome.tiff') == sorted([unsummed, summed])
+
+
+@MIXED_PLANES
+def test_a_manual_recordings_stack_is_built_in_its_encoding(tmp_path, encoding, unsummed, summed):
+    # One recording is one channel over time: the two planes are its frames.
+    df = _mixed_planes(tmp_path, encoding).assign(Color='Lumi', **{'Scan Count': [0, 1]})
+    result = StackBuilder(has_turret=False).create_single_recording_stack(
+        df=df,
+        path=tmp_path,
+        output_file_loc=tmp_path / 'stack.ome.tiff',
+        save_encoding=encoding,
+    )
+    assert result['status'], result.get('error')
+    assert _plane_maxima(tmp_path / 'stack.ome.tiff') == sorted([unsummed, summed])
 
 
 # --- the renderings and the hand-offs -----------------------------------------
