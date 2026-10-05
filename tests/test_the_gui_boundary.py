@@ -301,3 +301,23 @@ def test_a_burst_of_scroll_ticks_is_one_move_of_the_last_ticks_step(monkeypatch)
 
     assert moves == [('Z', -150.0)]
     assert steps == [True], 'the step is asked for once, at the move, with the last tick coarseness'
+
+
+class TestALongMemberCarriesItsBudget:
+    """A member that declares how long it may run is not a slow task when it runs that long."""
+
+    def test_the_task_carries_the_members_declared_budget(self, monkeypatch):
+        from modules.scope_session import SUPPORT_REPORT_SLOW_TASK_S, ScopeSession
+
+        queued = []
+        executor = types.SimpleNamespace(put=lambda task: queued.append(task) or task)
+        submit_reported(
+            lambda: None, None, 'TEST', lane=executor, budget_of=ScopeSession.make_support_report
+        )
+        assert queued[0].resolve_slow_task_threshold() == SUPPORT_REPORT_SLOW_TASK_S
+
+    def test_a_call_with_no_member_keeps_the_default(self):
+        queued = []
+        executor = types.SimpleNamespace(put=lambda task: queued.append(task) or task)
+        submit_reported(lambda: None, None, 'TEST', lane=executor)
+        assert queued[0].resolve_slow_task_threshold() == IOTask.DEFAULT_SLOW_TASK_THRESHOLD_SEC

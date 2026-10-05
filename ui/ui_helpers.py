@@ -94,6 +94,7 @@ def submit_reported(
     *,
     stop: bool = False,
     lane: 'SequentialIOExecutor | None' = None,
+    budget_of: typing.Callable[..., object] | None = None,
 ) -> None:
     """Run an API call that may block off the GUI thread and report its outcome; then redraw.
 
@@ -137,8 +138,19 @@ def submit_reported(
     ``stop`` is for a Stop: it goes ahead of every queued request, so a
     person stopping a run is never kept waiting behind work they asked for
     before it.
+
+    ``budget_of`` is the API member *call* runs, when that member declares
+    how long it may legitimately take (``@slow_task_budget``): the task
+    carries the member's budget, so a member that runs for minutes is not
+    logged as a slow task each time it succeeds. The cost is the member's;
+    the GUI only says which member it called.
     """
-    from modules.sequential_io_executor import PRIORITY_HIGH, PRIORITY_MED, IOTask
+    from modules.sequential_io_executor import (
+        PRIORITY_HIGH,
+        PRIORITY_MED,
+        SLOW_TASK_BUDGET_ATTR,
+        IOTask,
+    )
 
     def _redraw():
         _schedule_ui(lambda dt: _reported(redraw, label))
@@ -149,6 +161,9 @@ def submit_reported(
     # The executor names a refused task by its action, so the action carries
     # the gesture's label rather than this wrapper's name.
     _off_the_gui_thread.__name__ = _off_the_gui_thread.__qualname__ = f'UI:{label}'
+    budget = getattr(budget_of, SLOW_TASK_BUDGET_ATTR, None)
+    if budget is not None:
+        setattr(_off_the_gui_thread, SLOW_TASK_BUDGET_ATTR, budget)
 
     executor = lane if lane is not None else _app_ctx.ctx.worker_pool
     priority = PRIORITY_HIGH if stop else PRIORITY_MED

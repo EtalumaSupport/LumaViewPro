@@ -54,12 +54,19 @@ from modules.manual_recording import ManualRecordingController
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
 from modules.run_outcome import PendingRunOutcome, RunEnding
 from modules.scheduler import Scheduler, ThreadingTimerScheduler
-from modules.sequential_io_executor import IOTask
+from modules.sequential_io_executor import IOTask, slow_task_budget
 
 # How long a diagnostic's end waits for a run it lent its claim to. The
 # window of one autofocus inside a characterization. Per
 # PERFORMANCE_BUDGETS.md row diagnostic_exit_run_idle_wait_s.
 DIAGNOSTIC_EXIT_RUN_IDLE_WAIT_S = 120.0
+
+# How long the full support report may run before "Slow task" means
+# anything: it homes, sweeps the fan, times the serial link and copies the
+# files, which the report itself tells the person takes 5-10 minutes.
+# Module-level because the decorator runs at class-body time. Budget row:
+# support_report_slow_task_s in PERFORMANCE_BUDGETS.md.
+SUPPORT_REPORT_SLOW_TASK_S = 600.0
 
 # How long shutdown lets a finished run's images finish writing before it
 # gives up on them and takes the file lane down. Budget row:
@@ -2042,6 +2049,7 @@ class ScopeSession:
         set_aside = None if rejected is None else SettingsSetAside(*rejected)
         return dataclasses.replace(self.scope.bring_up_record(), settings_set_aside=set_aside)
 
+    @slow_task_budget(SUPPORT_REPORT_SLOW_TASK_S)
     def make_support_report(
         self,
         *,

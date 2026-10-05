@@ -821,10 +821,12 @@ class MicroscopeSettings(BoxLayout):
         )
 
     def _start_support_report(self):
+        session = _app_ctx.ctx.session
         self._make_zip(
             'Generating Support Report...',
             'GENERATE_SUPPORT_REPORT',
-            lambda progress: _app_ctx.ctx.session.make_support_report(on_progress=progress),
+            lambda progress: session.make_support_report(on_progress=progress),
+            budget_of=session.make_support_report,
         )
 
     def zip_logs_only(self):
@@ -836,7 +838,7 @@ class MicroscopeSettings(BoxLayout):
             lambda progress: _app_ctx.ctx.session.make_logs_zip(on_progress=progress),
         )
 
-    def _make_zip(self, title, label, make):
+    def _make_zip(self, title, label, make, budget_of=None):
         """Run one of the Session's support zips under a progress popup, then show where it went.
 
         The zip runs on the diagnostics executor, so a Stop never waits
@@ -867,5 +869,9 @@ class MicroscopeSettings(BoxLayout):
                 show_notification_popup(title=saved.title, message=saved.message)
 
         submit_reported(
-            _make, _show, label, lane=_app_ctx.ctx.session.executor_bundle.diagnostics_executor
+            _make,
+            _show,
+            label,
+            lane=_app_ctx.ctx.session.executor_bundle.diagnostics_executor,
+            budget_of=budget_of,
         )
