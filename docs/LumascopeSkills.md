@@ -1414,6 +1414,13 @@ scope.imaging.set_black_level(value=4.0)           # value in effect; probe
                                                    #   scope.capabilities.camera_supports_black_level first;
                                                    #   raises HardwareError when the camera write fails
 
+# Frame rate: the camera's own figure for what its current settings allow
+# (Basler: the resulting acquisition frame rate; IDS: AcquisitionFrameRate's
+# maximum; the simulator: its pacing). The rate frames actually reach the
+# host at is measured from their arrivals, not read here.
+scope.imaging.get_resulting_frame_rate()           # fps; None when no camera or none reported (FX2);
+                                                   #   raises HardwareError when the read fails (no cache)
+
 # Frame size (getters answer last-known-good on a transient read
 # failure; None / 0 only when no camera is active or never read)
 delivered = scope.imaging.set_frame_size(2048, 2048)

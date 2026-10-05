@@ -3104,6 +3104,21 @@ class IDSCamera(Camera):
         except Exception as e:
             raise HardwareError(f'BlackLevel range read failed: {type(e).__name__}: {e}') from e
 
+    def get_resulting_frame_rate(self) -> float | None:
+        """AcquisitionFrameRate's maximum, live: the rate the current exposure
+        and readout allow, which the free-run configuration runs at. See
+        ``Camera.get_resulting_frame_rate``."""
+        if not self.active or self.remote_nodemap is None:
+            return None
+        try:
+            if not self.remote_nodemap.HasNode('AcquisitionFrameRate'):
+                return None
+            return float(self.remote_nodemap.FindNode('AcquisitionFrameRate').Maximum())
+        except Exception as e:
+            raise HardwareError(
+                f'AcquisitionFrameRate maximum read failed: {type(e).__name__}: {e}'
+            ) from e
+
     def set_black_level(self, value: float) -> float | bool | None:
         """Set BlackLevel. Returns as ``gain`` does.
 

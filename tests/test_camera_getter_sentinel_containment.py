@@ -276,6 +276,10 @@ EXCLUDED = {
         'live read with no cache by design: a failed read raises HardwareError, '
         'None means no camera or none reported'
     ),
+    'get_resulting_frame_rate': (
+        'live read with no cache by design: a failed read raises HardwareError, '
+        'None means no camera or none reported'
+    ),
 }
 # significant_bits / last_significant_bits are properties (not reachable by
 # the zero-arg get_* introspection below); their depth contract is covered by

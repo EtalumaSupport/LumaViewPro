@@ -2099,6 +2099,30 @@ class ImagingAPI:
             return None
         return driver.get_black_level()
 
+    def get_resulting_frame_rate(self) -> float | None:
+        """Read the frame rate the camera reports its current settings allow,
+        live, in frames per second.
+
+        The camera's own figure: Basler's resulting acquisition frame rate,
+        IDS's AcquisitionFrameRate maximum, the simulator's pacing rate. The
+        FX2 reports none. It is what the camera says it can do, not what
+        reaches the host; the delivered rate is measured from frame arrivals.
+
+        Not cached: a failed read has no last-known-good to answer with.
+
+        Returns:
+            float | None: Frames per second; None when no camera is active or
+                the camera reports none.
+
+        Raises:
+            HardwareError: The camera reports a frame rate and the read
+                failed.
+        """
+        driver = self._driver
+        if not driver or not driver.active:
+            return None
+        return driver.get_resulting_frame_rate()
+
     def set_black_level(self, value: float) -> float | None:
         """Set the camera's black level, wait for it, and answer with the
         value in effect.

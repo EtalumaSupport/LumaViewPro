@@ -412,6 +412,17 @@ class SimulatedCamera(Camera):
             '(simulated stall)'
         )
 
+    def _frame_interval_s(self) -> float:
+        """The free-run frame period: the exposure, never shorter than the
+        delivery ceiling's period. The pacing and the reported frame rate
+        both read it, so the report cannot drift from the pacing."""
+        return max(self._exposure_us / 1_000_000.0, 1.0 / self._MAX_DELIVERY_FPS)
+
+    def get_resulting_frame_rate(self) -> float | None:
+        if not self.active:
+            return None
+        return 1.0 / self._frame_interval_s()
+
     def _acquisition_loop(self) -> None:
         """Store one new frame per frame interval while grabbing.
 
@@ -435,7 +446,7 @@ class SimulatedCamera(Camera):
             handler = self.cam_image_handler
             if handler is None or not self._grabbing:
                 return
-            interval_s = max(self._exposure_us / 1_000_000.0, 1.0 / self._MAX_DELIVERY_FPS)
+            interval_s = self._frame_interval_s()
             held = self._held_window
             now = time.monotonic()
             if held is not None and held[0] <= now < held[1]:

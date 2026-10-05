@@ -1142,6 +1142,23 @@ class Camera(ABC):
         """
         return self.max_gain
 
+    def get_resulting_frame_rate(self) -> float | None:
+        """Read the frame rate the camera reports its current settings
+        allow, live, in frames per second.
+
+        The camera's own figure, not a measurement: the delivered rate is
+        measured from frame arrivals. The default describes a camera that
+        reports none.
+
+        Returns:
+            float | None: Frames per second; None when the camera reports
+                none.
+
+        Raises:
+            HardwareError: The camera reports one and the read failed.
+        """
+        return None
+
     @abstractmethod
     def set_max_acquisition_frame_rate(self, enabled: bool, fps: float = 1.0) -> None:
         """Enable or disable the SDK's frame-rate cap.

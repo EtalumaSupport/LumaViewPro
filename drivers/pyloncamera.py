@@ -2504,6 +2504,25 @@ class PylonCamera(Camera):
         except Exception as e:
             raise HardwareError(f'BlackLevel {value} write failed: {type(e).__name__}: {e}') from e
 
+    def get_resulting_frame_rate(self) -> float | None:
+        """Read the resulting frame rate live. See ``Camera.get_resulting_frame_rate``.
+
+        ace 2 / boost / dart name it ``BslResultingAcquisitionFrameRate``,
+        legacy ace ``ResultingFrameRate`` (Basler
+        resulting-acquisition-frame-rate.html). A failed read raises and does
+        not tear the camera down, as ``get_black_level``.
+        """
+        if not self.active:
+            return None
+        try:
+            nodemap = self.active.GetNodeMap()
+            for name in ('BslResultingAcquisitionFrameRate', 'ResultingFrameRate'):
+                if self._has_node(nodemap, name):
+                    return float(getattr(self.active, name).GetValue())
+            return None
+        except Exception as e:
+            raise HardwareError(f'Resulting frame rate read failed: {type(e).__name__}: {e}') from e
+
     def init_auto_gain_focus(
         self,
         auto_target_brightness: float = 0.5,
