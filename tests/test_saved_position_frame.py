@@ -22,8 +22,8 @@ import numpy as np
 import pytest
 
 import modules.image_save as image_save
-from modules.labware_loader import WellPlateLoader
 from tests.frame_records import frame_record, plate
+from tests.scope_fakes import bind_settings_like_a_session
 
 PLATE_X_MM = 15.38
 PLATE_Y_MM = 11.24
@@ -40,9 +40,12 @@ def positioned_scope(sim_scope):
     made the old double conversion visible, and a zero offset would let a
     half-fixed chain pass.
     """
-    sim_scope.runtime_state.set_objective('4x Oly')
-    sim_scope.runtime_state.set_labware(WellPlateLoader().get_plate('96 well microplate'))
-    sim_scope.runtime_state.set_stage_offset({'x': 1000.0, 'y': 2000.0})
+    bind_settings_like_a_session(
+        sim_scope,
+        objective_id='4x Oly',
+        protocol={'labware': '96 well microplate'},
+        stage_offset={'x': 1000.0, 'y': 2000.0},
+    )
     return sim_scope
 
 

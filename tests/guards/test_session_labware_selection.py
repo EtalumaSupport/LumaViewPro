@@ -154,22 +154,17 @@ class TestRefusals:
         assert _runtime_plate_shape(session) == before
 
     def test_settings_with_no_protocol_block_are_refused_before_anything_moves(self, sessions):
-        """A store that cannot hold the plate is not one to write half of.
+        """A store that cannot hold the plate is refused by name.
 
         Settings handed straight to a factory skip the template merge that
-        puts the protocol block there, so it can genuinely be absent. Writing
-        the runtime state first and discovering it at the settings write would
-        leave the two stores describing different plates -- the one outcome
-        this member exists to make impossible.
+        puts the protocol block there, so it can genuinely be absent; the
+        caller hears that, not an error from inside the write.
         """
         session = sessions()
-        before = _runtime_plate_shape(session)
         del session.settings['protocol']
 
         with pytest.raises(ConfigError, match='no usable protocol block'):
             session.select_labware(OTHER_PLATE)
-
-        assert _runtime_plate_shape(session) == before
 
     @pytest.mark.parametrize('block', ['a string', ['a', 'list'], 7])
     def test_a_protocol_block_that_is_not_a_mapping_is_refused_the_same_way(self, sessions, block):
@@ -180,13 +175,10 @@ class TestRefusals:
         AttributeError instead of the refusal this member promises.
         """
         session = sessions()
-        before = _runtime_plate_shape(session)
         session.settings['protocol'] = block
 
         with pytest.raises(ConfigError, match='no usable protocol block'):
             session.select_labware(OTHER_PLATE)
-
-        assert _runtime_plate_shape(session) == before
 
     def test_a_non_string_is_refused_by_name_not_by_TypeError(self, sessions):
         """A wire payload decodes to whatever it decodes to.

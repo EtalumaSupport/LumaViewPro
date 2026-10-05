@@ -31,7 +31,7 @@ from modules.protocol_image_writer import ProtocolImageWriter
 from modules.scope_session import ScopeSession
 from modules.stack_builder import StackBuilder
 from modules.zprojector import ZProjector
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import build_scope, bind_settings_like_a_session
 from tests.settings_fixtures import complete_settings
 
 WHITE = {'Mono8': 255, 'Mono12': 4095}
@@ -43,6 +43,7 @@ def sim_camera():
 
     def _make(pixel_format):
         scope = build_scope(simulate=True)
+        bind_settings_like_a_session(scope)
         scope._camera_driver.profile.pixel_formats = [pixel_format]
         cam = scope._camera_driver
         cam.set_timing_mode('fast')

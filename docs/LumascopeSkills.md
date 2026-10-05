@@ -127,6 +127,8 @@ scope.scope_models['LS850T']['Turret']    # one model's entry: True, the LS850T 
 
 Valid `camera_type` values: `'auto'` (default), `'pylon'`, `'ids'`, `'sim'`.
 
+A scope acts on configuration it does not hold: the labware, the stage offset, the turret map, the objective selected on a scope with no turret, and whether the scale bar is drawn are its session's settings, read whenever it acts on them. A `ScopeSession` binds the scope it composes to its settings. A bare `Lumascope` no session composed refuses those reads with a `ConfigError` saying so, so it serves motion, LEDs and diagnostics; to capture, convert a plate position or draw a scale bar, compose it into a session (`ScopeSession.create(settings, scope=scope)`, or let `create` build it).
+
 ```python
 scope.objective_helper.get_objectives_list()        # every objective id in the catalogue
 scope.objective_helper.get_objective_info('4x Oly') # one entry; ConfigError names an unknown id
@@ -174,20 +176,17 @@ session.model_at_next_start     # 'LS560' until the next bring-up; None when the
 
 A scope with no resolvable identity carries the empty `'unresolved'` snapshot: LED commands then raise a named error rather than guessing. Names accepted by `scope.illumination` are the `key_name` values.
 
-Then apply runtime configuration (frame size, objective, binning, stage offset). A Session-built session does this for you: `ScopeSession.create` runs `session.configure_scope()` before it returns (see "ScopeSession session layer"), and that is the form an L2 caller reaches for. The manual form below is for a bare `Lumascope` you constructed yourself. `ScopeInitConfig.from_settings(settings, labware, scope_config=..., turreted=...)` reads from your LVP settings dict and raises `ConfigError` naming the key when `frame` or `binning` is missing, or `objective_id` on a scope with no turret. `turreted` is required and has no default: on a turreted scope the objective is the one assigned to the slot in the light path, so no `objective_id` is carried. You can also construct one directly:
+Then apply runtime configuration (frame size, objective, binning, stage offset). A Session-built session does this for you: `ScopeSession.create` runs `session.configure_scope()` before it returns (see "ScopeSession session layer"), and that is the form an L2 caller reaches for. The manual form below is for a `Lumascope` you constructed yourself and handed to `ScopeSession.create(settings, scope=scope)`, which binds it to the settings it reads. `ScopeInitConfig.from_settings(settings, scope_config=..., turreted=...)` reads from your LVP settings dict and raises `ConfigError` naming the key when `frame`, `binning`, `stage_offset`, `turret_objectives`, `scale_bar.enabled` or `motion.acceleration_max_pct` is missing, or `objective_id` on a scope with no turret. `turreted` is required and has no default: on a turreted scope the objective is the one assigned to the slot in the light path. The labware, offset, turret map, objective and scale bar are not in the config: the scope reads them from the settings. `initialize` refuses a stored `objective_id` the catalogue does not hold, on a scope with no turret. You can also construct one directly:
 
 ```python
 config = ScopeInitConfig(
-    labware=labware_obj,
-    turreted=False,                  # True on a turret model; objective_id is then None
-    objective_id='10x Oly',
-    turret_config=None,
+    turreted=False,                  # True on a turret model
+    preferred_turret_slot=None,
     binning_size=1,
     frame_width=3840,
     frame_height=2160,
     acceleration_pct=100,
-    stage_offset={'x': 0, 'y': 0},
-    scale_bar_enabled=False,
+    image_mode='8bit',
     # expects_motion / expects_led default to True; override for
     # models that legitimately have no motor / no LED (e.g. LS620
     # has no motor, so expects_motion=False avoids a spurious
@@ -225,6 +224,7 @@ A protocol has its own plate, and every position a step holds is stated against 
 
 ```python
 session.set_protocol_labware(protocol, '6 well microplate')   # '6 well microplate'
+session.scope.protocols.set_labware(protocol, '6 well microplate')   # the underlying call
 ```
 
 A protocol loaded from disk is put on its own plate by one Session member: `session.load_protocol(file_path)` loads through `scope.protocols.load_protocol` and selects the plate the file names through `select_labware`, and raises what either raises. A refused selection -- a run, a diagnostic or a recording holds the scope and the file names another plate -- refuses the whole load, and the scope stays on the plate it had. On a scope with no XY stage the protocol takes "Center Plate", through `set_protocol_labware`'s rule. The member sets the plate only: the protocol's period, duration and per-layer settings stay in the protocol, and the settings' stored schedule is not changed. To take a protocol's per-layer settings into the layer controls as well, call `session.apply_layer_settings(protocol)` after the load, as LumaViewPro's own Load does: every layer stops acquiring and stimulating, then each layer the protocol names takes its acquire mode and every value its row holds; a blank value leaves that control as it was, and a layer this release does not know, or this scope does not have, is logged and dropped. A script that loads a protocol only to run it does not need it. `protocol.layer_settings()` returns the rows typed: `Acquire` `'image'` or `'video'`; `Illumination`, `Gain` and `Exposure` floats; `Sum` an int; `Auto_Gain`, `False_Color` and `Stim_Enabled` bools; a blank cell None. A file whose Layer Settings block has a cell of the wrong type, or no `Layer` column, is refused at load with `ProtocolFormatError`, naming the file; a file with no block has its layer settings inferred from its steps: each layer with steps acquires (`'video'` when any of its steps records video), and a cell its first step cannot supply is None. A step value the run cannot use is reported by the step check -- a notice at load, a refusal when a run starts -- in a file with a block or without.
@@ -246,11 +246,9 @@ session.clear_current_turret_objective()          # clear the slot in the light 
 
 `objective_question()` is a read: it returns a question when no one has confirmed the objective on this install, or when the slot in the light path on a declared turret model has no assignment. The question names the live slot (`scope.motion.get_turret_slot()`) and proposes only that slot's assignment; an unknown slot alone -- as during every turret move -- owes no question, but on an install whose objective has never been confirmed an unknown slot raises `ObjectiveUnknownError` (`.reason` `'slot_unknown'`) rather than ask about a slot the turret may not be in. It may log one withheld-question line per call while a question is owed and suppressed (no hardware; provisional settings) -- a caller that polls it will see that line per poll. A configured session may still have a question to ask: the factories do not ask it. A turret move onto an unassigned slot does not ask either, so a headless caller asks `objective_question()` after the move.
 
-Labware / turret-config / stage-offset are runtime-mutable microscope configuration (not live hardware), so they live on the `scope.runtime_state` sub-API (Wave 7 split them off the composition root). L2 callers reach it through the composition root the Session exposes: `session.scope.runtime_state.*`. Its objective setter is the bare-`Lumascope` form: it writes the scope's runtime state only, not the session's settings, so a Session caller uses `session.select_objective` instead. It is for an initialized scope with no turret: before `initialize()` it raises `ConfigError`, since whether the scope has a turret is not yet known, and on a turreted scope it raises `ConfigError`, because the objective there is the slot's assignment (`set_turret_config`, then move the turret).
+Labware / turret-config / stage-offset are runtime-mutable microscope configuration (not live hardware). The `scope.runtime_state` sub-API answers them, reading the session's settings, their one store, on every answer; it holds no copy and has no setter. L2 callers reach it through the composition root the Session exposes: `session.scope.runtime_state.*`. They are changed only through the Session: `session.select_objective`, `session.assign_turret_objective` / `session.clear_turret_objective`, `session.select_labware`, and `session.update_settings('stage_offset.x', ...)`. What a getter returns is a copy: changing it changes no setting.
 
 ```python
-scope.runtime_state.set_objective('10x Oly')           # bare-Lumascope form, no-turret scopes only; a Session caller uses session.select_objective
-
 scope.runtime_state.is_turreted()                      # True when the objective is derived from the turret slot
 scope.runtime_state.resolve_current_objective()        # (id, info), or raises ObjectiveUnknownError saying why
 scope.runtime_state.get_current_objective_id()         # None when unknown
@@ -259,26 +257,25 @@ scope.runtime_state.get_available_objectives()
 scope.runtime_state.get_current_objective()            # None when unknown
 
 # Turret integration
-scope.runtime_state.set_turret_config({1: '4x Oly', 2: '10x Oly', 3: '20x Oly', 4: '40x w/collar'})
-scope.runtime_state.get_turret_config()
+scope.runtime_state.get_turret_config()                # {1: '4x Oly', 2: '10x Oly', 3: None, 4: None}, a copy
 scope.motion.get_turret_position_for_objective_id('10x Oly')   # returns 2 (turret position is motion state)
 scope.motion.is_current_turret_position_objective_set()        # False when the CURRENT turret slot has no configured objective
 
 # Labware + stage offset -- the plate-coordinate inputs
-scope.runtime_state.set_labware(labware_obj)           # bare-Lumascope form; a Session caller uses session.select_labware
-scope.runtime_state.get_labware()
-scope.runtime_state.set_stage_offset({'x': 0.0, 'y': 0.0})
-scope.runtime_state.get_stage_offset()
+scope.runtime_state.get_labware()                      # the plate the settings select, from the catalogue
+scope.runtime_state.get_stage_offset()                 # {'x': ..., 'y': ...} in um, a copy
 scope.runtime_state.get_well_label()                   # 'A1' for the current stage XY; '' when the labware has no wells
 
-# Stage µm → plate mm using the registered labware + stage offset
+# Stage µm → plate mm using the selected labware + stage offset
 # (the bound form of CoordinateTransformer.stage_to_plate; raises
-# NoLabwareSelectedError when no labware is registered)
+# ConfigError on a scope no session bound)
 px, py = scope.runtime_state.stage_to_plate(sx=60000, sy=40000)
 
+# The same transform bound to copies of the labware and offset selected
+# now: a later change moves none of the positions it converts.
+to_plate = scope.runtime_state.plate_transform()
+
 # Plate mm → stage µm, one axis. The completing half of stage_to_plate.
-# Raises ConfigError when the scope has not been initialized, so the
-# stage offset a transform needs is not yet known.
 sx = scope.runtime_state.plate_to_stage_axis(axis='X', plate_mm=50.0)
 ```
 
@@ -413,10 +410,11 @@ config = session.get_layer_configs()          # read, in API names
 session.update_settings('live_folder', '/data/run7')  # write one setting, from any thread
 session.update_settings('video.max_fps', 30)  # a nested setting, by its dotted path
 snapshot = session.get_settings_snapshot()     # a consistent copy, taken under the lock
+session.get_setting('stage_offset')           # a copy of one setting, by its dotted path; ConfigError when absent
 session.scope.settings_template                # every setting there is, with its shipped value
 session.set_high_conversion_gain(True)        # the camera takes it, then it is stored; False: neither
 session.set_line_noise_reduction(True)        # likewise for the line-noise filter
-session.set_scale_bar(True)                   # the capture overlay and its setting, together
+session.set_scale_bar(True)                   # whether captures draw the scale bar: the setting the imaging API reads
 session.set_acceleration_limit(80)            # 1-100, else AccelerationLimitRefusedError (a ValueError) and nothing stored; the motors take it (if any), then it is stored
 session.save_bookmark(('X', 'Y'))             # the live position as the bookmark: X/Y plate mm, Z um
 session.save_all_bookmarks()                  # the live Z as the Z bookmark and every layer's focus
@@ -1560,8 +1558,10 @@ scope.imaging.longest_exposure_ms
 
 # Scale bar overlay (burned into frames the imaging paths return when enabled;
 # skipped while the objective is unknown, with one warning each time it becomes unknown)
-scope.imaging.set_scale_bar(True, color='red')
-scope.imaging.scale_bar_config                     # snapshot dict: {'enabled', 'color', ...}
+# Whether it is drawn is the session's setting (session.set_scale_bar); the
+# colour is the imaging API's own.
+scope.imaging.set_scale_bar_color('Red')
+scope.imaging.scale_bar_config                     # {'enabled': bool, 'color': str | None}
 ```
 
 The acquisition frame-rate cap lives on the camera driver and clamps frame production regardless of sensor-readout capability. It is a driver-level control with no public API member -- described here only to explain the behavior. Used by the manual-record path to match user-requested video FPS, and by characterization tools to bound capture rate during long-running probes. No-op on drivers that do not implement the underlying setter (warning logged). Distinct from `set_exposure_ms` (per-frame integration time) and from any host-side throttling.
@@ -2120,13 +2120,13 @@ if the ideas are ever wanted.
 ### Basic capture
 
 ```python
-from modules.lumascope_api import Lumascope
+from modules.scope_session import ScopeSession
 
-scope = Lumascope()
+# create() builds the scope and brings it up from the user's settings: the
+# objective, plate, offset and scale bar a capture uses are those settings.
+session = ScopeSession.create(ScopeSession.load_user_settings('.'))
+scope = session.scope
 scope.motion.home()                        # returns once the home has established the reference
-
-scope.initialize(config)   # a ScopeInitConfig (see "Initialization"): records whether the scope has a turret and, with
-                           # none, selects config.objective_id; on a turret model, move the turret to the objective's slot
 scope.imaging.set_exposure_ms(50)
 scope.imaging.set_gain_db(5.0)
 
@@ -2151,7 +2151,7 @@ save_image(
     objective_id=objective_id,
     output_format='TIFF', x=60000, y=40000, z=5000,
 )
-scope.disconnect()
+session.shutdown()
 ```
 
 ### Multi-channel composite

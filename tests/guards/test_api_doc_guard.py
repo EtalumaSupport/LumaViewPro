@@ -52,7 +52,6 @@ import warnings
 import pytest
 
 from tests.ast_seams import REPO_ROOT
-from tests.scope_fakes import build_scope
 from tests.settings_fixtures import complete_settings
 
 DOC = REPO_ROOT / 'docs' / 'LumascopeSkills.md'
@@ -181,10 +180,12 @@ def live_objects(tmp_path_factory):
     warnings.simplefilter('ignore', FutureWarning)
     from modules.scope_session import ScopeSession
 
-    scope = build_scope(simulate=True, register_atexit=False)
+    # The reference's `scope` is a session's: a scope reads the labware,
+    # offset, turret map, objective and scale bar from its session's settings.
     session = ScopeSession.create(
         complete_settings(live_folder=str(tmp_path_factory.mktemp('live'))), simulate=True
     )
+    scope = session.scope
     yield {
         'scope': scope,
         'session': session,
@@ -192,9 +193,6 @@ def live_objects(tmp_path_factory):
         'fv': scope.imaging.frame_validity,
     }
     session.shutdown()
-    # The session owns the scope it built; this one the fixture built itself,
-    # and its monitor threads outlive the module without this.
-    scope.disconnect()
 
 
 def _walk_chain(root, chain):

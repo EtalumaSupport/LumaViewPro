@@ -22,7 +22,7 @@ import pytest
 
 import tests.ast_seams as ast_seams
 from modules.exceptions import InstallationFileError
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 
 class TestScopeModelsCatalogue:
@@ -72,12 +72,13 @@ class TestInitializeStaysOnTheCallingThread:
         try:
             scope.io_lane().protocol_start()
             scope.camera_lane().protocol_start()
-            config = ScopeInitConfig.from_settings(_settings(), labware=None, turreted=False)
+            settings = bind_settings_like_a_session(scope, **_settings())
+            config = ScopeInitConfig.from_settings(settings, turreted=False)
             started = time.monotonic()
             scope.initialize(config)
             elapsed = time.monotonic() - started
             assert elapsed < 2.0, f'initialize took {elapsed:.1f}s'
-            assert scope.runtime_state.get_current_objective_id() == config.objective_id
+            assert scope.runtime_state.get_current_objective_id() == settings['objective_id']
         finally:
             scope.disconnect()
 
@@ -102,9 +103,8 @@ class TestInitializeStaysOnTheCallingThread:
                 'invalidate',
                 lambda source: calls.append(source) if source == 'led' else real_invalidate(source),
             )
-            scope.initialize(
-                ScopeInitConfig.from_settings(_settings(), labware=None, turreted=False)
-            )
+            settings = bind_settings_like_a_session(scope, **_settings())
+            scope.initialize(ScopeInitConfig.from_settings(settings, turreted=False))
             assert calls == []
         finally:
             scope.disconnect()

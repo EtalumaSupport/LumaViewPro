@@ -38,7 +38,7 @@ from tests.test_camera_getter_sentinel_containment import (
     ScriptedCameraDriver,
     _build_imaging,
 )
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 
 class ApplyDriver(ScriptedCameraDriver):
@@ -266,17 +266,12 @@ def _init_config(binning_size: int, frame_width: int = 1900, frame_height: int =
     from modules.scope_init_config import ScopeInitConfig
 
     return ScopeInitConfig(
-        labware=None,
         turreted=False,
-        objective_id='4x Oly',
-        turret_config=None,
         preferred_turret_slot=None,
         binning_size=binning_size,
         frame_width=frame_width,
         frame_height=frame_height,
         acceleration_pct=100,
-        stage_offset={'x': 0, 'y': 0},
-        scale_bar_enabled=False,
         image_mode='8bit',
     )
 
@@ -291,6 +286,8 @@ def _drive_initialize(config, monkeypatch, *, no_camera: bool = False, prepare=N
     """
 
     scope = build_scope(simulate=True)
+    # The objective bring-up checks is the settings' one.
+    bind_settings_like_a_session(scope, objective_id='4x Oly')
     saved_driver = scope._camera_driver
     try:
         # initialize is bring-up and binds the impl seams (it runs before

@@ -489,8 +489,8 @@ class ProtocolsAPI:
                 objective is not in the catalogue, the scope has no X/Y
                 motor, or a tile falls outside the stage's travel. Nothing
                 changes.
-            ConfigError: the protocol's plate is not in the catalogue, or the
-                scope has not been initialized, so it has no stage offset.
+            ConfigError: the protocol's plate is not in the catalogue, or no
+                session has bound the scope, so it has no stage offset.
                 Nothing changes.
         """
         protocol.apply_tiling(
@@ -499,7 +499,7 @@ class ProtocolsAPI:
             binning_size=binning_size,
             axis_limits=self._travel_limits(),
             labware=self._scope.wellplate_loader.get_plate(plate_key=protocol.labware()),
-            stage_offset=self._scope.runtime_state.require_stage_offset(),
+            stage_offset=self._scope.runtime_state.get_stage_offset(),
             overlap_percent=overlap_percent,
             capabilities=self._scope.capabilities,
             objective_helper=self._scope.objective_helper,
@@ -550,11 +550,10 @@ class ProtocolsAPI:
 
         Raises:
             ConfigError: the protocol's plate is not in the catalogue, or
-                the scope has not been initialized, so it has no stage
-                offset.
+                no session has bound the scope, so it has no stage offset.
         """
         if stage_offset is None:
-            stage_offset = self._scope.runtime_state.require_stage_offset()
+            stage_offset = self._scope.runtime_state.get_stage_offset()
         return _coordinate_transformer.plate_to_stage(
             labware=self._scope.wellplate_loader.get_plate(plate_key=protocol.labware()),
             stage_offset=stage_offset,
@@ -888,7 +887,7 @@ class ProtocolsAPI:
                 make (``positions_unreachable``), or lie outside its travel
                 (``positions_outside_travel``). It has been logged and shown
                 before it is raised.
-            ConfigError: The scope has not been initialized, so it has no
+            ConfigError: No session has bound the scope, so it has no
                 stage offset to judge X/Y with.
         """
         present = set(self._scope.capabilities.axes)
@@ -919,7 +918,7 @@ class ProtocolsAPI:
         if {'X', 'Y'} & set(axis_limits):
             plate = {
                 'labware': self._scope.wellplate_loader.get_plate(plate_key=labware_key),
-                'stage_offset': self._scope.runtime_state.require_stage_offset(),
+                'stage_offset': self._scope.runtime_state.get_stage_offset(),
             }
         outside = []
         for idx, step in steps.iterrows():

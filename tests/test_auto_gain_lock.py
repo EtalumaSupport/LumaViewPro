@@ -34,7 +34,7 @@ from drivers.simulated_camera import SimulatedCamera, _SimImageHandler
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
 from tests import ast_seams
-from tests.scope_fakes import give_stub_lanes
+from tests.scope_fakes import give_stub_lanes, bind_settings_like_a_session
 
 AG_SETTINGS_FLUORESCENCE = {
     'target_brightness': 0.5,
@@ -130,6 +130,7 @@ def _build(ae_lands_on_ms: float) -> tuple[ImagingAPI, _ChunkAeSim]:
     cam = _ChunkAeSim(ae_lands_on_ms)
     cam.active = True
     scope = Lumascope.__new__(Lumascope)
+    bind_settings_like_a_session(scope)
     scope._camera_driver = cam
     give_stub_lanes(scope)
     scope._cam_lock = threading.RLock()
@@ -367,6 +368,7 @@ def _build_inert() -> tuple[ImagingAPI, _InertAeSim]:
     cam = _InertAeSim(ae_lands_on_ms=0.0)
     cam.active = True
     scope = Lumascope.__new__(Lumascope)
+    bind_settings_like_a_session(scope)
     scope._camera_driver = cam
     give_stub_lanes(scope)
     scope._cam_lock = threading.RLock()

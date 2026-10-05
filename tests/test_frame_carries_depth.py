@@ -22,6 +22,7 @@ import pathlib
 import sys
 
 import numpy as np
+from tests.scope_fakes import bind_settings_like_a_session
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
@@ -99,6 +100,7 @@ class TestGetImageFromBufferUsesFrameDepth:
         monkeypatch.setattr(SimulatedCamera, 'significant_bits', property(lambda self: 8))
 
         scope = Lumascope.__new__(Lumascope)
+        bind_settings_like_a_session(scope)
         scope._camera_driver = cam
         scope.runtime_state = RuntimeState(scope)
         imaging = ImagingAPI(scope, cam)

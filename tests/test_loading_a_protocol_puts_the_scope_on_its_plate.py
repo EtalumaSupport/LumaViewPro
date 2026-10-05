@@ -70,7 +70,7 @@ class TestTheSessionLoad:
 
         assert refused.value.holder == 'recording'
         assert session.settings['protocol']['labware'] == plate_before
-        assert session.scope.runtime_state.get_labware() is runtime_before
+        assert session.scope.runtime_state.get_labware().config == runtime_before.config
 
     def test_a_held_scope_loads_a_protocol_on_the_plate_in_place(self, tmp_path, session):
         in_place = session.settings['protocol']['labware']

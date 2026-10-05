@@ -35,7 +35,7 @@ import pytest
 
 import modules.lumascope_api.imaging as imaging_module
 from modules.lumascope_api.imaging import ImagingAPI
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import build_scope, bind_settings_like_a_session
 
 
 @pytest.fixture
@@ -46,6 +46,7 @@ def dark_scope():
     pass every test here (the defect shape that killed two plan drafts).
     """
     scope = build_scope(simulate=True)
+    bind_settings_like_a_session(scope)
     scope._led_driver.set_timing_mode('fast')
     scope._motion_driver.set_timing_mode('fast')
     scope._camera_driver.set_timing_mode('fast')

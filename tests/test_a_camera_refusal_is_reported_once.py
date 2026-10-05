@@ -28,7 +28,7 @@ from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.notification_center import Severity
 from tests.frame_records import plate
-from tests.scope_fakes import give_stub_lanes, spec_scope
+from tests.scope_fakes import give_stub_lanes, spec_scope, bind_settings_like_a_session
 
 
 def _rejected(setting='gain_db', requested=7.0):
@@ -43,6 +43,7 @@ def sim_imaging():
     cam.active = True
     cam.open_and_start()
     scope = Lumascope.__new__(Lumascope)
+    bind_settings_like_a_session(scope)
     scope._camera_driver = cam
     give_stub_lanes(scope)
     scope._cam_lock = threading.RLock()

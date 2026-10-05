@@ -26,7 +26,7 @@ import pytest
 from modules import image_utils
 from modules.exceptions import FrameDepthError
 from modules.recording_frames import FrameFact
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import build_scope, bind_settings_like_a_session
 
 _FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
 
@@ -48,6 +48,7 @@ def make_scope():
 
     def _make(pixel_format, pattern='White', offered=None):
         scope = build_scope(simulate=True)
+        bind_settings_like_a_session(scope)
         if offered is not None:
             scope._camera_driver.profile.pixel_formats = list(offered)
         scope = _configure_sim(scope, pixel_format, pattern)

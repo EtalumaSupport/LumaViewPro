@@ -50,6 +50,7 @@ from modules.exceptions import (
     FrameRefittedNotice,
     CameraNotAvailableError,
     CameraSettingRejected,
+    ConfigError,
     LedBoardUnavailableError,
     LedSafetyOffNotTakenError,
     NoHardwareDetectedNotice,
@@ -67,7 +68,8 @@ from modules.lumascope_api.bring_up import (
 from modules.path_utils import get_source_root, read_installation_file, resolve_data_file
 from modules.scope_capabilities import ScopeCapabilities
 from modules.sequential_io_executor import SequentialIOExecutor
-from typing import TYPE_CHECKING
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import os
@@ -271,11 +273,15 @@ class Lumascope:
         # Driver slot defaults -- __init__ overrides _camera_driver with
         # the real driver; create_diagnostic leaves it None.
         self._camera_driver = None
+        self._settings_reader: Callable[[str], Any] | None = None
 
-        # Settings-host state (_labware / _objective / _objective_id /
-        # _turret_config / _stage_offset) plus its coordinate transformer
-        # live on self.runtime_state (constructed below in __init__ /
-        # create_diagnostic). _state_lock + _cam_lock + ImagingAPI's
+        # The labware, stage offset, turret map, selected objective and
+        # whether the scale bar is drawn are the session's settings, held
+        # nowhere here: runtime_state and imaging read them through the
+        # reader a session binds (bind_settings), so there is no second copy
+        # to fall out of step. None until bound.
+        #
+        # _state_lock + _cam_lock + ImagingAPI's
         # own caches live on self.imaging. _last_turret_position lives
         # on self.motion. engineering_mode lives on the app context
         # (ctx.engineering_mode).
@@ -844,18 +850,15 @@ class Lumascope:
         # is bounded by the serial layer's own read and write timeouts;
         # nothing else holds the LED lock at bring-up.
         self.illumination._leds_off_impl()
-        self.runtime_state.set_labware(config.labware)
-        if config.turret_config:
-            self.runtime_state.set_turret_config(config.turret_config)
         self.motion.seed_preferred_turret_slot(config.preferred_turret_slot)
         self.runtime_state.set_turreted(config.turreted)
         if config.turreted:
-            # Nothing to set: the objective is the one assigned to the slot in
-            # the light path, derived on every read. An assignment the
-            # catalogue does not hold reads as unknown whenever its slot is in
-            # the light path; said once here, not raised per read.
+            # The objective is the one assigned to the slot in the light
+            # path, derived on every read. An assignment the catalogue does
+            # not hold reads as unknown whenever its slot is in the light
+            # path; said once here, not raised per read.
             catalogue = set(self.runtime_state.get_available_objectives())
-            for slot, objective_id in (config.turret_config or {}).items():
+            for slot, objective_id in self.runtime_state.get_turret_config().items():
                 if objective_id is not None and objective_id not in catalogue:
                     logger.warning(
                         f'[SCOPE API ] turret slot {slot} is assigned {objective_id!r}, '
@@ -863,7 +866,10 @@ class Lumascope:
                         'as unknown until it is reassigned'
                     )
         else:
-            self.runtime_state.set_objective(config.objective_id)
+            # Refused here, before anything is commanded: a stored id that
+            # names no catalogue objective would otherwise be stamped as the
+            # scale of every capture.
+            self.objective_helper.get_objective_info(objective_id=self.read_setting('objective_id'))
         # Startup applies push PERSISTED settings at the connect boundary, so
         # each value is reconciled to the capabilities the connected hardware
         # actually reports BEFORE the apply -- a settings file written against
@@ -982,13 +988,40 @@ class Lumascope:
             )
         if self.capabilities.camera_supports_line_noise_reduction:
             self.imaging._set_line_noise_reduction_impl(config.line_noise_reduction)
-        self.runtime_state.set_stage_offset(config.stage_offset)
-        self.imaging.set_scale_bar(enabled=config.scale_bar_enabled)
         self.motion._set_acceleration_limit_impl(val_pct=config.acceleration_pct)
         # Last: the one-time release of the camera start gate, once the
         # capture pixel format above has been applied with the gate closed.
         self.imaging._start_streaming_impl()
         logger.info('[SCOPE API ] Scope initialized')
+
+    def bind_settings(self, reader: 'Callable[[str], Any]') -> None:
+        """Read the configuration this scope acts on from a session's settings.
+
+        Composition wiring, not part of the L2 API surface: a session binds
+        every scope it composes, once, before bring-up, after its lanes have
+        refused a second session over the same scope. ``reader`` answers a
+        copy of the setting at a dotted path (``ScopeSession.get_setting``).
+        """
+        self._settings_reader = reader
+
+    def read_setting(self, path: str) -> Any:
+        """A copy of the setting at ``path``, from the session this scope is bound to.
+
+        A consult seam for the sub-APIs, not part of the L2 API surface: an
+        L2 caller reads settings through its session.
+
+        Raises:
+            ConfigError: No session has bound this scope, so it has no
+                settings to act on: a bare scope that would capture, convert
+                a plate position or draw a scale bar is composed into a
+                ``ScopeSession`` first.
+        """
+        if self._settings_reader is None:
+            raise ConfigError(
+                f'this scope has no settings to read {path!r} from: compose it into a '
+                'ScopeSession (ScopeSession.create) before using it'
+            )
+        return self._settings_reader(path)
 
     def bring_up_record(self) -> BringUpRecord:
         """What this scope's bring-up found and substituted.

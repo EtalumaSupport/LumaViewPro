@@ -29,8 +29,8 @@ import pytest
 
 import modules.image_save as image_save
 import modules.image_utils as image_utils
-from modules.labware_loader import WellPlateLoader
 from tests.frame_records import frame_record, plate
+from tests.scope_fakes import bind_settings_like_a_session
 
 POSITION_KEYS = ('plate_pos_mm', 'x_pos', 'y_pos', 'z_pos_um')
 
@@ -39,9 +39,12 @@ POSITION_KEYS = ('plate_pos_mm', 'x_pos', 'y_pos', 'z_pos_um')
 def positioned_scope(sim_scope):
     """A scope configured enough to save: the position is what is absent here,
     not the objective or the labware."""
-    sim_scope.runtime_state.set_objective('4x Oly')
-    sim_scope.runtime_state.set_labware(WellPlateLoader().get_plate('96 well microplate'))
-    sim_scope.runtime_state.set_stage_offset({'x': 1000.0, 'y': 2000.0})
+    bind_settings_like_a_session(
+        sim_scope,
+        objective_id='4x Oly',
+        protocol={'labware': '96 well microplate'},
+        stage_offset={'x': 1000.0, 'y': 2000.0},
+    )
     return sim_scope
 
 

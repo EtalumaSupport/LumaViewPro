@@ -54,18 +54,6 @@ def test_an_unknown_objective_id_is_refused_through_the_boundary():
         api.get_objective_info(objective_id='not-a-real-objective')
 
 
-def test_selecting_an_unknown_objective_is_refused_and_leaves_state_untouched():
-    """The selection member relied on the loader answering None and refused on
-    its behalf; with the loader refusing, that second check was a duplicate and
-    is gone. What it protected still holds: a bad id never tears the pair."""
-    api = _turretless_state()
-    api.set_objective('4x Oly')
-    with pytest.raises(ConfigError):
-        api.set_objective('not-a-real-objective')
-    assert api.get_current_objective_id() == '4x Oly'
-    assert api.get_current_objective()['short_name'] == '4xOly'
-
-
 def test_the_docstring_names_the_refusal():
     """A docstring silent about the raise is the same gap in prose."""
     doc = inspect.getdoc(RuntimeState.get_objective_info) or ''

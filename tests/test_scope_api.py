@@ -586,8 +586,10 @@ class TestScopeSession:
         # this turret scope, the assignment of the slot in the light path.
         from tests.scope_fakes import home_sim_scope
 
-        session = self._make_session()
-        session.scope.runtime_state.set_turret_config({1: '10x Oly', 2: None, 3: None, 4: None})
+        settings = _make_settings()
+        settings['turret_objectives'] = {1: None, 2: None, 3: None, 4: None}
+        session = self._make_session(settings=settings)
+        session.assign_turret_objective(1, '10x Oly')
         home_sim_scope(session.scope)
         session.scope.motion.move_turret(1)
         obj_id, obj = session.scope.runtime_state.resolve_current_objective()

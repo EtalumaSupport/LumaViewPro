@@ -357,7 +357,7 @@ IMAGING_ONLY_METHODS = frozenset(
         'set_frame_size',
         'set_gain_db',
         'set_pixel_format',
-        'set_scale_bar',
+        'set_scale_bar_color',
         'start_camera_temp_logging',
         'stop_camera_temp_logging',
         'suppress_value_warnings',
@@ -793,16 +793,12 @@ def test_no_self_compute_focus_score_calls_in_lumascope():
 #     622, 624, 625, 628)
 RUNTIME_STATE_ONLY_METHODS = frozenset(
     {
-        'set_labware',
         'get_labware',
-        'set_objective',
         'get_current_objective_id',
         'get_objective_info',
         'get_available_objectives',
         'get_current_objective',
-        'set_turret_config',
         'get_turret_config',
-        'set_stage_offset',
         'get_stage_offset',
         'get_well_label',
     }

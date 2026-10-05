@@ -151,15 +151,14 @@ class TestHatchesAndBoundaries:
             motion._plate_target_to_stage('Z', 5.0, ignore_limits=False)
 
     def test_missing_stage_offset_refuses_legibly(self):
-        """Before initialize() the offset is None; that must not be a TypeError."""
+        """A scope no session bound has no offset; that must not be a TypeError."""
         from modules.exceptions import ConfigError
-        from modules.lumascope_api.runtime_state import RuntimeState
+        from tests.scope_fakes import build_scope
 
-        state = RuntimeState.__new__(RuntimeState)
-        state._stage_offset = None
+        scope = build_scope(simulate=True)
 
-        with pytest.raises(ConfigError, match='stage offset'):
-            state.require_stage_offset()
+        with pytest.raises(ConfigError, match='stage_offset'):
+            scope.runtime_state.get_stage_offset()
 
 
 class TestEnumeratorsKeepTheirValue:

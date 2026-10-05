@@ -21,8 +21,8 @@ from types import SimpleNamespace
 import pytest
 import tifffile as tf
 
-from modules.labware_loader import WellPlateLoader
 from tests.ast_seams import REPO_ROOT, find_def, parse_module
+from tests.scope_fakes import bind_settings_like_a_session
 
 
 PLATE = '24 well microplate'
@@ -32,10 +32,12 @@ ROOTS = ('modules', 'ui', 'lumaviewpro.py')
 @pytest.fixture
 def identity_scope(sim_scope):
     """A real Lumascope with the acquisition context the metadata writer reads."""
-    loader = WellPlateLoader()
-    sim_scope.runtime_state.set_objective('20x Oly')
-    sim_scope.runtime_state.set_labware(loader.get_plate(PLATE))
-    sim_scope.runtime_state.set_stage_offset({'x': 0.0, 'y': 0.0})
+    bind_settings_like_a_session(
+        sim_scope,
+        objective_id='20x Oly',
+        protocol={'labware': PLATE},
+        stage_offset={'x': 0.0, 'y': 0.0},
+    )
     return sim_scope
 
 

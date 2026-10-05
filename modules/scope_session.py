@@ -286,6 +286,12 @@ class ScopeSession:
         # scope is serviced.
         self._io_override_key = self.io_executor.ask_claim(self.activity_claim)
         self._camera_override_key = self.camera_executor.ask_claim(self.activity_claim)
+        # The scope reads the configuration it acts on -- labware, stage
+        # offset, turret map, objective, scale bar -- from these settings,
+        # their one store, so it holds no copy to keep in step. After the
+        # claim: the lanes refuse a second session over this scope there,
+        # before it could point the scope at its own settings.
+        scope.bind_settings(self.get_setting)
         # Service the scope NOW, before any collaborator is composed: the
         # temperature log reads the camera under the key, and the protocol
         # constructors resolve their data files from the source path.
@@ -1865,6 +1871,24 @@ class ScopeSession:
         with self.settings_lock:
             return copy.deepcopy(self.settings)
 
+    def get_setting(self, path: str) -> Any:
+        """A copy of one setting, named by its dotted path: ``'stage_offset'``, ``'scale_bar.enabled'``.
+
+        Taken under the lock, so it is never a value part-way through a
+        write; a copy, so changing it changes no setting (``update_settings``
+        and the Session's members do).
+
+        Raises:
+            ConfigError: The settings have no value at ``path``.
+        """
+        with self.settings_lock:
+            value = self.settings
+            for segment in path.split('.'):
+                if not isinstance(value, dict) or segment not in value:
+                    raise ConfigError(f'the settings have no {path!r}')
+                value = value[segment]
+            return copy.deepcopy(value)
+
     def update_settings(self, path: str, value: object) -> None:
         """Write one setting, named by its dotted path: ``'video.max_fps'``, ``'BF.sum'``.
 
@@ -2037,12 +2061,11 @@ class ScopeSession:
         settings_init._normalize_turret_slot_keys(self.settings)
         self._put_a_stageless_scope_on_center_plate()
         scope_config = scope_models.get(self.settings.get('microscope'))
-        _labware_id, labware = config_helpers.get_selected_labware_from_settings(
-            self.settings, self.wellplate_loader
-        )
+        # Refuses a stored plate the catalogue does not have, before anything
+        # is commanded: every well position would be computed on it.
+        config_helpers.get_selected_labware_from_settings(self.settings, self.wellplate_loader)
         config = ScopeInitConfig.from_settings(
             self.settings,
-            labware,
             scope_config=scope_config,
             layer_identity=self.scope.layer_identity,
             turreted=self.scope_has_turret(),
@@ -2448,8 +2471,8 @@ class ScopeSession:
         """Make ``objective_id`` the active objective. Returns whether it changed.
 
         The one writer of the active objective for every host. With no
-        turret, the selected objective is the live store and moves with the
-        settings copy that is persisted. On a turreted scope the active
+        turret, the selected objective is the ``objective_id`` setting, which
+        the scope reads. On a turreted scope the active
         objective IS the slot's assignment, so picking one assigns it to the
         slot in the light path -- the person is saying what is installed
         there. The resolved optics are recorded by the scope's runtime state
@@ -2476,9 +2499,8 @@ class ScopeSession:
                 raise ObjectiveUnknownError('slot_unknown')
             self.assign_turret_objective(slot, objective_id)
         else:
-            self.scope.runtime_state.set_objective(objective_id=objective_id)
             with self.settings_lock:
-                self.settings['objective_id'] = objective_id
+                self._store_setting('objective_id', objective_id)
         return True
 
     # ------------------------------------------------------------------
@@ -2488,11 +2510,8 @@ class ScopeSession:
     def select_labware(self, labware_name: str) -> bool:
         """Make ``labware_name`` the current plate. Returns whether it changed.
 
-        The one writer of the active labware for every host: the settings
-        store and the scope's runtime state move together, or neither
-        moves. Bring-up sets the plate from settings and offers no way
-        back, so without this a caller that is not the GUI can start with
-        a plate but never switch one.
+        The one writer of the active labware for every host: the plate the
+        settings name, which the scope reads.
 
         The name is stored in the catalogue's spelling: a plate renamed
         since a protocol or settings file named it is accepted under the old
@@ -2503,10 +2522,7 @@ class ScopeSession:
         Raises:
             ConfigError: ``labware_name`` is not a string, the loader
                 cannot resolve the name, or the settings have no protocol block to hold the
-                selection. Refused before either store is written: a write
-                that half-lands leaves the settings store and the runtime
-                state describing different plates, and every well
-                position computed from the wrong one is silently wrong.
+                selection. Nothing is written.
             HardwareCommandRefusedError: A run, a diagnostic or a recording
                 holds the scope and ``labware_name`` is not the plate in place
                 (``exclusive_activity_running``): each states its positions
@@ -2518,34 +2534,21 @@ class ScopeSession:
             # Settings handed straight to a factory skip the template merge
             # that puts this block there, so it can be missing -- and a
             # hand-edited file can put something that is not a mapping in its
-            # place. Named here, before either store moves: reaching into it
-            # at the write below would raise with the runtime state already
-            # changed, and a store that cannot hold the plate is not one to
-            # write half of.
+            # place. Named here, so the refusal says what is wrong rather
+            # than failing inside the write.
             raise ConfigError(
                 'settings have no usable protocol block; the labware selection '
                 f'has nowhere to live (found {type(protocol_settings).__name__})'
             )
-        changed = labware_name != protocol_settings.get('labware')
-        # Both stores are written even when the settings key already reads
-        # the new name, because that key is not evidence about the scope.
-        # Anything that writes it before calling here would otherwise make
-        # the selection look finished and leave the runtime state on the
-        # previous plate. The writes are idempotent; only the report of a
-        # change is not.
-        labware = self.wellplate_loader.get_plate(plate_key=labware_name)
-        # A holder is refused only a different plate: the GUI re-selects the
-        # current one whenever its panels redraw, under any hold, and that
-        # moves neither store.
-        installed = self.scope.runtime_state.get_labware()
-        if changed or installed is None or installed.config != labware.config:
-            self._refuse_configuration_change_while_held('select_labware')
-        self.scope.runtime_state.set_labware(labware=labware)
+        if labware_name == protocol_settings.get('labware'):
+            # A holder is refused only a different plate: the GUI re-selects
+            # the current one whenever its panels redraw, under any hold.
+            return False
+        self._refuse_configuration_change_while_held('select_labware')
         with self.settings_lock:
-            protocol_settings['labware'] = labware_name
-        if changed:
-            logger.info(f'[Session  ] Labware set to {labware_name!r}')
-        return changed
+            self._store_setting('protocol.labware', labware_name)
+        logger.info(f'[Session  ] Labware set to {labware_name!r}')
+        return True
 
     def assign_turret_objective(self, position: int, objective_id: str) -> None:
         """Bind ``objective_id`` to turret slot ``position``.
@@ -2567,7 +2570,6 @@ class ScopeSession:
         self._refuse_configuration_change_while_held('assign_turret_objective')
         with self.settings_lock:
             self.settings['turret_objectives'][position] = objective_id
-        self.scope.runtime_state.set_turret_config(self.settings['turret_objectives'])
 
     def clear_turret_objective(self, position: int) -> None:
         """Leave turret slot ``position`` unassigned.
@@ -2588,7 +2590,6 @@ class ScopeSession:
             self._refuse_configuration_change_while_held('clear_turret_objective')
         with self.settings_lock:
             self.settings['turret_objectives'][position] = None
-        self.scope.runtime_state.set_turret_config(self.settings['turret_objectives'])
         logger.info(
             f'[Session  ] Turret position {position} cleared; the active objective is now '
             f'{self.scope.runtime_state.get_current_objective_id()!r}'
@@ -2653,11 +2654,9 @@ class ScopeSession:
     def set_scale_bar(self, enabled: bool) -> None:
         """Draw the scale bar on captured images, or stop, and store it.
 
-        The one writer of ``scale_bar.enabled``: the imaging API's overlay
-        and the stored setting change together, so a capture never draws
-        what the settings do not say.
+        The one writer of ``scale_bar.enabled``, which the imaging API reads
+        at each capture.
         """
-        self.scope.imaging.set_scale_bar(enabled=enabled)
         with self.settings_lock:
             self._store_setting('scale_bar.enabled', enabled)
 

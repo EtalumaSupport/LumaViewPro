@@ -531,43 +531,42 @@ class TestMotorConfigDefaults:
 
 
 class TestScaleBarObjectiveInit:
-    """Verify that set_objective enables scale bar rendering."""
+    """The scale bar and the objective a capture uses are the settings' answers."""
 
     def test_objective_none_at_init(self):
-        """Lumascope starts with no objective set."""
+        """A scope not yet brought up has no objective."""
 
         scope = build_scope(simulate=True)
-        assert scope.runtime_state._objective is None
+        assert scope.runtime_state.get_current_objective() is None
 
-    def test_set_objective_populates(self):
-        """set_objective() should populate _objective dict."""
+    def test_the_selected_objective_is_the_settings(self):
+        """With no turret, the objective is the one the settings select."""
 
-        from tests.scope_fakes import record_turret_answer
+        from tests.scope_fakes import bind_settings_like_a_session, record_turret_answer
 
         scope = record_turret_answer(build_scope(simulate=True, sim_model='LS850'))
-        scope.runtime_state.set_objective('20x Oly')
-        assert scope.runtime_state._objective is not None
-        assert scope.runtime_state._objective['magnification'] == 20
+        bind_settings_like_a_session(scope, objective_id='20x Oly')
+        assert scope.runtime_state.get_current_objective()['magnification'] == 20
 
     def test_scale_bar_disabled_without_objective(self):
         """Scale bar enabled but no objective -> use_scale_bar forced False."""
 
+        from tests.scope_fakes import bind_settings_like_a_session
+
         scope = build_scope(simulate=True)
-        scope.imaging.set_scale_bar(enabled=True)
-        assert scope.imaging._scale_bar['enabled'] is True
-        assert scope.runtime_state._objective is None
-        # Internal logic forces use_scale_bar = False when _objective is None
+        bind_settings_like_a_session(scope, scale_bar={'enabled': True})
+        assert scope.imaging.scale_bar_config['enabled'] is True
+        assert scope.runtime_state.get_current_objective() is None
 
     def test_scale_bar_works_with_objective(self):
         """Scale bar with objective set should proceed."""
 
-        from tests.scope_fakes import record_turret_answer
+        from tests.scope_fakes import bind_settings_like_a_session, record_turret_answer
 
         scope = record_turret_answer(build_scope(simulate=True, sim_model='LS850'))
-        scope.runtime_state.set_objective('20x Oly')
-        scope.imaging.set_scale_bar(enabled=True)
-        assert scope.imaging._scale_bar['enabled'] is True
-        assert scope.runtime_state._objective is not None
+        bind_settings_like_a_session(scope, objective_id='20x Oly', scale_bar={'enabled': True})
+        assert scope.imaging.scale_bar_config['enabled'] is True
+        assert scope.runtime_state.get_current_objective() is not None
 
 
 # ---------------------------------------------------------------------------

@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import pytest
 from modules.frame_validity import FrameValidity
+from tests.scope_fakes import bind_settings_like_a_session
 
 
 class _Frames:
@@ -834,6 +835,7 @@ class TestCaptureTimeChunkVerification:
         from modules.lumascope_api.runtime_state import RuntimeState
 
         scope = Lumascope.__new__(Lumascope)
+        bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = driver
         imaging = ImagingAPI(scope, None)

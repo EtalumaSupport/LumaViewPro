@@ -17,7 +17,7 @@ import pytest
 
 from modules.lumascope_api.frame_record import FrameRecord
 from modules.protocol_image_writer import ProtocolImageWriter
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import build_scope, bind_settings_like_a_session
 
 
 def _writer_over(scope_like):
@@ -29,6 +29,7 @@ def _writer_over(scope_like):
 @pytest.fixture
 def live_scope():
     scope = build_scope(simulate=True)
+    bind_settings_like_a_session(scope)
     scope._led_driver.set_timing_mode('fast')
     scope._motion_driver.set_timing_mode('fast')
     scope._camera_driver.set_timing_mode('fast')

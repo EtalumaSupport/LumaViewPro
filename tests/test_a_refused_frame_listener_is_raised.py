@@ -34,6 +34,7 @@ from modules.notification_center import Severity
 from tests.shown_outcomes import capture_shown
 from tests.test_manual_recording_controller import make_controller
 from tests.test_video_camera_lost_outcome import _make_recorder
+from tests.scope_fakes import bind_settings_like_a_session
 
 
 def _refuse(*_a, **_kw):
@@ -54,7 +55,7 @@ def sim_scope():
 
     scope = build_scope(simulate=True)
     scope.runtime_state.set_turreted(False)
-    scope.runtime_state.set_objective('4x Oly')
+    bind_settings_like_a_session(scope, objective_id='4x Oly')
     yield scope
     scope.imaging.stop_streaming()
     scope.disconnect()

@@ -27,17 +27,16 @@ class ScopeInitConfig:
     not warn that it is missing, the connection check does not require it,
     and startup does not home it. Defaults are True so callers that don't
     supply scope_config are held to every board.
+
+    The labware, stage offset, turret map, selected objective and scale
+    bar are not here: the scope reads them from the session's settings,
+    their one store, whenever it acts on them.
     """
 
-    labware: object
     # The session's one has-a-turret answer. Required, never defaulted: a
     # turreted scope treated as turretless would answer with its stored
     # objective instead of the one in the light path.
     turreted: bool
-    # The selected objective, on a scope with no turret; None on a turreted
-    # scope, whose objective is derived from the slot and never stored.
-    objective_id: str | None
-    turret_config: dict | None
     # The saved turret position: the slot a person last turned to, which
     # the slot lookup prefers when two slots carry one objective. None when
     # nothing usable was saved.
@@ -46,8 +45,6 @@ class ScopeInitConfig:
     frame_width: int
     frame_height: int
     acceleration_pct: int
-    stage_offset: dict
-    scale_bar_enabled: bool
     # The saved image mode, which names the capture depth bring-up applies;
     # a camera without that depth starts in 8-bit and says so.
     image_mode: str
@@ -60,13 +57,12 @@ class ScopeInitConfig:
     def from_settings(
         cls,
         settings: dict,
-        labware: object,
         scope_config: dict | None = None,
         layer_identity: object | None = None,
         *,
         turreted: bool,
     ) -> 'ScopeInitConfig':
-        """Build config from LVP settings dict and labware object.
+        """Build config from the LVP settings dict.
 
         turreted: the session's one has-a-turret answer
         (``ScopeSession.scope_has_turret``). On a turreted scope the stored
@@ -85,7 +81,8 @@ class ScopeInitConfig:
         entry here because a unit's own config can differ from its model.
 
         Raises:
-            ConfigError: ``frame``, ``binning``, ``stage_offset`` or
+            ConfigError: ``frame``, ``binning``, ``stage_offset``,
+                ``turret_objectives``, ``scale_bar.enabled`` or
                 ``motion.acceleration_max_pct`` is missing, or
                 ``objective_id`` is missing on a scope with no turret. Every
                 other field has a value ``initialize`` can apply harmlessly
@@ -96,18 +93,23 @@ class ScopeInitConfig:
                 offset puts every plate position somewhere else on the stage,
                 an objective default that names no shipped objective was
                 prefix-matched to a real one and stamped into every saved
-                image's scale, and an invented acceleration limit commands the
-                motors at a limit nobody chose. A present one no board may be
+                image's scale, an invented acceleration limit commands the
+                motors at a limit nobody chose, and the scope reads the turret
+                map and the scale bar from the settings at every use, so one
+                missing would fail every objective read or capture rather
+                than once, here. A present one no board may be
                 given is refused too, before bring-up commands anything: a
                 dict handed to a session never went through the load that
                 replaces such a value.
         """
-        required = ('frame', 'binning', 'stage_offset', 'motion')
+        required = ('frame', 'binning', 'stage_offset', 'turret_objectives', 'scale_bar', 'motion')
         if not turreted:
             required += ('objective_id',)
         missing = [key for key in required if key not in settings]
         if 'motion' in settings and 'acceleration_max_pct' not in settings['motion']:
             missing.append('motion.acceleration_max_pct')
+        if 'scale_bar' in settings and 'enabled' not in settings['scale_bar']:
+            missing.append('scale_bar.enabled')
         if missing:
             raise ConfigError(
                 f'settings cannot configure a scope: missing {missing}; '
@@ -135,17 +137,12 @@ class ScopeInitConfig:
         else:
             expects_led = any(layer.led_channel for layer in layer_identity.layers)
         return cls(
-            labware=labware,
             turreted=turreted,
-            objective_id=None if turreted else settings['objective_id'],
-            turret_config=settings.get('turret_objectives'),
             preferred_turret_slot=preferred_turret_slot,
             binning_size=binning_size,
             frame_width=settings['frame']['width'],
             frame_height=settings['frame']['height'],
             acceleration_pct=acceleration_pct,
-            stage_offset=settings['stage_offset'],
-            scale_bar_enabled=settings.get('scale_bar', {}).get('enabled', False),
             image_mode=image_mode.resolve_settings_image_mode(settings),
             expects_motion=expects_motion,
             expects_led=expects_led,

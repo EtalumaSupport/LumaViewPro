@@ -30,9 +30,9 @@ import pytest
 import tifffile as tf
 
 from modules import image_save
-from modules.labware_loader import WellPlateLoader
 from tests.ast_seams import find_def
 from tests.frame_records import frame_record, plate
+from tests.scope_fakes import bind_settings_like_a_session
 
 
 LAYER = 'Green'
@@ -48,10 +48,12 @@ def identity_scope(sim_scope):
     generate_image_metadata before a channel is ever written, so it cannot
     observe this invariant at all.
     """
-    loader = WellPlateLoader()
-    sim_scope.runtime_state.set_objective('20x Oly')
-    sim_scope.runtime_state.set_labware(loader.get_plate(PLATE))
-    sim_scope.runtime_state.set_stage_offset({'x': 0.0, 'y': 0.0})
+    bind_settings_like_a_session(
+        sim_scope,
+        objective_id='20x Oly',
+        protocol={'labware': PLATE},
+        stage_offset={'x': 0.0, 'y': 0.0},
+    )
     return sim_scope
 
 

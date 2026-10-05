@@ -1111,10 +1111,10 @@ class TestRestAPIPrep:
             scope.disconnect()
 
     def test_get_current_objective_after_set(self):
-        """get_current_objective() should return info after set_objective()."""
+        """get_current_objective() should return info after select_objective()."""
         session = ScopeSession.create(complete_settings(), simulate=True)
         objectives = session.scope.runtime_state.get_available_objectives()
-        session.scope.runtime_state.set_objective(objectives[0])
+        session.select_objective(objectives[0])
         current = session.scope.runtime_state.get_current_objective()
         assert current is not None
         assert isinstance(current, dict)

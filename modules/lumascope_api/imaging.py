@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """ImagingAPI -- sub-API for camera capture / image acquisition.
 
-ImagingAPI owns _camera_cache, _frame_buffer, _scale_bar,
+ImagingAPI owns _camera_cache, _frame_buffer, _scale_bar_color,
 _focusing_event, _camera_listeners, _camera_temp_event,
 _suppress_value_warnings, and the frame_validity instance.
 """
@@ -441,7 +441,7 @@ class ImagingAPI:
         # IlluminationAPI._driver.
         del driver  # intentionally unused, kept for backward call sites
 
-        # State / camera locks. _state_lock guards _scale_bar,
+        # State / camera locks. _state_lock guards _scale_bar_color,
         # _last_capture_info and _auto_gain_arm; _cam_lock serializes
         # access to the camera driver itself (any path that touches
         # the SDK reads/writes goes through this lock).
@@ -530,15 +530,13 @@ class ImagingAPI:
         self._camera_temp_event = None
         self._camera_temp_unschedule_fn = None
 
-        # Scale-bar overlay config -- defaults disabled; users opt in via
-        # set_scale_bar(...). Written from the GUI thread and read from the
-        # capture and live-view threads, so every access outside this
-        # constructor goes through self._state_lock, and readers take a
-        # snapshot rather than reading the fields one at a time.
-        self._scale_bar = {
-            'enabled': False,
-            'color': None,
-        }
+        # The scale bar's colour, set per frame by the live view from the
+        # active layer; whether the bar is drawn is the session's setting
+        # (``scale_bar.enabled``), read at each capture and held nowhere
+        # here. Written from the GUI thread and read from the capture and
+        # live-view threads, so every access outside this constructor goes
+        # through self._state_lock. None draws the default colour.
+        self._scale_bar_color: str | None = None
 
         # Camera state cache -- the single store every public camera getter
         # answers from. Updated when the camera connects, after every
@@ -4681,33 +4679,34 @@ class ImagingAPI:
 
     @property
     def scale_bar_config(self) -> dict:
-        """Return a snapshot of scale bar settings.
+        """Whether the scale bar is drawn on captured images, and in what colour.
 
-        The one read for this state: a defensive copy of the whole
-        ``{'enabled', 'color', ...}`` configuration, so a caller reading more
-        than one field sees a single consistent setting rather than fields
-        from either side of a concurrent ``set_scale_bar``.
+        The one read for this state, taken once per capture so the overlay
+        decision uses one answer: ``enabled`` is the session's
+        ``scale_bar.enabled`` setting (``ScopeSession.set_scale_bar``
+        changes it), ``color`` the last ``set_scale_bar_color``.
 
         Returns:
-            dict: Copy of the scale bar config (e.g. enabled, color).
-        """
-        with self._state_lock:
-            return dict(self._scale_bar)
+            dict: ``{'enabled': bool, 'color': str | None}``, a copy.
 
-    def set_scale_bar(self, enabled: bool, color: str | None = None) -> None:
-        """Configure the scale bar overlay on captured images.
+        Raises:
+            ConfigError: No session has bound this scope.
+        """
+        enabled = self._scope.read_setting('scale_bar.enabled')
+        with self._state_lock:
+            return {'enabled': enabled, 'color': self._scale_bar_color}
+
+    def set_scale_bar_color(self, color: str) -> None:
+        """The colour the scale bar is drawn in on captured images.
+
+        Whether it is drawn at all is the session's setting
+        (``ScopeSession.set_scale_bar``), which this never changes.
 
         Args:
-            enabled: Whether to draw the scale bar.
-            color: Scale bar color (e.g. "white"). Uses default if None.
+            color: Scale bar colour, e.g. a layer name ("BF", "Red").
         """
-        # One critical section for both fields: the capture path reads
-        # enabled and color as a pair, and a toggle landing between two
-        # separate writes would draw the bar in the previous colour.
         with self._state_lock:
-            self._scale_bar['enabled'] = enabled
-            if color is not None:
-                self._scale_bar['color'] = color
+            self._scale_bar_color = color
 
     # --- Camera diagnostics (live in-flight only; data source = DiagnosticsAPI) ---
     def _log_camera_temps(self) -> None:

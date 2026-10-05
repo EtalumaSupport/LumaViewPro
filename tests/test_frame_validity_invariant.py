@@ -29,7 +29,12 @@ from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.lumascope_api.motion import MotionAPI
 from modules.notification_center import Severity
-from tests.scope_fakes import build_scope, give_stub_lanes, home_sim_scope
+from tests.scope_fakes import (
+    build_scope,
+    give_stub_lanes,
+    home_sim_scope,
+    bind_settings_like_a_session,
+)
 
 
 @pytest.fixture
@@ -40,6 +45,7 @@ def sim_imaging():
     cam.active = True
     cam.open_and_start()
     scope = Lumascope.__new__(Lumascope)
+    bind_settings_like_a_session(scope)
     scope._camera_driver = cam
     give_stub_lanes(scope)
     scope._cam_lock = threading.RLock()
@@ -154,6 +160,7 @@ class TestMotionValiditySources:
     def _scope_with_invalidate_recorder():
         """Simulated scope whose frame_validity.invalidate records sources."""
         scope = build_scope(simulate=True)
+        bind_settings_like_a_session(scope)
         scope._motion_driver.set_timing_mode('instant')
         # Home before recording: the home's own invalidations are setup,
         # not the transitions under test.

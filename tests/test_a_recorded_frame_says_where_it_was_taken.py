@@ -9,6 +9,7 @@ the fact's construction from the scope's tracked state, the metadata
 builder's fields, and the plate transform a recording binds at start.
 """
 
+import copy
 import json
 from types import SimpleNamespace
 
@@ -201,22 +202,24 @@ class TestTheFrameFile:
 
 
 class TestTheBoundPlateTransform:
-    def test_none_until_labware_and_offset_are_registered(self):
-        state = RuntimeState(SimpleNamespace())
-        assert state.plate_transform() is None
-        state.set_labware(SimpleNamespace(get_dimensions=lambda: {'x': 100.0, 'y': 50.0}))
-        assert state.plate_transform() is None
-        state.set_stage_offset({'x': 0.0, 'y': 0.0})
-        assert state.plate_transform() is not None
-
-    def test_bound_to_the_labware_registered_when_taken(self):
-        state = RuntimeState(SimpleNamespace())
-        state.set_labware(SimpleNamespace(get_dimensions=lambda: {'x': 100.0, 'y': 50.0}))
-        state.set_stage_offset({'x': 0.0, 'y': 0.0})
+    def test_bound_to_the_labware_and_offset_selected_when_taken(self):
+        plates = {
+            'wide': SimpleNamespace(get_dimensions=lambda: {'x': 100.0, 'y': 50.0}),
+            'narrow': SimpleNamespace(get_dimensions=lambda: {'x': 10.0, 'y': 5.0}),
+        }
+        settings = {'protocol.labware': 'wide', 'stage_offset': {'x': 0.0, 'y': 0.0}}
+        state = RuntimeState(
+            SimpleNamespace(
+                read_setting=lambda path: copy.deepcopy(settings[path]),
+                wellplate_loader=SimpleNamespace(get_plate=lambda plate_key: plates[plate_key]),
+            )
+        )
         to_plate = state.plate_transform()
         before = to_plate(1000.0, 2000.0)
-        state.set_labware(SimpleNamespace(get_dimensions=lambda: {'x': 10.0, 'y': 5.0}))
-        state.set_stage_offset(None)
+        # A later selection, and an edit of the offset in place, move nothing
+        # the transform already converts.
+        settings['protocol.labware'] = 'narrow'
+        settings['stage_offset']['x'] = 5000.0
         assert to_plate(1000.0, 2000.0) == before
         assert before == (99.0, 48.0)
 

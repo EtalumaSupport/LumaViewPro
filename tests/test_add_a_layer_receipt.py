@@ -23,6 +23,7 @@ import modules.layer_record as layer_record
 from modules.image_save import generate_image_metadata
 from modules.protocol import Protocol
 from tests.frame_records import frame_record, plate
+from tests.scope_fakes import bind_settings_like_a_session
 
 EIGHT_KEYS = ['BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi', 'NIR']
 
@@ -83,12 +84,12 @@ def test_vocabulary_and_validation_accept_the_eighth_layer(eighth_layer_release)
 
 
 def test_metadata_accepts_the_eighth_layer(eighth_layer_release, sim_scope):
-    from modules.labware_loader import WellPlateLoader
-
-    loader = WellPlateLoader()
-    sim_scope.runtime_state.set_objective('20x Oly')
-    sim_scope.runtime_state.set_labware(loader.get_plate('96 well microplate'))
-    sim_scope.runtime_state.set_stage_offset({'x': 0.0, 'y': 0.0})
+    bind_settings_like_a_session(
+        sim_scope,
+        objective_id='20x Oly',
+        protocol={'labware': '96 well microplate'},
+        stage_offset={'x': 0.0, 'y': 0.0},
+    )
     metadata = generate_image_metadata(
         sim_scope,
         channel='NIR',

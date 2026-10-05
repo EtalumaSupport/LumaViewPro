@@ -38,13 +38,6 @@ def test_the_objective_is_unknown_and_says_why(bare_turret_scope):
     assert state.get_current_objective() is None
 
 
-def test_an_objective_cannot_be_set(bare_turret_scope):
-    state = bare_turret_scope.runtime_state
-    with pytest.raises(ConfigError, match='initialize'):
-        state.set_objective('10x Oly')
-    assert state.get_current_objective_id() is None
-
-
 def test_whether_it_has_a_turret_is_refused_rather_than_guessed(bare_turret_scope):
     with pytest.raises(ConfigError, match='initialize'):
         bare_turret_scope.runtime_state.is_turreted()

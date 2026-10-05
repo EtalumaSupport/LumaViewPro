@@ -22,9 +22,9 @@ from pathlib import Path
 import pytest
 
 from modules import image_save, image_utils
-from modules.labware_loader import WellPlateLoader
 from modules.layer_record import UNRESOLVED, LayerIdentity, LayerRecord
 from tests.frame_records import frame_record
+from tests.scope_fakes import bind_settings_like_a_session
 
 PLATE = '24 well microplate'
 
@@ -45,10 +45,12 @@ _IDENTITY_NO_FILTERSET = LayerIdentity(
 
 @pytest.fixture
 def metadata_scope(sim_scope):
-    loader = WellPlateLoader()
-    sim_scope.runtime_state.set_objective('20x Oly')
-    sim_scope.runtime_state.set_labware(loader.get_plate(PLATE))
-    sim_scope.runtime_state.set_stage_offset({'x': 0.0, 'y': 0.0})
+    bind_settings_like_a_session(
+        sim_scope,
+        objective_id='20x Oly',
+        protocol={'labware': PLATE},
+        stage_offset={'x': 0.0, 'y': 0.0},
+    )
     sim_scope.layer_identity = _IDENTITY
     return sim_scope
 

@@ -101,24 +101,23 @@ _NO_LED_IDENTITY = identity_from_rows([('Lumi', None)])
 
 class TestFromSettings:
     def test_default_no_scope_config_preserves_pre_filter_behavior(self):
-        config = ScopeInitConfig.from_settings(_BASE_SETTINGS, labware=None, turreted=False)
+        config = ScopeInitConfig.from_settings(_BASE_SETTINGS, turreted=False)
         assert config.expects_motion is True
         assert config.expects_led is True
 
     def test_capture_depth_resolved_from_image_mode(self):
         # No image_mode key -> the 8-bit default mode.
-        config = ScopeInitConfig.from_settings(_BASE_SETTINGS, labware=None, turreted=False)
+        config = ScopeInitConfig.from_settings(_BASE_SETTINGS, turreted=False)
         assert config.image_mode == '8bit'
         # A 12-bit image mode is carried as itself, so initialize() applies a
         # 12-bit native pixel format up front, or says it cannot.
         twelve = {**_BASE_SETTINGS, 'image_mode': '12bit_scientific'}
-        config = ScopeInitConfig.from_settings(twelve, labware=None, turreted=False)
+        config = ScopeInitConfig.from_settings(twelve, turreted=False)
         assert config.image_mode == '12bit_scientific'
 
     def test_ls620_no_motor_expected(self):
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
-            labware=None,
             turreted=False,
             scope_config=_LS620_CONFIG,
             layer_identity=_LS620_IDENTITY,
@@ -129,7 +128,6 @@ class TestFromSettings:
     def test_ls820_motor_expected_via_focus(self):
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
-            labware=None,
             turreted=False,
             scope_config=_LS820_CONFIG,
             layer_identity=_LS820_IDENTITY,
@@ -140,7 +138,6 @@ class TestFromSettings:
     def test_ls850t_motor_expected_via_xystage_and_turret(self):
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
-            labware=None,
             turreted=False,
             scope_config=_LS850T_CONFIG,
             layer_identity=_LS850T_IDENTITY,
@@ -152,7 +149,6 @@ class TestFromSettings:
         scope_config = {'Focus': True, 'XYStage': False, 'Turret': False}
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
-            labware=None,
             turreted=False,
             scope_config=scope_config,
             layer_identity=_NO_LED_IDENTITY,
@@ -173,11 +169,11 @@ class TestAccelerationBound:
     def test_a_stored_value_no_board_may_take_is_refused(self, stored):
         settings = {**_BASE_SETTINGS, 'motion': {'acceleration_max_pct': stored}}
         with pytest.raises(ConfigError, match='acceleration limit'):
-            ScopeInitConfig.from_settings(settings, labware=None, turreted=False)
+            ScopeInitConfig.from_settings(settings, turreted=False)
 
     def test_an_in_range_value_is_carried(self):
         settings = {**_BASE_SETTINGS, 'motion': {'acceleration_max_pct': 50}}
-        config = ScopeInitConfig.from_settings(settings, labware=None, turreted=False)
+        config = ScopeInitConfig.from_settings(settings, turreted=False)
         assert config.acceleration_pct == 50
 
     def test_an_absent_acceleration_is_refused_by_name(self):
@@ -186,7 +182,7 @@ class TestAccelerationBound:
             {**_BASE_SETTINGS, 'motion': {}},
         ):
             with pytest.raises(ConfigError, match='motion'):
-                ScopeInitConfig.from_settings(settings, labware=None, turreted=False)
+                ScopeInitConfig.from_settings(settings, turreted=False)
 
     def test_the_api_refuses_on_the_same_bound(self):
         """from_settings and the motion API read the one check."""

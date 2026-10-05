@@ -19,6 +19,7 @@ from modules.activity_claim import ActivityClaim
 import modules.manual_recording as manual_recording_module
 from modules.manual_recording import ManualRecordingController
 from modules.scheduler import ThreadingTimerScheduler
+from tests.scope_fakes import bind_settings_like_a_session
 
 
 def test_manual_recording_ends_within_the_stall_bound(sim_scope, tmp_path, monkeypatch):
@@ -27,7 +28,7 @@ def test_manual_recording_ends_within_the_stall_bound(sim_scope, tmp_path, monke
     monkeypatch.setattr(
         manual_recording_module, 'check_disk_space_ok', lambda *_: (True, 1_000_000.0)
     )
-    sim_scope.runtime_state.set_objective('4x Oly')
+    bind_settings_like_a_session(sim_scope, objective_id='4x Oly')
     settings = {
         'live_folder': str(tmp_path),
         'video_as_frames': True,

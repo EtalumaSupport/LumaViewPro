@@ -2,6 +2,22 @@
 
 ## 4.0.0 (in development)
 
+- **The scope reads its configuration from the session's settings (SDK, breaking)**: the
+  labware, stage offset, turret map, the objective selected on a scope with no turret, and
+  whether the scale bar is drawn are stored once, in the settings, and the scope reads them
+  whenever it acts on them. `scope.runtime_state.set_labware`, `set_turret_config`,
+  `set_stage_offset` and `set_objective` are removed: change these through the session
+  (`select_labware`, `assign_turret_objective` / `clear_turret_objective`,
+  `update_settings('stage_offset.x', ...)`, `select_objective`). `scope.imaging.set_scale_bar`
+  is replaced by `set_scale_bar_color`; whether the bar is drawn is `session.set_scale_bar`.
+  Before, the scope kept its own copies, a script could change one without the other, and the
+  live view could undo a scale-bar toggle in the captures while the settings kept it. The
+  getters now return copies, and `plate_transform()` keeps the plate and offset it was taken
+  with. A `Lumascope` no session composed refuses these reads with `ConfigError`: compose it
+  with `ScopeSession.create(settings, scope=scope)` to capture or convert plate positions.
+  `ScopeInitConfig` no longer carries these values, and a settings dict without
+  `scale_bar.enabled` or `turret_objectives` is refused at bring-up. New:
+  `session.get_setting(path)`, a copy of one setting.
 - **A move returns once it has arrived (SDK, breaking)**: `scope.motion.move_absolute` and
   `move_relative` wait for the axis and raise `MoveNotCompletedError` when it did not arrive;
   the `wait_until_complete` argument is removed. They used to return as soon as the board took

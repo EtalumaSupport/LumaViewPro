@@ -79,12 +79,8 @@ class TestTheRunningScopeHasOneModel:
 
     def test_a_saved_image_records_the_identitys_model(self, ls620_session):
         from modules import image_save
-        from modules.labware_loader import WellPlateLoader
 
         scope = ls620_session.scope
-        scope.runtime_state.set_objective('20x Oly')
-        scope.runtime_state.set_labware(WellPlateLoader().get_plate('24 well microplate'))
-        scope.runtime_state.set_stage_offset({'x': 0.0, 'y': 0.0})
         metadata = image_save.generate_image_metadata(
             scope,
             'BF',

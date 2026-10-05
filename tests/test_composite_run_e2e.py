@@ -75,10 +75,13 @@ def headless_settings(
     # Likewise the FX2 wire trace, which the session reads for every scope.
     settings['fx2_debug_wire_enabled'] = False
     # The slots a brought-up scope carries. Empty is not the neutral
-    # value it looks like: bring-up pushes these into the runtime store
-    # (and skips the push entirely when the dict is falsy), and a turret
-    # carrying nothing addresses no glass, so every protocol is refused.
+    # value it looks like: the scope reads these from the settings, and a
+    # turret carrying nothing addresses no glass, so every protocol is
+    # refused.
     settings['turret_objectives'] = dict(TEST_TURRET_OBJECTIVES)
+    # The scope reads whether to draw the scale bar at every capture, so
+    # the session refuses settings without it; the template's value.
+    settings['scale_bar'] = {'enabled': False}
     return settings
 
 

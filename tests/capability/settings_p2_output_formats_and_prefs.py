@@ -105,15 +105,15 @@ try:
         _common.ok("video_as_frames 'banana' refused", True, f'{e.reason}: {e}')
     s.update_settings('video_as_frames', False)
 
-    # --- scale bar (the one pref with a real API setter) -------------------
+    # --- scale bar: the Session's setting, which the imaging API reads ----
     im = s.scope.imaging
-    im.set_scale_bar(enabled=True)
+    s.set_scale_bar(True)
     print('scale_bar_config      :', im.scale_bar_config)
     _common.ok('scale bar on through API', im.scale_bar_config.get('enabled') is True)
-    im.set_scale_bar(enabled=False)
+    s.set_scale_bar(False)
     _common.ok('scale bar off through API', im.scale_bar_config.get('enabled') is False)
     try:
-        im.set_scale_bar(enabled=True, color='chartreuse-ish')
+        im.set_scale_bar_color('chartreuse-ish')
         print('scale bar bogus colour ->', im.scale_bar_config)
     except Exception as e:
         print('scale bar bogus colour raised', type(e).__name__, e)

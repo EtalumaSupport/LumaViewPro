@@ -772,12 +772,15 @@ def sim_scope():
 
     An LS850: the LS850T without the turret. Its users select an objective
     directly, which only a scope with no turret can do -- on a turret scope
-    the objective is the slot's assignment.
+    the objective is the slot's assignment. Bound to the template's
+    settings, as a session binds the scope it brings up; a test names its
+    own plate or objective with ``bind_settings_like_a_session``.
     """
 
-    from tests.scope_fakes import record_turret_answer
+    from tests.scope_fakes import bind_settings_like_a_session, record_turret_answer
 
     s = record_turret_answer(build_scope(simulate=True, sim_model='LS850'))
+    bind_settings_like_a_session(s)
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')

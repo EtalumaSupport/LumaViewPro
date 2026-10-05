@@ -21,6 +21,7 @@ import pytest
 from modules.exceptions import ConfigError, ProtocolRunRefusedError
 from modules.protocol import ProtocolFormatError
 from modules.scope_session import ScopeSession
+from tests.scope_fakes import bind_settings_like_a_session
 from tests.settings_fixtures import complete_settings_without
 from tests.test_a_protocol_needs_its_objectives_on_the_turret import (
     NOT_CARRIED,
@@ -84,7 +85,7 @@ def test_the_offset_judged_is_the_scopes(executor, scope, tmp_path):
     # its own would admit it and image somewhere else.
     protocol = _make_multi_step_protocol([{'name': 'shifted'}])
     _prepare(executor, protocol, tmp_path)
-    scope.runtime_state.set_stage_offset({'x': -50_000.0, 'y': 0.0})
+    bind_settings_like_a_session(scope, stage_offset={'x': -50_000.0, 'y': 0.0})
     refusal = _refusal(executor, protocol, tmp_path)
     assert refusal.reason == OUTSIDE, refusal
 

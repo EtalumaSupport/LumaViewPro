@@ -52,6 +52,8 @@ does not let that number grow.
 
 from __future__ import annotations
 
+import copy
+import weakref
 from unittest.mock import create_autospec
 
 
@@ -181,9 +183,12 @@ def build_real_sim_scope():
     covers everything a production caller can reach.
 
     The test's teardown disconnects it; `spec_scope()` disconnects its own
-    at once.
+    at once. Bound to the template's settings: the spec reads every
+    attribute, and the scale bar's answer reads the settings.
     """
-    return build_scope(simulate=True)
+    scope = build_scope(simulate=True)
+    bind_settings_like_a_session(scope)
+    return scope
 
 
 def homed_sim_scope():
@@ -279,6 +284,50 @@ def spec_scope(**attrs):
 TEST_TURRET_OBJECTIVES = {1: '10x Oly', 2: '20x Oly', 3: '4x Oly', 4: None}
 
 
+# The settings each scope bound here reads, so a second call adjusts them:
+# a scope is bound once (``Lumascope.bind_settings`` refuses a second), and a
+# fixture that bound the template and a test that names its own plate both
+# describe the same session.
+_BOUND_SETTINGS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
+def bind_settings_like_a_session(scope, **overrides) -> dict:
+    """Give a hand-built test scope the settings a session would bind it to.
+
+    The scope reads its labware, stage offset, turret map, objective and
+    scale bar from a session's settings (``Lumascope.bind_settings``), and a
+    scope no session bound refuses those reads. A test about something else
+    binds its bare scope here, to the shipped template with ``overrides``
+    laid over it (``complete_settings``), read through the Session's own
+    reader so the answers are the ones a session gives. Called again for a
+    scope it bound, it lays ``overrides`` over the settings already bound.
+
+    Returns:
+        The settings dict the scope now reads; a test may change it.
+    """
+    import functools
+    import threading
+    import types
+
+    from modules.scope_session import ScopeSession
+    from tests.settings_fixtures import complete_settings
+
+    if scope in _BOUND_SETTINGS:
+        settings = _BOUND_SETTINGS[scope]
+        settings.update(complete_settings(**{**settings, **copy.deepcopy(overrides)}))
+        return settings
+    # A `Lumascope.__new__` stub skipped the constructor that starts it unbound.
+    vars(scope).setdefault('_settings_reader', None)
+    assert scope._settings_reader is None, (
+        "the scope already reads a session's settings: change them through the session"
+    )
+    settings = complete_settings(**overrides)
+    _BOUND_SETTINGS[scope] = settings
+    holder = types.SimpleNamespace(settings=settings, settings_lock=threading.Lock())
+    scope.bind_settings(functools.partial(ScopeSession.get_setting, holder))
+    return settings
+
+
 def configure_turret_like_bringup(scope, turret_objectives: dict | None = None) -> None:
     """Give a hand-built test scope the turret state a real one comes up with.
 
@@ -286,8 +335,8 @@ def configure_turret_like_bringup(scope, turret_objectives: dict | None = None) 
     reports the only turreted model as its own (the simulate branch falls
     back to LS850T when settings are not yet loaded), while its runtime
     turret configuration stays empty -- a turret whose every slot is
-    clear. A real session never looks like that: bring-up pushes the
-    persisted slots into the runtime store, and on a turreted scope the
+    clear. A real session never looks like that: the scope reads the
+    persisted slots from its session's settings, and on a turreted scope the
     startup objective question assigns the current position before any
     protocol can be loaded.
 
@@ -303,8 +352,14 @@ def configure_turret_like_bringup(scope, turret_objectives: dict | None = None) 
             TEST_TURRET_OBJECTIVES. Pass a narrower one to test a scope
             that genuinely carries less.
     """
-    scope.runtime_state.set_turret_config(
-        dict(TEST_TURRET_OBJECTIVES if turret_objectives is None else turret_objectives)
+    # The stage offset is the one a run's travel check and its plate
+    # conversions read.
+    bind_settings_like_a_session(
+        scope,
+        turret_objectives=dict(
+            TEST_TURRET_OBJECTIVES if turret_objectives is None else turret_objectives
+        ),
+        stage_offset={'x': 0.0, 'y': 0.0},
     )
     # Bring-up also records whether the scope has a turret, and startup homes
     # every axis: the turret lands in slot 1 -- the active objective is that
@@ -312,9 +367,6 @@ def configure_turret_like_bringup(scope, turret_objectives: dict | None = None) 
     # a known stage, since the run moves every step itself.
     record_turret_answer(scope)
     home_sim_scope(scope)
-    # And bring-up writes the settings' stage offset into the runtime store,
-    # the one a run's travel check and its plate conversions read.
-    scope.runtime_state.set_stage_offset({'x': 0.0, 'y': 0.0})
 
 
 def answer_auto_gain_like_the_api(imaging, *, has_auto_gain: bool = True) -> None:

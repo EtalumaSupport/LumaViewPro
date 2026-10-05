@@ -28,6 +28,7 @@ import modules.image_save as image_save
 from modules.tiling_config import TilingConfig
 from tests.ast_seams import parse_module
 from tests.frame_records import frame_record, plate
+from tests.scope_fakes import bind_settings_like_a_session
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 TILING_CONFIGS = REPO / 'data' / 'tiling.json'
@@ -43,11 +44,13 @@ class TestAHeadlessImageCarriesItsScale:
     def test_metadata_from_a_scope_that_knows_its_optics(self, sim_scope, no_context):
         """The defect itself: a scope that can report its optics wrote images
         with no scale whenever no GUI context existed in the process."""
-        from modules.labware_loader import WellPlateLoader
 
-        sim_scope.runtime_state.set_objective('20x Oly')
-        sim_scope.runtime_state.set_labware(WellPlateLoader().get_plate('96 well microplate'))
-        sim_scope.runtime_state.set_stage_offset({'x': 0.0, 'y': 0.0})
+        bind_settings_like_a_session(
+            sim_scope,
+            objective_id='20x Oly',
+            protocol={'labware': '96 well microplate'},
+            stage_offset={'x': 0.0, 'y': 0.0},
+        )
         objective = sim_scope.runtime_state.get_current_objective()
         caps = sim_scope.capabilities
         expected = (

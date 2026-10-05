@@ -21,6 +21,7 @@ import re
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.motion import MotionAPI
 from modules.lumascope_api.runtime_state import RuntimeState
+from tests.scope_fakes import bind_settings_like_a_session
 
 
 def _make_scope_with_turret(turret_config, current_pos=None, preferred=None):
@@ -28,8 +29,8 @@ def _make_scope_with_turret(turret_config, current_pos=None, preferred=None):
     lookup. Avoids the full hardware init path.
     """
     scope = Lumascope.__new__(Lumascope)
+    bind_settings_like_a_session(scope, turret_objectives=turret_config)
     scope.runtime_state = RuntimeState(scope)
-    scope.runtime_state._turret_config = turret_config
     # MotionAPI hosts the relocated body. __new__ skips __init__,
     # which is what sets scope.motion in production, so the test
     # installs the sub-API first so monkeypatches land on the canonical

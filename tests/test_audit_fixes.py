@@ -25,7 +25,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from tests.af_drives import park_z
-from tests.scope_fakes import home_sim_scope
+from tests.scope_fakes import home_sim_scope, bind_settings_like_a_session
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate
 from modules.protocol_image_writer import RunWriteBatch
@@ -997,6 +997,7 @@ class TestAxisState:
         from modules.lumascope_api import AxisState
 
         scope = build_scope(simulate=True)
+        bind_settings_like_a_session(scope)
         try:
             for ax in ('X', 'Y', 'Z', 'T'):
                 assert scope.motion.get_axis_state(ax) == AxisState.UNKNOWN
@@ -1049,6 +1050,7 @@ class TestAxisState:
         from drivers.simulated_motorboard import SimulatedMotorBoard
 
         scope = build_scope(simulate=True)
+        bind_settings_like_a_session(scope)
         scope._motion_driver = SimulatedMotorBoard(
             motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850T'
         )
@@ -1177,6 +1179,7 @@ class TestIssue602_AFExecutorLED:
         from modules.autofocus_runner import AutofocusRunner
 
         scope = build_scope(simulate=True)
+        bind_settings_like_a_session(scope)
         from modules.sequential_io_executor import SequentialIOExecutor
 
         af_ex = SequentialIOExecutor(name='AF_TEST')  # noqa: F841 -- deferred
@@ -1197,6 +1200,7 @@ class TestIssue602_AFExecutorLED:
         from tests.protocol_drives import held_run_claim
 
         scope = build_scope(simulate=True)
+        bind_settings_like_a_session(scope)
         home_sim_scope(scope)
         park_z(scope, 5000.0)
         from modules.sequential_io_executor import SequentialIOExecutor
@@ -1251,6 +1255,7 @@ class TestAFPrecisionModeRestoresOn:
         from modules.autofocus_runner import AutofocusRunner
 
         scope = build_scope(simulate=True)
+        bind_settings_like_a_session(scope)
         home_sim_scope(scope)
         park_z(scope, 5000.0)
         return AutofocusRunner(scope=scope), scope
@@ -1401,6 +1406,7 @@ class TestB6_WriteMotorRegisterRemoved:
         """write_motor_register should no longer exist on the API class."""
 
         scope = build_scope(simulate=True)
+        bind_settings_like_a_session(scope)
         assert not hasattr(scope, 'write_motor_register'), (
             'write_motor_register() should have been removed (B6 -- zero callers)'
         )
@@ -1414,6 +1420,7 @@ class TestB5_GetCurrentPositionUsesAxesPresent:
         """get_current_position(None) should return dict keyed by present axes only."""
 
         scope = build_scope(simulate=True)
+        bind_settings_like_a_session(scope)
         result = scope.motion.get_current_position(axis=None)
         assert set(result.keys()) == set(scope.capabilities.axes), (
             'get_current_position(None) should use scope.capabilities.axes, not a hardcoded axis list'
@@ -3927,8 +3934,9 @@ class TestPF5_ImageBufferRetired:
 
         imaging, _cam = _sim_backed_imaging()
         sentinel = np.full((4, 4), 9, dtype=np.uint8)
-        imaging._scale_bar['enabled'] = True
-        imaging._scope.runtime_state.set_objective('4x Oly')
+        bind_settings_like_a_session(
+            imaging._scope, scale_bar={'enabled': True}, objective_id='4x Oly'
+        )
         monkeypatch.setattr('modules.image_utils.add_scale_bar', lambda **kwargs: sentinel)
         out = imaging.get_image(force_to_8bit=True, timeout_s=2.0)
         assert out is sentinel, 'get_image must return the add_scale_bar result'
@@ -4142,6 +4150,7 @@ def _sim_backed_imaging():
     cam.connect()
     cam.open_and_start()
     scope = Lumascope.__new__(Lumascope)
+    bind_settings_like_a_session(scope)
     scope._camera_driver = cam
     # No executor: the public dispatchers run their body on the calling
     # thread, so these tests exercise the public surface inline.
@@ -4197,6 +4206,7 @@ class TestLatestChunksHelper:
 
         # Construct without going through full init -- attributes set by hand
         scope = Lumascope.__new__(Lumascope)
+        bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
         scope.imaging = ImagingAPI(scope, None)
@@ -4994,6 +5004,7 @@ class TestPylonDiagnosticProbe:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
         # No camera lane: the probe's dispatch runs its body inline, as it
@@ -5202,6 +5213,7 @@ class TestDeviceLinkThroughputLimitSetter:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
         scope.imaging = ImagingAPI(scope, fake_camera)
@@ -5216,6 +5228,7 @@ class TestDeviceLinkThroughputLimitSetter:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
         scope.imaging = ImagingAPI(scope, None)
@@ -7488,6 +7501,7 @@ class TestAcquisitionStopModeSetter:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
         scope.imaging = ImagingAPI(scope, fake_camera)
@@ -7502,6 +7516,7 @@ class TestAcquisitionStopModeSetter:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
         scope.imaging = ImagingAPI(scope, None)
@@ -7635,6 +7650,7 @@ class TestGigeSetters:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
         scope.imaging = ImagingAPI(scope, fake_camera)
@@ -7659,6 +7675,7 @@ class TestGigeSetters:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
         scope.imaging = ImagingAPI(scope, None)
@@ -7867,6 +7884,7 @@ class TestStreamGrabberSetters:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
         scope.imaging = ImagingAPI(scope, fake_camera)
@@ -7883,6 +7901,7 @@ class TestStreamGrabberSetters:
         from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
+        bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
         scope.imaging = ImagingAPI(scope, None)
@@ -9628,9 +9647,9 @@ class TestLedMaxMaCanonicalHomeIsCapabilities:
 
 
 class TestRuntimeStateSetObjective:
-    """The Session hardware forwarders are retired; the one public
-    objective-selection path is the runtime_state member on the
-    composition root the Session exposes. This pins its round trip.
+    """The one objective-selection path is the Session's
+    ``select_objective``, and the scope's runtime state answers what it
+    selected. This pins its round trip.
 
     Built from the fixture, not from the checkout's saved settings: those
     are whatever scope a developer last ran, and a turreted one refuses a
@@ -9647,7 +9666,7 @@ class TestRuntimeStateSetObjective:
             assert available, 'the fixture scope loaded no objectives'
             target = available[0]
 
-            session.scope.runtime_state.set_objective(target)
+            session.select_objective(target)
             assert session.scope.runtime_state.get_current_objective_id() == target
         finally:
             session.shutdown()
@@ -9828,6 +9847,7 @@ class TestFrameValidityIsL2Stable:
         from modules.lumascope_api import Lumascope
 
         scope = Lumascope.__new__(Lumascope)
+        bind_settings_like_a_session(scope)
         scope._camera_driver = None
         api = ImagingAPI(scope, None)
         assert isinstance(api.frame_validity, FrameValidity), (
@@ -9939,8 +9959,8 @@ class TestGetterSetterSymmetry:
     def test_lumascope_get_stage_offset_exists(self, sim_scope):
         # Canonical home post-Wave-7-Phase-8 is scope.runtime_state.
         assert callable(getattr(sim_scope.runtime_state, 'get_stage_offset', None))
-        # Round-trip: set then get returns the same value.
-        sim_scope.runtime_state.set_stage_offset({'x': 1.0, 'y': 2.0})
+        # It answers the settings' offset; the settings are its one store.
+        bind_settings_like_a_session(sim_scope, stage_offset={'x': 1.0, 'y': 2.0})
         assert sim_scope.runtime_state.get_stage_offset() == {'x': 1.0, 'y': 2.0}
 
 
@@ -10075,14 +10095,16 @@ class TestLumascopeSkillsApiPluginDocBatch:
         return pathlib.Path('docs/LumascopeSkills.md').read_text()
 
     def test_objective_setters_not_cited_on_composition_root(self):
-        # Carryover #24: objective/turret config moved to scope.runtime_state;
-        # a doc line calling scope.set_objective(...) raises AttributeError.
+        # Carryover #24: the objective is answered by scope.runtime_state and
+        # selected through the Session; a doc line calling a setter on the
+        # scope raises AttributeError.
         doc = self._doc()
         assert 'scope.set_objective(' not in doc, (
             'LumascopeSkills.md must not cite `scope.set_objective(...)` -- '
-            'it moved to `scope.runtime_state.set_objective`.'
+            'the objective is selected with `session.select_objective`.'
         )
-        assert 'scope.runtime_state.set_objective' in doc
+        assert 'runtime_state.set_objective' not in doc
+        assert 'session.select_objective' in doc
         assert 'scope.runtime_state.get_current_objective_id' in doc
 
     def test_objective_surface_lives_on_runtime_state_in_code(self):
@@ -10090,8 +10112,10 @@ class TestLumascopeSkillsApiPluginDocBatch:
 
         # The doc rewrite is only correct if Lumascope no longer carries
         # these and runtime_state does.
+        # The objective is selected through the Session (select_objective);
+        # runtime_state only answers it.
         assert not hasattr(Lumascope, 'set_objective')
-        assert hasattr(RuntimeState, 'set_objective')
+        assert not hasattr(RuntimeState, 'set_objective')
         assert hasattr(RuntimeState, 'get_current_objective_id')
         assert hasattr(RuntimeState, 'get_turret_config')
 
@@ -10157,6 +10181,7 @@ class TestGetLedStateShape:
     def _scope(self):
 
         scope = build_scope(simulate=True)
+        bind_settings_like_a_session(scope)
         scope._led_driver.set_timing_mode('fast')
         return scope
 
