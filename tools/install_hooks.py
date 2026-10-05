@@ -5,7 +5,7 @@ The hook delegates to ``tools/check_rules.py --staged`` so every commit
 runs the mechanical CLAUDE.md rule checks before the commit lands.
 
 LVP-specific: the managed hook ALSO runs the guard gate, the no-quick-fix
-judge on the staged production hunks when a Claude Code session names one
+judge on the staged production change, judged whole, when a Claude Code session names one
 (COMMIT_HUNK_JUDGE; a terminal commit and a merge commit are not judged),
 and bumps version.txt (timestamp + branch fields) after everything else
 passes, replacing the standalone version-bump hook that lived in LVP
@@ -83,7 +83,7 @@ printf "%s\\n%s\\n%s\\n%s\\n" "$VERSION" "$TIMESTAMP" "$BRANCH" "$GUID" > "$VERS
 git add "$VERSION_FILE"
 """
 
-# The no-quick-fix judge on the staged production hunks. Only a Claude Code
+# The no-quick-fix judge on the staged production change, judged whole. Only a Claude Code
 # session names a judge (its settings set COMMIT_HUNK_JUDGE), so a terminal
 # commit is not judged; a merge commit is not judged either (Eric,
 # 2026-10-03): the commits it carries were judged when made, and the stage
@@ -306,7 +306,7 @@ def install() -> int:
         print(f'Installed {hook.name} hook at {hook}')
     print('  pre-commit delegates to tools/check_rules.py --staged, runs ruff on the index,')
     print('  runs tests/guards on an export of the index, judges the staged production')
-    print('  hunks when the session sets COMMIT_HUNK_JUDGE, then stamps version.txt.')
+    print('  change whole when the session sets COMMIT_HUNK_JUDGE, then stamps version.txt.')
     print('  post-merge restamps version.txt when a merge commit changed the branch it names.')
     print('  To bypass for one commit: git commit --no-verify')
     print('  To remove: tools/install_hooks.py --uninstall')
