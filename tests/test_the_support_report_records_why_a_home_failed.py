@@ -28,6 +28,7 @@ def session(tmp_path):
         s.shutdown()
 
 
+@pytest.mark.slow
 def test_a_failed_z_home_is_recorded_in_its_own_words(session, monkeypatch):
     monkeypatch.setattr(session.scope._motion_driver, 'zhome', lambda: False)
 

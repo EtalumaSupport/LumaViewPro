@@ -104,6 +104,7 @@ def test_a_host_with_no_plugins_says_so(session, tmp_path):
     }
 
 
+@pytest.mark.slow
 def test_a_full_report_on_the_simulator_is_saved_with_both_files(session, tmp_path, monkeypatch):
     # The whole report, every step, as the panel's button makes it: a step
     # that raises out of the report (not into it) costs the ZIP. The host's

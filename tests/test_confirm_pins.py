@@ -441,6 +441,7 @@ def _hunk_lines(report):
     return lines
 
 
+@pytest.mark.slow
 def test_end_to_end_one_hunk_per_kind_through_git_and_pytest(tmp_path):
     repo = _repo(tmp_path)
     code, report, done = _run_tool(repo, tmp_path)

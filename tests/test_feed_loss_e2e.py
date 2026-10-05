@@ -15,6 +15,8 @@ still gets the bound.
 import json
 import time
 
+import pytest
+
 from modules.activity_claim import ActivityClaim
 import modules.manual_recording as manual_recording_module
 from modules.manual_recording import ManualRecordingController
@@ -22,6 +24,7 @@ from modules.scheduler import ThreadingTimerScheduler
 from tests.scope_fakes import bind_settings_like_a_session
 
 
+@pytest.mark.slow
 def test_manual_recording_ends_within_the_stall_bound(sim_scope, tmp_path, monkeypatch):
     # The disk probe would report this machine's free space; report ample
     # free disk instead so the stall bound is the only thing under test.

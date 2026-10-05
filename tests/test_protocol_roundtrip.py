@@ -1396,6 +1396,7 @@ class TestExecuteCombinations:
         completed, _ = _run_and_wait(executor, proto, tmp_path)
         assert completed, 'Multi-well tiled multi-channel protocol did not complete'
 
+    @pytest.mark.slow
     def test_large_protocol_50_steps(self, executor, scope, tmp_path):
         """Stress test: 50 steps should complete without timeout."""
         # Distinct labels: 50 same-well BF steps must derive distinct capture
@@ -2690,6 +2691,7 @@ class TestFeedLossEndsVideoStep:
     say camera_stalled.
     """
 
+    @pytest.mark.slow
     def test_mid_step_feed_death_ends_step_and_run_completes(self, executor, scope, tmp_path):
         # Duration far past the 5 s stall floor so the wall cap cannot
         # be the thing that ends the step.

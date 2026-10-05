@@ -80,6 +80,7 @@ def test_after_a_reboot_the_api_no_longer_claims_to_know_the_stage(scope):
     assert not scope.motion.has_homed()
 
 
+@pytest.mark.slow
 def test_a_cable_pulled_mid_move_faults_the_axis_within_the_deadline_and_says_so_once(
     monkeypatch, centre_posts
 ):

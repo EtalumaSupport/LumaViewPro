@@ -115,6 +115,7 @@ def _home_and_fail(scope):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_failed_home_marks_every_axis_unknown(scope, centre_posts):
     _home_and_fail(scope)
     for axis in scope.capabilities.axes:
@@ -131,6 +132,7 @@ def test_failed_home_marks_every_axis_unknown(scope, centre_posts):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_absolute_move_refuses_on_unknown_axis(scope):
     _home_and_fail(scope)
     with pytest.raises(AxisStateUnknownError) as exc:
@@ -138,6 +140,7 @@ def test_absolute_move_refuses_on_unknown_axis(scope):
     assert exc.value.axis == 'Z'
 
 
+@pytest.mark.slow
 def test_relative_move_refuses_on_unknown_axis(scope):
     """The relative path does not route through the absolute one -- it
     calls ``move_rel_pos`` directly, so it needs its own gate."""
@@ -147,6 +150,7 @@ def test_relative_move_refuses_on_unknown_axis(scope):
     assert exc.value.axis == 'X'
 
 
+@pytest.mark.slow
 def test_turret_move_refuses_before_lowering_z(scope):
     """The turret move must refuse BEFORE the safety Z-retract.
 
@@ -179,6 +183,7 @@ def test_absolute_move_still_works_on_a_known_axis(scope):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_forced_move_still_drives_on_unknown_axis(scope):
     _home_and_fail(scope)
     scope.motion._move_absolute_impl('Z', position=0, force=True)
@@ -187,6 +192,7 @@ def test_forced_move_still_drives_on_unknown_axis(scope):
     )
 
 
+@pytest.mark.slow
 def test_turret_home_recovers_from_unknown_z(scope):
     """A turret home after a failed home must not deadlock.
 

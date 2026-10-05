@@ -125,6 +125,7 @@ def test_a_stop_during_setup_ends_the_run_stopped_with_nothing_left_set_up(
     assert told == [], 'a person who pressed Stop was told the run failed to start'
 
 
+@pytest.mark.slow
 def test_a_shutdown_during_a_later_runs_setup_leaves_the_unwind_to_start(
     executor, tmp_path, monkeypatch
 ):

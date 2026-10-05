@@ -77,6 +77,7 @@ class TestAHomeReadsBeforeItSaysKnown:
             scope.motion.get_axis_state(ax) == AxisState.IDLE for ax in scope.capabilities.axes
         )
 
+    @pytest.mark.slow
     def test_a_z_home_reads_z_while_it_is_still_homing(self, scope):
         scope.motion.home()
         driver = scope._motion_driver
@@ -94,6 +95,7 @@ class TestAHomeReadsBeforeItSaysKnown:
 
 
 class TestAFailedReadLeavesTheAxisUnknown:
+    @pytest.mark.slow
     def test_after_a_full_home(self, scope):
         _home_and_park_x(scope)
         scope._motion_driver._fail_on.add('TARGET_RX')
@@ -108,6 +110,7 @@ class TestAFailedReadLeavesTheAxisUnknown:
         assert scope.motion.get_axis_state('Y') == AxisState.IDLE
         assert scope.motion.get_axis_state('Z') == AxisState.IDLE
 
+    @pytest.mark.slow
     def test_after_a_z_home(self, scope):
         scope.motion.home()
         scope._motion_driver._fail_on.add('TARGET_RZ')
@@ -118,6 +121,7 @@ class TestAFailedReadLeavesTheAxisUnknown:
         assert scope.motion.get_axis_state('Z') == AxisState.UNKNOWN
         assert scope.motion.get_axis_state('X') == AxisState.IDLE
 
+    @pytest.mark.slow
     def test_after_a_turret_home_no_slot_is_recorded(self, scope):
         scope.motion.home()
         scope._motion_driver._fail_on.add('TARGET_RT')

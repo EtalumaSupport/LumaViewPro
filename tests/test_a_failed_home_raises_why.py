@@ -90,6 +90,7 @@ def test_a_driver_that_raises_is_chained_not_rewrapped(scope, monkeypatch, route
     assert scope.posts == []
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize('route', ROUTES)
 def test_a_home_whose_position_is_unread_names_the_unread_axis(scope, route):
     unread = 'Z' if route in ('ALL', 'Z') else 'T'
@@ -115,6 +116,7 @@ def test_the_done_line_is_logged_however_the_home_ends(scope, monkeypatch, caplo
     assert any(r.getMessage().endswith(DONE_LINE[route]) for r in caplog.records)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize('route', ROUTES)
 def test_a_home_that_works_returns_and_posts_nothing(scope, route):
     assert scope.motion.home(route) is None

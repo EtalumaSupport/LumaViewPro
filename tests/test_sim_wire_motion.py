@@ -79,6 +79,7 @@ class TestMovesInInstantMode:
 
 @pytest.mark.parametrize('board', [('LS850T', 'XYZT', 'realistic')], indirect=True)
 class TestRealisticMode:
+    @pytest.mark.slow
     def test_a_20_mm_move_takes_the_ramps_time(self, board):
         # 20 mm on the shipped INI at 16 MHz: 0.13 s up, 0.40 s at speed,
         # 0.13 s down, plus the driver's 10 ms poll.
@@ -92,6 +93,7 @@ class TestRealisticMode:
 
 
 # The field firmware has no STOP; the 3.0 firmware, which has one, is named.
+@pytest.mark.slow
 @pytest.mark.parametrize('board', [('LS850T', 'XYZT', 'realistic', '3.0')], indirect=True)
 def test_a_stop_mid_move_leaves_the_stage_short_of_its_target(board):
     assert board.home()

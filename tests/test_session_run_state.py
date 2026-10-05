@@ -21,6 +21,8 @@ bounded staleness, never a permanently wrong publish).
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from tests.scope_fakes import spec_scope
 
 
@@ -65,6 +67,7 @@ class TestDerivations:
         assert session.controls_locked is True
         assert session.motion_enabled is False
 
+    @pytest.mark.slow
     def test_protocol_drain_holds_lockout_after_claim_release(self):
         # A finished protocol frees its claim while files drain; the
         # control surface stays locked until its files are written.
@@ -99,6 +102,7 @@ class TestDerivations:
         assert session.run_lockout is False
         assert session.motion_enabled is False
 
+    @pytest.mark.slow
     def test_the_pending_count_is_the_write_batchs_own(self):
         session = _make_session()
         _draining_run(session, writes=7)
@@ -118,6 +122,7 @@ class TestDerivations:
         assert session.protocol_files_draining is False
         assert session.protocol_files_pending == 0
 
+    @pytest.mark.slow
     def test_a_stalled_drain_is_judged_by_the_run_refusals_threshold(self):
         # One threshold for "stuck": the display of a stalled writer and
         # the refusal of a new run over it must not disagree.

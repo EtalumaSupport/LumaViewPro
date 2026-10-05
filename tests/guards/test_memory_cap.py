@@ -78,6 +78,7 @@ def test_xdist_worker_over_the_cap_fails_the_run_and_the_summary_names_it(clean_
     assert len(_reports()) == 1
 
 
+@pytest.mark.slow
 def test_the_same_victim_under_the_default_cap_passes(clean_reports):
     done = _run_victim()
     assert done.returncode == 0, done.stdout + done.stderr

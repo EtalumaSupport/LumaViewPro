@@ -102,6 +102,7 @@ def _stalls(heard):
 
 
 class TestTheStallIsReported:
+    @pytest.mark.slow
     def test_once_as_a_fault_carrying_its_remedy(self, session, heard, scheduler):
         _batch(session, stalled=True)
 
@@ -126,6 +127,7 @@ class TestTheStallIsReported:
         assert batch.not_written_reason == 'write_batch_abandoned'
         session.file_io_executor.replace_stuck_worker.assert_called_once()
 
+    @pytest.mark.slow
     def test_a_different_stuck_write_is_a_new_stall(self, session, heard, scheduler):
         _batch(session, stalled=True)
         scheduler.tick()
@@ -135,6 +137,7 @@ class TestTheStallIsReported:
 
         assert len(_stalls(heard)) == 2
 
+    @pytest.mark.slow
     def test_a_new_run_s_batch_starts_unreported(self, session, heard, scheduler):
         _batch(session, stalled=True)
         scheduler.tick()
@@ -147,6 +150,7 @@ class TestTheStallIsReported:
 
 
 class TestNothingIsReported:
+    @pytest.mark.slow
     def test_while_the_writer_is_moving(self, session, heard, scheduler):
         _batch(session, stalled=False)
         scheduler.tick()
@@ -163,6 +167,7 @@ class TestNothingIsReported:
         assert _stalls(heard) == []
 
 
+@pytest.mark.slow
 def test_the_refusal_and_the_report_offer_one_remedy_in_one_set_of_words(
     session, heard, scheduler, tmp_path
 ):

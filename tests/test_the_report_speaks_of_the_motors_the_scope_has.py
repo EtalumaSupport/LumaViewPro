@@ -77,6 +77,7 @@ def test_an_unplugged_board_on_a_motorised_scope_is_still_reported_missing(tmp_p
     assert 'No motor board on this model' not in _all_text(out)
 
 
+@pytest.mark.slow
 def test_a_turretless_scope_homes_no_turret(tmp_path):
     homing = (_report(tmp_path, 'LS850') / 'motion_tests' / 'homing_test.txt').read_text()
 
@@ -84,6 +85,7 @@ def test_a_turretless_scope_homes_no_turret(tmp_path):
     assert [axis for axis in 'ZTXY' if f'{axis} axis:' in homing] == ['Z', 'X', 'Y']
 
 
+@pytest.mark.slow
 def test_a_focus_only_scope_homes_only_its_focus(tmp_path):
     homing = (_report(tmp_path, 'LS820') / 'motion_tests' / 'homing_test.txt').read_text()
 

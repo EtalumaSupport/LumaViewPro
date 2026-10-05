@@ -570,6 +570,7 @@ class TestTheRunsOwnWorkRunsUnderItsClaim:
 
 
 class TestTheSupportReportUnderItsClaim:
+    @pytest.mark.slow
     def test_its_writing_steps_reach_the_hardware(self, tmp_path):
         """The report's LED, fan and homing steps run under its diagnostic
         claim on a real session, and none of them is refused by the lanes."""

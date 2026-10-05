@@ -60,6 +60,7 @@ def test_a_lost_reply_is_none(motor):
     assert board.exchange_command('ACTUAL_RZ', timeout=0.5) is None
 
 
+@pytest.mark.slow
 def test_a_move_the_board_did_not_acknowledge_raises(motor):
     board, sim = motor
     sim.drop_next_reply()
@@ -67,6 +68,7 @@ def test_a_move_the_board_did_not_acknowledge_raises(motor):
         board.move('Z', 1000)
 
 
+@pytest.mark.slow
 def test_a_status_read_with_no_reply_is_a_hardware_error(motor):
     board, sim = motor
     sim.drop_next_reply()
@@ -74,6 +76,7 @@ def test_a_status_read_with_no_reply_is_a_hardware_error(motor):
         board.target_status('Z')
 
 
+@pytest.mark.slow
 def test_an_spi_write_with_no_reply_raises(motor):
     board, sim = motor
     sim.drop_next_reply()
@@ -81,12 +84,14 @@ def test_an_spi_write_with_no_reply_raises(motor):
         board.spi_write('Z', 0x4B, 100)
 
 
+@pytest.mark.slow
 def test_a_fan_write_with_no_reply_is_not_a_success(motor):
     board, sim = motor
     sim.drop_next_reply()
     assert board.set_fan_duty(50) is False
 
 
+@pytest.mark.slow
 def test_a_stop_with_no_reply_is_not_a_stop_and_caches_nothing(motor):
     board, sim = motor
     sim.drop_next_reply()
@@ -97,6 +102,7 @@ def test_a_stop_with_no_reply_is_not_a_stop_and_caches_nothing(motor):
     assert board._supports_stop_cached is False
 
 
+@pytest.mark.slow
 def test_an_acceleration_read_with_no_reply_is_not_cached(motor):
     board, sim = motor
     sim.drop_next_reply()
@@ -104,12 +110,14 @@ def test_an_acceleration_read_with_no_reply_is_not_cached(motor):
     assert 'X_acceleration' not in (board._accel_cache or {})
 
 
+@pytest.mark.slow
 def test_a_diagnostic_command_with_no_reply_is_no_reply(motor):
     board, sim = motor
     sim.drop_next_reply()
     assert DiagnosticsAPI._exchange_command_impl(board, 'motor', 'ACTUAL_RZ') == NO_REPLY
 
 
+@pytest.mark.slow
 def test_the_tools_move_reports_a_move_with_no_reply(motor):
     board, sim = motor
     sim.drop_next_reply()
@@ -144,6 +152,7 @@ def test_the_simulated_board_answers_its_exit_as_the_real_one_does():
     assert SimulatedLEDBoard().exit_engineering_mode() is True
 
 
+@pytest.mark.slow
 def test_the_post_update_led_check_fails_on_no_reply(monkeypatch, led):
     board, sim = led
     exchange = board.exchange_command

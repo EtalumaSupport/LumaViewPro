@@ -325,6 +325,7 @@ class TestAddedLocationLedOrdering:
     not falsely reproduce the bug.
     """
 
+    @pytest.mark.slow
     def test_leds_off_precedes_move_at_added_location_boundary(self, executor, tmp_path):
         protocol = _build_tsv_only_protocol()
         _add_3rd_location_via_insert_step(protocol)

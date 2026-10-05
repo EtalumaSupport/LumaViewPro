@@ -39,12 +39,14 @@ def _raw(board, query, axis):
     return int(board.exchange_command(f'{query}_R{axis}'))
 
 
+@pytest.mark.slow
 def test_after_home_every_axis_is_at_its_target(board):
     assert board.home()
     for axis in 'XYZT':
         assert _raw(board, 'ACTUAL', axis) == _raw(board, 'TARGET', axis), axis
 
 
+@pytest.mark.slow
 def test_after_a_turret_home_z_is_back_at_its_target(board):
     assert board.home()
     board.move_abs_pos('Z', 3000.0, overshoot_enabled=False)
@@ -70,6 +72,7 @@ def faulted():
 # only when its own sequence ends: the host waits that long.
 
 
+@pytest.mark.slow
 def test_a_stuck_z_switch_on_a_z_home_is_the_boards_own_timeout(faulted):
     board, sim = faulted
     sim.inject('Z', tmc5072.SWITCH_NEVER_TRIPS)

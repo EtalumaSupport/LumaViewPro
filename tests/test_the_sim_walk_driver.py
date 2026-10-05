@@ -301,6 +301,7 @@ def _run(tmp_path, steps, bring_up=None):
     return json.loads(lines[-1][len('RESULT ') :])
 
 
+@pytest.mark.slow
 def test_every_action_reaches_its_widget_as_a_touch_would(tmp_path):
     result = _run(
         tmp_path,

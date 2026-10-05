@@ -65,6 +65,7 @@ def _refused_start(session, tmp_path) -> ProtocolRunRefusedError:
 
 
 class TestTheRefusalCarriesItsRemedy:
+    @pytest.mark.slow
     def test_a_stalled_writer_refusal_names_recovery_and_its_cost(self, session, tmp_path):
         _draining(session, stalled=True, writes=3)
 
@@ -76,6 +77,7 @@ class TestTheRefusalCarriesItsRemedy:
         assert '3' in refusal.remedy.confirm_text, 'the offer must say what recovering loses'
         assert '3 unsaved image(s)' in refusal.message, 'the prompt must say what recovering loses'
 
+    @pytest.mark.slow
     def test_a_writer_still_moving_offers_nothing(self, session, tmp_path):
         """Healthy drain: the writes will land; recovering would lose them for nothing."""
         _draining(session, stalled=False)

@@ -317,6 +317,7 @@ class TestWhatTheDacDrives:
             True,
         ]
 
+    @pytest.mark.slow
     def test_every_led_call_the_bench_made_drives_what_it_asked(self, lit):
         board, sim = lit
         for record in FRESH:
@@ -451,6 +452,7 @@ class TestTheConsole:
             board.disconnect()
         assert replies == bench
 
+    @pytest.mark.slow
     def test_a_y_the_board_does_not_take_is_refused_at_entry(self, monkeypatch):
         # Answered with the main loop's newline, the prompt never returns and
         # no banner comes: entry fails there, not later at exit, and leaves

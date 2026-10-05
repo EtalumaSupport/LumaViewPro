@@ -74,6 +74,7 @@ class TestTheLaneIsHeld:
         finally:
             session.shutdown()
 
+    @pytest.mark.slow
     def test_a_drain_behind_the_hold_is_reported_as_a_stalled_writer(self, tmp_path, monkeypatch):
         centre = NotificationCenter(dedup_window_s=0)
         heard = []

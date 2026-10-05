@@ -74,6 +74,7 @@ def test_a_transfer_that_finds_the_device_gone_removes_it_before_the_silence_bou
     assert time.monotonic() - start < fx2driver._UnplugWatch.SILENCE_S
 
 
+@pytest.mark.slow
 def test_a_silent_device_still_on_the_bus_is_removed_only_at_the_ceiling(session, monkeypatch):
     monkeypatch.setattr(fx2driver._UnplugWatch, 'CEILING_S', 4.0)
     scope = session.scope

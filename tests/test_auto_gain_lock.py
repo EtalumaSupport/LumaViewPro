@@ -180,6 +180,7 @@ def test_auto_gain_capture_locks_and_passes_the_gate():
     assert cam._auto_gain_enabled is False
 
 
+@pytest.mark.slow
 def test_auto_gain_capture_reports_maxed_and_saves():
     """Auto-exposure pegged at the 200 ms class ceiling is MAXED: the frame
     is still returned and the lock line is logged at INFO."""

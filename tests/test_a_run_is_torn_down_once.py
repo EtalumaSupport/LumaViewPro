@@ -11,6 +11,8 @@ crashes, a fault ends it.
 import threading
 import time
 
+import pytest
+
 from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     COMPLETION_TIMEOUT,
     executor,
@@ -43,6 +45,7 @@ def _ended(executor, run):
     return outcome
 
 
+@pytest.mark.slow
 def test_a_completed_run_is_torn_down_once(executor, tmp_path, monkeypatch):
     teardowns = _count_teardowns(executor, monkeypatch)
     run = _start_run(executor, tmp_path, threading.Event())

@@ -9,7 +9,7 @@ addopts = "--tb=short -q --durations=50 --dist loadgroup"
 markers = [
     "requires_led_v2: requires LED firmware v2.0+",
     "requires_motor_v2: requires motor firmware v2.0+",
-    "slow: long-running tests (>60s); skip during iteration via `-m \"not slow\"`",
+    "slow: a test that takes 5 s or more; a push to the trunk runs `-m \"not slow\"`, the trunk-to-shipping merge runs every test",
 ]
 
 [tool.coverage.run]

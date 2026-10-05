@@ -1598,6 +1598,7 @@ class TestLargeSum:
 class TestLargeProtocol:
     """Protocol with many steps -- verifies no accumulation bugs."""
 
+    @pytest.mark.slow
     def test_50_step_single_scan(self, executor, scope, tmp_path):
         # Plate-mm coords inside the 6-well valid range (x in [7.76, 127.76],
         # y in [5.48, 85.48] at zero stage_offset) so every step converts to an
@@ -1608,6 +1609,7 @@ class TestLargeProtocol:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
+    @pytest.mark.slow
     def test_all_50_steps_visited(self, executor, scope, tmp_path):
         # Plate-mm coords inside the 6-well valid range (x in [7.76, 127.76],
         # y in [5.48, 85.48] at zero stage_offset) so every step converts to an
@@ -1630,6 +1632,7 @@ class TestLargeProtocol:
 class TestAllFeaturesEnabled:
     """Protocol exercising many features simultaneously."""
 
+    @pytest.mark.slow
     def test_tiling_zstack_autogain_falsecolor_sum(self, executor, scope, tmp_path):
         """2x2 tiles, 3 z-slices, auto-gain, false color, sum=2."""
         steps = []

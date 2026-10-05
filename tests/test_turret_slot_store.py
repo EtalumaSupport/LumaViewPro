@@ -192,6 +192,7 @@ class TestNothingElseMovesTheTurret:
     def test_the_led_board_is_not_the_motor_board(self, session):
         assert isinstance(session.scope.diagnostics.send_diagnostic_command('led', 'HOME'), str)
 
+    @pytest.mark.slow
     def test_the_support_report_homes_through_the_motion_api(self, session):
         from modules.tech_support_report import TechSupportReport
 
