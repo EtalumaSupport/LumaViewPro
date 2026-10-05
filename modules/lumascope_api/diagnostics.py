@@ -142,6 +142,39 @@ class DiagnosticsAPI:
             logger.debug(f'[SCOPE API ] get_camera_temperatures_degc failed: {e}')
             return {}
 
+    def get_camera_link_info(self) -> dict | None:
+        """Read the camera's link, live.
+
+        Runs on the camera lane, admitted whatever holds the scope, like the
+        temperature read: the reads are node reads that must not interleave
+        with a camera write, and a run does not stop them.
+
+        Returns:
+            dict | None: ``{'transport', 'link_speed_mbps',
+                'packet_size_bytes', 'inter_packet_delay'}``, each None where
+                the camera does not report it. ``transport`` is 'USB3', 'GigE'
+                or 'USB2' (the SDK's own name when it is none of these);
+                ``link_speed_mbps`` is the negotiated speed (GenICam's
+                DeviceLinkSpeed, in bytes per second, times 8; libusb's
+                speed on the FX2); the packet size and inter-packet delay
+                are GigE's stream settings. None when no camera is active.
+
+        Raises:
+            HardwareError: A field the camera reports could not be read.
+        """
+        return self._scope.imaging._dispatch_camera(
+            self._get_camera_link_info_impl,
+            'get_camera_link_info',
+            timeout_s=self._scope.imaging._CAMERA_WRITE_TIMEOUT_S,
+            override=True,
+        )
+
+    def _get_camera_link_info_impl(self) -> dict | None:
+        driver = self._scope._camera_driver
+        if not driver or not driver.active:
+            return None
+        return driver.get_link_info()
+
     def get_camera_diagnostic_info(self) -> dict:
         """Read-only snapshot of camera state for diagnostics.
 

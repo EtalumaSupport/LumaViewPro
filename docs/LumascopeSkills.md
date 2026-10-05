@@ -1717,6 +1717,12 @@ info = scope.diagnostics.get_camera_diagnostic_info()
 # empty when the camera lacks temperature sensors or is inactive.
 temps = scope.diagnostics.get_camera_temperatures_degc()
 
+# The camera's link, live: {'transport': 'USB3' | 'GigE' | 'USB2',
+# 'link_speed_mbps', 'packet_size_bytes', 'inter_packet_delay'}, each None
+# where the camera does not report it (packet size and delay are GigE's).
+# None when no camera is active; a failed read raises HardwareError.
+link = scope.diagnostics.get_camera_link_info()
+
 # Throughput and latency characterization. Both run through the
 # PRODUCTION capture path, so what they measure is what a real run gets;
 # both take an optional progress_cb and return a dict of results. These

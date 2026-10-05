@@ -11,7 +11,13 @@ from typing import Any
 
 from pypylon import genicam, pylon
 
-from drivers.camera import Camera, FrameGrid, ImageHandlerBase
+from drivers.camera import (
+    Camera,
+    FrameGrid,
+    ImageHandlerBase,
+    link_info,
+    link_speed_mbps_from_bps,
+)
 from drivers.exceptions import HardwareError
 from drivers.registry import camera_registry
 from lib.log_helpers import log_to
@@ -2522,6 +2528,28 @@ class PylonCamera(Camera):
             return None
         except Exception as e:
             raise HardwareError(f'Resulting frame rate read failed: {type(e).__name__}: {e}') from e
+
+    def get_link_info(self) -> dict | None:
+        """The device class, DeviceLinkSpeed and, on GigE, the stream packet
+        size and inter-packet delay, live. See ``Camera.get_link_info``."""
+        if not self.active:
+            return None
+        try:
+            nodemap = self.active.GetNodeMap()
+
+            def _read(name):
+                if not self._has_node(nodemap, name):
+                    return None
+                return getattr(self.active, name).GetValue()
+
+            return link_info(
+                transport=self.active.GetDeviceInfo().GetDeviceClass(),
+                link_speed_mbps=link_speed_mbps_from_bps(_read('DeviceLinkSpeed')),
+                packet_size_bytes=_read('GevSCPSPacketSize'),
+                inter_packet_delay=_read('GevSCPD'),
+            )
+        except Exception as e:
+            raise HardwareError(f'Link info read failed: {type(e).__name__}: {e}') from e
 
     def init_auto_gain_focus(
         self,

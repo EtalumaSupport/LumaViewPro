@@ -19,7 +19,7 @@ import numpy as np
 from scipy.ndimage import uniform_filter
 
 from lvp_logger import logger
-from drivers.camera import Camera, FrameGrid, ImageHandlerBase
+from drivers.camera import Camera, FrameGrid, ImageHandlerBase, link_info
 from drivers.camera_profiles import simulated_profile
 from drivers.registry import camera_registry
 from drivers.simulated_specimen import specimen_frames
@@ -422,6 +422,11 @@ class SimulatedCamera(Camera):
         if not self.active:
             return None
         return 1.0 / self._frame_interval_s()
+
+    def get_link_info(self) -> dict | None:
+        if not self.active:
+            return None
+        return link_info(transport='USB3')
 
     def _acquisition_loop(self) -> None:
         """Store one new frame per frame interval while grabbing.

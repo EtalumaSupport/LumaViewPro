@@ -349,6 +349,43 @@ class ImageHandlerBase:
         return self._failed_grabs >= self.MAX_CONSECUTIVE_FAILURES
 
 
+# The SDKs' names for a link, as the one vocabulary a caller compares: Basler's
+# device class, GenICam's DeviceTLType. A name not listed passes through as the
+# SDK gave it rather than being guessed into one of these.
+_TRANSPORT_NAMES = {
+    'BaslerUsb': 'USB3',
+    'BaslerGigE': 'GigE',
+    'USB3Vision': 'USB3',
+    'GigEVision': 'GigE',
+}
+
+
+def link_info(
+    *,
+    transport: str | None = None,
+    link_speed_mbps: float | None = None,
+    packet_size_bytes: int | None = None,
+    inter_packet_delay: int | None = None,
+) -> dict:
+    """The one shape of a camera's link report; None where the camera does
+    not report a field. ``transport`` is mapped to 'USB3' / 'GigE' / 'USB2'
+    where the SDK's name is a known one."""
+    return {
+        'transport': _TRANSPORT_NAMES.get(transport, transport),
+        'link_speed_mbps': link_speed_mbps,
+        'packet_size_bytes': packet_size_bytes,
+        'inter_packet_delay': inter_packet_delay,
+    }
+
+
+def link_speed_mbps_from_bps(bytes_per_second: float | None) -> float | None:
+    """GenICam's DeviceLinkSpeed is in bytes per second (SFNC); the report
+    is megabits per second."""
+    if bytes_per_second is None:
+        return None
+    return float(bytes_per_second) * 8 / 1e6
+
+
 def no_hardware_auto_mode(driver: str, member: str, mode: str) -> NotImplementedError:
     """The error an auto-mode member raises on a camera with no such mode.
 
@@ -1158,6 +1195,22 @@ class Camera(ABC):
             HardwareError: The camera reports one and the read failed.
         """
         return None
+
+    def get_link_info(self) -> dict | None:
+        """Read the camera's link, live: ``{transport, link_speed_mbps,
+        packet_size_bytes, inter_packet_delay}`` (``link_info``), None where
+        the camera does not report a field. The default describes a camera
+        that reports none.
+
+        Returns:
+            dict | None: The link; None when the camera is inactive.
+
+        Raises:
+            HardwareError: A field the camera reports could not be read.
+        """
+        if not self.active:
+            return None
+        return link_info()
 
     @abstractmethod
     def set_max_acquisition_frame_rate(self, enabled: bool, fps: float = 1.0) -> None:

@@ -505,6 +505,10 @@ class SimulatedFX2Transport:
         """Every ``every``-th frame from now has 4 other bytes in its delimiter's place; 0 stops."""
         self.device.wrong_delimiter_every = every
 
+    def link_speed_mbps(self) -> float:
+        # The FX2 enumerates as a high-speed device.
+        return 480.0
+
     def close(self) -> None:
         self.device.stop()
         self.device.detach()

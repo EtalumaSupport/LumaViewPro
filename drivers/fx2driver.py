@@ -97,7 +97,8 @@ except ImportError:
     # safe -- the dedicated camera log is an enhancement, not a
     # dependency, and dozens of call sites use _cam_log unguarded.
     _cam_log = logger
-from drivers.camera import Camera, FrameGrid, ImageHandlerBase, no_hardware_auto_mode
+from drivers.camera import Camera, FrameGrid, ImageHandlerBase, link_info, no_hardware_auto_mode
+from drivers.exceptions import HardwareError
 from drivers.registry import camera_registry, led_registry
 
 # Wire-level logging for the FX2 (LumaviewClassic LS560/620/720) USB
@@ -135,6 +136,11 @@ _USB_DESCRIPTOR_FIELDS = (
     'port_numbers',
     'speed',
 )
+
+
+# libusb_speed (libusb.h): low, full, high, super, super+. 0 is unknown, absent
+# here so it reads as not reported.
+_LIBUSB_SPEED_MBPS = {1: 1.5, 2: 12.0, 3: 480.0, 4: 5000.0, 5: 10000.0}
 
 
 def describe_usb_device(dev: Any) -> str:
@@ -1059,6 +1065,13 @@ class _PyusbTransport:
         except Exception as e:
             logger.warning('[FX2 Conn  ] pyusb handle reopen failed: %s', e)
 
+    def link_speed_mbps(self) -> float | None:
+        """The speed the opened device negotiated, from libusb; None when no
+        device is open or libusb reports the speed unknown."""
+        if self._dev is None:
+            return None
+        return _LIBUSB_SPEED_MBPS.get(self._dev.speed)
+
     def close(self) -> None:
         """Release the pyusb handle. Idempotent, swallows errors."""
         if self._dev is not None:
@@ -1713,6 +1726,10 @@ class _FX2Connection:
         reported = self._gone_reported.is_set()
         self._gone_reported.clear()
         return reported
+
+    def link_speed_mbps(self) -> float | None:
+        """The negotiated USB speed of the opened device, from its transport."""
+        return self._transport.link_speed_mbps()
 
     def device_present(self) -> bool | None:
         """Whether the device is enumerated on the bus; None when the bus could not be read.
@@ -2566,6 +2583,17 @@ class FX2Camera(Camera):
         if not self.active:
             return None
         return float(ROW_BLACK_TARGET)
+
+    def get_link_info(self) -> dict | None:
+        """USB 2.0, at the speed libusb reports the device negotiated. See
+        ``Camera.get_link_info``."""
+        if not self.active:
+            return None
+        try:
+            speed = self._fx2.link_speed_mbps()
+        except Exception as e:
+            raise HardwareError(f'Link speed read failed: {type(e).__name__}: {e}') from e
+        return link_info(transport='USB2', link_speed_mbps=speed)
 
     def auto_gain(
         self,

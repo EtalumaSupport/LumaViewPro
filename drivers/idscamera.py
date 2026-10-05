@@ -25,7 +25,14 @@ except ImportError:
     # safe -- the dedicated camera log is an enhancement, not a
     # dependency, and dozens of call sites use _cam_log unguarded.
     _cam_log = logger
-from drivers.camera import Camera, FrameGrid, ImageHandlerBase, no_hardware_auto_mode
+from drivers.camera import (
+    Camera,
+    FrameGrid,
+    ImageHandlerBase,
+    link_info,
+    link_speed_mbps_from_bps,
+    no_hardware_auto_mode,
+)
 from drivers.exceptions import HardwareError
 from drivers.registry import camera_registry
 
@@ -3118,6 +3125,29 @@ class IDSCamera(Camera):
             raise HardwareError(
                 f'AcquisitionFrameRate maximum read failed: {type(e).__name__}: {e}'
             ) from e
+
+    def get_link_info(self) -> dict | None:
+        """DeviceTLType, DeviceLinkSpeed and, on GigE, the stream packet size
+        and inter-packet delay, live. See ``Camera.get_link_info``."""
+        if not self.active or self.remote_nodemap is None:
+            return None
+        nodemap = self.remote_nodemap
+        try:
+
+            def _read(name):
+                return nodemap.FindNode(name).Value() if nodemap.HasNode(name) else None
+
+            transport = None
+            if nodemap.HasNode('DeviceTLType'):
+                transport = nodemap.FindNode('DeviceTLType').CurrentEntry().SymbolicValue()
+            return link_info(
+                transport=transport,
+                link_speed_mbps=link_speed_mbps_from_bps(_read('DeviceLinkSpeed')),
+                packet_size_bytes=_read('GevSCPSPacketSize'),
+                inter_packet_delay=_read('GevSCPD'),
+            )
+        except Exception as e:
+            raise HardwareError(f'Link info read failed: {type(e).__name__}: {e}') from e
 
     def set_black_level(self, value: float) -> float | bool | None:
         """Set BlackLevel. Returns as ``gain`` does.
