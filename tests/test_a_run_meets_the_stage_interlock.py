@@ -34,23 +34,6 @@ def session(tmp_path):
     session.shutdown()
 
 
-@pytest.fixture
-def shown(monkeypatch):
-    """Every notification the user is shown, as (title, message)."""
-    from modules.notification_center import notifications
-
-    seen = []
-    for level in ('info', 'warning', 'error', 'critical'):
-        original = getattr(notifications, level)
-
-        def _record(category, title, message, *args, _original=original, **kwargs):
-            seen.append((title, message))
-            return _original(category, title, message, *args, **kwargs)
-
-        monkeypatch.setattr(notifications, level, _record)
-    return seen
-
-
 def _lid(session, monkeypatch, *, open_now):
     reads = []
 
@@ -97,7 +80,7 @@ class TestARunIsRefusedWhileTheLidIsOpen:
 
 class TestARunThatMeetsTheLidEndsAtOnce:
     def test_ends_failed_naming_the_lid_on_the_first_refusal_not_retried(
-        self, session, monkeypatch, tmp_path, shown
+        self, session, monkeypatch, tmp_path, centre_posts
     ):
         home_sim_scope(session.scope)
         board = session.scope._motion_driver
@@ -114,6 +97,7 @@ class TestARunThatMeetsTheLidEndsAtOnce:
 
         outcome = _run(session, tmp_path, scans=3)
 
+        shown = [(n.title, n.message) for n in centre_posts if n.shown]
         assert (outcome.status, outcome.reason) == ('failed', 'interlock')
         assert outcome.title == 'Protocol Aborted -- Lid Open'
         assert LID_WORDS in outcome.message

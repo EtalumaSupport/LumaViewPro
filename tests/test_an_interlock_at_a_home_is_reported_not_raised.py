@@ -41,21 +41,8 @@ def session(tmp_path):
         s.shutdown()
 
 
-@pytest.fixture
-def shown(monkeypatch):
-    # A centre of its own: the shared one's dedup window remembers what
-    # earlier tests posted, and would swallow this one's popup.
-    import modules.notification_center as nc
-
-    centre = nc.NotificationCenter()
-    seen = []
-    centre.add_listener(seen.append, min_severity=Severity.INFO)
-    monkeypatch.setattr(nc, 'notifications', centre)
-    return seen
-
-
 @pytest.mark.parametrize('reason', sorted(REASONS))
-def test_bring_up_shows_it_once_and_leaves_the_turret_alone(session, shown, reason):
+def test_bring_up_shows_it_once_and_leaves_the_turret_alone(session, centre_posts, reason):
     turret = []
 
     def refused(axis):
@@ -64,6 +51,7 @@ def test_bring_up_shows_it_once_and_leaves_the_turret_alone(session, shown, reas
     session.start_application_session(home_fn=refused, turret_fn=turret.append)
 
     title, words = REASONS[reason]
+    shown = [n for n in centre_posts if n.severity >= Severity.INFO]
     assert [(n.severity, n.title, n.message) for n in shown] == [(Severity.WARNING, title, words)]
     assert turret == []
 
