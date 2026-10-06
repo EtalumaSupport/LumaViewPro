@@ -10,7 +10,11 @@ Z still moves, and runs a protocol with tiling and a Z-stack.
 import pytest
 
 from drivers.tmcm6110 import Tmcm6110Board
-from modules.exceptions import HardwareCommandRefusedError, MoveNotCompletedError
+from modules.exceptions import (
+    HardwareCommandRefusedError,
+    MoveNotCompletedError,
+    RunCheckFailedError,
+)
 from tests.scope_fakes import bind_settings_like_a_session, build_scope, record_turret_answer
 from tests.test_integration import (  # noqa: F401 -- the fixtures are used by name
     _make_protocol,
@@ -119,6 +123,24 @@ def test_a_home_with_the_lid_open_is_refused_and_moves_nothing(homed):
     assert refused.value.reason == 'lid_open'
     assert _at(homed, 'Z') == pytest.approx(1_000, abs=0.1)
     assert homed.motion.has_homed()
+
+
+def test_a_run_whose_lid_read_fails_is_not_checked_not_refused(homed, executor, tmp_path):
+    """A board that does not answer the lid read leaves the stage's state
+    unknown: the run is neither admitted nor refused, as when the
+    connection read crashes."""
+    _board(homed).silent = True
+    try:
+        with pytest.raises(RunCheckFailedError) as failed:
+            _run_and_wait(executor, _make_protocol([_BF_STEP]), tmp_path)
+    finally:
+        _board(homed).silent = False
+    assert failed.value.reason == 'hardware_state_unknown'
+    assert "read the stage's interlocks" in failed.value.message
+    assert 'no reply from the TMCM-6110' in str(failed.value.__cause__)
+
+
+_BF_STEP = {'color': 'BF', 'x': 10.0, 'y': 20.0, 'illumination_ma': 50.0}
 
 
 def test_a_protocol_with_tiling_and_a_z_stack_completes(homed, executor, tmp_path):

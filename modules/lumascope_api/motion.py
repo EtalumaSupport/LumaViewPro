@@ -477,6 +477,10 @@ class MotionAPI:
 
         Returns:
             frozenset[str]: The open interlocks' reasons.
+
+        Raises:
+            HardwareError: the board did not answer the read; the stage's
+                state is unknown, which is not the same answer as none open.
         """
         return self._driver.interlocks()
 

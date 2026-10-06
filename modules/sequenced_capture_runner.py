@@ -893,6 +893,25 @@ class SequencedCaptureRunner:
             holder_trigger=(holder.run_trigger_source if holder is not None else None),
         )
 
+    @staticmethod
+    def _hardware_state_unknown(what: str, ex: Exception) -> typing.NoReturn:
+        """A hardware read the gate needs crashed instead of answering.
+
+        Not a refusal: nothing was declined, the question could not be
+        asked. The crash is chained so its traceback is logged with this.
+
+        Raises:
+            RunCheckFailedError: ``'hardware_state_unknown'``, naming what
+                could not be read.
+        """
+        raise RunCheckFailedError(
+            reason='hardware_state_unknown',
+            title='Cannot verify hardware state',
+            message=(
+                f'Could not {what}: {type(ex).__name__}: {ex}. Reconnect the scope and try again.'
+            ),
+        ) from ex
+
     def _refuse(
         self,
         reason: str,
@@ -1175,14 +1194,7 @@ class SequencedCaptureRunner:
         try:
             all_connected = self._scope.are_all_connected()
         except Exception as ex:
-            raise RunCheckFailedError(
-                reason='hardware_state_unknown',
-                title='Cannot verify hardware state',
-                message=(
-                    f'Could not check hardware connection status: {type(ex).__name__}: {ex}. '
-                    f'Reconnect the scope and try again.'
-                ),
-            ) from ex
+            self._hardware_state_unknown('check hardware connection status', ex)
         if not all_connected:
             self._refuse(
                 reason='hardware_disconnected',
@@ -1230,7 +1242,11 @@ class SequencedCaptureRunner:
         # unhomed scope is told to home first, and the home is refused for
         # the lid in its own words. Asked of the board directly rather than
         # queued behind a move or a home on the IO lane.
-        if 'lid_open' in self._scope.motion.interlocks():
+        try:
+            open_interlocks = self._scope.motion.interlocks()
+        except Exception as ex:
+            self._hardware_state_unknown("read the stage's interlocks", ex)
+        if 'lid_open' in open_interlocks:
             self._refuse(
                 reason='lid_open',
                 title='Lid Open',

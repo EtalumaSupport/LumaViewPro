@@ -903,12 +903,13 @@ class RunCheckFailedError(ProtocolError):
     """A run could not be checked before it started: a check itself crashed.
 
     Raised by SequencedCaptureRunner.prepare() when validating the protocol,
-    or reading whether the hardware is connected, raised instead of
-    answering. Not a refusal: nothing was declined -- the question could not
-    be asked, and the crash that stopped it is chained as ``__cause__`` so
-    its traceback is logged with this. Nothing is committed and nothing
-    needs unwinding, as for a refusal. Not reported where it is raised: the
-    caller that asked for the run reports it where its flight ends.
+    reading whether the hardware is connected, or reading the stage's
+    interlocks, raised instead of answering. Not a refusal: nothing was
+    declined -- the question could not be asked, and the crash that stopped
+    it is chained as ``__cause__`` so its traceback is logged with this.
+    Nothing is committed and nothing needs unwinding, as for a refusal. Not
+    reported where it is raised: the caller that asked for the run reports
+    it where its flight ends.
 
     Attributes:
         reason: Machine-readable cause ('validation_crashed',
