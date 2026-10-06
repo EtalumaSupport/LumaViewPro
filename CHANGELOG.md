@@ -2,6 +2,11 @@
 
 ## 4.0.0 (in development)
 
+- **A host closing mid-write asks the session (SDK, breaking)**: new `session.close_drain_frames`
+  (how many video frames are still queued, a manual recording's and a run's video tail together)
+  and `session.discard_close_drain()`, beside `close_drain_pending`. `ProtocolRunner`'s
+  `video_pending_writes` and `discard_video_pending` are removed. Before, a host added the two
+  queues and discarded each itself, reaching the run engine to do it.
 - **A run starts only through a `run_*` member (SDK, breaking)**: `ProtocolRunner.prepare` and
   `ProtocolRunner.start`, which forwarded the engine's two-phase seam and skipped the members'
   config assembly, are removed. Start runs with `run_single_scan`, `run_protocol`,

@@ -791,15 +791,3 @@ class ProtocolRunner:
         # Run-state truth is the session claim, committed inside
         # start()'s gate-and-commit -- a refusal means no state changed.
         return self._executor.start(plan)
-
-    # ------------------------------------------------------------------
-    # Status
-    # ------------------------------------------------------------------
-
-    @property
-    def video_pending_writes(self) -> int:
-        """Frames across the run's video steps not yet on disk; read, not called."""
-        return self._executor.video_pending_writes
-
-    def discard_video_pending(self) -> None:
-        self._executor.discard_video_pending()

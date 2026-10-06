@@ -155,6 +155,29 @@ class TestDerivations:
         session.sequenced_capture_runner.video_drain_busy = True
         assert session.close_drain_pending is True, "a run's video tail is pending work"
 
+    def test_the_close_count_adds_both_video_drain_sources(self):
+        """How many frames a close would wait for, from the same two sources
+        close_drain_pending reads, as an attribute like it."""
+        session = _make_session()
+        session.manual_recording._engine = None
+        session.sequenced_capture_runner = MagicMock(video_pending_writes=0)
+        assert session.close_drain_frames == 0
+
+        session.manual_recording._engine = MagicMock(pending_writes=5)
+        session.sequenced_capture_runner.video_pending_writes = 7
+        assert session.close_drain_frames == 12
+
+    def test_the_close_discard_drops_both_video_drain_sources(self):
+        session = _make_session()
+        recording_engine = MagicMock()
+        session.manual_recording._engine = recording_engine
+        session.sequenced_capture_runner = MagicMock()
+
+        session.discard_close_drain()
+
+        recording_engine.discard_pending.assert_called_once_with()
+        session.sequenced_capture_runner.discard_video_pending.assert_called_once_with()
+
     def test_a_live_recording_is_both_capturing_and_close_pending(self):
         """The close gate needs the two apart, and they overlap.
 

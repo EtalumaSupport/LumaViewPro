@@ -193,6 +193,33 @@ def test_the_close_gate_does_not_derive_the_drain_state_itself():
     )
 
 
+def test_the_drain_close_asks_the_session_for_its_count_and_its_discard():
+    """The drain close's count and discard are the session's, as its busy is.
+
+    The close used to add the recording's queue to the run engine's video
+    tail and discard each itself, reaching the engine through the app
+    context; a headless or REST host closing mid-write could do neither.
+    """
+    handler = _method(_app_class(_module_tree()), '_close_with_drain_progress')
+
+    reads = {node.attr for node in ast.walk(handler) if isinstance(node, ast.Attribute)}
+
+    assert {'close_drain_pending', 'close_drain_frames', 'discard_close_drain'} <= reads, (
+        'the drain close must read the session for whether, how many, and the discard'
+    )
+    reached = reads & {
+        'sequenced_capture_runner',
+        'video_pending_writes',
+        'discard_video_pending',
+        'pending_writes',
+        'discard_pending',
+    }
+    assert not reached, (
+        f'the drain close still composes the drains itself ({sorted(reached)}); '
+        'read ctx.session.close_drain_frames and call discard_close_drain'
+    )
+
+
 def test_the_apps_stop_ends_the_loop_and_leaves_on_stop_to_run():
     """Every exit runs on_stop once.
 

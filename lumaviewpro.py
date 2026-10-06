@@ -1362,21 +1362,17 @@ class LumaViewProApp(TooltipMixin, App):
         sources -- the manual recording and a run's video-step tail."""
         from ui.notification_popup import show_blocking_progress_popup
 
-        recording = ctx.session.manual_recording
-        runner = ctx.sequenced_capture_runner
-        recording.stop()
+        session = ctx.session
+        session.manual_recording.stop()
 
         def _busy() -> bool:
-            return ctx.session.close_drain_pending
+            return session.close_drain_pending
 
         def _pending() -> int:
-            tail = runner.video_pending_writes if runner is not None else 0
-            return recording.pending_writes + tail
+            return session.close_drain_frames
 
         def _discard(*_a):
-            recording.discard_pending()
-            if runner is not None:
-                runner.discard_video_pending()
+            session.discard_close_drain()
 
         popup, set_message = show_blocking_progress_popup(
             title='Finishing Video Writes',

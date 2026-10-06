@@ -931,6 +931,8 @@ session.motion_enabled           # user stage motion allowed right now
 session.manual_recording.is_recording  # a manual recording is LIVE (not its file drain)
 session.recording_active         # a manual recording holds the scope and is live (False in its drain)
 session.close_drain_pending      # video frames still queued: a recording's drain, or a run's video tail
+session.close_drain_frames       # how many of those frames, across both drains (0 when none)
+session.discard_close_drain()    # a closing host's escape: drop every queued frame in both; written ones stay
 
 def on_run_state():              # called on EVERY run-state transition: an activity taking
     print(session.run_lockout)   # or releasing the scope, a manual recording going live, going

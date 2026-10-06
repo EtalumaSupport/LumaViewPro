@@ -504,6 +504,28 @@ class ScopeSession:
         return self.manual_recording.is_busy or self.sequenced_capture_runner.video_drain_busy
 
     @property
+    def close_drain_frames(self) -> int:
+        """How many video frames a close would wait for, across both drains.
+
+        The count beside close_drain_pending, from the same two sources: a
+        manual recording's queue and a run's video-step tail. Each has its
+        own recording engine, so no frame is counted twice.
+        """
+        return (
+            self.manual_recording.pending_writes
+            + self.sequenced_capture_runner.video_pending_writes
+        )
+
+    def discard_close_drain(self) -> None:
+        """Drop every video frame still queued in either drain, loudly.
+
+        A close's one escape from waiting on the drains close_drain_pending
+        reads; frames already on disk stay.
+        """
+        self.manual_recording.discard_pending()
+        self.sequenced_capture_runner.discard_video_pending()
+
+    @property
     def protocol_files_draining(self) -> bool:
         """True from the end of a run until its last file is written.
 
