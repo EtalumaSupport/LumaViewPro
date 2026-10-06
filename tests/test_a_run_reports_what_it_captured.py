@@ -483,7 +483,9 @@ class TestTheFilesLineAndItsReport:
 
 
 class TestACompositeThatCannotMerge:
-    def test_its_one_report_names_the_channel_that_failed(self, tmp_path, centre_posts):
+    def test_the_refusal_and_the_shortfall_are_each_told_as_themselves(
+        self, tmp_path, centre_posts
+    ):
         from modules.notification_center import Severity
         from tests.test_composite_run_failures import _FAILING, _fail_these_channels
 
@@ -497,7 +499,10 @@ class TestACompositeThatCannotMerge:
                 ),
             ).wait(timeout_s=WAIT_S)
         assert settled is not None and not settled.merged, settled
-        shown = [(n.title, n.message) for n in centre_posts if n.severity == Severity.ERROR]
-        failed = [message for title, message in shown if title == 'Composite Failed']
-        assert len(failed) == 1, shown
-        assert _FAILING in failed[0], failed[0]
+        assert settled.merge_reason == 'no_data', settled
+        # Two notices, each its own type: the merge's refusal, then the run's
+        # shortfall naming the channel that failed. Neither is folded into a
+        # "Composite Failed".
+        shown = [(n.title, n.message) for n in centre_posts if n.severity >= Severity.WARNING]
+        assert [title for title, _ in shown] == ['Composite Not Possible', 'Run Incomplete'], shown
+        assert _FAILING in shown[1][1], shown[1][1]

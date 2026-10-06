@@ -2174,9 +2174,9 @@ class SequencedCaptureRunner:
         )
         has_turret = self._scope.capabilities.has_turret
         tiling_configs_file_loc = self._tiling_configs_file_loc
-        # A composite missing a channel is told by the merge, once, beside
-        # what the channels it has made: the run's shortfall alone when the
-        # merge succeeds, inside the merge failure when it does not.
+        # A composite missing a channel is told by the merge, once, as its
+        # own notice after what became of the merge, whether it merged or
+        # not.
         incomplete = None
         if ending.status == 'incomplete':
             tally = self._image_writer.capture_tally
@@ -2186,22 +2186,29 @@ class SequencedCaptureRunner:
                 failed_steps=[failed.step_name for failed in tally.failed],
             )
 
-        def _fail(reason: str, detail: str, cause: BaseException | None = None) -> None:
-            # The one place a merge failure becomes visible: one report,
-            # one resolved outcome -- the shape a run
-            # refusal uses, so a caller waiting on the outcome never
-            # re-notifies. Success is silent by design: the saved folder
-            # is the record, and the button handed the UI back at run end.
-            # A merge that raised is the failure's cause, so the one record
-            # carries its traceback.
+        def _not_merged(failure: BaseException, reason: str) -> None:
+            # The one place a merge failure becomes visible: one report of
+            # it, then the run's shortfall when it has one, and one resolved
+            # outcome -- the shape a run refusal uses, so a caller waiting on
+            # the outcome never re-notifies. Success is silent by design: the
+            # saved folder is the record, and the button handed the UI back
+            # at run end. The failure is reported as its own type, as the
+            # hyperstack build reports its own: a refusal shows as one, under
+            # its own title, only an exception whose type has no title is
+            # named "Composite Failed", and a raised one's record carries its
+            # traceback.
             from modules.notification_center import notifications
 
+            notifications.report_outcome(
+                failure, solicited=False, category='Protocol', fault_title='Composite Failed'
+            )
             if incomplete is not None:
-                detail = f'{incomplete} {detail}'
-            failure = CompositeFailedError(detail, reason)
-            failure.__cause__ = cause
-            notifications.report_outcome(failure, solicited=False, category='Protocol')
+                notifications.report_outcome(incomplete, solicited=False, category='Protocol')
             outcome.resolve(token, merged=False, artifact_path=None, merge_reason=reason)
+
+        def _fail(reason: str, detail: str) -> None:
+            # The merge's own reasons, where nothing was raised.
+            _not_merged(CompositeFailedError(detail, reason), reason)
 
         # Decline-to-start is TOTAL: anything that makes a merge impossible
         # settles here and now, rather than leaving the outcome armed with
@@ -2225,15 +2232,9 @@ class SequencedCaptureRunner:
                     brightness_thresholds_percent=thresholds,
                 )
             except Exception as ex:
-                # A typed outcome says why in its own reason and words; only
-                # an exception that carries neither is named by its class.
-                reason = getattr(ex, 'reason', None)
-                if reason:
-                    _fail(reason, str(ex), cause=ex)
-                else:
-                    _fail(
-                        'merge_error', f'The merge failed with {type(ex).__name__}: {ex}', cause=ex
-                    )
+                # A typed outcome says why in its own reason, kind and words;
+                # an exception that carries no reason is the merge's error.
+                _not_merged(ex, getattr(ex, 'reason', None) or 'merge_error')
                 return
             paths = result.get('artifact_paths') or []
             if paths:
