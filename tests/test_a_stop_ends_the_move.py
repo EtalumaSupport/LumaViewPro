@@ -135,9 +135,9 @@ def test_a_stop_before_the_write_withholds_it(session, monkeypatch):
     sent = _wire(driver)
     real_send = motion._send_drive
 
-    def a_stop_lands_first(axis, send):
+    def a_stop_lands_first(axis, stop_generation, send):
         motion.stop_motion()
-        return real_send(axis, send)
+        return real_send(axis, stop_generation, send)
 
     monkeypatch.setattr(motion, '_send_drive', a_stop_lands_first)
     handle = motion.start_move_absolute('X', 20000.0)
@@ -160,9 +160,9 @@ def test_a_move_a_stop_ended_reads_stopped_not_superseded(session, monkeypatch):
     assert hold.reached.wait(_HOLD_WAIT_S), 'the first move never got part of the way'
     real_send = motion._send_drive
 
-    def a_stop_lands_first(axis, send):
+    def a_stop_lands_first(axis, stop_generation, send):
         motion.stop_motion()
-        return real_send(axis, send)
+        return real_send(axis, stop_generation, send)
 
     monkeypatch.setattr(motion, '_send_drive', a_stop_lands_first)
     second = motion.start_move_absolute('X', 10000.0)

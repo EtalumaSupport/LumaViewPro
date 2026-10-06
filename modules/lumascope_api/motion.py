@@ -101,6 +101,44 @@ if TYPE_CHECKING:
     from drivers.protocols import MotorBoardProtocol
 
 
+class _Move:
+    """One move's outcome, fixed when the move ends.
+
+    Created in the hold that sets its axis MOVING, and settled in the hold
+    that ends it -- the monitor's IDLE, an UNKNOWN, or another move or a
+    home taking the axis -- so what later happens to the axis is never
+    read as this move's outcome. Settled once: the first ending wins.
+
+    Attributes:
+        stop_generation: ``MotionAPI._stop_generation`` as the move's body
+            read it before driving; a different one at the move's IDLE
+            means a STOP the board took ended it.
+        drive_seq: The axis's drive count this move made.
+        done: Set when the move is settled; the fields below are read only
+            after it.
+        outcome: ``'arrived'``, ``'stopped'``, ``'superseded'`` or
+            ``'faulted'``; None until settled.
+        fault: The error an UNKNOWN ending carried, or None.
+    """
+
+    __slots__ = ('done', 'drive_seq', 'fault', 'outcome', 'stop_generation')
+
+    def __init__(self, stop_generation: int) -> None:
+        self.stop_generation = stop_generation
+        self.drive_seq = 0
+        self.done = threading.Event()
+        self.outcome: str | None = None
+        self.fault: MoveNotCompletedError | None = None
+
+    def settle(self, outcome: str, fault: MoveNotCompletedError | None = None) -> None:
+        """Fix the outcome, unless the move is already settled."""
+        if self.done.is_set():
+            return
+        self.outcome = outcome
+        self.fault = fault
+        self.done.set()
+
+
 class MoveInFlight:
     """A move that has started; ``wait()`` gives its outcome.
 
@@ -109,23 +147,18 @@ class MoveInFlight:
     returns when this move's axis arrived and raises otherwise -- the same
     verdict ``move_absolute`` and ``move_relative`` give, because each of
     them is a start followed by this wait. It blocks the calling thread,
-    never the scope's IO lane.
+    never the scope's IO lane. The outcome is the one the move ended with,
+    however late the wait: a later move or a STOP after it ended does not
+    change it.
 
     Attributes:
         axis: The axis this move drove.
     """
 
-    def __init__(
-        self,
-        motion: MotionAPI,
-        axis: str,
-        stop_generation: int,
-        drive_seq: int,
-    ) -> None:
+    def __init__(self, motion: MotionAPI, axis: str, move: _Move) -> None:
         self._motion = motion
         self.axis = axis
-        self._stop_generation = stop_generation
-        self._drive_seq = drive_seq
+        self._move = move
 
     def wait(self) -> None:
         """Return once this move's axis has arrived at its target.
@@ -135,10 +168,11 @@ class MoveInFlight:
                 ``'board_lost'``, the motion monitor gave it up;
                 ``'faulted'``, something else set it UNKNOWN; ``'timed_out'``,
                 the motion bound ran out (each of these leaves the axis
-                UNKNOWN); ``'stopped'``, a stop halted it; ``'superseded'``,
-                another move on the same axis started before it arrived.
+                UNKNOWN); ``'stopped'``, a stop the board took while it
+                moved halted it; ``'superseded'``, another move or a home
+                took the axis before it arrived.
         """
-        self._motion._await_arrival(self.axis, self._stop_generation, self._drive_seq)
+        self._motion._await_move(self.axis, self._move)
 
 
 class MotionAPI:
@@ -234,19 +268,17 @@ class MotionAPI:
         # has already warned of: once per move, not once per poll, which is
         # about fifty a second. Only the monitor thread touches it.
         self._unread_warned: dict[str, int] = {}
-        # The fault the monitor gave an axis up with, recorded BEFORE the
-        # UNKNOWN write that wakes a waiter, so the waiter raises the same
-        # object the monitor reported and the person is shown it once.
-        # Cleared when the axis is next driven or homed -- every wait
-        # follows one -- so a later wait never raises a stale one. Under
-        # _axis_state_lock.
-        self._axis_fault: dict[str, MoveNotCompletedError] = {}
+        # The axis's current move: the record its MOVING write created,
+        # kept after the move ends so a wait on the axis can read the fault
+        # it ended with; None after a home starts, so a later wait never
+        # raises an earlier move's fault. Under _axis_state_lock.
+        self._current_move: dict[str, _Move | None] = {}
         # Per-axis count of the times the axis has been driven (gone MOVING
-        # or HOMING). A started move records the count its own drive made,
-        # and its wait compares: an IDLE or a fault reached after a later
-        # move on the same axis began is that move's outcome, not this
-        # one's. The wait runs off the lane, so nothing else orders the
-        # two. Under _axis_state_lock.
+        # or HOMING). A verdict for one move -- the monitor's IDLE or stall,
+        # the waiter's timeout -- names the count that move made, and is
+        # written only while the axis is still at it: an IDLE or a fault
+        # meant for a move a later one replaced must not end the later one.
+        # Under _axis_state_lock.
         self._drive_seq: dict[str, int] = {}
         # Per-axis count of the move whose hardware target is known
         # written -- set by ``_publish_drive`` once a move's final target is
@@ -326,6 +358,7 @@ class MotionAPI:
             ev.set()  # Start as "arrived" (not moving)
         self._drive_seq = dict.fromkeys(present_axes, 0)
         self._armed_seq = dict.fromkeys(present_axes, None)
+        self._current_move = dict.fromkeys(present_axes)
         self._move_profile = dict.fromkeys(present_axes)
 
     def _start_monitor(self) -> None:
@@ -411,7 +444,7 @@ class MotionAPI:
             state = self._axis_state.get(axis)
         return self._position_known(state)
 
-    def _fail_drive(self, axis: str, cause: Exception) -> NoReturn:
+    def _fail_drive(self, axis: str, move: _Move, cause: Exception) -> NoReturn:
         """A commanded move failed at the driver: the axis is UNKNOWN, and raise.
 
         The axis is MOVING and disarmed from the drive's start, so no
@@ -419,11 +452,15 @@ class MotionAPI:
         a raise from the driver lands here, which makes it terminal.
 
         Raises:
-            MoveNotCompletedError: ``'driver_failed'``, chained from the
-                driver's error. The one object its caller reports.
+            MoveNotCompletedError: the fault the move ended with --
+                ``'driver_failed'``, chained from the driver's error, unless
+                the monitor gave the axis up first (a lost board), whose
+                object it then is. The one object its caller reports.
         """
-        self._set_axis_state(axis, AxisState.UNKNOWN)
-        raise MoveNotCompletedError(axis, 'driver_failed') from cause
+        failed = MoveNotCompletedError(axis, 'driver_failed')
+        failed.__cause__ = cause
+        self._set_axis_state(axis, AxisState.UNKNOWN, fault=failed)
+        raise move.fault or failed
 
     @staticmethod
     def _refuse_turret_on_generic_door(axis: str, member: str) -> None:
@@ -1852,12 +1889,12 @@ class MotionAPI:
         leg = self._backlash_leg(axis, position, overshoot_enabled, 'move_absolute')
         stop_generation = self._stop_generation
         try:
-            written = self._send_drive(
-                axis, lambda: self._drive_to(axis, position, leg, stop_generation)
+            move, written = self._send_drive(
+                axis, stop_generation, lambda: self._drive_to(axis, position, leg, stop_generation)
             )
-        except Exception as e:
+        except Exception:
             _api_log.error(f'move_abs {axis}={position:.1f}um FAILED')
-            self._fail_drive(axis, e)
+            raise
         self._publish_drive(axis, written, start_pos, float(position), ramp)
         # No move-init cache write: cache holds CURRENT position, which is
         # still start_pos until _motion_monitor_loop reads it from hardware
@@ -1865,85 +1902,51 @@ class MotionAPI:
         # get_target_position picks it up during MOVING.
         self._fire_position_listeners(axis)
         _api_log.info(f'move_abs {axis}={position:.1f}um')
-        return self._started(axis, stop_generation)
+        return MoveInFlight(self, axis, move)
 
-    def _started(self, axis: str, stop_generation: int) -> MoveInFlight:
-        """The handle for the move a body just drove on ``axis``.
+    def _await_move(self, axis: str, move: _Move) -> None:
+        """Return only once ``move`` arrived at its target; raise otherwise.
 
-        Read on the lane, right after the body set the axis MOVING, so the
-        drive count is the one this move made.
-        """
-        with self._axis_state_lock:
-            drive_seq = self._drive_seq[axis]
-        return MoveInFlight(self, axis, stop_generation, drive_seq)
+        The outcome is the one the move was settled with when it ended (see
+        ``_Move``), not anything read from the axis now: a move that
+        arrived reads arrived however late this runs, and one that ended
+        answers at once, never after a later move on the axis.
 
-    def _await_arrival(self, axis: str, stop_generation: int, drive_seq: int) -> None:
-        """Return only once this move's axis confirmably reached its target; raise otherwise.
-
-        Arrival is the motion monitor's verdict: it sets the axis IDLE when
-        the firmware reports the target reached, or UNKNOWN when it gives
-        the axis up (a stall, a lost board). Either one sets the arrival
-        event, so the wait returning says only that the axis STOPPED
-        moving, not that it arrived -- the state says which. Writing IDLE
-        here after the wait, whatever it returned, made a stalled move read
-        as arrived.
-
-        Only this move's axis is waited on and judged. Another axis's
-        outcome belongs to whatever moved it, and waiting on it would hold
-        this caller while, say, a person scrolls the focus.
-
-        The wait runs in the caller's thread, not on the lane, so another
-        move on the same axis can start before it ends. ``drive_seq`` is
-        the count this move's drive made; a different count now means a
-        later move owns the axis, and its IDLE, its fault or its cleared
-        event is not this move's -- the move was superseded, and the axis
-        is left to the move that superseded it.
-
-        A STOP sets target = actual on every axis, so the firmware then
-        reports the target reached wherever the axis halted and the monitor
-        sets it IDLE. ``stop_generation`` is what the generation was before
-        this move drove; a different one now means a stop landed on it.
+        Only this move is waited on and judged. Another axis's outcome
+        belongs to whatever moved it, and waiting on it would hold this
+        caller while, say, a person scrolls the focus.
 
         Args:
             axis: The axis this move drove.
-            stop_generation: ``_stop_generation`` read before the drive.
-            drive_seq: ``_drive_seq[axis]`` right after the drive.
+            move: The move's record, from its MOVING write.
 
         Raises:
-            MoveNotCompletedError: Another move on the axis started first
-                and no stop has landed since (``'superseded'``); the axis was faulted UNKNOWN during the
-                wait (the monitor's own ``'stalled'`` or ``'board_lost'``
-                object when it gave the axis up); it had not arrived when
-                the wait's bound ran out (``'timed_out'``: the axis is
-                written UNKNOWN only if it is still this move's, in the
-                same hold as that check, so a move that started meanwhile
-                is left alone and this one reads ``'superseded'``); or a
-                stop was issued while it moved (the axis is where the stop
-                left it).
+            MoveNotCompletedError: the fault it ended with (the monitor's
+                own ``'stalled'`` or ``'board_lost'`` object when it gave
+                the axis up, so the person is shown it once; ``'faulted'``
+                when something else set it UNKNOWN); ``'timed_out'``, it had
+                not ended when the wait's bound ran out -- the axis is then
+                written UNKNOWN, in the same hold as the check that the axis
+                is still this move's; ``'stopped'``, a STOP the board took
+                while it moved; ``'superseded'``, another move or a home
+                took the axis first.
         """
-        stopped = self._wait_for_axis_to_stop(axis, self._MOTION_SETTLE_TIMEOUT_S)
-        if not stopped and self._set_axis_state(axis, AxisState.UNKNOWN, verdict_for=drive_seq):
-            raise MoveNotCompletedError(axis, 'timed_out')
-        # Either the axis stopped, or the bound ran out and the write was
-        # refused because the axis is no longer this move's MOVING one: a
-        # later move owns it, or it was judged as the wait ended. The reads
-        # say which.
-        with self._axis_state_lock:
-            superseded = self._drive_seq[axis] != drive_seq
-            unknown = self._axis_state.get(axis) == AxisState.UNKNOWN
-            fault = self._axis_fault.get(axis)
-        if unknown and not superseded:
-            # The monitor's own object when it gave the axis up, so the
-            # person is shown it once; otherwise something else set it
-            # UNKNOWN during the wait.
-            raise fault if fault is not None else MoveNotCompletedError(axis, 'faulted')
-        # A stop outranks supersession: once a STOP has landed, the axis is
-        # going nowhere any move sent it, and a move the stop withheld still
-        # counts a drive, so 'superseded' would tell the person it was.
-        if self._stopped_since(stop_generation):
-            raise MoveNotCompletedError(axis, 'stopped')
-        if superseded:
-            raise MoveNotCompletedError(axis, 'superseded')
+        if not self._wait_for_move(move, self._MOTION_SETTLE_TIMEOUT_S):
+            # Refused only when the move ended meanwhile: every write that
+            # takes the axis out of this move settles it in the same hold.
+            self._set_axis_state(
+                axis,
+                AxisState.UNKNOWN,
+                verdict_for=move.drive_seq,
+                fault=MoveNotCompletedError(axis, 'timed_out'),
+            )
+        if move.outcome == 'arrived':
+            return
+        raise move.fault or MoveNotCompletedError(axis, move.outcome)
+
+    def _wait_for_move(self, move: _Move, timeout_s: float) -> bool:
+        """Wait for ``move`` to be settled; True when it was within ``timeout_s``."""
+        return move.done.wait(timeout=timeout_s)
 
     def _wait_for_axis_to_stop(self, axis: str, timeout_s: float) -> bool:
         """Wait for ``axis``'s arrival event; True when it was set within ``timeout_s``.
@@ -2054,12 +2057,14 @@ class MotionAPI:
         leg = self._backlash_leg(axis, target_pos, overshoot_enabled, 'move_relative')
         stop_generation = self._stop_generation
         try:
-            written = self._send_drive(
-                axis, lambda: self._drive_to(axis, target_pos, leg, stop_generation)
+            move, written = self._send_drive(
+                axis,
+                stop_generation,
+                lambda: self._drive_to(axis, target_pos, leg, stop_generation),
             )
-        except Exception as e:
+        except Exception:
             _api_log.error(f'move_rel {axis}={distance:+.1f}um FAILED')
-            self._fail_drive(axis, e)
+            raise
         self._publish_drive(axis, written, start_pos, target_pos, ramp)
         # No move-init cache write: cache holds CURRENT position, which is
         # still start_pos until _motion_monitor_loop reads it from hardware
@@ -2067,7 +2072,7 @@ class MotionAPI:
         # get_target_position picks it up during MOVING.
         self._fire_position_listeners(axis)
         _api_log.info(f'move_rel {axis}={distance:+.1f}um')
-        return self._started(axis, stop_generation)
+        return MoveInFlight(self, axis, move)
 
     # --- Public dispatch ---
     # These are what every caller reaches: an SDK script, a REST
@@ -2346,7 +2351,8 @@ class MotionAPI:
         for ax in moving:
             with self._axis_state_lock:
                 unknown = self._axis_state.get(ax) == AxisState.UNKNOWN
-                fault = self._axis_fault.get(ax)
+                move = self._current_move.get(ax)
+            fault = move.fault if move is not None else None
             if unknown:
                 raise fault if fault is not None else MoveNotCompletedError(ax, 'faulted')
 
@@ -2357,6 +2363,9 @@ class MotionAPI:
         *,
         verdict_for: int | None = None,
         armed_only: bool = False,
+        move: _Move | None = None,
+        fault: MoveNotCompletedError | None = None,
+        stop_generation: int | None = None,
     ) -> bool:
         """Set the state of an axis: the one writer of it.
 
@@ -2374,6 +2383,16 @@ class MotionAPI:
         axis has moved on (a later move owns it, or a drive is in flight)
         and nothing is written.
 
+        The axis's current move is settled in the same hold as the write
+        that ends it (see ``_Move``), so no exit from MOVING leaves it open:
+        IDLE settles it arrived, or 'stopped' when ``stop_generation`` -- the
+        generation the monitor read once the board said reached -- is not
+        the one the move began under; UNKNOWN settles it with ``fault``, or
+        'faulted'; MOVING or HOMING settles it 'superseded', or 'stopped'
+        when a STOP was taken since the move began. MOVING is
+        written only with the new ``move`` (``_begin_move``), which becomes
+        the current one; HOMING leaves none.
+
         Returns:
             bool: Whether the write happened. False for an axis that is not
             present on this hardware: per-axis dicts are sized to
@@ -2381,6 +2400,8 @@ class MotionAPI:
             turret-home path (T) automatically degrade to no-ops on scopes
             that lack those axes.
         """
+        if (state == AxisState.MOVING) != (move is not None):
+            raise ValueError('MOVING is written with its new move, and only MOVING (_begin_move)')
         if axis not in self._arrival_events:
             return False
         with self._axis_state_lock:
@@ -2391,6 +2412,20 @@ class MotionAPI:
                 or (armed_only and self._armed_seq[axis] != verdict_for)
             ):
                 return False
+            current = self._current_move.get(axis)
+            if old_state == AxisState.MOVING and current is not None:
+                if state == AxisState.IDLE:
+                    stopped = stop_generation is not None and (
+                        stop_generation != current.stop_generation
+                    )
+                    current.settle('stopped' if stopped else 'arrived')
+                elif state == AxisState.UNKNOWN:
+                    current.settle('faulted', fault or MoveNotCompletedError(axis, 'faulted'))
+                else:
+                    # A STOP the board took before this write halted the
+                    # move, though the monitor has not yet seen it at rest.
+                    stopped = self._stop_generation != current.stop_generation
+                    current.settle('stopped' if stopped else 'superseded')
             self._axis_state[axis] = state
             # One place for every route that loses the turret -- a fault, a
             # failed home, a stall, a lost board: a turret whose position is
@@ -2398,11 +2433,11 @@ class MotionAPI:
             if axis == 'T' and state == AxisState.UNKNOWN:
                 self._last_turret_position = None
             if state in (AxisState.MOVING, AxisState.HOMING):
-                # Driven again: the monitor's fault from an earlier move is
-                # not this one's.
-                self._axis_fault.pop(axis, None)
                 self._drive_seq[axis] += 1
                 self._armed_seq[axis] = self._drive_seq[axis] if state == AxisState.HOMING else None
+                if move is not None:
+                    move.drive_seq = self._drive_seq[axis]
+                self._current_move[axis] = move
                 # Clear arrival event -- axis is now in motion
                 self._arrival_events[axis].clear()
             elif state in (AxisState.IDLE, AxisState.UNKNOWN):
@@ -2507,7 +2542,22 @@ class MotionAPI:
             self._driver.move_abs_pos(axis, position)
             return True
 
-    def _send_drive(self, axis: str, send) -> bool:
+    def _begin_move(self, axis: str, stop_generation: int) -> _Move:
+        """Set ``axis`` MOVING with a new move: the one way an axis goes MOVING.
+
+        Args:
+            axis: The axis to drive.
+            stop_generation: ``_stop_generation`` as the move's body read it
+                before driving.
+
+        Returns:
+            The new move's record, settled when the move ends.
+        """
+        move = _Move(stop_generation)
+        self._set_axis_state(axis, AxisState.MOVING, move=move)
+        return move
+
+    def _send_drive(self, axis: str, stop_generation: int, send) -> tuple[_Move, bool]:
         """Set ``axis`` MOVING and disarmed, then send its drive.
 
         The one way a move body reaches the driver. The move is motion from
@@ -2516,18 +2566,24 @@ class MotionAPI:
         leg included. Until ``_publish_drive`` arms the axis, the board's
         reached bit is the previous target's, or the leg's, and the monitor
         writes nothing for the axis: it polls and refreshes the position,
-        and runs no stall clock. A raise leaves the axis MOVING and
-        disarmed for the caller's ``_fail_drive`` to make terminal, so no
-        exit ends MOVING and disarmed.
+        and runs no stall clock. A raise makes the axis UNKNOWN
+        (``_fail_drive``), so no exit ends MOVING and disarmed.
 
         Returns:
-            bool: What ``send`` returned: whether the target was written.
+            The move's record, and what ``send`` returned: whether the
+            target was written.
+
+        Raises:
+            MoveNotCompletedError: the drive raised; see ``_fail_drive``.
         """
-        self._set_axis_state(axis, AxisState.MOVING)
-        self._scope.imaging.frame_validity.invalidate(
-            self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move')
-        )
-        return send()
+        move = self._begin_move(axis, stop_generation)
+        try:
+            self._scope.imaging.frame_validity.invalidate(
+                self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move')
+            )
+            return move, send()
+        except Exception as e:
+            self._fail_drive(axis, move, e)
 
     def _publish_drive(
         self,
@@ -2563,16 +2619,16 @@ class MotionAPI:
     def _give_axis_up(self, axis: str, reason: str, *, verdict_for: int | None = None) -> bool:
         """The monitor gives a moving axis up: one fault, reported, then UNKNOWN.
 
-        The fault is recorded and reported before the UNKNOWN write,
-        because that write is what wakes a waiter: the waiter then always
-        finds the record and raises the same object, and the reporter shows
-        an object once. Nobody waits on a jog, so the monitor's report is
+        The fault is reported before the UNKNOWN write that settles the
+        move with it, because that write is what wakes a waiter: the waiter
+        then raises the object already reported, and the reporter shows an
+        object once. Nobody waits on a jog, so the monitor's report is
         its only popup; for a waited move, a report the reporter suppressed
         (an unattended run, the dedup window) leaves it for the waiter's
         caller to show.
 
         A stall passes ``verdict_for``, the count of the move whose clock
-        ran out: the record and the write each happen only while the axis
+        ran out: the report and the write each happen only while the axis
         is still that move's armed MOVING one. A lost board passes none: a
         lost board is lost whichever move holds the axis.
 
@@ -2586,18 +2642,14 @@ class MotionAPI:
                 or self._armed_seq.get(axis) != verdict_for
             ):
                 return False
-            self._axis_fault[axis] = fault
         notifications.report_outcome(fault, solicited=False, category='Motion')
-        if self._set_axis_state(
-            axis, AxisState.UNKNOWN, verdict_for=verdict_for, armed_only=verdict_for is not None
-        ):
-            return True
-        # The move went away between the report and the write: the record
-        # is not the next move's to raise.
-        with self._axis_state_lock:
-            if self._axis_fault.get(axis) is fault:
-                del self._axis_fault[axis]
-        return False
+        return self._set_axis_state(
+            axis,
+            AxisState.UNKNOWN,
+            verdict_for=verdict_for,
+            armed_only=verdict_for is not None,
+            fault=fault,
+        )
 
     def _motion_monitor_loop(self):
         """Background thread: polls firmware for axis arrival at 50 Hz.
@@ -2679,6 +2731,15 @@ class MotionAPI:
                                 f'[SCOPE API ] Motion monitor: target_status({ax}) failed: {e}'
                             )
                             continue
+                        # A STOP sets target = actual, so the board then
+                        # reports reached wherever the axis halted: a reached
+                        # bit is a stop, not an arrival, when a STOP was taken
+                        # since the move began. Read under the lock the STOP
+                        # holds until its generation moves, so a STOP that
+                        # made this bit is counted.
+                        if arrived:
+                            with self._stop_lock:
+                                stop_generation = self._stop_generation
                         # Read the motor's actual position into the cache so
                         # get_current_position (and the crosshair, through the
                         # position listener) tracks the motor instead of the
@@ -2710,7 +2771,11 @@ class MotionAPI:
                             and read
                             and armed
                             and self._set_axis_state(
-                                ax, AxisState.IDLE, verdict_for=noted, armed_only=True
+                                ax,
+                                AxisState.IDLE,
+                                verdict_for=noted,
+                                armed_only=True,
+                                stop_generation=stop_generation,
                             )
                         ):
                             # Its clock goes with it: a back-to-back move

@@ -2208,12 +2208,12 @@ class MoveNotCompletedError(Exception):
             board reported the axis arrived but not where, within the
             motion bound. ``'timed_out'`` -- the wait's
             bound ran out before the axis arrived. Each of those leaves
-            the axis UNKNOWN. ``'stopped'`` -- a stop was issued while it
-            moved; the axis is where the stop left it, which its position
-            reports, and a turret is in no known slot. ``'superseded'`` --
-            another move on the same axis started before this one arrived;
-            the axis is going where that move sent it, and that move's own
-            outcome says whether it got there. ``'still_moving'`` -- a wait
+            the axis UNKNOWN. ``'stopped'`` -- a stop the board took while
+            it moved halted it; the axis is where the stop left it, which
+            its position reports, and a turret is in no known slot.
+            ``'superseded'`` -- another move or a home took the axis before
+            this one arrived; that command's own outcome says where the
+            axis went. ``'still_moving'`` -- a wait
             for motion the caller did not start ran out of time with the
             axis still moving; the axis keeps the state its own move gives
             it.
@@ -2246,10 +2246,7 @@ class MoveNotCompletedError(Exception):
             'is now unknown -- home the scope before moving it again.'
         ),
         'stopped': 'the motors were stopped before it arrived.',
-        'superseded': (
-            'another move on the {axis} axis started before it arrived, so the axis '
-            'is going where that move sent it.'
-        ),
+        'superseded': 'another command on the {axis} axis was given before it arrived.',
         'still_moving': 'the {axis} axis was still moving when the wait ran out of time.',
     }
 

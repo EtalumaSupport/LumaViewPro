@@ -102,18 +102,24 @@ def test_a_move_landing_inside_the_arrival_read_is_not_stamped_by_it(session, mo
     real_status = motion.get_target_status
     b = {}
     fired = threading.Event()
+    b_started = threading.Event()
+
+    def start_b():
+        b.update(h=motion.start_move_absolute('X', 13000.0))
+        b_started.set()
 
     def start_b_inside_the_read(axis):
         reached = real_status(axis)
         if reached and axis == 'X' and _on_monitor() and not fired.is_set():
             fired.set()
-            _start_in_thread(lambda: b.update(h=motion.start_move_absolute('X', 13000.0))).join()
+            _start_in_thread(start_b).join()
         return reached
 
     monkeypatch.setattr(motion, 'get_target_status', start_b_inside_the_read)
     a = motion.start_move_absolute('X', 10200.0)
+    # A is answered at B's MOVING write, before B's start has returned.
     a_out = _outcome(a)
-    assert fired.wait(5.0)
+    assert b_started.wait(5.0)
     b_out = _outcome(b['h'])
 
     assert b_out == 'arrived'
@@ -244,10 +250,8 @@ def test_a_retargeted_move_is_timed_by_its_own_clock(session, monkeypatch):
     )
     monkeypatch.setattr(motion, '_MOTION_SETTLE_TIMEOUT_S', 2.0)
     # The waiter's own bound is kept out of it: the monitor's clock judges.
-    real_wait = motion._wait_for_axis_to_stop
-    monkeypatch.setattr(
-        motion, '_wait_for_axis_to_stop', lambda axis, timeout_s: real_wait(axis, 5.0)
-    )
+    real_wait = motion._wait_for_move
+    monkeypatch.setattr(motion, '_wait_for_move', lambda move, timeout_s: real_wait(move, 5.0))
 
     m1 = motion.start_move_absolute('X', 10000.0)
     time.sleep(0.5)
@@ -268,14 +272,12 @@ def test_a_timed_out_wait_does_not_fault_the_move_that_started_in_its_window(ses
     motion = session.scope.motion
     driver = motion._driver
     motion.move_absolute('X', 10000.0)
-    real_wait = motion._wait_for_axis_to_stop
+    real_wait = motion._wait_for_move
     real_set = motion._set_axis_state
     waiter = threading.current_thread()
     m2 = {}
 
-    monkeypatch.setattr(
-        motion, '_wait_for_axis_to_stop', lambda axis, timeout_s: real_wait(axis, 0.3)
-    )
+    monkeypatch.setattr(motion, '_wait_for_move', lambda move, timeout_s: real_wait(move, 0.3))
 
     def start_m2_inside_the_waiters_write(axis, state, **kw):
         if state == AxisState.UNKNOWN and threading.current_thread() is waiter and 'h' not in m2:
@@ -289,7 +291,7 @@ def test_a_timed_out_wait_does_not_fault_the_move_that_started_in_its_window(ses
     m1 = motion.start_move_absolute('X', 40000.0)
     m1_out = _outcome(m1)
     monkeypatch.setattr(motion, '_set_axis_state', real_set)
-    monkeypatch.setattr(motion, '_wait_for_axis_to_stop', real_wait)
+    monkeypatch.setattr(motion, '_wait_for_move', real_wait)
 
     assert 'h' in m2
     assert _outcome(m2['h']) == 'arrived'
@@ -312,7 +314,8 @@ def test_a_verdict_cannot_land_between_the_moving_write_and_its_event(session, m
     """Y moves so the monitor is awake. X is sent to where it stands, so
     the board reports reached on the first read; X's event clear is
     delayed 80 ms past the MOVING write. The verdict for this move must
-    not be undone by its own event clear: the wait returns at once."""
+    not be undone by its own event clear: the axis's arrival event, which
+    the axis-level waits read, is set once the move arrives."""
     motion = session.scope.motion
     motion.move_absolute('X', 10000.0)
     ev = _SlowClearEvent()
@@ -324,12 +327,10 @@ def test_a_verdict_cannot_land_between_the_moving_write_and_its_event(session, m
     ev.delay_s = 0.08
     h = motion.start_move_absolute('X', 10000.0)
     ev.delay_s = 0.0
-    t0 = time.monotonic()
-    out = _outcome(h)
-    waited = time.monotonic() - t0
 
-    assert out == 'arrived'
-    assert waited < 1.0, waited
+    assert _outcome(h) == 'arrived'
+    assert ev.wait(1.0), 'the arrival event was left clear after the move arrived'
+    assert motion.get_axis_state('X') == AxisState.IDLE
 
 
 def test_a_driver_raise_leaves_the_axis_unknown_never_moving(session, monkeypatch):

@@ -110,10 +110,8 @@ def test_an_arrival_whose_position_was_not_read_is_not_written(scope):
 def test_an_arrival_never_read_is_given_up_as_that(scope, monkeypatch):
     motion = scope.motion
     monkeypatch.setattr(motion, '_MOTION_SETTLE_TIMEOUT_S', 1.0)
-    real_wait = motion._wait_for_axis_to_stop
-    monkeypatch.setattr(
-        motion, '_wait_for_axis_to_stop', lambda axis, timeout_s: real_wait(axis, 5.0)
-    )
+    real_wait = motion._wait_for_move
+    monkeypatch.setattr(motion, '_wait_for_move', lambda move, timeout_s: real_wait(move, 5.0))
     handle = _move_x_and_lose_its_position(scope)
 
     with pytest.raises(MoveNotCompletedError) as exc:

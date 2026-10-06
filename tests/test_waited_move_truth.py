@@ -109,11 +109,11 @@ def test_a_later_move_on_the_same_axis_supersedes_this_one(session, monkeypatch)
     motion._motion_wake.set()
     motion._motion_monitor_thread.join(timeout=2.0)
 
-    def _stopped_then_a_later_move_starts(axis, timeout_s):
-        motion._set_axis_state('Z', AxisState.MOVING)
+    def _a_later_move_starts(move, timeout_s):
+        motion._begin_move('Z', motion._stop_generation)
         return True
 
-    monkeypatch.setattr(motion, '_wait_for_axis_to_stop', _stopped_then_a_later_move_starts)
+    monkeypatch.setattr(motion, '_wait_for_move', _a_later_move_starts)
     try:
         with pytest.raises(MoveNotCompletedError) as exc:
             move.wait()
