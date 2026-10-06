@@ -34,6 +34,8 @@ from tests.settings_fixtures import complete_settings
 # A Z microstep on the simulated LS850 is 0.025 um; X and Y 0.078 um.
 _MICROSTEP_UM = 0.1
 _MONITOR = 'motion-monitor'
+# How long a move may take to reach its hold: far past a slowed host.
+_HOLD_WAIT_S = 10.0
 
 
 @pytest.fixture
@@ -156,16 +158,19 @@ def test_the_previous_targets_bit_read_during_the_send_is_no_arrival(session, mo
     monkeypatch.setattr(driver, 'move_abs_pos', drive_held_until_the_monitor_read)
     monkeypatch.setattr(motion, 'get_target_status', status_held_until_b_is_marked_moving)
 
+    # A stands part of the way until B is inside its driver call, so A
+    # arrives only then, however late any thread runs.
+    hold = driver.hold_travel('X')
     a = motion.start_move_absolute('X', 10200.0)
-    end = driver._move_end_time['X']
-    while time.monotonic() < end - 0.03:
-        time.sleep(0.0005)
+    assert hold.reached.wait(_HOLD_WAIT_S), 'A never got part of the way'
 
     def start_b():
         b['h'] = motion.start_move_absolute('X', 13000.0)
         b_started.set()
 
     _start_in_thread(start_b)
+    assert b_in_driver.wait(5.0), 'B never reached its driver call'
+    hold.release()
     a_out = _outcome(a)
     assert b_started.wait(5.0)
     b_out = _outcome(b['h'])
@@ -208,8 +213,10 @@ def test_the_overshoot_legs_arrival_is_nobodys(session, monkeypatch):
     monkeypatch.setattr(driver, 'move_abs_pos', recorded_write)
     monkeypatch.setattr(driver, 'target_status', the_lane_waits_for_the_monitors_read)
     motion.move_absolute('Z', 4000.0)
+    # Move 1 stands part of the way until move 2's first target ends it.
+    hold = driver.hold_travel('Z')
     m1 = motion.start_move_absolute('Z', 6000.0)
-    time.sleep(0.1)
+    assert hold.reached.wait(_HOLD_WAIT_S), 'move 1 never got part of the way'
     m2 = {}
     t = _start_in_thread(
         lambda: m2.update(h=motion.start_move_absolute('Z', 3000.0, overshoot_enabled=True))
@@ -224,16 +231,18 @@ def test_the_overshoot_legs_arrival_is_nobodys(session, monkeypatch):
 
 
 def test_a_retargeted_move_is_timed_by_its_own_clock(session, monkeypatch):
-    """The board never reports X reached. Move 1 runs 0.5 s of the 1 s
+    """The board never reports X reached. Move 1 runs 0.5 s of the 2 s
     stall bound before move 2 takes the axis; the monitor faults move 2
-    'stalled' only after its own second, not after the earlier move's
-    half."""
+    'stalled' only after its own two seconds, not after what is left of
+    the earlier move's. The bound is four times move 1's run, so a test
+    thread late out of its sleep still starts move 2 before move 1 is
+    given up."""
     motion = session.scope.motion
     real_status = motion.get_target_status
     monkeypatch.setattr(
         motion, 'get_target_status', lambda ax: False if ax == 'X' else real_status(ax)
     )
-    monkeypatch.setattr(motion, '_MOTION_SETTLE_TIMEOUT_S', 1.0)
+    monkeypatch.setattr(motion, '_MOTION_SETTLE_TIMEOUT_S', 2.0)
     # The waiter's own bound is kept out of it: the monitor's clock judges.
     real_wait = motion._wait_for_axis_to_stop
     monkeypatch.setattr(
@@ -248,7 +257,7 @@ def test_a_retargeted_move_is_timed_by_its_own_clock(session, monkeypatch):
     faulted_after = time.monotonic() - t0
 
     assert m2_out == 'stalled'
-    assert faulted_after >= 0.9, faulted_after
+    assert faulted_after >= 1.9, faulted_after
     assert _outcome(m1) == 'superseded'
 
 
@@ -274,6 +283,9 @@ def test_a_timed_out_wait_does_not_fault_the_move_that_started_in_its_window(ses
         return real_set(axis, state, **kw)
 
     monkeypatch.setattr(motion, '_set_axis_state', start_m2_inside_the_waiters_write)
+    # Move 1 stands part of the way, so its wait's 0.3 s runs out first
+    # however slowly the waiter runs; move 2's target ends the hold.
+    driver.hold_travel('X')
     m1 = motion.start_move_absolute('X', 40000.0)
     m1_out = _outcome(m1)
     monkeypatch.setattr(motion, '_set_axis_state', real_set)
