@@ -530,15 +530,19 @@ class _Garbling(SimulatedTmcm6110):
 @pytest.mark.parametrize(
     ('how', 'words'), [('checksum', 'checksum mismatch'), ('command', 'answers command 4')]
 )
-def test_a_reply_that_does_not_line_up_raises_and_closes_the_port(how, words):
+def test_a_reply_that_does_not_line_up_raises_and_keeps_the_port(how, words):
+    """One bad reply is one failed command; the next starts clean on the
+    same port, as on the EL-0940."""
     sim = _Garbling(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, clock=_fast_clock())
     board = Tmcm6110Board(
         motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=SimulatedTmcm6110Backend(sim)
     )
+    port = board._serial
     sim.spoil = how
     with pytest.raises(HardwareError, match=words):
         board.target_status('X')
-    assert not board.is_connected()
+    assert board.is_connected() and board._serial is port
+    assert board.target_status('X') is True
 
 
 def test_a_refused_command_raises_naming_it_and_its_status(sim):
@@ -557,16 +561,66 @@ def test_a_refused_command_raises_naming_it_and_its_status(sim):
     assert board.is_connected()
 
 
-def test_a_silent_board_raises_naming_the_command_and_closes_the_port(board, sim):
+def test_a_silent_board_raises_naming_the_command_and_keeps_the_port(board, sim):
+    """A board that stays plugged and silent is not a lost board: each
+    command fails on its own and the port stays, so the monitor faults a
+    moving axis as stalled, as it does on an EL-0940."""
+    port = board._serial
     sim.silent = True
     with pytest.raises(HardwareError, match=r'GAP 3, motor 0.*no reply'):
         board.target_status('X')
-    assert not board.is_connected()
+    assert board.is_connected() and board._serial is port
     assert board.current_pos('X') is None
 
     sim.silent = False
     assert board.current_pos('X') == 0
+    assert board._serial is port
+
+
+def test_one_withheld_reply_fails_one_command_and_the_next_succeeds_on_the_same_port():
+    class WithholdsOne(SimulatedTmcm6110):
+        withhold = True
+
+        def answer(self, datagram):
+            if self.withhold and datagram[1] == GAP:
+                self.withhold = False
+                return None
+            return super().answer(datagram)
+
+    sim = WithholdsOne(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, clock=_fast_clock())
+    board = Tmcm6110Board(
+        motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=SimulatedTmcm6110Backend(sim)
+    )
+    try:
+        port = board._serial
+        with pytest.raises(HardwareError, match=r'GAP 3, motor 0.*no reply'):
+            board.target_status('X')
+        assert board.target_status('X') is True
+        assert board._serial is port
+    finally:
+        board.disconnect()
+
+
+def test_a_port_that_raises_on_its_flush_is_dropped_whatever_the_error():
+    """A flush on a vanished device raises the OS's error, not pyserial's:
+    any error from the port object is a lost board."""
+
+    class VanishedPort(SimulatedTmcm6110Port):
+        def reset_input_buffer(self):
+            raise OSError(6, 'Device not configured')
+
+    class VanishingBackend(SimulatedTmcm6110Backend):
+        def open(self, **kwargs):
+            return VanishedPort(self.board, **kwargs)
+
+    sim = SimulatedTmcm6110(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, clock=_fast_clock())
+    board = Tmcm6110Board(
+        motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=VanishingBackend(sim)
+    )
     assert board.is_connected()
+    with pytest.raises(HardwareError, match=r'port failed.*Device not configured'):
+        board.target_status('X')
+    assert not board.is_connected()
 
 
 def test_an_unplugged_board_is_disconnected(board, sim):

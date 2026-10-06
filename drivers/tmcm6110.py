@@ -356,9 +356,14 @@ class Tmcm6110Board:
 
         A port that is gone is looked for again first, as a replugged
         board would be. A command that starts X or Y moving reads the lid
-        first, under the same lock. A reply that does not come, does not
-        check, or answers another command closes the port, since the
-        stream can no longer be trusted to line up.
+        first, under the same lock. Whatever is waiting on the port is
+        discarded before the write, so a reply that came late is never
+        read as the next command's. One reply that does not come, does not
+        check, or answers another command is one failed command: the port
+        is kept, as the EL-0940 keeps its port, and the next command starts
+        clean. The port is dropped only when the port object itself raises,
+        whatever the type -- a pulled cable raises pyserial's error, a
+        flush on a vanished device the OS's -- which is a lost board.
 
         Raises:
             MotionInterlockError: the lid is open and the command would
@@ -375,23 +380,25 @@ class Tmcm6110Board:
             if starts_lid_gated_motion(command, type_, motor) and self._lid_open():
                 self._refuse_for_lid(moved=False)
             try:
+                self._serial.reset_input_buffer()
                 self._serial.write(encode_command(command, type_, motor, value))
                 raw = self._serial.read(DATAGRAM_BYTES)
-            except serial.SerialException as e:
+            except serial.SerialTimeoutException as e:
+                raise HardwareError(
+                    f'{what}: the TMCM-6110 did not take the write within {REPLY_TIMEOUT_S} s'
+                ) from e
+            except Exception as e:
                 self._drop_port()
                 raise HardwareError(f'{what}: the TMCM-6110 port failed: {e}') from e
             if len(raw) < DATAGRAM_BYTES:
-                self._drop_port()
                 raise HardwareError(
                     f'{what}: no reply from the TMCM-6110 within {REPLY_TIMEOUT_S} s'
                 )
             try:
                 reply = decode_reply(raw)
             except ValueError as e:
-                self._drop_port()
                 raise HardwareError(f'{what}: {e}') from e
             if reply.command != command:
-                self._drop_port()
                 raise HardwareError(f'{what}: the reply answers command {reply.command}')
             if reply.status != STATUS_OK:
                 raise HardwareError(
