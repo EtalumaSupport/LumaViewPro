@@ -111,6 +111,33 @@ class TestAMoveTheLidRefuses:
         stopped_at = scope.motion.get_current_position('Z')
         assert start_z <= stopped_at < start_z + 2000.0
 
+    def test_a_move_in_flight_on_the_refused_axis_ends_idle_where_it_stopped(
+        self, scope, monkeypatch
+    ):
+        # The move body disarms its axis before the drive; a refusal sent no
+        # drive, so the axis must be armed again at the move in flight, or
+        # the monitor never ends that move and it stays MOVING.
+        board = scope._motion_driver
+        board.set_timing_mode('realistic')
+        start_z = scope.motion.get_current_position('Z')
+        scope.motion.start_move_absolute('Z', start_z + 2000.0)
+        assert scope.motion.get_axis_state('Z') == AxisState.MOVING
+
+        def lid_open_stops_every_motor(*args, **kwargs):
+            board._update_actual('Z')
+            board.exchange_command('STOP')
+            board._move_end_time['Z'] = 0.0
+            raise MotionInterlockError('lid_open', moved=False, stopped=True)
+
+        monkeypatch.setattr(board, 'move_abs_pos', lid_open_stops_every_motor)
+        with pytest.raises(HardwareCommandRefusedError):
+            scope.motion.move_absolute('Z', start_z + 1000.0)
+
+        scope.motion.wait_until_finished_moving(timeout_s=5)
+        assert scope.motion.get_axis_state('Z') == AxisState.IDLE
+        stopped_at = scope.motion.get_current_position('Z')
+        assert start_z <= stopped_at < start_z + 2000.0
+
     def test_a_refusal_after_the_command_moved_fails_the_drive(self, scope, monkeypatch):
         monkeypatch.setattr(scope._motion_driver, 'move_abs_pos', _refuse('lid_open', moved=True))
 

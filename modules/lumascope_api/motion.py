@@ -429,6 +429,13 @@ class MotionAPI:
         monitor sets it IDLE there. A refusal after something moved is not
         a refusal, and fails the drive as any driver error does.
 
+        ``_send_drive`` disarmed the axis before the refused call, and no
+        new target reached the board, so the axis is armed again at the
+        count it had: the move it was on, if any, is the one the monitor
+        ends. The stop generation moves first, so the stop's reached bit
+        is not read as that move's arrival. Re-armed whether or not the
+        driver's stop completed, since no drive was sent.
+
         Raises:
             HardwareCommandRefusedError: the interlock's reason, chained
                 from the driver's error.
@@ -438,6 +445,9 @@ class MotionAPI:
         self._note_interlock_stop(cause)
         if cause.moved:
             self._fail_drive(axis, cause)
+        if axis in self._arrival_events:
+            with self._axis_state_lock:
+                self._armed_seq[axis] = self._drive_seq[axis]
         _api_log.info(f'{member} {axis} REFUSED: {cause.reason}')
         raise HardwareCommandRefusedError(cause.reason, member) from cause
 
@@ -2488,8 +2498,10 @@ class MotionAPI:
         MOVING write re-arms the axis at the new count, the board's reached
         bit is the previous target's, or the overshoot leg's, and the
         monitor writes nothing for the axis. A raise leaves the axis
-        disarmed for the caller's ``_fail_drive`` to make terminal, so no
-        exit ends MOVING and disarmed.
+        disarmed for the caller's ``_fail_drive`` to make terminal, or, on
+        an interlock's refusal before anything moved, for
+        ``_refuse_for_interlock`` to re-arm at the count it had, so no exit
+        ends MOVING and disarmed.
         """
         if axis in self._arrival_events:
             with self._axis_state_lock:
