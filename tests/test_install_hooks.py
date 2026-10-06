@@ -3,7 +3,7 @@
 The no-quick-fix judge used to sit on the Edit and Write tools alone, so an
 edit written through Bash landed unjudged. The hook the installer writes
 now pipes the staged .py diff into the judge a Claude Code session names in
-``COMMIT_HUNK_JUDGE``; a terminal, which has no such variable, commits as
+``COMMIT_JUDGE``; a terminal, which has no such variable, commits as
 before, and a merge commit is not judged (Eric, 2026-10-03). These tests
 install the real template into a throwaway repository and commit through it
 with a stub judge that records the diff it was handed and refuses a
@@ -27,7 +27,7 @@ from tools.install_hooks import _HOOK_SCRIPT, _JUDGE_STAGE
 # judge is dropped too: a test that forgot to set the variable would
 # otherwise make paid calls from inside pytest.
 _CLEAN_ENV = {
-    k: v for k, v in os.environ.items() if not k.startswith('GIT_') and k != 'COMMIT_HUNK_JUDGE'
+    k: v for k, v in os.environ.items() if not k.startswith('GIT_') and k != 'COMMIT_JUDGE'
 }
 
 _CLEAN = 'def read(path):\n    with open(path) as f:\n        return f.read()\n'
@@ -94,7 +94,7 @@ class _Repo:
     ) -> subprocess.CompletedProcess:
         env = dict(_CLEAN_ENV)
         if judged:
-            env['COMMIT_HUNK_JUDGE'] = str(self.stub)
+            env['COMMIT_JUDGE'] = str(self.stub)
         return subprocess.run(
             ['git', *args], cwd=cwd or self.root, env=env, capture_output=True, text=True
         )

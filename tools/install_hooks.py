@@ -6,7 +6,7 @@ runs the mechanical CLAUDE.md rule checks before the commit lands.
 
 LVP-specific: the managed hook ALSO runs the guard gate, the no-quick-fix
 judge on the staged production change, judged whole, when a Claude Code session names one
-(COMMIT_HUNK_JUDGE; a terminal commit and a merge commit are not judged),
+(COMMIT_JUDGE; a terminal commit and a merge commit are not judged),
 and bumps version.txt (timestamp + branch fields) after everything else
 passes, replacing the standalone version-bump hook that lived in LVP
 previously. Order is intentional: rule check first so a violation fails
@@ -84,7 +84,7 @@ git add "$VERSION_FILE"
 """
 
 # The no-quick-fix judge on the staged production change, judged whole. Only a Claude Code
-# session names a judge (its settings set COMMIT_HUNK_JUDGE), so a terminal
+# session names a judge (its settings set COMMIT_JUDGE), so a terminal
 # commit is not judged; a merge commit is not judged either (Eric,
 # 2026-10-03): the commits it carries were judged when made, and the stage
 # would otherwise read the whole incoming side, 95 to 201 hunks on the real
@@ -94,7 +94,7 @@ git add "$VERSION_FILE"
 # session's git configuration says: --text --no-textconv against a -diff
 # attribute or a textconv, -M against diff.renames, the prefixes against
 # diff.noprefix, GIT_DIFF_OPTS unset against a context override.
-_JUDGE_STAGE = """if [ -n "${COMMIT_HUNK_JUDGE:-}" ]; then
+_JUDGE_STAGE = """if [ -n "${COMMIT_JUDGE:-}" ]; then
     if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
         echo "pre-commit: merge commit, not judged by the no-quick-fix judge (Eric, 2026-10-03)" >&2
     else
@@ -102,7 +102,7 @@ _JUDGE_STAGE = """if [ -n "${COMMIT_HUNK_JUDGE:-}" ]; then
             set -o pipefail
             unset GIT_DIFF_OPTS
             git diff --cached --no-color --no-ext-diff --text --no-textconv -M --src-prefix=a/ --dst-prefix=b/ -U3 -- '*.py' \\
-                | "$COMMIT_HUNK_JUDGE" --repo "$REPO_ROOT"
+                | "$COMMIT_JUDGE" --repo "$REPO_ROOT"
         ) || exit 1
     fi
 fi
@@ -306,7 +306,7 @@ def install() -> int:
         print(f'Installed {hook.name} hook at {hook}')
     print('  pre-commit delegates to tools/check_rules.py --staged, runs ruff on the index,')
     print('  runs tests/guards on an export of the index, judges the staged production')
-    print('  change whole when the session sets COMMIT_HUNK_JUDGE, then stamps version.txt.')
+    print('  change whole when the session sets COMMIT_JUDGE, then stamps version.txt.')
     print('  post-merge restamps version.txt when a merge commit changed the branch it names.')
     print('  To bypass for one commit: git commit --no-verify')
     print('  To remove: tools/install_hooks.py --uninstall')
