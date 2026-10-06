@@ -22,7 +22,9 @@ try:
     # The whole capability, done by the caller (there is no API for it)
     mode = '12bit_scientific'
     depth = image_mode.resolve_image_mode(mode)['capture_depth']
-    target = image_mode.select_capture_pixel_format(depth, im.get_supported_pixel_formats())
+    target = image_mode.select_capture_pixel_format(
+        depth, s.scope.capabilities.camera_pixel_formats
+    )
     print(f'mode {mode!r} -> capture_depth {depth} -> pixel format {target!r}')
     _common.ok(
         '12-bit pixel format applied',

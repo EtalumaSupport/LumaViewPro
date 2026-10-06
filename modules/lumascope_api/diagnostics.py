@@ -1021,14 +1021,6 @@ class DiagnosticsAPI:
     # Bodies live here; Lumascope keeps thin wrappers calling down until
     # they retire.
 
-    def get_microscope_model(self) -> str | None:
-        """Get the microscope model identifier from the motion board.
-
-        Returns:
-            str | None: Model string, or None if motion board inactive.
-        """
-        return self._scope._motion_driver.get_microscope_model()
-
     def get_motor_info(self) -> dict:
         """Get motor controller information.
 
@@ -1114,27 +1106,15 @@ class DiagnosticsAPI:
     def _read_led_currents_impl(drv) -> dict[int, float | None]:
         return {ch: drv.read_led_current(ch) for ch in drv.available_channels()}
 
-    def get_camera_info(self) -> dict:
-        """Get camera information.
-
-        Returns:
-            dict: Keys 'model', 'pixel_format', 'connected'.
-        """
-        if not self._scope._camera_driver or not self._scope._camera_driver.active:
-            return {'model': None, 'pixel_format': None, 'connected': False}
-
-        return {
-            'model': self._scope.capabilities.camera_model,
-            'pixel_format': self._scope._camera_driver.get_pixel_format(),
-            'connected': True,
-        }
-
     def get_camera_profile_info(self) -> dict | None:
         """Get detailed camera profile information for display.
 
+        The camera's model, largest frame and binning sizes are on
+        ``scope.capabilities``; this reports the profile's sensor facts.
+
         Returns:
-            dict with model, sensor, pixel_size_um, shutter, resolution,
-            gain_range, max_exposure, binning_sizes. None if no camera.
+            dict with sensor, pixel_size_um, shutter, the gain range and the
+            exposure bounds. None if no camera.
 
         Raises:
             Whatever the driver raises reading a connected camera, so a
@@ -1151,17 +1131,25 @@ class DiagnosticsAPI:
         exposure_min_ms = driver.get_min_exposure()
         exposure_min_us = exposure_min_ms * 1000.0 if exposure_min_ms is not None else None
         return {
-            'model': profile.model_name,
             'sensor': profile.sensor,
             'pixel_size_um': profile.pixel_size_um,
             'shutter': profile.shutter,
-            'resolution': profile.native_resolution,
             'gain_min_db': profile.gain.total_min_db,
             'gain_max_db': profile.gain.total_max_db,
             'exposure_min_us': exposure_min_us,
             'exposure_min_ms': exposure_min_ms,
             'max_exposure_ms': self._scope.imaging.max_exposure_ms_cached,
-            'binning_sizes': profile.binning_sizes,
+        }
+
+    def _camera_summary(self) -> dict:
+        """The camera's model (``capabilities.camera_model``), its pixel
+        format now, and whether it is connected."""
+        driver = self._scope._camera_driver
+        connected = bool(driver and driver.active)
+        return {
+            'model': self._scope.capabilities.camera_model if connected else None,
+            'pixel_format': driver.get_pixel_format() if connected else None,
+            'connected': connected,
         }
 
     def get_system_info(self) -> dict:
@@ -1173,7 +1161,7 @@ class DiagnosticsAPI:
         return {
             'motor': self.get_motor_info(),
             'led': self.get_led_info(),
-            'camera': self.get_camera_info(),
+            'camera': self._camera_summary(),
             'simulated': self._scope._simulated,
             'lvp_version': version,
         }

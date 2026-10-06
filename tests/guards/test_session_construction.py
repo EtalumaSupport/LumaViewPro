@@ -108,7 +108,7 @@ class TestCreateTakesTheHostInjections:
             assert session._settings_saved_hook is hook
             assert session.engineering_mode is True
             assert session.scope.no_hardware is False, 'simulate=True reached the scope'
-            assert session.scope.diagnostics.get_microscope_model() is not None
+            assert session.scope.diagnostics.get_motor_info()['model'] is not None
         finally:
             session.shutdown()
             session.scope.disconnect()
@@ -402,7 +402,7 @@ class TestTheGuiTakesTheFactory:
         assert load is not None
         hits = sorted(
             {c.func.attr for c in _calls(load) if isinstance(c.func, ast.Attribute)}
-            & {'get_microscope_model', 'configure_scope', 'start_streaming'}
+            & {'get_motor_info', 'configure_scope', 'start_streaming'}
         )
         assert hits == [], f'load_settings still runs bring-up steps: {hits}'
         assert any(

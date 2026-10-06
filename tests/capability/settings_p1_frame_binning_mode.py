@@ -14,10 +14,11 @@ from modules.lumascope_api._constants import *  # noqa: F403  (no-op if absent)
 s, live = _common.make_session()
 im = s.scope.imaging
 try:
-    native = im.get_native_resolution()
-    print('native resolution     :', native)
-    print('available binning     :', im.get_available_binning_sizes())
-    print('supported pix formats :', im.get_supported_pixel_formats())
+    caps = s.scope.capabilities
+    native = caps.camera_max_frame_size
+    print('largest frame         :', native)
+    print('available binning     :', caps.camera_binning_sizes)
+    print('supported pix formats :', caps.camera_pixel_formats)
     print('start w/h             :', im.get_width(), im.get_height())
 
     # --- frame size, in range -------------------------------------------
@@ -56,7 +57,7 @@ try:
             print(f'set_frame_size{bad} raised {type(e).__name__}: {e}')
 
     # --- binning ---------------------------------------------------------
-    supported = im.get_available_binning_sizes()
+    supported = caps.camera_binning_sizes
     got = im.set_binning_size(2)
     _common.ok(
         'binning 2 applied',
@@ -76,7 +77,7 @@ try:
     im.set_binning_size(1)
 
     # --- pixel format (image mode) --------------------------------------
-    fmts = im.get_supported_pixel_formats()
+    fmts = caps.camera_pixel_formats
     if fmts:
         r = im.set_pixel_format(fmts[0])
         _common.ok(

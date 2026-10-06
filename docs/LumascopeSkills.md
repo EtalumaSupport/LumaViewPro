@@ -1109,7 +1109,7 @@ screen are assembled identically.
 # (create() with no scope=) also: LEDs off, motion stopped, scope disconnected,
 # which shuts its IO and CAMERA lanes. Reading that scope afterwards:
 # motor_connected is False, imaging.is_streaming() is False,
-# diagnostics.get_microscope_model() is None. A second shutdown() logs one
+# diagnostics.get_motor_info()['model'] is None. A second shutdown() logs one
 # info line and does nothing.
 session.shutdown()
 
@@ -1544,7 +1544,6 @@ delivered = scope.imaging.set_frame_size(2048, 2048)
 scope.imaging.frame_size_cached                    # {'width': ..., 'height': ...} -- cache read, no driver I/O
 scope.capabilities.camera_max_frame_size           # (width, height) the scope's unbinned frame ceiling: the sensor,
                                                    # or the model's smaller one (LS560: 1700); None if unknown
-scope.imaging.get_native_resolution()              # {'width','height'} unbinned sensor ceiling
 scope.imaging.get_pixel_alignment()                # {'width','height'} deliverable frame-size granularity: {2, 2}, even sides (H.264), on every camera
 
 # Binning
@@ -1555,9 +1554,9 @@ scope.imaging.set_binning_size(2)
 # rejection by the typed raise -- a dropped return cannot silently
 # record a rejected apply.
 scope.imaging.get_binning_size()                   # always >= 1 (last-known-good on failed read)
-scope.imaging.get_available_binning_sizes()        # e.g. [1, 2, 4]
+scope.capabilities.camera_binning_sizes            # e.g. (1, 2, 4)
 scope.imaging.set_pixel_format('Mono12')           # True when applied; raises CameraSettingRejected on refusal
-scope.imaging.get_supported_pixel_formats()        # e.g. ('Mono8', 'Mono12') -- the enumeration for set_pixel_format
+scope.capabilities.camera_pixel_formats            # e.g. ('Mono8', 'Mono12') -- the enumeration for set_pixel_format
 
 # Geometry value getters (last-known-good on a transient failed read; 0 camera-absent)
 scope.imaging.get_width()
@@ -1693,17 +1692,15 @@ The last two rows are not registered on the scope. **Run state** is registered o
 scope.camera_connected                             # bool property (mirror of motor_connected / led_connected)
 scope.imaging.active_cached                        # True if grabbing
 scope.diagnostics.get_camera_temperatures_degc()        # temperature sensors (SDK-dependent)
-scope.diagnostics.get_camera_info()                # model, serial, firmware
-scope.imaging.camera_identity                      # {'model','serial','timestamp_tick_frequency_hz'} for provenance records; all None camera-absent
+scope.capabilities.camera_model                    # the camera's model, serial number (camera_serial_number) and
+                                                   # timestamp clock (camera_timestamp_tick_hz), read at connect
 scope.diagnostics.get_camera_profile_info()        # sensor specs + dynamic ranges; None when no camera is
                                                    # connected; a failed read of a connected camera raises. Returns:
 # {
-#   'model': 'MT9P031-LS620', 'sensor': 'Aptina MT9P031',
+#   'sensor': 'Aptina MT9P031',
 #   'pixel_size_um': 2.2, 'shutter': 'rolling',
-#   'resolution': (2592, 1944),
 #   'gain_min_db': 0.0, 'gain_max_db': 42.144,
 #   'max_exposure_ms': 1000.0,
-#   'binning_sizes': (1, 2, 4),
 # }
 ```
 
@@ -1811,8 +1808,8 @@ When you need to capture *during* a source's active motion (e.g., autofocus capt
 Hardware diagnostic probes and identity getters live on the `scope.diagnostics` sub-API. Per-call (no persistent state); meant for tech-support reports, bench tooling, and bring-up scripts that want one-shot snapshots of camera / motor / LED state.
 
 ```python
-scope.diagnostics.get_microscope_model()   # 'LS850'
-scope.diagnostics.get_motor_info()         # model, serial, firmware, axis config
+scope.diagnostics.get_motor_info()         # the model the board reports ('LS850'), serial, firmware, axis config
+scope.capabilities.model                   # the model the scope runs as: the board's, else the selection
 scope.diagnostics.get_led_info()           # firmware_version, connected, command_set:
                                            #   'v2' (INFO, SELFTEST, I2CSCAN, LEDREAD),
                                            #   'legacy' (INFO only: firmware before v2),

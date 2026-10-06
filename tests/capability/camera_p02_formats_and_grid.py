@@ -1,9 +1,9 @@
 """Camera P02: the pixel formats the camera offers, and the grid its frame windows sit on.
 
-Two facts about the camera body, read at connect: the formats it offers, as
-the scope's capabilities publish them (`capabilities.camera_pixel_formats`)
-and as the imaging API asks the camera (`get_supported_pixel_formats`); and
-the frame-size grid, the increment of the camera's Width / Height nodes. The
+Facts about the camera body, read at connect: the formats it offers and the
+largest frame the scope delivers, as the scope's capabilities publish them
+(`capabilities.camera_pixel_formats`, `camera_max_frame_size`); and the
+frame-size grid, the increment of the camera's Width / Height nodes. The
 API delivers any even frame size by acquiring the next window up and
 cropping, so no API member states the grid: it is read from the driver's
 `_frame_grid`, the one place the camera's own increment is asked. Reads
@@ -21,13 +21,19 @@ from harness import HARDWARE, check, figure, hardware_session, make_session, rep
 
 def _read(session):
     scope = session.scope
-    published = tuple(scope.capabilities.camera_pixel_formats)
-    asked = tuple(scope.imaging.get_supported_pixel_formats())
-    figure('camera', scope.imaging.camera_identity)
+    caps = scope.capabilities
+    published = tuple(caps.camera_pixel_formats)
+    figure(
+        'camera',
+        {
+            'model': caps.camera_model,
+            'serial': caps.camera_serial_number,
+            'tick_hz': caps.camera_timestamp_tick_hz,
+        },
+    )
     figure('formats the capabilities publish', published)
-    figure('formats the camera reports', asked)
-    check('the camera reports its formats', bool(asked))
-    check('the capabilities publish the formats the camera reports', published == asked)
+    figure('largest frame (unbinned)', caps.camera_max_frame_size)
+    check("the capabilities publish the camera's formats", bool(published))
 
     grid = scope.imaging._driver._frame_grid()
     check('the camera reports its frame grid', grid is not None)

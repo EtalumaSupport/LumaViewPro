@@ -9,8 +9,6 @@ shows that list and adds nothing of its own.
 
 import types
 
-import pytest
-
 import modules.app_context as app_context
 
 
@@ -47,24 +45,3 @@ def test_no_camera_offers_no_binning(monkeypatch):
     cls.load_binning_sizes(panel)
 
     assert panel.ids['binning_spinner'].values == []
-
-
-def test_a_camera_profile_defect_is_not_turned_into_one_size(monkeypatch):
-    """Behind the panel the API answered [1] for a profile it could not read.
-
-    Every camera has a profile (`Camera.__init__`, `lookup_profile`), so the
-    only way to reach that answer was a defect, which it hid as a camera that
-    cannot bin.
-    """
-    from modules.lumascope_api.imaging import ImagingAPI
-
-    class _NoSizes:
-        def __getattr__(self, name):
-            raise AttributeError(name)
-
-    camera = types.SimpleNamespace(active=True, profile=_NoSizes())
-    monkeypatch.setattr(ImagingAPI, '_driver', property(lambda self: camera))
-    api = ImagingAPI.__new__(ImagingAPI)
-
-    with pytest.raises(AttributeError):
-        api.get_available_binning_sizes()

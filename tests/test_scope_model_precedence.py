@@ -41,14 +41,14 @@ class TestASimulatedScopeReportsItsDeclaredModel:
         monkeypatch.setattr(settings_init, 'settings', {'microscope': 'LS850T'})
         scope = _sim_scope(configured_model='LS850')
         try:
-            assert scope.diagnostics.get_microscope_model() == 'LS850'
+            assert scope.diagnostics.get_motor_info()['model'] == 'LS850'
         finally:
             scope.disconnect()
 
     def test_sim_model_still_outranks_configured_model(self):
         scope = _sim_scope(sim_model='LS850T', configured_model='LS850')
         try:
-            assert scope.diagnostics.get_microscope_model() == 'LS850T'
+            assert scope.diagnostics.get_motor_info()['model'] == 'LS850T'
         finally:
             scope.disconnect()
 
@@ -59,7 +59,7 @@ class TestASimulatedScopeReportsItsDeclaredModel:
         session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         try:
             assert session.settings['microscope'] == 'LS850'
-            assert session.scope.diagnostics.get_microscope_model() == 'LS850'
+            assert session.scope.diagnostics.get_motor_info()['model'] == 'LS850'
             assert session.scope.capabilities.has_turret is False
         finally:
             session.shutdown()

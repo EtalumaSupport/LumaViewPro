@@ -1,8 +1,8 @@
 # Copyright Etaluma, Inc.
 """Regression test: get_pixel_format() serves from a cache, not a live read.
 
-get_camera_info() is called once per saved frame to stamp image metadata,
-and it reads the camera's PixelFormat. PixelFormat only changes through
+The imaging API reads the camera's PixelFormat to work out the depth a
+frame carries (``significant_bits_for_format``). PixelFormat only changes through
 set_pixel_format(), so the pylon and ids drivers cache it (refreshed in the
 setter, cleared on disconnect) instead of hitting the SDK node map on every
 capture.
@@ -56,7 +56,7 @@ class TestIdsPixelFormatCache:
     def test_cache_updates_before_grab_restart(self):
         # update_camera_config()'s __exit__ restarts grabbing. The cache must be
         # written INSIDE the guard (before the restart), or frames flow under the
-        # new format while get_pixel_format()/get_camera_info() still report the
+        # new format while get_pixel_format() still reports the
         # old cached value. Drive a real stop/start bounce and capture the cache
         # value at the instant grabbing restarts.
         cam = bare_ids_camera()

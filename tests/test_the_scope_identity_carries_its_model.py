@@ -74,7 +74,7 @@ def ls620_session(tmp_path):
 class TestTheRunningScopeHasOneModel:
     def test_the_capabilities_carry_the_selected_model_of_an_fx2_scope(self, ls620_session):
         # The null motor board reports no model; the selection is the identity.
-        assert ls620_session.scope.diagnostics.get_microscope_model() is None
+        assert ls620_session.scope.diagnostics.get_motor_info()['model'] is None
         assert ls620_session.scope.capabilities.model == 'LS620'
 
     def test_a_saved_image_records_the_identitys_model(self, ls620_session):

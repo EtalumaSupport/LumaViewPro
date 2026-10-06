@@ -328,7 +328,11 @@ def hardware_session():
         IDENTITY.update(
             model=scope.layer_identity.model,
             motor=scope.diagnostics.get_motor_info(),
-            camera=scope.imaging.camera_identity,
+            camera={
+                'model': scope.capabilities.camera_model,
+                'serial': scope.capabilities.camera_serial_number,
+                'tick_hz': scope.capabilities.camera_timestamp_tick_hz,
+            },
         )
         print(f'SCOPE: {IDENTITY}', flush=True)
         question = session.objective_question()

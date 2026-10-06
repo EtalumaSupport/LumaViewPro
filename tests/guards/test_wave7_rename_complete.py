@@ -334,14 +334,12 @@ IMAGING_ONLY_METHODS = frozenset(
         'capture_and_wait',
         'frame_is_valid',
         'frames_until_valid',
-        'get_available_binning_sizes',
         'get_binning_size',
         'get_exposure_ms',
         'get_gain_db',
         'get_height',
         'get_image',
         'get_image_from_buffer',
-        'get_supported_pixel_formats',
         'get_width',
         'is_focusing',
         '_log_camera_temps',
@@ -664,10 +662,8 @@ DIAGNOSTIC_FACADE_GETTERS = frozenset(
     {
         'get_motor_info',
         'get_led_info',
-        'get_camera_info',
         'get_camera_profile_info',
         'get_system_info',
-        'get_microscope_model',
     }
 )
 

@@ -4,7 +4,7 @@
 '4x4': 4}`` whitelist and answer 1 for every label outside it. That was a
 second source of truth for which binning factors exist -- and the narrower
 one. The offered labels come from the camera: the selector renders
-``imaging.get_available_binning_sizes()`` as ``f'{s}x{s}'``, and an
+``capabilities.camera_binning_sizes`` as ``f'{s}x{s}'``, and an
 unrecognized IDS body has its list widened live from the nodemap to
 ``(1, 2, 4, 8, 16)``.
 

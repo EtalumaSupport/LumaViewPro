@@ -2753,46 +2753,6 @@ class ImagingAPI:
             1,
         )
 
-    def get_supported_pixel_formats(self) -> tuple:
-        """Get the list of supported camera pixel formats.
-
-        Returns:
-            tuple: Supported format strings, or empty tuple if inactive.
-        """
-        if not self._driver or not self._driver.active:
-            return ()
-        return self._driver.get_supported_pixel_formats()
-
-    def get_available_binning_sizes(self) -> list:
-        """Return list of binning sizes supported by connected camera.
-
-        Returns:
-            list: Supported binning factors (e.g. ``[1, 2, 4]``). Defaults
-                to ``[1]`` if no camera is active.
-        """
-        if not self._driver or not self._driver.active:
-            return [1]
-        return self._driver.profile.binning_sizes
-
-    def get_native_resolution(self) -> dict:
-        """Return the sensor's physical unbinned resolution.
-
-        This is the static per-model ceiling for the native (unbinned) ROI,
-        independent of the current binning factor. For the sensor max as the
-        driver reports it at boot, see
-        ``scope.capabilities.camera_max_frame_size``. Empty dict if no
-        camera or the profile does not declare it.
-
-        Returns:
-            dict: ``{'width': int, 'height': int}`` or ``{}`` if unknown.
-        """
-        if not self._driver or not self._driver.active:
-            return {}
-        try:
-            return dict(self._driver.profile.native_resolution)
-        except (AttributeError, TypeError):
-            return {}
-
     def get_pixel_alignment(self) -> dict:
         """Return the camera's deliverable frame-size granularity.
 
@@ -3974,25 +3934,6 @@ class ImagingAPI:
         """
         with self._camera_cache_lock:
             return dict(self._camera_cache['frame_size'])
-
-    @property
-    def camera_identity(self) -> dict:
-        """Connected camera's identity for provenance records.
-
-        Returns:
-            dict: ``{'model': str | None, 'serial': str | None,
-            'timestamp_tick_frequency_hz': float | None}``. All None when
-            no camera is connected -- callers record the absence rather
-            than probe drivers directly.
-        """
-        driver = self._driver
-        if not driver or not driver.active:
-            return {'model': None, 'serial': None, 'timestamp_tick_frequency_hz': None}
-        return {
-            'model': getattr(driver, 'model_name', None),
-            'serial': getattr(driver, '_device_serial', None),
-            'timestamp_tick_frequency_hz': getattr(driver, 'timestamp_tick_frequency_hz', None),
-        }
 
     @property
     def min_frame_size_cached(self) -> dict | None:

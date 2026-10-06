@@ -63,7 +63,15 @@ def main():
     with session_cm as (session, _runner):
         scope = session.scope
         imaging = scope.imaging
-        figure('camera', imaging.camera_identity)
+        caps = scope.capabilities
+        figure(
+            'camera',
+            {
+                'model': caps.camera_model,
+                'serial': caps.camera_serial_number,
+                'tick_hz': caps.camera_timestamp_tick_hz,
+            },
+        )
 
         level = imaging.get_black_level()
         figure('black level', level)

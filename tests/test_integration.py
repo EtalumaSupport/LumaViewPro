@@ -953,10 +953,10 @@ class TestRestAPIPrep:
         with pytest.raises(CameraSettingRejected):
             session.scope.imaging.set_pixel_format('InvalidFormat')
 
-    def test_get_supported_pixel_formats(self):
-        """get_supported_pixel_formats() should return tuple of format strings."""
+    def test_the_capabilities_list_the_pixel_formats(self):
+        """capabilities.camera_pixel_formats is a tuple of format strings."""
         session = ScopeSession.create(complete_settings(), simulate=True)
-        formats = session.scope.imaging.get_supported_pixel_formats()
+        formats = session.scope.capabilities.camera_pixel_formats
         assert isinstance(formats, tuple)
         assert len(formats) > 0
         assert 'Mono8' in formats
@@ -967,7 +967,6 @@ class TestRestAPIPrep:
         session.scope._camera_driver = None
         assert session.scope.imaging._get_pixel_format() is None
         assert session.scope.imaging.set_pixel_format('Mono8') is False
-        assert session.scope.imaging.get_supported_pixel_formats() == ()
 
     def test_get_motor_info(self):
         """get_motor_info() should return model, serial, firmware."""
@@ -1013,10 +1012,10 @@ class TestRestAPIPrep:
         assert info['connected'] is True
         assert info['firmware_version'] is not None
 
-    def test_get_camera_info(self):
-        """get_camera_info() should return model and connection status."""
+    def test_the_system_info_names_the_connected_camera(self):
+        """get_system_info()'s camera entry has the model and connection status."""
         session = ScopeSession.create(complete_settings(), simulate=True)
-        info = session.scope.diagnostics.get_camera_info()
+        info = session.scope.diagnostics.get_system_info()['camera']
         assert info['connected'] is True
         assert info['model'] is not None
 

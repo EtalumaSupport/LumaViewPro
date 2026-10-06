@@ -15,7 +15,7 @@ s, live = _common.make_session()
 try:
     im = s.scope.imaging
     before = im.frame_size_cached
-    print('native_max        :', im.get_native_resolution())
+    print('largest frame     :', s.scope.capabilities.camera_max_frame_size)
     try:
         delivered = im.set_frame_size(13414, 13414)
         _common.ok('13414 is REFUSED by the API', False, f'delivered {delivered}')

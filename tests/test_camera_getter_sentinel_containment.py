@@ -266,9 +266,6 @@ EXCLUDED = {
     'get_image': 'capture path; documented None-on-failure contract, not a cached value read',
     'get_image_from_buffer': 'capture path; returns the latest buffered frame, no SDK value read',
     'capture_and_wait': 'capture path; documented None-on-failure contract',
-    'get_supported_pixel_formats': 'collection contract; documented empty tuple when inactive',
-    'get_available_binning_sizes': 'profile-backed; no per-call SDK read to contain',
-    'get_native_resolution': 'profile-backed; no per-call SDK read to contain',
     'get_pixel_alignment': 'profile-backed; no per-call SDK read to contain',
     'get_live_camera_settings': (
         'live-confirmed surface; deliberately the inverse contract '
@@ -540,9 +537,7 @@ def _metadata_scope_with_real_imaging(imaging: ImagingAPI, driver) -> SimpleName
         ),
         imaging=imaging,
         diagnostics=SimpleNamespace(
-            get_microscope_model=lambda: 'LS720-SIM',
             get_motor_info=lambda: {'serial_number': 'SN1', 'firmware_version': 'fw'},
-            get_camera_info=lambda: {'model': 'simcam'},
         ),
         illumination=SimpleNamespace(
             get_led_state=lambda channel: {'enabled': True, 'illumination_ma': 100.0, 'owner': ''}
