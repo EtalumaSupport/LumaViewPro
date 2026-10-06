@@ -239,14 +239,15 @@ class SimulatedMotorBoard:
         return self.is_connected()
 
     def motor_stop(self) -> bool:
-        """Simulator answers True (sim firmware always supports STOP).
-        Mirrors the production MotorBoard method so
-        Lumascope.stop_motion works identically against the simulator.
+        """Send STOP to the simulated firmware, as the production MotorBoard
+        sends it to the board, so a stop reaches the simulated stage and the
+        failure injection applies to it.
 
         Returns:
-            bool: Always True.
+            bool: True when the board answered; False on no reply, as the
+                production MotorBoard answers.
         """
-        return True
+        return self.exchange_command('STOP') is not None
 
     def supports_motor_stop(self) -> bool:
         """Sim firmware supports every command family."""
@@ -485,7 +486,13 @@ class SimulatedMotorBoard:
         # target=actual on every axis; sim mirrors that.
         if cmd == 'STOP':
             for ax in ('X', 'Y', 'Z', 'T'):
+                # Where the stage is now, then held there. Without the update
+                # the target was the last polled point and the interpolation
+                # ran on along the old timeline toward it, so the stage
+                # jumped back toward its start instead of stopping.
+                self._update_actual(ax)
                 self._target[ax] = self._actual[ax]
+                self._move_end_time[ax] = 0.0
             return 'STOP OK'
 
         return f'ERROR: unknown command {cmd}'
