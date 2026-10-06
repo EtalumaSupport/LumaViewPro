@@ -73,7 +73,7 @@ def test_a_failed_stop_does_not_skip_the_board_teardown(sim_scope, monkeypatch, 
     from drivers.null_ledboard import NullLEDBoard
     from drivers.null_motorboard import NullMotionBoard
 
-    monkeypatch.setattr(sim_scope.motion, 'stop_motion', MagicMock(side_effect=stop_error))
+    monkeypatch.setattr(sim_scope.motion, '_stop', MagicMock(side_effect=stop_error))
 
     with pytest.raises(ScopeDisconnectError) as excinfo:
         sim_scope.disconnect()

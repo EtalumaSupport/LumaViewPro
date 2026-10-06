@@ -93,11 +93,11 @@ def go_to_step(
         ctx.image_settings.layer_lookup(layer=step['Color']).apply_settings(update_led=False)
         go_to_step_update_ui(step)
 
-    # The axes redrawn once the task has ended: none on a scope with no
-    # motor board, which goes to the step without moving.
+    # The axes redrawn once the task has ended, whatever its outcome: every
+    # axis the scope has, which a refused or partial go-to may have moved.
     submit_move(
         'GO_TO_STEP',
-        axes=ctx.scope.capabilities.axes if ctx.scope.motor_connected else (),
+        axes=ctx.scope.capabilities.axes,
         call=call,
         on_moved=on_moved,
     )

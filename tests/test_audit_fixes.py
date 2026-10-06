@@ -31,7 +31,11 @@ from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate
 from modules.protocol_image_writer import RunWriteBatch
 from modules.activity_claim import ActivityClaim
-from modules.exceptions import HomingFailedError, PositionOutOfRangeError
+from modules.exceptions import (
+    HardwareCommandRefusedError,
+    HomingFailedError,
+    PositionOutOfRangeError,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1068,10 +1072,10 @@ class TestAxisState:
         scope.motion.home(axis='T')
         assert scope.motion.get_axis_state('T') == AxisState.IDLE
 
-    def test_thome_on_no_turret_scope_is_silent_noop(self, _mock_heavy_deps):
-        """Audit B4 + Rule 8: calling home(axis='T') on a scope without a
-        turret must not raise and must leave T in UNKNOWN state --
-        there is no phantom T axis to transition.
+    def test_thome_on_no_turret_scope_is_refused(self, _mock_heavy_deps):
+        """Audit B4: home(axis='T') on a scope without a turret is refused
+        and leaves T in UNKNOWN state -- there is no phantom T axis to
+        transition.
 
         Building with sim_model='LS850' (no turret) makes capabilities.axes
         omit T from the start, so this exercises the real no-turret path --
@@ -1084,7 +1088,9 @@ class TestAxisState:
         try:
             assert 'T' not in tuple(scope._motion_driver.detect_present_axes())
             assert 'T' not in scope.capabilities.axes
-            scope.motion.home(axis='T')
+            with pytest.raises(HardwareCommandRefusedError) as caught:
+                scope.motion.home(axis='T')
+            assert caught.value.reason == 'axis_absent'
             assert scope.motion.get_axis_state('T') == AxisState.UNKNOWN
         finally:
             scope.disconnect()
@@ -2924,6 +2930,13 @@ class TestIssue710_LumiLS820PlateViewRestored:
             and 'h_line_points' in '\n'.join(ast.unparse(s) for s in node.body)
         ]
         assert gates, 'the per-frame crosshair update is no longer a gated If'
+        # The gate may sit where the position is first held available.
+        gates += [
+            ast.unparse(node.test)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.If)
+            and any(ast.unparse(s) == 'position_available = True' for s in node.body)
+        ]
         assert any('_xy_stage_present()' in gate for gate in gates), (
             f'the crosshair gate must derive from the scope XY capability; found {gates!r}'
         )

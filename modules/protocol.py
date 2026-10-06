@@ -1228,7 +1228,7 @@ class Protocol:
         checks a run needs on top: unique capture filenames and a known plate.
         Whether the positions lie inside the stage's travel is the scope's
         question, asked by the run gate
-        (``ProtocolsAPI.refuse_unreachable_positions``).
+        (``ProtocolsAPI.refuse_positions_outside_travel``).
 
         Args:
             objective_helper: The scope's objective catalogue.

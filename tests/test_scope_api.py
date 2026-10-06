@@ -363,6 +363,11 @@ class TestGetCurrentPlatePosition:
         scope = MagicMock()
         type(scope).motor_connected = PropertyMock(return_value=False)
         type(scope).motion_expected = PropertyMock(return_value=True)
+        # The real presence question, asked of this scope.
+        from modules.lumascope_api.motion import MotionAPI
+
+        scope.motion = MotionAPI.__new__(MotionAPI)
+        scope.motion._scope = scope
         with pytest.raises(HardwareCommandRefusedError) as refused:
             config_helpers.get_current_plate_position(
                 scope,

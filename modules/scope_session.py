@@ -1786,8 +1786,9 @@ class ScopeSession:
         moves once that task has run, before the stage arrives: each move's
         ``wait()`` says whether it got there, and ``go_to_step`` waits on
         them. A person's click is a gesture and does not wait; a fault on
-        the way is the motion monitor's to report. A scope with no motor
-        board moves nothing, does the rest and returns no moves.
+        the way is the motion monitor's to report. Only the axes this scope
+        has are moved: a manual scope moves nothing, does the rest and
+        returns no moves.
 
         A repeat of the step this session last went to (a re-click, a
         re-typed number) does everything but the preview: a channel the
@@ -1806,8 +1807,9 @@ class ScopeSession:
                 Nothing changes.
             AxisStateUnknownError: an axis the step moves does not know
                 its position. Nothing changes.
-            HardwareCommandRefusedError: a run or a diagnostic holds the
-                scope. Nothing changes.
+            HardwareCommandRefusedError: ``'not_connected'``, this scope's
+                motor controller is not connected; or a run or a diagnostic
+                holds the scope. Nothing changes.
             PositionOutOfRangeError: the step lies outside an axis's travel;
                 the axes before it have moved, nothing else changes.
             MoveNotCompletedError: the turret did not reach the step's slot,
@@ -1824,13 +1826,13 @@ class ScopeSession:
                     f'step {step_idx} stimulates {unknown}, not layers; '
                     f'the layers are {common_utils.get_layers()}'
                 )
+        # A motorized scope whose controller is out of reach cannot go to the
+        # step: one that never came up has no axes, so the moves below would
+        # be none and the step a silent no-op.
+        self.scope.motion.refuse_controller_not_connected('go_to_step')
         # Converted here, from the step read above, so the lane moves to the
         # step this call was made for whatever the list holds by then.
-        targets = (
-            self.scope.protocols.step_targets(protocol, step_idx)
-            if self.scope.motor_connected
-            else None
-        )
+        targets = self.scope.protocols.step_targets(protocol, step_idx)
         # Every member inside bounds its own wait, so the task has no bound
         # of its own to add.
         return self.io_executor.call(
@@ -1840,29 +1842,27 @@ class ScopeSession:
         )
 
     def _go_to_step_on_lane(
-        self, protocol: 'Protocol', step_idx: int, step, targets: 'StepTargets | None'
+        self, protocol: 'Protocol', step_idx: int, step, targets: 'StepTargets'
     ) -> 'tuple[MoveInFlight, ...]':
         """The lane half of ``go_to_step``: ask once, start the moves, load the layer, preview.
 
-        Returns the started X, Y and Z moves; none when there is no motor
-        board.
+        Returns the started moves, one per axis this scope has among X, Y
+        and Z; none on a manual scope.
         """
-        moves: tuple[MoveInFlight, ...] = ()
-        if targets is not None:
-            motion = self.scope.motion
-            # The turret included: a failed turret home leaves T unknown
-            # while the stage axes still know theirs.
-            motion.refuse_unknown_positions(
-                self.scope.capabilities.axes, recording=False, then='go to the step'
-            )
-            if targets.turret_slot is not None:
-                # The step's own Z move follows, so the turret need not put Z back.
-                motion.move_turret(targets.turret_slot, restore_z=False)
-            moves = (
-                motion.start_move_absolute('X', targets.x),
-                motion.start_move_absolute('Y', targets.y),
-                motion.start_move_absolute('Z', targets.z),
-            )
+        motion = self.scope.motion
+        # The turret included: a failed turret home leaves T unknown
+        # while the stage axes still know theirs.
+        motion.refuse_unknown_positions(
+            self.scope.capabilities.axes, recording=False, then='go to the step'
+        )
+        if targets.turret_slot is not None:
+            # The step's own Z move follows, so the turret need not put Z back.
+            motion.move_turret(targets.turret_slot, restore_z=False)
+        moves = tuple(
+            motion.start_move_absolute(axis, target)
+            for axis, target in (('X', targets.x), ('Y', targets.y), ('Z', targets.z))
+            if target is not None
+        )
         self._load_step_into_layer(step)
         last = self._last_step_gone_to
         self._last_step_gone_to = (protocol, step_idx)
@@ -2799,14 +2799,15 @@ class ScopeSession:
     def set_acceleration_limit(self, val_pct: int) -> None:
         """Set the motors' acceleration limit, as a percent of the firmware's maximum, and store it.
 
-        The one writer of ``motion.acceleration_max_pct``. With a motor
-        controller, stored once it took the value; with none, nothing is
-        commanded and the value is stored.
+        The one writer of ``motion.acceleration_max_pct``, stored once the
+        motor controller took the value.
 
         Raises:
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'axis_absent'``, no motor controller to take it. Nothing
+                is stored.
             AccelerationLimitRefusedError: ``val_pct`` is outside the range
-                the motion API accepts, on every board (a ValueError).
-                Nothing is stored.
+                the motion API accepts (a ValueError). Nothing is stored.
         """
         self.scope.motion.set_acceleration_limit(val_pct=val_pct)
         with self.settings_lock:

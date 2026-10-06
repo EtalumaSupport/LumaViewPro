@@ -40,7 +40,12 @@ import pytest
 
 from drivers.exceptions import HardwareError
 from drivers.sim_wire.mp import tmc5072
-from modules.exceptions import AxisStateUnknownError, HomingFailedError, MoveNotCompletedError
+from modules.exceptions import (
+    AxisStateUnknownError,
+    HardwareCommandRefusedError,
+    HomingFailedError,
+    MoveNotCompletedError,
+)
 from modules.lumascope_api import AxisState
 from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
@@ -369,12 +374,15 @@ def test_api_marks_axis_unknown_when_the_driver_move_raises(scope, centre_posts)
 
 
 def test_a_failed_move_then_refuses_the_next_one(scope):
-    """The two halves compose: a dead-board move poisons the axis, and
-    the gate then refuses the follow-up instead of driving blind again."""
+    """The two halves compose: a dead-board move poisons the axis, and the
+    follow-up is refused instead of driving blind again -- first for the
+    controller the failed write found gone, which is the person's remedy."""
     scope.motion._home_impl()
     _pull_the_cable(scope)
     with pytest.raises(MoveNotCompletedError):
         scope.motion._move_absolute_impl('Z', position=1000, overshoot_enabled=False)
 
-    with pytest.raises(AxisStateUnknownError):
+    assert scope.motion.get_axis_state('Z') == AxisState.UNKNOWN
+    with pytest.raises(HardwareCommandRefusedError) as refused:
         scope.motion._move_absolute_impl('Z', position=2000)
+    assert refused.value.reason == 'not_connected'

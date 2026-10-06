@@ -1247,11 +1247,9 @@ class SequencedCaptureRunner:
         # After the connection gate, so a motorized scope whose board fell
         # off is told it is disconnected rather than that it cannot move;
         # after the objective gate, so a protocol for glass this scope cannot
-        # put in the light path is told that first. The offset is the scope's,
-        # the one the gate judges X/Y with, snapshotted so the run converts
-        # with the offset it was admitted at.
-        self._scope.protocols.refuse_unreachable_positions(protocol.steps(), protocol.labware())
-        stage_offset = copy.deepcopy(self._scope.runtime_state.get_stage_offset())
+        # put in the light path is told that first. Before the not-homed
+        # gate: a scope with no motor for an axis cannot be homed into one.
+        self._scope.protocols.refuse_unreachable_positions(protocol.steps())
         self._scope.protocols.refuse_camera_values_out_of_range(protocol.steps())
 
         # Every run mode moves every axis this scope has, and each move on
@@ -1275,6 +1273,13 @@ class SequencedCaptureRunner:
                     )
                 ),
             )
+
+        # After the not-homed gate: an unhomed scope is told to home, not
+        # that its steps are outside travel. The offset is the scope's, the
+        # one the gate judges X/Y with, snapshotted so the run converts with
+        # the offset it was admitted at.
+        self._scope.protocols.refuse_positions_outside_travel(protocol.steps(), protocol.labware())
+        stage_offset = copy.deepcopy(self._scope.runtime_state.get_stage_offset())
 
         # The last gate, and the only one about where the run SAVES rather
         # than about the instrument. Without it a bad save location is

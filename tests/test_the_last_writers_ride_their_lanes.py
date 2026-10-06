@@ -201,11 +201,13 @@ class TestTheTemperatureRead:
 
 
 class TestAcceleration:
-    def test_a_scope_with_no_motor_board_sends_nothing(self, sim_session, monkeypatch):
+    def test_a_scope_with_no_motor_board_is_refused_and_sends_nothing(
+        self, sim_session, monkeypatch
+    ):
         sc = sim_session.scope
         monkeypatch.setattr(type(sc), 'motor_connected', property(lambda self: False))
         spy, lanes = _spy(sc, '_motion_driver', 'set_acceleration_limits')
-        with spy:
+        with spy, pytest.raises(HardwareCommandRefusedError):
             sc.motion.set_acceleration_limit(val_pct=50)
         assert lanes == []
 

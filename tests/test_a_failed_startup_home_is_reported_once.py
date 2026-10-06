@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, call
 
 import pytest
 
-from modules.exceptions import HardwareCommandRefusedError, HomingFailedError
+from modules.exceptions import HardwareCommandRefusedError, HomingFailedError, MissingPart
 from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -63,7 +63,11 @@ def test_a_homing_fault_is_shown_once_and_the_turret_is_not_moved(session, shown
 def test_no_motor_controller_is_shown_once_as_not_connected(session, shown):
     turret = []
     session.start_application_session(
-        home_fn=_raises(HardwareCommandRefusedError('not_connected', 'home')),
+        home_fn=_raises(
+            HardwareCommandRefusedError(
+                'not_connected', 'home', missing=MissingPart.MOTOR_CONTROLLER
+            )
+        ),
         turret_fn=turret.append,
     )
 

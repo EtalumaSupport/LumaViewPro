@@ -78,8 +78,8 @@ class TestAFactoryBuiltScopeIsTornDown:
         unregistered = _record_unregister(monkeypatch)
         session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         scope = session.scope
-        stop_motion = MagicMock(wraps=scope.motion.stop_motion)
-        monkeypatch.setattr(scope.motion, 'stop_motion', stop_motion)
+        stop_motion = MagicMock(wraps=scope.motion._stop)
+        monkeypatch.setattr(scope.motion, '_stop', stop_motion)
         events = _spy_lane(session.executor_bundle.io_executor)
         try:
             session.shutdown()
@@ -118,15 +118,13 @@ class TestAFactoryBuiltScopeIsTornDown:
     def test_a_pass_that_raised_can_be_retried(self, tmp_path, monkeypatch, session_log):
         session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         scope = session.scope
-        monkeypatch.setattr(
-            scope.motion, 'stop_motion', MagicMock(side_effect=RuntimeError('bus gone'))
-        )
+        monkeypatch.setattr(scope.motion, '_stop', MagicMock(side_effect=RuntimeError('bus gone')))
         try:
             with pytest.raises(ScopeDisconnectError) as excinfo:
                 session.shutdown()
             assert isinstance(excinfo.value.__cause__, RuntimeError)
             assert session._shut_down is False, 'a pass that raised is not a completed pass'
-            monkeypatch.setattr(scope.motion, 'stop_motion', MagicMock())
+            monkeypatch.setattr(scope.motion, '_stop', MagicMock())
             session.shutdown()
             assert session._shut_down is True
             assert scope.motor_connected is False
@@ -145,7 +143,7 @@ class TestACallersScopeIsLeftAlone:
         session, scope = self._caller_session()
         session.shutdown()
         scope.disconnect.assert_not_called()
-        scope.motion.stop_motion.assert_not_called()
+        scope.motion._stop.assert_not_called()
         scope.illumination._leds_off_impl.assert_not_called()
         # The lanes are the scope's, and the scope is the caller's: they run on.
         session.io_executor.put.assert_not_called()
@@ -159,7 +157,7 @@ class TestACallersScopeIsLeftAlone:
         )
         session.shutdown()
         scope.disconnect.assert_not_called()
-        scope.motion.stop_motion.assert_not_called()
+        scope.motion._stop.assert_not_called()
         session.io_executor.put.assert_not_called()
 
     def test_a_second_shutdown_logs_and_touches_nothing(self, session_log):

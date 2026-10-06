@@ -113,7 +113,7 @@ class SimulatedCamera(Camera):
         width: int = _SENSOR['width'],
         height: int = _SENSOR['height'],
         grab_delay: float = 0.0,
-        z_position_func: Callable[[], float] | None = None,
+        z_position_func: Callable[[], float | None] | None = None,
         illumination_func: Callable[[], float] | None = None,
         timing: str = 'fast',
     ):
@@ -796,7 +796,12 @@ class SimulatedCamera(Camera):
         """Apply blur based on distance from focal Z position."""
         # Query Z position from motor if callback is wired
         if self._z_position_func is not None:
-            self._z_position = self._z_position_func()
+            z = self._z_position_func()
+            if z is None:
+                # No focus axis to read: a manual scope is focused by hand,
+                # so its sample is rendered in focus.
+                return img
+            self._z_position = z
 
         defocus = abs(self._z_position - self._focal_z)
         if defocus < 1.0:

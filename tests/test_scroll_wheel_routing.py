@@ -259,9 +259,10 @@ class TestWheelDirectionIsConsistent:
                 # The step comes from the API's jog step, as the jog
                 # buttons' does.
                 scope=types.SimpleNamespace(
+                    capabilities=types.SimpleNamespace(has_focus=True),
                     motion=types.SimpleNamespace(
                         jog_step=jog_step or (lambda axis, coarse: 100.0 if coarse else 10.0)
-                    )
+                    ),
                 ),
             ),
         )

@@ -850,7 +850,9 @@ class Lumascope:
         # is bounded by the serial layer's own read and write timeouts;
         # nothing else holds the LED lock at bring-up.
         self.illumination._leds_off_impl()
-        self.motion.seed_preferred_turret_slot(config.preferred_turret_slot)
+        # A saved slot carried over from a turret scope means nothing here.
+        if self.capabilities.has_turret:
+            self.motion.seed_preferred_turret_slot(config.preferred_turret_slot)
         self.runtime_state.set_turreted(config.turreted)
         if config.turreted:
             # The objective is the one assigned to the slot in the light
@@ -989,7 +991,9 @@ class Lumascope:
             )
         if self.capabilities.camera_supports_line_noise_reduction:
             self.imaging._set_line_noise_reduction_impl(config.line_noise_reduction)
-        self.motion._set_acceleration_limit_impl(val_pct=config.acceleration_pct)
+        # Asked first: a scope with no motor controller has no limit to set.
+        if self.motor_connected:
+            self.motion._set_acceleration_limit_impl(val_pct=config.acceleration_pct)
         # Last: the one-time release of the camera start gate, once the
         # capture pixel format above has been applied with the gate closed.
         self.imaging._start_streaming_impl()
@@ -1253,11 +1257,15 @@ class Lumascope:
         # every disconnect path benefits without relying on the caller
         # to remember. A STOP that failed is recorded and the teardown
         # carries on whatever it raised: the ports still have to close.
+        # Asked first, as the scope's own write: with no motor controller
+        # connected -- a manual scope, a pulled cable, a second disconnect --
+        # there is nothing to stop.
         failures: dict[str, BaseException] = {}
-        try:
-            self.motion.stop_motion()
-        except Exception as e:
-            failures['motor stop'] = e
+        if self.motor_connected:
+            try:
+                self.motion._stop()
+            except Exception as e:
+                failures['motor stop'] = e
 
         # Stop the motion monitor and reset axis states -- MotionAPI._disconnect()
         # handles both: signals the monitor thread, waits for it, then resets

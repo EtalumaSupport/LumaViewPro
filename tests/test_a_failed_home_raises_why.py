@@ -125,10 +125,14 @@ def test_a_home_that_works_returns_and_posts_nothing(scope, route):
     assert scope.posts == []
 
 
-def test_a_turret_home_on_a_scope_with_no_turret_homes_nothing_and_fails_nothing():
-    # A board with no turret has no T position to read, so its absence is
-    # not an unread position: the turret home is a success, as documented.
+def test_a_turret_home_on_a_scope_with_no_turret_is_refused_and_homes_nothing():
+    # A scope with no turret has none to home: it is refused before Z is
+    # parked, and no slot is recorded.
     scope = build_scope(simulate=True, sim_model='LS850')
     assert 'T' not in scope.capabilities.axes
 
-    assert scope.motion.home('T') is None
+    with pytest.raises(HardwareCommandRefusedError) as caught:
+        scope.motion.home('T')
+
+    assert caught.value.reason == 'axis_absent'
+    assert scope.motion.get_turret_slot() is None

@@ -5,6 +5,7 @@
 For driver-layer hardware exceptions (HardwareError), see drivers/exceptions.py.
 """
 
+import enum
 import pathlib
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -1854,12 +1855,15 @@ class HardwareCommandRefusedError(Refusal, Exception):
     stamps the active objective's scale into each capture, so a change
     mid-run is a command against the run's hardware state.
 
-    A home with no motor controller connected raises it as well
-    (``'not_connected'``): nothing was driven, and the person's remedy is
-    the cable, not a retry. So does a move whose drive needs a position the
-    controller did not report (``'position_unread'``): the relative base,
-    or Z for the backlash approach. Nothing was driven and the axis keeps
-    its state.
+    A motion command for hardware the scope does not have raises it too,
+    and ``missing`` names the part: ``'not_connected'`` when the model has
+    a motor controller and none is connected, whose remedy is the cable;
+    ``'axis_absent'`` when the scope has no such motor -- a Z-only scope
+    asked for X, a scope with no turret asked for one, a manual scope asked
+    for any motion. Nothing was driven. So does a move whose drive needs a
+    position the controller did not report (``'position_unread'``): the
+    relative base, or Z for the backlash approach. Nothing was driven and
+    the axis keeps its state.
 
     A declined request, not a fault, so it is a ``Refusal``: the lane shows
     it as a warning in its own words and logs one line without a
@@ -1872,22 +1876,81 @@ class HardwareCommandRefusedError(Refusal, Exception):
         reason: Machine-readable refusal code.
         member: The member or task that was refused, for the log.
         holder: The kind of activity holding the scope, when known.
+        missing: The part the command needed and the scope does not have,
+            for ``'not_connected'`` and ``'axis_absent'``; None otherwise.
         title: The heading shown with the sentence, which follows the reason:
             nothing connected is not a busy microscope.
     """
 
-    def __init__(self, reason: str, member: str, holder: str | None = None):
-        super().__init__(_command_refused_sentence(reason, holder))
+    def __init__(
+        self,
+        reason: str,
+        member: str,
+        holder: str | None = None,
+        *,
+        missing: 'MissingPart | None' = None,
+    ):
+        if (missing is None) != (reason not in _MISSING_PART_REASONS):
+            raise TypeError(f'a {reason!r} refusal takes missing= exactly when it names a part')
+        if missing is not None and missing.reason != reason:
+            raise TypeError(f'{missing} is refused as {missing.reason!r}, not {reason!r}')
+        super().__init__(
+            missing.sentence if missing is not None else _command_refused_sentence(reason, holder)
+        )
         self.reason = reason
         self.member = member
         self.holder = holder
+        self.missing = missing
         self.title = (
             'Not Connected'
             if reason in ('not_connected', 'scope_disconnected')
+            else 'Not on This Microscope'
+            if reason == 'axis_absent'
             else 'Motor Controller Not Responding'
             if reason == 'position_unread'
             else 'Microscope Busy'
         )
+
+
+class MissingPart(enum.Enum):
+    """The hardware a refused command needed that the scope does not have.
+
+    The refusal's reason and its sentence are the part's, so no raise words
+    its own: the motor controller of a model that has one is not connected,
+    and every other part is not on this scope.
+    """
+
+    MOTOR_CONTROLLER = 'motor controller'
+    MOTORS = 'motors'
+    X = 'X'
+    Y = 'Y'
+    Z = 'Z'
+    TURRET = 'T'
+
+    @classmethod
+    def axis(cls, axis: str) -> 'MissingPart':
+        """The part for a motion axis name, ``'X'``, ``'Y'``, ``'Z'`` or ``'T'``."""
+        return cls(axis)
+
+    @property
+    def reason(self) -> str:
+        return 'not_connected' if self is MissingPart.MOTOR_CONTROLLER else 'axis_absent'
+
+    @property
+    def sentence(self) -> str:
+        if self is MissingPart.MOTOR_CONTROLLER:
+            return (
+                'The motor controller is not connected. Check the USB cable and that '
+                'no other program is holding the port.'
+            )
+        if self is MissingPart.MOTORS:
+            return 'This microscope has no motors.'
+        if self is MissingPart.TURRET:
+            return 'This microscope has no turret.'
+        return f'This microscope has no {self.value} motor.'
+
+
+_MISSING_PART_REASONS = frozenset({'not_connected', 'axis_absent'})
 
 
 _HOLDER_NOUNS = {'protocol': 'A run', 'diagnostic': 'A diagnostic', 'recording': 'A recording'}
@@ -1900,11 +1963,6 @@ def _command_refused_sentence(reason: str, holder: str | None) -> str:
         return 'The activity that sent this command has ended, so the command was not sent.'
     if reason == 'scope_disconnected':
         return 'The microscope has been disconnected, so the command was not sent.'
-    if reason == 'not_connected':
-        return (
-            'The motor controller is not connected. Check the USB cable and that '
-            'no other program is holding the port.'
-        )
     if reason == 'position_unread':
         return (
             'The motor controller did not report the stage position, so the move '

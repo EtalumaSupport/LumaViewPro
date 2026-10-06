@@ -184,9 +184,11 @@ class ProtocolStepRunner:
                 # field firmware without a STOP command. A STOP that failed is
                 # logged once and folded into the run's one fatal popup: the
                 # power-cycle advice has to reach the person, and the run
-                # must still reach ERROR.
+                # must still reach ERROR. Asked first: a controller lost
+                # mid-run has nothing to stop, and its refusal would skip both.
                 try:
-                    p._scope.motion.stop_motion()
+                    if p._scope.motor_connected:
+                        p._scope.motion.stop_motion()
                 except MotorStopFailedError as e:
                     notifications.report_outcome(
                         e, solicited=False, category='Protocol', log_only=True
@@ -595,16 +597,15 @@ class ProtocolStepRunner:
         sliders, manual moves) mid-step.
         """
         p = self._p
-        sx = sy = None
-        if (px is not None) and (py is not None):
-            # Against the plate the PROTOCOL stores, not the one the session
-            # has selected -- a run images the plate it was written for even
-            # if the operator has since picked a different one -- and with
-            # the offset this run started with.
-            sx, sy = p._scope.protocols.plate_to_stage(
-                p._protocol, px, py, stage_offset=p._stage_offset
-            )
-        self._move_to_stage(sx, sy, z)
+        # Through the one conversion a step move takes, so only the axes this
+        # scope has are driven; against the plate the PROTOCOL stores, not
+        # the one the session has selected -- a run images the plate it was
+        # written for even if the operator has since picked a different
+        # one -- and with the offset this run started with.
+        sx, sy, sz = p._scope.protocols.stage_targets(
+            p._protocol, px, py, z, stage_offset=p._stage_offset
+        )
+        self._move_to_stage(sx, sy, sz)
 
     def _move_to_stage(self, sx: float | None, sy: float | None, z: float | None) -> None:
         """Move each given axis to its stage target, X then Y then Z, and record it."""

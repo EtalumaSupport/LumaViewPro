@@ -163,8 +163,9 @@ void main (void) {
             # window rebuilds this from the OS modifier state on every key
             # event, so there is nothing to go stale.
             if 'ctrl' in Window.modifiers:
-                # Focus control -- accumulate scroll ticks, debounce into single move
-                if ctx.session.controls_locked:
+                # Focus control -- accumulate scroll ticks, debounce into single
+                # move. Not offered on a scope with no Z motor.
+                if ctx.session.controls_locked or not ctx.scope.capabilities.has_focus:
                     return
 
                 # The tick records only the gesture: its direction, how fast

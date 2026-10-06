@@ -6,14 +6,20 @@ saved beyond this scope's travel then images the wrong place, and the log
 cannot tell that from a step that went where it was told.
 
 These tests drive the real ``MotionAPI._move_absolute_impl``. The gate
-raises before ``_pre_drive``, so the object needs only the two attributes
-the path reads on the way there -- reimplementing the check in the test
+raises before ``_pre_drive``, so the object needs only the attributes the
+path reads on the way there -- reimplementing the check in the test
 would pass whether or not the production wiring exists.
 """
 
+from types import SimpleNamespace
+
 import pytest
 
-from modules.exceptions import AxisStateUnknownError, PositionOutOfRangeError
+from modules.exceptions import (
+    AxisStateUnknownError,
+    HardwareCommandRefusedError,
+    PositionOutOfRangeError,
+)
 from modules.lumascope_api.motion import MotionAPI
 
 
@@ -42,8 +48,12 @@ def api():
     # get_axis_limits is the seam the gate reads; _driver is a read-only
     # property, so the stub goes at the call the gate actually makes.
     motion.get_axis_limits = lambda axis: LIMITS.get(axis)
-    # Sized to the present axes; the gate sits just after this check.
-    motion._arrival_events = dict.fromkeys(('X', 'Y', 'Z', 'T'))
+    # A connected controller with every axis: the presence question passes.
+    motion._scope = SimpleNamespace(
+        motor_connected=True,
+        motion_expected=True,
+        capabilities=SimpleNamespace(axes=('X', 'Y', 'Z', 'T')),
+    )
 
     def _reached(axis, force=False):
         raise _ReachedPreDriveError(axis)
@@ -140,12 +150,14 @@ def test_ignore_limits_still_bypasses(api):
         api._move_absolute_impl('X', 999999.0, ignore_limits=True)
 
 
-def test_an_absent_axis_is_still_a_silent_no_op(api):
-    """The present-axis check precedes the gate, so a Z-only scope does not
-    start refusing the moves it used to ignore."""
-    del api._arrival_events['X']
+def test_an_absent_axis_is_refused_before_its_travel_is_judged(api):
+    """A Z-only scope says it has no X, not that the target is outside X's travel."""
+    api._scope.capabilities.axes = ('Z',)
 
-    api._move_absolute_impl('X', 999999.0)
+    with pytest.raises(HardwareCommandRefusedError) as caught:
+        api._move_absolute_impl('X', 999999.0)
+
+    assert caught.value.reason == 'axis_absent'
 
 
 def test_axis_state_unknown_is_a_separate_failure():
@@ -176,6 +188,12 @@ def turret():
         raise _ReachedPreDriveOnTurretError(axis)
 
     motion._pre_drive = _reached
+    # A connected controller with every axis: the presence question passes.
+    motion._scope = SimpleNamespace(
+        motor_connected=True,
+        motion_expected=True,
+        capabilities=SimpleNamespace(axes=('X', 'Y', 'Z', 'T')),
+    )
     # Never equal to a slot under test, so the same-position short-circuit
     # cannot be what stops the call.
     motion._last_turret_position = None

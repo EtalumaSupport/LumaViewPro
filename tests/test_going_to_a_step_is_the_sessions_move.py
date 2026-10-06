@@ -28,7 +28,7 @@ import pytest
 from modules.exceptions import AxisStateUnknownError, ConfigError, ProtocolRunRefusedError
 from modules.protocol import Protocol, StepNotFoundError
 from modules.scope_session import ScopeSession
-from tests.ast_seams import REPO_ROOT, parse_module
+from tests.ast_seams import REPO_ROOT, parse_module, production_modules, walk_defs
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
@@ -259,6 +259,27 @@ class TestOneTargetComputation:
     def test_the_session_converts_no_plate_coordinate_itself(self):
         called = self._called_attrs(parse_module('modules/scope_session.py'))
         assert 'plate_to_stage' not in called
+
+    def test_only_the_one_conversion_converts_a_step_position(self):
+        # stage_targets decides which axes a step move drives; a step mover
+        # converting through plate_to_stage itself would drive X and Y on a
+        # scope without them, as default_move did.
+        callers = [
+            f'{rel}::{qualname}'
+            for rel, tree in production_modules()
+            for qualname, fn in walk_defs(tree.body)
+            for node in ast.walk(fn)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == 'plate_to_stage'
+            and (
+                (isinstance(node.func.value, ast.Attribute) and node.func.value.attr == 'protocols')
+                or (isinstance(node.func.value, ast.Name) and node.func.value.id == 'self')
+            )
+        ]
+        assert set(callers) == {'modules/lumascope_api/protocols.py::ProtocolsAPI.stage_targets'}, (
+            callers
+        )
 
     def test_the_gui_navigation_moves_no_axis_itself(self):
         called = self._called_attrs(parse_module('ui/step_navigation.py'))

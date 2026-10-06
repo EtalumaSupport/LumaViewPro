@@ -19,6 +19,8 @@ reached the user at all. Measured: of nine refusals in that session,
 four produced no popup.
 """
 
+from types import SimpleNamespace
+
 import pytest
 
 from modules.exceptions import PositionOutOfRangeError
@@ -38,7 +40,12 @@ LIMITS = {'X': {'min': 0.0, 'max': 80000.0}, 'Y': {'min': 0.0, 'max': 80000.0}, 
 def api():
     motion = MotionAPI.__new__(MotionAPI)
     motion.get_axis_limits = lambda axis: LIMITS.get(axis)
-    motion._arrival_events = dict.fromkeys(('X', 'Y', 'Z', 'T'))
+    # A connected controller with every axis: the presence question passes.
+    motion._scope = SimpleNamespace(
+        motor_connected=True,
+        motion_expected=True,
+        capabilities=SimpleNamespace(axes=('X', 'Y', 'Z', 'T')),
+    )
 
     def _reached(axis, force=False):
         raise _ReachedPreDriveError(axis)

@@ -179,7 +179,7 @@ class TestTheTravelCheckHandlesNoneFromGetAxisLimits:
         )
         steps = pd.DataFrame([{'Name': 'a', 'X': 0.0, 'Y': 0.0, 'Z': 20000.0, 'Auto_Focus': False}])
         with pytest.raises(ProtocolRunRefusedError):
-            api.refuse_unreachable_positions(steps, 'unused')
+            api.refuse_positions_outside_travel(steps, 'unused')
         assert api._refuse.call_args.kwargs['reason'] == 'positions_outside_travel', (
             'the None (no-limits) T axis must be skipped, not crash the check, '
             'and Z must still be judged'

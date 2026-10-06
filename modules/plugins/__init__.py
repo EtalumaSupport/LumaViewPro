@@ -47,7 +47,7 @@ ENTRY_POINT_GROUP = 'lvp.plugins'
 # fail mid-use. A host change the plugin must follow raises the value
 # here, in the same commit, to the plugin version that follows it.
 MINIMUM_PLUGIN_VERSIONS = {
-    'etaluma_engineering': '1.0.14',
+    'etaluma_engineering': '1.0.29',
 }
 
 # What this LumaViewPro does that a plugin may rely on, within its major

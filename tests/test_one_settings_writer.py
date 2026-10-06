@@ -13,7 +13,12 @@ import threading
 import numpy as np
 import pytest
 
-from modules.exceptions import AccelerationLimitRefusedError, Refusal, SettingRefusedError
+from modules.exceptions import (
+    AccelerationLimitRefusedError,
+    HardwareCommandRefusedError,
+    Refusal,
+    SettingRefusedError,
+)
 from modules.protocol import ProtocolScheduleRefusedError
 from modules.scope_session import ScopeSession
 from tests.installation_fixtures import copy_installation_files
@@ -193,12 +198,13 @@ def test_an_acceleration_out_of_range_is_a_refusal_not_a_fault(session):
     assert '250' in str(refused.value) and '1 to 100' in str(refused.value)
 
 
-def test_an_acceleration_out_of_range_is_refused_with_no_motor_controller(session, monkeypatch):
-    monkeypatch.setattr(type(session.scope), 'motor_connected', property(lambda self: False))
+def test_an_acceleration_with_no_motor_controller_is_refused_and_not_stored(session, monkeypatch):
     session.set_acceleration_limit(37)
-    assert session.settings['motion']['acceleration_max_pct'] == 37
-    with pytest.raises(ValueError):
-        session.set_acceleration_limit(500)
+    monkeypatch.setattr(type(session.scope), 'motor_connected', property(lambda self: False))
+    for val_pct in (60, 500):
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            session.set_acceleration_limit(val_pct)
+        assert refused.value.reason == 'not_connected'
     assert session.settings['motion']['acceleration_max_pct'] == 37
 
 

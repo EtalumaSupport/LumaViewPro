@@ -258,8 +258,12 @@ class XYStageControl(BoxLayout):
         if not scope.capabilities.has_xy_stage:
             return None
         x_target = scope.motion.get_target_position('X')
-        x_target = np.clip(x_target, 0, scope.motion.get_axis_limits('X')['max'])
         y_target = scope.motion.get_target_position('Y')
+        # After disconnect() the null board is installed and there is no
+        # target to show; a position listener can still tick here then.
+        if x_target is None or y_target is None:
+            return None
+        x_target = np.clip(x_target, 0, scope.motion.get_axis_limits('X')['max'])
         y_target = np.clip(y_target, 0, scope.motion.get_axis_limits('Y')['max'])
         return (x_target, y_target)
 
@@ -441,11 +445,7 @@ class XYStageControl(BoxLayout):
         if ctx.session.controls_locked:
             return
         logger.info('[LVP Main  ] XYStageControl.home()')
-
-        if ctx.lumaview.scope.motor_connected:  # motor controller is actively connected
-            # The home's display shows every axis, the turret included:
-            # the firmware's home returns the turret to position 1.
-            run_reported(lambda: move_home(axis='ALL'), None, 'HOME_XY')
-
-        else:
-            logger.warning('[LVP Main  ] Motion controller not available.')
+        # The home's display shows every axis, the turret included: the
+        # firmware's home returns the turret to position 1. With no motor
+        # controller the home's own refusal is what the person is shown.
+        run_reported(lambda: move_home(axis='ALL'), None, 'HOME_XY')

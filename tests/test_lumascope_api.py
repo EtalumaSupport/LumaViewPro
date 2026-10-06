@@ -726,50 +726,6 @@ class TestPerAxisDictsFromDriver:
         assert scope.motion._arrival_events == {}
         assert scope.motion._move_profile == {}
 
-    def test_move_absolute_on_absent_axis_is_silent_noop_rule_8(self):
-        """Rule 8: API silently no-ops for absent axes. An LS820 user
-        calling move_absolute('X', 0) gets a silent no-op, not
-        a ValueError or HardwareError, regardless of whether they thought
-        to call has_axis() first."""
-        scope = build_scope(simulate=True)
-        scope._motion_driver.detect_present_axes = lambda: ['Z']
-        present = scope._motion_driver.detect_present_axes()
-        scope.motion._pos_cache = dict.fromkeys(present, 0.0)
-        scope.motion._axis_state = dict.fromkeys(present, AxisState.UNKNOWN)
-        scope.motion._arrival_events = {ax: threading.Event() for ax in present}
-        for ev in scope.motion._arrival_events.values():
-            ev.set()
-        scope.motion._move_profile = dict.fromkeys(present)
-
-        scope.motion.move_absolute('X', 100)
-        scope.motion.move_absolute('Y', 100)
-        # T is not an absent axis to no-op: the generic door refuses the
-        # turret on every scope, because the turret moves only by slot.
-        with pytest.raises(ValueError, match='move_turret'):
-            scope.motion.move_absolute('T', 0)
-        assert 'X' not in scope.motion._pos_cache
-        assert 'Y' not in scope.motion._pos_cache
-        assert 'T' not in scope.motion._pos_cache
-
-        scope.motion.move_relative('X', 50)
-        assert 'X' not in scope.motion._pos_cache
-
-    def test_move_on_null_motor_is_silent_noop_rule_8(self):
-        """Same Rule 8 contract on a system with NO motor hardware at
-        all (NullMotionBoard). Pre-B4 behavior was silent no-op via
-        VALID_AXES validation passing through to NullMotionBoard.move_abs_pos
-        no-op -- this contract must be preserved."""
-        scope = build_scope(simulate=True)
-        scope._motion_driver = NullMotionBoard()
-        scope.motion._pos_cache = {}
-        scope.motion._axis_state = {}
-        scope.motion._arrival_events = {}
-        scope.motion._move_profile = {}
-
-        scope.motion.move_absolute('Z', 100)
-        scope.motion.move_absolute('X', 0)
-        scope.motion.move_relative('Z', 10)
-
     def test_move_with_invalid_axis_name_still_raises(self):
         """Input sanity check still rejects non-axis names. _VALID_AXIS_NAMES
         is the input vocabulary; axes_present() is the capability query."""

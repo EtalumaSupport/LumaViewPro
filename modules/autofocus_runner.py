@@ -476,9 +476,11 @@ class AutofocusRunner:
                 # so the user / protocol sees the state they started from.
                 # _af_in_progress clears LAST so any caller polling
                 # AFE.in_progress() does not race ahead before restoration
-                # finishes.
+                # finishes. Asked first: a controller lost mid-sweep has no
+                # precision to restore.
                 try:
-                    self._scope.motion.set_precision_mode('Z', True)
+                    if self._scope.motor_connected:
+                        self._scope.motion.set_precision_mode('Z', True)
                 except Exception:
                     logger.debug('[AF] precision restore in finally failed', exc_info=True)
                 # A run that chose a focus leaves the stage standing there; one
