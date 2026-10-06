@@ -687,10 +687,11 @@ class AutofocusRunner:
         while True:
             # accept_dark: AF consumes focus scores, not saved truth,
             # and a hard dark-reject mid-sweep would stall the scan; the
-            # mean-intensity retry below handles dark frames.
-            image = self._scope.imaging.capture_and_wait(
-                accept_dark=True, exclude_sources=('z_move',)
-            )
+            # mean-intensity retry below handles dark frames. The Z move is
+            # waited out like any other change: a frame already on its way
+            # when the move went out shows the previous step's Z, and its
+            # score would be recorded at this one.
+            image = self._scope.imaging.capture_and_wait(accept_dark=True)
             count += 1
             if isinstance(image, np.ndarray):
                 break
@@ -712,9 +713,7 @@ class AutofocusRunner:
         mean_intensity = float(np.mean(image))
         if mean_intensity < 1.0:
             _af_log.warning(f'  DARK FRAME: mean={mean_intensity:.2f}, retrying')
-            retry = self._scope.imaging.capture_and_wait(
-                accept_dark=True, exclude_sources=('z_move',)
-            )
+            retry = self._scope.imaging.capture_and_wait(accept_dark=True)
             if isinstance(retry, np.ndarray):
                 image = retry
 

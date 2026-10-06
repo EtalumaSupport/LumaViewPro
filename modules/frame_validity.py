@@ -30,8 +30,10 @@ Usage:
     # ... Z arrives at target, settle check returns True ...
     fv.frames_until_valid()                # Returns 0 -- next frame is valid
 
-Autofocus can exclude Z motion from validity checks since a slightly
-defocused frame still produces a valid focus score:
+Excluding a source asks whether the frame is valid ignoring that change,
+so the frame can predate it: fit for showing a frame during motion, never
+for one that is measured or recorded (autofocus waits out each Z move, or a
+step's score would be the previous step's):
     fv.is_valid_for(exclude_sources=('z_move',))
 """
 
@@ -84,7 +86,7 @@ class FrameValidity:
         'gain': 2,  # Camera gain change (measured: 2 on a2A3536)
         'exposure': 3,  # Camera exposure time change (measured: 3 on a2A3536)
         'xy_move': 2,  # X or Y axis movement
-        'z_move': 2,  # Z axis movement (autofocus may exclude this)
+        'z_move': 2,  # Z axis movement
         'turret': 2,  # Turret rotation
         # Frames for hardware continuous auto-gain to settle against the lit
         # scene after arming. Like led/gain/exposure this is an instrumentation
@@ -393,7 +395,7 @@ class FrameValidity:
     def is_valid_for(self, exclude_sources: tuple = ()) -> bool:
         """True if valid, ignoring specified sources.
 
-        Useful for autofocus which can accept frames during Z motion:
+        The frame can predate an excluded change: see the module docstring.
             fv.is_valid_for(exclude_sources=('z_move',))
         """
         with self._lock:

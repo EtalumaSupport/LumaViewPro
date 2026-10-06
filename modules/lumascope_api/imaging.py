@@ -2796,8 +2796,9 @@ class ImagingAPI:
 
         Args:
             force_to_8bit: Convert to 8-bit output.
-            exclude_sources: Sources to ignore for validity (e.g. ('z_move',)
-                for autofocus where Z motion doesn't need to fully settle).
+            exclude_sources: Sources to ignore for validity, e.g. ('z_move',).
+                The frame returned can predate an excluded change, so a
+                frame that is measured or recorded never excludes one.
             all_ones_check: Reject all-max-value frames (camera hardware issue).
             accept_dark: Caller-intent override for the derived dark-floor
                 expectation. The capture derives whether illumination is

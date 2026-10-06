@@ -1455,7 +1455,8 @@ image = scope.imaging.capture_and_wait(
                                            # sum is uint16 on every camera and
                                            # saturates at 65535
     sum_delay_s=0.05,                      # delay between sum frames
-    exclude_sources=('z_move',),           # don't wait for this source (AF uses this)
+    exclude_sources=(),                    # sources not to wait for; the frame can then
+                                           # predate that change (see Frame validity)
 )
 
 # Exposure (milliseconds) + gain (dB)
@@ -1806,7 +1807,7 @@ turret     — turret move
 
 Each source has its own skip count in `FrameValidity.SKIP_FRAMES`; `invalidate()` raises `ValueError` for a source with no count rather than settling it on a count nobody chose.
 
-When you need to capture *during* a source's active motion (e.g., autofocus captures while Z is moving), pass that source to `exclude_sources` in `capture_and_wait()`.
+`exclude_sources` in `capture_and_wait()` skips the wait for a source, so the frame returned can predate that source's change -- a frame already on its way when the change went out. That fits a frame you only show; never pass it for a frame you measure or record. Autofocus waits out each Z move. Earlier builds, the 4.0.0 beta included, excluded `z_move`, so a step could score the previous step's frame at its own Z. Each sweep step now costs the `z_move` count (2 frames) after its move.
 
 ---
 

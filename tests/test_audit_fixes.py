@@ -4040,8 +4040,9 @@ class TestFrameValidity_AutofocusDrainsBeforeScore:
     """AutofocusRunner's scan loop must drain LED/gain/exposure-pending
     frames before scoring. Bare get_image after Z arrival can score on a
     mid-LED-warmup or mid-gain-change frame, corrupting the focus curve
-    and landing the wrong best-Z. AF excludes z_move because AF is the
-    controller of Z moves; once is_moving() reports idle, Z is settled."""
+    and landing the wrong best-Z. Z's own move is drained too: is_moving()
+    reporting idle says the stage stopped, not that the next frame was made
+    after it did."""
 
     def _drive_full_af(self, monkeypatch):
         from tests.af_drives import af_runner_and_scope, drive_af
@@ -4066,16 +4067,16 @@ class TestFrameValidity_AutofocusDrainsBeforeScore:
             'bypasses frame_validity. Route through capture_and_wait.'
         )
 
-    def test_iterate_excludes_z_move_in_validity(self, monkeypatch):
-        """AF excludes z_move because is_moving() already gates motion; the
-        drain is for LED/gain/exposure transitions only."""
+    def test_iterate_waits_out_every_source_z_move_included(self, monkeypatch):
+        """AF excluded z_move, so a frame already on its way when a step's
+        move went out was scored at the new Z (the load census, 2026-10-06:
+        the sweep's peak step scored the step before's frame)."""
         scope, _ = self._drive_full_af(monkeypatch)
         grabs = scope.imaging.capture_and_wait.call_args_list
         assert grabs, 'the drive must reach the camera'
         for grab in grabs:
-            assert grab.kwargs.get('exclude_sources') == ('z_move',), (
-                "every AF grab must pass exclude_sources=('z_move',) since "
-                f'is_moving() already gates motion; got {grab}'
+            assert not grab.kwargs.get('exclude_sources'), (
+                f'an AF grab must wait out every pending source; got {grab}'
             )
 
 
