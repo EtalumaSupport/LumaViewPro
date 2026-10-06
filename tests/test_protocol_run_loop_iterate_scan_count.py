@@ -131,7 +131,12 @@ def test_scan_pacing_waits_on_monotonic_period():
         mock.patch(
             'modules.protocol_run_loop._schedule_ui', lambda cb, *a, **k: deferred.append(cb)
         ),
-        mock.patch('modules.protocol_run_loop.time.sleep', _abort_on_sleep),
+        # The loop's own name for time, not the time module, which every
+        # thread in the process shares.
+        mock.patch(
+            'modules.protocol_run_loop.time',
+            SimpleNamespace(monotonic=time.monotonic, sleep=_abort_on_sleep),
+        ),
     ):
         loop._run_loop_inner(PendingRunOutcome())
 

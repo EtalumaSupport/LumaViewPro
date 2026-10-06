@@ -9,8 +9,10 @@ the top-level update_firmware orchestrator.
 """
 
 import json
+import time
 import pytest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
 from drivers.firmware_updater import (
@@ -29,6 +31,11 @@ from drivers.firmware_updater import (
     UpdateResult,
     UpdateStage,
 )
+
+# The updater's own name for time, with sleeps that return at once. Patching
+# time.sleep through it would replace the time module's sleep for every
+# thread in the process.
+_NO_WAIT_TIME = SimpleNamespace(time=time.time, sleep=lambda _s: None)
 
 
 # ---------------------------------------------------------------------------
@@ -459,9 +466,9 @@ class TestUpdateFirmwareSameVersion:
 
 
 class TestUpdateFirmwareBootselAbort:
-    @patch('drivers.firmware_updater.time.sleep')
+    @patch('drivers.firmware_updater.time', _NO_WAIT_TIME)
     @patch('drivers.firmware_updater._detect_bootsel_drive', return_value=Path('/Volumes/RPI-RP2'))
-    def test_existing_bootsel_aborts(self, mock_bootsel, mock_sleep, tmp_path):
+    def test_existing_bootsel_aborts(self, mock_bootsel, tmp_path):
         """Pre-existing BOOTSEL drive causes immediate abort."""
         uf2 = tmp_path / 'motor_firmware_v2.0.0.uf2'
         uf2.write_bytes(b'\x00' * 1024)
@@ -497,9 +504,9 @@ class TestProgressCallback:
         # Should not raise
         _report_progress(cb, UpdateStage.PREFLIGHT, 'hello', 0.5)
 
-    @patch('drivers.firmware_updater.time.sleep')
+    @patch('drivers.firmware_updater.time', _NO_WAIT_TIME)
     @patch('drivers.firmware_updater._detect_bootsel_drive', return_value=Path('/Volumes/RPI-RP2'))
-    def test_callback_called_on_error(self, mock_bootsel, mock_sleep, tmp_path):
+    def test_callback_called_on_error(self, mock_bootsel, tmp_path):
         """Progress callback receives FAILED stage on error."""
         cb = Mock()
         uf2 = tmp_path / 'motor_firmware_v2.0.0.uf2'
@@ -516,9 +523,9 @@ class TestProgressCallback:
         assert UpdateStage.PREFLIGHT in stages
         assert UpdateStage.FAILED in stages
 
-    @patch('drivers.firmware_updater.time.sleep')
+    @patch('drivers.firmware_updater.time', _NO_WAIT_TIME)
     @patch('drivers.firmware_updater._detect_bootsel_drive', return_value=Path('/Volumes/RPI-RP2'))
-    def test_exception_in_callback_does_not_break_update(self, mock_bootsel, mock_sleep, tmp_path):
+    def test_exception_in_callback_does_not_break_update(self, mock_bootsel, tmp_path):
         """Even if progress callback raises, update_firmware still returns result."""
         cb = Mock(side_effect=RuntimeError('callback broke'))
         uf2 = tmp_path / 'motor_firmware_v2.0.0.uf2'
@@ -552,9 +559,9 @@ class TestUpdateErrorDataclass:
 
 
 class TestUpdateFirmwareMissingUf2:
-    @patch('drivers.firmware_updater.time.sleep')
+    @patch('drivers.firmware_updater.time', _NO_WAIT_TIME)
     @patch('drivers.firmware_updater._detect_bootsel_drive', return_value=None)
-    def test_missing_uf2_file(self, mock_bootsel, mock_sleep, tmp_path):
+    def test_missing_uf2_file(self, mock_bootsel, tmp_path):
         """Non-existent UF2 file returns error result."""
         result = update_firmware(
             board_type=BoardType.MOTOR,
@@ -566,9 +573,9 @@ class TestUpdateFirmwareMissingUf2:
 
 
 class TestUpdateFirmwareTooSmallUf2:
-    @patch('drivers.firmware_updater.time.sleep')
+    @patch('drivers.firmware_updater.time', _NO_WAIT_TIME)
     @patch('drivers.firmware_updater._detect_bootsel_drive', return_value=None)
-    def test_tiny_uf2(self, mock_bootsel, mock_sleep, tmp_path):
+    def test_tiny_uf2(self, mock_bootsel, tmp_path):
         """UF2 file under 512 bytes is rejected."""
         uf2 = tmp_path / 'motor_firmware_v1.0.0.uf2'
         uf2.write_bytes(b'\x00' * 100)

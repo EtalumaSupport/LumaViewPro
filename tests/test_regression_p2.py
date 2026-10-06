@@ -10,6 +10,8 @@ Tests that the following bugs stay fixed:
 """
 
 import datetime
+import time
+from types import SimpleNamespace
 import sys
 import threading
 from unittest.mock import MagicMock, patch
@@ -305,7 +307,9 @@ class TestSerialErrorRateLimiting:
 
         with (
             patch.object(serialboard, '_serial_log', mock_log),
-            patch.object(serialboard.time, 'monotonic', mock_time),
+            patch.object(
+                serialboard, 'time', SimpleNamespace(monotonic=mock_time, sleep=time.sleep)
+            ),
         ):
             # First error at t=0
             mock_time.return_value = 100.0

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import threading
 import time
+from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 
 import ids_peak_ipl
@@ -29,6 +30,15 @@ from drivers.idscamera import (
     ids_significant_bits,
 )
 from tests.camera_fakes import bare_ids_camera
+
+
+def _time_at(now):
+    """The driver's own name for time, its clock stopped at ``now``.
+
+    Patching time.monotonic through it would stop the clock of every thread
+    in the process.
+    """
+    return SimpleNamespace(monotonic=lambda: now, perf_counter=time.perf_counter, sleep=time.sleep)
 
 
 class _RecordingNode:
@@ -573,7 +583,7 @@ class TestSustainedStallPresenceProbe:
         ds = MagicMock()
         h = _ids_handler(ds)
         h._parent._probe_device_presence.return_value = probe_returns
-        with patch('drivers.idscamera.time.monotonic', return_value=base):
+        with patch('drivers.idscamera.time', _time_at(base)):
             h._handle_wait_error(RuntimeError('WaitForFinishedBuffer timeout'))
         # First timeout only arms the stall clock; it never probes.
         h._parent._probe_device_presence.assert_not_called()
@@ -581,7 +591,7 @@ class TestSustainedStallPresenceProbe:
         return h
 
     def _timeout_at(self, h, when):
-        with patch('drivers.idscamera.time.monotonic', return_value=when):
+        with patch('drivers.idscamera.time', _time_at(when)):
             return h._handle_wait_error(RuntimeError('timeout'))
 
     def test_first_timeout_arms_without_probing(self):
@@ -699,7 +709,7 @@ class TestSustainedStallPresenceProbe:
         h._stall_started = 100.0
         alive = type('AliveThread', (), {'is_alive': lambda self: True})()
         h._poll_thread = alive
-        with patch('drivers.idscamera.time.monotonic', return_value=112.0):
+        with patch('drivers.idscamera.time', _time_at(112.0)):
             assert h.stall_age_s() == 12.0
 
     def test_a_present_reading_resets_the_absence_streak(self):
@@ -1533,7 +1543,13 @@ class TestOpenControlRetry:
     def _no_sleep(self, monkeypatch):
         from drivers import idscamera
 
-        monkeypatch.setattr(idscamera.time, 'sleep', lambda _s: None)
+        monkeypatch.setattr(
+            idscamera,
+            'time',
+            SimpleNamespace(
+                monotonic=time.monotonic, perf_counter=time.perf_counter, sleep=lambda _s: None
+            ),
+        )
 
     def test_denial_then_success_retries(self, monkeypatch):
         self._no_sleep(monkeypatch)

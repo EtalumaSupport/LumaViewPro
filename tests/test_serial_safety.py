@@ -13,6 +13,7 @@ Tests the fixes in ledboard.py and motorboard.py for:
 import pytest
 import threading
 import time
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch, PropertyMock
 import serial
 
@@ -1618,7 +1619,11 @@ class TestSilentBoardHandling:
         contribute nothing to a mock-driver test."""
         import drivers.serialboard
 
-        monkeypatch.setattr(drivers.serialboard.time, 'sleep', lambda _: None)
+        monkeypatch.setattr(
+            drivers.serialboard,
+            'time',
+            SimpleNamespace(monotonic=time.monotonic, sleep=lambda _: None),
+        )
 
     def _make_silent_board(self):
         """Build an LEDBoard whose serial driver returns zero bytes
