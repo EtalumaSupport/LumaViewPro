@@ -1934,6 +1934,10 @@ caps.camera_binning_sizes       # e.g. (1, 2, 4)
 caps.camera_max_frame_size      # (width, height) unbinned, in pixels: the smallest of the sensor the profile
                                 # documents, the camera's own maximum and the model's (data/scopes.json
                                 # MaxFrame); None if none of them is known
+caps.camera_analog_gain_max_db  # dB: the most gain applied before a digital stage (above it the camera
+                                # multiplies digitised values). The profile's analog maximum, or the camera's
+                                # live maximum where it has no digital stage; None if neither is known.
+                                # The whole range, analog and digital, is scope.imaging.max_gain_db_cached
 # Exposure ceiling: scope.imaging.max_exposure_ms_cached (ms; None if no camera) -- see scope.imaging
 ```
 

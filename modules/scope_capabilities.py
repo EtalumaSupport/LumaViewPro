@@ -240,6 +240,15 @@ class ScopeCapabilities:
     read failed (logged at warning). ``scope.imaging.set_frame_size``
     refuses a frame above it, divided by the binning in force."""
 
+    camera_analog_gain_max_db: float | None
+    """The most gain, in dB, the camera applies before a digital stage:
+    the analog maximum its profile documents, or, for a camera whose
+    profile states no digital stage, the live maximum it reported at
+    connect (all its gain is analog). Above it the camera multiplies
+    digitised values, which raises the noise with the signal. None when
+    neither is known: no camera, a camera with a digital stage and no
+    documented split, or a maximum the connect read did not get."""
+
     is_color_native: bool = False
     """True if the camera natively produces 3-channel color frames
     (Bayer-decoded RGB out of the SDK). False for mono cameras (the
@@ -348,6 +357,7 @@ class ScopeCapabilities:
         camera_pixel_formats: tuple[str, ...] = ()
         camera_binning_sizes: tuple[int, ...] = ()
         camera_max_frame_size: tuple[int, int] | None = None
+        camera_analog_gain_max_db: float | None = None
         is_color_native = False
         native_bit_depth = 16
         camera_supports_conversion_gain_mode = False
@@ -368,6 +378,11 @@ class ScopeCapabilities:
                 native = getattr(profile, 'native_resolution', None)
                 if native:
                     documented = (int(native['width']), int(native['height']))
+                gain = profile.gain
+                if gain.analog_max_db is not None:
+                    camera_analog_gain_max_db = float(gain.analog_max_db)
+                elif not gain.has_digital and gain.total_max_db is not None:
+                    camera_analog_gain_max_db = float(gain.total_max_db)
             size = _probe('camera.get_max_frame_size', lambda: camera.get_max_frame_size(), None)
             reported = (int(size['width']), int(size['height'])) if size else None
             camera_max_frame_size = _smallest_frame(
@@ -419,6 +434,7 @@ class ScopeCapabilities:
             camera_pixel_formats=camera_pixel_formats,
             camera_binning_sizes=camera_binning_sizes,
             camera_max_frame_size=camera_max_frame_size,
+            camera_analog_gain_max_db=camera_analog_gain_max_db,
             is_color_native=is_color_native,
             native_bit_depth=native_bit_depth,
             camera_supports_conversion_gain_mode=camera_supports_conversion_gain_mode,

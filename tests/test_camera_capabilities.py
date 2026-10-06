@@ -18,6 +18,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from drivers.camera import Camera
+from drivers.camera_profiles import GainInfo
 from drivers.fx2driver import FX2Camera
 from drivers.idscamera import IDSCamera
 from drivers.pyloncamera import PylonCamera
@@ -123,6 +124,7 @@ class TestScopeCapabilitiesIntegration:
                 pixel_formats=('Mono8',),
                 binning_sizes=(1,),
                 exposure_max_us=10000,
+                gain=GainInfo(),
             ),
             get_max_frame_size=lambda: {'width': 1024, 'height': 768},
         )
