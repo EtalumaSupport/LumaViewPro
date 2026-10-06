@@ -429,6 +429,14 @@ class TestATravelHold:
         self._arrives(board)
         assert board.current_pos('X') == pytest.approx(5000, abs=1)
 
+    def test_a_home_ends_the_hold(self):
+        board = self._board()
+        self._held(board, axis='Z')
+        board.zhome()
+        assert board.current_pos('Z') == 0
+        # The hold went with the move it held: the axis takes a new one.
+        board.hold_travel('Z').release()
+
     def test_a_hold_is_refused_where_a_move_does_not_travel(self):
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='fast')
         with pytest.raises(ValueError, match='realistic'):
