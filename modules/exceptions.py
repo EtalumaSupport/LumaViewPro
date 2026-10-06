@@ -2140,8 +2140,9 @@ class MoveNotCompletedError(Exception):
             ``'faulted'`` -- something else set the axis UNKNOWN during
             the wait (a disconnect, a home). ``'timed_out'`` -- the wait's
             bound ran out before the axis arrived. Each of those leaves
-            the axis UNKNOWN. ``'stopped'`` -- a stop was issued while it
-            moved; the axis is where the stop left it, which its position
+            the axis UNKNOWN. ``'stopped'`` -- a stop landed on it while it
+            moved, ``stop_motion`` or the stage's own stop in refusing a
+            move; the axis is where the stop left it, which its position
             reports, and a turret is in no known slot. ``'superseded'`` --
             another move on the same axis started before this one arrived;
             the axis is going where that move sent it, and that move's own

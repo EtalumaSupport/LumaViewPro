@@ -1212,7 +1212,8 @@ scope.motion.start_move_relative('Z', 100).wait()
 # from the driver's error), 'stalled' / 'board_lost' (the motion monitor gave
 # the axis up; a waited move raises the very object the monitor reported),
 # 'timed_out' (the wait's bound ran out), 'faulted' (set UNKNOWN by something
-# else during the wait), 'stopped' (stop_motion landed on it), 'superseded'
+# else during the wait), 'stopped' (a stop landed on it: stop_motion, or the
+# stage's own stop in refusing a move), 'superseded'
 # (another move on the same axis started before it arrived; the axis keeps
 # what that move gives it).
 

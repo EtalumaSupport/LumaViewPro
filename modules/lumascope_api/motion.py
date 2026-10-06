@@ -123,7 +123,8 @@ class MoveInFlight:
                 ``'board_lost'``, the motion monitor gave it up;
                 ``'faulted'``, something else set it UNKNOWN; ``'timed_out'``,
                 the motion bound ran out (each of these leaves the axis
-                UNKNOWN); ``'stopped'``, a stop halted it; ``'superseded'``,
+                UNKNOWN); ``'stopped'``, a stop halted it, ``stop_motion``'s
+                or the stage's own in refusing a move; ``'superseded'``,
                 another move on the same axis started before it arrived.
         """
         if self._drive_seq is None:
@@ -422,10 +423,11 @@ class MotionAPI:
 
         Refused before anything moved, the axis keeps the state it had --
         the driver call precedes the MOVING transition -- so its position
-        is still known. An axis the driver stopped in refusing it is MOVING
-        on a move nobody waits for, and the monitor sets it IDLE where it
-        stopped, as after a Stop. A refusal after something moved is not a
-        refusal, and fails the drive as any driver error does.
+        is still known. An axis the driver stopped in refusing it ends
+        where it stopped, as after a Stop: the stop moves the stop
+        generation, so a move waiting on it raises ``'stopped'``, and the
+        monitor sets it IDLE there. A refusal after something moved is not
+        a refusal, and fails the drive as any driver error does.
 
         Raises:
             HardwareCommandRefusedError: the interlock's reason, chained
@@ -433,10 +435,27 @@ class MotionAPI:
             MoveNotCompletedError: ``'driver_failed'``, when the driver says
                 the refused command had moved.
         """
+        self._note_interlock_stop(cause)
         if cause.moved:
             self._fail_drive(axis, cause)
         _api_log.info(f'{member} {axis} REFUSED: {cause.reason}')
         raise HardwareCommandRefusedError(cause.reason, member) from cause
+
+    def _note_interlock_stop(self, cause: MotionInterlockError) -> None:
+        """A stop the stage made in refusing is a Stop: the generation moves
+        as ``_send_stop`` moves it, so every move waiting on an axis the
+        stage halted raises ``'stopped'`` instead of reading the halt as
+        arrival.
+
+        The bump lands once the driver has released its lock, not under
+        ``_stop_lock`` across the exchange as ``_send_stop``'s does, so a
+        waiter the monitor wakes in that gap reads the old generation, and
+        a move that arrived just before the refusal can read the new one:
+        the race ``stop_motion`` already has, not widened in kind.
+        """
+        if cause.stopped:
+            with self._stop_lock:
+                self._stop_generation += 1
 
     def _axis_states(self, axes: Iterable[str]) -> dict[str, str]:
         """The states ``axes`` hold now, read together."""
@@ -773,6 +792,7 @@ class MotionAPI:
         except HomingFailedError:
             raise
         except MotionInterlockError as e:
+            self._note_interlock_stop(e)
             if not e.moved:
                 for ax, state in states_before.items():
                     self._set_axis_state(ax, state)
@@ -1377,6 +1397,7 @@ class MotionAPI:
         except HomingFailedError:
             raise
         except MotionInterlockError as e:
+            self._note_interlock_stop(e)
             if not e.moved:
                 self._set_axis_state('Z', state_before)
                 raise HardwareCommandRefusedError(e.reason, 'home') from e

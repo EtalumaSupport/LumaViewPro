@@ -447,14 +447,18 @@ class Tmcm6110Board:
                 raise HardwareError(f'{", ".join(moving)} still moving {STOP_SETTLE_S} s after MST')
 
     def _refuse_for_lid(self, *, moved: bool) -> NoReturn:
-        """The lid is open: stop all three axes and refuse."""
+        """The lid is open: stop all three axes and refuse.
+
+        The refusal says a stop was tried whether or not it settled, so a
+        move waiting on an axis the stop halted learns it was stopped. An
+        axis still moving at the settle bound is logged and left moving for
+        the monitor to fault, as after a Stop that did not settle.
+        """
         try:
             self._stop(MOTORS)
-            stopped = True
         except HardwareError as e:
             logger.error(f'[TMCM-6110 ] Lid open: the stop did not complete: {e}')
-            stopped = False
-        raise MotionInterlockError('lid_open', moved=moved, stopped=stopped)
+        raise MotionInterlockError('lid_open', moved=moved, stopped=True)
 
     def _refuse_if_lid_open(self, axis: str) -> None:
         """Called under the lock, before a command that starts ``axis``

@@ -10,7 +10,7 @@ Z still moves, and runs a protocol with tiling and a Z-stack.
 import pytest
 
 from drivers.tmcm6110 import Tmcm6110Board
-from modules.exceptions import HardwareCommandRefusedError
+from modules.exceptions import HardwareCommandRefusedError, MoveNotCompletedError
 from tests.scope_fakes import bind_settings_like_a_session, build_scope, record_turret_answer
 from tests.test_integration import (  # noqa: F401 -- the fixtures are used by name
     _make_protocol,
@@ -80,6 +80,35 @@ def test_the_lid_refuses_x_and_y_and_lets_z_move(homed):
     homed.motion.move_absolute('Z', 1_000)
     assert _at(homed, 'Z') == pytest.approx(1_000, abs=0.1)
     assert _at(homed, 'X') == 0.0
+
+
+def _ended(handle):
+    with pytest.raises(MoveNotCompletedError) as raised:
+        handle.wait()
+    return raised.value.reason
+
+
+def test_a_lid_refusal_ends_a_waited_move_on_another_axis_as_a_stop_does(homed):
+    """The stage stops all three axes in refusing an X move for the lid, so
+    a Z move in flight learns it was stopped, as after stop_motion, instead
+    of reading its halt as arrival."""
+    z = homed.motion.start_move_absolute('Z', 8_000)
+    _board(homed).lid_open = True
+    with pytest.raises(HardwareCommandRefusedError):
+        homed.motion.move_absolute('X', 1_000)
+    assert _ended(z) == 'stopped'
+    assert 0 < _at(homed, 'Z') < 8_000
+
+
+def test_a_lid_refused_home_ends_a_waited_move_as_a_stop_does(homed):
+    """A home the lid refuses before it moves anything still stops every
+    axis, and the X move in flight says so."""
+    x = homed.motion.start_move_absolute('X', 100_000)
+    _board(homed).lid_open = True
+    with pytest.raises(HardwareCommandRefusedError):
+        homed.motion.home('Z')
+    assert _ended(x) == 'stopped'
+    assert 0 < _at(homed, 'X') < 100_000
 
 
 def test_a_home_with_the_lid_open_is_refused_and_moves_nothing(homed):

@@ -7,6 +7,7 @@ decoded as on the bench, and the simulated board keeps time, so a move is
 in flight until it arrives.
 """
 
+import logging
 import threading
 import time
 
@@ -281,6 +282,36 @@ def test_an_open_lid_refuses_x_and_stops_all_three(board, sim):
     # The stopped Z stands where it stopped, its target there with it.
     assert board.target_status('Z')
     assert board.current_pos('X') == 0
+
+
+def test_a_lid_refusal_whose_stop_did_not_settle_still_says_a_stop_was_sent(caplog):
+    """An axis that ignores MST leaves the stop unsettled: the refusal is
+    still the lid's, saying the stop was sent, the axis left moving for the
+    monitor to fault, and the unsettled stop logged."""
+    sim = SimulatedTmcm6110(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
+    board = Tmcm6110Board(
+        motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=SimulatedTmcm6110Backend(sim)
+    )
+    try:
+        board.move_abs_pos('Z', 10_000)
+        time.sleep(0.05)
+        sim.ignore_stop('Z')
+        sim.lid_open = True
+        with (
+            caplog.at_level(logging.ERROR, logger='LVP.drivers.tmcm6110'),
+            pytest.raises(MotionInterlockError) as refused,
+        ):
+            board.move_abs_pos('X', 1_000)
+        assert (refused.value.reason, refused.value.moved, refused.value.stopped) == (
+            'lid_open',
+            False,
+            True,
+        )
+        assert any('the stop did not complete' in r.getMessage() for r in caplog.records)
+        assert not board.target_status('Z')
+    finally:
+        sim.ignore_stop('Z', False)
+        board.disconnect()
 
 
 def test_z_moves_with_the_lid_open(board, sim):

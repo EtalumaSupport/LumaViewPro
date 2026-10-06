@@ -30,13 +30,15 @@ class MotionInterlockError(HardwareError):
     lid switch, the stage's power), read on the wire with the command they
     guard. The API turns it into its refusal or its failed home, so it
     carries what the API needs to say which one happened: whether any part
-    of the refused command had already moved, and whether the driver
-    stopped the motors in refusing it.
+    of the refused command had already moved, and whether the driver tried
+    to stop the motors in refusing it.
 
     Attributes:
         reason: ``'lid_open'`` or ``'stage_unpowered'``.
         moved: Whether anything of the refused command had moved.
-        stopped: Whether the driver stopped every motor in refusing it.
+        stopped: Whether the driver sent every motor a stop in refusing it,
+            settled or not; False when no stop was sent, as for a stage
+            without power. The API counts a sent stop as a Stop.
     """
 
     def __init__(self, reason: str, *, moved: bool, stopped: bool):
