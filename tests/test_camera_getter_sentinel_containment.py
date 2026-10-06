@@ -374,7 +374,10 @@ def test_save_camera_state_snapshot_not_poisoned_by_failing_reads():
     # Input half of snapshot poisoning: after a good populate, gain/exposure
     # reads fail; the snapshot must carry the last-known values, not -1 --
     # the old shape restored gain -1 after an autofocus save/restore cycle.
-    imaging = _build_imaging(good_then_failing_driver())
+    # Only these two fail: a failed read of the frame size or format raises.
+    imaging = _build_imaging(
+        steady_good_driver({'get_gain': [12.5, RAISE], 'get_exposure_t': [50.0, RAISE]})
+    )
     snapshot = imaging.save_camera_state('pre-autofocus')
     assert snapshot['gain_db'] == 12.5
     assert snapshot['exposure_ms'] == 50.0
@@ -806,17 +809,22 @@ def test_disconnect_tears_down_temp_logging_schedule():
 
 
 def test_save_camera_state_omits_never_read_fields_and_warns(monkeypatch):
-    # Cold cache, every read fails: the snapshot must carry NO gain/exposure
-    # keys (omit-if-unknown -- the old shape stored gain -1 and a later
-    # restore drove the sentinel back toward the camera), and a WARNING
-    # names each omitted field at SAVE time.
-    imaging = _build_imaging(all_reads_fail_driver())
+    # Cold cache, gain and exposure reads fail: the snapshot must carry NO
+    # gain/exposure keys (omit-if-unknown -- the old shape stored gain -1 and
+    # a later restore drove the sentinel back toward the camera), and a
+    # WARNING names each omitted field at SAVE time.
+    imaging = _build_imaging(steady_good_driver({'get_gain': [RAISE], 'get_exposure_t': [RAISE]}))
     warnings = []
     monkeypatch.setattr('modules.lumascope_api.imaging.logger', _recording_logger(warnings))
 
     snapshot = imaging.save_camera_state('t')
 
-    assert snapshot == {'tag': 't', 'auto_gain_arm': None}
+    assert snapshot == {
+        'tag': 't',
+        'auto_gain_arm': None,
+        'frame_size': {'width': 1936, 'height': 1216},
+        'pixel_format': 'Mono12',
+    }
     save_warnings = [w for w in warnings if 'save_camera_state' in w]
     assert len(save_warnings) == 2, save_warnings
     assert any('gain' in w for w in save_warnings)
@@ -830,7 +838,14 @@ def test_save_camera_state_carries_both_fields_without_warning(monkeypatch):
 
     snapshot = imaging.save_camera_state('t')
 
-    assert snapshot == {'tag': 't', 'gain_db': 12.5, 'exposure_ms': 50.0, 'auto_gain_arm': None}
+    assert snapshot == {
+        'tag': 't',
+        'gain_db': 12.5,
+        'exposure_ms': 50.0,
+        'auto_gain_arm': None,
+        'frame_size': {'width': 1936, 'height': 1216},
+        'pixel_format': 'Mono12',
+    }
     assert warnings == []
 
 

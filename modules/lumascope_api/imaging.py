@@ -300,6 +300,38 @@ _REJECTED_VALUE_WORDS = {
     'black_level': _rejected_black_level_words,
 }
 
+# The camera settings a restore puts back beyond gain and exposure, in the
+# order it writes them: a binning write resets the frame, and the black
+# level's range is the pixel format's.
+_GEOMETRY_ORDER = ('binning', 'frame_size', 'pixel_format', 'black_level')
+
+# Each live-read setting's noun, driver read, validity check and coercion.
+_LIVE_SETTING_READS = {
+    'binning': (
+        'binning',
+        lambda driver: driver.get_binning_size(),
+        common_utils.is_valid_binning_size,
+        int,
+    ),
+    'frame_size': (
+        'frame size',
+        lambda driver: driver.get_frame_size(),
+        common_utils.is_valid_frame_size,
+        lambda v: {'width': int(v['width']), 'height': int(v['height'])},
+    ),
+    'pixel_format': (
+        'pixel format',
+        lambda driver: driver.get_pixel_format(),
+        common_utils.is_valid_pixel_format,
+        str,
+    ),
+}
+
+
+def _describe_geometry(snapshot: dict) -> str:
+    """The snapshot's settings beyond gain and exposure, for the log."""
+    return ' '.join(f'{key}={snapshot[key]}' for key in _GEOMETRY_ORDER if key in snapshot)
+
 
 # Per Firmware/docs/PERFORMANCE_BUDGETS.md plugin_live_processing_handler_ms
 # row + WAVE7_PHASE_4D5_PLAN sec 9 alignment 2026-05-19. Budget anchors to
@@ -4067,7 +4099,7 @@ class ImagingAPI:
 
     # --- Save / restore ---
     def save_camera_state(self, tag: str) -> dict:
-        """Snapshot the camera's gain, exposure and auto-gain arm for restoration.
+        """Snapshot every camera setting with a getter, for restoration.
 
         Omit-if-unknown: a field enters the snapshot only when a usable
         value exists (the getters answer last-known-good, so a missing
@@ -4078,13 +4110,24 @@ class ImagingAPI:
         its step-end disarm otherwise leaves the loop off while the layer
         toggle shows on, until a slider write happens to re-arm it.
 
+        With a camera active the snapshot also holds its frame size and
+        pixel format, its binning where it offers more than one size, and its
+        black level where that can be set (``capabilities``). These are read
+        live, and a failed read raises: the camera cannot report its own
+        setting, and a restore that left it out would leave the scope changed
+        without saying so.
+
         Args:
             tag: Descriptive name for the snapshot (for logging).
 
         Returns:
             dict: Snapshot suitable for passing to ``restore_camera_state``.
+
+        Raises:
+            HardwareError: A setting the camera offers could not be read.
         """
         snapshot = {'tag': tag}
+        snapshot.update(self._camera_geometry_now())
         gain_db = self.get_gain_db()
         if common_utils.is_valid_gain_db(gain_db):
             snapshot['gain_db'] = gain_db
@@ -4115,12 +4158,48 @@ class ImagingAPI:
             f'save_camera_state tag={tag}: '
             f'gain={snapshot.get("gain_db", "never-read")} '
             f'exp={snapshot.get("exposure_ms", "never-read")} '
-            f'arm={snapshot["auto_gain_arm"] is not None}'
+            f'arm={snapshot["auto_gain_arm"] is not None} '
+            f'{_describe_geometry(snapshot)}'
         )
         return snapshot
 
+    def _camera_geometry_now(self) -> dict:
+        """The camera's restorable settings beyond gain and exposure, read live.
+
+        Empty when no camera is active. Binning appears only where the camera
+        offers more than one size, the black level only where it can be set.
+
+        Raises:
+            HardwareError: A setting the camera offers could not be read.
+        """
+        driver = self._driver
+        if not driver or not driver.active:
+            return {}
+        caps = self._scope.capabilities
+        now = {key: self._read_setting_live(key) for key in ('frame_size', 'pixel_format')}
+        if len(caps.camera_binning_sizes) > 1:
+            now['binning'] = self._read_setting_live('binning')
+        if caps.camera_supports_black_level:
+            black_level = self.get_black_level()
+            if black_level is None:
+                raise HardwareError("The camera's black level could not be read")
+            now['black_level'] = black_level
+        return now
+
+    def _read_setting_live(self, key: str) -> object:
+        """One live read of a restorable camera setting.
+
+        Raises:
+            HardwareError: The read failed or answered the driver's sentinel.
+        """
+        noun, reader, is_valid, coerce = _LIVE_SETTING_READS[key]
+        value = self._live_validated_read(key, reader, is_valid, coerce)
+        if value is None:
+            raise HardwareError(f"The camera's {noun} could not be read")
+        return value
+
     def restore_camera_state(self, snapshot: dict) -> None:
-        """Restore camera gain, exposure and auto-gain arm from a saved state, and wait.
+        """Restore every camera setting a saved state holds, and wait.
 
         See ``_restore_camera_state_impl`` for the contract; this adds the
         dispatch described on ``_dispatch_camera``, so the restore is one
@@ -4138,7 +4217,12 @@ class ImagingAPI:
         )
 
     def _restore_camera_state_impl(self, snapshot: dict) -> None:
-        """Restore camera gain, exposure and auto-gain arm from a saved state.
+        """Restore every camera setting a saved state holds.
+
+        The binning, frame size, pixel format and black level go back first,
+        in ``_GEOMETRY_ORDER``, each only where it differs from the camera's
+        value now: an unchanged frame size, format or binning write would
+        restart grabbing for nothing. Then gain, exposure and the arm.
 
         Fields absent from the snapshot are skipped and named in the log:
         either the caller deliberately trimmed them (autofocus keeps the
@@ -4199,8 +4283,10 @@ class ImagingAPI:
             f'restore_camera_state tag={tag}: '
             f'gain={gain_db if gain_known else "skipped"} '
             f'exp={exposure_ms if exposure_known else "skipped"} '
-            f'arm={arm_action}'
+            f'arm={arm_action} '
+            f'{_describe_geometry(snapshot)}'
         )
+        self._restore_camera_geometry(snapshot)
         if gain_known and self._set_gain_db_impl(gain_db) is False:
             self._report_refused_write(_value_rejection('gain_db', gain_db))
         if exposure_known and self._set_exposure_ms_impl(exposure_ms) is False:
@@ -4216,6 +4302,31 @@ class ImagingAPI:
             self._report_refused_write(
                 _mode_rejection('auto_gain', arm_action == 're-armed', 'auto-gain')
             )
+
+    def _restore_camera_geometry(self, snapshot: dict) -> None:
+        """Write back each of the snapshot's settings beyond gain and exposure
+        that differs from the camera's value now, in ``_GEOMETRY_ORDER``.
+
+        Raises:
+            HardwareError: A setting could not be read to compare.
+            CameraSettingRejected: The camera refused binning, frame size or
+                format; the restore stops there, as a setter's raise does.
+        """
+        for key in _GEOMETRY_ORDER:
+            if key not in snapshot:
+                continue
+            wanted = snapshot[key]
+            now = self.get_black_level() if key == 'black_level' else self._read_setting_live(key)
+            if now == wanted:
+                continue
+            if key == 'binning':
+                self._set_binning_size_impl(wanted)
+            elif key == 'frame_size':
+                self._set_frame_size_impl(wanted['width'], wanted['height'])
+            elif key == 'pixel_format':
+                self._set_pixel_format_impl(wanted)
+            elif self._set_black_level_impl(wanted) is False:
+                self._report_refused_write(_value_rejection('black_level', wanted))
 
     # --- Camera config orchestration ---
     def apply_layer_camera_settings(

@@ -1644,6 +1644,8 @@ The snapshot is **omit-if-unknown**: it always carries `tag`, and carries `gain_
 
 The snapshot also carries `auto_gain_arm`: the standing continuous auto-gain arm at save time, or `None`. `restore_camera_state` puts the loop back the way the snapshot found it -- re-armed when an arm was recorded (clamping the exposure to the channel class's ceiling like any arm), disarmed when none was recorded and one stands now, untouched when the field is absent. A save/restore pair around your own camera work therefore hands the live view back adjusting if it was adjusting before.
 
+With a camera active the snapshot also carries `frame_size` (`{'width', 'height'}`) and `pixel_format`, `binning` where `capabilities.camera_binning_sizes` offers more than one size, and `black_level` where `capabilities.camera_supports_black_level` is True. These are read live, and a read that fails raises `HardwareError` from `save_camera_state`: they are never left out silently. `restore_camera_state` writes each of them only where it differs from the camera's value now (a frame size, format or binning write restarts grabbing), in the order binning, frame size, pixel format, black level, then gain, exposure and the arm; a refusal of binning, frame size or format raises `CameraSettingRejected` there and the rest is not restored. The conversion-gain and line-noise modes are not in the snapshot (they have no getters).
+
 ### Camera listeners
 
 ```python
