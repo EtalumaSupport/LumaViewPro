@@ -1788,11 +1788,15 @@ class MotionAPI:
         leg = self._backlash_leg(axis, position, overshoot_enabled, 'move_absolute')
         stop_generation = self._stop_generation
         try:
-            self._send_drive(axis, lambda: self._drive_to(axis, position, leg))
+            written = self._send_drive(
+                axis, lambda: self._drive_to(axis, position, leg, stop_generation)
+            )
         except Exception as e:
             _api_log.error(f'move_abs {axis}={position:.1f}um FAILED')
             self._fail_drive(axis, e)
-        if ramp:
+        # A withheld target is published nowhere: the stage is where the
+        # stop left it, and the monitor judges it there.
+        if ramp and written:
             with self._move_profile_lock:
                 self._move_profile[axis] = {
                     'start_time': time.monotonic(),
@@ -1856,7 +1860,7 @@ class MotionAPI:
 
         Raises:
             MoveNotCompletedError: Another move on the axis started first
-                (``'superseded'``); the axis was faulted UNKNOWN during the
+                and no stop has landed since (``'superseded'``); the axis was faulted UNKNOWN during the
                 wait (the monitor's own ``'stalled'`` or ``'board_lost'``
                 object when it gave the axis up); it had not arrived when
                 the wait's bound ran out (``'timed_out'``: the axis is
@@ -1877,15 +1881,18 @@ class MotionAPI:
             superseded = self._drive_seq[axis] != drive_seq
             unknown = self._axis_state.get(axis) == AxisState.UNKNOWN
             fault = self._axis_fault.get(axis)
-        if superseded:
-            raise MoveNotCompletedError(axis, 'superseded')
-        if unknown:
+        if unknown and not superseded:
             # The monitor's own object when it gave the axis up, so the
             # person is shown it once; otherwise something else set it
             # UNKNOWN during the wait.
             raise fault if fault is not None else MoveNotCompletedError(axis, 'faulted')
+        # A stop outranks supersession: once a STOP has landed, the axis is
+        # going nowhere any move sent it, and a move the stop withheld still
+        # counts a drive, so 'superseded' would tell the person it was.
         if self._stopped_since(stop_generation):
             raise MoveNotCompletedError(axis, 'stopped')
+        if superseded:
+            raise MoveNotCompletedError(axis, 'superseded')
 
     def _wait_for_axis_to_stop(self, axis: str, timeout_s: float) -> bool:
         """Wait for ``axis``'s arrival event; True when it was set within ``timeout_s``.
@@ -2000,11 +2007,13 @@ class MotionAPI:
         leg = self._backlash_leg(axis, target_pos, overshoot_enabled, 'move_relative')
         stop_generation = self._stop_generation
         try:
-            self._send_drive(axis, lambda: self._drive_to(axis, target_pos, leg))
+            written = self._send_drive(
+                axis, lambda: self._drive_to(axis, target_pos, leg, stop_generation)
+            )
         except Exception as e:
             _api_log.error(f'move_rel {axis}={distance:+.1f}um FAILED')
             self._fail_drive(axis, e)
-        if ramp:
+        if ramp and written:
             with self._move_profile_lock:
                 self._move_profile[axis] = {
                     'start_time': time.monotonic(),
@@ -2413,10 +2422,17 @@ class MotionAPI:
             return position - backlash
         return None
 
-    def _drive_to(self, axis: str, position: float, leg: float | None) -> None:
+    def _drive_to(
+        self, axis: str, position: float, leg: float | None, stop_generation: int
+    ) -> bool:
         """Drive ``axis`` to ``position``, through the backlash leg first when there is one.
 
         Runs inside ``_send_drive``: the leg's arrival is nobody's verdict.
+        Each target goes out through ``_write_unless_stopped``, so a STOP
+        that lands during the move, the leg included, ends it there.
+
+        Returns:
+            bool: Whether the target was written; False when a stop withheld it.
 
         Raises:
             HardwareError: the board did not answer a target write, or the
@@ -2425,7 +2441,8 @@ class MotionAPI:
         if leg is not None:
             self._overshoot = True
             try:
-                self._driver.move_abs_pos(axis, leg)
+                if not self._write_unless_stopped(axis, leg, stop_generation):
+                    return False
                 deadline = time.monotonic() + OVERSHOOT_LEG_TIMEOUT_S
                 while not self._driver.target_status(axis):
                     if time.monotonic() > deadline:
@@ -2438,9 +2455,28 @@ class MotionAPI:
                 # Cleared on every exit: a leg that raised would otherwise
                 # leave the monitor awake on it and is_moving() true.
                 self._overshoot = False
-        self._driver.move_abs_pos(axis, position)
+        return self._write_unless_stopped(axis, position, stop_generation)
 
-    def _send_drive(self, axis: str, send) -> None:
+    def _write_unless_stopped(self, axis: str, position: float, stop_generation: int) -> bool:
+        """Write ``axis``'s target unless a stop landed since the move read ``stop_generation``.
+
+        Under the lock ``stop_motion`` holds across its exchange, so a STOP
+        lands wholly before this write, which is then withheld, or wholly
+        after it, and stops it. Without the lock a STOP between the check
+        and the write moved the stage after the stop. The generation is
+        compared directly: ``_stopped_since`` takes the same lock, which is
+        not reentrant.
+
+        Returns:
+            bool: Whether the target was written.
+        """
+        with self._stop_lock:
+            if self._stop_generation != stop_generation:
+                return False
+            self._driver.move_abs_pos(axis, position)
+            return True
+
+    def _send_drive(self, axis: str, send) -> bool:
         """Disarm ``axis``, then send its drive: no verdict while a drive is in flight.
 
         The one way a move body reaches the driver. From here until the
@@ -2449,11 +2485,14 @@ class MotionAPI:
         monitor writes nothing for the axis. A raise leaves the axis
         disarmed for the caller's ``_fail_drive`` to make terminal, so no
         exit ends MOVING and disarmed.
+
+        Returns:
+            bool: What ``send`` returned: whether the target was written.
         """
         if axis in self._arrival_events:
             with self._axis_state_lock:
                 self._armed_seq[axis] = None
-        send()
+        return send()
 
     def _give_axis_up(self, axis: str, reason: str, *, verdict_for: int | None = None) -> bool:
         """The monitor gives a moving axis up: one fault, reported, then UNKNOWN.
