@@ -42,7 +42,7 @@ _WRITES = {
         'led_off_fast',
         'leds_off_fast',
     ),
-    '_motion_driver': ('move_abs_pos', 'move_rel_pos', 'move', 'set_precision_mode'),
+    '_motion_driver': ('move_abs_pos', 'move', 'set_precision_mode'),
     '_camera_driver': (
         'gain',
         'exposure_t',

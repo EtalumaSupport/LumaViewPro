@@ -31,13 +31,12 @@ class NullMotionBoard:
     """No-op motor board that satisfies the full MotorBoard interface.
 
     Attributes match what ``lumascope_api.py`` and other callers access
-    directly (``driver``, ``overshoot``, ``thread_lock``, etc.).
+    directly (``driver``, ``thread_lock``, etc.).
     """
 
     def __init__(self):
         # Required attributes accessed directly by lumascope_api and callers
         self.driver = True  # truthy sentinel -- satisfies `not self.motion.driver`
-        self.overshoot = False
         self.thread_lock = threading.RLock()
         self._lock = self.thread_lock  # alias used by SerialBoard pattern
         self._state_lock = threading.Lock()
@@ -59,8 +58,6 @@ class NullMotionBoard:
         # configuration's answer first -- so a scope with no motor board
         # recorded that scope's scale instead of its own.
         self.motorconfig = None
-
-        self.backlash = 0.0
 
         self.axes_config = read_only_axes_config({})
 
@@ -92,11 +89,12 @@ class NullMotionBoard:
         """Null implementation: no-op."""
         pass
 
-    def move_abs_pos(self, axis: str, pos: float, overshoot_enabled: bool = True) -> None:
-        """Null implementation: no-op."""
-        pass
+    def backlash_um(self) -> float:
+        """Z antibacklash, um: how far below its target a downward Z move
+        approaches from (the motion API's backlash leg)."""
+        return 0.0
 
-    def move_rel_pos(self, axis, um, overshoot_enabled=False) -> None:
+    def move_abs_pos(self, axis: str, pos: float) -> None:
         """Null implementation: no-op."""
         pass
 

@@ -21,8 +21,8 @@ class TestNullMotionBoardInterface:
         assert hasattr(board.thread_lock, 'acquire')
         assert hasattr(board.thread_lock, 'release')
 
-    def test_has_overshoot(self, board):
-        assert board.overshoot is False
+    def test_has_no_backlash(self, board):
+        assert board.backlash_um() == 0.0
 
     def test_has_axes_config(self, board):
         # No board, no axes: an empty config, not a motorised scope's.
@@ -41,9 +41,6 @@ class TestNullMotionBoardMovement:
 
     def test_move_abs_pos_noop(self, board):
         board.move_abs_pos('Z', 5000.0)
-
-    def test_move_rel_pos_noop(self, board):
-        board.move_rel_pos('X', 100.0)
 
 
 class TestNullMotionBoardPosition:

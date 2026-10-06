@@ -23,7 +23,7 @@ import time
 
 import pytest
 
-import drivers.simulated_motorboard as simulated_motorboard
+import modules.lumascope_api.motion as motion_module
 from drivers.exceptions import HardwareError
 from modules.exceptions import MoveNotCompletedError
 from modules.lumascope_api.motion import AxisState
@@ -188,7 +188,7 @@ def test_the_overshoot_legs_arrival_is_nobodys(session, monkeypatch):
 
     def the_lane_waits_for_the_monitors_read(axis):
         reached = real_status(axis)
-        if axis == 'Z' and reached and driver.overshoot:
+        if axis == 'Z' and reached and motion._overshoot:
             if _on_monitor():
                 monitor_read_the_leg.set()
             else:
@@ -336,14 +336,14 @@ def test_a_leg_that_never_arrives_fails_the_move_within_the_lanes_bound(session,
     back, a home and a move run."""
     motion = session.scope.motion
     driver = motion._driver
-    monkeypatch.setattr(simulated_motorboard, 'OVERSHOOT_LEG_TIMEOUT_S', 0.5, raising=False)
+    monkeypatch.setattr(motion_module, 'OVERSHOOT_LEG_TIMEOUT_S', 0.5)
     monkeypatch.setattr(motion, '_MOTION_WAIT_BASE_S', 3.0)
     motion.move_absolute('Z', 6000.0)
     real_move = driver.move
 
     def the_board_dies_after_the_legs_write(axis, steps):
         real_move(axis, steps)
-        if driver.overshoot:
+        if motion._overshoot:
             driver._fail_after = driver._cmd_count
 
     monkeypatch.setattr(driver, 'move', the_board_dies_after_the_legs_write)
@@ -354,7 +354,7 @@ def test_a_leg_that_never_arrives_fails_the_move_within_the_lanes_bound(session,
 
     assert exc.value.reason == 'driver_failed'
     assert failed_after < 2.0, failed_after
-    assert driver.overshoot is False
+    assert motion._overshoot is False
     assert motion.get_axis_state('Z') == AxisState.UNKNOWN
 
     monkeypatch.setattr(driver, 'move', real_move)

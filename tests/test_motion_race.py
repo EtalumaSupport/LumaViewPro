@@ -51,7 +51,7 @@ class TestRuntimeOrder_618:
     """#618 runtime: instrument the methods involved and verify call order."""
 
     def _track_calls(self, scope, axis):
-        """Wrap motion.move_abs_pos / move_rel_pos and _set_axis_state to
+        """Wrap the driver's move_abs_pos and _set_axis_state to
         record the order in which they're called. The _set_axis_state wrap
         targets scope.motion._set_axis_state (the canonical surface) because
         intra-motion calls reference self._set_axis_state directly after
@@ -60,16 +60,11 @@ class TestRuntimeOrder_618:
 
         call_order = []
         orig_move_abs = scope._motion_driver.move_abs_pos
-        orig_move_rel = scope._motion_driver.move_rel_pos
         orig_set_state = scope.motion._set_axis_state
 
         def track_move_abs(*args, **kwargs):
             call_order.append('motion.move_abs_pos')
             return orig_move_abs(*args, **kwargs)
-
-        def track_move_rel(*args, **kwargs):
-            call_order.append('motion.move_rel_pos')
-            return orig_move_rel(*args, **kwargs)
 
         def track_set_state(ax, state):
             if ax == axis and state == AxisState.MOVING:
@@ -79,7 +74,6 @@ class TestRuntimeOrder_618:
             return orig_set_state(ax, state)
 
         scope._motion_driver.move_abs_pos = track_move_abs
-        scope._motion_driver.move_rel_pos = track_move_rel
         scope.motion._set_axis_state = track_set_state
         return call_order
 
@@ -104,12 +98,12 @@ class TestRuntimeOrder_618:
         scope._motion_driver.set_timing_mode('fast')
         call_order = self._track_calls(scope, 'Z')
         scope.motion.start_move_relative('Z', 100.0)
-        assert 'motion.move_rel_pos' in call_order
+        assert 'motion.move_abs_pos' in call_order
         assert 'set_state_MOVING' in call_order
-        move_idx = call_order.index('motion.move_rel_pos')
+        move_idx = call_order.index('motion.move_abs_pos')
         state_idx = call_order.index('set_state_MOVING')
         assert move_idx < state_idx, (
-            f'motion.move_rel_pos must precede _set_axis_state(MOVING). Got order: {call_order}'
+            f'motion.move_abs_pos must precede _set_axis_state(MOVING). Got order: {call_order}'
         )
 
 
@@ -316,7 +310,7 @@ class TestMoveRelProfile_674:
     def test_runtime_profile_set_after_driver_returns(self):
         """Production path: profile must be present + populated correctly
         right after move_relative returns. Hooked at the driver
-        call's RETURN moment (still inside move_rel_pos, before the outer
+        call's RETURN moment (still inside the driver's move, before the outer
         method writes profile), profile should be UNSET -- proves the
         write is positioned after the driver call returns."""
 
@@ -331,10 +325,10 @@ class TestMoveRelProfile_674:
             )
 
         observed = {}
-        orig_move_rel = scope._motion_driver.move_rel_pos
+        orig_move = scope._motion_driver.move_abs_pos
 
         def snapshot_at_driver_return(axis, um, *args, **kwargs):
-            result = orig_move_rel(axis, um, *args, **kwargs)
+            result = orig_move(axis, um, *args, **kwargs)
             # Snapshot RIGHT before returning to the outer method. With
             # the H3 fix, profile is still None here -- the outer method
             # writes it after this returns. With the pre-H3 code, profile
@@ -344,7 +338,7 @@ class TestMoveRelProfile_674:
             observed['profile_at_driver_return'] = None if profile is None else dict(profile)
             return result
 
-        scope._motion_driver.move_rel_pos = snapshot_at_driver_return
+        scope._motion_driver.move_abs_pos = snapshot_at_driver_return
 
         delta = 300.0
         scope.motion.start_move_relative('X', delta)
@@ -413,13 +407,13 @@ class TestMoveRelProfile_674:
         DELAY_S = (
             0.040  # 40 ms -- well above scheduler jitter; below an arrow's perception threshold
         )
-        orig_move_rel = scope._motion_driver.move_rel_pos
+        orig_move = scope._motion_driver.move_abs_pos
 
         def slow_driver(axis, um, *args, **kwargs):
             _time.sleep(DELAY_S)
-            return orig_move_rel(axis, um, *args, **kwargs)
+            return orig_move(axis, um, *args, **kwargs)
 
-        scope._motion_driver.move_rel_pos = slow_driver
+        scope._motion_driver.move_abs_pos = slow_driver
 
         t_before = _time.monotonic()
         scope.motion.start_move_relative('X', 300.0)

@@ -64,7 +64,7 @@ class TestHomingInInstantMode:
 class TestMovesInInstantMode:
     def test_a_move_reaches_its_target(self, board):
         assert board.home()
-        board.move_abs_pos('X', 20000.0, overshoot_enabled=False)
+        board.move_abs_pos('X', 20000.0)
         assert board.wait_for_position('X', timeout=2.0)
         assert board.current_pos('X') == pytest.approx(20000.0, abs=0.1)
 
@@ -86,7 +86,7 @@ class TestRealisticMode:
         assert board.home()
         start = board.current_pos('X')
         started = time.monotonic()
-        board.move_abs_pos('X', start + 20000.0, overshoot_enabled=False)
+        board.move_abs_pos('X', start + 20000.0)
         assert board.wait_for_position('X', timeout=5.0)
         elapsed = time.monotonic() - started
         assert 0.6 <= elapsed <= 1.0, elapsed
@@ -99,7 +99,7 @@ def test_a_stop_mid_move_leaves_the_stage_short_of_its_target(board):
     assert board.home()
     start = board.current_pos('X')
     target = start + 60000.0
-    board.move_abs_pos('X', target, overshoot_enabled=False)
+    board.move_abs_pos('X', target)
     time.sleep(0.4)
     assert board.motor_stop() is True
     time.sleep(0.3)

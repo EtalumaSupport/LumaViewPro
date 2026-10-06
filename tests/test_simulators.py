@@ -136,7 +136,7 @@ class TestSimulatedMotorBoard:
 
     def test_move_absolute_z(self):
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
-        board.move_abs_pos('Z', 7000, overshoot_enabled=False)
+        board.move_abs_pos('Z', 7000)
         pos = board.current_pos('Z')
         assert abs(pos - 7000) < 1  # within rounding
 
@@ -147,18 +147,12 @@ class TestSimulatedMotorBoard:
         assert abs(board.current_pos('X') - 60000) < 1
         assert abs(board.current_pos('Y') - 40000) < 1
 
-    def test_move_relative(self):
-        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
-        board.move_abs_pos('X', 50000)
-        board.move_rel_pos('X', 10000)
-        assert abs(board.current_pos('X') - 60000) < 1
-
     def test_a_target_past_travel_is_driven_not_clamped(self):
         """Travel is the motion API's refusal, as on the real board; a
         driver that clamped made a refused move look like one that
         succeeded and stopped short."""
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
-        board.move_abs_pos('Z', 99999, overshoot_enabled=False)
+        board.move_abs_pos('Z', 99999)
         assert abs(board.current_pos('Z') - 99999) < 1
 
     def test_target_status(self):
@@ -277,7 +271,7 @@ class TestSimulatedMotorBoard:
         def move_axis(axis, positions):
             try:
                 for pos in positions:
-                    board.move_abs_pos(axis, pos, overshoot_enabled=False)
+                    board.move_abs_pos(axis, pos)
             except Exception as e:
                 errors.append(e)
 
@@ -292,14 +286,6 @@ class TestSimulatedMotorBoard:
             t.join(timeout=10)
 
         assert not errors
-
-    def test_overshoot_z(self):
-        """Z overshoot should work without errors."""
-        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
-        board.move_abs_pos('Z', 5000, overshoot_enabled=False)
-        board.move_abs_pos('Z', 3000, overshoot_enabled=True)
-        pos = board.current_pos('Z')
-        assert abs(pos - 3000) < 1
 
     # --- detect_present_axes tests ---
 
@@ -336,7 +322,7 @@ class TestSimulatedMotorBoard:
         """After a move, current_pos_steps returns raw microstep position."""
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         target_um = 5000
-        board.move_abs_pos('Z', target_um, overshoot_enabled=False)
+        board.move_abs_pos('Z', target_um)
         steps = board.current_pos_steps('Z')
         assert isinstance(steps, int)
         expected_steps = board.z_um2ustep(target_um)
@@ -346,7 +332,7 @@ class TestSimulatedMotorBoard:
         """target_pos_steps returns raw target microstep position."""
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         target_um = 7000
-        board.move_abs_pos('Z', target_um, overshoot_enabled=False)
+        board.move_abs_pos('Z', target_um)
         steps = board.target_pos_steps('Z')
         assert isinstance(steps, int)
         expected_steps = board.z_um2ustep(target_um)
@@ -420,7 +406,7 @@ class TestAllModels:
     @pytest.mark.parametrize('model', ALL_MODELS)
     def test_z_axis_works(self, model):
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model=model)
-        board.move_abs_pos('Z', 5000, overshoot_enabled=False)
+        board.move_abs_pos('Z', 5000)
         assert abs(board.current_pos('Z') - 5000) < 1
 
     @pytest.mark.parametrize('model', ALL_MODELS)
@@ -1557,7 +1543,8 @@ class TestFailureInjection:
             motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, fail_after=5, timing='instant'
         )
         m.exchange_command('HOME')  # cmd 1
-        m.move_abs_pos('Z', 5000)  # cmds 2-3
+        m.move_abs_pos('Z', 5000)  # cmd 2: one leg, one target write
+        assert m.exchange_command('ACTUAL_RZ') is not None  # cmd 3
         assert m.exchange_command('ACTUAL_RZ') is not None  # cmd 4
         assert m.exchange_command('ACTUAL_RZ') is not None  # cmd 5
         assert m.exchange_command('ACTUAL_RZ') is None  # the board is gone after the fifth

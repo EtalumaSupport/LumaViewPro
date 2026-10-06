@@ -219,7 +219,7 @@ class TestTheFirmwareBoots:
         try:
             assert led.firmware_date == '2024-06-05'
             assert motor.home()
-            motor.move_abs_pos('X', 20000.0, overshoot_enabled=False)
+            motor.move_abs_pos('X', 20000.0)
             assert motor.wait_for_position('X', timeout=2.0)
             assert motor.current_pos('X') == pytest.approx(20000.0, abs=0.1)
         finally:

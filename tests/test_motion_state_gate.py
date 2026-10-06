@@ -142,8 +142,8 @@ def test_absolute_move_refuses_on_unknown_axis(scope):
 
 @pytest.mark.slow
 def test_relative_move_refuses_on_unknown_axis(scope):
-    """The relative path does not route through the absolute one -- it
-    calls ``move_rel_pos`` directly, so it needs its own gate."""
+    """The relative path does not route through the absolute one, so it
+    needs its own gate."""
     _home_and_fail(scope)
     with pytest.raises(AxisStateUnknownError) as exc:
         scope.motion._move_relative_impl('X', distance=50)

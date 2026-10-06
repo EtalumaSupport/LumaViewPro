@@ -65,6 +65,20 @@ _HOMING_SLOW_TASK_S = 120.0
 # Firmware docs/PERFORMANCE_BUDGETS.md, turret move.
 _TURRET_MOVE_SLOW_TASK_S = 15.0
 
+# How long the Z overshoot leg may take to reach its point before the move
+# fails. The leg's wait is the one loop in a move with no reply timeout of
+# its own: the board answers every STATUS_R, it is the stage that may never
+# arrive, so without a bound a leg that never arrived held the IO lane for
+# good and the caller got the lane's bare TimeoutError at 30 s while the
+# loop ran on. Sized to fit inside the motion API's 30 s dispatch bound
+# beside one 5 s poll overrun, the move's other exchanges and its queue
+# residence. The worst legitimate leg is so far derived, not measured:
+# 6.25 s across every config in data/ on the simulator's ramp model, and
+# 5.07 s for an 11.2 mm downward Z move with overshoot run there, nearly
+# all of it the leg. To be confirmed on the LS850T with a full-travel
+# downward Z move (the arrival plan's bench row).
+OVERSHOOT_LEG_TIMEOUT_S = 15.0
+
 # Match _lumascope.py's module-level _api_log channel so relocated
 # bodies log to the same handler chain.
 _api_log = _logging.getLogger('LVP.api')
@@ -274,6 +288,11 @@ class MotionAPI:
         # it saw before driving to tell a stop from an arrival.
         self._stop_generation = 0
         self._stop_lock = threading.Lock()
+
+        # True while a Z move's backlash leg is in flight: the leg runs
+        # before the axis is MOVING, so this is what keeps the monitor awake
+        # and is_moving() true through it.
+        self._overshoot = False
 
     def _init_axes(self, present_axes: list[str], homed_axes: list[str]) -> None:
         """Populate per-axis state dicts from the detected axes.
@@ -1086,7 +1105,7 @@ class MotionAPI:
         Returns:
             bool: True if overshoot is in progress.
         """
-        return self._driver.overshoot
+        return self._overshoot
 
     def is_moving(self) -> bool:
         """Check if any axis is currently moving.
@@ -1766,12 +1785,7 @@ class MotionAPI:
         # motion monitor polls until real arrival.
         stop_generation = self._stop_generation
         try:
-            self._send_drive(
-                axis,
-                lambda: self._driver.move_abs_pos(
-                    axis, position, overshoot_enabled=overshoot_enabled
-                ),
-            )
+            self._send_drive(axis, lambda: self._drive_to(axis, position, overshoot_enabled))
         except Exception as e:
             _api_log.error(f'move_abs {axis}={position:.1f}um FAILED')
             self._fail_drive(axis, e)
@@ -1937,8 +1951,8 @@ class MotionAPI:
             _api_log.debug(f'move_rel ignored: {axis} not present on this scope')
             return MoveInFlight(self, axis, stop_generation=None, drive_seq=None)
 
-        # This path does NOT route through the absolute one -- it calls
-        # move_rel_pos directly -- so it needs the gate of its own.
+        # This path does NOT route through the absolute one, so it needs
+        # the gate of its own.
         self._pre_drive(axis)
 
         # Capture start_pos + ramp before driving. start_time is captured
@@ -1949,19 +1963,21 @@ class MotionAPI:
         # elapsed by the full serial RT, and the UI crosshair would visibly
         # outrun the stage on long moves.
         #
-        # If a prior move is still in flight on this axis, accumulate against
-        # the prior move's commanded target (mirrors the driver-layer
-        # `move_rel_pos` semantics: it reads `target_pos()` from firmware,
-        # not `current_pos()`, so chained relative moves add to the previous
-        # target). At IDLE the cache holds the post-arrival current position
-        # (~= previous target), so reading cache as start_pos is correct.
-        with self._move_profile_lock:
-            prior_profile = self._move_profile.get(axis)
-        if prior_profile is not None and prior_profile.get('target_pos') is not None:
-            start_pos = float(prior_profile['target_pos'])
-        else:
-            with self._pos_cache_lock:
-                start_pos = self._pos_cache.get(axis, 0.0)
+        # The offset is added to the board's own target: a move still in
+        # flight on this axis is added to, so chained jogs accumulate, and
+        # after a stop the target is where the stage stopped. This one
+        # number is range-checked, published and driven. The API's cache was
+        # the base before, beside the driver driving TARGET_R plus the
+        # offset, and the cache can hold a position the monitor never read.
+        start_pos = self._driver.target_pos(axis)
+        if start_pos is None:
+            self._fail_drive(
+                axis,
+                HardwareError(
+                    f'move_rel({axis}): cannot read the current target position; '
+                    'the move did not happen'
+                ),
+            )
         target_pos = start_pos + float(distance)
 
         # The same travel refusal as the absolute path, against the target
@@ -1982,12 +1998,7 @@ class MotionAPI:
         # same race fix as move_absolute (#618).
         stop_generation = self._stop_generation
         try:
-            self._send_drive(
-                axis,
-                lambda: self._driver.move_rel_pos(
-                    axis, distance, overshoot_enabled=overshoot_enabled
-                ),
-            )
+            self._send_drive(axis, lambda: self._drive_to(axis, target_pos, overshoot_enabled))
         except Exception as e:
             _api_log.error(f'move_rel {axis}={distance:+.1f}um FAILED')
             self._fail_drive(axis, e)
@@ -2374,6 +2385,39 @@ class MotionAPI:
         self._fire_position_listeners(axis)
         return True
 
+    def _drive_to(self, axis: str, position: float, overshoot_enabled: bool) -> None:
+        """Drive ``axis`` to ``position``, approaching Z from below when it applies.
+
+        A Z move down to a target clear of the bottom first drives to the
+        backlash below it, waits there, then climbs to the target, so the
+        backlash is always taken the same way. Runs inside ``_send_drive``:
+        the leg's arrival is nobody's verdict.
+
+        Raises:
+            HardwareError: the board did not answer a target write, or the
+                leg did not reach its point within ``OVERSHOOT_LEG_TIMEOUT_S``.
+        """
+        if overshoot_enabled and axis == 'Z':
+            current = self._driver.current_pos('Z')
+            backlash = self._driver.backlash_um()
+            if current is not None and current > position and position > backlash + 50:
+                self._overshoot = True
+                try:
+                    self._driver.move_abs_pos('Z', position - backlash)
+                    deadline = time.monotonic() + OVERSHOOT_LEG_TIMEOUT_S
+                    while not self._driver.target_status('Z'):
+                        if time.monotonic() > deadline:
+                            raise HardwareError(
+                                f'move Z to {position}: the overshoot leg did not reach '
+                                f'its point within {OVERSHOOT_LEG_TIMEOUT_S:.0f} s'
+                            )
+                        time.sleep(self._MOTION_POLL_INTERVAL)
+                finally:
+                    # Cleared on every exit: a leg that raised would otherwise
+                    # leave the monitor awake on it and is_moving() true.
+                    self._overshoot = False
+        self._driver.move_abs_pos(axis, position)
+
     def _send_drive(self, axis: str, send) -> None:
         """Disarm ``axis``, then send its drive: no verdict while a drive is in flight.
 
@@ -2461,7 +2505,7 @@ class MotionAPI:
                 if not moving_axes:
                     # Also check overshoot -- if overshoot is active,
                     # the monitor should keep running
-                    if hasattr(self._driver, 'overshoot') and self._driver.overshoot:
+                    if self._overshoot:
                         time.sleep(self._MOTION_POLL_INTERVAL)
                         continue
                     # All axes arrived -- go back to sleep

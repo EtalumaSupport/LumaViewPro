@@ -91,7 +91,7 @@ _DRIVER_MOVES = {
         lambda motion: motion.move_absolute('Z', _z_target(motion)),
     ),
     'relative': (
-        'move_rel_pos',
+        'move_abs_pos',
         lambda motion: motion.move_relative('Z', 20.0),
     ),
 }

@@ -284,8 +284,6 @@ class TestMotorBoardSafety:
         board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         board.found = True
         board._state_lock = threading.Lock()
-        board.overshoot = False
-        board.backlash = 25
         board._has_turret = False
         board.initial_homing_complete = False
         board.initial_t_homing_complete = False
@@ -530,8 +528,6 @@ class TestMotorBoardCommands:
         board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         board.found = True
         board._state_lock = threading.Lock()
-        board.overshoot = False
-        board.backlash = 25
         board._has_turret = False
         board.initial_homing_complete = False
         board.initial_t_homing_complete = False
@@ -637,8 +633,6 @@ class TestMotorBoardHoming:
         board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         board.found = True
         board._state_lock = threading.Lock()
-        board.overshoot = False
-        board.backlash = 25
         board._has_turret = False
         board.initial_homing_complete = False
         board.initial_t_homing_complete = False
@@ -746,8 +740,6 @@ class TestMotorBoardFullinfo:
         board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         board.found = True
         board._state_lock = threading.Lock()
-        board.overshoot = False
-        board.backlash = 25
         board._has_turret = False
         board.initial_homing_complete = False
         board.initial_t_homing_complete = False
@@ -883,8 +875,6 @@ class TestMotorBoardMovement:
         board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         board.found = True
         board._state_lock = threading.Lock()
-        board.overshoot = False
-        board.backlash = 25
         board._has_turret = False
         board.initial_homing_complete = False
         board.initial_t_homing_complete = False
@@ -912,14 +902,14 @@ class TestMotorBoardMovement:
     def test_z_above_travel_is_driven_not_clamped(self):
         """move_abs_pos('Z', 99999) writes 99999, not the 14000um max."""
         board = self._make_board()
-        board.move_abs_pos('Z', 99999, overshoot_enabled=False)
+        board.move_abs_pos('Z', 99999)
         expected_ustep = board.z_um2ustep(99999)
         board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode())
 
     def test_z_below_travel_is_driven_not_clamped(self):
         """move_abs_pos('Z', -100) writes -100, not the 0um min."""
         board = self._make_board()
-        board.move_abs_pos('Z', -100, overshoot_enabled=False)
+        board.move_abs_pos('Z', -100)
         # A negative target goes to the firmware in two's complement.
         expected_ustep = board.z_um2ustep(-100) + 0x100000000
         board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode())
@@ -927,7 +917,7 @@ class TestMotorBoardMovement:
     def test_x_above_travel_is_driven_not_clamped(self):
         """move_abs_pos('X', 200000) writes 200000, not the 120000um max."""
         board = self._make_board()
-        board.move_abs_pos('X', 200000, overshoot_enabled=False)
+        board.move_abs_pos('X', 200000)
         expected_ustep = board.xy_um2ustep(200000)
         board.driver.write.assert_called_with(f'TARGET_WX{expected_ustep}\n'.encode())
 
@@ -935,18 +925,7 @@ class TestMotorBoardMovement:
         """move_abs_pos with unknown axis should raise."""
         board = self._make_board()
         with pytest.raises(Exception, match='Unsupported axis'):
-            board.move_abs_pos('Q', 100, overshoot_enabled=False)
-
-    def test_move_rel_pos(self):
-        """move_rel_pos should add relative distance to current target."""
-        board = self._make_board()
-        # target_pos reads TARGET_R, return 50000um in usteps
-        target_ustep = board.xy_um2ustep(50000)
-        board.driver.readline.return_value = f'{target_ustep}\n'.encode()
-        board.move_rel_pos('X', 10000, overshoot_enabled=False)
-        # Should move to 60000um
-        expected_ustep = board.xy_um2ustep(60000)
-        board.driver.write.assert_called_with(f'TARGET_WX{expected_ustep}\n'.encode())
+            board.move_abs_pos('Q', 100)
 
     def test_target_status_position_reached(self):
         """target_status should return True when position_reached bit is set."""
@@ -1130,8 +1109,6 @@ class TestMotorFirmwareVersion:
         board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         board.found = True
         board._state_lock = threading.Lock()
-        board.overshoot = False
-        board.backlash = 25
         board._has_turret = False
         board.initial_homing_complete = False
         board.initial_t_homing_complete = False
@@ -1962,8 +1939,6 @@ class TestMotorBoardStateLock:
         board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         board.found = True
         board._state_lock = threading.Lock()
-        board.overshoot = False
-        board.backlash = 25
         board._has_turret = False
         board.initial_homing_complete = False
         board.initial_t_homing_complete = False

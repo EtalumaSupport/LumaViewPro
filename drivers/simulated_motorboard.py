@@ -22,7 +22,6 @@ from typing import ClassVar
 from collections.abc import Iterable, Mapping
 from lvp_logger import logger
 from drivers.exceptions import HardwareError
-from drivers.motorboard import OVERSHOOT_LEG_TIMEOUT_S
 from drivers.motorconfig import MotorConfig, read_only_axes_config
 from drivers.registry import motor_registry
 
@@ -106,8 +105,6 @@ class SimulatedMotorBoard:
         self.motorconfig = MotorConfig(motorconfig_defaults)
 
         self.found = True
-        self.overshoot = False
-        self.backlash = self.motorconfig.antibacklash_um('Z')
         self._has_turret = 'T' in self._axes
         self.initial_homing_complete = False
         self.initial_t_homing_complete = False
@@ -887,79 +884,32 @@ class SimulatedMotorBoard:
             return self.t_ustep2pos(position)
         return 0
 
-    def move_abs_pos(self, axis: str, pos: float, overshoot_enabled: bool = True) -> None:
-        """Move an axis to an absolute position in user units.
+    def backlash_um(self) -> float:
+        """Z antibacklash, um: how far below its target a downward Z move
+        approaches from (the motion API's backlash leg)."""
+        return self.motorconfig.antibacklash_um('Z')
 
-        Mirrors the production ``MotorBoard.move_abs_pos`` contract,
-        including Z backlash overshoot when ``overshoot_enabled`` is True.
+    def move_abs_pos(self, axis: str, pos: float) -> None:
+        """Move an axis to an absolute position in user units, in one leg.
+
+        Mirrors the production ``MotorBoard.move_abs_pos`` contract; the Z
+        backlash approach is the motion API's.
 
         Args:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
             pos: Target absolute position. Microns for X/Y/Z, 1-based
                 position for T.
-            overshoot_enabled: When True, apply Z backlash compensation
-                if the target is sufficiently below the current position.
 
         Travel is not checked here, as in production: the motion API
         refuses a target outside travel before it calls this.
 
         Raises:
-            Exception: ``axis`` is not in ``axes_config``.
-            HardwareError: the board did not answer a target write, or the
-                overshoot leg did not reach its point within
-                ``OVERSHOOT_LEG_TIMEOUT_S``. The simulated ``target_status``
-                answers False rather than raising on a dead board, so the
-                bound is the leg's only exit then.
+            HardwareError: ``axis`` is not in ``axes_config``, or the board
+                did not answer the target write.
         """
         if axis not in self.axes_config:
-            raise Exception(f'Unsupported axis ({axis})')
-
-        axis_config = self.axes_config[axis]
-        steps = axis_config['move_func'](pos)
-
-        if overshoot_enabled and axis == 'Z':
-            current = self.current_pos('Z')
-            if current > pos and pos > (self.backlash + 50):
-                self.overshoot = True
-                try:
-                    overshoot = self.z_um2ustep(pos - self.backlash)
-                    overshoot = max(1, overshoot)
-                    self.move(axis, overshoot)
-                    deadline = time.monotonic() + OVERSHOOT_LEG_TIMEOUT_S
-                    while not self.target_status('Z'):
-                        if time.monotonic() > deadline:
-                            raise HardwareError(
-                                f'move_abs_pos(Z, {pos}): the overshoot leg did not reach '
-                                f'its point within {OVERSHOOT_LEG_TIMEOUT_S:.0f} s'
-                            )
-                        time.sleep(0.001)
-                finally:
-                    # Cleared on every exit, as the real driver's is: a leg
-                    # that raised would otherwise leave the flag set and the
-                    # motion monitor spinning on it.
-                    self.overshoot = False
-
-        self.move(axis, steps)
-
-    def move_rel_pos(self, axis: str, um: float, overshoot_enabled: bool = False) -> None:
-        """Move an axis by a relative offset in user units.
-
-        Args:
-            axis: Axis letter ('X', 'Y', 'Z', 'T').
-            um: Offset to apply. Microns for X/Y/Z, position-count
-                offset for T.
-            overshoot_enabled: When True, apply Z backlash compensation
-                during the underlying absolute move.
-        """
-        pos = self.target_pos(axis)
-        if pos is None:
-            # As the real board: a relative move is defined against the
-            # current target, and without it there is nothing to add to.
-            raise HardwareError(
-                f'move_rel_pos({axis}): cannot read the current target '
-                f'position; the move did not happen'
-            )
-        self.move_abs_pos(axis, pos + um, overshoot_enabled=overshoot_enabled)
+            raise HardwareError(f'Unsupported axis ({axis})')
+        self.move(axis, self.axes_config[axis]['move_func'](pos))
 
     # ------------------------------------------------------------------
     # Status
