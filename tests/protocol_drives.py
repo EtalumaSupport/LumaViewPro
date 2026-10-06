@@ -64,31 +64,6 @@ def wait_until_not_running(session, timeout: float = 5.0) -> bool:
     return True
 
 
-def wait_until_ready_for_next_run(executor, timeout: float = 5.0) -> bool:
-    """Wait until the engine will admit another run: ended AND drained.
-
-    `run_complete` comes once the run has ended (the engine is IDLE, its
-    claim and lease handed back), and its files can still be draining
-    then. A start before they land is refused `files_writing` by design,
-    so a test that starts its next run on the callback alone passes or
-    fails on timing.
-
-    Shared because every back-to-back test asks this same question, and a
-    fixed sleep or a queue-only wait answers half of it.
-    """
-    deadline = time.monotonic() + timeout
-    while executor.run_in_progress() or _files_draining(executor):
-        if time.monotonic() > deadline:
-            return False
-        time.sleep(0.02)
-    return True
-
-
-def _files_draining(executor) -> bool:
-    batch = executor.write_batch()
-    return batch is not None and batch.draining
-
-
 # The longest a run may go without starting a step before it is called
 # stalled. One simulated step takes about 150 ms alone; this is far past a
 # step slowed by a loaded host, and short enough that a hang fails promptly.

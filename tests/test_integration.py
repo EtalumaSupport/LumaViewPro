@@ -57,13 +57,14 @@ from tests.protocol_drives import (
     autofocus_snapshot,
     held_run_claim,
     wait_for_run_end,
-    wait_until_ready_for_next_run,
 )
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 COMPLETION_TIMEOUT = 30  # generous for CI
+# A bound only on a stuck file lane: a loaded host can take seconds to write.
+FILES_WAIT_S = 60
 
 
 # ---------------------------------------------------------------------------
@@ -226,9 +227,15 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         autofocus_snapshot=autofocus_snapshot(),
         **run_kwargs,
     )
-    executor.start(plan)
+    handle = executor.start(plan)
 
     completed = wait_for_run_end(done, heartbeat)
+    # The images and the record are on the file lane; they are there once
+    # the run says its files are done, not when it lets go of the scope.
+    if completed:
+        assert handle.wait_for_files(timeout_s=FILES_WAIT_S) is not None, (
+            'the run never finished its files'
+        )
     return completed, result_holder
 
 
@@ -767,8 +774,6 @@ class TestIntegrationStateAssertions:
         # First run
         completed_1, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed_1, 'First protocol run did not complete'
-
-        assert wait_until_ready_for_next_run(executor), 'First run never ended and drained'
 
         # Second run -- should start without being blocked
         completed_2, _ = _run_and_wait(executor, protocol, tmp_path)

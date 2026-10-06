@@ -38,7 +38,6 @@ from tests.protocol_drives import (
     StepHeartbeat,
     autofocus_snapshot,
     wait_for_run_end,
-    wait_until_ready_for_next_run,
 )
 from tests.scope_fakes import configure_turret_like_bringup
 from unittest.mock import MagicMock
@@ -49,6 +48,8 @@ from unittest.mock import MagicMock
 # ---------------------------------------------------------------------------
 
 COMPLETION_TIMEOUT = 20  # seconds
+# A bound only on a stuck file lane: a loaded host can take seconds to write.
+FILES_WAIT_S = 60
 
 TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
@@ -325,8 +326,14 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         autofocus_snapshot=autofocus_snapshot(),
         **run_kwargs,
     )
-    executor.start(plan)
+    handle = executor.start(plan)
     completed = wait_for_run_end(done, heartbeat)
+    # The images and the record are on the file lane; they are there once
+    # the run says its files are done, not when it lets go of the scope.
+    if completed:
+        assert handle.wait_for_files(timeout_s=FILES_WAIT_S) is not None, (
+            'the run never finished its files'
+        )
     return completed, result_holder
 
 
@@ -923,8 +930,6 @@ class TestExecuteSaveLoadRun:
         )
         completed_a, _ = _run_and_wait(executor, proto_a, tmp_path / 'run_a')
         assert completed_a, 'Protocol A did not complete'
-
-        assert wait_until_ready_for_next_run(executor), 'Protocol A never ended and drained'
 
         proto_b = _build_protocol(
             [
@@ -1621,8 +1626,6 @@ class TestRealPathExecution:
         proto_a = _build_protocol([_make_step(name='A1_BF', color='BF')])
         completed_a, _ = _run_and_wait(real_executor, proto_a, tmp_path / 'run_a')
         assert completed_a, 'Protocol A with real motion did not complete'
-
-        assert wait_until_ready_for_next_run(real_executor), 'Protocol A never ended and drained'
 
         proto_b = _build_protocol(
             [

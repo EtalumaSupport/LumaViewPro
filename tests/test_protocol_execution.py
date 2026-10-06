@@ -49,7 +49,6 @@ from tests.protocol_drives import (
     autofocus_snapshot,
     held_run_claim,
     wait_for_run_end,
-    wait_until_ready_for_next_run,
 )
 from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
 
@@ -1480,9 +1479,8 @@ class TestBackToBackRuns:
 
     run_complete comes once the run has ended, and its files can still be
     draining then. A second start before they land is refused by design,
-    so every back-to-back test waits on
-    wait_until_ready_for_next_run -- the designed contract, not a
-    workaround for an executor bug.
+    so _run_and_wait returns only once the run's wait_for_files has -- the
+    designed contract, not a workaround for an executor bug.
     """
 
     def test_two_sequential_runs(self, executor, scope, tmp_path):
@@ -1490,8 +1488,6 @@ class TestBackToBackRuns:
 
         completed1, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed1, 'First run did not complete'
-
-        assert wait_until_ready_for_next_run(executor), 'First run never ended and drained'
 
         # Second run -- uses a fresh tmp subdir to avoid directory collision
         completed2, _ = _run_and_wait(executor, protocol, tmp_path / 'run2')
@@ -1502,7 +1498,6 @@ class TestBackToBackRuns:
             protocol = _make_single_step_protocol(color=color)
             completed, _ = _run_and_wait(executor, protocol, tmp_path / f'run{i}')
             assert completed, f'Run {i} ({color}) did not complete'
-            assert wait_until_ready_for_next_run(executor), f'Run {i} never ended and drained'
 
 
 # ---------------------------------------------------------------------------
@@ -2189,8 +2184,6 @@ class TestCleanupCorrectness:
         # Should restore to 8.0/80.0
         assert scope.imaging.get_gain_db() == pytest.approx(8.0, abs=0.1)
 
-        assert wait_until_ready_for_next_run(executor), 'Run A never ended and drained'
-
         # Run B: change gain before second run
         scope.imaging.set_gain_db(2.0)
         scope.imaging.set_exposure_ms(20.0)
@@ -2297,8 +2290,6 @@ class TestMotionTimeoutEndsRunInsteadOfWedging:
             'fired. ERROR state must terminate the run, not be retried '
             'as a transient failure every period.'
         )
-        # run_complete comes once the engine is IDLE; its files may still drain.
-        assert wait_until_ready_for_next_run(executor), 'the run never ended after its timeout'
         assert executor._state == ProtocolState.IDLE, (
             f'Expected IDLE after cleanup, got {executor._state}'
         )
