@@ -513,7 +513,7 @@ def test_run_start_owns_a_standing_live_arm():
     runner = bare_capture_runner()
     runner._scope.imaging = imaging
     runner._saved_camera_state = imaging.save_camera_state('protocol')
-    runner._run_mode = SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN
+    runner._run_mode = SequencedCaptureRunMode.SINGLE_AUTOFOCUS
     runner._take_auto_gain_arm_for_run()
     assert cam._auto_gain_enabled is True
     assert imaging._auto_gain_arm is not None

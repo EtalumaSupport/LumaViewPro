@@ -402,7 +402,7 @@ class ProtocolRunner:
             )
         return self._run(
             protocol=protocol,
-            run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
+            run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
             run_trigger_source=run_trigger_source,
             max_scans=1,
             sequence_name=sequence_name,

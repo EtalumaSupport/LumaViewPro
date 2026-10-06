@@ -219,6 +219,10 @@ RUN_MODE_ENGINE_BEHAVIOR = {
         'blocks_hyperstack_build': False,
         'derives_scans_from_duration': False,
     },
+    SequencedCaptureRunMode.SINGLE_AUTOFOCUS: {
+        'blocks_hyperstack_build': True,
+        'derives_scans_from_duration': False,
+    },
     SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN: {
         'blocks_hyperstack_build': True,
         'derives_scans_from_duration': False,

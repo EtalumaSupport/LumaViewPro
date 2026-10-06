@@ -15,8 +15,20 @@ class SequencedCaptureRunMode(enum.Enum):
     FULL_PROTOCOL = 'full_protocol'
     SINGLE_SCAN = 'single_scan'
     SINGLE_ZSTACK = 'single_zstack'
+    # One autofocus at the stage's position: the Autofocus button's run.
+    SINGLE_AUTOFOCUS = 'single_autofocus'
+    # An autofocus at every step of a protocol, writing each focus back
+    # into it.
     SINGLE_AUTOFOCUS_SCAN = 'single_autofocus_scan'
     SINGLE_COMPOSITE = 'single_composite'
+
+    @property
+    def is_autofocus(self) -> bool:
+        """Whether the run only focuses: it saves no images and builds no stack."""
+        return self in (
+            SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
+            SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
+        )
 
 
 class ProtocolState(enum.Enum):

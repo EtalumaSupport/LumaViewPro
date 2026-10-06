@@ -12,7 +12,7 @@ stayed empty -- "queued" is not "delivered"
 (tests/test_af_char_save_on_all_exits.py pins queued-on-a-mock, which
 is exactly the blind spot the drop lived in).
 
-The standalone button now starts a one-position SINGLE_AUTOFOCUS_SCAN
+The standalone button now starts a one-position SINGLE_AUTOFOCUS
 run, so the file executor is in protocol mode for the AF's whole
 window and the save rides the run's file queue.  This pin drives that
 engine path end to end -- real simulated scope, real executors, real
@@ -150,7 +150,7 @@ class TestStandaloneAfDeliversCharacterizationData:
             plan = runner.prepare(
                 protocol=_make_af_step_protocol(),
                 run_trigger_source='autofocus',
-                run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
+                run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
                 sequence_name='autofocus',
                 image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
                 autogain_settings={

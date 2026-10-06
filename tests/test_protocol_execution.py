@@ -1156,9 +1156,14 @@ class TestRunModeSingleZStack:
 
 
 class TestRunModeSingleAutofocusScan:
-    """SINGLE_AUTOFOCUS_SCAN run mode."""
+    """The autofocus run modes: one position, and every step."""
 
-    def test_completes(self, executor, scope, tmp_path):
+    @pytest.mark.parametrize(
+        'run_mode',
+        [SequencedCaptureRunMode.SINGLE_AUTOFOCUS, SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN],
+        ids=lambda m: m.value,
+    )
+    def test_completes(self, executor, scope, tmp_path, run_mode):
         protocol = _make_single_step_protocol(color='BF', auto_focus=True)
 
         af = executor._autofocus_runner
@@ -1173,16 +1178,10 @@ class TestRunModeSingleAutofocusScan:
             executor,
             protocol,
             tmp_path,
-            run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
+            run_mode=run_mode,
             max_scans=1,
         )
         assert completed
-
-
-# SINGLE_AUTOFOCUS run mode retired -- standalone AF routes directly
-# through AutofocusThread.run_autofocus() from the UI, bypassing the
-# SequencedCapture path. Coverage for the standalone AF flow lives in
-# the autofocus_thread regression tests.
 
 
 # ---------------------------------------------------------------------------

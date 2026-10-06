@@ -181,7 +181,7 @@ class _AfRig:
         return self.runner.prepare(
             protocol=_make_af_step_protocol(),
             run_trigger_source=run_trigger_source,
-            run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
+            run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
             sequence_name='autofocus',
             image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
             autogain_settings={

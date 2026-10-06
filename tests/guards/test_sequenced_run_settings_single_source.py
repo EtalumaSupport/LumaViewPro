@@ -24,6 +24,8 @@ separate_folder_per_channel=False whatever the user settings hold.
 
 import re
 
+import pytest
+
 import modules.config_helpers as config_helpers
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.ast_seams import REPO_ROOT
@@ -119,19 +121,25 @@ def test_helper_owns_exactly_the_settings_derived_run_params():
     ) == set(_OWNED_PARAMS)
 
 
-def test_autofocus_scan_forces_led_and_folder_safety():
-    """An autofocus scan must never hold the LED across focus moves
-    (photobleaching) and must never split output per channel, whatever the
-    user settings say. The guarantee lives in the helper, so it reaches
-    both AF starters from one place instead of a literal at each."""
+_AUTOFOCUS_RUN_MODES = (
+    SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
+    SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
+)
+
+
+@pytest.mark.parametrize('run_mode', _AUTOFOCUS_RUN_MODES, ids=lambda m: m.value)
+def test_autofocus_scan_forces_led_and_folder_safety(run_mode):
+    """An autofocus run -- one position or every step -- must never hold
+    the LED across focus moves (photobleaching) and must never split output
+    per channel, whatever the user settings say. The guarantee lives in the
+    helper, so it reaches both AF starters from one place instead of a
+    literal at each."""
     settings = {
         'keep_led_between_steps': True,
         'video_as_frames': True,
         'separate_folder_per_channel': True,
     }
-    out = config_helpers.get_sequenced_run_settings(
-        settings, run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN
-    )
+    out = config_helpers.get_sequenced_run_settings(settings, run_mode=run_mode)
     assert out['keep_led_between_steps'] is False, (
         'an autofocus scan must not hold the LED across focus moves even when '
         'the user has keep_led_between_steps on'
@@ -142,7 +150,8 @@ def test_autofocus_scan_forces_led_and_folder_safety():
     )
 
 
-def test_autofocus_scan_plan_carries_the_forced_values():
+@pytest.mark.parametrize('run_mode', _AUTOFOCUS_RUN_MODES, ids=lambda m: m.value)
+def test_autofocus_scan_plan_carries_the_forced_values(run_mode):
     """The forced values must survive the whole starter chain: helper ->
     prepare() -> RunPlan, which is what the run actually reads."""
     from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
@@ -153,11 +162,11 @@ def test_autofocus_scan_plan_carries_the_forced_values():
             'video_as_frames': True,
             'separate_folder_per_channel': True,
         },
-        run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
+        run_mode=run_mode,
     )
     runner = bare_capture_runner()
     plan = runner.prepare(
-        **scr_run_kwargs(run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN, max_scans=1),
+        **scr_run_kwargs(run_mode=run_mode, max_scans=1),
         **run_settings,
     )
     assert plan.keep_led_between_steps is False, (

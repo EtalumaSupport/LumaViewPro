@@ -1322,7 +1322,7 @@ class SequencedCaptureRunner:
         its own lock scans at what that arm achieved.
         """
         arm = self._saved_camera_state.get('auto_gain_arm')
-        if arm is None or self._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN:
+        if arm is None or self._run_mode.is_autofocus:
             return
         try:
             self._scope.imaging.set_auto_gain(False, dict(arm.settings))
@@ -1964,14 +1964,9 @@ class SequencedCaptureRunner:
                 # Only a standalone autofocus run has one focus to report;
                 # the sweep clears its result per run, so a sweep that chose
                 # none reads None here rather than an earlier run's focus.
-                # An autofocus scan of every step runs in the same mode and
-                # is told apart by the protocol it writes its focus into:
-                # its answer is that protocol's Z column, not the last
-                # step's focus.
-                if (
-                    self._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN
-                    and self._write_focus_to is None
-                ):
+                # An autofocus scan of every step answers with the protocol's
+                # Z column it wrote, not the last step's focus.
+                if self._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS:
                     outcome.record_autofocus_focus(self._autofocus_runner.best_focus_position())
             if (
                 ending.status not in ('completed', 'incomplete')
@@ -2133,7 +2128,7 @@ class SequencedCaptureRunner:
         Returns:
             The build thread, or None when this run does not build.
         """
-        if self._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN:
+        if self._run_mode.is_autofocus:
             return None
         config = self._image_capture_config
         if config is None or config.output_format_sequenced != image_mode.OUTPUT_FORMAT_HYPERSTACK:

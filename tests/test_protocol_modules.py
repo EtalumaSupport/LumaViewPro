@@ -50,6 +50,7 @@ class TestSequencedCaptureRunMode:
             'full_protocol',
             'single_scan',
             'single_zstack',
+            'single_autofocus',
             'single_autofocus_scan',
             'single_composite',
         }

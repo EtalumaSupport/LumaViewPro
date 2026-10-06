@@ -164,13 +164,13 @@ def get_sequenced_run_settings(settings: dict, *, run_mode: SequencedCaptureRunM
     writers spell them.
 
     ``run_mode`` carries the one run kind whose values are not the user's:
-    an autofocus scan must NOT hold the excitation LED across focus moves
-    (photobleaching the sample) and saves nothing, so it never keeps the
-    LED between steps and never makes per-channel folders, whatever the
-    settings say. That guarantee lives here, once, rather than as an
+    an autofocus run, at one position or every step, must NOT hold the
+    excitation LED across focus moves (photobleaching the sample) and saves
+    nothing, so it never keeps the LED between steps and never makes
+    per-channel folders, whatever the settings say. That guarantee lives here, once, rather than as an
     omission at each autofocus call site.
     """
-    autofocus_scan = run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN
+    autofocus_scan = run_mode.is_autofocus
     return {
         'keep_led_between_steps': (
             False if autofocus_scan else settings.get('keep_led_between_steps', False)
