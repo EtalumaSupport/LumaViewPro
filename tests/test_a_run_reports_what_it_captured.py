@@ -32,7 +32,11 @@ def _run(runner, run_parent, steps, callbacks=None):
         image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
         callbacks=callbacks or {},
     )
-    return pending.wait(timeout_s=WAIT_S)
+    outcome = pending.wait(timeout_s=WAIT_S)
+    # The record and the images are on the file lane; they are there once
+    # the run says its files are done, not when it lets go of the scope.
+    assert pending.wait_for_files(timeout_s=WAIT_S) is not None, 'the run never finished its files'
+    return outcome
 
 
 def _two_steps():

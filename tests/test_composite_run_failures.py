@@ -300,6 +300,9 @@ class TestTheThreeStrikeFatalAbort:
             settled = outcome.wait(timeout_s=120)
 
             assert settled is not None, 'the aborted run never settled its outcome'
+            assert outcome.wait_for_files(timeout_s=120) is not None, (
+                'the run never finished its files'
+            )
             assert not settled.merged, f'an aborted run reported a merge: {settled}'
             # The two vocabularies, separated. status says the RUN failed;
             # reason says what killed it. Before they shared one field the

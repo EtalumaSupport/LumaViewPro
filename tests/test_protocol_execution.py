@@ -57,6 +57,8 @@ from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_l
 # Test constants
 # ---------------------------------------------------------------------------
 COMPLETION_TIMEOUT = 15  # seconds -- generous for CI
+# A bound only on a stuck file lane: a loaded host can take seconds to write.
+FILES_WAIT_S = 60
 
 
 # ---------------------------------------------------------------------------
@@ -296,9 +298,15 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         autofocus_snapshot=run_kwargs.pop('autofocus_snapshot', autofocus_snapshot()),
         **run_kwargs,
     )
-    executor.start(plan)
+    handle = executor.start(plan)
 
     completed = wait_for_run_end(done, heartbeat)
+    # The images and the record are on the file lane; they are there once
+    # the run says its files are done, not when it lets go of the scope.
+    if completed:
+        assert handle.wait_for_files(timeout_s=FILES_WAIT_S) is not None, (
+            'the run never finished its files'
+        )
     return completed, result_holder
 
 

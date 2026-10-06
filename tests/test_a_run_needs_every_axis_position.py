@@ -116,6 +116,11 @@ def _run(session, tmp_path, protocol=None, scans=1):
     assert done.wait(COMPLETION_TIMEOUT), 'the run never ended'
     outcome = run.wait(timeout_s=COMPLETION_TIMEOUT)
     assert outcome is not None
+    # The images are on the file lane; they are there once the run says its
+    # files are done, not when it lets go of the scope.
+    assert run.wait_for_files(timeout_s=COMPLETION_TIMEOUT) is not None, (
+        'the run never finished its files'
+    )
     return outcome
 
 
