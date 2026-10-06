@@ -31,6 +31,11 @@ def session(tmp_path):
         s.scope.disconnect()
 
 
+# How long a move may take to reach its hold: far past a slowed host, short
+# enough that a hold that never engages fails promptly.
+_HOLD_WAIT_S = 10.0
+
+
 def _reason(handle):
     try:
         handle.wait()
@@ -45,8 +50,9 @@ def test_a_stop_mid_move_leaves_the_stage_short_and_at_rest(session):
     running on its old timeline."""
     motion = session.scope.motion
     driver = motion._driver
+    hold = driver.hold_travel('X')
     handle = motion.start_move_absolute('X', 60000.0)
-    time.sleep(0.3)
+    assert hold.reached.wait(_HOLD_WAIT_S), 'the move never got part of the way'
     motion.stop_motion()
 
     assert _reason(handle) == 'stopped'
@@ -96,16 +102,14 @@ def test_a_stop_during_the_backlash_leg_ends_the_move_there(session):
     driver.set_timing_mode('realistic')
     sent = _wire(driver)
     final = f'TARGET_WZ{driver.z_um2ustep(1000.0)}'
-    leg = f'TARGET_WZ{driver.z_um2ustep(1000.0 - driver.backlash_um())}'
+    # The move's first Z target is its backlash leg's.
+    hold = driver.hold_travel('Z')
 
     def stop_during_the_leg():
         # The leg runs inside the move's body, before start_move_absolute
-        # returns, so the stop comes from another thread, once the leg's
-        # target is on the wire.
-        deadline = time.monotonic() + 5.0
-        while leg not in sent and time.monotonic() < deadline:
-            time.sleep(0.001)
-        time.sleep(0.3)
+        # returns, so the stop comes from another thread, once the leg
+        # stands part of the way down.
+        assert hold.reached.wait(_HOLD_WAIT_S), 'the leg never got part of the way'
         motion.stop_motion()
 
     stopper = threading.Thread(target=stop_during_the_leg)
@@ -151,8 +155,9 @@ def test_a_move_a_stop_ended_reads_stopped_not_superseded(session, monkeypatch):
     when nothing was sent."""
     motion = session.scope.motion
     driver = motion._driver
+    hold = driver.hold_travel('X')
     first = motion.start_move_absolute('X', 60000.0)
-    time.sleep(0.3)
+    assert hold.reached.wait(_HOLD_WAIT_S), 'the first move never got part of the way'
     real_send = motion._send_drive
 
     def a_stop_lands_first(axis, send):
@@ -204,12 +209,10 @@ def test_a_stop_during_the_turret_leg_leaves_z_parked_and_no_slot(turret_session
     motion = turret_session.scope.motion
     driver = motion._driver
     sent = _wire(driver)
+    hold = driver.hold_travel('T')
 
     def stop_during_the_turn():
-        deadline = time.monotonic() + 5.0
-        while not any(c.startswith('TARGET_WT') for c in sent) and time.monotonic() < deadline:
-            time.sleep(0.001)
-        time.sleep(0.1)
+        assert hold.reached.wait(_HOLD_WAIT_S), 'the turn never got part of the way'
         motion.stop_motion()
 
     stopper = threading.Thread(target=stop_during_the_turn)
