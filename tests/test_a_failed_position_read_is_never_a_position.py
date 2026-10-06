@@ -9,6 +9,7 @@ backlash leg, reporting arrived with the backlash taken the wrong way;
 reader decides where it owns the decision.
 """
 
+import logging
 import time
 
 import pytest
@@ -122,3 +123,15 @@ def test_an_arrival_never_read_is_given_up_as_that(scope, monkeypatch):
     assert exc.value.title == 'Motor Position Unknown'
     assert motion.get_axis_state('X') == AxisState.UNKNOWN
     scope._motion_driver._fail_on.discard('ACTUAL_RX')
+
+
+def test_a_read_that_keeps_failing_is_warned_of_once_per_move(scope, caplog):
+    """The monitor logged each failed read at DEBUG, once a poll: invisible
+    in a field log, and about fifty a second where it was shown."""
+    with caplog.at_level(logging.DEBUG, logger='LVP.api'):
+        _move_x_and_lose_its_position(scope)
+        scope._motion_driver._fail_on.discard('ACTUAL_RX')
+        scope.motion.wait_until_finished_moving()
+
+    unread = [r for r in caplog.records if r.name == 'LVP.api' and 'ACTUAL_RX' in r.getMessage()]
+    assert [r.levelno for r in unread] == [logging.WARNING]

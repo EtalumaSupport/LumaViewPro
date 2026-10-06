@@ -234,6 +234,10 @@ class MotionAPI:
         # forever, while only explicit waiters carry their own timeout.
         # Only the monitor thread touches it.
         self._moving_since: dict[str, float] = {}
+        # The move, by its count, whose failed position read the monitor
+        # has already warned of: once per move, not once per poll, which is
+        # about fifty a second. Only the monitor thread touches it.
+        self._unread_warned: dict[str, int] = {}
         # The fault the monitor gave an axis up with, recorded BEFORE the
         # UNKNOWN write that wakes a waiter, so the waiter raises the same
         # object the monitor reported and the person is shown it once.
@@ -2650,7 +2654,12 @@ class MotionAPI:
                                 self._pos_cache[ax] = float(actual)
                             read = True
                         except HardwareError as e:
-                            _api_log.debug(f'motion monitor current_pos({ax}) failed: {e}')
+                            if self._unread_warned.get(ax) != noted:
+                                self._unread_warned[ax] = noted
+                                _api_log.warning(
+                                    f'motion monitor: {ax} position read failed ({e}); '
+                                    f'retrying until the motion bound'
+                                )
                             read = False
                         # An arrival is written only with the position read
                         # after it: IDLE with an unread cache was an axis
