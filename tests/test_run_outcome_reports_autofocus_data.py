@@ -438,12 +438,16 @@ class TestTheSweepDoesNotReturnBeforeItsWriteLands:
     def test_nothing_queued_needs_no_wait(self):
         """A refused submit returns no waiter, and saved_data_path stays None."""
         runner = self._bare_runner()
+        from modules.autofocus_runner import AF_DATA_WRITE_WAIT_S
+
         runner._data_write_future = None
 
         started = time.monotonic()
         runner._await_data_write()
 
-        assert time.monotonic() - started < 0.1
+        # A wait would sit out the bound; a loaded host can make a no-op
+        # take tens of milliseconds, never half of it.
+        assert time.monotonic() - started < AF_DATA_WRITE_WAIT_S / 2
         assert runner.saved_data_path() is None
 
     def test_the_waiter_is_consumed_so_a_later_sweep_cannot_inherit_it(self):

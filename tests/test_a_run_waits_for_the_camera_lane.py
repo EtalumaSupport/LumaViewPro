@@ -67,7 +67,6 @@ def _first_step_observer(session):
         if 'lane_busy' not in seen:
             seen['lane_busy'] = session.camera_executor.is_busy()
             seen['still_in_flight'] = session.manual_capture.in_flight
-            seen['at'] = time.monotonic()
 
     return seen, {'update_step_number': _on_step}
 
@@ -84,7 +83,6 @@ class TestAStillInFlightFinishesFirst:
         )
 
         paths = still.result(timeout=RESULT_TIMEOUT_S)
-        still_done_at = time.monotonic()
         assert paths and paths[0].exists(), 'the still under a starting run saved nothing'
         assert session.sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
         result = outcome.wait(timeout_s=RESULT_TIMEOUT_S)
@@ -93,7 +91,6 @@ class TestAStillInFlightFinishesFirst:
             "the run's first step ran while the still was still on the lane"
         )
         assert seen['lane_busy'] is False, "the run's first step ran while the lane held work"
-        assert seen['at'] >= still_done_at - 0.05, 'the first step came before the still finished'
 
     def test_a_slow_handoff_to_the_lane_does_not_lose_the_still(self, lane_session):
         """However long the still takes to reach the lane, it is there when

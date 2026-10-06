@@ -26,7 +26,6 @@ import datetime
 import pathlib
 import sys
 import threading
-import time
 from unittest.mock import MagicMock
 
 # Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
@@ -186,13 +185,9 @@ class TestStandaloneAfDeliversCharacterizationData:
             assert done.wait(timeout=COMPLETION_TIMEOUT), 'AF run did not complete'
             assert files_done.wait(timeout=COMPLETION_TIMEOUT), 'AF run files_complete did not fire'
 
-            deadline = time.monotonic() + 10.0
-            files = []
-            while time.monotonic() < deadline:
-                files = [p for p in char_dir.rglob('*') if p.is_file()]
-                if files:
-                    break
-                time.sleep(0.1)
+            # files_complete comes after the run's last write lands, and the
+            # data rides the run's writes: it is on disk now or never.
+            files = [p for p in char_dir.rglob('*') if p.is_file()]
             assert files, (
                 'an AF run with save_autofocus_data=True must leave its '
                 'characterization data on disk; an empty folder means the '

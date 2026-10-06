@@ -183,8 +183,11 @@ class TestDisconnectShutsTheLanesFirst:
         in_flight, release = threading.Event(), threading.Event()
 
         def hold():
+            # Released only by the teardown below (or the finally), never by
+            # a clock: a hold that let go on its own would run the led_on
+            # before the disconnect on a slow host.
             in_flight.set()
-            release.wait(2.0)
+            release.wait()
 
         lane.put(IOTask(action=hold))
         assert in_flight.wait(2.0)
@@ -213,8 +216,11 @@ class TestDisconnectShutsTheLanesFirst:
             release.set()
             time.sleep(0.3)
 
-        with patch.object(scope.illumination, '_leds_off_emergency', off_then_finish):
-            scope.disconnect()
+        try:
+            with patch.object(scope.illumination, '_leds_off_emergency', off_then_finish):
+                scope.disconnect()
+        finally:
+            release.set()
         caller.join(3.0)
 
         assert 'error' in outcome, f'the queued led_on was not cancelled: {outcome}'

@@ -1232,8 +1232,7 @@ class TestRestAPIPrep:
                     ),
                 )
 
-                # Give the thread a moment to enter AFE.run()
-                time.sleep(0.1)
+                # Running from the moment run_autofocus returns.
                 assert thread.is_running is True
 
                 thread.abort()

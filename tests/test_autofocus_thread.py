@@ -15,6 +15,7 @@ Covers the public API contract:
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 
@@ -23,6 +24,11 @@ import pytest
 from modules.autofocus_thread import AutofocusThread
 from modules.exceptions import AutofocusAborted
 from tests.protocol_drives import run_identity
+
+
+# A sweep that only an abort ends, so it is in flight whenever the test
+# acts on it, however late the test thread runs.
+_UNTIL_ABORTED = math.inf
 
 
 class _FakeAFE:
@@ -100,7 +106,9 @@ class TestRunAutofocus:
         result = future.result(timeout=2.0)
         assert result == 42.5
         assert at.is_running is False
-        assert at.current_future is None
+        # The worker clears its record after it resolves the Future, so the
+        # record can outlive result(); the sweep in flight cannot.
+        assert at.in_flight_sweep is None
 
     def test_run_passes_kwargs_to_afe(self, at, afe):
         at.run_autofocus(run=run_identity('autofocus'), objective_id='10x', camera_gain=1.5).result(
@@ -113,7 +121,7 @@ class TestRunAutofocus:
         assert isinstance(call['abort_event'], threading.Event)
 
     def test_second_concurrent_call_rejects(self, afe):
-        afe._run_delay = 1.0  # keep first run in-flight
+        afe._run_delay = _UNTIL_ABORTED
         thread = AutofocusThread(afe=afe)
         thread.start()
         try:
@@ -136,7 +144,7 @@ class TestRunAutofocus:
 
 class TestAbort:
     def test_abort_during_run_surfaces_AutofocusAborted(self, afe):
-        afe._run_delay = 5.0  # ensures the run is in-flight when abort fires
+        afe._run_delay = _UNTIL_ABORTED
         thread = AutofocusThread(afe=afe)
         thread.start()
         try:
@@ -180,7 +188,7 @@ class TestAbortLockingRace:
         # then abort while the worker is still picking it up off the
         # queue. The Future must surface AutofocusAborted -- the abort
         # must not be cleared by run_autofocus's own _aborted.clear().
-        afe._run_delay = 5.0  # long-running AFE.run so abort lands mid-flight
+        afe._run_delay = _UNTIL_ABORTED
         thread = AutofocusThread(afe=afe)
         thread.start()
         try:
@@ -198,7 +206,7 @@ class TestAbortLockingRace:
         # followed by abort. Each cycle must surface AutofocusAborted
         # via the Future. A pre-fix race would non-deterministically
         # let some cycles complete normally (abort lost).
-        afe._run_delay = 5.0
+        afe._run_delay = _UNTIL_ABORTED
         thread = AutofocusThread(afe=afe)
         thread.start()
         try:
@@ -227,7 +235,7 @@ class TestKeyErrorRaceRegression:
     """
 
     def test_abort_unwind_does_not_keyerror_on_params(self, afe):
-        afe._run_delay = 5.0  # ensure run is in flight when abort fires
+        afe._run_delay = _UNTIL_ABORTED
         thread = AutofocusThread(afe=afe)
         thread.start()
         try:

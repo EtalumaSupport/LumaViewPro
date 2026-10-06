@@ -179,15 +179,20 @@ class TestRefusalsDecidedWhereTheWaiterIsPopped:
         return ActivityClaim()
 
     @pytest.fixture
-    def held_lane(self, claim):
+    def lane_and_key(self, claim):
         ex = SequentialIOExecutor(name='TEST_IO')
-        ex.ask_claim(claim)
+        key = ex.ask_claim(claim)
         ex.start()
-        yield ex
+        yield ex, key
         ex.shutdown(wait=False)
 
+    @pytest.fixture
+    def held_lane(self, lane_and_key):
+        return lane_and_key[0]
+
     @pytest.mark.parametrize('waited', [True, False], ids=['waiter', 'no_waiter'])
-    def test_a_silent_task_refused_while_queued(self, claim, held_lane, shown, caplog, waited):
+    def test_a_silent_task_refused_while_queued(self, claim, lane_and_key, shown, caplog, waited):
+        held_lane, key = lane_and_key
         gate = threading.Event()
         running = threading.Event()
 
@@ -207,10 +212,10 @@ class TestRefusalsDecidedWhereTheWaiterIsPopped:
                 if waited:
                     with pytest.raises(HardwareCommandRefusedError):
                         fut.result(timeout=_WAIT_S)
-                deadline = time.monotonic() + _WAIT_S
-                while held_lane.queue.qsize() and time.monotonic() < deadline:
-                    time.sleep(0.01)
-                time.sleep(0.1)
+                # The lane runs its queue in order: once a task queued after
+                # the silent one has run, that one was popped and decided
+                # under the claim. The override key admits it past the holder.
+                held_lane.call(IOTask(action=lambda: None), 'settle', _WAIT_S, override=key)
             finally:
                 held.release()
 
