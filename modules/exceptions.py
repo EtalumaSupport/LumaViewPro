@@ -2129,7 +2129,9 @@ class MoveNotCompletedError(Exception):
             target within the motion bound. ``'board_lost'`` -- the
             monitor lost the motor board while the axis moved.
             ``'faulted'`` -- something else set the axis UNKNOWN during
-            the wait (a disconnect, a home). ``'timed_out'`` -- the wait's
+            the wait (a disconnect, a home). ``'position_unread'`` -- the
+            board reported the axis arrived but not where, within the
+            motion bound. ``'timed_out'`` -- the wait's
             bound ran out before the axis arrived. Each of those leaves
             the axis UNKNOWN. ``'stopped'`` -- a stop was issued while it
             moved; the axis is where the stop left it, which its position
@@ -2160,6 +2162,10 @@ class MoveNotCompletedError(Exception):
             'it stalled or the board was lost during the move. The {axis} position '
             'is now unknown -- home the scope before moving it again.'
         ),
+        'position_unread': (
+            'it stopped, but the motor board did not report where. The {axis} '
+            'position is now unknown -- home the scope before moving it again.'
+        ),
         'timed_out': (
             'it did not arrive within the motion time limit. The {axis} position '
             'is now unknown -- home the scope before moving it again.'
@@ -2175,6 +2181,7 @@ class MoveNotCompletedError(Exception):
     _TITLES: ClassVar[dict[str, str]] = {
         'stalled': 'Motor Axis Stalled',
         'board_lost': 'Motor Board Disconnected',
+        'position_unread': 'Motor Position Unknown',
     }
 
     def __init__(self, axis: str, reason: str):

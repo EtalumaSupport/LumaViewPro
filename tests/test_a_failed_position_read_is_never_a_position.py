@@ -9,10 +9,12 @@ backlash leg, reporting arrived with the backlash taken the wrong way;
 reader decides where it owns the decision.
 """
 
+import time
+
 import pytest
 
 from drivers.exceptions import HardwareError
-from modules.exceptions import HardwareCommandRefusedError
+from modules.exceptions import HardwareCommandRefusedError, MoveNotCompletedError
 from modules.lumascope_api.motion import AxisState
 from tests.scope_fakes import build_scope, home_sim_scope
 
@@ -71,3 +73,52 @@ def test_the_actual_position_is_refused_with_no_board(scope):
     with pytest.raises(HardwareCommandRefusedError) as exc:
         scope.motion.get_actual_position('Z')
     assert exc.value.reason == 'not_connected'
+
+
+def _move_x_and_lose_its_position(scope):
+    """Start a long X move on the realistic simulator and fail every
+    position read until the board has long reported it arrived."""
+    motion = scope.motion
+    driver = scope._motion_driver
+    driver.set_timing_mode('realistic')
+    handle = motion.start_move_absolute('X', 20000.0)
+    driver._fail_on.add('ACTUAL_RX')
+    deadline = time.monotonic() + 5.0
+    while not driver.target_status('X'):
+        assert time.monotonic() < deadline, 'the simulated move never arrived'
+        time.sleep(0.02)
+    time.sleep(0.2)  # ten monitor polls past the arrival
+    return handle
+
+
+def test_an_arrival_whose_position_was_not_read_is_not_written(scope):
+    """The monitor wrote IDLE on the reached bit whatever its position read
+    did, so the axis was 'known' at a number nobody read."""
+    motion = scope.motion
+    driver = scope._motion_driver
+    handle = _move_x_and_lose_its_position(scope)
+
+    assert motion.get_axis_state('X') == AxisState.MOVING
+
+    driver._fail_on.discard('ACTUAL_RX')
+    handle.wait()
+    assert motion.get_axis_state('X') == AxisState.IDLE
+    assert motion.get_current_position('X') == pytest.approx(20000.0, abs=0.1)
+
+
+def test_an_arrival_never_read_is_given_up_as_that(scope, monkeypatch):
+    motion = scope.motion
+    monkeypatch.setattr(motion, '_MOTION_SETTLE_TIMEOUT_S', 1.0)
+    real_wait = motion._wait_for_axis_to_stop
+    monkeypatch.setattr(
+        motion, '_wait_for_axis_to_stop', lambda axis, timeout_s: real_wait(axis, 5.0)
+    )
+    handle = _move_x_and_lose_its_position(scope)
+
+    with pytest.raises(MoveNotCompletedError) as exc:
+        handle.wait()
+
+    assert exc.value.reason == 'position_unread'
+    assert exc.value.title == 'Motor Position Unknown'
+    assert motion.get_axis_state('X') == AxisState.UNKNOWN
+    scope._motion_driver._fail_on.discard('ACTUAL_RX')

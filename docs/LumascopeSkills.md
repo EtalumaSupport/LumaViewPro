@@ -1212,8 +1212,9 @@ scope.motion.start_move_relative('Z', 100).wait()
 # A move that does not complete raises MoveNotCompletedError, one object with
 # .axis, .reason and .title, and the axis is UNKNOWN afterwards (except
 # 'stopped'): 'driver_failed' (the board did not take the command; chained
-# from the driver's error), 'stalled' / 'board_lost' (the motion monitor gave
-# the axis up; a waited move raises the very object the monitor reported),
+# from the driver's error), 'stalled' / 'board_lost' / 'position_unread' (the
+# motion monitor gave the axis up -- the last when the board said it arrived but
+# never said where; a waited move raises the very object the monitor reported),
 # 'timed_out' (the wait's bound ran out), 'faulted' (set UNKNOWN by something
 # else during the wait), 'stopped' (stop_motion landed on it), 'superseded'
 # (another move on the same axis started before it arrived; the axis keeps

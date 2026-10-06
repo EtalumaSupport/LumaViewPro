@@ -2593,10 +2593,16 @@ class MotionAPI:
                             actual = self._driver.current_pos(ax)
                             with self._pos_cache_lock:
                                 self._pos_cache[ax] = float(actual)
-                        except Exception as e:
+                            read = True
+                        except HardwareError as e:
                             _api_log.debug(f'motion monitor current_pos({ax}) failed: {e}')
+                            read = False
+                        # An arrival is written only with the position read
+                        # after it: IDLE with an unread cache was an axis
+                        # "known" at a number nobody read.
                         if (
                             arrived
+                            and read
                             and armed
                             and self._set_axis_state(
                                 ax, AxisState.IDLE, verdict_for=noted, armed_only=True
@@ -2606,7 +2612,7 @@ class MotionAPI:
                             # landing within one poll interval starts its own.
                             self._moving_since.pop(ax, None)
                             continue
-                        if armed and not arrived:
+                        if armed and not (arrived and read):
                             # Still moving per firmware. A connected axis that
                             # stays not-arrived past the published motion bound
                             # is stalled: position_reached will never fire, so
@@ -2619,14 +2625,17 @@ class MotionAPI:
                             # count) and run only while the axis is armed, and
                             # it lives HERE, after the arrival check, so an
                             # arriving report always wins over the stall
-                            # verdict.
+                            # verdict. An axis the board says arrived but
+                            # whose position it will not report runs the same
+                            # clock, and is given up as that, not as a stall.
                             since = self._moving_since.get(ax)
                             if since is None or since[0] != noted:
                                 since = (noted, time.monotonic())
                                 self._moving_since[ax] = since
                             if time.monotonic() - since[1] > self._MOTION_SETTLE_TIMEOUT_S:
                                 self._moving_since.pop(ax, None)
-                                if self._give_axis_up(ax, 'stalled', verdict_for=noted):
+                                reason = 'position_unread' if arrived else 'stalled'
+                                if self._give_axis_up(ax, reason, verdict_for=noted):
                                     continue
                         # No verdict this poll (still moving, a drive in
                         # flight, or the reached bit was another move's):
