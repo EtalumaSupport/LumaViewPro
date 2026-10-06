@@ -1316,7 +1316,6 @@ class TestCameraProfiles:
         assert p.sensor == 'Sony IMX676-AAMR1-C'
         assert p.exposure_max_us == 10_000_000
         assert p.gain.analog_max_db == 30.0
-        assert p.has_temperature is True
 
     def test_lookup_known_ids_model(self):
         from drivers.camera_profiles import lookup_profile

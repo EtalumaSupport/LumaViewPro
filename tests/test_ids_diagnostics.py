@@ -70,13 +70,19 @@ class _TempNode:
 
 class _Nodemap:
     """FindNode dispatch. Names in ``missing`` raise (the ids_peak shape for an
-    absent node); scalar names return _ValueNode, enum names _EnumNode."""
+    absent node) and answer False to HasNode; scalar names return _ValueNode,
+    enum names _EnumNode."""
 
     def __init__(self, values=None, enums=None, special=None, missing=()):
         self._values = values or {}
         self._enums = enums or {}
         self._special = special or {}
         self._missing = set(missing)
+
+    def HasNode(self, name):
+        if name in self._missing:
+            return False
+        return name in self._special or name in self._enums or name in self._values
 
     def FindNode(self, name):
         if name in self._missing:
@@ -122,11 +128,6 @@ class TestGetAllTemperatures:
     def test_absent_temperature_node_returns_empty(self):
         cam = bare_ids_camera()
         cam.remote_nodemap = _Nodemap(missing=('DeviceTemperature',))
-        assert cam.get_all_temperatures() == {}
-
-    def test_inactive_camera_returns_empty(self):
-        cam = bare_ids_camera()
-        cam.active = False
         assert cam.get_all_temperatures() == {}
 
 

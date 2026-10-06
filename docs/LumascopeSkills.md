@@ -1699,7 +1699,7 @@ The last two rows are not registered on the scope. **Run state** is registered o
 ```python
 scope.camera_connected                             # bool property (mirror of motor_connected / led_connected)
 scope.imaging.active_cached                        # True if grabbing
-scope.diagnostics.get_camera_temperatures_degc()        # temperature sensors (SDK-dependent)
+scope.diagnostics.get_camera_temperatures_degc()        # temperature sensors; {} only with no sensor, a failed read raises
 scope.capabilities.camera_model                    # the camera's model, serial number (camera_serial_number) and
                                                    # timestamp clock (camera_timestamp_tick_hz), read at connect
 scope.diagnostics.get_camera_profile_info()        # sensor specs + dynamic ranges; None when no camera is
@@ -1834,8 +1834,10 @@ scope.capabilities.lens_focal_length_mm    # tube-lens focal length, mm, or None
 # fails. Returns {'connected': False} when no camera is active.
 info = scope.diagnostics.get_camera_diagnostic_info()
 
-# Camera temperature sensors. Returns dict {sensor_name: degC} or
-# empty when the camera lacks temperature sensors or is inactive.
+# Camera temperature sensors. Returns dict {sensor_name: degC}; empty only
+# for a camera with no temperature sensor (capabilities.camera_reports_temperature
+# False); None when no camera is active. A read that fails on an active camera
+# raises HardwareError: neither {} nor None ever stands for a failure.
 temps = scope.diagnostics.get_camera_temperatures_degc()
 
 # The camera's link, live: {'transport': 'USB3' | 'GigE' | 'USB2',
@@ -1938,6 +1940,8 @@ caps.camera_analog_gain_max_db  # dB: the most gain applied before a digital sta
                                 # multiplies digitised values). The profile's analog maximum, or the camera's
                                 # live maximum where it has no digital stage; None if neither is known.
                                 # The whole range, analog and digital, is scope.imaging.max_gain_db_cached
+caps.camera_reports_temperature # the camera has a temperature sensor (probed at connect); False:
+                                # get_camera_temperatures_degc answers {}
 # Exposure ceiling: scope.imaging.max_exposure_ms_cached (ms; None if no camera) -- see scope.imaging
 ```
 

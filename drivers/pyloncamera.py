@@ -1286,19 +1286,21 @@ class PylonCamera(Camera):
             )
 
     def get_all_temperatures(self) -> dict:
-        """Return {selector: degC, ...} per DeviceTemperatureSelector entry; {} if unreadable."""
+        """Return {selector: degC, ...} per DeviceTemperatureSelector entry.
+
+        {} for a camera without the temperature nodes. See
+        ``Camera.get_all_temperatures``.
+        """
         if not self.active:
-            _cam_log.warning('[CAM Class ] get_all_temperatures(): inactive camera')
-            return {}
+            raise HardwareError('Camera temperature read: no camera is active')
 
         try:
             nodemap = self.active.GetNodeMap()
+            if not self._has_temperature_nodes(nodemap):
+                return {}
 
             selector = nodemap.GetNode('DeviceTemperatureSelector')
             temp = nodemap.GetNode('DeviceTemperature')
-
-            if selector is None or temp is None:
-                return {}
 
             temps: dict[str, float] = {}
 
@@ -1315,7 +1317,7 @@ class PylonCamera(Camera):
                     temps[name] = temp.GetValue()
 
             return temps
-        except genicam.RuntimeException as e:
+        except Exception as e:
             # Intentionally NO disconnect teardown here: this getter used to
             # latch the device-removed flag (no reset short of a full
             # reconnect) on a single possibly-transient node read, which
@@ -1324,11 +1326,22 @@ class PylonCamera(Camera):
             # DEVICE_NOT_FOUND / consecutive-failure paths, which still fire
             # on a real unplug; a read failure here only means this VALUE is
             # unavailable right now.
-            _cam_log.error(f'[CAM Class ] Failed to read camera temperatures: {e}')
-            return {}
+            raise HardwareError(f'Camera temperature read failed: {type(e).__name__}: {e}') from e
+
+    def supports_temperature(self) -> bool:
+        """True if the camera exposes the temperature selector and reading nodes."""
+        if not self.active:
+            return False
+        try:
+            return self._has_temperature_nodes(self.active.GetNodeMap())
         except Exception as e:
-            _cam_log.exception(f'[CAM Class ] Unexpected error reading temperatures: {e}')
-            return {}
+            # No disconnect teardown, as in the read above.
+            raise HardwareError(f'Temperature probe failed: {type(e).__name__}: {e}') from e
+
+    def _has_temperature_nodes(self, nodemap) -> bool:
+        return self._has_node(nodemap, 'DeviceTemperatureSelector') and self._has_node(
+            nodemap, 'DeviceTemperature'
+        )
 
     def get_sdk_info(self) -> dict:
         """Basler pylon SDK provenance (name + versions) for diagnostics.

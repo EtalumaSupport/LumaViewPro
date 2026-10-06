@@ -1067,10 +1067,23 @@ class Camera(ABC):
 
         Returns:
             dict: Sensor-name-keyed temperatures in degrees Celsius.
-                Empty dict when the camera does not expose temperature
-                telemetry.
+                Empty only for a camera with no temperature sensor
+                (``supports_temperature`` False), never for a read that
+                failed.
+
+        Raises:
+            HardwareError: No camera is active, or a sensor the camera
+                lists could not be read.
         """
         pass
+
+    def supports_temperature(self) -> bool:
+        """Whether the camera has a temperature sensor to read.
+
+        Raises:
+            HardwareError: The probe failed.
+        """
+        return False
 
     def get_sdk_info(self) -> dict:
         """Return the camera SDK provenance label for diagnostic snapshots.

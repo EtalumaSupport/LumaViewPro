@@ -2116,8 +2116,13 @@ class TechSupportReport:
         ):
             if key in api_info:
                 info[key] = api_info[key]
-        for name, temp_c in (api_info.get('temperatures') or {}).items():
-            info[f'Temperature_{name}'] = temp_c
+        temperatures = api_info.get('temperatures', {})
+        if isinstance(temperatures, str):
+            # The snapshot's per-field error string: the read failed.
+            info['Temperatures'] = temperatures
+        else:
+            for name, temp_c in temperatures.items():
+                info[f'Temperature_{name}'] = temp_c
 
         with open(d / 'camera_info.txt', 'w') as f:
             f.write('Camera Information\n' + '=' * 40 + '\n\n')

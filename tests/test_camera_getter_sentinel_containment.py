@@ -737,8 +737,11 @@ def test_temp_logger_survives_transient_disconnect_and_resumes():
     imaging = _build_imaging(driver)
 
     probes = []
+    # The read answers None while no camera is active, as the API does.
     imaging._scope.diagnostics = SimpleNamespace(
-        get_camera_temperatures_degc=lambda: probes.append(1) or {'coreboard': 42.0}
+        get_camera_temperatures_degc=lambda: (
+            (probes.append(1) or {'coreboard': 42.0}) if connected['value'] else None
+        )
     )
 
     scheduled = {}
@@ -782,6 +785,7 @@ def test_disconnect_tears_down_temp_logging_schedule():
     scope.motion = SimpleNamespace(stop_motion=lambda: None, _disconnect=lambda: None)
     scope._led_driver = SimpleNamespace(disconnect=lambda: None)
     scope._motion_driver = SimpleNamespace(disconnect=lambda: None)
+    scope.diagnostics = SimpleNamespace(get_camera_temperatures_degc=lambda: None)
 
     unschedule_calls = []
     imaging.start_camera_temp_logging(

@@ -2679,65 +2679,53 @@ class IDSCamera(Camera):
         return {'name': 'IDS peak', 'version': version}
 
     def get_all_temperatures(self) -> dict:
-        """Return {selector: degC, ...} per DeviceTemperatureSelector entry; {} if unreadable.
+        """Return {selector: degC, ...} per DeviceTemperatureSelector entry.
 
         Mirrors the Pylon driver's shape using the GenICam-standard
         DeviceTemperature / DeviceTemperatureSelector nodes through the IDS
-        Peak FindNode API. A body that exposes a single sensor (no selector)
-        reports it under 'Device'. Returns {} when the camera is inactive or
-        the body exposes no temperature telemetry (FindNode raises on an
-        absent node). Never raises.
+        Peak nodemap API. A body that exposes a single sensor (no selector)
+        reports it under 'Device'. {} for a body with no DeviceTemperature
+        node. See ``Camera.get_all_temperatures``.
         """
         if not self.active or self.remote_nodemap is None:
-            return {}
+            raise HardwareError('Camera temperature read: no camera is active')
         try:
+            if not self.remote_nodemap.HasNode('DeviceTemperature'):
+                return {}
             temp = self.remote_nodemap.FindNode('DeviceTemperature')
-        except Exception as e:
-            _cam_log.debug(f'[CAM Class ] DeviceTemperature node absent: {e}')
-            return {}
-        if temp is None:
-            return {}
-        # The selector is optional -- a single-sensor body may expose only
-        # DeviceTemperature. With a selector, read every available entry.
-        try:
-            selector = self.remote_nodemap.FindNode('DeviceTemperatureSelector')
-        except Exception:
-            selector = None
-        temps: dict[str, float] = {}
-        try:
-            if selector is not None:
+            temps: dict[str, float] = {}
+            # The selector is optional -- a single-sensor body may expose only
+            # DeviceTemperature. With a selector, read every available entry.
+            if self.remote_nodemap.HasNode('DeviceTemperatureSelector'):
+                selector = self.remote_nodemap.FindNode('DeviceTemperatureSelector')
                 # Restore the selector afterwards so a later DeviceTemperature
                 # read (or a concurrent reader) is not left pointed at the last
                 # iterated sensor.
-                try:
-                    original = selector.CurrentEntry().SymbolicValue()
-                except Exception:
-                    original = None
+                original = selector.CurrentEntry().SymbolicValue()
                 try:
                     for entry in selector.AvailableEntries():
                         name = entry.SymbolicValue()
-                        try:
-                            selector.SetCurrentEntry(name)
-                            temps[name] = float(temp.Value())
-                        except Exception as e:
-                            _cam_log.debug(f'[CAM Class ] temperature read for {name} failed: {e}')
+                        selector.SetCurrentEntry(name)
+                        temps[name] = float(temp.Value())
                 finally:
-                    if original is not None:
-                        try:
-                            selector.SetCurrentEntry(original)
-                        except Exception as e:
-                            _cam_log.debug(
-                                f'[CAM Class ] restoring DeviceTemperatureSelector failed: {e}'
-                            )
+                    selector.SetCurrentEntry(original)
             # Fall back to the bare DeviceTemperature when there is no selector
-            # OR the selector yielded nothing readable (a vestigial/empty
-            # selector still leaves a single sensor readable).
+            # OR the selector lists no entries (a vestigial/empty selector
+            # still leaves a single sensor readable).
             if not temps:
                 temps['Device'] = float(temp.Value())
         except Exception as e:
-            _cam_log.warning(f'[CAM Class ] get_all_temperatures failed: {e}')
-            return {}
+            raise HardwareError(f'Camera temperature read failed: {type(e).__name__}: {e}') from e
         return temps
+
+    def supports_temperature(self) -> bool:
+        """True if the camera exposes the DeviceTemperature node."""
+        if not self.active or self.remote_nodemap is None:
+            return False
+        try:
+            return bool(self.remote_nodemap.HasNode('DeviceTemperature'))
+        except Exception as e:
+            raise HardwareError(f'Temperature probe failed: {type(e).__name__}: {e}') from e
 
     def set_device_link_throughput_limit(
         self,

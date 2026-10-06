@@ -22,6 +22,7 @@ import numpy as np
 
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
+from drivers.exceptions import HardwareError
 from lib import profile_trace
 from lvp_logger import logger
 from modules.exceptions import (
@@ -4641,14 +4642,23 @@ class ImagingAPI:
         periodically by ``start_camera_temp_logging``. Reads temperatures
         through `scope.diagnostics.get_camera_temperatures_degc` -- the canonical
         camera-temp probe (cold probes live on DiagnosticsAPI).
+
+        Raises:
+            HardwareError: The read failed. On a tick the session's scheduler
+                reports it and keeps the schedule.
         """
-        if not self._scope.camera_connected:
+        temps = self._scope.diagnostics.get_camera_temperatures_degc()
+        if temps is None:
             return
-        for source, temp in self._scope.diagnostics.get_camera_temperatures_degc().items():
+        for source, temp in temps.items():
             logger.info(f'[CAM Class ] Camera {source} Temperature : {temp:.2f} degC')
 
     def start_camera_temp_logging(
-        self, schedule_interval_fn, unschedule_fn, *, interval_s: float = 14400.0
+        self,
+        schedule_interval_fn: Callable[[Callable[..., None], float], object],
+        unschedule_fn: Callable[[object], None],
+        *,
+        interval_s: float = 14400.0,
     ) -> None:
         """Own the periodic camera-temp logging schedule.
 
@@ -4678,7 +4688,13 @@ class ImagingAPI:
             self.stop_camera_temp_logging()
 
         self._camera_temp_unschedule_fn = unschedule_fn
-        self._log_camera_temps()  # one immediate sample
+        # One immediate sample. Its caller is the host bringing metrics up,
+        # which a failed read must not stop, so the failure is reported here,
+        # where its flight ends, as a tick's is by the scheduler.
+        try:
+            self._log_camera_temps()
+        except HardwareError as ex:
+            notifications.report_outcome(ex, solicited=False, category='Camera')
 
         def _tick(_dt=0):
             # camera_connected is an instantaneous poll and a False can be

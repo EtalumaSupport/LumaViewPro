@@ -249,6 +249,13 @@ class ScopeCapabilities:
     neither is known: no camera, a camera with a digital stage and no
     documented split, or a maximum the connect read did not get."""
 
+    camera_reports_temperature: bool
+    """True if the camera has a temperature sensor, probed from its
+    temperature node at connect. Where it is False,
+    ``scope.diagnostics.get_camera_temperatures_degc`` answers ``{}``;
+    where it is True an empty answer cannot happen, and a read that fails
+    raises."""
+
     is_color_native: bool = False
     """True if the camera natively produces 3-channel color frames
     (Bayer-decoded RGB out of the SDK). False for mono cameras (the
@@ -358,6 +365,7 @@ class ScopeCapabilities:
         camera_binning_sizes: tuple[int, ...] = ()
         camera_max_frame_size: tuple[int, int] | None = None
         camera_analog_gain_max_db: float | None = None
+        camera_reports_temperature = False
         is_color_native = False
         native_bit_depth = 16
         camera_supports_conversion_gain_mode = False
@@ -405,13 +413,19 @@ class ScopeCapabilities:
                 lambda: bool(camera.supports_black_level()),
                 False,
             )
+            camera_reports_temperature = _probe(
+                'camera.supports_temperature',
+                lambda: bool(camera.supports_temperature()),
+                False,
+            )
             # Record the detected low-noise toggles so a support bundle shows
             # whether they were available on this camera without debug mode.
             logger.info(
                 f'[CAPABILITIES] camera={camera_model!r} '
                 f'conversion_gain_mode={camera_supports_conversion_gain_mode} '
                 f'line_noise_reduction={camera_supports_line_noise_reduction} '
-                f'black_level={camera_supports_black_level}'
+                f'black_level={camera_supports_black_level} '
+                f'temperature={camera_reports_temperature}'
             )
 
         return cls(
@@ -435,6 +449,7 @@ class ScopeCapabilities:
             camera_binning_sizes=camera_binning_sizes,
             camera_max_frame_size=camera_max_frame_size,
             camera_analog_gain_max_db=camera_analog_gain_max_db,
+            camera_reports_temperature=camera_reports_temperature,
             is_color_native=is_color_native,
             native_bit_depth=native_bit_depth,
             camera_supports_conversion_gain_mode=camera_supports_conversion_gain_mode,

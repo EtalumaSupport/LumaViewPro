@@ -21,6 +21,7 @@ from scipy.ndimage import uniform_filter
 from lvp_logger import logger
 from drivers.camera import Camera, FrameGrid, ImageHandlerBase, link_info
 from drivers.camera_profiles import simulated_profile
+from drivers.exceptions import HardwareError
 from drivers.registry import camera_registry
 from drivers.simulated_specimen import specimen_frames
 
@@ -638,8 +639,16 @@ class SimulatedCamera(Camera):
 
         Returns:
             dict: ``{'sensor': 35.0, 'board': 40.0}``.
+
+        Raises:
+            HardwareError: No camera is active.
         """
+        if not self.active:
+            raise HardwareError('Camera temperature read: no camera is active')
         return {'sensor': 35.0, 'board': 40.0}
+
+    def supports_temperature(self) -> bool:
+        return bool(self.active)
 
     # ------------------------------------------------------------------
     # Frame rate

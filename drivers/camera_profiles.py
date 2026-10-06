@@ -35,7 +35,6 @@ Adding a new camera model
      * GainSelector value: 'All', 'AnalogAll', 'DigitalAll'
    - Auto gain / auto exposure        (has_auto_gain, has_auto_exposure)
      * Whether the camera hardware supports these features
-   - Temperature sensors              (has_temperature)
    - Deliverable frame-size step      (alignment)
      * Even sides for every camera (the default): the camera base acquires
        the next window up on the driver's own grid and crops back, so the
@@ -118,7 +117,6 @@ class CameraProfile:
     gain: GainInfo = field(default_factory=GainInfo)
     has_auto_gain: bool = False
     has_auto_exposure: bool = False
-    has_temperature: bool = False
     driver: str = ''  # 'pylon', 'ids', 'simulated'
     notes: str = ''
 
@@ -154,7 +152,6 @@ _daA3840_45um = CameraProfile(
     ),
     has_auto_gain=True,
     has_auto_exposure=True,
-    has_temperature=False,
     driver='pylon',
 )
 
@@ -188,7 +185,6 @@ _dmA3536_9gm = CameraProfile(
     ),
     has_auto_gain=True,  # sensor-shared default; bench-verify on MIPI body
     has_auto_exposure=True,  # sensor-shared default; bench-verify on MIPI body
-    has_temperature=False,  # conservative default; bench-verify on MIPI body
     driver='pylon',
 )
 
@@ -210,7 +206,6 @@ _a2A3536_31umBAS = CameraProfile(
     ),
     has_auto_gain=True,
     has_auto_exposure=True,
-    has_temperature=True,
     driver='pylon',
 )
 
@@ -237,7 +232,6 @@ _U3_34L0XCP_M = CameraProfile(
     ),
     has_auto_gain=False,  # Not supported in hardware
     has_auto_exposure=False,  # Not supported in hardware
-    has_temperature=False,
     driver='ids',
     notes='IDS Peak SDK on this body exposes only Mono10g40IDS / '
     'Mono12g24IDS -- requires software ConvertTo for Mono8 '
@@ -291,7 +285,6 @@ _MT9P031_LS620 = CameraProfile(
     ),
     has_auto_gain=False,  # no hardware AE/AG on MT9P031
     has_auto_exposure=False,
-    has_temperature=False,
     driver='fx2',
     notes='Cypress FX2 USB + Aptina MT9P031 sensor. 4 LED channels via '
     'I2C at 0x2A. No hardware auto gain/exposure. No binning. '
