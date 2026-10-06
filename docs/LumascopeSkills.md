@@ -429,6 +429,15 @@ and the lock that guards it. Long-running work should take one
 `get_settings_snapshot()` at entry and read from that rather than the live
 dict.
 
+**A setting keeps the value asked for when the hardware delivers less.**
+An LED current is sent as the board's nearest step: `led_on` returns that
+step and the illumination API holds it as the lit current, while the
+setting keeps the request. A layer's gain or exposure above the attached
+camera's maximum is applied as that maximum
+(`scope.imaging.applied_gain_db_for`, `applied_exposure_ms_for`) and the
+apply logs both numbers, while the setting keeps the request, so a camera
+that can take the value gets it back.
+
 **`update_settings(path, value)` is the one write.** `path` names one
 setting by its keys joined with dots (`'BF.sum'`, `'zstack.step_size'`,
 `'protocol.filepath'`); the settings that exist, and the kind each holds,
