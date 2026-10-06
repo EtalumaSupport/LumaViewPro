@@ -1234,6 +1234,21 @@ class ImagingAPI:
         )
         return self._scope._camera_executor.call(task, name, timeout_s, override=key)
 
+    def _submit_camera(self, impl, name, args=(), *, waiter):
+        """Put one camera command on the camera lane without waiting for it.
+
+        The command is admitted or refused on the calling thread, as
+        ``_dispatch_camera`` admits it, so a refusal raises here; its outcome
+        settles ``waiter``, a Future the caller made and marked running.
+
+        Raises:
+            HardwareCommandRefusedError: the lane is closed, or a run or a
+                diagnostic holds the scope and this call is not made under
+                its taking.
+        """
+        task = IOTask(action=impl, args=args)
+        self._scope._camera_executor.submit(task, name, waiter=waiter)
+
     def _refuse_out_of_range(
         self,
         setting: str,

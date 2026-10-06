@@ -2,6 +2,14 @@
 
 ## 4.0.0 (in development)
 
+- **A still is refused by the call, and is on the camera when the call returns (SDK, breaking)**:
+  `session.manual_capture.capture()` raises `HardwareCommandRefusedError` (reason
+  `'exclusive_activity_running'`) while a run or a diagnostic holds the scope, and
+  `'scope_disconnected'` when the camera is closed. Before, it returned a Future that raised
+  the refusal, and the still reached the camera only some time after the call, so a run started
+  just after it could refuse a still the caller had already been given a Future for. A still
+  queued behind other camera work when a run takes the scope is still refused through its
+  Future.
 - **A host closing mid-write asks the session (SDK, breaking)**: new `session.close_drain_frames`
   (how many video frames are still queued, a manual recording's and a run's video tail together)
   and `session.discard_close_drain()`, beside `close_drain_pending`. `ProtocolRunner`'s

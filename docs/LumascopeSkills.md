@@ -573,16 +573,21 @@ paths = session.manual_capture.capture(
 ).result(timeout=30)
 ```
 
-It raises `ValueError` for a layer that is not a channel and
-`HardwareCommandRefusedError` (reason `'capture_in_flight'`) while an earlier
-still is running. The Future raises `ObjectiveUnknownError` when the
-objective in the light path is unknown (nothing captured),
-`HardwareCommandRefusedError` when a run holds the camera, and `CaptureError`
-(reason `'no_frame_returned'`, the capture engine's cause as its message) when
-no frame passed. `session.manual_capture.in_flight` is True while a still is
-running. A run started while a still is in flight is not refused: it waits
-for the still to finish before it touches the camera, so the still saves
-under the state it started with and the run begins after it.
+It raises `ValueError` for a layer that is not a channel, and
+`HardwareCommandRefusedError` with reason `'capture_in_flight'` while an
+earlier still is running, `'exclusive_activity_running'` while a run or a
+diagnostic holds the scope, and `'scope_disconnected'` when the camera is
+closed. When it returns, the still is on the camera lane. The Future raises
+`ObjectiveUnknownError` when the objective in the light path is unknown
+(nothing captured) and `CaptureError` (reason `'no_frame_returned'`, the
+capture engine's cause as its message) when no frame passed.
+`session.manual_capture.in_flight` is True from the call until the still
+has finished or been refused. A run started while a still is RUNNING waits
+for it to finish before it touches the camera, so the still saves under the
+state it started with and the run begins after it; a still not yet running
+when a run takes the scope (queued behind other camera work) is refused, and
+its Future raises `HardwareCommandRefusedError` (reason
+`'exclusive_activity_running'`).
 
 To save a frame you already hold, capture it and call `save_image`. It
 returns the saved path. When the file cannot be written (a missing or

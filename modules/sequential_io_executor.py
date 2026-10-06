@@ -5,6 +5,7 @@
 # direct invocation. The GUI layer passes Clock.schedule_once as
 # the ui_dispatcher parameter when constructing executors.
 
+import concurrent.futures
 from concurrent.futures import CancelledError
 from concurrent.futures import TimeoutError as FutureTimeoutError
 import contextlib
@@ -207,6 +208,16 @@ def _claim_waiter() -> _ReusableTaskWaiter:
     else:
         waiter.reset()
     return waiter
+
+
+def _settle_dropped(fut) -> None:
+    """Tell a waiter its task was dropped and will never run.
+
+    Settled with ``CancelledError`` rather than ``cancel()``: a caller's own
+    Future is marked running before it is handed out, so ``cancel()`` would
+    return False and leave its holder waiting forever.
+    """
+    fut.set_exception(CancelledError())
 
 
 """
@@ -733,13 +744,15 @@ class SequentialIOExecutor:
         task.taking = current_taking()
         task.override = override is not None and override is self._override_key
 
-    def _refused_at_submit(self, task: IOTask, refusal, return_future: bool):
+    def _refused_at_submit(self, task: IOTask, refusal, return_future: bool, waiter=None):
         """Answer a submit the claim refused, as the worker answers a task that failed.
 
         The waiter carries the refusal and the task's callback is told, so a
         caller that waits, one that passes a callback and one that ignores
         the return all hear it -- a raw put whose return nobody reads gets the
-        lane's refusal notice rather than silence.
+        lane's refusal notice rather than silence. A caller that supplied its
+        own waiter gets the refusal back instead, for ``submit`` to raise:
+        that waiter has already been handed on as accepted work.
         """
         logger.warning(f'[{self.executor_name}] REFUSED {refusal.member} -- {refusal}')
         task._ui_dispatch = self._ui_dispatch
@@ -748,7 +761,7 @@ class SequentialIOExecutor:
         # will be one is what return_future says.
         self._report_task_failure(task, refusal, owned=task.silent_on_failure and return_future)
         task.on_complete(None, refusal)
-        if return_future:
+        if return_future and waiter is None:
             fut = _claim_waiter()
             fut.set_exception(refusal)
             return fut
@@ -800,28 +813,7 @@ class SequentialIOExecutor:
                 f'onto {self.executor_name} -- a lane worker never waits on another lane'
             )
         refuse_blocking_inline(member)
-        task.silent_on_failure = True
-        # The run's own call goes through the door its protocol mode keeps
-        # for it; anyone else's, and the run's once the mode has ended, through
-        # put. Asked twice: a fence or its end can land between the question
-        # and the submit, and both doors answer a closed lane with None.
-        fut = None
-        overriding = override is not None and override is self._override_key
-        if self._is_protocol_door_holder() or (overriding and self.is_protocol_running()):
-            fut = self.protocol_put(task, return_future=True, override=override)
-        if fut is None:
-            fut = (
-                self.put(task, return_future=True, override=override)
-                if self.accepts_work()
-                else None
-            )
-        if fut is None:
-            if self.pending_shutdown:
-                raise HardwareCommandRefusedError('scope_disconnected', member)
-            holder = self._claim.holder if self._claim is not None else None
-            raise HardwareCommandRefusedError(
-                'exclusive_activity_running', member, holder.kind if holder is not None else None
-            )
+        fut = self.submit(task, member, override=override)
         try:
             return fut.result(timeout=timeout_s)
         except FutureTimeoutError:
@@ -837,6 +829,57 @@ class SequentialIOExecutor:
             if mine is None:
                 return fut.result()
             raise
+
+    def submit(
+        self,
+        task: IOTask,
+        member: str,
+        *,
+        override: object | None = None,
+        waiter: concurrent.futures.Future | None = None,
+    ) -> '_ReusableTaskWaiter | concurrent.futures.Future':
+        """Put ``task`` on this lane without waiting; returns the waiter its outcome settles.
+
+        The submitting half of ``call``: the task is admitted, or refused, on
+        the calling thread, so it is on the lane -- or the caller knows it
+        never will be -- before this returns. The task reports nothing
+        itself; whoever holds the waiter reports its outcome.
+
+        ``waiter`` is a Future the caller supplies, for a caller that hands
+        the outcome to another thread: the thread's own waiter is reset on
+        that thread's next submit, so it cannot travel. It is settled by the
+        lane on every exit -- run, refused while queued, dropped -- and must
+        already be marked running, so no one but the lane can settle it.
+
+        Raises:
+            HardwareCommandRefusedError: the lane is closed, or the scope is
+                held by an activity this call is not made under.
+        """
+        task.silent_on_failure = True
+        # The run's own call goes through the door its protocol mode keeps
+        # for it; anyone else's, and the run's once the mode has ended, through
+        # put. Asked twice: a fence or its end can land between the question
+        # and the submit, and both doors answer a closed lane with None.
+        fut = None
+        overriding = override is not None and override is self._override_key
+        if self._is_protocol_door_holder() or (overriding and self.is_protocol_running()):
+            fut = self.protocol_put(task, return_future=True, override=override, waiter=waiter)
+        if fut is None:
+            fut = (
+                self.put(task, return_future=True, override=override, waiter=waiter)
+                if self.accepts_work()
+                else None
+            )
+        if fut is None:
+            if self.pending_shutdown:
+                raise HardwareCommandRefusedError('scope_disconnected', member)
+            holder = self._claim.holder if self._claim is not None else None
+            raise HardwareCommandRefusedError(
+                'exclusive_activity_running', member, holder.kind if holder is not None else None
+            )
+        if isinstance(fut, HardwareCommandRefusedError):
+            raise fut
+        return fut
 
     def _refuse_submit(self, lane: str, cause: str, task: IOTask):
         """Narrate a refused submit at episode granularity; always returns None.
@@ -916,7 +959,12 @@ class SequentialIOExecutor:
         return not (self.protocol_running.is_set() and not self.protocol_finish.is_set())
 
     def put(
-        self, task: IOTask, return_future: bool = False, *, override: object | None = None
+        self,
+        task: IOTask,
+        return_future: bool = False,
+        *,
+        override: object | None = None,
+        waiter: concurrent.futures.Future | None = None,
     ) -> object | None:
         """Add an IOTask to the default execution queue.
 
@@ -928,7 +976,11 @@ class SequentialIOExecutor:
         - lane shut down or fenced by a running protocol: None (dropped).
         - droppable_live task over the in-flight cap: LIVE_FRAME_DROPPED.
         - the scope is held and the task is not the holder's: the refusal
-          (a waiter already carrying it, when return_future).
+          (a waiter already carrying it, when return_future and no
+          ``waiter`` was supplied).
+
+        ``waiter``, with return_future, is registered in place of the
+        thread's own (``submit``).
 
         Every non-ENQUEUED / non-waiter outcome means the task did not enter
         the queue and will never run. Success and drop returned the same
@@ -950,7 +1002,7 @@ class SequentialIOExecutor:
             return self._refuse_submit(_LANE_DEFAULT, cause, task)
         refusal = self._claim_refusal(task)
         if refusal is not None:
-            return self._refused_at_submit(task, refusal, return_future)
+            return self._refused_at_submit(task, refusal, return_future, waiter)
 
         # Selective backpressure: cap in-flight frame-carrying tasks so a
         # stalled single worker can't pin GBs of frame buffers (the
@@ -980,7 +1032,7 @@ class SequentialIOExecutor:
         # Future before; switched to drop Lock kernel-handle allocation
         # pressure during high-rate protocol submission).
         if return_future:
-            fut = _claim_waiter()
+            fut = waiter if waiter is not None else _claim_waiter()
             with self._caller_futures_lock:
                 self.caller_futures[task] = fut
                 self._caller_futures_alloc_count += 1
@@ -994,13 +1046,14 @@ class SequentialIOExecutor:
         self._accept_submit(_LANE_DEFAULT)
         return fut if return_future else ENQUEUED
 
-    def _claim_protocol_future(self, task: IOTask, return_future: bool):
-        """Register a per-thread reusable waiter for a protocol enqueue; see
-        _claim_waiter for the rationale (kernel-handle allocation pressure
-        mitigation). Returns None for fire-and-forget submissions."""
+    def _claim_protocol_future(self, task: IOTask, return_future: bool, waiter=None):
+        """Register a per-thread reusable waiter for a protocol enqueue, or
+        the caller's own ``waiter``; see _claim_waiter for the rationale
+        (kernel-handle allocation pressure mitigation). Returns None for
+        fire-and-forget submissions."""
         if not return_future:
             return None
-        fut = _claim_waiter()
+        fut = waiter if waiter is not None else _claim_waiter()
         with self._caller_futures_lock:
             self.caller_futures[task] = fut
             self._caller_futures_alloc_count += 1
@@ -1036,7 +1089,12 @@ class SequentialIOExecutor:
         return PROTOCOL_ENQUEUED
 
     def protocol_put(
-        self, task: IOTask, return_future: bool = False, *, override: object | None = None
+        self,
+        task: IOTask,
+        return_future: bool = False,
+        *,
+        override: object | None = None,
+        waiter: concurrent.futures.Future | None = None,
     ) -> object | None:
         """Add an IOTask to the protocol execution queue.
 
@@ -1060,9 +1118,9 @@ class SequentialIOExecutor:
 
         refusal = self._claim_refusal(task, door=True)
         if refusal is not None:
-            return self._refused_at_submit(task, refusal, return_future)
+            return self._refused_at_submit(task, refusal, return_future, waiter)
 
-        fut = self._claim_protocol_future(task, return_future)
+        fut = self._claim_protocol_future(task, return_future, waiter)
         if profile_trace.ENABLE_PROFILE_TRACE:
             task._t_enqueue = time.monotonic()
             task._queue_depth_at_enqueue = self.protocol_queue.qsize() + (
@@ -1549,7 +1607,7 @@ class SequentialIOExecutor:
             self._caller_futures_pop_count += len(dropped)
             self.caller_futures.clear()
         for fut in dropped:
-            fut.cancel()
+            _settle_dropped(fut)
         self.running_task = None
         self._running_task_started_monotonic = None
 
@@ -1557,7 +1615,7 @@ class SequentialIOExecutor:
         # Block until all queued tasks processed (or until timeout)
         pass
 
-    def clear_pending(self):
+    def clear_pending(self) -> None:
         """Drain the default queue, cancelling each pending task's Future.
 
         For priority_aware executors the drain order is HIGH-first --
@@ -1576,7 +1634,7 @@ class SequentialIOExecutor:
                         self._caller_futures_pop_count += 1
                 if fut:
                     try:
-                        fut.cancel()
+                        _settle_dropped(fut)
                     except Exception:
                         pass
                 cleared_count += 1
@@ -1589,7 +1647,7 @@ class SequentialIOExecutor:
         if cleared_count > 0:
             logger.info(f'{self.name} Pending Queue Cleared ({cleared_count} tasks)')
 
-    def clear_protocol_pending(self):
+    def clear_protocol_pending(self) -> None:
         cleared_count = 0
         while True:
             try:
@@ -1601,7 +1659,7 @@ class SequentialIOExecutor:
                         self._caller_futures_pop_count += 1
                 if fut:
                     try:
-                        fut.cancel()
+                        _settle_dropped(fut)
                     except Exception:
                         pass
                 cleared_count += 1
@@ -1671,7 +1729,7 @@ class SequentialIOExecutor:
                 self._caller_futures_pop_count += 1
         if fut is not None:
             try:
-                fut.cancel()
+                _settle_dropped(fut)
             except Exception as ex:
                 logger.debug(f'[{self.executor_name}] stuck-task future cancel: {ex}')
         self.start()
