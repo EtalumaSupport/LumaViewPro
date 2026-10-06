@@ -1047,6 +1047,11 @@ class Camera(ABC):
         """
         pass
 
+    @property
+    def device_serial(self) -> str | None:
+        """The serial number the camera reported at connect, or None."""
+        return self._device_serial
+
     def get_model_name(self) -> str | None:
         """Return the cached camera model name.
 

@@ -9999,7 +9999,7 @@ class TestCameraMaxFrameSizeOnCapabilities:
         assert size[0] > 0
         assert size[1] > 0
 
-    def test_no_camera_yields_zero_max_frame_size(self):
+    def test_no_camera_yields_no_max_frame_size(self):
         from drivers.null_motorboard import NullMotionBoard
         from drivers.null_ledboard import NullLEDBoard
         from modules.layer_record import UNRESOLVED
@@ -10012,7 +10012,7 @@ class TestCameraMaxFrameSizeOnCapabilities:
             layer_identity=UNRESOLVED,
             scope_models={},
         )
-        assert caps.camera_max_frame_size == (0, 0)
+        assert caps.camera_max_frame_size is None
 
 
 class TestSessionCarriesNoHardwareForwarders:
@@ -10175,11 +10175,10 @@ class TestLumascopeSkillsApiPluginDocBatch:
         ):
             assert sig in doc, f'listener overview missing {sig!r}'
 
-    def test_camera_max_frame_size_sentinel_documented(self):
-        # F23: (0, 0) is a no-camera sentinel, not a usable size.
+    def test_camera_max_frame_size_unknown_is_documented(self):
+        # An unknown maximum is None, never a size a caller could use.
         doc = self._doc()
-        assert 'camera_max_frame_size` is `(0, 0)`' in doc
-        assert 'scope.camera_connected' in doc
+        assert 'camera_max_frame_size` is `None` when no camera is connected' in doc
 
 
 class TestGetLedStateShape:

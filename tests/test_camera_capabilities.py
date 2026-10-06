@@ -112,10 +112,12 @@ class TestScopeCapabilitiesIntegration:
 
     def _stub_camera(self, is_color_native=False, native_bit_depth=16):
         cam = SimpleNamespace(
+            model_name='STUB',
+            device_serial=None,
+            timestamp_tick_frequency_hz=None,
             is_color_native=is_color_native,
             native_bit_depth=native_bit_depth,
             profile=SimpleNamespace(
-                model_name='STUB',
                 has_auto_gain=False,
                 has_auto_exposure=False,
                 pixel_formats=('Mono8',),

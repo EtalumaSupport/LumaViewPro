@@ -50,8 +50,9 @@ def sim_imaging():
     give_stub_lanes(scope)
     scope._cam_lock = threading.RLock()
     scope._state_lock = threading.RLock()
-    # No model maximum: the frame range is the camera's.
-    scope.capabilities = SimpleNamespace(camera_max_frame_size=(0, 0))
+    # No model maximum: the frame range is the camera's sensor.
+    sensor = cam.profile.native_resolution
+    scope.capabilities = SimpleNamespace(camera_max_frame_size=(sensor['width'], sensor['height']))
     imaging = ImagingAPI(scope, cam)
     scope.imaging = imaging
     return imaging, cam

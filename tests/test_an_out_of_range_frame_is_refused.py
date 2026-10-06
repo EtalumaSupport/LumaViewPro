@@ -13,6 +13,7 @@ grid and crops back.
 """
 
 import copy
+import dataclasses
 
 import pytest
 
@@ -78,24 +79,28 @@ class TestTheSession:
 
     def test_the_ceiling_follows_the_binning(self, session):
         session.set_binning_size(2)
-        sensor = session.scope.imaging.get_native_resolution()
+        width, _ = session.scope.capabilities.camera_max_frame_size
         with pytest.raises(CameraSettingOutOfRangeError) as refused:
-            session.set_frame_size(sensor['width'], 400)
-        assert refused.value.maximum == sensor['width'] // 2
+            session.set_frame_size(width, 400)
+        assert refused.value.maximum == width // 2
 
     def test_an_in_range_size_is_delivered_exactly(self, session):
         delivered = session.set_frame_size(1000, 802)
         assert delivered == session.scope.imaging.frame_size_cached
         assert delivered == {'width': 1000, 'height': 802}
 
-    def test_an_undeclared_sensor_leaves_the_ceiling_unchecked(self, session, monkeypatch):
+    def test_an_unknown_maximum_leaves_the_ceiling_unchecked(self, session, monkeypatch):
         imaging = session.scope.imaging
-        monkeypatch.setattr(imaging, 'get_native_resolution', lambda: {})
+        monkeypatch.setattr(
+            session.scope,
+            'capabilities',
+            dataclasses.replace(session.scope.capabilities, camera_max_frame_size=None),
+        )
         writes = _camera_writes(monkeypatch, imaging)
         try:
             session.set_frame_size(5000, 800)
         except CameraSettingOutOfRangeError:
-            pytest.fail('with no declared sensor there is no ceiling to refuse against')
+            pytest.fail('with no known maximum there is no ceiling to refuse against')
         except Exception:
             pass  # what the camera itself makes of it is the driver's answer
         assert writes, 'the request reaches the camera when no ceiling is declared'

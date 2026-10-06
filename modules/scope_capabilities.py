@@ -101,6 +101,14 @@ def _declared_max_frame(scope_models: Mapping, model: str) -> tuple[int, int] | 
         return None
 
 
+def _smallest_frame(*sizes: tuple[int, int] | None) -> tuple[int, int] | None:
+    """The smallest of the known frame maxima, per side; None when none is known."""
+    known = [size for size in sizes if size is not None]
+    if not known:
+        return None
+    return (min(w for w, _ in known), min(h for _, h in known))
+
+
 def _resolve_pixel_size_um(motorconfig, optics: dict, camera) -> float | None:
     """Resolve image pixel pitch (um) from the first real source.
 
@@ -201,8 +209,18 @@ class ScopeCapabilities:
     LED driver (`led.max_ma()`); 0 when no driver answers."""
 
     # ---- Camera ----
-    camera_model: str
-    """Model name from `camera.profile.model_name`, or empty string."""
+    camera_model: str | None
+    """The model the camera reports at connect; None when no camera is
+    connected or it did not say. Read from the driver, not the profile: an
+    unrecognised camera is given a default profile whose name is a
+    placeholder, not the camera's."""
+
+    camera_serial_number: str | None
+    """The serial number the camera reports at connect, or None."""
+
+    camera_timestamp_tick_hz: int | None
+    """The rate of the camera's frame timestamp clock, in Hz, or None for a
+    camera whose frames carry no timestamp."""
 
     camera_supports_auto_gain: bool
     camera_supports_auto_exposure: bool
@@ -210,15 +228,17 @@ class ScopeCapabilities:
     camera_pixel_formats: tuple[str, ...]
     camera_binning_sizes: tuple[int, ...]
 
-    camera_max_frame_size: tuple[int, int]
-    """Maximum frame size the scope delivers as ``(width, height)`` in pixels.
-    Per-camera-immutable: the camera driver's get_max_frame_size() at boot,
-    or the model's catalogue ``MaxFrame`` where that is smaller (a lens that
-    images less than the sensor: the LS560's 1700). (0, 0) means UNKNOWN -- no camera
-    driver connected, or the boot probe hit a hardware fault (logged at
-    warning); distinguish via ``scope.camera_connected``. Use
-    ``scope.imaging.set_frame_size`` to request a smaller-than-max
-    region; this field gives the upper bound."""
+    camera_max_frame_size: tuple[int, int] | None
+    """The largest frame the scope delivers, unbinned, as ``(width, height)``
+    in pixels: the smallest of the sensor size the camera's profile
+    documents, the maximum the camera reports at connect, and the model's
+    catalogue ``MaxFrame`` (a lens that images less than the sensor: the
+    LS560's 1700), each where it is known. The profile stays in the
+    comparison because a camera can report a few rows and columns more than
+    its documented sensor (the LS850T's daA3840 reports 3860 x 2178 against
+    3840 x 2160). None when none of them is known: no camera, or its boot
+    read failed (logged at warning). ``scope.imaging.set_frame_size``
+    refuses a frame above it, divided by the binning in force."""
 
     is_color_native: bool = False
     """True if the camera natively produces 3-channel color frames
@@ -277,8 +297,8 @@ class ScopeCapabilities:
 
         Tolerant of None / Null implementations. Never raises -- if a
         driver method blows up or returns something unexpected, the
-        corresponding field gets a safe default (empty tuple, empty
-        string, False).
+        corresponding field gets its absent value (empty tuple, None,
+        False).
 
         Args:
             motion: A `MotorBoardProtocol` implementation (may be
@@ -320,34 +340,39 @@ class ScopeCapabilities:
         led_max_ma = _probe('led.max_ma', lambda: int(led.max_ma()), 0)
 
         # Camera
-        camera_model = ''
+        camera_model: str | None = None
+        camera_serial_number: str | None = None
+        camera_timestamp_tick_hz: int | None = None
         camera_supports_auto_gain = False
         camera_supports_auto_exposure = False
         camera_pixel_formats: tuple[str, ...] = ()
         camera_binning_sizes: tuple[int, ...] = ()
-        camera_max_frame_size: tuple[int, int] = (0, 0)
+        camera_max_frame_size: tuple[int, int] | None = None
         is_color_native = False
         native_bit_depth = 16
         camera_supports_conversion_gain_mode = False
         camera_supports_line_noise_reduction = False
         camera_supports_black_level = False
         if camera is not None:
+            camera_model = camera.model_name or None
+            camera_serial_number = camera.device_serial or None
+            tick_hz = camera.timestamp_tick_frequency_hz
+            camera_timestamp_tick_hz = int(tick_hz) if tick_hz is not None else None
+            documented: tuple[int, int] | None = None
             profile = getattr(camera, 'profile', None)
             if profile is not None:
-                camera_model = getattr(profile, 'model_name', '') or ''
                 camera_supports_auto_gain = bool(getattr(profile, 'has_auto_gain', False))
                 camera_supports_auto_exposure = bool(getattr(profile, 'has_auto_exposure', False))
                 camera_pixel_formats = tuple(getattr(profile, 'pixel_formats', ()) or ())
                 camera_binning_sizes = tuple(getattr(profile, 'binning_sizes', ()) or ())
+                native = getattr(profile, 'native_resolution', None)
+                if native:
+                    documented = (int(native['width']), int(native['height']))
             size = _probe('camera.get_max_frame_size', lambda: camera.get_max_frame_size(), None)
-            if size:
-                camera_max_frame_size = (int(size.get('width', 0)), int(size.get('height', 0)))
-                declared = _declared_max_frame(scope_models, model)
-                if declared is not None:
-                    camera_max_frame_size = (
-                        min(camera_max_frame_size[0], declared[0]),
-                        min(camera_max_frame_size[1], declared[1]),
-                    )
+            reported = (int(size['width']), int(size['height'])) if size else None
+            camera_max_frame_size = _smallest_frame(
+                documented, reported, _declared_max_frame(scope_models, model)
+            )
             is_color_native = bool(getattr(camera, 'is_color_native', False))
             native_bit_depth = int(getattr(camera, 'native_bit_depth', 16))
             camera_supports_conversion_gain_mode = _probe(
@@ -387,6 +412,8 @@ class ScopeCapabilities:
             led_max_ma=led_max_ma,
             has_firmware_stim=has_firmware_stim,
             camera_model=camera_model,
+            camera_serial_number=camera_serial_number,
+            camera_timestamp_tick_hz=camera_timestamp_tick_hz,
             camera_supports_auto_gain=camera_supports_auto_gain,
             camera_supports_auto_exposure=camera_supports_auto_exposure,
             camera_pixel_formats=camera_pixel_formats,

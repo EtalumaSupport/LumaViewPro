@@ -1708,19 +1708,14 @@ class ImagingAPI:
             falsifies_recording=True,
         )
 
-    def _max_frame_unbinned(self) -> dict:
-        """The largest frame the scope delivers, unbinned: the sensor, or the model's smaller maximum.
-
-        Empty when the sensor size is unknown.
+    def _max_frame_unbinned(self) -> dict | None:
+        """The largest frame the scope delivers, unbinned
+        (``capabilities.camera_max_frame_size``), or None when it is unknown.
         """
-        sensor = self.get_native_resolution()
-        if not sensor:
-            return {}
-        declared = self._scope.capabilities.camera_max_frame_size
-        return {
-            axis: min(sensor[axis], declared[i]) if declared[i] else sensor[axis]
-            for i, axis in enumerate(('width', 'height'))
-        }
+        size = self._scope.capabilities.camera_max_frame_size
+        if size is None:
+            return None
+        return {'width': size[0], 'height': size[1]}
 
     def _set_frame_size_impl(self, w: int, h: int) -> dict | None:
         """Set the camera frame size in pixels.
