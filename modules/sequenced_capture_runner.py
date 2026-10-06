@@ -1292,12 +1292,13 @@ class SequencedCaptureRunner:
         capture, re-arms it -- every capture of a run the user set to
         manual then runs auto and pays the settle -- and a protocol's
         first autofocus step scans at the live view's values instead of
-        the step's. The manual autofocus one-shot keeps the arm: it
-        focuses the field the user is watching, live arm included, and
-        its own lock scans at what that arm achieved.
+        the step's. An autofocus scan is a protocol's steps too, and
+        focuses each at that step's values. The manual autofocus one-shot
+        keeps the arm: it focuses the field the user is watching, live arm
+        included, and its own lock scans at what that arm achieved.
         """
         arm = self._saved_camera_state.get('auto_gain_arm')
-        if arm is None or self._run_mode.is_autofocus:
+        if arm is None or self._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS:
             return
         try:
             self._scope.imaging.set_auto_gain(False, dict(arm.settings))
