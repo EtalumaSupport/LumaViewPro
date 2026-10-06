@@ -2,6 +2,10 @@
 
 ## 4.0.0 (in development)
 
+- **A run starts only through a `run_*` member (SDK, breaking)**: `ProtocolRunner.prepare` and
+  `ProtocolRunner.start`, which forwarded the engine's two-phase seam and skipped the members'
+  config assembly, are removed. Start runs with `run_single_scan`, `run_protocol`,
+  `run_autofocus`, `run_autofocus_all_steps`, `run_zstack` or `start_composite`.
 - **A run's handle waits for its files**: new `handle.wait_for_files(timeout_s)` returns once
   the run's images are on disk (and its hyperstacks built, when it saves them) and the run has
   ended, so a next run is admitted, with what became of the images: `outcome`, `written`,

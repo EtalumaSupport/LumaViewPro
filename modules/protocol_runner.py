@@ -35,7 +35,6 @@ from modules.protocol import Protocol
 from modules.run_outcome import RunOutcome
 from modules.sequenced_capture_runner import (
     RunHandle,
-    RunPlan,
     SequencedCaptureRunner,
     SequencedCaptureRunMode,
 )
@@ -804,15 +803,3 @@ class ProtocolRunner:
 
     def discard_video_pending(self) -> None:
         self._executor.discard_video_pending()
-
-    def prepare(self, **kwargs):
-        """Forward to the engine's prepare(); returns the RunPlan.
-
-        For callers that need the two-phase prepare/start seam directly
-        (run_single_scan / run_protocol wrap it with config assembly).
-        """
-        return self._executor.prepare(**kwargs)
-
-    def start(self, plan: RunPlan) -> RunHandle:
-        """Forward to the engine's start() -- the commitment point."""
-        return self._executor.start(plan)
