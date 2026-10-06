@@ -2253,7 +2253,7 @@ class SequencedCaptureRunner:
         tiling_configs_file_loc = self._tiling_configs_file_loc
         # A composite missing a channel is told by the merge, once, as its
         # own notice after what became of the merge, whether it merged or
-        # not.
+        # not, and before the outcome settles.
         incomplete = None
         if ending.status == 'incomplete':
             tally = self._image_writer.capture_tally
@@ -2263,29 +2263,47 @@ class SequencedCaptureRunner:
                 failed_steps=[failed.step_name for failed in tally.failed],
             )
 
-        def _not_merged(failure: BaseException, reason: str) -> None:
-            # The one place a merge failure becomes visible: one report of
-            # it, then the run's shortfall when it has one, and one resolved
-            # outcome -- the shape a run refusal uses, so a caller waiting on
-            # the outcome never re-notifies. Success is silent by design: the
-            # saved folder is the record, and the button handed the UI back
-            # at run end. The failure is reported as its own type, as the
-            # hyperstack build reports its own: a refusal shows as one, under
-            # its own title, only an exception whose type has no title is
-            # named "Composite Failed", and a raised one's record carries its
-            # traceback.
+        def _settle(
+            failure: BaseException | None, *, artifact_path: str | None, merge_reason: str
+        ) -> None:
+            # Every exit of the merge ends here, in one order: what is owed
+            # is reported, then the outcome settles, so a caller it releases
+            # finds the run's reports already made. A merge failure is one
+            # report of it, then the run's shortfall when it has one, and
+            # one resolved outcome -- the shape a run refusal uses, so a
+            # caller waiting on the outcome never re-notifies. Success is
+            # silent by design: the saved folder is the record, and the
+            # button handed the UI back at run end. The failure is reported
+            # as its own type, as the hyperstack build reports its own: a
+            # refusal shows as one, under its own title, only an exception
+            # whose type has no title is named "Composite Failed", and a
+            # raised one's record carries its traceback. The resolve is in a
+            # finally: this thread is the one thing that settles the armed
+            # outcome, so a raise while reporting would otherwise leave the
+            # caller waiting out its whole bound.
             from modules.notification_center import notifications
 
-            notifications.report_outcome(
-                failure, solicited=False, category='Protocol', fault_title='Composite Failed'
-            )
-            if incomplete is not None:
-                notifications.report_outcome(incomplete, solicited=False, category='Protocol')
-            outcome.resolve(token, merged=False, artifact_path=None, merge_reason=reason)
+            try:
+                if failure is not None:
+                    notifications.report_outcome(
+                        failure,
+                        solicited=False,
+                        category='Protocol',
+                        fault_title='Composite Failed',
+                    )
+                if incomplete is not None:
+                    notifications.report_outcome(incomplete, solicited=False, category='Protocol')
+            finally:
+                outcome.resolve(
+                    token,
+                    merged=artifact_path is not None,
+                    artifact_path=artifact_path,
+                    merge_reason=merge_reason,
+                )
 
         def _fail(reason: str, detail: str) -> None:
             # The merge's own reasons, where nothing was raised.
-            _not_merged(CompositeFailedError(detail, reason), reason)
+            _settle(CompositeFailedError(detail, reason), artifact_path=None, merge_reason=reason)
 
         # Decline-to-start is TOTAL: anything that makes a merge impossible
         # settles here and now, rather than leaving the outcome armed with
@@ -2311,16 +2329,16 @@ class SequencedCaptureRunner:
             except Exception as ex:
                 # A typed outcome says why in its own reason, kind and words;
                 # an exception that carries no reason is the merge's error.
-                _not_merged(ex, getattr(ex, 'reason', None) or 'merge_error')
+                _settle(
+                    ex,
+                    artifact_path=None,
+                    merge_reason=getattr(ex, 'reason', None) or 'merge_error',
+                )
                 return
             paths = result.get('artifact_paths') or []
             if paths:
                 logger.info(f'[{self.LOGGER_NAME}] Composite saved: {paths[0]}')
-                outcome.resolve(token, merged=True, artifact_path=paths[0], merge_reason='')
-                if incomplete is not None:
-                    from modules.notification_center import notifications
-
-                    notifications.report_outcome(incomplete, solicited=False, category='Protocol')
+                _settle(None, artifact_path=paths[0], merge_reason='')
             else:
                 _fail('merge_failed', 'The merge finished without producing a composite file.')
 
