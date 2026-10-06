@@ -237,9 +237,10 @@ class TestTheHolderIsTheLiveRun:
         home_sim_scope(session.scope)
         runner = session.create_protocol_runner()
         try:
-            # Read from inside the run: run_complete fires during
-            # cleanup, with the claim still held, so this observes the
-            # holder while it holds rather than racing the run's end.
+            # Read from inside the run: run_scan_pre fires from the run
+            # loop, with the claim held, so this observes the holder while
+            # it holds rather than racing the run's end. run_complete no
+            # longer can: it comes after the run has let go.
             observed = {}
 
             def _observe(**_kwargs):
@@ -252,7 +253,7 @@ class TestTheHolderIsTheLiveRun:
                 sequence_name='holder_scan',
                 parent_dir=str(tmp_path),
                 image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
-                callbacks={'run_complete': _observe, 'files_complete': lambda **kw: None},
+                callbacks={'run_scan_pre': _observe, 'files_complete': lambda **kw: None},
             )
             assert run.wait(timeout_s=COMPLETION_TIMEOUT) is not None
 

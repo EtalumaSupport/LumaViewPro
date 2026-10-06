@@ -323,7 +323,8 @@ class TestTheFileCountCountsImages:
         batch = RunWriteBatch(MagicMock())
         batch.count_not_written('video_unfinished', 'The video V1')
         outcomes = []
-        batch.close(outcomes.append)
+        batch.close()
+        batch.when_complete(outcomes.append)
         assert outcomes == ['incomplete']
         assert (batch.written, batch.not_written) == (0, 1)
         assert batch.not_written_reason == 'write_batch_video_unfinished'

@@ -140,9 +140,9 @@ def test_a_shutdown_during_a_later_runs_setup_leaves_the_unwind_to_start(
     teardowns = []
     teardown = executor._cleanup_inner
 
-    def counted(ending, run):
+    def counted(ending, run, after_end):
         teardowns.append(threading.current_thread().name)
-        return teardown(ending, run)
+        return teardown(ending, run, after_end)
 
     monkeypatch.setattr(executor, '_cleanup_inner', counted)
     lane = executor.camera_executor

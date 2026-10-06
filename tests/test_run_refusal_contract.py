@@ -319,7 +319,7 @@ def _a_closed_batch_still_writing(*, stuck_write=None):
     lane.describe_running_task.return_value = stuck_write
     batch = RunWriteBatch(lane)
     batch.submit(lambda: None, {}, what='a capture', pace_until=None)
-    batch.close(lambda outcome: None)
+    batch.close()
     return batch
 
 

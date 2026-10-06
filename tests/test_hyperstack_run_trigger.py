@@ -35,7 +35,7 @@ def _hyperstack_runner(tmp_path, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL)
     runner._tiling_configs_file_loc = tmp_path / 'data' / 'tiling.json'
     # The run's writes, ended with nothing outstanding: its images are written.
     runner._write_batch = RunWriteBatch(MagicMock())
-    runner._write_batch.close(lambda outcome: None)
+    runner._write_batch.close()
     runner._scope.capabilities.has_turret = False
     return runner
 
@@ -72,7 +72,7 @@ class TestRunnerHyperstackTrigger:
         runner = _hyperstack_runner(tmp_path)
         runner._write_batch = RunWriteBatch(MagicMock())
         runner._write_batch.submit(lambda: None, {}, what='an image', pace_until=None)
-        runner._write_batch.close(lambda outcome: None)
+        runner._write_batch.close()
         builder = MagicMock()
         monkeypatch.setattr(stack_builder, 'StackBuilder', lambda has_turret: builder)
         notifications = MagicMock()

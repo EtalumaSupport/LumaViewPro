@@ -49,7 +49,7 @@ def _draining_run(session, writes=1):
     for _ in range(writes):
         batch.submit(lambda: None, {}, what='an image', pace_until=None)
     session.sequenced_capture_runner._write_batch = batch
-    batch.close(lambda outcome: None)
+    batch.close()
 
 
 class TestDerivations:
@@ -217,7 +217,6 @@ class TestTransitionNotification:
         # so the Session must hear it -- once, when the run's last write
         # lands, not when the run closes its writes.
         from modules.protocol_callbacks import ProtocolCallbacks
-        from modules.protocol_cleanup import RunCompleteNotice
         from modules.protocol_image_writer import RunWriteBatch
 
         session = _make_session()
@@ -232,10 +231,9 @@ class TestTransitionNotification:
         fired = []
         session._run_state_listeners.append(lambda: fired.append(session.run_lockout))
 
-        runner._close_run_writes(
-            batch,
-            RunCompleteNotice(runner._callbacks, protocol=None, ending=MagicMock(), run_dir=None),
-        )
+        files_written = runner._close_run_writes(batch, MagicMock())
+        # The run's end hands the batch its completion, after the release.
+        batch.when_complete(files_written)
         assert fired == [], 'closing with a write outstanding is not the drain ending'
         assert session.run_lockout is True
 

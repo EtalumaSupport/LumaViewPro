@@ -285,7 +285,8 @@ def test_recovery_abandons_the_stuck_writes_and_replaces_the_worker():
 
         # Post-run shape: the run's cleanup closed its writes.
         outcomes = []
-        batch.close(outcomes.append)
+        batch.close()
+        batch.when_complete(outcomes.append)
 
         assert not batch.stalled(3600.0), (
             'an in-flight write under its stall threshold must read as draining, not wedged'
@@ -408,7 +409,7 @@ def test_prepare_refusal_names_stalled_writer(tmp_path):
     # The last run ended with one write still to land: its files are draining.
     last_run = RunWriteBatch(lane)
     last_run.submit(lambda: None, {}, what='The image B2_BF', pace_until=None)
-    last_run.close(lambda outcome: None)
+    last_run.close()
     runner._write_batch = last_run
 
     def _prepare():
@@ -463,7 +464,7 @@ def test_session_recover_file_writer_passthrough():
     lane.in_flight_task_stalled.return_value = True
     stuck = RunWriteBatch(lane)
     stuck.submit(lambda: None, {}, what='The image', pace_until=None)
-    stuck.close(lambda outcome: None)
+    stuck.close()
     session.sequenced_capture_runner._write_batch = stuck
 
     assert session.recover_file_writer() == 1

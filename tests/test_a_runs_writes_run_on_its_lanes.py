@@ -210,6 +210,7 @@ def test_the_safety_darken_does_not_wait_for_a_busy_io_lane(sim_session, monkeyp
                 stub,
                 RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'died'),
                 stub.run_outcome(),
+                [],
             )
         except RuntimeError as died:
             # The cleanup this test makes raise, so the undecided path runs.

@@ -94,7 +94,7 @@ class TestTheRefusalNamesTheHolder:
         lane.in_flight_task_stalled.return_value = False
         still_writing = RunWriteBatch(lane)
         still_writing.submit(lambda: None, {}, what='a capture', pace_until=None)
-        still_writing.close(lambda outcome: None)
+        still_writing.close()
         monkeypatch.setattr(executor, '_write_batch', still_writing)
 
         with pytest.raises(ProtocolRunRefusedError) as refusal:

@@ -30,7 +30,6 @@ from modules.notification_center import Severity
 from modules.protocol_callbacks import ProtocolCallbacks
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.protocol_state_machine import ProtocolState
-from modules.protocol_cleanup import RunCompleteNotice
 from modules.protocol_image_writer import RunWriteBatch
 from tests.protocol_drives import autofocus_snapshot
 
@@ -183,7 +182,6 @@ def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
         cancel_scheduled_events_fn=lambda: None,
         autofocus_thread=af_thread,
         write_batch=RunWriteBatch(_FakeExecutor()),
-        run_complete=RunCompleteNotice(callbacks, protocol=None, ending=ending, run_dir=None),
         ending=ending,
         record_cleanup_failures=lambda steps: None,
     )

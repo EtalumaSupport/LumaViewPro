@@ -185,7 +185,7 @@ class TestALateAutofocusSave:
         )
         runner, _scope = af_runner_and_scope()
         batch = RunWriteBatch(MagicMock())
-        batch.close(lambda outcome: None)
+        batch.close()
 
         drive_af(runner, save_results_to_file=True, results_dir=tmp_path, write_batch=batch)
 

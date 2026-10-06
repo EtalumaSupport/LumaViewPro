@@ -121,8 +121,8 @@ class RunWriteBatch:
     ``written``, or ``incomplete`` when any of the run's images is not on
     disk: a recovery or a shutdown gave up on it, a stuck writer refused it,
     its save failed or was refused for disk space, or a video step's file
-    did not finish -- and runs the actions the run's cleanup handed to
-    ``close``. The counts are of images: a write that saves none (a record
+    did not finish -- and runs the actions the run's end handed to
+    ``when_complete``. The counts are of images: a write that saves none (a record
     row, a data file) is waited for and never counted.
 
     Nothing is ever discarded while completion is reported: a write handed
@@ -326,21 +326,39 @@ class RunWriteBatch:
             raise RunWriteRefusedError('writer_shut_down', what)
         return result
 
-    def close(self, on_complete: Callable[[str], None]) -> None:
-        """End the run's writes; ``on_complete(outcome)`` runs once the last lands.
+    def close(self) -> None:
+        """End the run's writes; the batch completes once the last lands.
 
-        Called once, by the run's cleanup, on every path out of it. A write
-        handed over after this is refused. When nothing is outstanding the
-        completion runs now, on the caller's thread.
+        Called once, by the run's cleanup, on every path out of it, before
+        the run ends: from here the batch reads as draining, which is what
+        refuses a next run over this one's writes. A write handed over
+        after this is refused. Closing runs no action: those are handed
+        over by ``when_complete``, once the run has let go of the scope.
         """
         with self._cond:
             if self._closed:
                 raise RuntimeError("a run's writes were closed twice")
             self._closed = True
-            self._on_complete = on_complete
             due = self._take_completion_locked()
         if due is not None:
             self._complete(*due)
+
+    def when_complete(self, on_complete: Callable[[str], None]) -> None:
+        """Run ``on_complete(outcome)`` once, when the batch completes.
+
+        Now, on the caller's thread, when the last write has already
+        landed; otherwise on the thread that lands it. Handed over by the
+        run's end, after the run has let go of the scope, so the actions
+        -- files_complete among them -- never reach a caller while the run
+        still holds it.
+        """
+        with self._cond:
+            if self._on_complete is not None:
+                raise RuntimeError("a run's completion was handed over twice")
+            self._on_complete = on_complete
+            outcome = self._outcome
+        if outcome is not None:
+            self._run_completion(on_complete, outcome)
 
     def abandon(self, cause: str) -> int:
         """Give up on every outstanding write; returns how many.
@@ -482,6 +500,12 @@ class RunWriteBatch:
         # and a listener re-reading the levels on it must already read the
         # drain as over -- no later edge would correct it.
         self._completed.set()
+        # None until the run's end hands its actions over; when_complete
+        # runs them then, having read the outcome under the same lock.
+        if on_complete is not None:
+            self._run_completion(on_complete, outcome)
+
+    def _run_completion(self, on_complete, outcome: str) -> None:
         # Outside the lock: the actions schedule callbacks and read state
         # that must not wait on a write landing.
         try:

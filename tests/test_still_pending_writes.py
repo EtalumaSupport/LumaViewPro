@@ -77,7 +77,7 @@ def _owed(writer):
 
 def _close(writer):
     """The run's cleanup ending its writes."""
-    writer._write_batch.close(lambda outcome: None)
+    writer._write_batch.close()
 
 
 class TestStillPendingWrites:

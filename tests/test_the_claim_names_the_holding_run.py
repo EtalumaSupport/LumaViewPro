@@ -209,7 +209,7 @@ class TestTheFlagAndTheClaimEndTogether:
 
         with pytest.raises(RuntimeError, match='cleanup died'):
             runner._cleanup_inner(
-                RunEnding('aborted', 'stopped', 'Stopped', 'Stopped by test'), run
+                RunEnding('aborted', 'stopped', 'Stopped', 'Stopped by test'), run, []
             )
 
         assert not runner.run_in_progress(), (

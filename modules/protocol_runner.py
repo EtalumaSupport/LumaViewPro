@@ -420,7 +420,8 @@ class ProtocolRunner:
         One scan that visits each step with autofocus on, whatever each
         step's own autofocus setting, and captures nothing. When the scan
         completes, each step's Z becomes the focus found for it, written
-        before run_complete is sent and before the run lets go of the scope.
+        before the run lets go of the scope, so it is in the protocol when
+        run_complete is sent.
         A scan that does not complete writes nothing, because it focused
         only some of the steps.
 

@@ -102,14 +102,14 @@ def _schedule_cleanup_ui(
 
 
 class RunCompleteNotice:
-    """The run's one ``run_complete``, sent by whichever path reaches it first.
+    """The run's one ``run_complete``, carrying the run's values by value.
 
-    Cleanup sends it once the run's state is put back. A cleanup that raises
-    before then would leave it unsent, and the subscribers -- the GUI's
-    auto-run among them -- would never hear the run end; the run's
-    files-written completion then sends it, ahead of ``files_complete``, so
-    every subscriber hears ``run_complete`` exactly once and before the
-    files.
+    Sent by the run's end once the run has let go of the scope -- on every
+    path, a cleanup that raised included -- and before the run's files are
+    handed their completion, so every subscriber hears ``run_complete``
+    once, when it can act on the scope, and before ``files_complete``.
+    Built while the run's fields are still its own: a successor started
+    after the release replaces them.
     """
 
     def __init__(
@@ -124,34 +124,21 @@ class RunCompleteNotice:
         self._protocol = protocol
         self._ending = ending
         self._run_dir = run_dir
-        self._lock = threading.Lock()
-        self._sent = False
 
     @property
     def ending(self) -> RunEnding:
         """The ending this notice carries to the run's subscribers."""
         return self._ending
 
-    def send(
-        self,
-        cleanup_errors: list[tuple[str, str]] | None = None,
-        summary_sent: threading.Event | None = None,
-    ) -> None:
-        """Schedule ``run_complete`` unless it was already; later calls do nothing.
+    def send(self) -> None:
+        """Schedule ``run_complete``; a failure inside it is reported by the callback's own guard.
 
-        Cleanup passes its error list and summary flag so a failure inside the
-        callback joins the one cleanup summary; a send after cleanup passes
-        neither, and the callback reports its own failure.
+        Sent after the run's cleanup summary, so the failure is its own report.
         """
-        with self._lock:
-            if self._sent:
-                return
-            self._sent = True
         if not self._callbacks.run_complete:
             return
-        if summary_sent is None:
-            cleanup_errors, summary_sent = [], threading.Event()
-            summary_sent.set()
+        summary_sent = threading.Event()
+        summary_sent.set()
         _schedule_cleanup_ui(
             lambda dt: self._callbacks.run_complete(
                 protocol=self._protocol,
@@ -160,7 +147,7 @@ class RunCompleteNotice:
                 run_dir=self._run_dir,
             ),
             'Run-complete callback',
-            cleanup_errors,
+            [],
             summary_sent,
         )
 
@@ -225,11 +212,6 @@ def run_cleanup(
     # the record's, and files_complete -- is the batch's, once the last
     # write lands.
     write_batch: RunWriteBatch,
-    # THIS run's run_complete, built with the run's own protocol, ending
-    # and directory by value: a successor started after the run releases
-    # its buttons would otherwise have replaced the runner's fields, and a
-    # subscriber would process the successor's directory as this run's.
-    run_complete: RunCompleteNotice,
     logger_name: str = 'SequencedCaptureRunner',
     # How the run ended, and why.
     ending: RunEnding,
@@ -237,13 +219,15 @@ def run_cleanup(
     # put the scope back; called once, with none when every step finished.
     record_cleanup_failures: Callable[[tuple[str, ...]], None],
 ) -> bool:
-    """Core cleanup logic -- restores state, sends run_complete, ends executors.
+    """Core cleanup logic -- restores state, ends executors.
 
     Called from ``SequencedCaptureRunner._cleanup_inner()``. ending is
     required so the cleanup site states the run's true terminal outcome.
     The run's writes are not ended here: they are the run's batch's, which
     the caller closes on every path out, and which writes every image the
-    run captured however the run ended.
+    run captured however the run ended. Nor is run_complete sent here: the
+    run sends it once it has let go of the scope, so a subscriber can act
+    on the scope when told.
 
     Returns True when the RUN_END LED transition actually applied -- the
     run's LED end-state is decided. False (or a raise anywhere in here)
@@ -526,10 +510,10 @@ def run_cleanup(
 
         notifications.report_outcome(SlowFileWritesNotice(), solicited=False, category='Protocol')
 
-    # --- run_complete now; files_complete comes with the run's last write ---
+    # run_complete and files_complete are the run's to send, once it has let
+    # go of the scope.
     logger.info(f'[{logger_name}] Run ended: status={ending.status} reason={ending.reason}')
     logger.info(f'[{logger_name}] Cleanup: pending_writes={write_batch.pending}')
-    run_complete.send(cleanup_errors, summary_sent)
 
     # Map the footprint right after a protocol run. No-op unless the memory
     # profiler is enabled.

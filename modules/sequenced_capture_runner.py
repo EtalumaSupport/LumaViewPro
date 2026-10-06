@@ -158,9 +158,9 @@ class RunHandle:
         # This run's writes, the batch start() made with it -- never the
         # engine's current batch, which the next run's start() replaces.
         self._write_batch = write_batch
-        # Written once, by the start() that made this handle, after the
-        # run's setup: None for a run that saves nothing, or that never
-        # started.
+        # Written by the start() that made this handle, after the run's
+        # setup and before its loop is dispatched: None for a run that
+        # saves nothing, or that never started.
         self._run_dir: pathlib.Path | None = None
         # Written once, by the run's cleanup, before the run ends: the
         # thread building its hyperstacks, which writes after the batch
@@ -1591,6 +1591,12 @@ class SequencedCaptureRunner:
             with self._run_lock:
                 stopped = self._ending.get()
                 if stopped is None:
+                    # The run's folder, as its setup left it (None when it
+                    # saves nothing), written to the handle before the loop
+                    # can run: once the loop ends the run, a run_complete
+                    # subscriber may start the next, whose setup replaces
+                    # the runner's.
+                    handle._run_dir = self._run_dir
                     dispatch_future = self.protocol_thread.run_protocol(
                         functools.partial(self._run_loop_under_claim, handle)
                     )
@@ -1616,10 +1622,6 @@ class SequencedCaptureRunner:
         else:
             if stopped is not None:
                 self._unwind_undispatched_run(stopped, handle)
-
-        # The run's folder, as its setup left it: None when it saves
-        # nothing, and when a failed or stopped start unwound it.
-        handle._run_dir = self._run_dir
 
         # Reached on the failed-at-start and stopped-before-dispatch paths too, where the unwind has
         # already resolved the outcome: the caller waits and is told at once.
@@ -1717,8 +1719,9 @@ class SequencedCaptureRunner:
         # A run that never started has no usable run directory; answering
         # with the (possibly just-deleted) path would send callers'
         # started-run follow-ups (last-save-folder shortcuts) to a dead
-        # location.
+        # location. The handle too: a dispatch that was refused wrote it.
         self._run_dir = None
+        run._run_dir = None
         self._cleanup(ending, run)
 
     def abort_run_fatal(self, reason: str, title: str, message: str) -> None:
@@ -1806,6 +1809,7 @@ class SequencedCaptureRunner:
         force_reset, for a run whose loop ended without unwinding it. No
         two of them can reach the same run.
         """
+        after_end: list[typing.Callable[[], None]] = []
         try:
             # Cleanup runs on whichever thread ended the run -- the protocol
             # thread, a stop pressed in the GUI, a script's reset -- and its
@@ -1814,15 +1818,25 @@ class SequencedCaptureRunner:
             # taking left keeps the thread's own.
             held = self._held_claim
             if held is None:
-                self._cleanup_inner(ending, run)
+                self._cleanup_inner(ending, run, after_end)
             else:
                 with acting(held):
-                    self._cleanup_inner(ending, run)
+                    self._cleanup_inner(ending, run, after_end)
         finally:
-            # After IDLE: a listener that reads is_live_run, or starts the
-            # next run, sees the run ended.
-            if self._on_run_idle is not None:
-                self._on_run_idle()
+            # After IDLE and the release, outside the run's taking: a
+            # listener that reads is_live_run, or starts the next run, sees
+            # the run ended -- the Session's levels first, then run_complete,
+            # then the files' completion. On the thread that ended the run,
+            # so a listener that waits there on a run it starts waits behind
+            # itself. Each on its own: a raise in one must not skip the rest.
+            from modules.notification_center import notifications
+
+            told = [self._on_run_idle] if self._on_run_idle is not None else []
+            for tell in told + after_end:
+                try:
+                    tell()
+                except Exception as ex:
+                    notifications.report_outcome(ex, solicited=False, category='Protocol')
 
     def _run_loop_under_claim(self, run: RunHandle) -> None:
         """The run loop, on the protocol thread, acting under the run's taking.
@@ -2249,16 +2263,18 @@ class SequencedCaptureRunner:
         return thread
 
     def _close_run_writes(
-        self, write_batch: RunWriteBatch, run_complete: RunCompleteNotice
-    ) -> None:
-        """Close the run's writes, and set what follows the last one landing.
+        self, write_batch: RunWriteBatch, ending: RunEnding
+    ) -> typing.Callable[[str], None]:
+        """Close the run's writes; return what follows the last one landing.
 
         Once every image the run captured is on disk -- or given up on by a
         writer recovery or a shutdown -- the execution record completes and
-        reconciles, run_complete goes out if cleanup never reached it, then
-        files_complete with the outcome, then the Session hears the drain
-        end. Everything is captured by value: by then a successor run may
-        own this runner's fields.
+        reconciles, files_complete goes out with the outcome, then the
+        Session hears the drain end. The returned actions are handed to the
+        batch by the run's end, after the run has let go of the scope, so
+        none reaches a caller while the run still holds it. Everything is
+        captured by value: by then a successor run may own this runner's
+        fields.
 
         Never raises: it runs in cleanup's finally ahead of the releases, and
         a raise there would leak the claim and refuse every future run.
@@ -2274,9 +2290,9 @@ class SequencedCaptureRunner:
         # are not all there, in the one report its run makes.
         merge_reports_files = (
             self._run_mode is SequencedCaptureRunMode.SINGLE_COMPOSITE
-            and run_complete.ending.status in ('completed', 'incomplete')
+            and ending.status in ('completed', 'incomplete')
         )
-        already_told = run_complete.ending.reason in FILES_LOST_ENDINGS
+        already_told = ending.reason in FILES_LOST_ENDINGS
 
         def _complete_record() -> None:
             try:
@@ -2324,7 +2340,6 @@ class SequencedCaptureRunner:
                 )
             if record is not None:
                 actions.append(_complete_record)
-            actions.append(run_complete.send)
             actions.append(
                 lambda: schedule_files_complete(
                     callbacks, protocol=protocol, run_dir=run_dir, files=outcome
@@ -2341,11 +2356,20 @@ class SequencedCaptureRunner:
                     notifications.report_outcome(ex, solicited=False, category='Protocol')
 
         try:
-            write_batch.close(_files_written)
+            write_batch.close()
         except Exception as ex:
             notifications.report_outcome(ex, solicited=False, category='Protocol')
+        return _files_written
 
-    def _cleanup_inner(self, ending: RunEnding, run: RunHandle):
+    def _cleanup_inner(
+        self, ending: RunEnding, run: RunHandle, after_end: list[typing.Callable[[], None]]
+    ):
+        """Put the scope back and let go of it; what tells callers goes in *after_end*.
+
+        The caller runs *after_end* once this has returned or raised, when
+        the run is IDLE and its claim released: a caller told the run is
+        over can act on the scope at once. Filled on every path out.
+        """
         from modules.notification_center import notifications
 
         # The run's scope ends here, on every cleanup path (normal end and
@@ -2355,7 +2379,11 @@ class SequencedCaptureRunner:
 
         led_end_state_applied = False
         # This run's writes and its one run_complete, read while the run is
-        # still this runner's.
+        # still this runner's. The notice carries the run's protocol, ending
+        # and directory by value: it is sent after the release, when a
+        # successor's start() may have replaced the runner's fields, and a
+        # subscriber would otherwise process the successor's directory as
+        # this run's.
         write_batch = self._write_batch
         run_complete = None
         try:
@@ -2399,7 +2427,6 @@ class SequencedCaptureRunner:
                 cancel_scheduled_events_fn=self._cancel_all_scheduled_events,
                 autofocus_thread=self.autofocus_thread,
                 write_batch=write_batch,
-                run_complete=run_complete,
                 logger_name=self.LOGGER_NAME,
                 ending=ending,
                 record_cleanup_failures=run._pending.record_cleanup_failures,
@@ -2432,16 +2459,18 @@ class SequencedCaptureRunner:
             # outcome, and a next run's prepare(), read this batch, and must
             # find it closed and still draining rather than open and not yet
             # asked.
-            self._close_run_writes(
-                write_batch,
-                run_complete
-                or RunCompleteNotice(
-                    self._callbacks,
-                    protocol=self._protocol,
-                    ending=self._ending.get() or ending,
-                    run_dir=self._run_dir,
-                ),
+            run_complete = run_complete or RunCompleteNotice(
+                self._callbacks,
+                protocol=self._protocol,
+                ending=self._ending.get() or ending,
+                run_dir=self._run_dir,
             )
+            files_written = self._close_run_writes(write_batch, run_complete.ending)
+            # Told after the release, run_complete first: a subscriber hears
+            # the run end before its files, on every path, a cleanup that
+            # raised above included.
+            after_end.append(run_complete.send)
+            after_end.append(lambda: write_batch.when_complete(files_written))
             # Settle (or arm) the run's merge outcome before the releases
             # below, while the fields it reads are still this run's: once
             # the run is IDLE a successor's start() replaces them.

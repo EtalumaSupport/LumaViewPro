@@ -1711,12 +1711,8 @@ def _run_cleanup_kwargs(**overrides):
     """Keyword args for protocol_cleanup.run_cleanup with MagicMock deps
     that complete a normal (non-aborted, no-AF, LEDs-off) cleanup; tests
     override the step or state under test.
-
-    ``protocol`` and ``run_dir`` are not run_cleanup's own arguments: they
-    go into the run's run_complete notice, with the callbacks and ending.
     """
     from modules.protocol_callbacks import ProtocolCallbacks
-    from modules.protocol_cleanup import RunCompleteNotice
     from modules.protocol_state_machine import ProtocolState
 
     callbacks = overrides.pop('callbacks', ProtocolCallbacks())
@@ -1741,12 +1737,6 @@ def _run_cleanup_kwargs(**overrides):
         'cancel_scheduled_events_fn': MagicMock(),
         'autofocus_thread': None,
         'write_batch': RunWriteBatch(MagicMock()),
-        'run_complete': RunCompleteNotice(
-            callbacks,
-            protocol=overrides.pop('protocol', MagicMock()),
-            ending=ending,
-            run_dir=overrides.pop('run_dir', None),
-        ),
         'ending': ending,
         'record_cleanup_failures': lambda steps: None,
     }

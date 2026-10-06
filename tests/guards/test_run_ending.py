@@ -411,7 +411,7 @@ def _run_cleanup_args(monkeypatch, stub, stated):
         return True
 
     monkeypatch.setattr(scr, 'run_cleanup', _fake_run_cleanup)
-    scr.SequencedCaptureRunner._cleanup_inner(stub, stated, stub._last_run())
+    scr.SequencedCaptureRunner._cleanup_inner(stub, stated, stub._last_run(), [])
     return seen
 
 

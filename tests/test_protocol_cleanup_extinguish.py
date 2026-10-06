@@ -71,7 +71,7 @@ def _make_runner_stub(scope, *, lease):
 def _run_cleanup_inner(stub, ending=None):
     if ending is None:
         ending = RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'died')
-    scr.SequencedCaptureRunner._cleanup_inner(stub, ending, stub.run_outcome())
+    scr.SequencedCaptureRunner._cleanup_inner(stub, ending, stub.run_outcome(), [])
 
 
 def test_run_cleanup_raise_darkens_before_release(scope, monkeypatch):

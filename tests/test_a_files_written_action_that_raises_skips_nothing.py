@@ -71,7 +71,8 @@ def test_the_batch_reports_a_completion_action_that_raises_and_still_completes(m
     def _raising(outcome):
         raise _SendError('the completion action fell over')
 
-    batch.close(_raising)
+    batch.close()
+    batch.when_complete(_raising)
 
     assert batch.wait_complete(0.1)
     assert not batch.draining

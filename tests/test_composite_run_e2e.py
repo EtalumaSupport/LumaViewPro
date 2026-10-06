@@ -277,16 +277,17 @@ class TestStartComposite:
         # the click would abort someone else's run instead of being refused.
         session, runner, tmp_path = composite_session
 
-        # Observed from inside the run rather than after it: run_complete
-        # fires during cleanup, with the claim still held, so this reads
-        # the holder while it holds rather than racing the run's end.
+        # Observed from inside the run rather than after it: run_scan_pre
+        # fires from the run loop, with the claim held, so this reads the
+        # holder while it holds rather than racing the run's end.
+        # run_complete no longer can: it comes after the run has let go.
         held_by = []
         outcome = runner.start_composite(
             sequence_name='start_token',
             parent_dir=str(tmp_path),
             run_trigger_source='composite',
             callbacks={
-                'run_complete': lambda **kw: held_by.append(
+                'run_scan_pre': lambda **kw: held_by.append(
                     session.activity_claim.holder.run_trigger_source
                 )
             },
