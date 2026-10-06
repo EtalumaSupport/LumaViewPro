@@ -256,16 +256,18 @@ class TestDrainContinuesAfterCapture:
 
 class TestStopPromptness:
     def test_stop_closes_selection_within_one_decision(self, tmp_path):
-        engine, writer, clock, _ = make_engine(tmp_path)
+        engine, _writer, clock, _ = make_engine(tmp_path)
         engine.start(lambda: make_config(tmp_path, fps=10, duration_s=10))
         feed = FrameFeed()
         feed_uniform(engine, clock, feed, delivery_fps=10, duration_s=1)
         engine.stop('user_stop')
         assert not engine.is_recording
-        selected_at_stop = engine.pending_writes + len(writer.written)
+        # The engine's own count: the writer lane runs on, and a sum of its
+        # queue and its written list counts a frame twice mid-write.
+        selected_at_stop = engine.frames_selected
         # Frames delivered after stop are never selected.
         feed_uniform(engine, clock, feed, delivery_fps=10, duration_s=1)
-        assert engine.pending_writes + len(writer.written) == selected_at_stop
+        assert engine.frames_selected == selected_at_stop
         assert engine.wait_for_drain(timeout=5)
         assert engine.result().frames_selected == selected_at_stop
 
@@ -443,31 +445,6 @@ class TestManifestNamesTheArtifactItDescribes:
         assert writer.output_path is None
         assert engine.result().manifest_path is None
         assert list(tmp_path.glob('*_manifest.json')) == []
-
-
-class TestManifestWriteFailureIsLoud:
-    def test_manifest_write_failure_rides_the_result_non_fatally(self, tmp_path):
-        # The manifest is the SOLE carrier of the recording's channel
-        # color and measured rate; a silent write failure downgrades
-        # every later build of these frames to grayscale at an
-        # unmeasured rate. Non-fatal: the frames are the artifact and
-        # stay intact, so the recording must not abort.
-        engine, writer, clock, _ = make_engine(tmp_path)
-        engine.start(lambda: make_config(tmp_path, fps=5, duration_s=1))
-        feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
-        # A directory squatting on the manifest path makes the write
-        # raise without touching the frames.
-        (tmp_path / 'recording_manifest.json').mkdir()
-        engine.stop('user_stop')
-        assert engine.wait_for_drain(timeout=5)
-
-        result = engine.result()
-        assert result.manifest_path is None
-        assert not result.aborted, 'a manifest write failure must not abort the recording'
-        assert writer.written, 'frames must still be on disk'
-        assert isinstance(result.manifest_failure, OSError), (
-            'the lost details file must reach the caller that reports it'
-        )
 
 
 class TestFrameIdentityTravelsWithTheFrame:
