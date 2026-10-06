@@ -73,7 +73,7 @@ class TestRuntimeOrder_618:
         def track_move_abs(ax, *args, **kwargs):
             if ax == axis:
                 with motion._axis_state_lock:
-                    writes.append((motion._axis_state[ax], motion._armed_seq[ax]))
+                    writes.append((motion._axis_state[ax], motion._current_move[ax].armed))
             return orig_move_abs(ax, *args, **kwargs)
 
         scope._motion_driver.move_abs_pos = track_move_abs
@@ -85,12 +85,11 @@ class TestRuntimeOrder_618:
         assert writes, 'the move wrote no target'
         for state, armed in writes:
             assert state == AxisState.MOVING, f'a target was written to a {state} axis'
-            assert armed is None, 'a target was written to an armed axis'
+            assert armed is False, 'a target was written to an armed axis'
         with scope.motion._axis_state_lock:
             state = scope.motion._axis_state['Z']
-            armed = scope.motion._armed_seq['Z']
-            seq = scope.motion._drive_seq['Z']
-        assert state == AxisState.IDLE or armed == seq, (
+            armed = scope.motion._current_move['Z'].armed
+        assert state == AxisState.IDLE or armed, (
             'the axis was left disarmed after its final target was written'
         )
 
@@ -139,10 +138,10 @@ class TestRaceSimulation_618:
         observations = []
 
         def verdict_during_write(ax, *args, **kwargs):
-            # What the monitor does on a reached bit: note the count, then
-            # ask for IDLE at it, armed only.
+            # What the monitor does on a reached bit: note the move, then
+            # ask for IDLE for it, armed only.
             with motion._axis_state_lock:
-                noted = motion._drive_seq[ax]
+                noted = motion._current_move[ax]
             wrote = motion._set_axis_state(ax, AxisState.IDLE, verdict_for=noted, armed_only=True)
             observations.append(
                 (wrote, motion._axis_state[ax], motion._arrival_events[ax].is_set())
