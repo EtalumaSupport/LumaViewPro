@@ -60,6 +60,20 @@ _ZHOME_REPLY_TIMEOUT_S = 30.0
 _THOME_REPLY_TIMEOUT_S = 45.0
 _HOME_REPLY_TIMEOUT_S = 100.0
 
+# How long the Z overshoot leg may take to reach its point before the move
+# fails. The leg's wait is the one loop in a move with no reply timeout of
+# its own: the board answers every STATUS_R, it is the stage that may never
+# arrive, so without a bound a leg that never arrived held the IO lane for
+# good and the caller got the lane's bare TimeoutError at 30 s while the
+# loop ran on. Sized to fit inside the motion API's 30 s dispatch bound
+# beside one 5 s poll overrun, the move's other exchanges and its queue
+# residence. The worst legitimate leg is so far derived, not measured:
+# 6.25 s across every config in data/ on the simulator's ramp model, and
+# 5.07 s for an 11.2 mm downward Z move with overshoot run there, nearly
+# all of it the leg. To be confirmed on the LS850T with a full-travel
+# downward Z move (the arrival plan's bench row).
+OVERSHOOT_LEG_TIMEOUT_S = 15.0
+
 # What every consumer gets when FULLINFO is missing, unsupported, or
 # unparseable. Every key the parsed record has, so a caller reading a
 # field off a fallback record gets a safe answer instead of a KeyError.
@@ -1195,7 +1209,9 @@ class MotorBoard(SerialBoard):
         refused move look like a successful one that stopped short.
 
         Raises:
-            HardwareError: ``axis`` is not in ``axes_config``.
+            HardwareError: ``axis`` is not in ``axes_config``; the board did
+                not answer a target write; or the overshoot leg did not
+                reach its point within ``OVERSHOOT_LEG_TIMEOUT_S``.
         """
         # logger.info('move_abs_pos', axis, pos)
         AXES_CONFIG = self.axes_config
@@ -1224,7 +1240,13 @@ class MotorBoard(SerialBoard):
                     overshoot = self.z_um2ustep(pos - self.backlash)  # target minus backlash
                     overshoot = max(1, overshoot)
                     self.move(axis, overshoot)
+                    deadline = time.monotonic() + OVERSHOOT_LEG_TIMEOUT_S
                     while not self.target_status('Z'):
+                        if time.monotonic() > deadline:
+                            raise HardwareError(
+                                f'move_abs_pos(Z, {pos}): the overshoot leg did not reach '
+                                f'its point within {OVERSHOOT_LEG_TIMEOUT_S:.0f} s'
+                            )
                         time.sleep(0.02)  # 50Hz -- matches motion monitor rate
                 finally:
                     # Always clear overshoot flag, even on disconnect/exception

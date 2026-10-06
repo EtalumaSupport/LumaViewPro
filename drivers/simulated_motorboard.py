@@ -22,6 +22,7 @@ from typing import ClassVar
 from collections.abc import Iterable, Mapping
 from lvp_logger import logger
 from drivers.exceptions import HardwareError
+from drivers.motorboard import OVERSHOOT_LEG_TIMEOUT_S
 from drivers.motorconfig import MotorConfig, read_only_axes_config
 from drivers.registry import motor_registry
 
@@ -897,6 +898,11 @@ class SimulatedMotorBoard:
 
         Raises:
             Exception: ``axis`` is not in ``axes_config``.
+            HardwareError: the board did not answer a target write, or the
+                overshoot leg did not reach its point within
+                ``OVERSHOOT_LEG_TIMEOUT_S``. The simulated ``target_status``
+                answers False rather than raising on a dead board, so the
+                bound is the leg's only exit then.
         """
         if axis not in self.axes_config:
             raise Exception(f'Unsupported axis ({axis})')
@@ -908,12 +914,23 @@ class SimulatedMotorBoard:
             current = self.current_pos('Z')
             if current > pos and pos > (self.backlash + 50):
                 self.overshoot = True
-                overshoot = self.z_um2ustep(pos - self.backlash)
-                overshoot = max(1, overshoot)
-                self.move(axis, overshoot)
-                while not self.target_status('Z'):
-                    time.sleep(0.001)
-                self.overshoot = False
+                try:
+                    overshoot = self.z_um2ustep(pos - self.backlash)
+                    overshoot = max(1, overshoot)
+                    self.move(axis, overshoot)
+                    deadline = time.monotonic() + OVERSHOOT_LEG_TIMEOUT_S
+                    while not self.target_status('Z'):
+                        if time.monotonic() > deadline:
+                            raise HardwareError(
+                                f'move_abs_pos(Z, {pos}): the overshoot leg did not reach '
+                                f'its point within {OVERSHOOT_LEG_TIMEOUT_S:.0f} s'
+                            )
+                        time.sleep(0.001)
+                finally:
+                    # Cleared on every exit, as the real driver's is: a leg
+                    # that raised would otherwise leave the flag set and the
+                    # motion monitor spinning on it.
+                    self.overshoot = False
 
         self.move(axis, steps)
 

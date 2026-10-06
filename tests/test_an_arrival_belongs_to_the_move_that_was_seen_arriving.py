@@ -23,6 +23,7 @@ import time
 
 import pytest
 
+import drivers.simulated_motorboard as simulated_motorboard
 from drivers.exceptions import HardwareError
 from modules.exceptions import MoveNotCompletedError
 from modules.lumascope_api.motion import AxisState
@@ -325,3 +326,40 @@ def test_a_driver_raise_leaves_the_axis_unknown_never_moving(session, monkeypatc
         motion.move_absolute('Z', 3000.0)
     assert exc.value.reason == 'driver_failed'
     assert motion.get_axis_state('Z') == AxisState.UNKNOWN
+
+
+def test_a_leg_that_never_arrives_fails_the_move_within_the_lanes_bound(session, monkeypatch):
+    """The simulated board dies the instant the overshoot leg's target is
+    written, so the leg never arrives and, on the simulator, its status
+    read never raises. The move fails 'driver_failed' at the leg's bound,
+    inside the lane's, with the overshoot flag cleared; with the board
+    back, a home and a move run."""
+    motion = session.scope.motion
+    driver = motion._driver
+    monkeypatch.setattr(simulated_motorboard, 'OVERSHOOT_LEG_TIMEOUT_S', 0.5, raising=False)
+    monkeypatch.setattr(motion, '_MOTION_WAIT_BASE_S', 3.0)
+    motion.move_absolute('Z', 6000.0)
+    real_move = driver.move
+
+    def the_board_dies_after_the_legs_write(axis, steps):
+        real_move(axis, steps)
+        if driver.overshoot:
+            driver._fail_after = driver._cmd_count
+
+    monkeypatch.setattr(driver, 'move', the_board_dies_after_the_legs_write)
+    t0 = time.monotonic()
+    with pytest.raises(MoveNotCompletedError) as exc:
+        motion.move_absolute('Z', 3000.0, overshoot_enabled=True)
+    failed_after = time.monotonic() - t0
+
+    assert exc.value.reason == 'driver_failed'
+    assert failed_after < 2.0, failed_after
+    assert driver.overshoot is False
+    assert motion.get_axis_state('Z') == AxisState.UNKNOWN
+
+    monkeypatch.setattr(driver, 'move', real_move)
+    driver._fail_after = None
+    driver.connect()
+    home_sim_scope(session.scope)
+    motion.move_absolute('Z', 3000.0, overshoot_enabled=True)
+    assert abs(driver.current_pos('Z') - 3000.0) <= _MICROSTEP_UM
