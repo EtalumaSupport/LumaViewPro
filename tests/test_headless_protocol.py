@@ -162,7 +162,9 @@ class TestHeadlessImports:
         def fake_dispatcher(func, timeout):
             calls.append((func, timeout))
 
-        _kivy_utils.set_ui_dispatcher(fake_dispatcher)
+        _kivy_utils.set_ui_dispatcher(
+            _kivy_utils.UiDispatcher(schedule=fake_dispatcher, thread=None)
+        )
         try:
 
             def my_func(dt):

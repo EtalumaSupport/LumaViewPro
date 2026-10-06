@@ -48,6 +48,7 @@ def _end_the_run(kwargs, callbacks, run_dir):
     """The runner's end of the run, after cleanup: the notice and the files'
     completion are built by value before the release and told after it."""
     from types import SimpleNamespace
+    from unittest.mock import MagicMock
 
     from modules.protocol_cleanup import RunCompleteNotice
     from modules.sequenced_capture_runner import SequencedCaptureRunner
@@ -64,9 +65,10 @@ def _end_the_run(kwargs, callbacks, run_dir):
     )
     notice = RunCompleteNotice(callbacks, protocol=None, ending=kwargs['ending'], run_dir=run_dir)
     batch = kwargs['write_batch']
-    files_written = SequencedCaptureRunner._close_run_writes(runner, batch, kwargs['ending'])
+    run = MagicMock()
+    files_written = SequencedCaptureRunner._close_run_writes(runner, batch, kwargs['ending'], run)
     # After the release.
-    notice.send()
+    notice.send(run)
     batch.when_complete(files_written)
 
 

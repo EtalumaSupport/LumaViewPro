@@ -1,5 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import collections
+import contextlib
 import copy
 import dataclasses
 import datetime
@@ -22,6 +24,7 @@ from modules.protocol_run_loop import ProtocolRunLoop
 from modules.lumascope_api import AxisState, Lumascope
 
 import modules.image_mode as image_mode
+from modules import kivy_utils
 
 from modules.activity_claim import (
     ActivityClaim,
@@ -47,6 +50,7 @@ from modules.exceptions import (
     RunImagesNotSavedError,
     RunIncompleteError,
     RunStartError,
+    RunWaitOnUiThreadError,
     SingleScanNotice,
     describe_unknown_positions,
 )
@@ -166,21 +170,102 @@ class RunHandle:
         # thread building its hyperstacks, which writes after the batch
         # completes; None for a run that builds none.
         self._hyperstack_build: threading.Thread | None = None
+        # Set once the run's run_complete, then its files_complete, has run
+        # -- or at once when it has none to run -- on every path that
+        # reaches IDLE. What the waits wait for last.
+        self._run_told = threading.Event()
+        self._files_told = threading.Event()
+        # The threads delivering one of this run's callbacks right now, with
+        # how many deliveries deep: a callback that waits on its own run
+        # there must not wait for its own delivery to end. A count, because
+        # another run's delivery can nest inside this one's on its thread.
+        self._delivery_lock = threading.Lock()
+        self._deliveries: collections.Counter[threading.Thread] = collections.Counter()
 
     def wait(self, timeout_s: float | None) -> 'RunOutcome | None':
-        """How this run ended, once it no longer holds the scope.
+        """How this run ended, once it no longer holds the scope and has told its caller.
 
         Blocks for the outcome, then, inside the same bound, for the run's
-        teardown to finish, so a caller woken here can start the next run,
-        move the stage or write a setting without a second wait. A new run
-        can still be refused while this run's files finish writing; that
-        refusal is the drain's.
+        teardown to finish and its run_complete to have run, so a caller
+        woken here can start the next run, move the stage or write a setting
+        without a second wait, and reads what its run_complete did. A new
+        run can still be refused while this run's files finish writing;
+        that refusal is the drain's.
+
+        Made from inside one of this run's own callbacks, it does not wait
+        for that callback: it returns once the run has let go of the scope.
 
         Returns:
             The run's outcome, or None when the bound passes first.
+
+        Raises:
+            RunWaitOnUiThreadError: made on the thread that delivers the
+                run's callbacks, outside them -- it would wait on itself.
         """
         deadline = None if timeout_s is None else time.monotonic() + timeout_s
-        outcome = self._pending.wait(timeout_s=timeout_s)
+        own = self._waiting_inside_own_delivery()
+        outcome = self._wait_released(deadline)
+        if outcome is None:
+            return None
+        if not own and not self._run_told.wait(_remaining(deadline)):
+            return None
+        return outcome
+
+    def wait_for_files(self, timeout_s: float | None) -> RunFiles | None:
+        """What became of this run's images, once its files are done and told.
+
+        Blocks, inside one bound, for everything wait() does, then until the
+        run's images are on disk or given up on, its hyperstack build, when
+        it has one, has finished, and the run has said everything about
+        them -- the lost-image report, the record's reconcile and its
+        files_complete -- so a caller woken here can start the next run
+        without a 'files_writing' refusal. One gap remains, the same one
+        wait() has: an autofocus sweep that does not unwind inside
+        cleanup's bound still refuses the next run 'autofocus_running'.
+
+        A hyperstack build's own failure is reported by the build; what is
+        returned here is the images. Made from inside one of this run's own
+        callbacks, it does not wait for this run's callbacks.
+
+        Returns:
+            The run's images, or None when the bound passes first. The
+            images are accounted for only once the run's cleanup has closed
+            its writes, so a shutdown that ends the session before that
+            cleanup runs leaves them unaccounted, and the wait answers None.
+
+        Raises:
+            RunWaitOnUiThreadError: made on the thread that delivers the
+                run's callbacks, outside them -- it would wait on itself.
+        """
+        deadline = None if timeout_s is None else time.monotonic() + timeout_s
+        own = self._waiting_inside_own_delivery()
+        if self._wait_released(deadline) is None:
+            return None
+        batch = self._write_batch
+        if not batch.wait_complete(_remaining(deadline)):
+            return None
+        # Read after the run ended: cleanup writes it before the run ends.
+        build = self._hyperstack_build
+        if build is not None:
+            build.join(_remaining(deadline))
+            if build.is_alive():
+                return None
+        if not own:
+            # Both, in order: under the GUI a run with no files_complete has
+            # its files told at once, while its run_complete waits its turn.
+            for told in (self._run_told, self._files_told):
+                if not told.wait(_remaining(deadline)):
+                    return None
+        return RunFiles(
+            outcome=batch.outcome,
+            written=batch.written,
+            not_written=batch.not_written,
+            not_written_reason=batch.not_written_reason,
+        )
+
+    def _wait_released(self, deadline: float | None) -> 'RunOutcome | None':
+        """The run's outcome once it no longer holds the scope; None at *deadline*."""
+        outcome = self._pending.wait(timeout_s=_remaining(deadline))
         if outcome is None:
             return None
         while self.is_live:
@@ -189,46 +274,36 @@ class RunHandle:
             time.sleep(0.02)
         return outcome
 
-    def wait_for_files(self, timeout_s: float | None) -> RunFiles | None:
-        """What became of this run's images, once its files are done.
+    def _waiting_inside_own_delivery(self) -> bool:
+        """Whether this thread is delivering one of this run's callbacks; refuses the UI thread otherwise.
 
-        Blocks, inside one bound, until the run's images are on disk or
-        given up on, the run no longer holds the scope, and its hyperstack
-        build, when it has one, has finished -- so a caller woken here can
-        start the next run without a 'files_writing' refusal. One gap
-        remains, the same one wait() has: an autofocus sweep that does not
-        unwind inside cleanup's bound still refuses the next run
-        'autofocus_running'.
-
-        A hyperstack build's own failure is reported by the build; what is
-        returned here is the images.
-
-        Returns:
-            The run's images, or None when the bound passes first. The
-            images are accounted for only once the run's cleanup has closed
-            its writes, so a shutdown that ends the session before that
-            cleanup runs leaves them unaccounted, and the wait answers None.
+        Inside its own delivery a wait skips its told waits, which only that
+        delivery ending could satisfy -- checked first, so a callback the GUI
+        delivers may still wait on its own run. Outside one, the UI thread
+        is where the told waits' deliveries run, so a wait there is refused.
         """
-        deadline = None if timeout_s is None else time.monotonic() + timeout_s
-        batch = self._write_batch
-        if not batch.wait_complete(_remaining(deadline)):
-            return None
-        while self.is_live:
-            if deadline is not None and time.monotonic() >= deadline:
-                return None
-            time.sleep(0.02)
-        # Read after the run ended: cleanup writes it before the run ends.
-        build = self._hyperstack_build
-        if build is not None:
-            build.join(_remaining(deadline))
-            if build.is_alive():
-                return None
-        return RunFiles(
-            outcome=batch.outcome,
-            written=batch.written,
-            not_written=batch.not_written,
-            not_written_reason=batch.not_written_reason,
-        )
+        me = threading.current_thread()
+        with self._delivery_lock:
+            if self._deliveries[me]:
+                return True
+        if me is kivy_utils.ui_thread():
+            raise RunWaitOnUiThreadError()
+        return False
+
+    @contextlib.contextmanager
+    def _delivering(self, told: threading.Event):
+        """Deliver one of this run's callbacks on this thread; *told* is set once it has run."""
+        me = threading.current_thread()
+        with self._delivery_lock:
+            self._deliveries[me] += 1
+        try:
+            yield
+        finally:
+            with self._delivery_lock:
+                self._deliveries[me] -= 1
+                if not self._deliveries[me]:
+                    del self._deliveries[me]
+            told.set()
 
     def stop(self) -> None:
         """Stop this run. Only asks: the run ends on its own thread.
@@ -1826,9 +1901,11 @@ class SequencedCaptureRunner:
             # After IDLE and the release, outside the run's taking: a
             # listener that reads is_live_run, or starts the next run, sees
             # the run ended -- the Session's levels first, then run_complete,
-            # then the files' completion. On the thread that ended the run,
-            # so a listener that waits there on a run it starts waits behind
-            # itself. Each on its own: a raise in one must not skip the rest.
+            # then the files' completion. The callbacks go through the UI
+            # dispatcher: under the GUI on its thread, else inline on the
+            # thread that ended the run, where a callback that waits on a
+            # run it starts waits behind itself. Each on its own: a raise in
+            # one must not skip the rest.
             from modules.notification_center import notifications
 
             told = [self._on_run_idle] if self._on_run_idle is not None else []
@@ -2264,18 +2341,18 @@ class SequencedCaptureRunner:
         return thread
 
     def _close_run_writes(
-        self, write_batch: RunWriteBatch, ending: RunEnding
+        self, write_batch: RunWriteBatch, ending: RunEnding, run: RunHandle
     ) -> typing.Callable[[str], None]:
         """Close the run's writes; return what follows the last one landing.
 
         Once every image the run captured is on disk -- or given up on by a
         writer recovery or a shutdown -- the execution record completes and
-        reconciles, files_complete goes out with the outcome, then the
-        Session hears the drain end. The returned actions are handed to the
-        batch by the run's end, after the run has let go of the scope, so
-        none reaches a caller while the run still holds it. Everything is
-        captured by value: by then a successor run may own this runner's
-        fields.
+        reconciles, the Session hears the drain end, and files_complete goes
+        out with the outcome last, so marking *run*'s files told covers every
+        action. The returned actions are handed to the batch by the run's
+        end, after the run has let go of the scope, so none reaches a caller
+        while the run still holds it. Everything is captured by value: by
+        then a successor run may own this runner's fields.
 
         Never raises: it runs in cleanup's finally ahead of the releases, and
         a raise there would leak the claim and refuse every future run.
@@ -2341,15 +2418,15 @@ class SequencedCaptureRunner:
                 )
             if record is not None:
                 actions.append(_complete_record)
-            actions.append(
-                lambda: schedule_files_complete(
-                    callbacks, protocol=protocol, run_dir=run_dir, files=outcome
-                )
-            )
             # The drain's end is a run-state change: the Session re-reads
             # its levels, as it does when the run itself goes idle.
             if on_run_state is not None:
                 actions.append(on_run_state)
+            actions.append(
+                lambda: schedule_files_complete(
+                    callbacks, run=run, protocol=protocol, run_dir=run_dir, files=outcome
+                )
+            )
             for action in actions:
                 try:
                     action()
@@ -2466,11 +2543,11 @@ class SequencedCaptureRunner:
                 ending=self._ending.get() or ending,
                 run_dir=self._run_dir,
             )
-            files_written = self._close_run_writes(write_batch, run_complete.ending)
+            files_written = self._close_run_writes(write_batch, run_complete.ending, run)
             # Told after the release, run_complete first: a subscriber hears
             # the run end before its files, on every path, a cleanup that
             # raised above included.
-            after_end.append(run_complete.send)
+            after_end.append(lambda: run_complete.send(run))
             after_end.append(lambda: write_batch.when_complete(files_written))
             # Settle (or arm) the run's merge outcome before the releases
             # below, while the fields it reads are still this run's: once

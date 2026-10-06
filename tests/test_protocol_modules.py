@@ -523,7 +523,9 @@ class TestRunCleanup:
             LOGGER_NAME='TEST',
         )
         batch = args['write_batch']
-        files_written = SequencedCaptureRunner._close_run_writes(runner, batch, args['ending'])
+        files_written = SequencedCaptureRunner._close_run_writes(
+            runner, batch, args['ending'], MagicMock()
+        )
         assert batch.wait_complete(0), 'a batch with nothing outstanding completes at the close'
         assert fired == [], 'closing the batch must not send files_complete'
         batch.when_complete(files_written)

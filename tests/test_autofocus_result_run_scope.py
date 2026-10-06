@@ -326,7 +326,9 @@ class TestGuiStoresWhatTheAutofocusFound:
             run_complete=lambda **kw: vc.VerticalControl._autofocus_run_complete(stub, **kw)
         )
 
-        RunCompleteNotice(callbacks, protocol=None, ending=MagicMock(), run_dir=None).send()
+        RunCompleteNotice(callbacks, protocol=None, ending=MagicMock(), run_dir=None).send(
+            MagicMock()
+        )
 
         assert len(reported) == 1, reported
         failed, kw = reported[0]

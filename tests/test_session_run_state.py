@@ -231,7 +231,7 @@ class TestTransitionNotification:
         fired = []
         session._run_state_listeners.append(lambda: fired.append(session.run_lockout))
 
-        files_written = runner._close_run_writes(batch, MagicMock())
+        files_written = runner._close_run_writes(batch, MagicMock(), MagicMock())
         # The run's end hands the batch its completion, after the release.
         batch.when_complete(files_written)
         assert fired == [], 'closing with a write outstanding is not the drain ending'

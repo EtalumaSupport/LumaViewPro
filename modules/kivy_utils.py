@@ -6,22 +6,48 @@ ui_dispatch function that is set by the GUI layer at startup.
 Non-GUI contexts (tests, headless, REST) get direct invocation.
 """
 
+import dataclasses
+import threading
 from collections.abc import Callable
 
+
+@dataclasses.dataclass(frozen=True)
+class UiDispatcher:
+    """How the GUI delivers a callback, and the thread it delivers on.
+
+    One value, so the thread can never be stale for the dispatcher beside
+    it: a wait on that thread for something only a later delivery there can
+    do would never return, and a run's waits refuse it.
+
+    Attributes:
+        schedule: A function with signature (func, timeout) that schedules
+            func on the GUI thread. Typically Clock.schedule_once.
+        thread: The thread ``schedule`` delivers on; None for a dispatcher
+            that calls inline on the caller's thread.
+    """
+
+    schedule: Callable[[Callable, float], object]
+    thread: threading.Thread | None
+
+
 # Global UI dispatcher -- set by lumaviewpro.py at startup to
-# Clock.schedule_once. Default is direct invocation.
-_ui_dispatcher = None
+# Clock.schedule_once on the main thread. Default is direct invocation.
+_ui_dispatcher: UiDispatcher | None = None
 
 
-def set_ui_dispatcher(dispatcher):
+def set_ui_dispatcher(dispatcher: UiDispatcher | None) -> None:
     """Set the global UI dispatcher (called once by the GUI layer at startup).
 
-    Args:
-        dispatcher: A function with signature (func, timeout) that schedules
-                    func on the GUI thread. Typically Clock.schedule_once.
+    None restores direct invocation.
     """
     global _ui_dispatcher
     _ui_dispatcher = dispatcher
+
+
+def ui_thread() -> threading.Thread | None:
+    """The thread UI callbacks are delivered on, or None when they run inline."""
+    dispatcher = _ui_dispatcher
+    return None if dispatcher is None else dispatcher.thread
 
 
 def schedule_ui(func: Callable, timeout: float = 0) -> None:
@@ -29,8 +55,9 @@ def schedule_ui(func: Callable, timeout: float = 0) -> None:
 
     Same signature as Clock.schedule_once -- func receives dt argument.
     """
-    if _ui_dispatcher is not None:
-        _ui_dispatcher(func, timeout)
+    dispatcher = _ui_dispatcher
+    if dispatcher is not None:
+        dispatcher.schedule(func, timeout)
     else:
         # No GUI -- call directly (tests, headless, REST API)
         if callable(func):

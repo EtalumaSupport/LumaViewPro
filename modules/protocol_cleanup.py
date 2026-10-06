@@ -9,6 +9,7 @@ protocol-decomposition refactor.
 
 from __future__ import annotations
 
+import contextlib
 import pathlib
 import threading
 from concurrent.futures import CancelledError
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
     from modules.protocol import Protocol
     from modules.protocol_callbacks import ProtocolCallbacks
     from modules.protocol_image_writer import RunWriteBatch
+    from modules.sequenced_capture_runner import RunHandle
 
 
 from modules.kivy_utils import schedule_ui as _schedule_ui
@@ -46,6 +48,7 @@ def _schedule_cleanup_ui(
     step_label: str,
     cleanup_errors: list[tuple[str, str]],
     summary_sent: threading.Event,
+    delivery: contextlib.AbstractContextManager,
 ) -> None:
     """Schedule a cleanup UI callback that must not take the app down.
 
@@ -76,27 +79,33 @@ def _schedule_cleanup_ui(
 
     `step_label` is the same wording the surrounding `except` blocks use,
     so a step reads identically whichever channel carried it.
+
+    `delivery` is entered around the callback and its report, on the thread
+    that runs it: a run's own callback is delivered inside its handle's
+    delivery, which marks the run told once the callback and its report are
+    done; any other step passes a null context.
     """
 
     def _guarded(dt):
-        try:
-            return func(dt)
-        except Exception as ex:
-            if not summary_sent.is_set():
-                # The summary carries the step and its message; the
-                # traceback belongs in the log that ships with a bundle.
-                logger.exception(f'[PROTOCOL] {step_label} failed after the run')
-                cleanup_errors.append((step_label, f'{type(ex).__name__}: {ex}'))
-                return
-            from modules.notification_center import notifications
+        with delivery:
+            try:
+                return func(dt)
+            except Exception as ex:
+                if not summary_sent.is_set():
+                    # The summary carries the step and its message; the
+                    # traceback belongs in the log that ships with a bundle.
+                    logger.exception(f'[PROTOCOL] {step_label} failed after the run')
+                    cleanup_errors.append((step_label, f'{type(ex).__name__}: {ex}'))
+                    return
+                from modules.notification_center import notifications
 
-            # Says nothing of the images: this runs for any step after the
-            # run, whether or not its files were all written, and the files
-            # are told on their own. Chained, so the one report logs the
-            # traceback.
-            failed = RunCleanupFailedError([(step_label, f'{type(ex).__name__}: {ex}')])
-            failed.__cause__ = ex
-            notifications.report_outcome(failed, solicited=False, category='Protocol')
+                # Says nothing of the images: this runs for any step after the
+                # run, whether or not its files were all written, and the files
+                # are told on their own. Chained, so the one report logs the
+                # traceback.
+                failed = RunCleanupFailedError([(step_label, f'{type(ex).__name__}: {ex}')])
+                failed.__cause__ = ex
+                notifications.report_outcome(failed, solicited=False, category='Protocol')
 
     _schedule_ui(_guarded, 0)
 
@@ -130,31 +139,41 @@ class RunCompleteNotice:
         """The ending this notice carries to the run's subscribers."""
         return self._ending
 
-    def send(self) -> None:
+    def send(self, run: RunHandle) -> None:
         """Schedule ``run_complete``; a failure inside it is reported by the callback's own guard.
 
         Sent after the run's cleanup summary, so the failure is its own report.
+        *run* is marked told once the callback has run, or at once when
+        there is none to run or it could not be scheduled, so its waits
+        never wait on a delivery that will not come.
         """
         if not self._callbacks.run_complete:
+            run._run_told.set()
             return
         summary_sent = threading.Event()
         summary_sent.set()
-        _schedule_cleanup_ui(
-            lambda dt: self._callbacks.run_complete(
-                protocol=self._protocol,
-                status=self._ending.status,
-                ending=self._ending,
-                run_dir=self._run_dir,
-            ),
-            'Run-complete callback',
-            [],
-            summary_sent,
-        )
+        try:
+            _schedule_cleanup_ui(
+                lambda dt: self._callbacks.run_complete(
+                    protocol=self._protocol,
+                    status=self._ending.status,
+                    ending=self._ending,
+                    run_dir=self._run_dir,
+                ),
+                'Run-complete callback',
+                [],
+                summary_sent,
+                run._delivering(run._run_told),
+            )
+        except BaseException:
+            run._run_told.set()
+            raise
 
 
 def schedule_files_complete(
     callbacks: ProtocolCallbacks,
     *,
+    run: RunHandle,
     protocol: Protocol,
     run_dir: pathlib.Path | None,
     files: str,
@@ -162,18 +181,26 @@ def schedule_files_complete(
     """Schedule the run's one ``files_complete``, after its cleanup summary.
 
     ``files`` is the run's write outcome: ``'written'``, or ``'incomplete'``
-    when some of its images are not on disk.
+    when some of its images are not on disk. *run* is marked files told
+    once the callback has run, or at once when there is none to run or it
+    could not be scheduled.
     """
     if not callbacks.files_complete:
+        run._files_told.set()
         return
     summary_sent = threading.Event()
     summary_sent.set()
-    _schedule_cleanup_ui(
-        lambda dt: callbacks.files_complete(protocol=protocol, run_dir=run_dir, files=files),
-        'Files-complete callback',
-        [],
-        summary_sent,
-    )
+    try:
+        _schedule_cleanup_ui(
+            lambda dt: callbacks.files_complete(protocol=protocol, run_dir=run_dir, files=files),
+            'Files-complete callback',
+            [],
+            summary_sent,
+            run._delivering(run._files_told),
+        )
+    except BaseException:
+        run._files_told.set()
+        raise
 
 
 # How long cleanup waits for an in-flight autofocus to unwind: its restore,
@@ -374,6 +401,7 @@ def run_cleanup(
                 'Restore layer shader',
                 cleanup_errors,
                 summary_sent,
+                contextlib.nullcontext(),
             )
     except Exception as ex:
         cleanup_errors.append(('Restore layer shader', f'{type(ex).__name__}: {ex}'))
@@ -407,6 +435,7 @@ def run_cleanup(
                 'Sync layer panel',
                 cleanup_errors,
                 summary_sent,
+                contextlib.nullcontext(),
             )
     except Exception as ex:
         cleanup_errors.append(('Sync layer panel', f'{type(ex).__name__}: {ex}'))

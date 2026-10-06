@@ -20,11 +20,12 @@ a MagicMock, so log records are asserted through the mock rather than
 caplog.
 """
 
+import contextlib
 import threading
 
 import pytest
-from lvp_logger import logger
 
+from lvp_logger import logger
 from modules import kivy_utils, protocol_cleanup
 
 
@@ -44,7 +45,9 @@ def immediate_gui_dispatcher():
     test would pass against the very bug this file exists for.
     """
     previous = kivy_utils._ui_dispatcher
-    kivy_utils.set_ui_dispatcher(lambda func, timeout: func(timeout))
+    kivy_utils.set_ui_dispatcher(
+        kivy_utils.UiDispatcher(schedule=lambda func, timeout: func(timeout), thread=None)
+    )
     logger.reset_mock()
     yield
     kivy_utils.set_ui_dispatcher(previous)
@@ -56,7 +59,9 @@ def _boom(_dt):
 
 def test_a_raising_cleanup_callback_does_not_reach_the_event_loop(immediate_gui_dispatcher):
     """This is the crash: the exception used to escape to Kivy and exit."""
-    protocol_cleanup._schedule_cleanup_ui(_boom, 'Sync layer panel', [], _sent())
+    protocol_cleanup._schedule_cleanup_ui(
+        _boom, 'Sync layer panel', [], _sent(), contextlib.nullcontext()
+    )
 
 
 def test_a_raising_cleanup_callback_is_logged_with_its_step_name(
@@ -66,7 +71,9 @@ def test_a_raising_cleanup_callback_is_logged_with_its_step_name(
 
     reported = []
     monkeypatch.setattr(notifications, 'report_outcome', lambda ex, *a, **k: reported.append(ex))
-    protocol_cleanup._schedule_cleanup_ui(_boom, 'Sync layer panel', [], _sent())
+    protocol_cleanup._schedule_cleanup_ui(
+        _boom, 'Sync layer panel', [], _sent(), contextlib.nullcontext()
+    )
 
     # The one reporter logs a fault once, with its traceback.
     assert len(reported) == 1, (
@@ -82,7 +89,9 @@ def test_a_raising_cleanup_callback_is_logged_with_its_step_name(
 
 def test_a_healthy_cleanup_callback_still_runs(immediate_gui_dispatcher):
     seen = []
-    protocol_cleanup._schedule_cleanup_ui(lambda dt: seen.append(dt), 'Harmless step', [], _sent())
+    protocol_cleanup._schedule_cleanup_ui(
+        lambda dt: seen.append(dt), 'Harmless step', [], _sent(), contextlib.nullcontext()
+    )
 
     assert seen == [0], 'the guard must not change what a working callback does'
     assert not logger.exception.called, (
@@ -113,7 +122,9 @@ def test_a_failure_before_the_summary_is_collected_not_self_reported(immediate_g
     errors: list[tuple[str, str]] = []
     not_sent = threading.Event()
 
-    protocol_cleanup._schedule_cleanup_ui(_boom, 'Restore layer shader', errors, not_sent)
+    protocol_cleanup._schedule_cleanup_ui(
+        _boom, 'Restore layer shader', errors, not_sent, contextlib.nullcontext()
+    )
 
     assert len(errors) == 1, f'the failure must be collected for the summary; got {errors}'
     assert errors[0][0] == 'Restore layer shader' and errors[0][1].startswith('RuntimeError'), (
