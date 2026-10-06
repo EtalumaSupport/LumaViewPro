@@ -1316,6 +1316,10 @@ class PylonCamera(Camera):
                 if genicam.IsReadable(temp):
                     temps[name] = temp.GetValue()
 
+            # The camera has the nodes, so it has a sensor: an empty answer
+            # would read as "no sensor" to every caller.
+            if not temps:
+                raise HardwareError('no listed temperature sensor was readable')
             return temps
         except Exception as e:
             # Intentionally NO disconnect teardown here: this getter used to

@@ -1719,7 +1719,7 @@ The last two rows are not registered on the scope. **Run state** is registered o
 ```python
 scope.camera_connected                             # bool property (mirror of motor_connected / led_connected)
 scope.imaging.active_cached                        # True if grabbing
-scope.diagnostics.get_camera_temperatures_degc()        # temperature sensors; {} only with no sensor, a failed read raises
+scope.diagnostics.get_camera_temperatures_degc()        # temperature sensors; {} no sensor, None no camera, a failed read raises
 scope.capabilities.camera_model                    # the camera's model, serial number (camera_serial_number) and
                                                    # timestamp clock (camera_timestamp_tick_hz), read at connect
 scope.diagnostics.get_camera_profile_info()        # sensor specs + dynamic ranges; None when no camera is

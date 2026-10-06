@@ -50,6 +50,19 @@ def test_a_pylon_camera_with_no_temperature_node_has_no_sensor():
     assert cam.get_all_temperatures() == {}
 
 
+def test_a_pylon_camera_whose_listed_sensors_are_all_unreadable_raises():
+    """The camera reports a sensor, so an empty answer would read as "none"."""
+    cam = bare_pylon_camera()
+    nodemap = cam.active.GetNodeMap.return_value
+    nodemap.GetNode.return_value.GetEntries.return_value = [MagicMock()]
+
+    with (
+        patch('drivers.pyloncamera.genicam.IsReadable', return_value=False),
+        pytest.raises(HardwareError, match='temperature'),
+    ):
+        cam.get_all_temperatures()
+
+
 def test_an_inactive_pylon_camera_raises():
     cam = bare_pylon_camera()
     cam.active = None
