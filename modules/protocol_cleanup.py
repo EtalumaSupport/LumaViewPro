@@ -17,14 +17,13 @@ from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 
-from modules.autofocus_runner import AF_DATA_WRITE_WAIT_S
 from modules.exceptions import RunCleanupFailedError, SlowFileWritesNotice
 from modules.lumascope_api.illumination import (
     LedTransition,
     LedTransitionCtx,
     resolve_end_state,
 )
-from modules.protocol_image_writer import SLOW_WRITE_BLOCKED_WARN_S
+from modules.protocol_image_writer import SLOW_WRITE_BLOCKED_WARN_S, WRITE_STALL_FATAL_S
 from modules.protocol_state_machine import ProtocolState
 from modules.run_outcome import RunEnding
 
@@ -203,9 +202,13 @@ def schedule_files_complete(
         raise
 
 
-# How long cleanup waits for an in-flight autofocus to unwind: its restore,
-# plus the wait for its data write that ends it.
-_AF_UNWIND_WAIT_S = 5.0 + AF_DATA_WRITE_WAIT_S
+# How long cleanup waits for an aborted autofocus to unwind -- its restore,
+# and the wait for its data write that ends it -- before calling it stuck:
+# the house's one "wedged" threshold. A sweep inside a capture is bounded by
+# the capture's own 30 s and more, so a shorter bound would call a slow
+# exposure stuck. Per PERFORMANCE_BUDGETS.md row
+# autofocus_unwind_after_stop_s.
+_AF_UNWIND_WAIT_S = WRITE_STALL_FATAL_S
 
 
 def run_cleanup(
@@ -312,10 +315,19 @@ def run_cleanup(
                 # without raising it; raises TimeoutError on the bound.
                 _af_future.exception(timeout=_AF_UNWIND_WAIT_S)
             except TimeoutError:
-                logger.warning(
-                    f'[{logger_name}] Cleanup: autofocus still unwinding '
-                    f'after {_AF_UNWIND_WAIT_S:.1f} s; its exit path restores '
-                    'LED/camera state when it finishes'
+                # Stuck: a cleanup step that did not finish. The run's own
+                # ending stands -- a person who pressed Stop is not told the
+                # run failed -- and the stuck sweep is told once, in the
+                # cleanup summary below. It can no longer reach the scope:
+                # the run's lease and claim go at release, and its work is
+                # refused from then on.
+                cleanup_errors.append(
+                    (
+                        'Stop autofocus',
+                        f'the autofocus sweep did not stop within '
+                        f'{_AF_UNWIND_WAIT_S:.0f} s; autofocus and new runs are '
+                        'refused until it does -- restart LumaViewPro if it does not',
+                    )
                 )
             except Exception as ex:
                 logger.warning(

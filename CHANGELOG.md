@@ -2,6 +2,13 @@
 
 ## 4.0.0 (in development)
 
+- **An autofocus sweep that will not stop is a cleanup failure**: when a stopped run's autofocus
+  sweep has not unwound 30 s after being told to, the run's `cleanup_failures` names
+  `Stop autofocus` and the person is told once in the cleanup summary; the run keeps its own
+  ending. Until the sweep stops, a new run is refused `autofocus_running` with words that say so
+  (restart LumaViewPro if it does not clear), and the sweep, once free, reports nothing. Before,
+  the wait was 10 s and only logged, the refusal said "Stop it" with nothing left to stop, and the
+  freed sweep reported its refused restore and capture as faults of a run that was over.
 - **A Z move is moving through its backlash leg**: a Z move down drives below its target and
   approaches from below; the axis now reads `'moving'` from its first target write, so
   `wait_until_finished_moving()`, `get_axis_state('Z')`, `axis_positions()`, the position

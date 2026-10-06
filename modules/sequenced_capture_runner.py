@@ -219,9 +219,10 @@ class RunHandle:
         it has one, has finished, and the run has said everything about
         them -- the lost-image report, the record's reconcile and its
         files_complete -- so a caller woken here can start the next run
-        without a 'files_writing' refusal. One gap remains, the same one
-        wait() has: an autofocus sweep that does not unwind inside
-        cleanup's bound still refuses the next run 'autofocus_running'.
+        without a 'files_writing' refusal. One thing can still refuse it,
+        as after wait(): an autofocus sweep that did not stop inside
+        cleanup's bound, which the run's outcome names as a cleanup
+        failure, refuses the next run 'autofocus_running' until it stops.
 
         A hyperstack build's own failure is reported by the build; what is
         returned here is the images. Made from inside one of this run's own
@@ -1095,13 +1096,13 @@ class SequencedCaptureRunner:
                 holder_trigger=self._last_run_trigger(),
             )
 
-        # Nearly vestigial now that a standalone autofocus is itself a
-        # run (already_running fires first) -- kept deliberately for the
-        # abort-tail window where the AF thread is still winding down
-        # after the run flag clears.
-        # A winding-down autofocus still drives the Z axis and its LED
-        # restore; starting a run under it would contest Z motion and
-        # illumination (dark AF frames, garbage focus).
+        # A sweep still in flight with no run holding the scope is one its
+        # run's cleanup gave up waiting for: stuck, and recorded as that
+        # run's cleanup failure. (A sweep inside a live run is refused
+        # above, as the run.) Its run's lease and claim are gone, so it
+        # can no longer drive anything, but the one autofocus thread is
+        # still inside it, and a run started now would queue its own
+        # sweeps behind a call that may never return.
         in_flight_sweep = (
             self.autofocus_thread.in_flight_sweep if self.autofocus_thread is not None else None
         )
@@ -1110,8 +1111,9 @@ class SequencedCaptureRunner:
                 reason='autofocus_running',
                 title='Autofocus Running',
                 message=(
-                    f'An autofocus sweep from {the_run_named(in_flight_sweep.run)} '
-                    'is still running. Stop it or let it finish, then start the run.'
+                    f'The autofocus sweep from {the_run_named(in_flight_sweep.run)} '
+                    'did not stop when its run ended. Restart LumaViewPro if it '
+                    'does not clear.'
                 ),
                 holder='autofocus',
                 holder_trigger=in_flight_sweep.run.trigger,

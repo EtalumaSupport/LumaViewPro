@@ -18,6 +18,7 @@ import modules.path_utils as path_utils
 import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
 import modules.lumascope_api as lumascope_api
+from modules.activity_claim import current_taking
 from modules.exceptions import (
     AutofocusAborted,
     AutofocusFailedError,
@@ -53,6 +54,19 @@ def _describe_restore(restore: dict) -> str:
         return 'nothing'
     shown = {k: (v is not None) if k == 'auto_gain_arm' else v for k, v in restore.items()}
     return str(shown)
+
+
+def _its_run_has_ended() -> bool:
+    """Whether the run this sweep acts under has let go of the scope.
+
+    A sweep that outlives its run -- stuck past cleanup's bound -- wakes into
+    refusals and timeouts that are the stuck sweep itself, already told once
+    in the run's cleanup summary. Told again, they would report a fault to a
+    person whose run is over; a refused LED lease is kept quiet for the same
+    reason.
+    """
+    taking = current_taking()
+    return taking is not None and not taking.holds
 
 
 class AutofocusRunner:
@@ -406,7 +420,10 @@ class AutofocusRunner:
                 failed.__cause__ = ex
             # An unattended run's mute keeps this off the screen; the run
             # captures at its fallback Z and the report is the record.
-            notifications.report_outcome(failed, solicited=False, category='Autofocus')
+            if _its_run_has_ended():
+                logger.warning(f'[AF] {failed} -- after its run ended, so not reported')
+            else:
+                notifications.report_outcome(failed, solicited=False, category='Autofocus')
             raise
 
         finally:
@@ -488,9 +505,14 @@ class AutofocusRunner:
                             z_lost='Z' in self._scope.motion.axes_without_position()
                         )
                         not_restored.__cause__ = restore_ex
-                        notifications.report_outcome(
-                            not_restored, solicited=False, category='Autofocus'
-                        )
+                        if _its_run_has_ended():
+                            logger.warning(
+                                f'[AF] {not_restored} -- after its run ended, so not reported'
+                            )
+                        else:
+                            notifications.report_outcome(
+                                not_restored, solicited=False, category='Autofocus'
+                            )
                 # The AF-end LED state is the authority's AF_TO_CAPTURE decision:
                 # hold the AF channel for the following capture, or restore the
                 # pre-AF snapshot. Hold only on success -- after an abort or error
