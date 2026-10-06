@@ -929,20 +929,24 @@ class TestPositionCache:
     def test_move_relative_updates_cache(self, sim_scope):
         """move_relative should accumulate into the cache."""
         sim_scope.motion.start_move_absolute('X', 1000.0)
-        sim_scope.motion.start_move_relative('X', 500.0)
-        assert sim_scope.motion.get_target_position('X') == 1500.0
+        sim_scope.motion.start_move_relative('X', 500.0).wait()
+        assert sim_scope.motion.get_target_position('X') == pytest.approx(1500.0, abs=0.1)
 
     def test_move_relative_negative(self, sim_scope):
         """Negative relative moves should subtract from cache."""
         sim_scope.motion.start_move_absolute('Z', 3000.0)
-        sim_scope.motion.start_move_relative('Z', -1000.0)
-        assert sim_scope.motion.get_target_position('Z') == 2000.0
+        sim_scope.motion.start_move_relative('Z', -1000.0).wait()
+        assert sim_scope.motion.get_target_position('Z') == pytest.approx(2000.0, abs=0.1)
 
     def test_get_all_axes(self, sim_scope):
         """get_target_position(None) returns dict of all axes."""
-        sim_scope.motion.start_move_absolute('X', 100.0)
-        sim_scope.motion.start_move_absolute('Y', 200.0)
-        sim_scope.motion.start_move_absolute('Z', 300.0)
+        moves = [
+            sim_scope.motion.start_move_absolute('X', 100.0),
+            sim_scope.motion.start_move_absolute('Y', 200.0),
+            sim_scope.motion.start_move_absolute('Z', 300.0),
+        ]
+        for move in moves:
+            move.wait()
         result = sim_scope.motion.get_target_position()
         assert isinstance(result, dict)
         assert result['X'] == 100.0

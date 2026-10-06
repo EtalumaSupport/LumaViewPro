@@ -1199,11 +1199,11 @@ scope.motion.axes_without_position()             # {axis: 'unknown' | 'homing'};
 # good -- not merely "a home once succeeded".
 
 # Position queries (µm for XYZ, 1–4 for turret). Read cache, no serial I/O.
-scope.motion.get_current_position('Z')           # predicted position during motion, confirmed when idle
+scope.motion.get_current_position('Z')           # polled position: refreshed while the axis moves, the last read when idle
 scope.motion.get_current_position()              # dict of the axes that have a position
 scope.motion.axis_positions()                    # {axis: AxisPosition(state, position)} in ONE snapshot; position is None unless the axis is IDLE or MOVING -- the read for a caller writing a position into a file
 scope.runtime_state.plate_transform()            # (sx_um, sy_um) -> (px_mm, py_mm), BOUND to the labware and offset registered now; None when either is unset. For a caller converting many positions over time (a recording, one per frame): every frame is stated in one frame of reference, and it cannot raise
-scope.motion.get_target_position('Z')            # target µm
+scope.motion.get_target_position('Z')            # the commanded target, moving or arrived; the polled position when none was reached (before a first move, after a home, a STOP or a fault)
 scope.motion.get_actual_position('Z')            # hardware position via serial (slow; use sparingly)
 # A position with no hardware behind it is None: an axis the scope does not
 # have, and every axis with no motor board installed (a manual scope, a board

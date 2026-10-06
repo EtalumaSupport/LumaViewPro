@@ -122,9 +122,12 @@ class _Move:
         outcome: ``'arrived'``, ``'stopped'``, ``'superseded'`` or
             ``'faulted'``; None until settled.
         fault: The error an UNKNOWN ending carried, or None.
+        target: The final target the move wrote to the board, set by
+            ``_publish_drive``; None until written, and for good when a stop
+            withheld it.
     """
 
-    __slots__ = ('armed', 'done', 'fault', 'outcome', 'stop_generation')
+    __slots__ = ('armed', 'done', 'fault', 'outcome', 'stop_generation', 'target')
 
     def __init__(self, stop_generation: int) -> None:
         self.stop_generation = stop_generation
@@ -132,6 +135,7 @@ class _Move:
         self.done = threading.Event()
         self.outcome: str | None = None
         self.fault: MoveNotCompletedError | None = None
+        self.target: float | None = None
 
     def settle(self, outcome: str, fault: MoveNotCompletedError | None = None) -> None:
         """Fix the outcome, unless the move is already settled."""
@@ -841,9 +845,10 @@ class MotionAPI:
                 the next Z move. Standalone callers (UI turret button,
                 the turret-home body) leave the default True.
         """
-        # Save off current Z position before moving Z to 0
+        # Save off the Z target before moving Z to 0: the restore returns Z
+        # to the number the person commanded, not to the poll of it.
         logger.info('[SCOPE API ] Moving Z to 0', extra={'force_error': True})
-        initial_z = self.get_current_position(axis='Z')
+        initial_z = self.get_target_position(axis='Z')
         stop_generation = self._stop_generation
         # force: this retract is the turret-safety move, and it is also
         # the first motion of the turret-home recovery -- the case where
@@ -1572,10 +1577,16 @@ class MotionAPI:
     def get_target_position(self, axis: str | None = None) -> float | dict | None:
         """Get the target position for an axis (where it is commanded to go); um for X/Y/Z, turret slot for T.
 
-        During MOVING: returns the target captured in _move_profile when the
-        move was commanded. This is what the host told the chip; no serial
-        I/O. During IDLE: returns the cached current position (which is the
-        last polled motor position, ~1 microstep off the commanded target).
+        The last target this API wrote to the board for the axis, while the
+        move runs and after it arrives: the commanded number, not the polled
+        position, which sits up to a microstep off it. A relative move's
+        target is the board's own target plus the offset, so it carries that
+        target's microstep rounding. Where no target was reached it is the
+        polled position: before the axis's first move, after a home, after a
+        STOP ended the move, while the axis is UNKNOWN, and while a move has
+        not yet written its final target (a Z backlash leg). A refused move
+        writes nothing, so the previous target stands. No serial I/O. T
+        answers its slot as a float.
 
         Args:
             axis: Axis name ("X", "Y", "Z", "T"), or None for all axes.
@@ -1595,11 +1606,16 @@ class MotionAPI:
             return None
         with self._axis_state_lock:
             state = self._axis_state.get(axis, AxisState.UNKNOWN)
-        if state == AxisState.MOVING:
-            with self._move_profile_lock:
-                profile = self._move_profile.get(axis)
-            if profile is not None and profile.get('target_pos') is not None:
-                return float(profile['target_pos'])
+            move = self._current_move.get(axis)
+            # An UNKNOWN after an arrival leaves the move settled 'arrived',
+            # so the state is tested as well as the outcome.
+            if (
+                move is not None
+                and move.target is not None
+                and state in (AxisState.MOVING, AxisState.IDLE)
+                and move.outcome in (None, 'arrived')
+            ):
+                return float(move.target)
         return self._read_position_cache(axis)
 
     def get_current_position(self, axis: str | None = None) -> float | dict | None:
@@ -1886,8 +1902,8 @@ class MotionAPI:
         self._publish_drive(axis, written, start_pos, float(position), ramp)
         # No move-init cache write: cache holds CURRENT position, which is
         # still start_pos until _motion_monitor_loop reads it from hardware
-        # on its first cycle. Target is held in _move_profile[axis], where
-        # get_target_position picks it up during MOVING.
+        # on its first cycle. The target is the move's own (_Move.target),
+        # where get_target_position reads it.
         self._fire_position_listeners(axis)
         _api_log.info(f'move_abs {axis}={position:.1f}um')
         return MoveInFlight(self, axis, move)
@@ -2056,8 +2072,8 @@ class MotionAPI:
         self._publish_drive(axis, written, start_pos, target_pos, ramp)
         # No move-init cache write: cache holds CURRENT position, which is
         # still start_pos until _motion_monitor_loop reads it from hardware
-        # on its first cycle. Target is held in _move_profile[axis], where
-        # get_target_position picks it up during MOVING.
+        # on its first cycle. The target is the move's own (_Move.target),
+        # where get_target_position reads it.
         self._fire_position_listeners(axis)
         _api_log.info(f'move_rel {axis}={distance:+.1f}um')
         return MoveInFlight(self, axis, move)
@@ -2576,9 +2592,10 @@ class MotionAPI:
         target_pos: float,
         ramp: dict | None,
     ) -> None:
-        """Publish a sent drive's profile, then arm ``axis``: its verdicts may land.
+        """Publish a sent drive's target and profile, then arm ``axis``: its verdicts may land.
 
-        The profile goes first: an armed axis can arrive at once, and an
+        The target is the move's own (``_Move.target``), so it stays the
+        move's after the move ends. The profile goes first: an armed axis can arrive at once, and an
         arrival clears the profile, so one written after it would sit on an
         IDLE axis as the target of a move that has ended. A withheld target
         is published nowhere -- the stage is where the stop left it -- but
@@ -2590,6 +2607,8 @@ class MotionAPI:
             move = self._current_move.get(axis)
             if self._axis_state.get(axis) != AxisState.MOVING or move is None:
                 return
+            if written:
+                move.target = target_pos
             if ramp and written:
                 with self._move_profile_lock:
                     self._move_profile[axis] = {
