@@ -308,21 +308,14 @@ class AutofocusRunner:
             # is_focusing.
             self._led_lease = led_lease.acquire_child('autofocus')
             if self._led_lease is None:
-                # A live owner holds illumination authority. AF without the
-                # lease would sweep an unlit field and commit a garbage Z --
-                # refuse the run loudly instead. error severity: the
-                # operation ABORTED, and the likeliest contention (a running
-                # protocol) suppresses non-fatal popups, which would
-                # otherwise swallow exactly this message.
+                # The child is refused only once the lease AF was handed has
+                # been released: the run this sweep belongs to has ended, and
+                # whatever holds the LEDs now is not it. AF without the lease
+                # would sweep an unlit field and commit a garbage Z, so it
+                # stops as an abort. Nobody is told: the run's own end is the
+                # report.
                 holder = self._scope.illumination.led_lease_purpose
-                holder_desc = f'Another operation ({holder})' if holder else 'Another operation'
                 logger.error(f'[AF] LED lease refused (held live by {holder!r}); aborting run')
-                notifications.error(
-                    'Autofocus',
-                    'Autofocus Did Not Start',
-                    f'{holder_desc} is controlling the microscope '
-                    'illumination. Let it finish, then run autofocus.',
-                )
                 raise AutofocusAborted(f'LED authority held live by {holder!r}')
             # Make the AF channel the only lit one before scanning, confirmed
             # on (AF_ENTER blocks) so the focus metric never reads a dark or

@@ -138,10 +138,9 @@ def test_dead_probe_reclaims_regardless_of_thread_state(scope, caplog):
 def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
     """Autofocus that cannot take the LED lease from a LIVE holder must abort
     its own run: AutofocusAborted raised, no focus sweep, no Z walk, camera
-    state restored, in-progress flags cleared, the user notified -- and the
+    state restored, in-progress flags cleared, nothing posted -- and the
     live holder's lease and lit channel are untouched."""
     from modules.exceptions import AutofocusAborted
-    from modules.notification_center import Severity
 
     ill = scope.illumination
     # AF is handed the lease of a run that already ended; the live holder
@@ -188,13 +187,12 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
     assert scope.imaging.get_exposure_ms() == pre_exposure, 'camera exposure must be restored'
     assert scope.imaging.is_focusing is False
     assert not runner.in_progress(), 'the in-progress flag must clear on the refused run'
-    # error severity, not warning: the likeliest contention (a running
-    # protocol) suppresses non-fatal popups, which would swallow this.
-    notified = [
-        (n.category, n.title, n.message) for n in centre_posts if n.severity == Severity.ERROR
-    ]
-    assert any('Autofocus Did Not Start' in str(args) for args in notified), (
-        f'the refused run must notify the user; got {notified}'
+    # The lease is refused only once the run that handed it over has ended,
+    # so this autofocus belongs to no live run: it stops as an abort and
+    # tells no one. The run's own end is the report; a post here told a
+    # person who had pressed Stop that "another operation" held the LEDs.
+    assert [n.title for n in centre_posts if n.category == 'Autofocus'] == [], (
+        'an autofocus whose run had ended posted to the user'
     )
     # The live holder is undisturbed: lease held, channel still lit, and the
     # AF channel was never lit.
