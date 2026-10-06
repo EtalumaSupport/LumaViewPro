@@ -105,6 +105,17 @@ def test_ramp_params_reproduce_the_manuals_worked_example():
     assert ramp['dmax'] == ramp['amax']
 
 
+def test_the_travel_is_the_measured_far_switch_and_the_margin_sits_inside_it():
+    """The bench LS720, 2026-10-05, row 6: each far switch's distance from
+    the index, driven onto at a quarter of the axis's speed. The margin is
+    for the units not measured."""
+    config = Tmcm6110Config(SHIPPED_MOTOR_DEFAULTS)
+    assert config.travel_limit_um('X') == pytest.approx(123_710)
+    assert config.travel_limit_um('Y') == pytest.approx(79_790)
+    assert config.travel_limit_um('Z') == pytest.approx(12_030)
+    assert config.travel_margin_um() == pytest.approx(1_000)
+
+
 def test_ramp_params_are_a_profile_for_every_axis():
     """The API builds a move profile only from a non-empty ramp."""
     config = Tmcm6110Config(SHIPPED_MOTOR_DEFAULTS)
@@ -161,9 +172,10 @@ def test_no_section_is_refused():
         (lambda s: s['Axis Direction'].update({'X': 0}), r'Axis Direction\.X = 0 is not 1 or -1'),
         (lambda s: s['Axis Travel Limit'].pop('Y'), r'Axis Travel Limit\.Y is missing'),
         (lambda s: s.pop('Homing'), r'Homing is missing'),
+        (lambda s: s.pop('Travel Margin'), r'Travel Margin is missing'),
         (
-            lambda s: s.update({'Axis Travel Limit Measured': 'no'}),
-            r'Measured is not true or false',
+            lambda s: s.update({'Travel Margin': 80}),
+            r'Travel Margin = 80 is not below the Y travel \(79\.79 mm\)',
         ),
     ],
 )

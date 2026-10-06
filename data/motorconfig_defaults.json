@@ -43,11 +43,11 @@
     },
     "TMCM-6110": {
         "Axis Travel Limit": {
-            "X": 120,
-            "Y": 80,
-            "Z": 11.0
+            "X": 123.71,
+            "Y": 79.79,
+            "Z": 12.03
         },
-        "Axis Travel Limit Measured": false,
+        "Travel Margin": 1.0,
         "Axis Direction": {
             "X": -1,
             "Y": -1,

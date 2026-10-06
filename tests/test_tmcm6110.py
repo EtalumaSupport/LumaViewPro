@@ -7,7 +7,6 @@ decoded as on the bench, and the simulated board keeps time, so a move is
 in flight until it arrives.
 """
 
-import logging
 import threading
 import time
 
@@ -61,7 +60,7 @@ def _fast_clock(factor=FAST):
 
 @pytest.fixture
 def sim():
-    return SimulatedTmcm6110(clock=_fast_clock())
+    return SimulatedTmcm6110(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, clock=_fast_clock())
 
 
 @pytest.fixture
@@ -137,7 +136,7 @@ def test_the_firmware_reply_is_ascii_with_no_checksum(board):
 
 @pytest.mark.parametrize('usb_id', USB_IDS)
 def test_either_usb_identity_is_found(usb_id):
-    sim = SimulatedTmcm6110(usb_id=usb_id)
+    sim = SimulatedTmcm6110(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, usb_id=usb_id)
     board = Tmcm6110Board(
         motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=SimulatedTmcm6110Backend(sim)
     )
@@ -146,7 +145,7 @@ def test_either_usb_identity_is_found(usb_id):
 
 
 def test_a_port_that_is_not_a_6110_is_closed_and_not_found():
-    sim = SimulatedTmcm6110()
+    sim = SimulatedTmcm6110(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
     sim.version = '3110V100'
     backend = RecordingBackend(sim)
     board = Tmcm6110Board(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=backend)
@@ -157,7 +156,7 @@ def test_a_port_that_is_not_a_6110_is_closed_and_not_found():
 
 
 def test_a_port_with_another_usb_identity_is_never_opened():
-    sim = SimulatedTmcm6110(usb_id=(0x2E8A, 0x0005))
+    sim = SimulatedTmcm6110(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, usb_id=(0x2E8A, 0x0005))
     backend = RecordingBackend(sim)
     board = Tmcm6110Board(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=backend)
     assert not board.found
@@ -167,7 +166,7 @@ def test_a_port_with_another_usb_identity_is_never_opened():
 def test_on_a_host_with_no_6110_the_fallback_is_not_detected():
     """Tried by the registry on a host without one, the constructor raises
     nothing and the registry falls back naming nothing found."""
-    sim = SimulatedTmcm6110()
+    sim = SimulatedTmcm6110(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
     sim.plugged = False
     registry = DriverRegistry('motor')
     registry.register('tmcm6110', priority=80)(Tmcm6110Board)
@@ -187,23 +186,28 @@ def test_on_a_host_with_no_6110_the_fallback_is_not_detected():
 def test_the_config_is_built_only_once_a_6110_is_found():
     """A host without a 6110 never reads the section, so a broken one
     cannot fail bring-up there; on an LS720 it is refused and the port closed."""
-    sim = SimulatedTmcm6110()
+    sim = SimulatedTmcm6110(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
     sim.plugged = False
     assert not Tmcm6110Board(motorconfig_defaults={}, backend=SimulatedTmcm6110Backend(sim)).found
 
-    sim = SimulatedTmcm6110()
+    sim = SimulatedTmcm6110(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
     backend = RecordingBackend(sim)
     with pytest.raises(ValueError, match='TMCM-6110'):
         Tmcm6110Board(motorconfig_defaults={}, backend=backend)
     assert not backend.opened[0].is_open
 
 
-def test_unmeasured_travel_limits_are_a_warning_at_bring_up(caplog, sim):
-    with caplog.at_level(logging.WARNING, logger='LVP.drivers.tmcm6110'):
-        Tmcm6110Board(
-            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=SimulatedTmcm6110Backend(sim)
-        )
-    assert any('not measured' in r.getMessage() for r in caplog.records)
+def test_the_limits_sit_the_margin_inside_the_measured_far_switches(board):
+    """The section's travel is each far switch as the bench measured it;
+    the limit the API refuses past is the margin inside that, for the
+    units not measured (the bench LS720's Y switch at 79.79 mm sat 0.21 mm
+    inside the 80 mm the unmeasured limit admitted)."""
+    margin_um = board.motorconfig.travel_margin_um()
+    for axis in ('X', 'Y', 'Z'):
+        limits = board.get_axis_limits(axis)
+        assert limits['min'] == 0.0
+        assert limits['max'] == pytest.approx(board.motorconfig.travel_limit_um(axis) - margin_um)
+    assert board.get_axis_limits('Y')['max'] == pytest.approx(78_790)
 
 
 # --- The surface every motor driver provides ------------------------------
@@ -220,7 +224,7 @@ def test_the_members_the_api_reads(board):
     assert not hasattr(board, 'exchange_multiline')
     assert board.exchange_command('INFO') is None
     assert board.motorconfig.ramp_params('X')
-    assert board.get_axis_limits('Y') == {'min': 0.0, 'max': 80_000.0}
+    assert board.get_axis_limits('Y') == {'min': 0.0, 'max': pytest.approx(78_790.0)}
 
 
 # --- Moves, arrival, the lid ----------------------------------------------
@@ -336,7 +340,7 @@ def test_a_stop_works_with_the_lid_open(board, sim):
 
 
 def test_an_axis_that_keeps_moving_past_the_bound_makes_the_stop_raise():
-    sim = SimulatedTmcm6110()
+    sim = SimulatedTmcm6110(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
     board = Tmcm6110Board(
         motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=SimulatedTmcm6110Backend(sim)
     )
@@ -357,6 +361,31 @@ def test_a_relative_move_with_an_unreadable_target_does_not_move(board, sim):
         board.move_rel_pos('Z', 50)
     sim.silent = False
     assert not any(c.command == MVP for c in _sent(sim))
+
+
+def _wait_switch(board, axis, timeout=5.0):
+    deadline = time.monotonic() + timeout
+    while board.limit_switch_status(axis) == (0, 0):
+        assert time.monotonic() < deadline, f'{axis} reached no switch'
+        time.sleep(0.005)
+
+
+def test_the_simulated_switches_sit_at_the_sections_measured_ends(homing_board):
+    """A move past the limits meets the far switch where the bench measured
+    it, and a move short of the index meets the home switch a quarter
+    millimetre beyond it, as on the bench LS720."""
+    board = homing_board
+    assert board.home()
+    for axis in ('X', 'Y', 'Z'):
+        far_um = board.motorconfig.travel_limit_um(axis)
+        board.move(axis, board._um2ustep(axis, far_um + 5_000))
+        _wait_switch(board, axis)
+        assert board.limit_switch_status(axis) == (1, 0), axis
+        assert board.current_pos(axis) == pytest.approx(far_um, abs=1), axis
+    board.move('X', board._um2ustep('X', -1_000))
+    _wait_switch(board, 'X')
+    assert board.limit_switch_status('X') == (0, 1)
+    assert board.current_pos('X') == pytest.approx(-250, abs=1)
 
 
 def test_the_limit_switches_read_left_then_right(board, sim):
@@ -414,7 +443,7 @@ class _Garbling(SimulatedTmcm6110):
     ('how', 'words'), [('checksum', 'checksum mismatch'), ('command', 'answers command 4')]
 )
 def test_a_reply_that_does_not_line_up_raises_and_closes_the_port(how, words):
-    sim = _Garbling(clock=_fast_clock())
+    sim = _Garbling(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, clock=_fast_clock())
     board = Tmcm6110Board(
         motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=SimulatedTmcm6110Backend(sim)
     )
@@ -431,7 +460,7 @@ def test_a_refused_command_raises_naming_it_and_its_status(sim):
                 return 6, 0
             return super()._execute(cmd)
 
-    refusing = Refusing(clock=_fast_clock())
+    refusing = Refusing(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, clock=_fast_clock())
     board = Tmcm6110Board(
         motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=SimulatedTmcm6110Backend(refusing)
     )
@@ -474,7 +503,7 @@ def test_a_relative_mvp_answers_the_absolute_target():
     """As the 2016-2018 wire logs show: MVP REL's reply carries the
     resulting absolute target; MVP ABS echoes. The board's clock stands
     still, so the axis has not moved between the two."""
-    sim = SimulatedTmcm6110(clock=lambda: 0.0)
+    sim = SimulatedTmcm6110(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, clock=lambda: 0.0)
     port = SimulatedTmcm6110Port(sim, port='sim:tmcm6110', timeout=0)
     port.write(encode_command(SAP, 1, 0, 2000))
     port.read(9)
@@ -546,7 +575,7 @@ HOMING = 200
 
 @pytest.fixture
 def homing_sim():
-    return SimulatedTmcm6110(clock=_fast_clock(HOMING))
+    return SimulatedTmcm6110(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, clock=_fast_clock(HOMING))
 
 
 @pytest.fixture
@@ -754,7 +783,9 @@ def test_the_driver_is_a_motor_board():
 
     board = Tmcm6110Board(
         motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS,
-        backend=SimulatedTmcm6110Backend(SimulatedTmcm6110()),
+        backend=SimulatedTmcm6110Backend(
+            SimulatedTmcm6110(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
+        ),
     )
     assert isinstance(board, MotorBoardProtocol)
 
@@ -776,7 +807,7 @@ def test_a_stop_between_two_commands_of_a_home_lets_no_further_one_through():
                 assert self.board._home_abort.wait(5)
             return reply
 
-    sim = StopsMidSequence(clock=_fast_clock(HOMING))
+    sim = StopsMidSequence(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, clock=_fast_clock(HOMING))
     board = Tmcm6110Board(
         motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=SimulatedTmcm6110Backend(sim)
     )
@@ -792,7 +823,7 @@ def test_a_board_left_idle_answers_at_once():
     a simulated scope's speed-up took seconds to catch up, and the next
     command waited for it."""
     now = [0.0]
-    sim = SimulatedTmcm6110(clock=lambda: now[0])
+    sim = SimulatedTmcm6110(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, clock=lambda: now[0])
     port = SimulatedTmcm6110Port(sim, port='sim:tmcm6110', timeout=0)
     port.write(encode_command(MVP, 0, 0, -6400))
     port.read(9)

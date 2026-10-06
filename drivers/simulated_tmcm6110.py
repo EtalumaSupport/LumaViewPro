@@ -15,9 +15,11 @@ driving into them, an index pulse inside each X/Y right switch, the deck
 lid and the stage's power input. Time is the board's clock, which a test
 may run fast.
 
-What no source records and the bench has not measured is chosen here and
-said so: the board's power-up register values, where each axis sits at
-power-up, where its switches and index pulse are, and the extent of travel.
+The switches sit where the bench measured them, read from the section of
+the motor defaults the driver reads: each far switch at the section's
+travel, each X/Y home switch a quarter millimetre beyond the index, and
+the registers power up at the section's axis parameters. What no source
+records is chosen here and said so: where each axis sits at power-up.
 
 Tests reach the hardware through the board: open or close the lid, pull
 the stage's power, silence the board, unplug its USB, make an axis ignore
@@ -29,7 +31,7 @@ from __future__ import annotations
 import collections
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
 from serial.serialutil import PortNotOpenError, SerialBase, SerialException, to_bytes
@@ -47,6 +49,7 @@ from drivers.tmcm6110 import (
     FIRMWARE_VERSION,
     GAP,
     GIO,
+    INIT_PARAMETERS,
     LID_INPUT,
     MODULE_ADDRESS,
     MOTORS,
@@ -70,7 +73,7 @@ from drivers.tmcm6110 import (
     encode_reply,
     encode_version_reply,
 )
-from drivers.tmcm6110_config import usteps_per_s, usteps_per_s2
+from drivers.tmcm6110_config import Tmcm6110Config, usteps_per_s, usteps_per_s2
 
 DEVICE = 'sim:tmcm6110'
 
@@ -94,15 +97,6 @@ _AP_LEFT_SWITCH_DISABLE = 13
 _AP_REFERENCE_SEARCH_MODE = 193
 _AP_REFERENCE_SEARCH_SPEED = 194
 
-# The register values the board powers up with. No source records the
-# board's own; these are the ones Classic writes, so a simulated board
-# moves at Classic's speeds before anything is written to it.
-_POWER_UP_PARAMETERS = {
-    'X': {4: 1000, 5: 500, 6: 16, 7: 2, 140: 5, 153: 9, 154: 3},
-    'Y': {4: 1000, 5: 500, 6: 16, 7: 4, 140: 5, 153: 9, 154: 3},
-    'Z': {4: 250, 5: 2000, 6: 48, 7: 8, 140: 5, 153: 9, 154: 3},
-}
-
 
 @dataclass(frozen=True)
 class AxisLayout:
@@ -124,13 +118,13 @@ class AxisLayout:
     has_index: bool
 
 
-# Chosen, not measured: each switch just past the travel the shipped
-# defaults give (X 120, Y 80, Z 11 mm), each axis mid-travel at power-up.
-LAYOUTS = {
-    'X': AxisLayout(right_switch_at=3_200, left_switch_at=-774_400, start=-384_000, has_index=True),
-    'Y': AxisLayout(right_switch_at=3_200, left_switch_at=-518_400, start=-256_000, has_index=True),
-    'Z': AxisLayout(right_switch_at=0, left_switch_at=-218_584, start=-100_000, has_index=False),
-}
+# Where each axis sits at power-up, in microsteps from its reference:
+# chosen, not measured, each about mid-travel.
+POWER_UP_POSITIONS = {'X': -384_000, 'Y': -256_000, 'Z': -100_000}
+
+# How far beyond the index the X/Y home switch sits (the bench LS720,
+# 2026-10-05, row 5: X 250.6 um, Y 238.6 um). Z's reference is its switch.
+HOME_SWITCH_BEYOND_INDEX_MM = 0.25
 
 # The power input's reading with the stage's supply in and out (the values
 # Classic's author recorded).
@@ -204,18 +198,40 @@ class _Axis:
 class SimulatedTmcm6110:
     """The board: three axes, two inputs, one reply per datagram."""
 
-    def __init__(self, *, clock=time.monotonic, usb_id: tuple[int, int] = USB_IDS[0]):
+    def __init__(
+        self,
+        *,
+        motorconfig_defaults: Mapping,
+        clock=time.monotonic,
+        usb_id: tuple[int, int] = USB_IDS[0],
+    ):
+        """``motorconfig_defaults`` is the mapping the driver reads: the
+        switches, the travel and the power-up registers come from its
+        "TMCM-6110" section, so the simulated stage and the driver's limits
+        cannot drift apart. No board powers up without one."""
+        config = Tmcm6110Config(motorconfig_defaults)
         self._clock = clock
         self._now = clock()
         self._lock = threading.Lock()
         self.usb_id = usb_id
         self.version = FIRMWARE
-        self.axes = {
-            name: _Axis(
-                layout=layout, p=float(layout.start), params=dict(_POWER_UP_PARAMETERS[name])
+        self.axes = {}
+        for name in MOTORS:
+            per_mm = config.usteps_per_mm(name)
+            # X and Y home to an index pulse; Z homes to its switch.
+            has_index = 'Index Search' in config.homing(name)
+            layout = AxisLayout(
+                right_switch_at=round(HOME_SWITCH_BEYOND_INDEX_MM * per_mm) if has_index else 0,
+                left_switch_at=-round(config.travel_limit_um(name) / 1000 * per_mm),
+                start=POWER_UP_POSITIONS[name],
+                has_index=has_index,
             )
-            for name, layout in LAYOUTS.items()
-        }
+            params = config.axis_parameters(name)
+            self.axes[name] = _Axis(
+                layout=layout,
+                p=float(layout.start),
+                params={number: params[key] for key, number in INIT_PARAMETERS},
+            )
         for axis in self.axes.values():
             # The actual-position register reads 0 at power-up, wherever
             # the axis sits.
@@ -530,8 +546,8 @@ class SimulatedTmcm6110Port(SerialBase):
 class SimulatedTmcm6110Backend:
     """Discovery and open for one simulated TMCM-6110."""
 
-    def __init__(self, board: SimulatedTmcm6110 | None = None):
-        self.board = board if board is not None else SimulatedTmcm6110()
+    def __init__(self, board: SimulatedTmcm6110):
+        self.board = board
 
     def comports(self) -> list[ListPortInfo]:
         if not self.board.plugged:

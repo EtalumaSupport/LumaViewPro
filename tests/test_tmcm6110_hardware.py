@@ -71,8 +71,8 @@ RECORD_DIR = pathlib.Path(
 MONITOR_CYCLE_S = 0.020
 ROUND_TRIPS = 100
 
-# Targets well inside the LS720's travel (the unmeasured limits are X 120,
-# Y 80 mm); the mixed lengths of row 7, in micrometres.
+# Targets well inside the LS720's travel (the measured far switches are
+# X 123.71, Y 79.79 mm); the mixed lengths of row 7, in micrometres.
 XY_TARGETS_UM = {
     'X': [20_000, 21_000, 40_000, 40_050, 60_000, 25_000, 25_010, 50_000, 30_000, 45_000],
     'Y': [20_000, 20_500, 35_000, 35_020, 50_000, 22_000, 22_005, 45_000, 30_000, 40_000],
@@ -467,11 +467,11 @@ def test_row6_each_axis_driven_to_both_ends(board):
 
 
 def test_row5_a_home_from_the_far_corner(board):
-    """The longest home: X and Y at the far end of their configured travel,
-    Z near its top. The plate must be off the stage."""
+    """The longest home: X and Y at their travel limits, Z near its top.
+    The plate must be off the stage."""
     assert board.home()
-    for axis, fraction in (('Z', 0.95), ('X', 0.95), ('Y', 0.95)):
-        board.move_abs_pos(axis, board.motorconfig.travel_limit_um(axis) * fraction)
+    for axis, fraction in (('Z', 0.95), ('X', 1.0), ('Y', 1.0)):
+        board.move_abs_pos(axis, board.get_axis_limits(axis)['max'] * fraction)
         _wait_arrived(board, axis)
     start = {axis: _registers(board, axis) for axis in MOTORS}
     started = time.monotonic()

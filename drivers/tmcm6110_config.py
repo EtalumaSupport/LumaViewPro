@@ -46,6 +46,11 @@ def _frozen(value):
 class Tmcm6110Config:
     """The LS720 stage's constants, refused whole if any is missing or out of range.
 
+    The travel of each axis is its far limit switch as the bench measured
+    it, distance from the index; the travel margin is how far inside that
+    switch the limit sits, for the units not measured. Both are per model,
+    as the EL-0940's are.
+
     The homing phases are the exception: each axis's must be a mapping, and
     its contents are handed over as the section holds them.
     """
@@ -126,11 +131,13 @@ class Tmcm6110Config:
                 raise ValueError(f'{SECTION}.Homing.{axis} is not a mapping')
             self._homing[axis] = _frozen(homing)
 
-        measured = section.get('Axis Travel Limit Measured')
-        if not isinstance(measured, bool):
-            raise ValueError(f'{SECTION}.Axis Travel Limit Measured is not true or false')
-        # False until the ends are measured on an LS720.
-        self.travel_limits_measured: bool = measured
+        self._travel_margin_mm = self._positive('Travel Margin')
+        for axis in AXES:
+            if self._travel_margin_mm >= self._travel_limit_mm[axis]:
+                raise ValueError(
+                    f'{SECTION}.Travel Margin = {self._travel_margin_mm:g} is not below '
+                    f'the {axis} travel ({self._travel_limit_mm[axis]:g} mm)'
+                )
 
     def _value(self, *path: str):
         node = self._section
@@ -158,7 +165,12 @@ class Tmcm6110Config:
         return self._direction[axis.upper()]
 
     def travel_limit_um(self, axis: str) -> float:
+        """The axis's far limit switch, measured as distance from the index."""
         return self._travel_limit_mm[axis.upper()] * 1000.0
+
+    def travel_margin_um(self) -> float:
+        """How far inside each far switch the travel limit sits."""
+        return self._travel_margin_mm * 1000.0
 
     def axis_parameters(self, axis: str) -> Mapping:
         """The TMCL axis parameters the axis is initialised with, by name."""

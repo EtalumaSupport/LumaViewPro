@@ -272,24 +272,22 @@ class Tmcm6110Board:
         except ValueError:
             self.disconnect()
             raise
+        # Each limit sits the margin inside the measured far switch, for
+        # the units the bench did not measure.
+        margin_um = self.motorconfig.travel_margin_um()
         self.axes_config = read_only_axes_config(
             {
                 axis: {
-                    'limits': {'min': 0.0, 'max': self.motorconfig.travel_limit_um(axis)},
+                    'limits': {
+                        'min': 0.0,
+                        'max': self.motorconfig.travel_limit_um(axis) - margin_um,
+                    },
                     'move_func': partial(self._um2ustep, axis),
                 }
                 for axis in MOTORS
             }
         )
         logger.info(f'[TMCM-6110 ] Found {self.firmware_version} on {self.port}')
-        if not self.motorconfig.travel_limits_measured:
-            limits = ', '.join(
-                f'{axis} {self.motorconfig.travel_limit_um(axis) / 1000:g} mm' for axis in MOTORS
-            )
-            logger.warning(
-                f'[TMCM-6110 ] The travel limits ({limits}) are not measured on an LS720; '
-                'a move inside them may still reach an end of travel'
-            )
 
     # ------------------------------------------------------------------
     # The port

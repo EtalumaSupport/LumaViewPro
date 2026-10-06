@@ -341,7 +341,10 @@ class Lumascope:
             board = Tmcm6110Board(
                 motorconfig_defaults=motorconfig_defaults,
                 backend=SimulatedTmcm6110Backend(
-                    SimulatedTmcm6110(clock=sped_up_clock(SCOPE_SPEEDUP))
+                    SimulatedTmcm6110(
+                        motorconfig_defaults=motorconfig_defaults,
+                        clock=sped_up_clock(SCOPE_SPEEDUP),
+                    )
                 ),
             )
             if not board.found:

@@ -123,7 +123,9 @@ def test_bring_up_on_an_ls720_host_finds_the_6110():
     board, fallback = motor_registry.create_with_fallback(
         'auto',
         motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS,
-        backend=SimulatedTmcm6110Backend(SimulatedTmcm6110()),
+        backend=SimulatedTmcm6110Backend(
+            SimulatedTmcm6110(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
+        ),
     )
     try:
         assert isinstance(board, Tmcm6110Board)
