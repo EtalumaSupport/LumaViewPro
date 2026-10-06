@@ -393,16 +393,22 @@ class TestTheSweepDoesNotReturnBeforeItsWriteLands:
         waiter = _ReusableTaskWaiter()
         runner._data_write_future = waiter
 
-        HOLD_S = 0.25
-        threading.Timer(HOLD_S, lambda: waiter.set_result(None)).start()
-        started = time.monotonic()
-        runner._await_data_write()
-        elapsed = time.monotonic() - started
+        # Asked of the write, not of a clock: the clock read after the
+        # timer's start lost the gap between them under load and read a
+        # full wait as 0.248 s of 0.25 (the load census, 2026-10-06).
+        written = threading.Event()
 
-        assert elapsed >= HOLD_S, (
+        def complete_the_write():
+            written.set()
+            waiter.set_result(None)
+
+        threading.Timer(0.25, complete_the_write).start()
+        runner._await_data_write()
+
+        assert written.is_set(), (
             'the sweep returned before its queued write completed; a reader '
             'would be told nothing was written by a sweep whose file lands '
-            f'moments later (waited {elapsed:.3f}s for a {HOLD_S}s write)'
+            'moments later'
         )
 
     def test_a_cancelled_write_does_not_cost_the_bound(self):
