@@ -186,10 +186,10 @@ def test_absolute_move_still_works_on_a_known_axis(scope):
 @pytest.mark.slow
 def test_forced_move_still_drives_on_unknown_axis(scope):
     _home_and_fail(scope)
-    scope.motion._move_absolute_impl('Z', position=0, force=True)
-    assert scope.motion._axis_state['Z'] == AxisState.MOVING, (
-        'a forced move must actually drive, not refuse'
-    )
+    # A refusal raises here; a forced move drives, and its wait returns only
+    # once Z arrived.
+    scope.motion._move_absolute_impl('Z', position=0, force=True).wait()
+    assert scope.motion._axis_state['Z'] == AxisState.IDLE
 
 
 @pytest.mark.slow

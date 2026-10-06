@@ -103,6 +103,11 @@ def test_a_later_move_on_the_same_axis_supersedes_this_one(session, monkeypatch)
     faulted with the later move's state nor reported as arrived."""
     motion = session.scope.motion
     move = motion.start_move_absolute('Z', _z_target(motion))
+    # The monitor would end the later move below as soon as it judged it, so
+    # it is stopped: the later move stays MOVING while this one looks.
+    motion._motion_monitor_stop.set()
+    motion._motion_wake.set()
+    motion._motion_monitor_thread.join(timeout=2.0)
 
     def _stopped_then_a_later_move_starts(axis, timeout_s):
         motion._set_axis_state('Z', AxisState.MOVING)

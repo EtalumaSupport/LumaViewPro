@@ -41,9 +41,8 @@ def test_stalled_move_faults_axis_and_notifies(monkeypatch, centre_posts):
     monkeypatch.setattr(motion, 'get_target_status', lambda ax: False)
 
     # A move's start: MOVING, then armed once its target is written.
-    motion._set_axis_state('Z', AxisState.MOVING)
+    assert motion._set_axis_state('Z', AxisState.MOVING)
     motion._publish_drive('Z', True, 0.0, 0.0, None)
-    assert motion.is_moving()
 
     assert _wait_until(lambda: not motion.is_moving()), (
         'a stalled axis must leave MOVING at the published bound, not hang forever'
