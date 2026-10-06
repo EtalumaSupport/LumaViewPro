@@ -1002,12 +1002,16 @@ class MotionAPI:
             axis: Axis name ("X", "Y", "Z", "T").
 
         Returns:
-            float: Current position in um. 0 if motor not connected.
+            float: Current position in um.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, no motor
+                controller is connected.
+            HardwareError: the controller did not report the position.
         """
         if not self._scope.motor_connected:
-            return 0.0
-        pos = self._driver.current_pos(axis)
-        return pos if pos is not None else 0.0
+            raise HardwareCommandRefusedError('not_connected', 'get_actual_position')
+        return self._driver.current_pos(axis)
 
     def set_precision_mode(self, axis: str, enabled: bool) -> None:
         """Set motor precision mode for an axis.
@@ -1431,7 +1435,7 @@ class MotionAPI:
         Called after a home, and once at construction, to sync the cache
         with the hardware; during normal operation the cache is updated
         by move commands and the motion monitor. An axis whose read fails
-        or answers None is set UNKNOWN and its cache entry is left alone:
+        is set UNKNOWN and its cache entry is left alone:
         a number nobody read is not a position, and a caller that writes
         positions into a file would otherwise record it as one.
 
@@ -1441,15 +1445,10 @@ class MotionAPI:
         positions = {}
         for ax in self._scope.capabilities.axes:
             try:
-                pos = self._driver.target_pos(axis=ax)
-            except Exception:
-                logger.exception(f'[SCOPE API ] Position read failed on axis {ax}')
-                pos = None
-            if pos is None:
-                _api_log.warning(f'position read on {ax} answered nothing; axis UNKNOWN')
+                positions[ax] = self._driver.target_pos(axis=ax)
+            except HardwareError as e:
+                _api_log.warning(f'position read on {ax} failed ({e}); axis UNKNOWN')
                 self._set_axis_state(ax, AxisState.UNKNOWN)
-                continue
-            positions[ax] = pos
 
         with self._pos_cache_lock:
             self._pos_cache.update(positions)
@@ -1682,6 +1681,9 @@ class MotionAPI:
                 ValueError subclass.
             AxisStateUnknownError: The axis position is unknown and
                 ``force`` is False.
+            HardwareCommandRefusedError: ``'position_unread'``, a Z move
+                with overshoot whose position the board did not report;
+                nothing was driven.
             MoveNotCompletedError: ``'driver_failed'``, the board did not
                 take the command.
         """
@@ -1783,9 +1785,10 @@ class MotionAPI:
         # time the axis is marked MOVING the hardware XTARGET is already
         # the new value, so position_reached is reliably False and the
         # motion monitor polls until real arrival.
+        leg = self._backlash_leg(axis, position, overshoot_enabled, 'move_absolute')
         stop_generation = self._stop_generation
         try:
-            self._send_drive(axis, lambda: self._drive_to(axis, position, overshoot_enabled))
+            self._send_drive(axis, lambda: self._drive_to(axis, position, leg))
         except Exception as e:
             _api_log.error(f'move_abs {axis}={position:.1f}um FAILED')
             self._fail_drive(axis, e)
@@ -1921,6 +1924,9 @@ class MotionAPI:
         Raises:
             ValueError: If axis is invalid or distance is not numeric / out of bounds.
             AxisStateUnknownError: The axis position is unknown.
+            HardwareCommandRefusedError: ``'position_unread'``, the board
+                did not report the target to add to (or, for Z with
+                overshoot, the position); nothing was driven.
             MoveNotCompletedError: ``'driver_failed'``, the board did not
                 take the command.
 
@@ -1969,15 +1975,10 @@ class MotionAPI:
         # number is range-checked, published and driven. The API's cache was
         # the base before, beside the driver driving TARGET_R plus the
         # offset, and the cache can hold a position the monitor never read.
-        start_pos = self._driver.target_pos(axis)
-        if start_pos is None:
-            self._fail_drive(
-                axis,
-                HardwareError(
-                    f'move_rel({axis}): cannot read the current target position; '
-                    'the move did not happen'
-                ),
-            )
+        try:
+            start_pos = self._driver.target_pos(axis)
+        except HardwareError as e:
+            raise HardwareCommandRefusedError('position_unread', 'move_relative') from e
         target_pos = start_pos + float(distance)
 
         # The same travel refusal as the absolute path, against the target
@@ -1996,9 +1997,10 @@ class MotionAPI:
 
         # Write hardware target BEFORE transitioning axis to MOVING --
         # same race fix as move_absolute (#618).
+        leg = self._backlash_leg(axis, target_pos, overshoot_enabled, 'move_relative')
         stop_generation = self._stop_generation
         try:
-            self._send_drive(axis, lambda: self._drive_to(axis, target_pos, overshoot_enabled))
+            self._send_drive(axis, lambda: self._drive_to(axis, target_pos, leg))
         except Exception as e:
             _api_log.error(f'move_rel {axis}={distance:+.1f}um FAILED')
             self._fail_drive(axis, e)
@@ -2385,37 +2387,57 @@ class MotionAPI:
         self._fire_position_listeners(axis)
         return True
 
-    def _drive_to(self, axis: str, position: float, overshoot_enabled: bool) -> None:
-        """Drive ``axis`` to ``position``, approaching Z from below when it applies.
+    def _backlash_leg(
+        self, axis: str, position: float, overshoot_enabled: bool, member: str
+    ) -> float | None:
+        """Where a move's backlash leg goes, or None when it has none.
 
         A Z move down to a target clear of the bottom first drives to the
-        backlash below it, waits there, then climbs to the target, so the
-        backlash is always taken the same way. Runs inside ``_send_drive``:
-        the leg's arrival is nobody's verdict.
+        backlash below it, so the backlash is always taken the same way.
+        Decided from the board's position, before the move disarms the
+        axis: a refusal here leaves the axis as it was.
+
+        Raises:
+            HardwareCommandRefusedError: ``'position_unread'``, the board
+                did not report Z, so whether to approach from below is not
+                known; nothing was driven.
+        """
+        if not (overshoot_enabled and axis == 'Z'):
+            return None
+        try:
+            current = self._driver.current_pos('Z')
+        except HardwareError as e:
+            raise HardwareCommandRefusedError('position_unread', member) from e
+        backlash = self._driver.backlash_um()
+        if current > position and position > backlash + 50:
+            return position - backlash
+        return None
+
+    def _drive_to(self, axis: str, position: float, leg: float | None) -> None:
+        """Drive ``axis`` to ``position``, through the backlash leg first when there is one.
+
+        Runs inside ``_send_drive``: the leg's arrival is nobody's verdict.
 
         Raises:
             HardwareError: the board did not answer a target write, or the
                 leg did not reach its point within ``OVERSHOOT_LEG_TIMEOUT_S``.
         """
-        if overshoot_enabled and axis == 'Z':
-            current = self._driver.current_pos('Z')
-            backlash = self._driver.backlash_um()
-            if current is not None and current > position and position > backlash + 50:
-                self._overshoot = True
-                try:
-                    self._driver.move_abs_pos('Z', position - backlash)
-                    deadline = time.monotonic() + OVERSHOOT_LEG_TIMEOUT_S
-                    while not self._driver.target_status('Z'):
-                        if time.monotonic() > deadline:
-                            raise HardwareError(
-                                f'move Z to {position}: the overshoot leg did not reach '
-                                f'its point within {OVERSHOOT_LEG_TIMEOUT_S:.0f} s'
-                            )
-                        time.sleep(self._MOTION_POLL_INTERVAL)
-                finally:
-                    # Cleared on every exit: a leg that raised would otherwise
-                    # leave the monitor awake on it and is_moving() true.
-                    self._overshoot = False
+        if leg is not None:
+            self._overshoot = True
+            try:
+                self._driver.move_abs_pos(axis, leg)
+                deadline = time.monotonic() + OVERSHOOT_LEG_TIMEOUT_S
+                while not self._driver.target_status(axis):
+                    if time.monotonic() > deadline:
+                        raise HardwareError(
+                            f'move {axis} to {position}: the overshoot leg did not reach '
+                            f'its point within {OVERSHOOT_LEG_TIMEOUT_S:.0f} s'
+                        )
+                    time.sleep(self._MOTION_POLL_INTERVAL)
+            finally:
+                # Cleared on every exit: a leg that raised would otherwise
+                # leave the monitor awake on it and is_moving() true.
+                self._overshoot = False
         self._driver.move_abs_pos(axis, position)
 
     def _send_drive(self, axis: str, send) -> None:
@@ -2569,9 +2591,8 @@ class MotionAPI:
                         # motor physically is.
                         try:
                             actual = self._driver.current_pos(ax)
-                            if actual is not None:
-                                with self._pos_cache_lock:
-                                    self._pos_cache[ax] = float(actual)
+                            with self._pos_cache_lock:
+                                self._pos_cache[ax] = float(actual)
                         except Exception as e:
                             _api_log.debug(f'motion monitor current_pos({ax}) failed: {e}')
                         if (

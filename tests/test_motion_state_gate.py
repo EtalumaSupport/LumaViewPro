@@ -352,8 +352,11 @@ def test_api_marks_axis_unknown_when_the_driver_move_raises(scope, centre_posts)
     scope.motion._home_impl()
     _pull_the_cable(scope)
 
+    # No backlash leg, so no position read: the target write is what fails.
+    # A move that needs a read first is refused before anything is driven
+    # (test_a_failed_position_read_is_never_a_position).
     with pytest.raises(MoveNotCompletedError) as failed:
-        scope.motion._move_absolute_impl('Z', position=1000)
+        scope.motion._move_absolute_impl('Z', position=1000, overshoot_enabled=False)
 
     assert scope.motion._axis_state['Z'] == AxisState.UNKNOWN, (
         'a move that failed at the driver must leave the axis UNKNOWN, not IDLE'
@@ -371,7 +374,7 @@ def test_a_failed_move_then_refuses_the_next_one(scope):
     scope.motion._home_impl()
     _pull_the_cable(scope)
     with pytest.raises(MoveNotCompletedError):
-        scope.motion._move_absolute_impl('Z', position=1000)
+        scope.motion._move_absolute_impl('Z', position=1000, overshoot_enabled=False)
 
     with pytest.raises(AxisStateUnknownError):
         scope.motion._move_absolute_impl('Z', position=2000)

@@ -63,8 +63,17 @@ def _read(scope, stage):
         figure(f'{stage}: {name} port, open', (board.port, board.driver is not None))
     figure(f'{stage}: API motor_connected', scope.motor_connected)
     figure(f'{stage}: API led_connected', scope.led_connected)
-    figure(f'{stage}: API Z actual', scope.motion.get_actual_position('Z'))
+    figure(f'{stage}: API Z actual', _actual_z(scope))
     return out
+
+
+def _actual_z(scope):
+    """The API's answer for Z, or the refusal or failure it raised: with the
+    cable out, a raise is the observation."""
+    try:
+        return scope.motion.get_actual_position('Z')
+    except Exception as e:
+        return f'raised {type(e).__name__}: {e}'
 
 
 def _wait_for(boards, present, what):

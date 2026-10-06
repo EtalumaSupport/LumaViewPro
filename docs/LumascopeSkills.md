@@ -1179,6 +1179,11 @@ scope.motion.axis_positions()                    # {axis: AxisPosition(state, po
 scope.runtime_state.plate_transform()            # (sx_um, sy_um) -> (px_mm, py_mm), BOUND to the labware and offset registered now; None when either is unset. For a caller converting many positions over time (a recording, one per frame): every frame is stated in one frame of reference, and it cannot raise
 scope.motion.get_target_position('Z')            # target µm
 scope.motion.get_actual_position('Z')            # hardware position via serial (slow; use sparingly)
+# A position the controller does not report is never answered with a number:
+# get_actual_position raises HardwareError, and HardwareCommandRefusedError
+# ('not_connected') with no controller. A move that needs a position it cannot
+# read -- a relative move's base, or Z for the backlash approach -- is refused
+# with HardwareCommandRefusedError ('position_unread'); nothing is driven.
 
 # Stop + tuning
 scope.motion.stop_motion()                       # stop all in-flight moves (the app-level abort for the move_* family)

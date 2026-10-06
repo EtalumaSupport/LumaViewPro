@@ -787,10 +787,7 @@ class SimulatedCamera(Camera):
         """Apply blur based on distance from focal Z position."""
         # Query Z position from motor if callback is wired
         if self._z_position_func is not None:
-            try:
-                self._z_position = self._z_position_func()
-            except Exception:
-                pass
+            self._z_position = self._z_position_func()
 
         defocus = abs(self._z_position - self._focal_z)
         if defocus < 1.0:

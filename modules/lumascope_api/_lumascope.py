@@ -619,7 +619,7 @@ class Lumascope:
         # overrides it on a successful connect.
         camera_kwargs: dict = {}
         if simulate and sim_fx2 is None:
-            camera_kwargs['z_position_func'] = lambda: self._motion_driver.current_pos('Z')
+            camera_kwargs['z_position_func'] = lambda: self.motion.get_current_position('Z')
             # Light reaches the simulated sensor the same way Z does: the
             # composition root hands it over, because it is the only object
             # holding both halves and no driver may reach into a peer. The

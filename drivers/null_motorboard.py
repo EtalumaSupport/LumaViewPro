@@ -20,6 +20,7 @@ import logging
 import threading
 from collections.abc import Mapping
 
+from drivers.exceptions import HardwareError
 from drivers.registry import motor_registry
 from drivers.motorconfig import read_only_axes_config
 
@@ -99,39 +100,39 @@ class NullMotionBoard:
         pass
 
     # ------------------------------------------------------------------
-    # Position queries (return 0)
+    # Position queries: there is no board to read
     # ------------------------------------------------------------------
-    def target_pos(self, axis) -> float:
-        """Null implementation: returns sentinel value.
+    def target_pos(self, axis: str) -> float:
+        """Null implementation: raises, as a board that cannot be read does.
 
-        Returns:
-            float: Always 0.0.
+        Raises:
+            HardwareError: there is no motor board.
         """
-        return 0.0
+        raise HardwareError(f'target_pos({axis}): no motor board')
 
-    def current_pos(self, axis) -> float:
-        """Null implementation: returns sentinel value.
+    def current_pos(self, axis: str) -> float:
+        """Null implementation: raises, as a board that cannot be read does.
 
-        Returns:
-            float: Always 0.0.
+        Raises:
+            HardwareError: there is no motor board.
         """
-        return 0.0
+        raise HardwareError(f'current_pos({axis}): no motor board')
 
-    def target_pos_steps(self, axis) -> int:
-        """Null implementation: returns sentinel value.
+    def target_pos_steps(self, axis: str) -> int:
+        """Null implementation: raises, as a board that cannot be read does.
 
-        Returns:
-            int: Always 0.
+        Raises:
+            HardwareError: there is no motor board.
         """
-        return 0
+        raise HardwareError(f'target_pos_steps({axis}): no motor board')
 
-    def current_pos_steps(self, axis) -> int:
-        """Null implementation: returns sentinel value.
+    def current_pos_steps(self, axis: str) -> int:
+        """Null implementation: raises, as a board that cannot be read does.
 
-        Returns:
-            int: Always 0.
+        Raises:
+            HardwareError: there is no motor board.
         """
-        return 0
+        raise HardwareError(f'current_pos_steps({axis}): no motor board')
 
     # ------------------------------------------------------------------
     # Status

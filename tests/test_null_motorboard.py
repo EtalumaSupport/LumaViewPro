@@ -4,6 +4,8 @@
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
 import pytest
+
+from drivers.exceptions import HardwareError
 from drivers.null_motorboard import NullMotionBoard
 
 
@@ -44,24 +46,18 @@ class TestNullMotionBoardMovement:
 
 
 class TestNullMotionBoardPosition:
-    """Position queries return 0."""
+    """Position queries raise: there is no board to report a position."""
 
     @pytest.fixture
     def board(self):
         return NullMotionBoard()
 
-    def test_target_pos_zero(self, board):
-        assert board.target_pos('Z') == 0.0
-        assert board.target_pos('X') == 0.0
-
-    def test_current_pos_zero(self, board):
-        assert board.current_pos('Z') == 0.0
-
-    def test_target_pos_steps_zero(self, board):
-        assert board.target_pos_steps('Z') == 0
-
-    def test_current_pos_steps_zero(self, board):
-        assert board.current_pos_steps('Z') == 0
+    @pytest.mark.parametrize(
+        'read', ['target_pos', 'current_pos', 'target_pos_steps', 'current_pos_steps']
+    )
+    def test_a_position_read_raises(self, board, read):
+        with pytest.raises(HardwareError):
+            getattr(board, read)('Z')
 
 
 class TestNullMotionBoardStatus:

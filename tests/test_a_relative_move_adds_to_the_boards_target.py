@@ -11,7 +11,8 @@ published and driven: the board's target plus the offset.
 
 import pytest
 
-from modules.exceptions import MoveNotCompletedError, PositionOutOfRangeError
+from modules.exceptions import HardwareCommandRefusedError, PositionOutOfRangeError
+from modules.lumascope_api.motion import AxisState
 from tests.scope_fakes import build_scope, home_sim_scope
 
 
@@ -62,15 +63,16 @@ def test_a_jog_during_a_move_adds_to_that_moves_target(scope):
     assert driver.target_pos('X') == pytest.approx(60100.0, abs=0.1)
 
 
-def test_an_unreadable_target_drives_nothing(scope):
+def test_an_unreadable_target_is_refused_and_drives_nothing(scope):
     motion = scope.motion
     driver = scope._motion_driver
     motion.move_absolute('X', 5000.0)
     driver._fail_on.add('TARGET_RX')
 
-    with pytest.raises(MoveNotCompletedError) as exc:
+    with pytest.raises(HardwareCommandRefusedError) as exc:
         motion.move_relative('X', 10.0)
 
-    assert exc.value.reason == 'driver_failed'
+    assert exc.value.reason == 'position_unread'
+    assert motion.get_axis_state('X') == AxisState.IDLE
     driver._fail_on.discard('TARGET_RX')
     assert driver.target_pos('X') == pytest.approx(5000.0, abs=0.1)

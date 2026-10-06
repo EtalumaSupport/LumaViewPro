@@ -834,31 +834,20 @@ class SimulatedMotorBoard:
                 f'(timeout or disconnect); the move did not happen'
             )
 
-    def target_pos(self, axis: str) -> float | int | None:
+    def target_pos(self, axis: str) -> float | int:
         """Get the target position of an axis in user units.
 
         Args:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
 
         Returns:
-            float | int | None: Microns for X/Y/Z, 1-based position for
-                T, 0 for an unknown axis, or None on read failure -- the
-                real board's answer, so a failed read is not a position
-                the layer above can mistake for the origin.
-        """
-        try:
-            response = self.exchange_command(f'TARGET_R{axis}')
-            position = int(response)
-        except Exception:
-            return None
+            float | int: Microns for X/Y/Z, 1-based position for T.
 
-        if axis == 'Z':
-            return self.z_ustep2um(position)
-        elif axis in ('X', 'Y'):
-            return self.xy_ustep2um(position)
-        elif axis == 'T':
-            return self.t_ustep2pos(position)
-        return 0
+        Raises:
+            ValueError: ``axis`` is not a motor axis.
+            HardwareError: the board did not report the target.
+        """
+        return self._user_units(axis, self._read_register('TARGET_R', axis))
 
     def current_pos(self, axis: str) -> float | int:
         """Get the current position of an axis in user units.
@@ -867,22 +856,13 @@ class SimulatedMotorBoard:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
 
         Returns:
-            float | int: Microns for X/Y/Z, 1-based position for T, 0
-                on read failure or unknown axis.
-        """
-        try:
-            response = self.exchange_command(f'ACTUAL_R{axis}')
-            position = int(response)
-        except Exception:
-            position = 0
+            float | int: Microns for X/Y/Z, 1-based position for T.
 
-        if axis == 'Z':
-            return self.z_ustep2um(position)
-        elif axis in ('X', 'Y'):
-            return self.xy_ustep2um(position)
-        elif axis == 'T':
-            return self.t_ustep2pos(position)
-        return 0
+        Raises:
+            ValueError: ``axis`` is not a motor axis.
+            HardwareError: the board did not report the position.
+        """
+        return self._user_units(axis, self._read_register('ACTUAL_R', axis))
 
     def backlash_um(self) -> float:
         """Z antibacklash, um: how far below its target a downward Z move
@@ -1158,28 +1138,63 @@ class SimulatedMotorBoard:
         ]
 
     def current_pos_steps(self, axis: str) -> int:
-        """Get current position in raw microsteps.
+        """Get current position in raw microsteps (no unit conversion).
 
         Args:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
 
         Returns:
-            int: Microstep position (0 if axis is unknown).
+            int: Microstep position.
+
+        Raises:
+            ValueError: ``axis`` is not a motor axis.
+            HardwareError: the board did not report the position.
         """
-        with self.thread_lock:
-            return self._actual.get(axis, 0)
+        return self._read_register('ACTUAL_R', axis)
 
     def target_pos_steps(self, axis: str) -> int:
-        """Get target position in raw microsteps.
+        """Get target position in raw microsteps (no unit conversion).
 
         Args:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
 
         Returns:
-            int: Microstep target (0 if axis is unknown).
+            int: Microstep target.
+
+        Raises:
+            ValueError: ``axis`` is not a motor axis.
+            HardwareError: the board did not report the target.
         """
-        with self.thread_lock:
-            return self._target.get(axis, 0)
+        return self._read_register('TARGET_R', axis)
+
+    def _read_register(self, register: str, axis: str) -> int:
+        """Read one position register, in microsteps.
+
+        A read the board did not answer raises, as an unanswered target
+        write does: an answer standing in for it (None, 0) was taken for
+        a position by the layers above.
+
+        Raises:
+            ValueError: ``axis`` is not a motor axis.
+            HardwareError: no reply, or a reply that is not a number.
+        """
+        if axis not in ('X', 'Y', 'Z', 'T'):
+            raise ValueError(f'Invalid axis {axis!r}')
+        response = self.exchange_command(register + axis)
+        try:
+            return int(response)
+        except (TypeError, ValueError) as e:
+            raise HardwareError(
+                f'{register}{axis}: the board did not report a position (reply {response!r})'
+            ) from e
+
+    def _user_units(self, axis: str, steps: int) -> float | int:
+        """Microsteps to microns for X/Y/Z, to the 1-based position for T."""
+        if axis == 'Z':
+            return self.z_ustep2um(steps)
+        if axis in ('X', 'Y'):
+            return self.xy_ustep2um(steps)
+        return self.t_ustep2pos(steps)
 
     # ------------------------------------------------------------------
     # Diagnostic commands (match MotorBoard API surface)

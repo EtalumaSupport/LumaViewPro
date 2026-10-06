@@ -1839,7 +1839,10 @@ class HardwareCommandRefusedError(Refusal, Exception):
 
     A home with no motor controller connected raises it as well
     (``'not_connected'``): nothing was driven, and the person's remedy is
-    the cable, not a retry.
+    the cable, not a retry. So does a move whose drive needs a position the
+    controller did not report (``'position_unread'``): the relative base,
+    or Z for the backlash approach. Nothing was driven and the axis keeps
+    its state.
 
     A declined request, not a fault, so it is a ``Refusal``: the lane shows
     it as a warning in its own words and logs one line without a
@@ -1864,6 +1867,8 @@ class HardwareCommandRefusedError(Refusal, Exception):
         self.title = (
             'Not Connected'
             if reason in ('not_connected', 'scope_disconnected')
+            else 'Motor Controller Not Responding'
+            if reason == 'position_unread'
             else 'Microscope Busy'
         )
 
@@ -1882,6 +1887,11 @@ def _command_refused_sentence(reason: str, holder: str | None) -> str:
         return (
             'The motor controller is not connected. Check the USB cable and that '
             'no other program is holding the port.'
+        )
+    if reason == 'position_unread':
+        return (
+            'The motor controller did not report the stage position, so the move '
+            'was not sent. Try again; if it repeats, check the USB cable.'
         )
     who = _HOLDER_NOUNS.get(holder, 'Another activity')
     return f'{who} is using the microscope. Try again when it ends.'
