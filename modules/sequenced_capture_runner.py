@@ -210,7 +210,10 @@ class RunHandle:
         returned here is the images.
 
         Returns:
-            The run's images, or None when the bound passes first.
+            The run's images, or None when the bound passes first. The
+            images are accounted for only once the run's cleanup has closed
+            its writes, so a shutdown that ends the session before that
+            cleanup runs leaves them unaccounted, and the wait answers None.
         """
         deadline = None if timeout_s is None else time.monotonic() + timeout_s
         batch = self._write_batch
