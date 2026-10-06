@@ -365,6 +365,87 @@ class TestSimulatedMotorBoard:
         assert result is True
 
 
+class TestATravelHold:
+    """A held move halts part of the way, reports itself not arrived, and
+    finishes only once released; a STOP or a new target ends the hold."""
+
+    # About half a second of realistic X travel.
+    TARGET_UM = 20000
+
+    @staticmethod
+    def _held(board, axis='X', at_fraction=0.5):
+        hold = board.hold_travel(axis, at_fraction=at_fraction)
+        board.move_abs_pos(axis, TestATravelHold.TARGET_UM)
+        # A read is what finds the stage at the hold, as the monitor's poll does.
+        deadline = time.monotonic() + 10.0
+        while not hold.reached.is_set() and time.monotonic() < deadline:
+            board.target_status(axis)
+            time.sleep(0.005)
+        assert hold.reached.is_set(), 'the move never reached its hold'
+        return hold
+
+    @staticmethod
+    def _arrives(board, axis='X'):
+        deadline = time.monotonic() + 10.0
+        while not board.target_status(axis):
+            assert time.monotonic() < deadline, 'the released move never arrived'
+            time.sleep(0.005)
+
+    @staticmethod
+    def _board():
+        return SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='realistic')
+
+    def test_a_held_move_stands_part_of_the_way_and_has_not_arrived(self):
+        board = self._board()
+        self._held(board)
+        at = board.current_pos('X')
+        assert at == pytest.approx(self.TARGET_UM / 2, rel=0.01)
+        # Past the time the whole move takes, it still stands there.
+        time.sleep(0.6)
+        assert board.current_pos('X') == at
+        assert board.target_status('X') is False
+
+    def test_a_released_move_travels_on_and_arrives(self):
+        board = self._board()
+        hold = self._held(board)
+        hold.release()
+        self._arrives(board)
+        assert board.current_pos('X') == pytest.approx(self.TARGET_UM, abs=1)
+
+    def test_a_stop_ends_the_hold_where_the_stage_stood(self):
+        board = self._board()
+        self._held(board)
+        board.exchange_command('STOP')
+        assert board.target_status('X') is True
+        assert board.current_pos('X') == pytest.approx(self.TARGET_UM / 2, rel=0.01)
+        # The hold was that move's: the next one is not held.
+        board.move_abs_pos('X', 0)
+        self._arrives(board)
+
+    def test_a_new_target_ends_the_hold(self):
+        board = self._board()
+        self._held(board)
+        board.move_abs_pos('X', 5000)
+        self._arrives(board)
+        assert board.current_pos('X') == pytest.approx(5000, abs=1)
+
+    def test_a_hold_is_refused_where_a_move_does_not_travel(self):
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='fast')
+        with pytest.raises(ValueError, match='realistic'):
+            board.hold_travel('X')
+
+    @pytest.mark.parametrize('at_fraction', [0.0, 1.0, 1.5])
+    def test_a_hold_is_part_of_the_way_along(self, at_fraction):
+        with pytest.raises(ValueError, match='part of the way'):
+            self._board().hold_travel('X', at_fraction=at_fraction)
+
+    def test_an_axis_takes_one_hold(self):
+        board = self._board()
+        board.hold_travel('X')
+        with pytest.raises(ValueError, match='already has a hold'):
+            board.hold_travel('X')
+
+
 # ---------------------------------------------------------------------------
 # Multi-Model Tests -- verify all microscope models work correctly
 # ---------------------------------------------------------------------------

@@ -31,6 +31,40 @@ from drivers.registry import motor_registry
 _serial_log = logging.getLogger('LVP.serial')
 
 
+class TravelHold:
+    """A simulated axis's next move, stopped part of the way and held there.
+
+    The stage halts at ``at_fraction`` of that move's travel and stays,
+    reporting the target not reached, until ``release()``; it then travels
+    the rest in the time the rest takes. A real stage cannot be held, but a
+    test acting on a move "while it travels" otherwise guesses with a clock
+    how far a move has got, and a slow host makes the guess wrong. A STOP,
+    a home, or a new target on the axis ends the hold, since the move it
+    held is over.
+
+    Attributes:
+        axis: The axis whose next move is held.
+        at_fraction: How far along that move's travel it halts, between 0
+            and 1, exclusive.
+        reached: Set by the first position or status read that finds the
+            stage halted at the hold -- the motion monitor reads both on
+            every poll of a moving axis.
+    """
+
+    def __init__(self, board: 'SimulatedMotorBoard', axis: str, at_fraction: float):
+        self._board = board
+        self.axis = axis
+        self.at_fraction = at_fraction
+        self.reached = threading.Event()
+        # Whether the move it holds has had its target written. Read and
+        # written under the board's thread_lock.
+        self._bound = False
+
+    def release(self) -> None:
+        """Let the held move travel on and finish; no-op once the hold has ended."""
+        self._board._release_hold(self)
+
+
 @motor_registry.register('sim', priority=100, is_simulator=True)
 class SimulatedMotorBoard:
     # Axis speeds in usteps/sec (realistic values for Etaluma hardware)
@@ -135,6 +169,8 @@ class SimulatedMotorBoard:
         self._move_start_pos = {'X': 0, 'Y': 0, 'Z': 0, 'T': 0}
         self._move_start_time = {'X': 0.0, 'Y': 0.0, 'Z': 0.0, 'T': 0.0}
         self._move_end_time = {'X': 0.0, 'Y': 0.0, 'Z': 0.0, 'T': 0.0}
+        # At most one hold per axis (hold_travel).
+        self._holds: dict[str, TravelHold] = {}
 
         # Re-apply timing mode after all state is initialized
         self.set_timing_mode(timing)
@@ -185,6 +221,53 @@ class SimulatedMotorBoard:
         self._simulate_move_duration = preset['simulate_move_duration']
         self._fast_move_duration = preset.get('fast_move_duration', 0.0)
         self._timing_mode = mode
+
+    def hold_travel(self, axis: str, at_fraction: float = 0.5) -> TravelHold:
+        """Hold ``axis``'s next move part of the way along; see ``TravelHold``.
+
+        Args:
+            axis: The axis whose next target write starts the held move.
+            at_fraction: How far along its travel the move halts.
+
+        Returns:
+            The hold: wait on its ``reached``, act, then ``release()`` it or
+            end it with a STOP or a new target.
+
+        Raises:
+            ValueError: the board is not in 'realistic' timing, the only one
+                in which a move travels; ``at_fraction`` is not strictly
+                between 0 and 1; or ``axis`` already has a hold.
+        """
+        if self._timing_mode != 'realistic':
+            raise ValueError(
+                f"a move travels only in 'realistic' timing; this board is in {self._timing_mode!r}"
+            )
+        if not 0.0 < at_fraction < 1.0:
+            raise ValueError(
+                f'a hold is part of the way along, 0 < at_fraction < 1; got {at_fraction}'
+            )
+        with self.thread_lock:
+            if axis in self._holds:
+                raise ValueError(f'{axis} already has a hold')
+            hold = TravelHold(self, axis, at_fraction)
+            self._holds[axis] = hold
+            return hold
+
+    def _release_hold(self, hold: TravelHold) -> None:
+        with self.thread_lock:
+            if self._holds.get(hold.axis) is not hold:
+                return
+            del self._holds[hold.axis]
+            if not hold.reached.is_set():
+                return
+            # The move resumes from the hold on its own timeline, shifted by
+            # how long it stood: the rest takes what the rest would have.
+            axis = hold.axis
+            start_t = self._move_start_time[axis]
+            halted_at = start_t + hold.at_fraction * (self._move_end_time[axis] - start_t)
+            shift = time.monotonic() - halted_at
+            self._move_start_time[axis] += shift
+            self._move_end_time[axis] += shift
 
     @property
     def is_v2(self) -> bool:
@@ -408,6 +491,13 @@ class SimulatedMotorBoard:
             value = int(cmd[9:])
             if value >= 0x80000000:
                 value -= 0x100000000
+            hold = self._holds.get(axis)
+            if hold is not None:
+                if hold._bound:
+                    # A new target ends the held move.
+                    del self._holds[axis]
+                else:
+                    hold._bound = True
             self._move_start_pos[axis] = self._actual[axis]
             self._move_start_time[axis] = time.monotonic()
             self._target[axis] = value
@@ -497,6 +587,8 @@ class SimulatedMotorBoard:
                 self._update_actual(ax)
                 self._target[ax] = self._actual[ax]
                 self._move_end_time[ax] = 0.0
+                # The held move is over; the stage stays where it stood.
+                self._holds.pop(ax, None)
             return 'STOP OK'
 
         return f'ERROR: unknown command {cmd}'
@@ -511,6 +603,15 @@ class SimulatedMotorBoard:
             return
         now = time.monotonic()
         end = self._move_end_time.get(axis, 0.0)
+        hold = self._holds.get(axis)
+        if hold is not None and hold._bound and self._fast_move_duration == 0:
+            start_t = self._move_start_time[axis]
+            halts_at = start_t + hold.at_fraction * (end - start_t)
+            if end > start_t and now >= halts_at:
+                start = self._move_start_pos[axis]
+                self._actual[axis] = int(start + hold.at_fraction * (self._target[axis] - start))
+                hold.reached.set()
+                return
         if now >= end:
             self._actual[axis] = self._target[axis]
         elif self._fast_move_duration > 0:
@@ -585,6 +686,7 @@ class SimulatedMotorBoard:
             self._target[axis] = 0
             self._homed[axis] = True
             self._move_end_time[axis] = 0.0
+            self._holds.pop(axis, None)
 
     def _make_status(self, axis):
         status = 0
