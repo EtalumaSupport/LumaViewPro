@@ -54,6 +54,18 @@ class SequencedCaptureRunMode(enum.Enum):
         """
         return 'return_to_original' if self.is_one_position else 'off'
 
+    @property
+    def words(self) -> str:
+        """The run's kind as a person reads it mid-sentence ('the Z-stack run')."""
+        return {
+            SequencedCaptureRunMode.FULL_PROTOCOL: 'protocol',
+            SequencedCaptureRunMode.SINGLE_SCAN: 'scan',
+            SequencedCaptureRunMode.SINGLE_ZSTACK: 'Z-stack',
+            SequencedCaptureRunMode.SINGLE_AUTOFOCUS: 'autofocus',
+            SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN: 'autofocus scan',
+            SequencedCaptureRunMode.SINGLE_COMPOSITE: 'composite',
+        }[self]
+
 
 class ProtocolState(enum.Enum):
     """Protocol execution state machine.

@@ -19,6 +19,7 @@ import pytest
 from modules import sequential_io_executor
 from modules.activity_claim import acting
 from modules.exceptions import HardwareCommandRefusedError
+from tests.protocol_drives import run_identity
 
 
 @pytest.fixture
@@ -177,7 +178,9 @@ class TestTheTemperatureRead:
     def test_a_hold_does_not_refuse_it_and_it_runs_on_the_camera_lane(self, sim_session, kind):
         sc = sim_session.scope
         spy, lanes = _spy(sc, '_camera_driver', 'get_all_temperatures')
-        held = sim_session.activity_claim.try_claim(kind)
+        held = sim_session.activity_claim.try_claim(
+            kind, run=run_identity() if kind == 'protocol' else None
+        )
         try:
             with spy:
                 temps = sc.diagnostics.get_camera_temperatures_degc()
@@ -188,7 +191,7 @@ class TestTheTemperatureRead:
 
     def test_it_passes_a_runs_protocol_fence(self, sim_session):
         sc = sim_session.scope
-        held = sim_session.activity_claim.try_claim('protocol')
+        held = sim_session.activity_claim.try_claim('protocol', run=run_identity())
         sim_session.camera_executor.protocol_start(held)
         try:
             assert sc.diagnostics.get_camera_temperatures_degc()
@@ -210,7 +213,9 @@ class TestAcceleration:
 class TestConfigureScope:
     @pytest.mark.parametrize('kind', ['protocol', 'diagnostic', 'recording'])
     def test_it_is_refused_while_the_scope_is_held(self, sim_session, kind):
-        held = sim_session.activity_claim.try_claim(kind)
+        held = sim_session.activity_claim.try_claim(
+            kind, run=run_identity() if kind == 'protocol' else None
+        )
         try:
             with pytest.raises(HardwareCommandRefusedError) as refused:
                 sim_session.configure_scope()
@@ -236,7 +241,7 @@ class TestTheSupportReportDuringARun:
         led_multi, led_multi_sent = _spy(sc, '_led_driver', 'exchange_multiline')
         motor_cmd, motor_sent = _spy(sc, '_motion_driver', 'exchange_command')
         motor_multi, motor_multi_sent = _spy(sc, '_motion_driver', 'exchange_multiline')
-        run = sim_session.activity_claim.try_claim('protocol')
+        run = sim_session.activity_claim.try_claim('protocol', run=run_identity())
         try:
             with led_cmd, led_multi, motor_cmd, motor_multi:
                 sn = report._run_scope_steps(tmp_path, lambda pct, msg: None)
@@ -254,6 +259,6 @@ class TestTheSupportReportDuringARun:
             'hardware_checks/serial_latency.txt',
         ):
             text = (tmp_path / rel).read_text()
-            assert 'SKIPPED' in text and 'protocol' in text, (rel, text)
+            assert 'SKIPPED' in text and 'The scan run' in text, (rel, text)
         camera = (tmp_path / 'camera_info' / 'camera_info.txt').read_text()
         assert 'emperature' in camera, camera

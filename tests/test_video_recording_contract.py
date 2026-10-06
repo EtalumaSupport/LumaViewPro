@@ -27,6 +27,7 @@ from tests.video_engine_harness import (
     FrameFeed,
     WriterStub,
 )
+from tests.protocol_drives import run_identity
 
 # Every recording manifest must carry at least these keys; downstream
 # consumers (support bundles, char tooling, the end-of-run report) key
@@ -543,22 +544,23 @@ class TestExclusivity:
 
     def test_engine_refuses_when_claim_held_by_protocol(self, tmp_path):
         claim = ActivityClaim()
-        assert claim.try_claim('protocol')
+        assert claim.try_claim('protocol', run=run_identity())
         engine, _writer, _clock, _ = make_engine(tmp_path, claim=claim)
         with pytest.raises(RecordingRefusedError) as excinfo:
             engine.start(lambda: make_config(tmp_path, fps=5, duration_s=1))
         assert excinfo.value.reason == 'exclusive_activity_running'
-        # Busy-with-what rides the payload: the holder's kind always,
-        # and the holding run's trigger when the claimant supplied one
-        # (none here, so it stays None rather than guessing).
+        # Busy-with-what rides the payload: the holder's kind, and the
+        # holding run's trigger -- a run claim cannot be taken without its
+        # run -- with the run named by its kind in the sentence.
         assert excinfo.value.holder == 'protocol'
-        assert excinfo.value.holder_trigger is None
+        assert excinfo.value.holder_trigger == 'test'
+        assert excinfo.value.message.startswith('The scan run is using the microscope')
 
     def test_a_recording_inside_a_run_leaves_the_runs_claim_held(self, tmp_path):
         """A video step records under the run's claim; its end must not
         free the claim the run holds until run end."""
         claim = ActivityClaim()
-        run = claim.try_claim('protocol', run_trigger_source='scan')
+        run = claim.try_claim('protocol', run=run_identity('scan'))
         engine, _writer, _clock, _ = make_engine(tmp_path, claim=run.lend())
 
         engine.start(lambda: make_config(tmp_path, fps=5, duration_s=10))
@@ -572,7 +574,7 @@ class TestExclusivity:
 
     def test_a_recording_lent_a_claim_its_run_no_longer_holds_is_refused(self, tmp_path):
         claim = ActivityClaim()
-        run = claim.try_claim('protocol', run_trigger_source='scan')
+        run = claim.try_claim('protocol', run=run_identity('scan'))
         lent = run.lend()
         run.release()
         engine, _writer, _clock, _ = make_engine(tmp_path, claim=lent)
@@ -583,7 +585,7 @@ class TestExclusivity:
 
     def test_claim_refusal_names_the_holding_runs_trigger(self, tmp_path):
         claim = ActivityClaim()
-        assert claim.try_claim('protocol', run_trigger_source='autofocus_scan')
+        assert claim.try_claim('protocol', run=run_identity('autofocus_scan'))
         engine, _writer, _clock, _ = make_engine(tmp_path, claim=claim)
         with pytest.raises(RecordingRefusedError) as excinfo:
             engine.start(lambda: make_config(tmp_path, fps=5, duration_s=1))
@@ -663,9 +665,9 @@ class TestSessionActivityClaim:
         claim = headless_session.activity_claim
         recording = claim.try_claim('recording')
         assert recording
-        assert not claim.try_claim('protocol')
+        assert not claim.try_claim('protocol', run=run_identity())
         recording.release()
-        protocol = claim.try_claim('protocol')
+        protocol = claim.try_claim('protocol', run=run_identity())
         assert protocol
         protocol.release()
 

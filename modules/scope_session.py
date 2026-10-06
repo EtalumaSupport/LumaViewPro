@@ -32,7 +32,13 @@ import modules.app_context as _app_ctx
 import modules.settings_init as settings_init
 from lvp_logger import logger
 from modules import binning, common_utils, image_mode, settings_paths
-from modules.activity_claim import SCOPE_HOLDING_KINDS, ActivityClaim, HeldClaim, acting
+from modules.activity_claim import (
+    SCOPE_HOLDING_KINDS,
+    ActivityClaim,
+    HeldClaim,
+    acting,
+    the_run_named,
+)
 from modules.common_utils import CustomJSONizer
 from modules.exceptions import (
     CameraSettingUnsupportedError,
@@ -423,7 +429,12 @@ class ScopeSession:
             kind = holder.kind if holder is not None else None
             # The holder can release between the failed take and this read;
             # the refusal still stands, it just cannot name who refused it.
-            named = f'A {kind} activity' if kind else 'Another exclusive activity'
+            if holder is not None and holder.run is not None:
+                named = the_run_named(holder.run, sentence_start=True)
+            elif kind:
+                named = f'A {kind} activity'
+            else:
+                named = 'Another exclusive activity'
             raise DiagnosticRefusedError(
                 reason='exclusive_activity_running',
                 title='Another Activity Running',

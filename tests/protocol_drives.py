@@ -26,7 +26,7 @@ import threading
 import time
 from unittest.mock import MagicMock
 
-from modules.activity_claim import ActivityClaim
+from modules.activity_claim import ActivityClaim, RunIdentity
 from modules.image_mode import ImageCaptureConfig
 from modules.run_outcome import CaptureTally
 from tests.scope_fakes import swap_lanes
@@ -36,7 +36,7 @@ def held_run_claim():
     """A run's activity claim, as the run holds it: what a top-level LED
     lease is taken under. Each call is a fresh claim, so two leases never
     share one; release() it to strand a lease taken under it."""
-    return ActivityClaim().try_claim('protocol', run_trigger_source='test')
+    return ActivityClaim().try_claim('protocol', run=run_identity('test'))
 
 
 def lent_run_claim():
@@ -177,6 +177,11 @@ def protocol_step(**overrides):
     return step
 
 
+def run_identity(trigger: str = 'test', words: str = 'scan') -> RunIdentity:
+    """A run's identity for a test that takes or dispatches as a run."""
+    return RunIdentity(trigger=trigger, words=words)
+
+
 def bare_capture_runner(**overrides):
     """SequencedCaptureRunner with MagicMock deps."""
     from modules.sequenced_capture_runner import SequencedCaptureRunner
@@ -303,7 +308,7 @@ def scan_ready_runner(step, **state):
     runner._write_focus_to = None
     runner._save_autofocus_data = False
     runner._parent_dir = None
-    runner._run_trigger_source = 'test'
+    runner._run_identity = run_identity()
     for key, value in state.items():
         setattr(runner, key, value)
     return runner

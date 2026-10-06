@@ -43,6 +43,7 @@ from modules.notification_center import Severity
 from modules.run_outcome import EndingLatch, PendingRunOutcome, RunEnding
 from modules.sequenced_capture_runner import RunHandle
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
+from tests.protocol_drives import run_identity
 
 
 def _posted(centre_posts, *severities):
@@ -9199,7 +9200,7 @@ class TestSCEResetSignalsAbort:
         # A live run always has a trigger and a handle: start() writes both
         # before it publishes liveness, under one lock. Leaving IDLE alone
         # builds a run nobody started, which reset() is right to refuse.
-        runner._run_trigger_source = 'test'
+        runner._run_identity = run_identity()
         runner._run_outcome = PendingRunOutcome()
         run = runner._run_handle = RunHandle(
             runner, runner._run_outcome, RunWriteBatch(MagicMock())
@@ -9224,7 +9225,7 @@ class TestSCEResetSignalsAbort:
         # A live run always has a trigger and a handle: start() writes both
         # before it publishes liveness, under one lock. Leaving IDLE alone
         # builds a run nobody started, which reset() is right to refuse.
-        runner._run_trigger_source = 'test'
+        runner._run_identity = run_identity()
         runner._run_outcome = PendingRunOutcome()
         run = runner._run_handle = RunHandle(
             runner, runner._run_outcome, RunWriteBatch(MagicMock())
@@ -9249,7 +9250,7 @@ class TestSCEResetSignalsAbort:
         # A live run always has a trigger and a handle: start() writes both
         # before it publishes liveness, under one lock. Leaving IDLE alone
         # builds a run nobody started, which reset() is right to refuse.
-        runner._run_trigger_source = 'test'
+        runner._run_identity = run_identity()
         runner._run_outcome = PendingRunOutcome()
         run = runner._run_handle = RunHandle(
             runner, runner._run_outcome, RunWriteBatch(MagicMock())
@@ -9275,7 +9276,7 @@ class TestSCEResetSignalsAbort:
         # A live run always has an owner: start() writes the trigger before
         # it publishes liveness, under one lock. Leaving IDLE alone builds
         # a run nobody started, which reset() is right to refuse.
-        runner._run_trigger_source = 'test'
+        runner._run_identity = run_identity()
         assert runner.wait_for_run_idle(timeout_s=0.2) is False
 
     def test_wait_for_run_idle_returns_when_cleanup_clears_flag(self):
@@ -9288,7 +9289,7 @@ class TestSCEResetSignalsAbort:
         # A live run always has an owner: start() writes the trigger before
         # it publishes liveness, under one lock. Leaving IDLE alone builds
         # a run nobody started, which reset() is right to refuse.
-        runner._run_trigger_source = 'test'
+        runner._run_identity = run_identity()
         threading.Timer(0.1, lambda: runner._set_state(ProtocolState.IDLE)).start()
         assert runner.wait_for_run_idle(timeout_s=2.0) is True
 

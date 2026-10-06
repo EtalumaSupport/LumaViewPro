@@ -22,6 +22,7 @@ import modules.config_helpers as config_helpers
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import build_scope, swap_lanes
+from tests.protocol_drives import run_identity
 
 
 # ---------------------------------------------------------------------------
@@ -606,7 +607,7 @@ class TestScopeSession:
     def test_protocol_running_derives_from_the_claim(self):
         session = self._make_session()
         assert session.is_protocol_running is False
-        held = session.activity_claim.try_claim('protocol')
+        held = session.activity_claim.try_claim('protocol', run=run_identity())
         assert held
         assert session.is_protocol_running is True
         held.release()

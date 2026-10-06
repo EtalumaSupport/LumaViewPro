@@ -23,7 +23,15 @@ from modules.lumascope_api import AxisState, Lumascope
 
 import modules.image_mode as image_mode
 
-from modules.activity_claim import ActivityClaim, ActivityHolder, BorrowedClaim, Taking, acting
+from modules.activity_claim import (
+    ActivityClaim,
+    ActivityHolder,
+    BorrowedClaim,
+    RunIdentity,
+    Taking,
+    acting,
+    the_run_named,
+)
 from modules.autofocus_runner import AutofocusRunner
 from modules.exceptions import (
     CameraSettingRejected,
@@ -413,7 +421,8 @@ class SequencedCaptureRunner:
         self._autofocus_runner = autofocus_runner
 
         self._scope = scope
-        self._run_trigger_source = None
+        # The run this runner last started: its trigger and its kind's words.
+        self._run_identity: RunIdentity | None = None
         # LED lease held for the duration of a scan -- acquired at run
         # start, passed to AF steps as the parent lease, released in
         # cleanup. None outside a run.
@@ -479,7 +488,7 @@ class SequencedCaptureRunner:
     def _reset_vars(self):
         self._run_dir = None
         self._tiling_configs_file_loc = None
-        self._run_trigger_source = None
+        self._run_identity = None
         self._image_writer = None
         # Nulled, not replaced: the next run's start() builds a fresh one
         # under the run lock. A run that never started must leave nothing
@@ -674,16 +683,17 @@ class SequencedCaptureRunner:
             if not self._is_run_live():
                 raise RunAlreadyEndedError('That run has already ended; no run is live.')
             if not self._is_live_run_locked(run):
-                holder = self._run_trigger_source
+                holder = self._run_identity
                 self._refuse(
                     reason='run_not_live',
                     title='Run Already Ended',
                     message=(
-                        f'That run has already ended. {self._the_run_holding_the_scope(holder)} '
+                        'That run has already ended. '
+                        f'{the_run_named(holder, sentence_start=True)} '
                         'is using the microscope now; stop it from its own control.'
                     ),
                     holder='protocol',
-                    holder_trigger=holder,
+                    holder_trigger=holder.trigger if holder is not None else None,
                 )
 
             # Recorded only past the guard above: a Stop that was refused
@@ -716,7 +726,7 @@ class SequencedCaptureRunner:
 
             logger.warning(
                 f'[{self.LOGGER_NAME}] force_reset({reason}): tearing down the '
-                f'{self._run_trigger_source} run without an owner check'
+                f'{self._last_run_trigger()} run without an owner check'
             )
             ending = RunEnding('aborted', 'force_reset', 'Protocol Stopped', reason)
             self._ending.set_if_unset(ending)
@@ -801,23 +811,13 @@ class SequencedCaptureRunner:
         return self._curr_step + 1
 
     @staticmethod
-    def _the_run_holding_the_scope(holder_trigger: 'str | None') -> str:
-        """Name the run that holds the scope, for a refusal to put in a sentence.
+    def _identity_of(plan: RunPlan) -> RunIdentity:
+        """The run a plan starts: its trigger, and its kind in words."""
+        return RunIdentity(trigger=plan.run_trigger_source, words=plan.run_mode.words)
 
-        One phrasing, one home. Every start refusal is handed the holder
-        already; before this they each printed a literal instead, so a
-        user turned away from a Z-stack by their own protocol read "a
-        protocol run is already in progress" and had to guess which
-        control to go back to. The stop refusal in _reset() has always
-        named it; this is that sentence's other half.
-
-        Falls back to the indefinite form rather than printing None: a
-        trigger is absent only where no run holds the scope, and a
-        sentence a user reads must still parse.
-        """
-        if not holder_trigger:
-            return 'A run'
-        return f'The {holder_trigger} run'
+    def _last_run_trigger(self) -> 'str | None':
+        """The trigger of the run this runner last started; None before any."""
+        return self._run_identity.trigger if self._run_identity is not None else None
 
     def _refuse_already_running(self) -> typing.NoReturn:
         """Refuse a start because a run already holds the scope.
@@ -826,16 +826,16 @@ class SequencedCaptureRunner:
         same question and printed the same literal in two places -- two
         phases with one answer between them.
         """
-        holder_trigger = self._run_trigger_source
+        holder = self._run_identity
         self._refuse(
             reason='already_running',
             title='Already Running',
             message=(
-                f'{self._the_run_holding_the_scope(holder_trigger)} is using the microscope. '
+                f'{the_run_named(holder, sentence_start=True)} is using the microscope. '
                 'Stop it from the control that started it, or let it finish.'
             ),
             holder='protocol',
-            holder_trigger=holder_trigger,
+            holder_trigger=holder.trigger if holder is not None else None,
         )
 
     def _refuse_foreign_holder(self, claim: 'ActivityClaim | BorrowedClaim') -> None:
@@ -867,7 +867,12 @@ class SequencedCaptureRunner:
             title = 'Another Activity Running'
             # The kind, not the word "another": an activity the user cannot
             # name is one they cannot go and stop.
-            named = f'A {kind} activity' if kind else 'Another exclusive activity'
+            if holder is not None and holder.run is not None:
+                named = the_run_named(holder.run, sentence_start=True)
+            elif kind:
+                named = f'A {kind} activity'
+            else:
+                named = 'Another exclusive activity'
             message = f'{named} is using the microscope. Let it finish, then start the run.'
         self._refuse(
             reason='exclusive_activity_running',
@@ -996,11 +1001,11 @@ class SequencedCaptureRunner:
             if batch.stalled(WRITE_STALL_FATAL_S):
                 unsaved = batch.pending
                 stalled = FileWriterStalledError.stalled_sentence(
-                    self._the_run_holding_the_scope(self._run_trigger_source),
+                    the_run_named(self._run_identity, sentence_start=True),
                     batch.describe_stuck_write(),
                 )
                 self._refuse(
-                    holder_trigger=self._run_trigger_source,
+                    holder_trigger=self._last_run_trigger(),
                     reason='files_writing_stalled',
                     title=FileWriterStalledError.title,
                     message=(
@@ -1013,10 +1018,10 @@ class SequencedCaptureRunner:
                 reason='files_writing',
                 title='Files Still Writing',
                 message=(
-                    f'{self._the_run_holding_the_scope(self._run_trigger_source)} is still '
+                    f'{the_run_named(self._run_identity, sentence_start=True)} is still '
                     'writing its files. Please wait.'
                 ),
-                holder_trigger=self._run_trigger_source,
+                holder_trigger=self._last_run_trigger(),
             )
 
         # Nearly vestigial now that a standalone autofocus is itself a
@@ -1034,11 +1039,11 @@ class SequencedCaptureRunner:
                 reason='autofocus_running',
                 title='Autofocus Running',
                 message=(
-                    f'An autofocus sweep from the {in_flight_sweep.run_trigger_source} run '
+                    f'An autofocus sweep from {the_run_named(in_flight_sweep.run)} '
                     'is still running. Stop it or let it finish, then start the run.'
                 ),
                 holder='autofocus',
-                holder_trigger=in_flight_sweep.run_trigger_source,
+                holder_trigger=in_flight_sweep.run.trigger,
             )
 
         # A wrong-shaped config (e.g. a legacy dict) must fail at this
@@ -1400,7 +1405,7 @@ class SequencedCaptureRunner:
             # same call that takes it: the holder question has one store,
             # and it is the one that already knows whether anything holds
             # the scope at all.
-            held = claim.try_claim('protocol', run_trigger_source=plan.run_trigger_source)
+            held = claim.try_claim('protocol', run=self._identity_of(plan))
             if held is None:
                 self._refuse_exclusive_activity(claim.holder)
             self._held_claim = held
@@ -1445,7 +1450,7 @@ class SequencedCaptureRunner:
             self._engineering_mode = plan.engineering_mode
             self._stage_offset = plan.stage_offset
             self._composite_thresholds_percent = plan.composite_thresholds_percent
-            self._run_trigger_source = plan.run_trigger_source
+            self._run_identity = self._identity_of(plan)
             # Failure-safe defaults: a setup failure below unwinds through
             # the normal run cleanup, which reads these; a prior run's stale
             # snapshots must not leak into that unwind.
@@ -2016,7 +2021,7 @@ class SequencedCaptureRunner:
         from modules.notification_center import notifications
 
         stalled = FileWriterStalledError(
-            self._the_run_holding_the_scope(self._run_trigger_source),
+            the_run_named(self._run_identity, sentence_start=True),
             batch.describe_stuck_write(),
             batch.pending,
         )

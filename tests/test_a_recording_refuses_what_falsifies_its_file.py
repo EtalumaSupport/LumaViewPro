@@ -20,6 +20,7 @@ import pytest
 from modules.activity_claim import ActivityClaim
 from modules.exceptions import HardwareCommandRefusedError
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+from tests.protocol_drives import run_identity
 
 _WAIT_S = 2.0
 
@@ -229,7 +230,9 @@ class TestTheSessionConfiguration:
         current = sim_session.settings['protocol']['labware']
         other = next(name for name in loader.get_plate_list() if name != current)
         plate_before = sim_session.scope.runtime_state.get_labware()
-        held = sim_session.activity_claim.try_claim(kind, run_trigger_source='test')
+        held = sim_session.activity_claim.try_claim(
+            kind, run=run_identity() if kind == 'protocol' else None
+        )
         try:
             with pytest.raises(HardwareCommandRefusedError) as refused:
                 sim_session.select_labware(other)
@@ -277,7 +280,9 @@ class TestReselectingThePlateInPlace:
     @pytest.mark.parametrize('kind', ['protocol', 'diagnostic', 'recording'])
     def test_the_plate_in_place_is_admitted_under_any_holder(self, sim_session, kind):
         current = sim_session.settings['protocol']['labware']
-        held = sim_session.activity_claim.try_claim(kind, run_trigger_source='test')
+        held = sim_session.activity_claim.try_claim(
+            kind, run=run_identity() if kind == 'protocol' else None
+        )
         try:
             assert sim_session.select_labware(current) is False
         finally:

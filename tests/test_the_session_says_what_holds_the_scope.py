@@ -17,13 +17,14 @@ from types import SimpleNamespace
 import pytest
 
 from tests.test_diagnostic_claim import _make_session
+from tests.protocol_drives import run_identity
 
 
 class TestALentRun:
     def test_a_run_lent_a_diagnostics_claim_is_the_run_in_progress(self):
         session = _make_session()
         with session.diagnostic_claim() as held:
-            run = held.lend().try_claim('protocol', run_trigger_source='api_autofocus')
+            run = held.lend().try_claim('protocol', run=run_identity('api_autofocus'))
             try:
                 assert session.is_protocol_running is True
                 assert session.sequenced_capture_runner.run_trigger_source() == 'api_autofocus'
@@ -43,14 +44,14 @@ class TestALentRun:
         heard.clear()
         with session.diagnostic_claim() as held:
             heard.clear()
-            run = held.lend().try_claim('protocol', run_trigger_source='api_autofocus')
+            run = held.lend().try_claim('protocol', run=run_identity('api_autofocus'))
             assert heard == [True], f'the lend was not announced as a run; heard {heard}'
             run.release()
             assert heard == [True, False], f'the return was not announced; heard {heard}'
 
     def test_a_recording_lent_from_a_run_leaves_the_run_holding(self):
         session = _make_session()
-        run = session.activity_claim.try_claim('protocol', run_trigger_source='scan')
+        run = session.activity_claim.try_claim('protocol', run=run_identity('scan'))
         try:
             recording = run.lend().try_claim('recording')
             assert session.is_protocol_running is True
@@ -63,7 +64,7 @@ class TestALentRun:
     def test_a_lent_run_does_not_outlive_its_lender(self):
         session = _make_session()
         with session.diagnostic_claim() as held:
-            held.lend().try_claim('protocol', run_trigger_source='api_autofocus')
+            held.lend().try_claim('protocol', run=run_identity('api_autofocus'))
         assert session.is_protocol_running is False, (
             'the diagnostic released its claim, and the run it lent still reads running'
         )
@@ -77,7 +78,8 @@ class TestHeldByOther:
     @pytest.mark.parametrize('kind', ['diagnostic', 'recording', 'protocol'])
     def test_any_holder_but_the_given_run_is_other(self, kind):
         session = _make_session()
-        held = session.activity_claim.try_claim(kind, run_trigger_source='test')
+        run = run_identity() if kind == 'protocol' else None
+        held = session.activity_claim.try_claim(kind, run=run)
         try:
             assert session.held_by_other(None) is True
         finally:

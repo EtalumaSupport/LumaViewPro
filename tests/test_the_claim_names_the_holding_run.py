@@ -18,13 +18,14 @@ import pytest
 from modules.activity_claim import ActivityClaim
 from modules.exceptions import ProtocolRunRefusedError
 from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
+from tests.protocol_drives import run_identity
 
 
 class TestTheClaimCarriesTheRun:
     def test_a_claim_reports_its_kind_and_the_run_behind_it(self):
         claim = ActivityClaim()
 
-        assert claim.try_claim('protocol', run_trigger_source='zstack')
+        assert claim.try_claim('protocol', run=run_identity('zstack'))
 
         holder = claim.holder
         assert holder.kind == 'protocol'
@@ -41,7 +42,7 @@ class TestTheClaimCarriesTheRun:
 
     def test_the_holder_is_gone_on_release(self):
         claim = ActivityClaim()
-        held = claim.try_claim('protocol', run_trigger_source='scan')
+        held = claim.try_claim('protocol', run=run_identity('scan'))
 
         held.release()
 
@@ -50,7 +51,7 @@ class TestTheClaimCarriesTheRun:
 
     def test_a_release_by_a_non_holder_still_says_who_holds_it(self):
         claim = ActivityClaim()
-        stale = claim.try_claim('protocol', run_trigger_source='scan')
+        stale = claim.try_claim('protocol', run=run_identity('scan'))
         stale.release()
         claim.try_claim('recording')
 
@@ -76,7 +77,7 @@ class TestTheClaimCarriesTheRun:
         reader.start()
         try:
             for _ in range(500):
-                claim.try_claim('protocol', run_trigger_source='scan').release()
+                claim.try_claim('protocol', run=run_identity('scan')).release()
                 claim.try_claim('recording').release()
         finally:
             stop.set()
@@ -93,14 +94,14 @@ class TestOnlyTheTakingReleases:
 
     def test_a_second_taker_is_refused(self):
         claim = ActivityClaim()
-        assert claim.try_claim('protocol', run_trigger_source='scan')
+        assert claim.try_claim('protocol', run=run_identity('scan'))
 
-        assert claim.try_claim('protocol', run_trigger_source='scan') is None
+        assert claim.try_claim('protocol', run=run_identity('scan')) is None
         assert claim.try_claim('recording') is None
 
     def test_the_taking_is_not_obtainable_from_the_holder(self):
         claim = ActivityClaim()
-        held = claim.try_claim('protocol', run_trigger_source='scan')
+        held = claim.try_claim('protocol', run=run_identity('scan'))
 
         assert claim.holder is not held
         assert not hasattr(claim.holder, 'release'), (
@@ -110,9 +111,9 @@ class TestOnlyTheTakingReleases:
 
     def test_two_takings_with_equal_descriptions_are_different_credentials(self):
         claim = ActivityClaim()
-        first = claim.try_claim('protocol', run_trigger_source='scan')
+        first = claim.try_claim('protocol', run=run_identity('scan'))
         first.release()
-        second = claim.try_claim('protocol', run_trigger_source='scan')
+        second = claim.try_claim('protocol', run=run_identity('scan'))
 
         with pytest.raises(RuntimeError):
             first.release()
@@ -184,7 +185,7 @@ class TestTheFlagAndTheClaimEndTogether:
             _autofocus_snapshot=autofocus_snapshot(states={}),
             _run_dir=None,
         )
-        held = runner._activity_claim.try_claim('protocol', run_trigger_source='test')
+        held = runner._activity_claim.try_claim('protocol', run=run_identity('test'))
         assert held
         runner._held_claim = held
         # The run start() would have committed, with its writes: the

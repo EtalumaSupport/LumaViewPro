@@ -25,6 +25,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
+from tests.protocol_drives import run_identity
 
 # Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
 # tests/conftest.py at module-import time. Test-specific mocks below.
@@ -610,7 +611,7 @@ class TestIntegrationAutofocus:
         thread.start()
         try:
             future = thread.run_autofocus(
-                run_trigger_source='autofocus',
+                run=run_identity('autofocus'),
                 objective_id='10x Oly',
                 led_color='BF',
                 led_illumination=50.0,
@@ -662,7 +663,7 @@ class TestIntegrationAutofocus:
         thread.start()
         try:
             return thread.run_autofocus(
-                run_trigger_source='autofocus',
+                run=run_identity('autofocus'),
                 objective_id='10x Oly',
                 led_color='BF',
                 led_illumination=50.0,
@@ -1176,7 +1177,7 @@ class TestRestAPIPrep:
             try:
                 objectives = session.scope.runtime_state.get_available_objectives()
                 future = thread.run_autofocus(
-                    run_trigger_source='autofocus',
+                    run=run_identity('autofocus'),
                     objective_id=objectives[0],
                     # Lit, because a sweep in the dark has no focus to find.
                     # The production caller supplies the step's channel and
@@ -1217,7 +1218,7 @@ class TestRestAPIPrep:
             try:
                 objectives = session.scope.runtime_state.get_available_objectives()
                 future = thread.run_autofocus(
-                    run_trigger_source='autofocus',
+                    run=run_identity('autofocus'),
                     objective_id=objectives[0],
                     led_color='BF',
                     led_illumination=100.0,

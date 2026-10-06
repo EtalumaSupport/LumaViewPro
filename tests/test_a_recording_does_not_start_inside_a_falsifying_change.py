@@ -30,6 +30,7 @@ from modules.video_recording import RecordingConfig, VideoRecordingEngine
 from tests.ast_seams import find_def
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
+from tests.protocol_drives import run_identity
 
 _WAIT_S = 2.0
 
@@ -237,7 +238,9 @@ class TestTheObjectiveQuestionDuringAHold:
     @pytest.mark.parametrize('kind', ['recording', 'protocol', 'diagnostic'])
     def test_it_is_not_asked_while_a_hold_would_refuse_the_answer(self, session, kind):
         assert session.objective_question() is not None, 'owed: never confirmed on this install'
-        held = session.activity_claim.try_claim(kind, run_trigger_source='test')
+        held = session.activity_claim.try_claim(
+            kind, run=run_identity() if kind == 'protocol' else None
+        )
         try:
             assert session.objective_question() is None
         finally:

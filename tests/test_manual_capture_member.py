@@ -30,6 +30,7 @@ from modules.lumascope_api.imaging import capture_failure_cause
 from modules.sequential_io_executor import IOTask
 from tests.scope_fakes import home_sim_scope
 from tests.test_composite_run_e2e import headless_settings
+from tests.protocol_drives import run_identity
 
 RESULT_TIMEOUT_S = 30.0
 
@@ -260,7 +261,7 @@ class TestRefusalsAndFailures:
 
     def test_a_still_while_a_run_holds_the_camera_gets_the_lanes_refusal(self, still_session):
         session, _ = still_session
-        held = session.activity_claim.try_claim('protocol', run_trigger_source='test')
+        held = session.activity_claim.try_claim('protocol', run=run_identity('test'))
         assert held is not None
         try:
             future = session.manual_capture.capture(layer=None, false_color_on=False)

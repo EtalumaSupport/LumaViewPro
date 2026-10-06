@@ -13,6 +13,7 @@ import pytest
 
 from modules.activity_claim import ActivityClaim
 from modules.notification_center import notifications
+from tests.protocol_drives import run_identity
 
 
 class _ListenerError(RuntimeError):
@@ -33,7 +34,7 @@ def _raising():
 def test_a_take_hands_the_taker_its_claim(reported):
     claim = ActivityClaim(on_transition=_raising)
 
-    held = claim.try_claim('protocol')
+    held = claim.try_claim('protocol', run=run_identity())
 
     assert held is not None, 'the taker never received the taking the claim is held by'
     assert claim.holder is not None and claim.holder.kind == 'protocol'

@@ -22,6 +22,7 @@ from unittest.mock import MagicMock
 from modules.exceptions import RunAlreadyEndedError
 from modules.run_outcome import EndingLatch, PendingRunOutcome, RunEnding
 from tests.ast_seams import REPO_ROOT
+from tests.protocol_drives import run_identity
 
 MODULES = REPO_ROOT / 'modules'
 
@@ -251,7 +252,7 @@ def _stop_stub(trigger='test', loop_ended=False):
     stub = SimpleNamespace(
         _run_lock=threading.RLock(),
         _is_run_live=lambda: True,
-        _run_trigger_source=trigger,
+        _run_identity=run_identity(trigger),
         # The handle start() returned for the live run, which a stop names.
         _run_outcome=PendingRunOutcome(),
         _run_handle=None,
@@ -265,6 +266,7 @@ def _stop_stub(trigger='test', loop_ended=False):
     # The runner's own liveness answer, so the stub cannot disagree with it.
     stub._run_handle = scr.RunHandle(stub, stub._run_outcome, scr.RunWriteBatch(MagicMock()))
     stub._last_run = lambda: scr.SequencedCaptureRunner._last_run(stub)
+    stub._last_run_trigger = lambda: scr.SequencedCaptureRunner._last_run_trigger(stub)
     stub._is_live_run_locked = lambda run: scr.SequencedCaptureRunner._is_live_run_locked(stub, run)
     return scr, stub, cleaned
 

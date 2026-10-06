@@ -35,6 +35,7 @@ from tests.shown_outcomes import capture_shown
 from tests.test_manual_recording_controller import make_controller
 from tests.test_video_camera_lost_outcome import _make_recorder
 from tests.scope_fakes import bind_settings_like_a_session
+from tests.protocol_drives import run_identity
 
 
 def _refuse(*_a, **_kw):
@@ -322,7 +323,7 @@ class TestTheUnwindAndRemovalEdges:
         from modules.exceptions import RecordingRefusedError
 
         controller, _, _ = make_controller(tmp_path, video_as_frames=True)
-        controller._claim.try_claim('protocol')
+        controller._claim.try_claim('protocol', run=run_identity())
         with pytest.raises(RecordingRefusedError):
             controller.start()
         manual = tmp_path / 'Manual'

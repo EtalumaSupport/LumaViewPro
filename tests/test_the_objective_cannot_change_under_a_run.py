@@ -16,6 +16,7 @@ from modules.exceptions import HardwareCommandRefusedError
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
+from tests.protocol_drives import run_identity
 
 
 @pytest.fixture
@@ -40,7 +41,7 @@ def session(tmp_path):
 @pytest.fixture
 def run_claim(session):
     """The run's taking, in a one-slot list so a test can release and retake it."""
-    held = [session.activity_claim.try_claim('protocol', run_trigger_source='test')]
+    held = [session.activity_claim.try_claim('protocol', run=run_identity('test'))]
     assert held[0]
     yield held
     held[0].release()
@@ -93,5 +94,5 @@ def test_after_the_run_the_change_is_accepted(under_a_run, run_claim):
         session.assign_turret_objective(1, '20x Oly')
         assert session.scope.runtime_state.get_current_objective_id() == '20x Oly'
     finally:
-        run_claim[0] = session.activity_claim.try_claim('protocol', run_trigger_source='test')
+        run_claim[0] = session.activity_claim.try_claim('protocol', run=run_identity('test'))
         assert run_claim[0]

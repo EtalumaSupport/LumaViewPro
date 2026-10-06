@@ -29,6 +29,7 @@ from modules.sequential_io_executor import IOTask
 from tests.protocol_drives import held_run_claim
 from tests.test_a_run_waits_for_the_camera_lane import RESULT_TIMEOUT_S, _LaneHold, lane_session  # noqa: F401
 from tests.test_protocol_cleanup_extinguish import _make_runner_stub
+from tests.protocol_drives import run_identity
 
 # The driver calls that change the instrument, per driver. Reads, grabs and
 # the simulator's own focus coupling are not writes.
@@ -258,7 +259,7 @@ def test_a_write_under_an_ended_run_is_refused_on_an_idle_scope():
     lane.ask_claim(claim)
     lane.start()
     try:
-        run = claim.try_claim('protocol')
+        run = claim.try_claim('protocol', run=run_identity())
         run.release()
         ran = threading.Event()
         outcome = {}
@@ -341,7 +342,7 @@ def test_the_run_door_refuses_the_lender_of_a_borrowed_run():
     lane.ask_claim(claim)
     lane.start()
     diagnostic = claim.try_claim('diagnostic')
-    run = diagnostic.lend().try_claim('protocol', run_trigger_source='api_autofocus')
+    run = diagnostic.lend().try_claim('protocol', run=run_identity('api_autofocus'))
     lane.protocol_start(run)
     ran = threading.Event()
     try:

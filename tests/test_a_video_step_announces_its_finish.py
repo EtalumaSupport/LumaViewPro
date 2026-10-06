@@ -23,6 +23,7 @@ import modules.protocol_recording as protocol_recording
 from modules.activity_claim import ActivityClaim
 from modules.protocol_recording import ProtocolVideoStep
 from tests.scope_fakes import answer_auto_gain_like_the_api, spec_scope
+from tests.protocol_drives import run_identity
 
 WAIT_S = 10.0
 
@@ -66,7 +67,7 @@ def test_the_finish_end_is_announced_and_reads_not_busy(tmp_path, monkeypatch):
             heard.append(step.is_busy)
 
     run = ActivityClaim(on_transition=_on_transition).try_claim(
-        'protocol', run_trigger_source='test'
+        'protocol', run=run_identity('test')
     )
     listeners = {}
     clock = {'t': 1000.0}

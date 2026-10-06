@@ -286,7 +286,7 @@ class ProtocolStepRunner:
                 save_results_to_file=p._save_autofocus_data,
                 results_dir=p._parent_dir,
                 write_batch=p._write_batch,
-                run_trigger_source=p._run_trigger_source,
+                run=p._run_identity,
                 callbacks=af_executor_callbacks,
                 led_color=step['Color'],
                 led_illumination=step['Illumination'],

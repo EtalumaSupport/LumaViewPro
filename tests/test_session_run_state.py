@@ -24,6 +24,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from tests.scope_fakes import spec_scope
+from tests.protocol_drives import run_identity
 
 
 def _make_session(has_xy_stage=True):
@@ -62,7 +63,7 @@ class TestDerivations:
 
     def test_protocol_claim_locks_everything(self):
         session = _make_session()
-        assert session.activity_claim.try_claim('protocol')
+        assert session.activity_claim.try_claim('protocol', run=run_identity())
         assert session.run_lockout is True
         assert session.controls_locked is True
         assert session.motion_enabled is False
@@ -197,7 +198,7 @@ class TestTransitionNotification:
         session = _make_session()
         fired = []
         session._run_state_listeners.append(lambda: fired.append(True))
-        held = session.activity_claim.try_claim('protocol')
+        held = session.activity_claim.try_claim('protocol', run=run_identity())
         assert held
         assert len(fired) == 1
         held.release()
@@ -247,7 +248,7 @@ class TestTransitionNotification:
 
     def test_failed_claim_does_not_notify(self):
         session = _make_session()
-        assert session.activity_claim.try_claim('protocol')
+        assert session.activity_claim.try_claim('protocol', run=run_identity())
         fired = []
         session._run_state_listeners.append(lambda: fired.append(True))
         assert not session.activity_claim.try_claim('recording')

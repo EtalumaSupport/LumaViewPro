@@ -48,6 +48,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from tests.settings_fixtures import complete_settings
+from tests.protocol_drives import run_identity
 
 # Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
 # tests/conftest.py at module-import time. Mock settings_init before
@@ -805,7 +806,7 @@ class TestRefusalNotifyOnceFunnel:
             mp.setattr(
                 executor.autofocus_thread,
                 'in_flight_sweep',
-                AutofocusSweep(future=Future(), run_trigger_source='autofocus'),
+                AutofocusSweep(future=Future(), run=run_identity('autofocus')),
             )
             return _make_single_step_protocol()
 
