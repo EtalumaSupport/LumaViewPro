@@ -96,6 +96,7 @@ def _video_step(monkeypatch, tmp_path, *, timestamp_overlay, false_color=False):
         record_step_row=MagicMock(),
         record_dropped_capture=MagicMock(),
         run_claim=lent_run_claim(),
+        to_plate=None,
     )
     outcome = recorder.run_blocking()
     assert outcome == protocol_recording.NO_FRAMES

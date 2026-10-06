@@ -30,7 +30,7 @@ import logging
 import math
 import pathlib
 import typing
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
 import modules.common_utils as common_utils
@@ -561,6 +561,45 @@ class ProtocolsAPI:
             px=px,
             py=py,
         )
+
+    def plate_transform(
+        self, protocol: Protocol, *, stage_offset: dict | None
+    ) -> Callable[[float, float], tuple[float, float]] | None:
+        """The stage-to-plate transform of ``protocol``'s frame: ``plate_to_stage`` inverted.
+
+        What a run states a frame's position in: the plate the protocol
+        stores and the offset the run started with, the frame its steps
+        were driven in. The selected plate and the live offset are the
+        frame of a capture made outside a run
+        (``runtime_state.plate_transform``); a run converted through them
+        would state its positions in a frame it never moved in once the
+        operator picked another plate. Both are bound when this is called,
+        so a later change moves no position it converts, and it cannot
+        raise.
+
+        Args:
+            protocol: The protocol whose plate the positions are stated on.
+            stage_offset: The offset the run started with; None on a scope
+                with no X/Y stage, which has no plate position to state.
+
+        Returns:
+            A function of ``(sx_um, sy_um)`` answering ``(px_mm, py_mm)``,
+            or None when ``stage_offset`` is.
+
+        Raises:
+            ConfigError: the protocol's plate is not in the catalogue.
+        """
+        if stage_offset is None:
+            return None
+        labware = self._scope.wellplate_loader.get_plate(plate_key=protocol.labware())
+        stage_offset = dict(stage_offset)
+
+        def to_plate(sx: float, sy: float) -> tuple[float, float]:
+            return _coordinate_transformer.stage_to_plate(
+                labware=labware, stage_offset=stage_offset, sx=sx, sy=sy
+            )
+
+        return to_plate
 
     def stage_targets(
         self,

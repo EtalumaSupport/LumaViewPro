@@ -51,6 +51,7 @@ def _writer(file_io_executor=None):
         engineering_mode=False,
         run_claim=lent_run_claim(),
         labware=plate(),
+        to_plate=None,
         captures_asked=1,
     )
 

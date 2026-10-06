@@ -337,6 +337,7 @@ class TestProtocolVideoDropNotification:
             record_dropped_capture=MagicMock(),
             clock=lambda: clock['t'],
             run_claim=lent_run_claim(),
+            to_plate=None,
         )
         worker = threading.Thread(target=recorder.run_blocking)
         worker.start()

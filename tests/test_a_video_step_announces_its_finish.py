@@ -95,6 +95,7 @@ def test_the_finish_end_is_announced_and_reads_not_busy(tmp_path, monkeypatch):
         record_dropped_capture=MagicMock(),
         clock=lambda: clock['t'],
         run_claim=run.lend(),
+        to_plate=None,
     )
     step_box['step'] = step
 

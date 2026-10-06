@@ -36,7 +36,7 @@ import numpy as np
 import pytest
 
 from tests.protocol_drives import lent_run_claim
-from tests.frame_records import frame_record, plate
+from tests.frame_records import frame_record, plate, unpositioned
 from modules.protocol_image_writer import RunWriteBatch
 import modules.common_utils as common_utils
 from drivers.camera import Camera
@@ -690,6 +690,7 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(monkeypatch,
         engineering_mode=False,
         run_claim=lent_run_claim(),
         labware=plate(),
+        to_plate=None,
         captures_asked=1,
     )
     recorded = []
@@ -704,7 +705,7 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(monkeypatch,
             significant_bits=12,
             objective_id='4x Oly',
             record=frame_record(),
-            stage_z_um=None,
+            position=unpositioned(),
         ),
         step={'Name': 's', 'Color': 'BF', 'False_Color': False, 'X': 0.0, 'Y': 0.0, 'Z': 0.0},
         name='s_BF',

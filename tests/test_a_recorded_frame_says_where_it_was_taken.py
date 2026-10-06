@@ -223,6 +223,32 @@ class TestTheBoundPlateTransform:
         assert to_plate(1000.0, 2000.0) == before
         assert before == (99.0, 48.0)
 
+    def test_a_runs_transform_is_its_protocols_plate_and_the_offset_it_started_with(self):
+        """A run states its frames in the frame its steps were driven in:
+        the protocol's plate, whatever the scope has selected, and the
+        offset the run started with, whatever is edited later."""
+        from modules.lumascope_api.protocols import ProtocolsAPI
+
+        plates = {
+            'wide': SimpleNamespace(get_dimensions=lambda: {'x': 100.0, 'y': 50.0}),
+            'narrow': SimpleNamespace(get_dimensions=lambda: {'x': 10.0, 'y': 5.0}),
+        }
+        scope = SimpleNamespace(
+            wellplate_loader=SimpleNamespace(get_plate=lambda plate_key: plates[plate_key]),
+            # The selected plate: never read for a run's frames.
+            read_setting=lambda path: 'narrow',
+        )
+        protocol = SimpleNamespace(labware=lambda: 'wide')
+        offset = {'x': 0.0, 'y': 0.0}
+        to_plate = ProtocolsAPI(scope).plate_transform(protocol, stage_offset=offset)
+        offset['x'] = 5000.0
+        assert to_plate(1000.0, 2000.0) == (99.0, 48.0)
+
+    def test_a_scope_with_no_offset_has_no_plate_position_to_state(self):
+        from modules.lumascope_api.protocols import ProtocolsAPI
+
+        assert ProtocolsAPI(SimpleNamespace()).plate_transform(None, stage_offset=None) is None
+
 
 def _engine(writer, clock):
     from modules.activity_claim import ActivityClaim

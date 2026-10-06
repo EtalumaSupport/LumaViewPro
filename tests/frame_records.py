@@ -10,6 +10,7 @@ import datetime
 
 from modules.labware_loader import WellPlateLoader
 from modules.lumascope_api.frame_record import FrameRecord
+from modules.recording_frames import FrameFact
 
 
 def frame_record(**overrides) -> FrameRecord:
@@ -35,3 +36,8 @@ def frame_record(**overrides) -> FrameRecord:
 def plate(key: str = '96 well microplate'):
     """A catalogue plate, as a run or a still is handed its plate."""
     return WellPlateLoader().get_plate(key)
+
+
+def unpositioned(channel: str = 'BF') -> FrameFact:
+    """A still's position fact where the scope knew no position: it states none."""
+    return FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel=channel)

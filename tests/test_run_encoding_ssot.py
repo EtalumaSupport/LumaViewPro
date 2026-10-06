@@ -28,7 +28,7 @@ import numpy as np
 import pytest
 
 from tests.protocol_drives import lent_run_claim
-from tests.frame_records import frame_record, plate
+from tests.frame_records import frame_record, plate, unpositioned
 from modules.protocol_image_writer import RunWriteBatch
 from modules.activity_claim import ActivityClaim
 from modules.exceptions import ConfigError
@@ -293,6 +293,7 @@ class TestOneRunOneEncoding:
             engineering_mode=False,
             run_claim=lent_run_claim(),
             labware=plate(),
+            to_plate=None,
             captures_asked=1,
         )
 
@@ -319,7 +320,7 @@ class TestOneRunOneEncoding:
                 significant_bits=12,
                 objective_id='4x Oly',
                 record=frame_record(),
-                stage_z_um=None,
+                position=unpositioned(),
             ),
             step=step,
             name='A1_BF',

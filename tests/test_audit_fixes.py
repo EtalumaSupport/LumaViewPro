@@ -28,7 +28,7 @@ import pytest
 from tests.af_drives import park_z
 from tests.scope_fakes import home_sim_scope, bind_settings_like_a_session
 from tests.protocol_drives import lent_run_claim
-from tests.frame_records import frame_record, plate
+from tests.frame_records import frame_record, plate, unpositioned
 from modules.protocol_image_writer import RunWriteBatch
 from modules.activity_claim import ActivityClaim
 from modules.exceptions import (
@@ -3175,6 +3175,7 @@ def _bare_protocol_writer(**overrides):
         'engineering_mode': False,
         'run_claim': lent_run_claim(),
         'labware': plate(),
+        'to_plate': None,
         'captures_asked': 1,
     }
     scope_is_stubbed = 'scope' not in overrides
@@ -3362,7 +3363,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
                 significant_bits=8,
                 objective_id='4x Oly',
                 record=frame_record(),
-                stage_z_um=None,
+                position=unpositioned(),
             ),
             step=_protocol_step(),
             name='stepA_BF',
@@ -3589,7 +3590,7 @@ class TestPIW2_DisksUsageDeduped:
                     significant_bits=8,
                     objective_id='4x Oly',
                     record=frame_record(),
-                    stage_z_um=None,
+                    position=unpositioned(),
                 ),
                 step=_protocol_step(),
                 name='stepA_BF',

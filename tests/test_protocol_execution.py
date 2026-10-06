@@ -704,6 +704,34 @@ class TestSingleScanVideo:
         manifest = json.loads(manifests[0].read_text())
         assert manifest['frames_written'] == len(frames)
 
+    def test_frames_state_the_plate_the_run_moved_on_not_the_selected_one(
+        self, executor, scope, tmp_path
+    ):
+        """The protocol is on the 6-well plate while the scope has the
+        Four-Slide Holder selected, 0.26 mm narrower. The run drives its
+        steps on the protocol's plate, so its frames state their positions
+        there: the step's own plate X and Y, not the same stage point read
+        on the selected plate."""
+        import tifffile
+
+        from tests.scope_fakes import bind_settings_like_a_session
+
+        bind_settings_like_a_session(scope)['protocol']['labware'] = 'Four-Slide Holder'
+        protocol = _make_single_step_protocol(
+            color='BF',
+            acquire='video',
+            video_config={'duration': 0.5, 'fps': 5},
+        )
+        completed, _ = _run_and_wait(executor, protocol, tmp_path, video_as_frames=True)
+        assert completed
+        frames = list(tmp_path.rglob('*_Frame_*.tiff'))
+        assert frames, 'the frames leg must write per-frame TIFF artifacts'
+        with tifffile.TiffFile(str(frames[0])) as tf:
+            described = json.loads(tf.pages[0].tags['ImageDescription'].value)
+        step = protocol.step(idx=0)
+        assert described['plate_pos_mm']['x'] == pytest.approx(step['X'], abs=0.01)
+        assert described['plate_pos_mm']['y'] == pytest.approx(step['Y'], abs=0.01)
+
 
 class TestFullProtocol:
     """Test 7: Full protocol with multiple scans."""

@@ -39,6 +39,7 @@ from modules.lumascope_api.imaging import capture_failure_cause
 from modules.notification_center import notifications
 from modules.protocol import Protocol
 from modules.protocol_recording import ProtocolVideoStep
+from modules.recording_frames import FrameFact, frame_fact
 from modules.run_outcome import CaptureTally, EndingLatch, FailedCapture, RunEnding
 from modules.sequential_io_executor import IOTask
 
@@ -529,15 +530,15 @@ class CapturedFrame(NamedTuple):
     Coupling them to the frame at capture makes handing over a frame
     without them unrepresentable. The same holds for everything else the
     file records: the instrument's own account of the frame (``record``),
-    and the height the stage was at when it was taken -- after an autofocus
-    sweep that is the focus it found, not the step's planned Z.
+    and where the stage was when it was taken (``position``) -- after an
+    autofocus sweep the focus it found, not the step's planned Z.
     """
 
     image: np.ndarray
     significant_bits: int
     objective_id: str
     record: FrameRecord
-    stage_z_um: float | None
+    position: FrameFact
 
 
 class ProtocolImageWriter:
@@ -603,6 +604,11 @@ class ProtocolImageWriter:
         # against. Its files name their wells and plate from it, not from
         # the plate the scope has selected, which a headless run never sets.
         labware: WellPlate,
+        # The stage-to-plate transform of the frame the run moves in -- the
+        # protocol's plate and the offset the run started with -- that every
+        # frame the run saves states its position through. None on a scope
+        # with no X/Y stage: its frames state no plate position.
+        to_plate: Callable[[float, float], tuple[float, float]] | None,
         # How many captures the run is asked for: scans times steps for a
         # run that saves images, 0 for one that saves none. The runner
         # knows the scan count; the writer counts what became of each.
@@ -624,6 +630,7 @@ class ProtocolImageWriter:
         self._engineering_mode = engineering_mode
         self._run_claim = run_claim
         self._labware = labware
+        self._to_plate = to_plate
         self._video_steps: list[ProtocolVideoStep] = []
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
@@ -1291,6 +1298,7 @@ class ProtocolImageWriter:
                             name=name,
                         ),
                         run_claim=self._run_claim,
+                        to_plate=self._to_plate,
                     )
                     self._video_steps.append(recorder)
                     outcome = recorder.run_blocking()
@@ -1356,12 +1364,6 @@ class ProtocolImageWriter:
                     # that delivers a black frame fails loudly while an
                     # illumination-0 or luminescence step stays dark by
                     # design.
-                    # The height the frame is taken at, read with the stage
-                    # settled for the grab: after an autofocus sweep the
-                    # stage sits at the focus it found, which the step row
-                    # handed in here -- read before the sweep -- does not
-                    # carry. A scope without Z has no height to record.
-                    frame_stage_z_um = self._scope.motion.get_target_position().get('Z')
                     captured_image = self._scope.imaging.capture_and_wait(
                         force_to_8bit=capture_depth == 8,
                         all_ones_check=True,
@@ -1394,6 +1396,14 @@ class ProtocolImageWriter:
                     # and the darkness is recorded on the row below, so a run
                     # whose illumination is genuinely broken cannot end with a
                     # clean manifest built from black frames.
+                    # Where the stage was, read beside the grab with the
+                    # reader a manual still and every recorded frame use:
+                    # after an autofocus sweep that is the focus it found,
+                    # not the step's planned Z, and an axis the scope lacks
+                    # or has lost its reference on states no position.
+                    frame_position = frame_fact(
+                        self._scope, channel_tiebreak=step['Color'], to_plate=self._to_plate
+                    )
                     capture_info = self._scope.imaging.last_capture_info or {}
                     if not capture_info.get('dark_saved'):
                         self._consecutive_capture_failures = 0
@@ -1458,7 +1468,7 @@ class ProtocolImageWriter:
                                 significant_bits=frame_significant_bits,
                                 objective_id=frame_objective_id,
                                 record=frame_record,
-                                stage_z_um=frame_stage_z_um,
+                                position=frame_position,
                             ),
                             'enable_image_saving': enable_image_saving,
                             'separate_folder_per_channel': separate_folder_per_channel,
@@ -1628,9 +1638,9 @@ class ProtocolImageWriter:
                     # the frames the saved file declares, so each goes into
                     # the parameter named for it and reaches the file
                     # unconverted.
-                    plate_x_mm=step['X'],
-                    plate_y_mm=step['Y'],
-                    stage_z_um=captured_image.stage_z_um,
+                    plate_x_mm=captured_image.position.plate_x_mm,
+                    plate_y_mm=captured_image.position.plate_y_mm,
+                    stage_z_um=captured_image.position.z_um,
                     save_encoding=self._config.save_encoding,
                     significant_bits=captured_image.significant_bits,
                     objective_id=captured_image.objective_id,

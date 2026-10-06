@@ -1647,6 +1647,9 @@ class SequencedCaptureRunner:
                 engineering_mode=self._engineering_mode,
                 run_claim=self._held_claim.lend(),
                 labware=self._scope.wellplate_loader.get_plate(plate_key=self._protocol.labware()),
+                to_plate=self._scope.protocols.plate_transform(
+                    self._protocol, stage_offset=self._stage_offset
+                ),
                 captures_asked=(
                     plan.n_scans * self._protocol.num_steps()
                     if plan.enable_image_saving and not plan.disable_saving_artifacts
