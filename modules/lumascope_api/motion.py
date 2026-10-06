@@ -210,9 +210,11 @@ class MotionAPI:
         # used by the monitor to bound how long an axis stays MOVING after
         # the board vanishes. Only the monitor thread touches it.
         self._disconnect_since: dict[str, float] = {}
-        # Per-axis monotonic timestamp the current move was first observed
-        # MOVING with the board connected; bounds a connected-but-stalled
-        # axis the same way _disconnect_since bounds a vanished board.
+        # Per-axis (drive count, monotonic timestamp) the move of that count
+        # was first observed MOVING with the board connected; bounds a
+        # connected-but-stalled axis the same way _disconnect_since bounds a
+        # vanished board. Keyed by the move's count, so a retarget never
+        # inherits the earlier move's time.
         # Without it, a move whose position_reached never fires wedges
         # every state-reader -- capture settle-checks, is_moving pollers --
         # forever, while only explicit waiters carry their own timeout.
@@ -232,6 +234,15 @@ class MotionAPI:
         # one's. The wait runs off the lane, so nothing else orders the
         # two. Under _axis_state_lock.
         self._drive_seq: dict[str, int] = {}
+        # Per-axis count of the move whose hardware target is known
+        # written -- the drive count at its MOVING or HOMING write -- or
+        # None while a drive is being sent. The monitor's verdicts (IDLE on
+        # the reached bit, UNKNOWN on a stall) are written only to an axis
+        # still armed at the count the monitor noted before it asked the
+        # board: a reached bit read while a drive is in flight, or for an
+        # earlier count, is the previous target's or the overshoot leg's
+        # and belongs to no move. Under _axis_state_lock.
+        self._armed_seq: dict[str, int | None] = {}
 
         # Per-axis state dicts -- empty until _init_axes() fills them.
         self._pos_cache: dict = {}
@@ -299,6 +310,7 @@ class MotionAPI:
         for ev in self._arrival_events.values():
             ev.set()  # Start as "arrived" (not moving)
         self._drive_seq = dict.fromkeys(present_axes, 0)
+        self._armed_seq = dict.fromkeys(present_axes, None)
         self._move_profile = dict.fromkeys(present_axes)
 
     def _start_monitor(self) -> None:
@@ -328,14 +340,11 @@ class MotionAPI:
         if self._motion_monitor_thread is not None and self._motion_monitor_thread.is_alive():
             self._motion_monitor_thread.join(timeout=1.0)
 
-        with self._axis_state_lock:
-            for ax in self._axis_state:
-                self._axis_state[ax] = AxisState.UNKNOWN
-        # Written directly above rather than through _set_axis_state, so the
-        # slot that rule clears on an UNKNOWN turret is cleared here too.
-        self._last_turret_position = None
-        for ev in self._arrival_events.values():
-            ev.set()
+        # Through the one writer of the state: it sets each arrival event,
+        # so any blocked waiter unblocks, and clears the turret slot with
+        # an UNKNOWN T.
+        for ax in list(self._axis_state):
+            self._set_axis_state(ax, AxisState.UNKNOWN)
 
     @property
     def _driver(self) -> MotorBoardProtocol:
@@ -1757,7 +1766,12 @@ class MotionAPI:
         # motion monitor polls until real arrival.
         stop_generation = self._stop_generation
         try:
-            self._driver.move_abs_pos(axis, position, overshoot_enabled=overshoot_enabled)
+            self._send_drive(
+                axis,
+                lambda: self._driver.move_abs_pos(
+                    axis, position, overshoot_enabled=overshoot_enabled
+                ),
+            )
         except Exception as e:
             _api_log.error(f'move_abs {axis}={position:.1f}um FAILED')
             self._fail_drive(axis, e)
@@ -1828,20 +1842,26 @@ class MotionAPI:
                 (``'superseded'``); the axis was faulted UNKNOWN during the
                 wait (the monitor's own ``'stalled'`` or ``'board_lost'``
                 object when it gave the axis up); it had not arrived when
-                the wait's bound ran out (``'timed_out'``, the axis is
-                UNKNOWN either way); or a stop was issued while it moved
-                (the axis is where the stop left it).
+                the wait's bound ran out (``'timed_out'``: the axis is
+                written UNKNOWN only if it is still this move's, in the
+                same hold as that check, so a move that started meanwhile
+                is left alone and this one reads ``'superseded'``); or a
+                stop was issued while it moved (the axis is where the stop
+                left it).
         """
         stopped = self._wait_for_axis_to_stop(axis, self._MOTION_SETTLE_TIMEOUT_S)
+        if not stopped and self._set_axis_state(axis, AxisState.UNKNOWN, verdict_for=drive_seq):
+            raise MoveNotCompletedError(axis, 'timed_out')
+        # Either the axis stopped, or the bound ran out and the write was
+        # refused because the axis is no longer this move's MOVING one: a
+        # later move owns it, or it was judged as the wait ended. The reads
+        # say which.
         with self._axis_state_lock:
             superseded = self._drive_seq[axis] != drive_seq
             unknown = self._axis_state.get(axis) == AxisState.UNKNOWN
             fault = self._axis_fault.get(axis)
         if superseded:
             raise MoveNotCompletedError(axis, 'superseded')
-        if not stopped:
-            self._set_axis_state(axis, AxisState.UNKNOWN)
-            raise MoveNotCompletedError(axis, 'timed_out')
         if unknown:
             # The monitor's own object when it gave the axis up, so the
             # person is shown it once; otherwise something else set it
@@ -1962,7 +1982,12 @@ class MotionAPI:
         # same race fix as move_absolute (#618).
         stop_generation = self._stop_generation
         try:
-            self._driver.move_rel_pos(axis, distance, overshoot_enabled=overshoot_enabled)
+            self._send_drive(
+                axis,
+                lambda: self._driver.move_rel_pos(
+                    axis, distance, overshoot_enabled=overshoot_enabled
+                ),
+            )
         except Exception as e:
             _api_log.error(f'move_rel {axis}={distance:+.1f}um FAILED')
             self._fail_drive(axis, e)
@@ -2267,29 +2292,69 @@ class MotionAPI:
             if unknown:
                 raise fault if fault is not None else MoveNotCompletedError(ax, 'faulted')
 
-    def _set_axis_state(self, axis: str, state: str):
-        """Set the state of an axis (internal use only).
+    def _set_axis_state(
+        self,
+        axis: str,
+        state: str,
+        *,
+        verdict_for: int | None = None,
+        armed_only: bool = False,
+    ) -> bool:
+        """Set the state of an axis: the one writer of it.
 
-        When transitioning to MOVING/HOMING, clears the axis arrival event
-        and wakes the motion monitor. When transitioning to IDLE, sets the
-        arrival event so waiters unblock. Fires position listeners on every
-        transition.
+        The state; the drive count and the arming (MOVING and HOMING bump
+        the count and arm the axis at it, the hardware target being written
+        by then); and the arrival event (cleared for MOVING and HOMING, set
+        for IDLE and UNKNOWN so waiters unblock) are written in one hold of
+        ``_axis_state_lock``, so a verdict can never land between a state
+        and its event. Fires position listeners after every write.
 
-        Silently no-ops for axes that are not present on this hardware.
-        Per-axis dicts are sized to detect_present_axes() at init, so
-        hardcoded callers like the turret-home path (T) automatically
-        degrade to no-ops on scopes that lack those axes.
+        A verdict -- the monitor's IDLE or its stall, the waiter's timed-out
+        UNKNOWN -- passes ``verdict_for``, the drive count of the move it
+        judges: the write happens only if the axis is still MOVING at that
+        count and, with ``armed_only``, still armed at it. Otherwise the
+        axis has moved on (a later move owns it, or a drive is in flight)
+        and nothing is written.
+
+        Returns:
+            bool: Whether the write happened. False for an axis that is not
+            present on this hardware: per-axis dicts are sized to
+            detect_present_axes() at init, so hardcoded callers like the
+            turret-home path (T) automatically degrade to no-ops on scopes
+            that lack those axes.
         """
         if axis not in self._arrival_events:
-            return
+            return False
         with self._axis_state_lock:
             old_state = self._axis_state.get(axis, AxisState.UNKNOWN)
+            if verdict_for is not None and (
+                old_state != AxisState.MOVING
+                or self._drive_seq[axis] != verdict_for
+                or (armed_only and self._armed_seq[axis] != verdict_for)
+            ):
+                return False
             self._axis_state[axis] = state
             # One place for every route that loses the turret -- a fault, a
             # failed home, a stall, a lost board: a turret whose position is
             # unknown is in no known slot.
             if axis == 'T' and state == AxisState.UNKNOWN:
                 self._last_turret_position = None
+            if state in (AxisState.MOVING, AxisState.HOMING):
+                # Driven again: the monitor's fault from an earlier move is
+                # not this one's.
+                self._axis_fault.pop(axis, None)
+                self._drive_seq[axis] += 1
+                self._armed_seq[axis] = self._drive_seq[axis]
+                # Clear arrival event -- axis is now in motion
+                self._arrival_events[axis].clear()
+            elif state in (AxisState.IDLE, AxisState.UNKNOWN):
+                # Signal arrival -- unblocks any wait_for_axis() callers. IDLE
+                # (arrived) and UNKNOWN (no longer moving, position
+                # indeterminate -- e.g. a failed home or a disconnect
+                # mid-move) are both terminal not-in-motion states; a waiter
+                # must unblock rather than hang on a cleared event until the
+                # 120s motion timeout.
+                self._arrival_events[axis].set()
         if profile_trace.ENABLE_PROFILE_TRACE and old_state != state:
             profile_trace.trace(
                 'motion_trace.csv',
@@ -2299,29 +2364,32 @@ class MotionAPI:
             )
 
         if state in (AxisState.MOVING, AxisState.HOMING):
-            # Driven again: the monitor's fault from an earlier move is not
-            # this one's.
-            with self._axis_state_lock:
-                self._axis_fault.pop(axis, None)
-                self._drive_seq[axis] += 1
-            # Clear arrival event -- axis is now in motion
-            self._arrival_events[axis].clear()
             # Wake the motion monitor to start polling
             self._motion_wake.set()
         elif state in (AxisState.IDLE, AxisState.UNKNOWN):
-            # Signal arrival -- unblocks any wait_for_axis() callers. IDLE
-            # (arrived) and UNKNOWN (no longer moving, position indeterminate
-            # -- e.g. a failed home or a disconnect mid-move) are both terminal
-            # not-in-motion states; a waiter must unblock rather than hang on a
-            # cleared event until the 120s motion timeout.
-            self._arrival_events[axis].set()
             # Clear motion profile -- predictor falls back to cache
             with self._move_profile_lock:
                 self._move_profile[axis] = None
 
         self._fire_position_listeners(axis)
+        return True
 
-    def _give_axis_up(self, axis: str, reason: str) -> None:
+    def _send_drive(self, axis: str, send) -> None:
+        """Disarm ``axis``, then send its drive: no verdict while a drive is in flight.
+
+        The one way a move body reaches the driver. From here until the
+        MOVING write re-arms the axis at the new count, the board's reached
+        bit is the previous target's, or the overshoot leg's, and the
+        monitor writes nothing for the axis. A raise leaves the axis
+        disarmed for the caller's ``_fail_drive`` to make terminal, so no
+        exit ends MOVING and disarmed.
+        """
+        if axis in self._arrival_events:
+            with self._axis_state_lock:
+                self._armed_seq[axis] = None
+        send()
+
+    def _give_axis_up(self, axis: str, reason: str, *, verdict_for: int | None = None) -> bool:
         """The monitor gives a moving axis up: one fault, reported, then UNKNOWN.
 
         The fault is recorded and reported before the UNKNOWN write,
@@ -2331,12 +2399,34 @@ class MotionAPI:
         its only popup; for a waited move, a report the reporter suppressed
         (an unattended run, the dedup window) leaves it for the waiter's
         caller to show.
+
+        A stall passes ``verdict_for``, the count of the move whose clock
+        ran out: the record and the write each happen only while the axis
+        is still that move's armed MOVING one. A lost board passes none: a
+        lost board is lost whichever move holds the axis.
+
+        Returns:
+            bool: Whether the axis was given up.
         """
         fault = MoveNotCompletedError(axis, reason)
         with self._axis_state_lock:
+            if verdict_for is not None and (
+                self._axis_state.get(axis) != AxisState.MOVING
+                or self._armed_seq.get(axis) != verdict_for
+            ):
+                return False
             self._axis_fault[axis] = fault
         notifications.report_outcome(fault, solicited=False, category='Motion')
-        self._set_axis_state(axis, AxisState.UNKNOWN)
+        if self._set_axis_state(
+            axis, AxisState.UNKNOWN, verdict_for=verdict_for, armed_only=verdict_for is not None
+        ):
+            return True
+        # The move went away between the report and the write: the record
+        # is not the next move's to raise.
+        with self._axis_state_lock:
+            if self._axis_fault.get(axis) is fault:
+                del self._axis_fault[axis]
+        return False
 
     def _motion_monitor_loop(self):
         """Background thread: polls firmware for axis arrival at 50 Hz.
@@ -2402,15 +2492,37 @@ class MotionAPI:
                             continue
                         # Reconnected (or never lost) before the deadline.
                         self._disconnect_since.pop(ax, None)
-                        # Read motor actual position from hardware and update
-                        # the cache so get_current_position (and the crosshair
-                        # via the position listener) tracks the motor instead
-                        # of the cached target. Fixes #674 H4 -- previously,
-                        # get_current_position routed through _predicted_position,
-                        # whose trapezoidal model used unrealistic ramp_params
-                        # (motorconfig amax=50000 vs firmware register 30000;
-                        # converted to ~70-116 m/s^2 vs real stage <5 m/s^2)
-                        # and raced the motor 5-10x ahead.
+                        # Note the move being judged before asking the board:
+                        # the verdict is written only if the axis is still
+                        # that move's when the answer comes back.
+                        with self._axis_state_lock:
+                            noted = self._drive_seq[ax]
+                            armed = self._armed_seq.get(ax) == noted
+                        # The arrival check: firmware-authoritative via the
+                        # position_reached (STATUS_R bit 22) signal. The motor
+                        # owns this -- it knows when XACTUAL == XTARGET at the
+                        # microstep level, including final-step settling and
+                        # the firmware Zstop logic. Asked BEFORE the position
+                        # read below, so the position kept on arrival was read
+                        # after the exchange that saw it: where the axis
+                        # stopped, not where it was one exchange earlier.
+                        try:
+                            arrived = self.get_target_status(ax)
+                        except Exception as e:
+                            logger.warning(
+                                f'[SCOPE API ] Motion monitor: target_status({ax}) failed: {e}'
+                            )
+                            continue
+                        # Read the motor's actual position into the cache so
+                        # get_current_position (and the crosshair, through the
+                        # position listener) tracks the motor instead of the
+                        # cached target: the trapezoidal predictor's ramp
+                        # parameters raced the motor 5-10x ahead. On arrival the
+                        # cache holds this read -- the actual motor position,
+                        # which may differ from the commanded target by up to
+                        # ~1 microstep (X/Y ~0.078 um, Z ~0.025 um) of
+                        # quantization -- so it stays honest about where the
+                        # motor physically is.
                         try:
                             actual = self._driver.current_pos(ax)
                             if actual is not None:
@@ -2418,50 +2530,42 @@ class MotionAPI:
                                     self._pos_cache[ax] = float(actual)
                         except Exception as e:
                             _api_log.debug(f'motion monitor current_pos({ax}) failed: {e}')
-                        # Arrival check: firmware-authoritative via the
-                        # position_reached (STATUS_R bit 22) signal. The motor
-                        # owns this -- it knows when XACTUAL == XTARGET at the
-                        # microstep level, including final-step settling and
-                        # the firmware Zstop logic. On arrival, cache holds
-                        # whatever current_pos read above returned -- that
-                        # is the actual motor position, which may differ from
-                        # the commanded target by up to ~1 microstep (X/Y
-                        # ~0.078 um, Z ~0.025 um) due to microstep
-                        # quantization. Reporting the polled value (not the
-                        # commanded target) keeps the cache honest about
-                        # where the motor physically is.
-                        try:
-                            if self.get_target_status(ax):
-                                self._set_axis_state(ax, AxisState.IDLE)
-                                # Cleared here, not only by the prune above: a
-                                # back-to-back move landing within one poll
-                                # interval must start its own stall clock, not
-                                # inherit the finished move's.
-                                self._moving_since.pop(ax, None)
-                            else:
-                                # Still moving per firmware. A connected axis
-                                # that stays not-arrived past the published
-                                # motion bound is stalled: position_reached
-                                # will never fire, so nothing else can ever
-                                # clear it. Fault it to UNKNOWN (terminal;
-                                # fires the arrival event so waiters and
-                                # state-readers unblock, and the settle-check
-                                # treats UNKNOWN as settled) and tell the user
-                                # once -- the same shape as the disconnect
-                                # fault. The clock lives HERE, after the
-                                # arrival check, so an arriving report always
-                                # wins over the stall verdict.
-                                moving_first = self._moving_since.setdefault(ax, time.monotonic())
-                                if time.monotonic() - moving_first > self._MOTION_SETTLE_TIMEOUT_S:
-                                    self._moving_since.pop(ax, None)
-                                    self._give_axis_up(ax, 'stalled')
-                                    continue
-                                # Propagate the refreshed cache value to UI
-                                # listeners.
-                                self._fire_position_listeners(ax)
-                        except Exception as e:
-                            logger.warning(
-                                f'[SCOPE API ] Motion monitor: target_status({ax}) failed: {e}'
+                        if (
+                            arrived
+                            and armed
+                            and self._set_axis_state(
+                                ax, AxisState.IDLE, verdict_for=noted, armed_only=True
                             )
+                        ):
+                            # Its clock goes with it: a back-to-back move
+                            # landing within one poll interval starts its own.
+                            self._moving_since.pop(ax, None)
+                            continue
+                        if armed and not arrived:
+                            # Still moving per firmware. A connected axis that
+                            # stays not-arrived past the published motion bound
+                            # is stalled: position_reached will never fire, so
+                            # nothing else can ever clear it. Fault it to
+                            # UNKNOWN (terminal; fires the arrival event so
+                            # waiters and state-readers unblock, and the
+                            # settle-check treats UNKNOWN as settled) and tell
+                            # the user once -- the same shape as the disconnect
+                            # fault. The clock is the move's own, per (axis,
+                            # count) and run only while the axis is armed, and
+                            # it lives HERE, after the arrival check, so an
+                            # arriving report always wins over the stall
+                            # verdict.
+                            since = self._moving_since.get(ax)
+                            if since is None or since[0] != noted:
+                                since = (noted, time.monotonic())
+                                self._moving_since[ax] = since
+                            if time.monotonic() - since[1] > self._MOTION_SETTLE_TIMEOUT_S:
+                                self._moving_since.pop(ax, None)
+                                if self._give_axis_up(ax, 'stalled', verdict_for=noted):
+                                    continue
+                        # No verdict this poll (still moving, a drive in
+                        # flight, or the reached bit was another move's):
+                        # propagate the refreshed cache value to UI listeners.
+                        self._fire_position_listeners(ax)
 
                 time.sleep(self._MOTION_POLL_INTERVAL)
