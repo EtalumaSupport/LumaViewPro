@@ -267,6 +267,63 @@ def test_the_lid_is_read_before_every_command_that_starts_x_or_y(board, sim, axi
         assert (sent[i - 1].command, sent[i - 1].type, sent[i - 1].motor) == (GIO, *LID_INPUT)
 
 
+def _lid_gated_starts(sent):
+    return [
+        i
+        for i, c in enumerate(sent)
+        if c.motor in (0, 1)
+        and (c.command in (ROR, MVP) or (c.command, c.type) == (RFS, RFS_START))
+    ]
+
+
+def test_the_lid_is_read_before_every_command_of_a_home_that_starts_x_or_y(
+    homing_board, homing_sim
+):
+    """A home's ROR, MVP and RFS starts on X and Y are read the same way as
+    a move's MVP: in the one exchange path, under its lock."""
+    _sent(homing_sim)
+    assert homing_board.home()
+    sent = _sent(homing_sim)
+    starts = _lid_gated_starts(sent)
+    assert len(starts) >= 7, starts
+    for i in starts:
+        assert (sent[i - 1].command, sent[i - 1].type, sent[i - 1].motor) == (GIO, *LID_INPUT), (
+            i,
+            sent[i - 1],
+        )
+
+
+def test_a_lid_opened_between_two_phases_of_a_home_is_refused_at_the_next_start():
+    """Z has homed when the lid opens, just before X's search starts: the
+    start is refused by the exchange path, nothing more is sent to X, and
+    the refusal says the home had moved."""
+
+    class OpensBeforeXStarts(SimulatedTmcm6110):
+        def answer(self, datagram):
+            reply = super().answer(datagram)
+            # X's reference search mode is the last write before its start.
+            if datagram[1:4] == bytes([SAP, 193, 0]):
+                self.lid_open = True
+            return reply
+
+    sim = OpensBeforeXStarts(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, clock=_fast_clock(HOMING))
+    board = Tmcm6110Board(
+        motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=SimulatedTmcm6110Backend(sim)
+    )
+    try:
+        with pytest.raises(MotionInterlockError) as refused:
+            board.home()
+    finally:
+        board.disconnect()
+    assert (refused.value.reason, refused.value.moved, refused.value.stopped) == (
+        'lid_open',
+        True,
+        True,
+    )
+    assert not any((c.command, c.type, c.motor) == (RFS, RFS_START, 0) for c in sim.commands)
+    assert sim.axes['Z'].p == 0
+
+
 def test_an_open_lid_refuses_x_and_stops_all_three(board, sim):
     board.move_abs_pos('Z', 5000)
     sim.lid_open = True

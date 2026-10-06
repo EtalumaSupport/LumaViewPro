@@ -374,10 +374,9 @@ def _drive_to_switch(board, axis, toward_reference):
     """Drive ``axis`` slowly until a limit switch stops it; return where.
 
     The board stops a motor at an engaged switch itself (the switches are
-    enabled at a home). The lid is read first under the driver's lock, as
-    every command the driver sends to start X or Y does. Whatever happens,
-    the axis is stopped and its speed restored before this returns or
-    raises.
+    enabled at a home). The driver reads the lid before the ``MVP``, as
+    before every command that starts X or Y. Whatever happens, the axis is
+    stopped and its speed restored before this returns or raises.
     """
     motor = MOTORS[axis]
     params = board.motorconfig.axis_parameters(axis)
@@ -388,7 +387,6 @@ def _drive_to_switch(board, axis, toward_reference):
     started = time.monotonic()
     try:
         with board._lock:
-            board._refuse_if_lid_open(axis)
             board._exchange(
                 SAP,
                 tmcm6110.AP_MAX_POSITIONING_SPEED,

@@ -16,9 +16,10 @@ it is going: the target is read back with ``GAP 0``, never remembered here.
 
 The lid. The LS720's deck lid is an input on the board, not an interlock the
 board enforces. As LumaView Classic did, every command that starts X or Y
-motion reads it first, under the same lock as the command; open, all three
-axes are stopped and the command is refused with ``MotionInterlockError``.
-Z moves with the lid open, and stopping is never gated.
+motion reads it first, in the one path every datagram takes and under the
+same lock as the command, a home's starts included; open, all three axes
+are stopped and the command is refused with ``MotionInterlockError``. Z
+moves with the lid open, and stopping is never gated.
 
 The datagram codec is here once, both directions: the simulated board
 (``drivers/simulated_tmcm6110.py``) decodes what this driver encodes.
@@ -144,6 +145,7 @@ POWER_PRESENT_ABOVE = 20
 
 MOTORS = {'X': 0, 'Y': 1, 'Z': 2}
 LID_GATED_AXES = ('X', 'Y')
+LID_GATED_MOTORS = frozenset(MOTORS[axis] for axis in LID_GATED_AXES)
 
 # How long one reply may take: LumaView Classic's per-command wait.
 REPLY_TIMEOUT_S = 0.5
@@ -214,6 +216,15 @@ def encode_reply(status: int, command: int, value: int) -> bytes:
 def decode_reply(datagram: bytes) -> TmclReply:
     """Raises ValueError on a wrong length or checksum."""
     return TmclReply(*_unpack(datagram))
+
+
+def starts_lid_gated_motion(command: int, type_: int, motor: int) -> bool:
+    """Whether a datagram starts X or Y moving: ``ROR``, ``MVP``, or an
+    ``RFS`` start on one of them. A stop (``MST``, the ``SAP 0`` after it),
+    an ``RFS`` stop, a poll and the lid read itself start nothing."""
+    return motor in LID_GATED_MOTORS and (
+        command in (ROR, MVP) or (command, type_) == (RFS, RFS_START)
+    )
 
 
 def encode_version_reply(version: str) -> bytes:
@@ -344,11 +355,14 @@ class Tmcm6110Board:
         """Send one command and return its reply's value.
 
         A port that is gone is looked for again first, as a replugged
-        board would be. A reply that does not come, does not check, or
-        answers another command closes the port, since the stream can no
-        longer be trusted to line up.
+        board would be. A command that starts X or Y moving reads the lid
+        first, under the same lock. A reply that does not come, does not
+        check, or answers another command closes the port, since the
+        stream can no longer be trusted to line up.
 
         Raises:
+            MotionInterlockError: the lid is open and the command would
+                start X or Y; all three axes stopped, the command not sent.
             HardwareError: no board, no reply, a garbled reply, or a status
                 other than success; the message names the command.
         """
@@ -358,6 +372,8 @@ class Tmcm6110Board:
                 self._serial = self._open_identified()
                 if self._serial is None:
                     raise HardwareError(f'{what}: the TMCM-6110 is not connected')
+            if starts_lid_gated_motion(command, type_, motor) and self._lid_open():
+                self._refuse_for_lid(moved=False)
             try:
                 self._serial.write(encode_command(command, type_, motor, value))
                 raw = self._serial.read(DATAGRAM_BYTES)
@@ -460,12 +476,6 @@ class Tmcm6110Board:
             logger.error(f'[TMCM-6110 ] Lid open: the stop did not complete: {e}')
         raise MotionInterlockError('lid_open', moved=moved, stopped=True)
 
-    def _refuse_if_lid_open(self, axis: str) -> None:
-        """Called under the lock, before a command that starts ``axis``
-        moving. An open lid stops all three axes and refuses the command."""
-        if axis in LID_GATED_AXES and self._lid_open():
-            self._refuse_for_lid(moved=False)
-
     def motor_stop(self) -> bool:
         """Stop all three axes, each target left where it stopped, and end
         any home in progress.
@@ -501,10 +511,7 @@ class Tmcm6110Board:
             MotionInterlockError: X or Y with the lid open; nothing moved.
             HardwareError: an unsupported axis, or the board did not take it.
         """
-        motor = self._motor(axis)
-        with self._lock:
-            self._refuse_if_lid_open(axis)
-            self._exchange(MVP, MVP_ABS, motor, self._to_board(axis, steps))
+        self._exchange(MVP, MVP_ABS, self._motor(axis), self._to_board(axis, steps))
 
     def move_abs_pos(self, axis: str, pos: float, overshoot_enabled: bool = True) -> None:
         """Move to ``pos`` micrometres. No overshoot: Classic compensated
@@ -631,8 +638,15 @@ class Tmcm6110Board:
         try:
             self._home_send(SIO, *FAN_OUTPUT, 1)
             self._set_switch_polarities()
-            for phase in phases:
-                phase()
+            try:
+                for phase in phases:
+                    phase()
+            except MotionInterlockError as e:
+                if e.moved:
+                    raise
+                # The exchange path refused a start inside the phases: an
+                # earlier phase had already moved an axis.
+                raise MotionInterlockError(e.reason, moved=True, stopped=e.stopped) from e
             for axis in axes:
                 self._home_send(SAP, AP_TARGET_POSITION, MOTORS[axis], 0)
         except BaseException:
