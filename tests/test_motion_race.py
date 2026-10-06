@@ -39,6 +39,19 @@ import pytest
 
 from tests.scope_fakes import build_scope, home_sim_scope
 
+
+def _stop_the_monitor(scope):
+    """Stop the motion monitor, so nothing judges the next move.
+
+    A fast-tier move takes 3 ms; the monitor would write it IDLE, and clear
+    its profile, before the test thread reads the move it started.
+    """
+    motion = scope.motion
+    motion._motion_monitor_stop.set()
+    motion._motion_wake.set()
+    motion._motion_monitor_thread.join(timeout=2.0)
+
+
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
 
@@ -237,6 +250,7 @@ class TestMoveRelProfile_674:
 
         scope._motion_driver.move_abs_pos = snapshot_at_driver_return
 
+        _stop_the_monitor(scope)
         scope.motion.start_move_absolute('X', 1400.0)
 
         assert observed.get('profile_at_driver_return') is None, (
@@ -331,6 +345,7 @@ class TestMoveRelProfile_674:
         scope._motion_driver.move_abs_pos = snapshot_at_driver_return
 
         delta = 300.0
+        _stop_the_monitor(scope)
         scope.motion.start_move_relative('X', delta)
 
         # H3 invariant: profile not yet written at driver-return.
@@ -364,6 +379,7 @@ class TestMoveRelProfile_674:
         scope._motion_driver.set_timing_mode('fast')
 
         scope.motion.move_absolute('X', 1000.0)
+        _stop_the_monitor(scope)
         scope.motion.start_move_relative('X', 500.0)
 
         # Observation AFTER the move method returns: profile must be set,
@@ -405,6 +421,7 @@ class TestMoveRelProfile_674:
 
         scope._motion_driver.move_abs_pos = slow_driver
 
+        _stop_the_monitor(scope)
         t_before = _time.monotonic()
         scope.motion.start_move_relative('X', 300.0)
         t_after = _time.monotonic()
