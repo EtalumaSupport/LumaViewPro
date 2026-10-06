@@ -221,7 +221,6 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         parent_dir=tmp_path / 'output',
         max_scans=run_kwargs.pop('max_scans', 1),
         callbacks=callbacks,
-        leds_state_at_end=run_kwargs.pop('leds_state_at_end', 'off'),
         enable_image_saving=run_kwargs.pop('enable_image_saving', False),
         autofocus_snapshot=autofocus_snapshot(),
         **run_kwargs,
@@ -329,9 +328,9 @@ class TestIntegrationSingleStep:
         assert completed, 'Protocol did not complete within timeout'
 
     def test_leds_off_after_completion(self, executor, scope, tmp_path):
-        """After protocol completes with leds_state_at_end='off', all LEDs should be off."""
+        """After a scan completes, all LEDs should be off."""
         protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 100.0}])
-        completed, _ = _run_and_wait(executor, protocol, tmp_path, leds_state_at_end='off')
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
         # All LED channels should be off

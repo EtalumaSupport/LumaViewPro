@@ -52,7 +52,6 @@ def _start_run(executor, tmp_path):
             'go_to_step': lambda **kw: None,
             'move_position': lambda axis: None,
         },
-        leds_state_at_end='off',
         autofocus_snapshot=autofocus_snapshot(),
     )
     return executor.start(plan)

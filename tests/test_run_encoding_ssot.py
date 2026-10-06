@@ -213,7 +213,6 @@ def _run_one_still(executor, tmp_path, config):
             'go_to_step': lambda **kw: None,
             'move_position': lambda axis: None,
         },
-        leds_state_at_end='off',
         autofocus_snapshot=autofocus_snapshot(),
     )
     executor.start(plan)

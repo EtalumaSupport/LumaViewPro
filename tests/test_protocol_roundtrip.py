@@ -322,7 +322,6 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         parent_dir=tmp_path / 'output',
         max_scans=run_kwargs.pop('max_scans', 1),
         callbacks=callbacks,
-        leds_state_at_end=run_kwargs.pop('leds_state_at_end', 'off'),
         autofocus_snapshot=autofocus_snapshot(),
         **run_kwargs,
     )
@@ -1495,7 +1494,6 @@ class TestExecuteCancellation:
             parent_dir=tmp_path / 'output',
             max_scans=1,
             callbacks=callbacks,
-            leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
         executor.start(plan)
@@ -1520,7 +1518,7 @@ class TestExecuteLEDRestore:
     def test_leds_off_after_protocol(self, executor, scope, tmp_path):
         steps = [_make_step(color='Green', illumination=200.0)]
         proto = _build_protocol(steps)
-        completed, _ = _run_and_wait(executor, proto, tmp_path, leds_state_at_end='off')
+        completed, _ = _run_and_wait(executor, proto, tmp_path)
         assert completed
 
         # All LEDs should be off after protocol
@@ -1937,7 +1935,6 @@ class TestExecutorEdgeCases:
                 parent_dir=tmp_path / 'output',
                 max_scans=1,
                 callbacks={'run_complete': lambda **kw: done.set()},
-                leds_state_at_end='off',
                 autofocus_snapshot=autofocus_snapshot(),
             )
         assert not done.is_set(), 'run_complete must not fire for a refused run'

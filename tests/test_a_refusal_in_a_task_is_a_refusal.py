@@ -172,7 +172,7 @@ def test_every_refused_press_is_shown_however_soon_it_repeats(make_error, title)
 def test_a_refusal_in_a_runs_own_task_keeps_the_runs_mute(make_error, title):
     # Mid-run only a fatal error may pop up; the run owns its refusals.
     centre, shown = _watched_centre()
-    centre.set_unattended_run(True)
+    centre.open_run_scope(attended=False)
 
     _run_task(centre, _move_absolute_impl, make_error(), protocol=True)
 

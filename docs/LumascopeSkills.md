@@ -967,7 +967,7 @@ Each call carries one `Notification` (`modules.notification_center`):
 | `remedy` | A `Remedy` when the outcome has one action that answers it: `session.apply_remedy(n.remedy)` takes it |
 | `solicited` | True when it answers a request a person or caller just made |
 | `fatal` | True for a fault that ends what was running |
-| `shown` | Whether the scope says this is for display now. False when it was muted: during a run nobody is watching (non-fatal outcomes), within 10 s of the same title being shown, or during shutdown. You receive muted outcomes too; a display shows only `shown` ones |
+| `shown` | Whether the scope says this is for display now. False when it was muted: during a scan, a protocol, an autofocus scan of every step, or a run under a diagnostic's claim (non-fatal outcomes; a standalone autofocus, composite or z-stack is shown, whoever started it); during a standalone autofocus, composite or z-stack, a non-fatal outcome identical to one already shown in that run (same category, title and message); within 10 s of the same title being shown; or during shutdown. You receive muted outcomes too; a display shows only `shown` ones |
 | `outcome_id` | One per outcome. An outcome delivered muted and later shown (because someone asked for it) arrives twice with the same id, `shown` False then True; keep the first of an id to count each outcome once |
 | `wall_time`, `timestamp` | Wall-clock seconds, and a monotonic time for ordering within the process |
 | `severity`, `category`, `operation_key` | The log level, the subsystem, and the operation a notice-then-outcome pair is about |
@@ -1018,7 +1018,8 @@ False: a diagnostic is not a run.
 A diagnostic that needs autofocus runs the public one under its own claim,
 `runner.run_autofocus(layer, claim=held)` with the `held` the block yields.
 That run acts inside the diagnostic: it is not refused by it and cannot end
-it. When the block ends with such a run still live, the release waits for
+it, and its non-fatal outcomes are muted (`shown` False) -- the diagnostic
+gets the run's outcome from its handle and decides what to show. When the block ends with such a run still live, the release waits for
 the run first; if it is still live after the wait, the claim stays held and
 the block's end raises `RuntimeError`.
 

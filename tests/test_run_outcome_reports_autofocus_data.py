@@ -174,6 +174,7 @@ class _AfRig:
         save_data: bool,
         borrowed_claim=None,
         run_trigger_source: str = 'autofocus',
+        run_mode: SequencedCaptureRunMode = SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
     ):
         """Prepare one standalone AF run; the plan, not yet started."""
         done = self._done = threading.Event()
@@ -181,7 +182,7 @@ class _AfRig:
         return self.runner.prepare(
             protocol=_make_af_step_protocol(),
             run_trigger_source=run_trigger_source,
-            run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
+            run_mode=run_mode,
             sequence_name='autofocus',
             image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
             autogain_settings={
@@ -201,7 +202,6 @@ class _AfRig:
                 'run_complete': lambda **kw: done.set(),
                 'files_complete': lambda **kw: files_done.set(),
             },
-            leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(
                 states={
                     'BF': True,

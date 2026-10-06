@@ -275,7 +275,7 @@ def scan_ready_runner(step, **state):
     """Runner advanced to the scan-ready state prepare()+start()
     normally establish, with a single-step protocol mock returning *step*.
     Keyword args land as runner attributes (e.g. _n_scans=2)."""
-    from modules.protocol_state_machine import ProtocolState
+    from modules.protocol_state_machine import ProtocolState, SequencedCaptureRunMode
 
     runner = bare_capture_runner()
     runner._scope.motion.is_moving.return_value = False
@@ -297,7 +297,7 @@ def scan_ready_runner(step, **state):
     runner._image_capture_config = ImageCaptureConfig.from_image_mode('8bit')
     runner._separate_folder_per_channel = False
     runner._video_as_frames = False
-    runner._leds_state_at_end = 'off'
+    runner._run_mode = SequencedCaptureRunMode.FULL_PROTOCOL
     runner._keep_led_between_steps = False
     runner._ag_ae_max_exposure_ms = {}
     runner._write_focus_to = None

@@ -440,19 +440,19 @@ def _every_session_is_shut_down_by_its_test():
 
 @pytest.fixture(autouse=True)
 def _no_test_leaves_the_popups_muted():
-    """A test that ends with the notification centre muted for a run fails.
+    """A test that ends with the notification centre judging posts for a run fails.
 
-    Starting a run sets the centre's process-wide unattended flag and only
-    that run's cleanup lowers it. A test that leaves a run live leaves it
-    set, and every later test on the worker finds its notices suppressed --
-    a failure far from its cause. It is reported here, on the test that
-    left it, and lowered so the next test starts clean.
+    Starting a run opens the centre's process-wide run scope and only that
+    run's cleanup closes it. A test that leaves a run live leaves it open,
+    and every later test on the worker finds its notices muted or counted
+    as already shown -- a failure far from its cause. It is reported here,
+    on the test that left it, and closed so the next test starts clean.
     """
     yield
     center = sys.modules.get('modules.notification_center')
-    if center is not None and center.notifications._unattended_run:
-        center.notifications.set_unattended_run(False)
-        pytest.fail('the test left a run live: the notification centre is still muted for it')
+    if center is not None and center.notifications._run_scope is not None:
+        center.notifications.close_run_scope()
+        pytest.fail('the test left a run live: the notification centre still judges posts as its')
 
 
 @pytest.fixture

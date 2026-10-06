@@ -260,7 +260,6 @@ def _prepare(executor, protocol, tmp_path, callbacks=None, sequence_name='refusa
         parent_dir=tmp_path / 'output',
         max_scans=1,
         callbacks=cbs,
-        leds_state_at_end='off',
         # The snapshot carries its own restorer, so cleanup never reaches
         # the global settings module that other test files replace with
         # import-order-dependent stand-ins.
@@ -591,7 +590,6 @@ class TestTheCompositeChannelFloor:
             parent_dir=tmp_path / 'output',
             max_scans=1,
             callbacks={'go_to_step': lambda **kw: None, 'move_position': lambda axis: None},
-            leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
 

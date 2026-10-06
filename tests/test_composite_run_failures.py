@@ -352,7 +352,7 @@ class TestTheThreeStrikeFatalAbort:
 
     def test_a_fatal_abort_darkens_every_led_including_one_it_did_not_light(self, tmp_path):
         # A composite hands the illumination back the way it found it
-        # (start_composite passes leds_state_at_end='return_to_original'),
+        # (a one-position run's leds_state_at_end is 'return_to_original'),
         # so a channel the user had lit before the run normally comes
         # back on at the end. A FATAL abort is the exception: the run died
         # on a fault, and leaving the sample illuminated by a scope nobody

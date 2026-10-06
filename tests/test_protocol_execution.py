@@ -293,7 +293,6 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         parent_dir=tmp_path / 'output',
         max_scans=run_kwargs.pop('max_scans', 1),
         callbacks=callbacks,
-        leds_state_at_end=run_kwargs.pop('leds_state_at_end', 'off'),
         autofocus_snapshot=run_kwargs.pop('autofocus_snapshot', autofocus_snapshot()),
         **run_kwargs,
     )
@@ -381,7 +380,7 @@ class TestSingleScanBasicImage:
         protocol = _make_single_step_protocol(color='BF', illumination=75.0)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        # After protocol with leds_state_at_end='off', all LEDs should be off
+        # A scan ends with every LED off
         for color in scope._led_driver.led_ma:
             assert not scope.illumination.get_led_state(color)['enabled'], (
                 f'LED {color} still on after protocol'
@@ -648,7 +647,7 @@ class TestSingleScanFluorescence:
         protocol = _make_single_step_protocol(color='Red', illumination=100.0)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        # After protocol with leds_state_at_end='off', LEDs are off --
+        # A scan ends with every LED off --
         # completion confirms the LED was used during the protocol
 
     # Every layer of the suite's scope (an LS850T: no Lumi). A luminescence
@@ -777,19 +776,20 @@ class TestLedStateAtEnd:
 
     def test_leds_off_at_end(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
-        completed, _ = _run_and_wait(executor, protocol, tmp_path, leds_state_at_end='off')
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         # Verify all LEDs are off via simulator public API
         for color in scope._led_driver.led_ma:
             assert not scope.illumination.get_led_state(color)['enabled'], f'LED {color} still on'
 
     def test_return_to_original_leds(self, executor, scope, tmp_path):
-        # Turn on BF LED before protocol so executor captures it as original state
+        # Turn on BF LED before the run so the executor captures it as the
+        # original state. A one-position run hands the LEDs back as found.
         bf_ch = scope.illumination.color2ch(color='BF')
         scope.illumination.led_on(bf_ch, 25)
         protocol = _make_single_step_protocol(color='BF')
         completed, _ = _run_and_wait(
-            executor, protocol, tmp_path, leds_state_at_end='return_to_original'
+            executor, protocol, tmp_path, run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK
         )
         assert completed
 
@@ -1400,7 +1400,6 @@ class TestCancellationMidRun:
             parent_dir=tmp_path / 'output',
             max_scans=100,
             callbacks=callbacks,
-            leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
         run = executor.start(plan)
@@ -1438,7 +1437,6 @@ class TestCancellationMidRun:
             parent_dir=tmp_path / 'output',
             max_scans=1,
             callbacks=callbacks,
-            leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
         run = executor.start(plan)
@@ -1536,7 +1534,6 @@ class TestDisconnectedScope:
                 parent_dir=tmp_path / 'output',
                 max_scans=1,
                 callbacks=callbacks,
-                leds_state_at_end='off',
                 autofocus_snapshot=autofocus_snapshot(),
             )
 
@@ -1716,7 +1713,6 @@ class TestSavingWithNoneParentDir:
             parent_dir=None,
             max_scans=1,
             callbacks=callbacks,
-            leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
         executor.start(plan)
@@ -1768,7 +1764,6 @@ class TestMinimalCallbacks:
             parent_dir=tmp_path / 'output',
             max_scans=1,
             callbacks={'run_complete': on_complete},
-            leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
         executor.start(plan)
@@ -1841,7 +1836,6 @@ class TestCleanupConcurrency:
                 'run_complete': lambda **kw: done.set(),
                 'go_to_step': lambda **kw: None,
             },
-            leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
         run = executor.start(plan)
@@ -2104,7 +2098,6 @@ class TestCameraStateRestoration:
                 'run_complete': lambda **kw: done.set(),
                 'go_to_step': lambda **kw: None,
             },
-            leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
         run = executor.start(plan)
@@ -2165,7 +2158,6 @@ class TestCleanupCorrectness:
                 'run_complete': lambda **kw: done.set(),
                 'go_to_step': lambda **kw: None,
             },
-            leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
         run = executor.start(plan)
@@ -2428,7 +2420,6 @@ class TestRunReturnValueContract:
             parent_dir=tmp_path / 'output',
             max_scans=1,
             callbacks=cbs,
-            leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
 

@@ -92,7 +92,7 @@ class TestTheRunIsAnAutofocusOfItsOwn:
         # traverse that must end dark.
         runner = _runner()
         runner.run_autofocus(layer='BF')
-        assert _prepared(runner)['leds_state_at_end'] == 'return_to_original'
+        assert _prepared(runner)['run_mode'].leds_state_at_end == 'return_to_original'
 
 
 class TestCharacterizationDataIsOptIn:

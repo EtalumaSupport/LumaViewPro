@@ -163,8 +163,6 @@ class ProtocolRunner:
             enable_image_saving=enable_image_saving,
             callbacks=callbacks,
             return_to_position=return_to_position,
-            # A scan traverses the plate and may end unattended.
-            leds_state_at_end='off',
             engineering_mode=engineering_mode,
         )
 
@@ -219,8 +217,6 @@ class ProtocolRunner:
             image_capture_config=image_capture_config,
             enable_image_saving=enable_image_saving,
             callbacks=callbacks,
-            # A protocol traverses the plate and may end unattended.
-            leds_state_at_end='off',
             engineering_mode=engineering_mode,
         )
 
@@ -289,11 +285,6 @@ class ProtocolRunner:
             ),
             enable_image_saving=True,
             callbacks=callbacks,
-            # A composite is an interactive act on a scope the user is
-            # standing at: it hands the illumination back the way it was
-            # found, rather than forcing every channel dark the way an
-            # unattended scan does.
-            leds_state_at_end='return_to_original',
             composite_thresholds_percent=config_helpers.get_composite_blend_thresholds(settings),
             engineering_mode=engineering_mode,
         )
@@ -351,9 +342,10 @@ class ProtocolRunner:
                 caller's activity and cannot release its claim; it is
                 refused if that claim no longer holds. None takes the scope
                 for this run alone.
-            run_trigger_source: Who asked for the run. The Autofocus button
-                passes its own, which the engine treats as attended; a
-                script keeps the default.
+            run_trigger_source: Who asked for the run, recorded on it and
+                named in refusals. The Autofocus button passes its own; a
+                script keeps the default. Either way the run is attended
+                -- its failures are shown -- unless it runs under *claim*.
             engineering_mode: Whether the run follows engineering-mode
                 behaviour. None takes the session's; the GUI passes its live
                 flag, which its plugin can change after the session exists.
@@ -410,10 +402,6 @@ class ProtocolRunner:
             image_capture_config=config_helpers.get_image_capture_config_from_settings(settings),
             enable_image_saving=False,
             callbacks=callbacks,
-            # A one-field operation at a scope someone is standing at, so it
-            # hands the illumination back the way it was found rather than
-            # forcing every channel dark the way a plate traverse does.
-            leds_state_at_end='return_to_original',
             disable_saving_artifacts=True,
             save_autofocus_data=save_characterization_data,
             claim=claim,
@@ -474,9 +462,6 @@ class ProtocolRunner:
             image_capture_config=config_helpers.get_image_capture_config_from_settings(settings),
             enable_image_saving=False,
             callbacks=callbacks,
-            # It traverses every step's position, so it ends dark rather than
-            # leaving the sample lit after it moves away.
-            leds_state_at_end='off',
             disable_saving_artifacts=True,
             engineering_mode=engineering_mode,
             write_focus_to=protocol,
@@ -588,9 +573,6 @@ class ProtocolRunner:
             enable_image_saving=enable_image_saving,
             callbacks=callbacks,
             return_to_position=position if return_to_start else None,
-            # A one-field operation at a scope someone is standing at, so it
-            # hands the illumination back the way it was found.
-            leds_state_at_end='return_to_original',
             engineering_mode=engineering_mode,
         )
 
@@ -682,7 +664,6 @@ class ProtocolRunner:
         enable_image_saving: bool = True,
         callbacks: dict[str, typing.Callable] | None = None,
         return_to_position: dict | None = None,
-        leds_state_at_end: str = 'off',
         composite_thresholds_percent: dict | None = None,
         engineering_mode: bool | None = None,
         disable_saving_artifacts: bool = False,
@@ -771,7 +752,6 @@ class ProtocolRunner:
             autogain_settings=autogain_settings,
             callbacks=run_callbacks,
             return_to_position=return_to_position,
-            leds_state_at_end=leds_state_at_end,
             composite_thresholds_percent=composite_thresholds_percent,
             engineering_mode=engineering_mode,
             # Forwarded with the boundary's own names and its own defaults,

@@ -135,14 +135,14 @@ class TestWhatIsNotAStall:
 class TestWhereItIsNotShown:
     def test_an_unattended_run_logs_the_stall_and_shows_nothing(self, session, shown, caplog):
         camera = session.scope._camera_driver
-        notifications.set_unattended_run(True)
+        notifications.open_run_scope(attended=False)
         try:
             with caplog.at_level(logging.INFO):
                 camera.hold_frames(SimulatedStall(after_s=0.1, for_s=1.5))
                 assert _wait_for(lambda: _stall_lines(caplog), 3.0), 'the stall was not seen'
                 time.sleep(0.3)
         finally:
-            notifications.set_unattended_run(False)
+            notifications.close_run_scope()
         assert shown == [], 'an unattended run showed a non-fatal fault'
         assert len(_stall_lines(caplog)) == 1, 'the muted stall was not logged once as a fault'
 

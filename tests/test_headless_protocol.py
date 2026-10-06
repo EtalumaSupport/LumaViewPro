@@ -317,7 +317,6 @@ class TestHeadlessProtocolExecution:
                     parent_dir=tmp_path / 'output',
                     max_scans=1,
                     callbacks=callbacks,
-                    leds_state_at_end='off',
                     enable_image_saving=False,
                     autofocus_snapshot=autofocus_snapshot(),
                 )

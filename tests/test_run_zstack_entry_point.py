@@ -107,7 +107,7 @@ class TestTheRunIsAZStackOfItsOwn:
     def test_it_hands_the_illumination_back_as_it_found_it(self):
         runner = _runner()
         runner.run_zstack(layer='BF')
-        assert _prepared(runner)['leds_state_at_end'] == 'return_to_original'
+        assert _prepared(runner)['run_mode'].leds_state_at_end == 'return_to_original'
 
 
 class TestTheStageGoesBackWhereTheStackWasCentred:

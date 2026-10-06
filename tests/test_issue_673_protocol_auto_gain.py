@@ -225,7 +225,6 @@ def _run_protocol(executor, protocol, tmp_path):
         parent_dir=tmp_path / 'output',
         max_scans=1,
         callbacks=callbacks,
-        leds_state_at_end='off',
         autofocus_snapshot=autofocus_snapshot(),
     )
     executor.start(plan)

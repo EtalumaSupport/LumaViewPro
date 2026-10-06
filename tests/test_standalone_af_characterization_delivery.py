@@ -170,7 +170,6 @@ class TestStandaloneAfDeliversCharacterizationData:
                     'run_complete': lambda **kw: done.set(),
                     'files_complete': lambda **kw: files_done.set(),
                 },
-                leds_state_at_end='off',
                 autofocus_snapshot=autofocus_snapshot(
                     states={
                         'BF': True,

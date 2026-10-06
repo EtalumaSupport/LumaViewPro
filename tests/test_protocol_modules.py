@@ -863,7 +863,7 @@ class TestFinalStepKeepsLedWhenCleanupRestoresIt:
     holds the channel lit, an empty target lets it go dark.
     """
 
-    def _boundary_target_for(self, *, leds_state_at_end, original_led_states, n_scans=1):
+    def _boundary_target_for(self, *, run_mode, original_led_states, n_scans=1):
         """Drive the final step of a scan and return the STEP_BOUNDARY target
         the runner asks the authority for (empty set = goes dark, non-empty =
         held lit)."""
@@ -876,7 +876,7 @@ class TestFinalStepKeepsLedWhenCleanupRestoresIt:
             protocol_step(),
             _disable_saving_artifacts=False,
             _run_dir=MagicMock(),
-            _leds_state_at_end=leds_state_at_end,
+            _run_mode=run_mode,
             _original_led_states=original_led_states,
             _n_scans=n_scans,
         )
@@ -908,25 +908,25 @@ class TestFinalStepKeepsLedWhenCleanupRestoresIt:
 
     def test_final_scan_restore_keeps_lit_channel(self):
         assert self._boundary_target_for(
-            leds_state_at_end='return_to_original',
+            run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
             original_led_states=self._lit_before_run(),
         ), 'cleanup is about to re-light this channel; turning it off here blinks'
 
     def test_final_scan_restore_skips_unlit_channel(self):
         assert not self._boundary_target_for(
-            leds_state_at_end='return_to_original',
+            run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
             original_led_states={'BF': {'enabled': False, 'illumination_ma': 0.0}},
         ), 'a channel dark before the run must go dark at the end'
 
     def test_leds_off_at_end_never_keeps(self):
         assert not self._boundary_target_for(
-            leds_state_at_end='off',
+            run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
             original_led_states=self._lit_before_run(),
-        ), "leds_state_at_end='off' must always end dark"
+        ), 'a run that ends dark must always end dark'
 
     def test_non_final_scan_stays_dark(self):
         assert not self._boundary_target_for(
-            leds_state_at_end='return_to_original',
+            run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
             original_led_states=self._lit_before_run(),
             n_scans=2,
         ), 'inter-scan waits must run dark (sample safety) on non-final scans'

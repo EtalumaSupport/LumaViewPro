@@ -151,8 +151,7 @@ class AutofocusThread:
                 sweep. Required, because every dispatch has one and a
                 sweep whose owner is unknown is precisely what the
                 refusals downstream cannot describe. Recorded with the
-                Future AND forwarded to the runner, which gates its own
-                failure popups on it.
+                Future and forwarded to the runner, which logs it.
             **kwargs: forwarded verbatim to AutofocusRunner.run().
 
         Returns:

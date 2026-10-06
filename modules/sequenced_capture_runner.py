@@ -101,21 +101,6 @@ step_dict = {
 """
 
 
-# Run kinds whose user is waiting in front of the scope, keyed by the
-# RunPlan.run_trigger_source the entry point supplies.
-#
-# The Autofocus button is the only one today: it takes seconds and saves
-# nothing, so its failures belong on screen. Every other kind this runner
-# drives is a batch that runs for minutes and writes files, where a modal
-# would stall the run in front of an empty chair and transient faults
-# would pile up.
-#
-# Deliberately NOT a classification of all nine trigger sources. Several
-# of them are already described elsewhere in the tree in terms that
-# disagree with each other, and settling that is its own change with its
-# own evidence. This set answers one question: raise popups, or log them.
-_ATTENDED_RUN_TRIGGERS = frozenset({'autofocus'})
-
 T = typing.TypeVar('T')
 
 
@@ -318,7 +303,6 @@ class RunPlan:
     # The caller's own protocol, not a copy: the one object a completed
     # autofocus scan writes its focus into.
     write_focus_to: Protocol | None
-    leds_state_at_end: str
     video_as_frames: bool
     autofocus_snapshot: AutofocusSnapshot
     keep_led_between_steps: bool
@@ -948,7 +932,6 @@ class SequencedCaptureRunner:
         # Anything a normal run must do with a found focus therefore cannot
         # be gated on this.
         write_focus_to: Protocol | None = None,
-        leds_state_at_end: str = 'off',
         video_as_frames: bool = False,
         keep_led_between_steps: bool = False,
         bf_af_for_fluorescence: bool = False,
@@ -978,10 +961,8 @@ class SequencedCaptureRunner:
                 errors, hardware not connected, an axis position not
                 known). The user has already been notified once when
                 this raises.
-            ValueError: leds_state_at_end is not a supported literal --
-                a programming error at the call site, not a refusal.
             TypeError: image_capture_config is not an ImageCaptureConfig
-                -- same class of call-site programming error.
+                -- a programming error at the call site, not a refusal.
         """
         # A foreign exclusive activity (a video recording, a diagnostic) is
         # the durable, user-actionable reason a run cannot start, and
@@ -1059,12 +1040,6 @@ class SequencedCaptureRunner:
                 holder='autofocus',
                 holder_trigger=in_flight_sweep.run_trigger_source,
             )
-
-        if leds_state_at_end not in (
-            'off',
-            'return_to_original',
-        ):
-            raise ValueError(f'Unsupported value for leds_state_at_end: {leds_state_at_end}')
 
         # A wrong-shaped config (e.g. a legacy dict) must fail at this
         # boundary, not as an AttributeError on the protocol thread after
@@ -1291,7 +1266,6 @@ class SequencedCaptureRunner:
             disable_saving_artifacts=disable_saving_artifacts,
             save_autofocus_data=save_autofocus_data,
             write_focus_to=write_focus_to,
-            leds_state_at_end=leds_state_at_end,
             video_as_frames=video_as_frames,
             # The states freeze with the plan; the restorer is a function,
             # which deepcopy leaves as the same object, so it keeps writing
@@ -1462,7 +1436,6 @@ class SequencedCaptureRunner:
             self._disable_saving_artifacts = plan.disable_saving_artifacts
             self._save_autofocus_data = plan.save_autofocus_data
             self._write_focus_to = plan.write_focus_to
-            self._leds_state_at_end = plan.leds_state_at_end
             self._keep_led_between_steps = plan.keep_led_between_steps
             self._video_as_frames = plan.video_as_frames
             self._bf_af_for_fluorescence = plan.bf_af_for_fluorescence
@@ -1545,16 +1518,18 @@ class SequencedCaptureRunner:
         try:
             # Declare whether anyone is watching, so non-fatal popups are
             # suppressed for a batch nobody is in front of and delivered for
-            # an operation the user is waiting on. Cleared on every cleanup
+            # an operation the user is waiting on. Closed on every cleanup
             # path in _cleanup_inner.
             #
-            # Passing an unconditional True here is what silenced the
-            # Autofocus button's own failure popup: the button runs through
-            # this runner, so the run suppressed the very message it existed
-            # to produce, ~0.5s before cleanup lowered the flag again.
+            # What the run does decides it, never who started it: a REST
+            # autofocus is the same operation as the button's. A run under a
+            # borrowed claim is one step of its caller's activity, which gets
+            # the outcome through the handle and decides what to show.
             from modules.notification_center import notifications
 
-            notifications.set_unattended_run(plan.run_trigger_source not in _ATTENDED_RUN_TRIGGERS)
+            notifications.open_run_scope(
+                attended=plan.run_mode.is_one_position and plan.borrowed_claim is None
+            )
 
             # Resolved once here, before anything touches the disk, so a
             # scope with no registered source path fails the run at start
@@ -1709,9 +1684,8 @@ class SequencedCaptureRunner:
             )
         self._ending.set_if_unset(ending)
         self._unwind_undispatched_run(ending, run)
-        # Notify AFTER cleanup: on an unattended run start() enabled the popup
-        # suppression, which drops this non-fatal error until cleanup's
-        # set_unattended_run(False) restores popups.
+        # Notify AFTER cleanup: on an unattended run start() opened a muting
+        # run scope, which drops this non-fatal error until cleanup closes it.
         from modules.notification_center import notifications
 
         notifications.report_outcome(
@@ -2372,11 +2346,10 @@ class SequencedCaptureRunner:
     def _cleanup_inner(self, ending: RunEnding, run: RunHandle):
         from modules.notification_center import notifications
 
-        # Restore popups: the unattended-run suppression ends here, on
-        # every cleanup path (normal end and abort). Unconditional -- an
-        # attended run never raised it, and lowering it twice is harmless,
-        # where missing one lowering mutes popups for the whole session.
-        notifications.set_unattended_run(False)
+        # The run's scope ends here, on every cleanup path (normal end and
+        # abort). Unconditional -- closing twice is harmless, where missing
+        # one close would judge every later post as this run's.
+        notifications.close_run_scope()
 
         led_end_state_applied = False
         # This run's writes and its one run_complete, read while the run is
@@ -2412,7 +2385,7 @@ class SequencedCaptureRunner:
                 set_state_fn=self._set_state,
                 scan_in_progress=self._scan_in_progress,
                 forced_dark=forced_dark,
-                leds_state_at_end=self._leds_state_at_end,
+                leds_state_at_end=self._run_mode.leds_state_at_end,
                 original_led_states=self._original_led_states,
                 autofocus_snapshot=self._autofocus_snapshot,
                 saved_camera_state=getattr(self, '_saved_camera_state', None),

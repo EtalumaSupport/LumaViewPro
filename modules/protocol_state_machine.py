@@ -30,6 +30,30 @@ class SequencedCaptureRunMode(enum.Enum):
             SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
         )
 
+    @property
+    def is_one_position(self) -> bool:
+        """Whether the run acts at the stage's one position.
+
+        One autofocus, one composite, one z-stack: a few seconds to minutes
+        at a scope someone is standing at, as against a scan or protocol
+        that traverses the plate and may end with nobody there.
+        """
+        return self in (
+            SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
+            SequencedCaptureRunMode.SINGLE_COMPOSITE,
+            SequencedCaptureRunMode.SINGLE_ZSTACK,
+        )
+
+    @property
+    def leds_state_at_end(self) -> str:
+        """How the run leaves the LEDs: 'return_to_original' or 'off'.
+
+        A one-position run hands the illumination back the way it found it;
+        a plate traverse forces every channel dark, since it may end with
+        nobody there to turn them off.
+        """
+        return 'return_to_original' if self.is_one_position else 'off'
+
 
 class ProtocolState(enum.Enum):
     """Protocol execution state machine.

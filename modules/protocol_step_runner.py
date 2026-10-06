@@ -469,7 +469,7 @@ class ProtocolStepRunner:
                     # cannot disagree about what run-end will light.
                     is_run_end_boundary = True
                     resolved_policy, snapshot_lit = resolve_end_state(
-                        p._leds_state_at_end,
+                        p._run_mode.leds_state_at_end,
                         getattr(p, '_original_led_states', None),
                         p._scope.illumination.state_color2ch,
                     )
