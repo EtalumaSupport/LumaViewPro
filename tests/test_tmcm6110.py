@@ -824,6 +824,36 @@ def test_after_a_home_every_axis_is_at_0_and_arrived(homing_board, homing_sim):
         assert homing_sim.axes[axis].p == pytest.approx(0)
 
 
+def test_a_home_reads_no_homing_value_the_config_does_not_check():
+    """The config's homing schema and the driver's homing reads are two
+    places that know the same keys: a section cut down to exactly the keys
+    the schema checks must still home, or the driver reads a value the
+    load check never saw and a home can fail in the middle again."""
+    import copy
+
+    from drivers.tmcm6110_config import SECTION, Tmcm6110Config
+
+    defaults = copy.deepcopy(SHIPPED_MOTOR_DEFAULTS)
+    section = defaults[SECTION]
+    section['Homing'] = {
+        axis: {
+            phase: {
+                name: section['Homing'][axis][phase][name]
+                for name in (*Tmcm6110Config._PHASE_VALUES[phase], 'Approach Speeds')
+                if name in section['Homing'][axis][phase]
+            }
+            for phase in Tmcm6110Config._HOMING_PHASES[axis]
+        }
+        for axis in Tmcm6110Config._HOMING_PHASES
+    }
+    sim = SimulatedTmcm6110(motorconfig_defaults=defaults, clock=_fast_clock(HOMING))
+    board = Tmcm6110Board(motorconfig_defaults=defaults, backend=SimulatedTmcm6110Backend(sim))
+    try:
+        assert board.home() is True
+    finally:
+        board.disconnect()
+
+
 def test_the_driver_keeps_no_record_of_a_home(homing_board):
     """The board has none, so the driver answers none before and after: the
     API's axis state is the one record, and a Z-only home cannot be read
