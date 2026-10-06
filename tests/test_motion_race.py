@@ -21,11 +21,13 @@ the arrival event already set and returned immediately. The script captured
 an image while the motor was actually still on its way to the new target,
 producing the dropouts.
 
-Fix: write the hardware target first, THEN transition the axis to MOVING.
-By the time `_set_axis_state(MOVING)` clears the arrival event, the new
-XTARGET is already on the hardware, so any subsequent `position_reached`
-poll reflects the new (correct) target -- guaranteed False until real
-arrival. The same fix was applied to `move_relative`.
+Fix: no verdict before the new target is on the board. The first fix
+wrote the target before the MOVING transition; that left the axis IDLE
+through a Z move's backlash leg, nearly the whole move, and a waiter
+returned during it. Now the axis goes MOVING disarmed before its first
+target write and is armed once its final target is written: the monitor
+polls a disarmed axis but writes no verdict for it, so a reached bit read
+before the arm -- the prior target's or the leg's -- ends nothing.
 
 Side effect: the same race affected `AutofocusRunner._iterate()`, which
 checks `scope.is_moving()` before capturing each focus-curve sample. AF
@@ -41,70 +43,60 @@ from tests.scope_fakes import build_scope, home_sim_scope
 
 
 # ---------------------------------------------------------------------------
-# Runtime ordering test -- uses real Lumascope(simulate=True) and traces
-# the actual call sequence. (The hardware-write-before-MOVING invariant
-# is proven here behaviorally; there is no separate source-text pin.)
+# Runtime ordering test -- uses real Lumascope(simulate=True) and reads the
+# axis's state and arming at every target write.
 # ---------------------------------------------------------------------------
 
 
 class TestRuntimeOrder_618:
-    """#618 runtime: instrument the methods involved and verify call order."""
+    """#618 runtime: every target write happens on a MOVING, disarmed axis."""
 
-    def _track_calls(self, scope, axis):
-        """Wrap the driver's move_abs_pos and _set_axis_state to
-        record the order in which they're called. The _set_axis_state wrap
-        targets scope.motion._set_axis_state (the canonical surface) because
-        intra-motion calls reference self._set_axis_state directly after
-        the 2c band-aid revert."""
-        from modules.lumascope_api import AxisState
-
-        call_order = []
+    def _track_writes(self, scope, axis):
+        """Record, at each driver target write, the axis's state and whether it is armed."""
+        writes = []
+        motion = scope.motion
         orig_move_abs = scope._motion_driver.move_abs_pos
-        orig_set_state = scope.motion._set_axis_state
 
-        def track_move_abs(*args, **kwargs):
-            call_order.append('motion.move_abs_pos')
-            return orig_move_abs(*args, **kwargs)
-
-        def track_set_state(ax, state):
-            if ax == axis and state == AxisState.MOVING:
-                call_order.append('set_state_MOVING')
-            elif ax == axis and state == AxisState.IDLE:
-                call_order.append('set_state_IDLE')
-            return orig_set_state(ax, state)
+        def track_move_abs(ax, *args, **kwargs):
+            if ax == axis:
+                with motion._axis_state_lock:
+                    writes.append((motion._axis_state[ax], motion._armed_seq[ax]))
+            return orig_move_abs(ax, *args, **kwargs)
 
         scope._motion_driver.move_abs_pos = track_move_abs
-        scope.motion._set_axis_state = track_set_state
-        return call_order
+        return writes
+
+    def _assert_disarmed_at_every_write_and_armed_after(self, scope, writes):
+        from modules.lumascope_api import AxisState
+
+        assert writes, 'the move wrote no target'
+        for state, armed in writes:
+            assert state == AxisState.MOVING, f'a target was written to a {state} axis'
+            assert armed is None, 'a target was written to an armed axis'
+        with scope.motion._axis_state_lock:
+            state = scope.motion._axis_state['Z']
+            armed = scope.motion._armed_seq['Z']
+            seq = scope.motion._drive_seq['Z']
+        assert state == AxisState.IDLE or armed == seq, (
+            'the axis was left disarmed after its final target was written'
+        )
 
     def test_move_absolute_order_z(self):
-
         scope = home_sim_scope(build_scope(simulate=True))
         scope._motion_driver.set_timing_mode('fast')
-        call_order = self._track_calls(scope, 'Z')
-        scope.motion.start_move_absolute('Z', 5000.0)
-        # The hardware write must come before the MOVING transition
-        assert 'motion.move_abs_pos' in call_order
-        assert 'set_state_MOVING' in call_order
-        move_idx = call_order.index('motion.move_abs_pos')
-        state_idx = call_order.index('set_state_MOVING')
-        assert move_idx < state_idx, (
-            f'motion.move_abs_pos must precede _set_axis_state(MOVING). Got order: {call_order}'
-        )
+        scope.motion.move_absolute('Z', 5000.0)
+        writes = self._track_writes(scope, 'Z')
+        # Downward, so the backlash leg is one of the writes.
+        scope.motion.start_move_absolute('Z', 1000.0)
+        assert len(writes) == 2, writes
+        self._assert_disarmed_at_every_write_and_armed_after(scope, writes)
 
     def test_move_relative_order_z(self):
-
         scope = home_sim_scope(build_scope(simulate=True))
         scope._motion_driver.set_timing_mode('fast')
-        call_order = self._track_calls(scope, 'Z')
+        writes = self._track_writes(scope, 'Z')
         scope.motion.start_move_relative('Z', 100.0)
-        assert 'motion.move_abs_pos' in call_order
-        assert 'set_state_MOVING' in call_order
-        move_idx = call_order.index('motion.move_abs_pos')
-        state_idx = call_order.index('set_state_MOVING')
-        assert move_idx < state_idx, (
-            f'motion.move_abs_pos must precede _set_axis_state(MOVING). Got order: {call_order}'
-        )
+        self._assert_disarmed_at_every_write_and_armed_after(scope, writes)
 
 
 # ---------------------------------------------------------------------------
@@ -113,60 +105,46 @@ class TestRuntimeOrder_618:
 
 
 class TestRaceSimulation_618:
-    """Simulate the exact race that caused #618 by injecting a 'motion
-    monitor' that polls during motion.move_abs_pos. With the fix, the
-    monitor's premature IDLE transition cannot happen because the new
-    target is already on the hardware before the axis is marked MOVING."""
+    """Simulate the exact race that caused #618: the monitor reads the prior
+    target's reached bit while the new target is being written, and asks for
+    the arrival verdict. The axis is disarmed then, so the verdict writes
+    nothing."""
 
     def test_motion_monitor_cannot_falsely_set_idle_during_move(self):
-        """The motion monitor (or any caller) inspecting axis state during
-        motion.move_abs_pos must not see the axis as MOVING with an
-        already-set arrival event -- that's the race signature."""
+        """A verdict asked for during the target write -- the monitor's IDLE
+        on a reached bit -- leaves the axis MOVING with its arrival unset."""
         from modules.lumascope_api import AxisState
 
         scope = home_sim_scope(build_scope(simulate=True))
         scope._motion_driver.set_timing_mode('fast')
+        motion = scope.motion
 
-        # Hook motion.move_abs_pos to inspect state during the call
+        # Prime: do one move to set Z to a known IDLE state
+        motion.move_absolute('Z', 1000.0)
+
         orig_move_abs = scope._motion_driver.move_abs_pos
         observations = []
 
-        def observe_during_move(*args, **kwargs):
-            # Inspect axis state and arrival event BEFORE the new target
-            # is actually written. With the fix, _set_axis_state(MOVING)
-            # has not yet been called, so:
-            #   - axis state should still be IDLE (or UNKNOWN)
-            #   - arrival event should still be SET (from prior move)
-            # That means the motion monitor would NOT poll Z (state != MOVING)
-            # and could not falsely conclude arrival.
-            state = scope.motion._axis_state['Z']
-            arrival_set = scope.motion._arrival_events['Z'].is_set()
-            observations.append((state, arrival_set))
-            return orig_move_abs(*args, **kwargs)
+        def verdict_during_write(ax, *args, **kwargs):
+            # What the monitor does on a reached bit: note the count, then
+            # ask for IDLE at it, armed only.
+            with motion._axis_state_lock:
+                noted = motion._drive_seq[ax]
+            wrote = motion._set_axis_state(ax, AxisState.IDLE, verdict_for=noted, armed_only=True)
+            observations.append(
+                (wrote, motion._axis_state[ax], motion._arrival_events[ax].is_set())
+            )
+            return orig_move_abs(ax, *args, **kwargs)
 
-        scope._motion_driver.move_abs_pos = observe_during_move
+        scope._motion_driver.move_abs_pos = verdict_during_write
+        # Upward, so the one write is the final target.
+        motion.start_move_absolute('Z', 5000.0)
 
-        # Prime: do one move to set Z to a known IDLE state
-        scope.motion.move_absolute('Z', 1000.0)
-        observations.clear()  # reset after the priming move
-
-        # Now do a back-to-back move
-        scope.motion.start_move_absolute('Z', 5000.0)
-
-        assert len(observations) == 1, (
-            f'motion.move_abs_pos should be called once, got {len(observations)}'
-        )
-        state_during_move, arrival_during_move = observations[0]
-        assert state_during_move != AxisState.MOVING, (
-            f'Axis state must NOT be MOVING when motion.move_abs_pos starts. '
-            f'Got {state_during_move}. The fix is to write hardware first.'
-        )
-        # Arrival event was set at the end of the priming move and
-        # should still be set when the new motion.move_abs_pos starts.
-        assert arrival_during_move is True, (
-            'Arrival event from the prior move should still be set. The fix '
-            'delays the clear until AFTER the new TARGET_W is written.'
-        )
+        assert len(observations) == 1, observations
+        wrote, state, arrival_set = observations[0]
+        assert wrote is False, 'a reached bit read during the target write ended the move'
+        assert state == AxisState.MOVING
+        assert arrival_set is False, 'a waiter would have returned before the move began'
 
 
 # ---------------------------------------------------------------------------
@@ -230,8 +208,9 @@ class TestMoveRelProfile_674:
     has NOT begun physical motion. Capturing start_time before the driver
     call made _predicted_position's elapsed lead the motor by the full
     serial RT, producing a visible crosshair-outruns-stage effect on long
-    moves. Profile-write still precedes _set_axis_state(MOVING) so the
-    predictor is ready by the time the move is observable as in-progress.
+    moves. Profile-write precedes the arming, so the profile is in place
+    before any verdict can end the move, and an arrival never leaves it on
+    an IDLE axis.
     """
 
     def test_runtime_abs_profile_set_after_driver_returns(self):
@@ -273,10 +252,12 @@ class TestMoveRelProfile_674:
         assert profile['target_pos'] == pytest.approx(1400.0, abs=5.0)
 
     @pytest.mark.parametrize('move', ['absolute', 'relative'])
-    def test_runtime_profile_present_at_moving_transition(self, move):
-        """The profile must already be written when the axis transitions
-        to MOVING -- otherwise the predictor reads None for an observably
-        moving axis and the crosshair falls through to the cache."""
+    def test_runtime_profile_present_at_the_arrival(self, move):
+        """The profile must already be written when the move's arrival is
+        written -- otherwise it lands after the arrival cleared it and sits
+        on an IDLE axis as the target of a move that has ended."""
+        import threading
+
         from modules.lumascope_api import AxisState
 
         scope = home_sim_scope(build_scope(simulate=True))
@@ -285,27 +266,36 @@ class TestMoveRelProfile_674:
         scope.motion.move_absolute('X', 1000.0)
 
         observed = {}
+        arrived = threading.Event()
         orig_set_state = scope.motion._set_axis_state
 
-        def snapshot_at_moving(ax, state):
-            if ax == 'X' and state == AxisState.MOVING:
+        def snapshot_at_arrival(ax, state, **kwargs):
+            first = ax == 'X' and state == AxisState.IDLE and 'profile_at_arrival' not in observed
+            if first:
                 with scope.motion._move_profile_lock:
                     profile = scope.motion._move_profile.get('X')
-                observed['profile_at_moving'] = None if profile is None else dict(profile)
-            return orig_set_state(ax, state)
+                observed['profile_at_arrival'] = None if profile is None else dict(profile)
+            wrote = orig_set_state(ax, state, **kwargs)
+            if first:
+                arrived.set()
+            return wrote
 
-        scope.motion._set_axis_state = snapshot_at_moving
+        scope.motion._set_axis_state = snapshot_at_arrival
 
         if move == 'absolute':
             scope.motion.start_move_absolute('X', 1400.0)
         else:
             scope.motion.start_move_relative('X', 400.0)
 
-        assert 'profile_at_moving' in observed, 'the move must transition X to MOVING'
-        assert observed['profile_at_moving'] is not None, (
-            'profile must be written BEFORE _set_axis_state(MOVING) so the '
-            'predictor is ready when the axis becomes observably MOVING'
+        assert arrived.wait(10.0), 'the move never arrived'
+        assert observed['profile_at_arrival'] is not None, (
+            'the profile must be written before the axis is armed, so it is '
+            'in place before the arrival'
         )
+        with scope.motion._move_profile_lock:
+            assert scope.motion._move_profile.get('X') is None, (
+                'a profile was left on the IDLE axis'
+            )
 
     def test_runtime_profile_set_after_driver_returns(self):
         """Production path: profile must be present + populated correctly

@@ -1294,7 +1294,7 @@ and the board answers X and Y on a Z-only scope too, so read limits only
 for the axes `capabilities.axes` names. The turret's `'T'` answers None:
 it moves by slot, not by distance.
 
-**Z overshoot:** firmware moves below target then approaches from below, eliminating leadscrew backlash for consistent focus.
+**Z overshoot:** firmware moves below target then approaches from below, eliminating leadscrew backlash for consistent focus. The leg below is part of the move: Z reads `'moving'` from the first target write, `wait_until_finished_moving()` waits through the leg and the approach, and a frame grabbed during either is not valid.
 
 **Axis state model:**
 

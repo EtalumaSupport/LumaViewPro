@@ -96,12 +96,14 @@ def test_a_stop_during_the_backlash_leg_ends_the_move_there(session):
     driver.set_timing_mode('realistic')
     sent = _wire(driver)
     final = f'TARGET_WZ{driver.z_um2ustep(1000.0)}'
+    leg = f'TARGET_WZ{driver.z_um2ustep(1000.0 - driver.backlash_um())}'
 
     def stop_during_the_leg():
         # The leg runs inside the move's body, before start_move_absolute
-        # returns, so the stop comes from another thread.
+        # returns, so the stop comes from another thread, once the leg's
+        # target is on the wire.
         deadline = time.monotonic() + 5.0
-        while not motion._overshoot and time.monotonic() < deadline:
+        while leg not in sent and time.monotonic() < deadline:
             time.sleep(0.001)
         time.sleep(0.3)
         motion.stop_motion()

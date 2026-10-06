@@ -2,6 +2,12 @@
 
 ## 4.0.0 (in development)
 
+- **A Z move is moving through its backlash leg**: a Z move down drives below its target and
+  approaches from below; the axis now reads `'moving'` from its first target write, so
+  `wait_until_finished_moving()`, `get_axis_state('Z')`, `axis_positions()`, the position
+  listeners and frame validity all see the leg as the move. Before, the axis went `'moving'` only
+  after the leg, nearly the whole move: a wait returned at once, the state read idle at the start
+  position, and a frame grabbed during the leg was judged valid.
 - **A still is refused by the call, and is on the camera when the call returns (SDK, breaking)**:
   `session.manual_capture.capture()` raises `HardwareCommandRefusedError` (reason
   `'exclusive_activity_running'`) while a run or a diagnostic holds the scope, and

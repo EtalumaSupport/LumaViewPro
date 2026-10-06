@@ -184,11 +184,19 @@ def test_the_overshoot_legs_arrival_is_nobodys(session, monkeypatch):
     motion = session.scope.motion
     driver = motion._driver
     real_status = driver.target_status
+    real_write = driver.move_abs_pos
+    leg_um = 3000.0 - driver.backlash_um()
+    last_z_target = {}
     monitor_read_the_leg = threading.Event()
+
+    def recorded_write(axis, pos, *args, **kwargs):
+        if axis == 'Z':
+            last_z_target['um'] = pos
+        return real_write(axis, pos, *args, **kwargs)
 
     def the_lane_waits_for_the_monitors_read(axis):
         reached = real_status(axis)
-        if axis == 'Z' and reached and motion._overshoot:
+        if axis == 'Z' and reached and last_z_target.get('um') == leg_um:
             if _on_monitor():
                 monitor_read_the_leg.set()
             else:
@@ -197,6 +205,7 @@ def test_the_overshoot_legs_arrival_is_nobodys(session, monkeypatch):
                 monitor_read_the_leg.wait(5.0)
         return reached
 
+    monkeypatch.setattr(driver, 'move_abs_pos', recorded_write)
     monkeypatch.setattr(driver, 'target_status', the_lane_waits_for_the_monitors_read)
     motion.move_absolute('Z', 4000.0)
     m1 = motion.start_move_absolute('Z', 6000.0)
@@ -332,21 +341,21 @@ def test_a_leg_that_never_arrives_fails_the_move_within_the_lanes_bound(session,
     """The simulated board dies the instant the overshoot leg's target is
     written, so the leg never arrives and, on the simulator, its status
     read never raises. The move fails 'driver_failed' at the leg's bound,
-    inside the lane's, with the overshoot flag cleared; with the board
-    back, a home and a move run."""
+    inside the lane's; with the board back, a home and a move run."""
     motion = session.scope.motion
     driver = motion._driver
     monkeypatch.setattr(motion_module, 'OVERSHOOT_LEG_TIMEOUT_S', 0.5)
     monkeypatch.setattr(motion, '_MOTION_WAIT_BASE_S', 3.0)
     motion.move_absolute('Z', 6000.0)
-    real_move = driver.move
+    real_write = driver.move_abs_pos
+    leg_um = 3000.0 - driver.backlash_um()
 
-    def the_board_dies_after_the_legs_write(axis, steps):
-        real_move(axis, steps)
-        if motion._overshoot:
+    def the_board_dies_after_the_legs_write(axis, pos, *args, **kwargs):
+        real_write(axis, pos, *args, **kwargs)
+        if axis == 'Z' and pos == leg_um:
             driver._fail_after = driver._cmd_count
 
-    monkeypatch.setattr(driver, 'move', the_board_dies_after_the_legs_write)
+    monkeypatch.setattr(driver, 'move_abs_pos', the_board_dies_after_the_legs_write)
     t0 = time.monotonic()
     with pytest.raises(MoveNotCompletedError) as exc:
         motion.move_absolute('Z', 3000.0, overshoot_enabled=True)
@@ -354,10 +363,9 @@ def test_a_leg_that_never_arrives_fails_the_move_within_the_lanes_bound(session,
 
     assert exc.value.reason == 'driver_failed'
     assert failed_after < 2.0, failed_after
-    assert motion._overshoot is False
     assert motion.get_axis_state('Z') == AxisState.UNKNOWN
 
-    monkeypatch.setattr(driver, 'move', real_move)
+    monkeypatch.setattr(driver, 'move_abs_pos', real_write)
     driver._fail_after = None
     driver.connect()
     home_sim_scope(session.scope)

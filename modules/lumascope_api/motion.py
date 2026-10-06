@@ -253,13 +253,14 @@ class MotionAPI:
         # two. Under _axis_state_lock.
         self._drive_seq: dict[str, int] = {}
         # Per-axis count of the move whose hardware target is known
-        # written -- the drive count at its MOVING or HOMING write -- or
-        # None while a drive is being sent. The monitor's verdicts (IDLE on
-        # the reached bit, UNKNOWN on a stall) are written only to an axis
-        # still armed at the count the monitor noted before it asked the
-        # board: a reached bit read while a drive is in flight, or for an
-        # earlier count, is the previous target's or the overshoot leg's
-        # and belongs to no move. Under _axis_state_lock.
+        # written -- set by ``_publish_drive`` once a move's final target is
+        # on the board, and at a HOMING write -- or None while a drive is
+        # being sent. The monitor's verdicts (IDLE on the reached bit,
+        # UNKNOWN on a stall) are written only to an axis still armed at the
+        # count the monitor noted before it asked the board: a reached bit
+        # read while a drive is in flight, or for an earlier count, is the
+        # previous target's or the overshoot leg's and belongs to no move.
+        # Under _axis_state_lock.
         self._armed_seq: dict[str, int | None] = {}
 
         # Per-axis state dicts -- empty until _init_axes() fills them.
@@ -292,11 +293,6 @@ class MotionAPI:
         # it saw before driving to tell a stop from an arrival.
         self._stop_generation = 0
         self._stop_lock = threading.Lock()
-
-        # True while a Z move's backlash leg is in flight: the leg runs
-        # before the axis is MOVING, so this is what keeps the monitor awake
-        # and is_moving() true through it.
-        self._overshoot = False
 
     def _init_axes(self, present_axes: list[str], homed_axes: list[str]) -> None:
         """Populate per-axis state dicts from the detected axes.
@@ -422,14 +418,9 @@ class MotionAPI:
     def _fail_drive(self, axis: str, cause: Exception) -> NoReturn:
         """A commanded move failed at the driver: the axis is UNKNOWN, and raise.
 
-        The axis keeps whatever state it held before the attempt unless
-        something says otherwise -- commonly IDLE, which reads as
-        "arrived" to every consumer, for a move that never happened. The
-        driver call precedes the MOVING transition deliberately (a
-        previously-observed arrival bit could otherwise be mistaken for
-        this move's), so on a raise control never reaches that write and
-        this is where the state has to be corrected. Nothing about the
-        ordering needs to change.
+        The axis is MOVING and disarmed from the drive's start, so no
+        verdict can end it, and left there it would read as moving forever;
+        a raise from the driver lands here, which makes it terminal.
 
         Raises:
             MoveNotCompletedError: ``'driver_failed'``, chained from the
@@ -1123,14 +1114,6 @@ class MotionAPI:
             resp[axis] = self.get_limit_switch_status(axis=axis)
         return resp
 
-    def _get_overshoot(self) -> bool:
-        """Check if the Z axis is currently in overshoot (backlash compensation) mode.
-
-        Returns:
-            bool: True if overshoot is in progress.
-        """
-        return self._overshoot
-
     def is_moving(self) -> bool:
         """Check if any axis is currently moving.
 
@@ -1138,11 +1121,10 @@ class MotionAPI:
         monitor thread handles firmware queries and state transitions.
 
         Returns:
-            bool: True if any axis is MOVING/HOMING or overshoot is active.
+            bool: True if any axis is MOVING or HOMING. A Z move is MOVING
+            from its first target write, its backlash leg included.
         """
-        if self.is_any_axis_moving():
-            return True
-        return bool(self._get_overshoot())
+        return self.is_any_axis_moving()
 
     def set_acceleration_limit(self, val_pct: int) -> None:
         """Set the motor controller acceleration limit (percent of max).
@@ -1793,18 +1775,6 @@ class MotionAPI:
         except Exception:
             ramp = None
 
-        # Write the hardware target BEFORE transitioning the axis to MOVING.
-        # Previously the order was reversed: _set_axis_state(MOVING) cleared
-        # the arrival event and woke the motion monitor, then motion.move_abs_pos
-        # spent ~50ms on serial I/O (current_pos read + TARGET_W write) before
-        # the hardware actually received the new target. During that window
-        # the motion monitor could poll STATUS_R, observe the PRIOR move's
-        # still-valid position_reached bit, and falsely set the arrival
-        # event -- causing a waiter to return before the
-        # new move even began. See issue #618. With this order, by the
-        # time the axis is marked MOVING the hardware XTARGET is already
-        # the new value, so position_reached is reliably False and the
-        # motion monitor polls until real arrival.
         leg = self._backlash_leg(axis, position, overshoot_enabled, 'move_absolute')
         stop_generation = self._stop_generation
         try:
@@ -1814,25 +1784,12 @@ class MotionAPI:
         except Exception as e:
             _api_log.error(f'move_abs {axis}={position:.1f}um FAILED')
             self._fail_drive(axis, e)
-        # A withheld target is published nowhere: the stage is where the
-        # stop left it, and the monitor judges it there.
-        if ramp and written:
-            with self._move_profile_lock:
-                self._move_profile[axis] = {
-                    'start_time': time.monotonic(),
-                    'start_pos': start_pos,
-                    'target_pos': float(position),
-                    'ramp': ramp,
-                }
-        self._set_axis_state(axis, AxisState.MOVING)
+        self._publish_drive(axis, written, start_pos, float(position), ramp)
         # No move-init cache write: cache holds CURRENT position, which is
         # still start_pos until _motion_monitor_loop reads it from hardware
         # on its first cycle. Target is held in _move_profile[axis], where
         # get_target_position picks it up during MOVING.
         self._fire_position_listeners(axis)
-        self._scope.imaging.frame_validity.invalidate(
-            self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move')
-        )
         _api_log.info(f'move_abs {axis}={position:.1f}um')
         return self._started(axis, stop_generation)
 
@@ -2022,8 +1979,6 @@ class MotionAPI:
         except Exception:
             ramp = None
 
-        # Write hardware target BEFORE transitioning axis to MOVING --
-        # same race fix as move_absolute (#618).
         leg = self._backlash_leg(axis, target_pos, overshoot_enabled, 'move_relative')
         stop_generation = self._stop_generation
         try:
@@ -2033,23 +1988,12 @@ class MotionAPI:
         except Exception as e:
             _api_log.error(f'move_rel {axis}={distance:+.1f}um FAILED')
             self._fail_drive(axis, e)
-        if ramp and written:
-            with self._move_profile_lock:
-                self._move_profile[axis] = {
-                    'start_time': time.monotonic(),
-                    'start_pos': start_pos,
-                    'target_pos': target_pos,
-                    'ramp': ramp,
-                }
-        self._set_axis_state(axis, AxisState.MOVING)
+        self._publish_drive(axis, written, start_pos, target_pos, ramp)
         # No move-init cache write: cache holds CURRENT position, which is
         # still start_pos until _motion_monitor_loop reads it from hardware
         # on its first cycle. Target is held in _move_profile[axis], where
         # get_target_position picks it up during MOVING.
         self._fire_position_listeners(axis)
-        self._scope.imaging.frame_validity.invalidate(
-            self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move')
-        )
         _api_log.info(f'move_rel {axis}={distance:+.1f}um')
         return self._started(axis, stop_generation)
 
@@ -2345,8 +2289,8 @@ class MotionAPI:
         """Set the state of an axis: the one writer of it.
 
         The state; the drive count and the arming (MOVING and HOMING bump
-        the count and arm the axis at it, the hardware target being written
-        by then); and the arrival event (cleared for MOVING and HOMING, set
+        the count; MOVING leaves the axis disarmed until ``_publish_drive``
+        arms it, HOMING arms it at once); and the arrival event (cleared for MOVING and HOMING, set
         for IDLE and UNKNOWN so waiters unblock) are written in one hold of
         ``_axis_state_lock``, so a verdict can never land between a state
         and its event. Fires position listeners after every write.
@@ -2386,7 +2330,7 @@ class MotionAPI:
                 # not this one's.
                 self._axis_fault.pop(axis, None)
                 self._drive_seq[axis] += 1
-                self._armed_seq[axis] = self._drive_seq[axis]
+                self._armed_seq[axis] = self._drive_seq[axis] if state == AxisState.HOMING else None
                 # Clear arrival event -- axis is now in motion
                 self._arrival_events[axis].clear()
             elif state in (AxisState.IDLE, AxisState.UNKNOWN):
@@ -2447,7 +2391,8 @@ class MotionAPI:
     ) -> bool:
         """Drive ``axis`` to ``position``, through the backlash leg first when there is one.
 
-        Runs inside ``_send_drive``: the leg's arrival is nobody's verdict.
+        Runs inside ``_send_drive``, with the axis MOVING and disarmed: the
+        leg is part of the move, and its arrival is nobody's verdict.
         Each target goes out through ``_write_unless_stopped``, so a STOP
         that lands during the move, the leg included, ends it there.
 
@@ -2459,22 +2404,16 @@ class MotionAPI:
                 leg did not reach its point within ``OVERSHOOT_LEG_TIMEOUT_S``.
         """
         if leg is not None:
-            self._overshoot = True
-            try:
-                if not self._write_unless_stopped(axis, leg, stop_generation):
-                    return False
-                deadline = time.monotonic() + OVERSHOOT_LEG_TIMEOUT_S
-                while not self._driver.target_status(axis):
-                    if time.monotonic() > deadline:
-                        raise HardwareError(
-                            f'move {axis} to {position}: the overshoot leg did not reach '
-                            f'its point within {OVERSHOOT_LEG_TIMEOUT_S:.0f} s'
-                        )
-                    time.sleep(self._MOTION_POLL_INTERVAL)
-            finally:
-                # Cleared on every exit: a leg that raised would otherwise
-                # leave the monitor awake on it and is_moving() true.
-                self._overshoot = False
+            if not self._write_unless_stopped(axis, leg, stop_generation):
+                return False
+            deadline = time.monotonic() + OVERSHOOT_LEG_TIMEOUT_S
+            while not self._driver.target_status(axis):
+                if time.monotonic() > deadline:
+                    raise HardwareError(
+                        f'move {axis} to {position}: the overshoot leg did not reach '
+                        f'its point within {OVERSHOOT_LEG_TIMEOUT_S:.0f} s'
+                    )
+                time.sleep(self._MOTION_POLL_INTERVAL)
         return self._write_unless_stopped(axis, position, stop_generation)
 
     def _write_unless_stopped(self, axis: str, position: float, stop_generation: int) -> bool:
@@ -2497,22 +2436,57 @@ class MotionAPI:
             return True
 
     def _send_drive(self, axis: str, send) -> bool:
-        """Disarm ``axis``, then send its drive: no verdict while a drive is in flight.
+        """Set ``axis`` MOVING and disarmed, then send its drive.
 
-        The one way a move body reaches the driver. From here until the
-        MOVING write re-arms the axis at the new count, the board's reached
-        bit is the previous target's, or the overshoot leg's, and the
-        monitor writes nothing for the axis. A raise leaves the axis
+        The one way a move body reaches the driver. The move is motion from
+        its first target write, so every reader -- the waits, the state,
+        the positions, frame validity -- sees it from here, a Z backlash
+        leg included. Until ``_publish_drive`` arms the axis, the board's
+        reached bit is the previous target's, or the leg's, and the monitor
+        writes nothing for the axis: it polls and refreshes the position,
+        and runs no stall clock. A raise leaves the axis MOVING and
         disarmed for the caller's ``_fail_drive`` to make terminal, so no
         exit ends MOVING and disarmed.
 
         Returns:
             bool: What ``send`` returned: whether the target was written.
         """
-        if axis in self._arrival_events:
-            with self._axis_state_lock:
-                self._armed_seq[axis] = None
+        self._set_axis_state(axis, AxisState.MOVING)
+        self._scope.imaging.frame_validity.invalidate(
+            self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move')
+        )
         return send()
+
+    def _publish_drive(
+        self,
+        axis: str,
+        written: bool,
+        start_pos: float,
+        target_pos: float,
+        ramp: dict | None,
+    ) -> None:
+        """Publish a sent drive's profile, then arm ``axis``: its verdicts may land.
+
+        The profile goes first: an armed axis can arrive at once, and an
+        arrival clears the profile, so one written after it would sit on an
+        IDLE axis as the target of a move that has ended. A withheld target
+        is published nowhere -- the stage is where the stop left it -- but
+        the axis is armed all the same, so the monitor judges it there. An
+        axis given up while its drive was sent (a lost board) is left as it
+        is: neither profile nor arming belongs to it.
+        """
+        with self._axis_state_lock:
+            if self._axis_state.get(axis) != AxisState.MOVING:
+                return
+            if ramp and written:
+                with self._move_profile_lock:
+                    self._move_profile[axis] = {
+                        'start_time': time.monotonic(),
+                        'start_pos': start_pos,
+                        'target_pos': target_pos,
+                        'ramp': ramp,
+                    }
+            self._armed_seq[axis] = self._drive_seq[axis]
 
     def _give_axis_up(self, axis: str, reason: str, *, verdict_for: int | None = None) -> bool:
         """The monitor gives a moving axis up: one fault, reported, then UNKNOWN.
@@ -2584,11 +2558,6 @@ class MotionAPI:
                         self._moving_since.pop(ax, None)
 
                 if not moving_axes:
-                    # Also check overshoot -- if overshoot is active,
-                    # the monitor should keep running
-                    if self._overshoot:
-                        time.sleep(self._MOTION_POLL_INTERVAL)
-                        continue
                     # All axes arrived -- go back to sleep
                     self._motion_wake.clear()
                     break
