@@ -1288,6 +1288,11 @@ class MotorBoard(SerialBoard):
 
         Idempotent + safe to call concurrently with other operations
         (per SerialBoard's exchange_command lock).
+
+        Raises:
+            HardwareError: the board did not answer the STOP. It may have
+                taken it, so the stage may be stopping or still moving:
+                neither a stop nor an answer about support.
         """
         # Cached "unsupported" -- silently skip the wire (and skip the
         # FIRMWARE ERROR warning that exchange_command would emit).
@@ -1297,6 +1302,10 @@ class MotorBoard(SerialBoard):
         # when this send turns out to be the first-contact probe of
         # legacy firmware; _record_support logs that case at INFO.
         resp = self.exchange_command('STOP', expect_unsupported=True)
+        if resp is None:
+            raise HardwareError(
+                'STOP: no reply from the motor board; the stage may still be moving'
+            )
         return self._record_support('STOP', '_supports_stop_cached', resp)
 
     # return True if current position and target position are the same

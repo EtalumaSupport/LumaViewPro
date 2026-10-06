@@ -11,7 +11,7 @@ import time
 
 import pytest
 
-from modules.exceptions import MoveNotCompletedError
+from modules.exceptions import MotorStopFailedError, MoveNotCompletedError
 from modules.lumascope_api.motion import AxisState
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
@@ -55,3 +55,18 @@ def test_a_stop_mid_move_leaves_the_stage_short_and_at_rest(session):
     time.sleep(0.3)
     assert driver.current_pos('X') == stopped_at
     assert motion.get_current_position('X') == pytest.approx(stopped_at, abs=0.1)
+
+
+def test_a_stop_the_board_does_not_answer_fails_and_ends_the_move(session):
+    """A STOP with no reply was taken for firmware without STOP: no raise,
+    no generation moved, and a move it may have stopped read arrived."""
+    motion = session.scope.motion
+    driver = motion._driver
+    handle = motion.start_move_absolute('X', 60000.0)
+    driver._fail_on.add('STOP')
+
+    with pytest.raises(MotorStopFailedError):
+        motion.stop_motion()
+    driver._fail_on.discard('STOP')
+
+    assert _reason(handle) == 'stopped'

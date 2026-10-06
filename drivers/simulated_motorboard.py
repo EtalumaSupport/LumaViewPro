@@ -241,10 +241,17 @@ class SimulatedMotorBoard:
         failure injection applies to it.
 
         Returns:
-            bool: True when the board answered; False on no reply, as the
-                production MotorBoard answers.
+            bool: True: the simulated firmware implements STOP.
+
+        Raises:
+            HardwareError: the board did not answer the STOP, as the
+                production MotorBoard raises.
         """
-        return self.exchange_command('STOP') is not None
+        if self.exchange_command('STOP') is None:
+            raise HardwareError(
+                'STOP: no reply from the motor board; the stage may still be moving'
+            )
+        return True
 
     def supports_motor_stop(self) -> bool:
         """Sim firmware supports every command family."""
