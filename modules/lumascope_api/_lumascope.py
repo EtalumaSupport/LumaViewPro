@@ -880,7 +880,7 @@ class Lumascope:
         frame_width, frame_height = config.frame_width, config.frame_height
         binning_size = config.binning_size
         if self.camera_connected:
-            available_binning = self.imaging.get_available_binning_sizes()
+            available_binning = self.capabilities.camera_binning_sizes
             if binning_size not in available_binning:
                 camera_binning = self.imaging.get_binning_size()
                 # The persisted frame is a DISPLAYED size at the persisted
@@ -891,7 +891,7 @@ class Lumascope:
                 native = binning.displayed_to_native(
                     {'width': frame_width, 'height': frame_height},
                     binning_size,
-                    self.imaging.get_native_resolution()
+                    self.imaging._max_frame_unbinned()
                     or {
                         'width': frame_width * binning_size,
                         'height': frame_height * binning_size,
@@ -969,13 +969,14 @@ class Lumascope:
         # format is chosen from the ones this camera reports -- its 12-bit
         # format where it has one, else its own 8-bit format, which a
         # full-depth mode keeps at the depth delivered. Nothing is
-        # substituted. None means no camera reported formats, as before:
-        # there is nothing to apply until one does.
+        # substituted. None means the camera reported no formats: there is
+        # nothing to apply. With no camera connected there is nothing to
+        # send the format to.
         pixel_format = image_mode.select_capture_pixel_format(
             image_mode.resolve_image_mode(config.image_mode)['capture_depth'],
-            self.imaging.get_supported_pixel_formats(),
+            self.capabilities.camera_pixel_formats,
         )
-        if pixel_format is not None:
+        if pixel_format is not None and self.camera_connected:
             try:
                 self.imaging._set_pixel_format_impl(pixel_format)
             except CameraSettingRejected as ex:

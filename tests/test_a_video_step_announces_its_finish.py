@@ -39,11 +39,9 @@ def _scope(listeners):
     scope.illumination.get_led_states = lambda: {}
     scope.imaging.frames_until_valid.return_value = 0
     scope.imaging.active_cached = True
-    scope.imaging.camera_identity = {
-        'model': 'sim',
-        'serial': '0',
-        'timestamp_tick_frequency_hz': None,
-    }
+    scope.capabilities.camera_model = 'sim'
+    scope.capabilities.camera_serial_number = '0'
+    scope.capabilities.camera_timestamp_tick_hz = None
     scope.imaging.frame_size_cached = {'width': 8, 'height': 8}
     scope.imaging.add_frame_listener = lambda cb, name=None: listeners.update(cb=cb)
     return scope

@@ -44,6 +44,10 @@ def bare_pylon_camera():
     cam._registered_frame_callbacks = []
     cam._frame_window = None
     cam.cam_image_handler = None
+    # The identity a connect reads off the device; none was read here.
+    cam.model_name = None
+    cam._device_serial = None
+    cam.timestamp_tick_frequency_hz = None
     cam.active = MagicMock()
     cam.active.IsGrabbing.return_value = False
     cam._mark_disconnected = MagicMock()

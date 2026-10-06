@@ -15,6 +15,7 @@ IMPORTANT: This file does NOT manipulate sys.modules at module level.
 All mocking is done inside fixtures/test methods and cleaned up afterward.
 """
 
+import dataclasses
 import pathlib
 import shutil
 import inspect
@@ -4021,7 +4022,7 @@ from tests.camera_fakes import (
     run_one_stats_poll as _run_one_stats_poll,
     stats_poll_pylon_camera as _stats_poll_pylon_camera,
 )
-from tests.scope_fakes import build_scope, give_stub_lanes, swap_lanes
+from tests.scope_fakes import build_scope, give_camera_capabilities, give_stub_lanes, swap_lanes
 from tests.installation_fixtures import copy_installation_files
 
 
@@ -4174,7 +4175,10 @@ def _sim_backed_imaging():
     scope.illumination = SimpleNamespace(
         get_led_states=lambda: {}, color2ch=lambda c: None, state_color2ch=lambda c: None
     )
-    scope.capabilities = SimpleNamespace(pixel_size_um=None, lens_focal_length_mm=None)
+    give_camera_capabilities(scope, cam)
+    scope.capabilities = dataclasses.replace(
+        scope.capabilities, pixel_size_um=None, lens_focal_length_mm=None
+    )
     imaging = ImagingAPI(scope, cam)
     scope.imaging = imaging
     return imaging, cam

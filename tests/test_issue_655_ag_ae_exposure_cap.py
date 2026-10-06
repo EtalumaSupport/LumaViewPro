@@ -40,6 +40,7 @@ from tests.protocol_drives import lent_run_claim
 import modules.config_helpers as config_helpers
 
 from tests.camera_fakes import bare_pylon_camera
+from tests.scope_fakes import give_camera_capabilities
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -165,6 +166,7 @@ def test_api_set_auto_gain_forwards_cap_from_settings_dict():
     cam.connect()
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
+    give_camera_capabilities(scope, cam)
     imaging = ImagingAPI(scope, cam)
 
     recorded = {}
@@ -262,11 +264,9 @@ def _video_session_autogain_call(autogain_settings):
     scope.imaging.frames_until_valid.return_value = 0
     scope.imaging.active_cached = False  # wait loop exits on its first tick
     scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {'focal_length': 45.0})
-    scope.imaging.camera_identity = {
-        'model': 'sim',
-        'serial': '0',
-        'timestamp_tick_frequency_hz': None,
-    }
+    scope.capabilities.camera_model = 'sim'
+    scope.capabilities.camera_serial_number = '0'
+    scope.capabilities.camera_timestamp_tick_hz = None
     scope.imaging.frame_size_cached = {'width': 8, 'height': 8}
     step = {
         'Auto_Gain': True,

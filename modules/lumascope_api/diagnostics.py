@@ -204,7 +204,7 @@ class DiagnosticsAPI:
             except Exception as e:
                 info[key] = f'Error: {e}'
 
-        _try('model', lambda: self._scope._camera_driver.get_model_name())
+        info['model'] = self._scope.capabilities.camera_model
         _try('pixel_format', lambda: self._scope._camera_driver.get_pixel_format())
 
         try:
@@ -1124,7 +1124,7 @@ class DiagnosticsAPI:
             return {'model': None, 'pixel_format': None, 'connected': False}
 
         return {
-            'model': self._scope._camera_driver.get_model_name(),
+            'model': self._scope.capabilities.camera_model,
             'pixel_format': self._scope._camera_driver.get_pixel_format(),
             'connected': True,
         }

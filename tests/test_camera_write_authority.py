@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import ast
 import threading
-from types import SimpleNamespace
 
 import pytest
 
@@ -32,7 +31,7 @@ from modules.exceptions import CameraSettingOutOfRangeError, CameraSettingReject
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
 from tests.ast_seams import parse_module
-from tests.scope_fakes import give_stub_lanes
+from tests.scope_fakes import give_camera_capabilities, give_stub_lanes
 
 # Driver methods that mutate camera state. A call to any of these must be wrapped
 # in a write thunk handed to ImagingAPI._camera_write, never issued directly --
@@ -83,9 +82,8 @@ def _build_imaging(cam):
     give_stub_lanes(scope)
     scope._cam_lock = threading.RLock()
     scope._state_lock = threading.RLock()
-    # No model maximum: the frame range is the camera's sensor.
-    sensor = cam.profile.native_resolution
-    scope.capabilities = SimpleNamespace(camera_max_frame_size=(sensor['width'], sensor['height']))
+    # No model: the scope's static camera facts are the camera's own.
+    give_camera_capabilities(scope, cam)
     imaging = ImagingAPI(scope, cam)
     scope.imaging = imaging
     return imaging

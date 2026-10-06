@@ -517,8 +517,7 @@ class MicroscopeSettings(BoxLayout):
                             settings[layer]['stim_config']['enabled'] = False
 
     def load_binning_sizes(self):
-        # Use Lumascope API to get available binning sizes
-        sizes = _app_ctx.ctx.lumaview.scope.imaging.get_available_binning_sizes()
+        sizes = _app_ctx.ctx.lumaview.scope.capabilities.camera_binning_sizes
         self.ids['binning_spinner'].values = [f'{s}x{s}' for s in sizes]
 
     def _ui_binning_size(self) -> int:

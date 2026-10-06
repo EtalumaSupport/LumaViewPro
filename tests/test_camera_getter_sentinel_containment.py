@@ -64,7 +64,7 @@ GOOD_ROUND = {
 
 
 from modules.run_outcome import EndingLatch
-from tests.scope_fakes import give_stub_lanes
+from tests.scope_fakes import give_camera_capabilities, give_stub_lanes
 
 
 class _StampedFrameHandler:
@@ -178,6 +178,9 @@ def _build_imaging(cam) -> ImagingAPI:
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
     give_stub_lanes(scope)
+    # The scripted driver declares no static facts: no model, no frame
+    # maximum, no auto modes.
+    give_camera_capabilities(scope, None)
     scope._cam_lock = threading.RLock()
     scope._state_lock = threading.RLock()
     imaging = ImagingAPI(scope, cam)
@@ -205,7 +208,6 @@ CONVERTED_GETTERS = [
 CONVERTED_PRIVATE_GETTERS = [
     ('_get_frame_size', None, {'width': 1936, 'height': 1216}),
     ('_get_pixel_format', None, 'Mono12'),
-    ('_get_max_frame_size', None, {'width': 3840, 'height': 2160}),
 ]
 
 _SWEEP = CONVERTED_GETTERS + CONVERTED_PRIVATE_GETTERS
@@ -371,22 +373,6 @@ def test_get_width_returns_last_known_after_transient_failure():
     assert imaging.get_height() == 1216
 
 
-def test_max_frame_size_returns_none_not_keyerror_on_empty_dict_read():
-    # The max/min frame-size drivers answer a failed read with {}. The old
-    # behavior subscripted it -> KeyError. Cold cache: absent default None.
-    driver = steady_good_driver({'get_max_frame_size': [{}]})
-    imaging = _build_imaging(driver)
-    assert imaging._get_max_frame_size() is None
-
-
-def test_max_frame_size_returns_last_known_after_empty_dict_read():
-    driver = steady_good_driver({'get_max_frame_size': [{}, {'width': 3840, 'height': 2160}, {}]})
-    imaging = _build_imaging(driver)
-    good = {'width': 3840, 'height': 2160}
-    assert imaging._get_max_frame_size() == good  # the one good read
-    assert imaging._get_max_frame_size() == good  # {} sentinel -> last-known-good
-
-
 def test_save_camera_state_snapshot_not_poisoned_by_failing_reads():
     # Input half of snapshot poisoning: after a good populate, gain/exposure
     # reads fail; the snapshot must carry the last-known values, not -1 --
@@ -546,7 +532,12 @@ def _metadata_scope_with_real_imaging(imaging: ImagingAPI, driver) -> SimpleName
     )
     return SimpleNamespace(
         runtime_state=runtime_state,
-        capabilities=SimpleNamespace(pixel_size_um=None, lens_focal_length_mm=None),
+        capabilities=SimpleNamespace(
+            pixel_size_um=None,
+            lens_focal_length_mm=None,
+            camera_model='simcam',
+            camera_timestamp_tick_hz=None,
+        ),
         imaging=imaging,
         diagnostics=SimpleNamespace(
             get_microscope_model=lambda: 'LS720-SIM',
@@ -573,7 +564,6 @@ def test_chunkless_metadata_omits_keys_when_live_reads_fail():
     scope = _metadata_scope_with_real_imaging(imaging, driver)
     # The capture builds the frame's record beside the grab; the scripted
     # driver has no chunks, so the record takes the live-confirmed surface.
-    driver.get_model_name = lambda: 'simcam'
     imaging._scope = scope
     # The reducer's account of the frame just made: one frame, 12 bits.
     imaging._last_frame_summing = (1, 12)

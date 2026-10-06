@@ -557,7 +557,6 @@ class ImagingAPI:
             'gain_db': -1.0,
             'exposure_ms': 0.0,
             'frame_size': {'width': 0, 'height': 0},
-            'max_frame_size': {'width': 0, 'height': 0},
             'min_frame_size': {'width': 0, 'height': 0},
             'max_exposure_ms': 0.0,
             'max_gain_db': 0.0,
@@ -627,7 +626,7 @@ class ImagingAPI:
             import os
             import pathlib
 
-            model = getattr(self._driver, 'model_name', None)
+            model = self._scope.capabilities.camera_model
             if not model:
                 return
             safe_name = model.replace(' ', '_')
@@ -666,7 +665,6 @@ class ImagingAPI:
             self.get_exposure_ms()
             self._get_frame_size()
             self._get_pixel_format()
-            self._get_max_frame_size()
             self._live_validated_read(
                 'min_frame_size',
                 lambda driver: driver.get_min_frame_size(),
@@ -2715,16 +2713,6 @@ class ImagingAPI:
             None,
         )
 
-    def _get_max_frame_size(self) -> dict | None:
-        """Validated sensor-max frame size, or None when never read."""
-        return self._validated_camera_read(
-            'max_frame_size',
-            lambda driver: driver.get_max_frame_size(),
-            common_utils.is_valid_frame_size,
-            lambda v: {'width': int(v['width']), 'height': int(v['height'])},
-            None,
-        )
-
     def get_width(self) -> int:
         """Get the current frame width setting.
 
@@ -3189,7 +3177,7 @@ class ImagingAPI:
         illumination = self._scope.illumination
         ticks = chunks.get('Timestamp')
         frame_id = chunks.get('FrameID')
-        tick_hz = getattr(self._driver, 'timestamp_tick_frequency_hz', None)
+        camera = self._scope.capabilities
         with self._state_lock:
             frames_summed, frame_significant_bits = self._last_frame_summing
         return FrameRecord(
@@ -3201,10 +3189,10 @@ class ImagingAPI:
             frames_summed=frames_summed,
             frame_significant_bits=frame_significant_bits,
             camera_timestamp_ticks=int(ticks) if ticks is not None else None,
-            camera_tick_hz=int(tick_hz) if tick_hz is not None else None,
+            camera_tick_hz=camera.camera_timestamp_tick_hz,
             frame_id=int(frame_id) if frame_id is not None else None,
             binning_size=self._binning_size,
-            camera_model=self._driver.get_model_name(),
+            camera_model=camera.camera_model,
         )
 
     def _black_level_for_record(self) -> float | None:
@@ -4109,16 +4097,16 @@ class ImagingAPI:
         return AppliedCameraSetting(stored=stored, applied=applied, capped=applied != stored)
 
     def _camera_has_auto_gain(self) -> bool:
-        """Whether the attached camera's profile declares hardware auto-gain.
-
-        The one place the API reads it. The IDS and FX2 drivers have no
-        auto-gain to drive, so nothing may ask them to change it.
+        """Whether the attached camera has hardware auto-gain
+        (``capabilities.camera_supports_auto_gain``). The IDS and FX2 drivers
+        have no auto-gain to drive, so nothing may ask them to change it.
         """
-        return bool(self._driver and getattr(self._driver.profile, 'has_auto_gain', False))
+        return self._scope.capabilities.camera_supports_auto_gain
 
     def _camera_has_auto_exposure(self) -> bool:
-        """Whether the attached camera's profile declares hardware auto-exposure."""
-        return bool(self._driver and getattr(self._driver.profile, 'has_auto_exposure', False))
+        """Whether the attached camera has hardware auto-exposure
+        (``capabilities.camera_supports_auto_exposure``)."""
+        return self._scope.capabilities.camera_supports_auto_exposure
 
     @property
     def pixel_format_cached(self) -> str | None:

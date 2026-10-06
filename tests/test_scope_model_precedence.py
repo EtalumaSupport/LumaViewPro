@@ -108,7 +108,10 @@ class TestTheBringUpAdoptsTheReportedModel:
     ):
         scope = _sim_scope(sim_model='LS850T')
         session = self._caller_scope_session(tmp_path, scope, microscope='LS850T')
-        monkeypatch.setattr(scope.diagnostics, 'get_microscope_model', lambda: 'LS999')
+        reported = scope.diagnostics.get_motor_info
+        monkeypatch.setattr(
+            scope.diagnostics, 'get_motor_info', lambda: {**reported(), 'model': 'LS999'}
+        )
         try:
             session.configure_scope()
             assert session.settings['microscope'] == 'LS850T'
@@ -120,7 +123,10 @@ class TestTheBringUpAdoptsTheReportedModel:
     def test_no_reported_model_leaves_the_stored_one(self, tmp_path, monkeypatch):
         scope = _sim_scope(sim_model='LS850T')
         session = self._caller_scope_session(tmp_path, scope, microscope='LS850T')
-        monkeypatch.setattr(scope.diagnostics, 'get_microscope_model', lambda: None)
+        reported = scope.diagnostics.get_motor_info
+        monkeypatch.setattr(
+            scope.diagnostics, 'get_motor_info', lambda: {**reported(), 'model': None}
+        )
         try:
             session.configure_scope()
             assert session.settings['microscope'] == 'LS850T'

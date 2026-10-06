@@ -22,11 +22,9 @@ def _make_recorder(tmp_path, clock, active_cached=True):
     scope.imaging.frames_until_valid.return_value = 0
     scope.imaging.active_cached = active_cached
     scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {'focal_length': 45.0})
-    scope.imaging.camera_identity = {
-        'model': 'sim',
-        'serial': '0',
-        'timestamp_tick_frequency_hz': None,
-    }
+    scope.capabilities.camera_model = 'sim'
+    scope.capabilities.camera_serial_number = '0'
+    scope.capabilities.camera_timestamp_tick_hz = None
     scope.imaging.frame_size_cached = {'width': 8, 'height': 8}
     return protocol_recording.ProtocolVideoStep(
         scope=scope,

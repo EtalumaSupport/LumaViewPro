@@ -126,6 +126,9 @@ class TestCapabilityMapping:
         led.available_colors.return_value = ('Blue', 'Green', 'Red')
         led.supports_firmware_stim.return_value = False
         camera = SimpleNamespace(
+            model_name=model_name,
+            device_serial=None,
+            timestamp_tick_frequency_hz=None,
             profile=lookup_profile(model_name),
             get_max_frame_size=lambda: {'width': 1024, 'height': 768},
         )

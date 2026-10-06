@@ -55,14 +55,6 @@ class _FakeImaging:
     def frame_size_cached(self):
         return dict(self._frame_size)
 
-    @property
-    def camera_identity(self):
-        return {
-            'model': 'testcam-9000',
-            'serial': 'TC9K-001',
-            'timestamp_tick_frequency_hz': TICK_HZ,
-        }
-
     def add_frame_listener(self, cb, name=None):
         self.listener = cb
 
@@ -155,7 +147,12 @@ class _FakeScope:
         # A scope that reports no optics: the recording start resolves its
         # scale off these and writes none, the honest-degradation path.
         self.capabilities = SimpleNamespace(
-            has_turret=False, pixel_size_um=None, lens_focal_length_mm=None
+            has_turret=False,
+            pixel_size_um=None,
+            lens_focal_length_mm=None,
+            camera_model='testcam-9000',
+            camera_serial_number='TC9K-001',
+            camera_timestamp_tick_hz=TICK_HZ,
         )
 
 
@@ -338,6 +335,8 @@ class TestFramesLeg:
         assert manifest['write_failures'] == 0
         assert manifest['channel_color'] == 'Blue'
         assert manifest['camera']['model'] == 'testcam-9000'
+        assert manifest['camera']['serial'] == 'TC9K-001'
+        assert manifest['camera']['timestamp_tick_hz'] == TICK_HZ
         assert manifest['provenance']['software']['lvp_version'] is not None
         assert manifest['timestamp_grade'] == 'camera'
         assert all(entry['chunks'] is not None for entry in manifest['frame_index'])

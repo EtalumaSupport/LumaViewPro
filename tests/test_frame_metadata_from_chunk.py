@@ -44,10 +44,9 @@ def _imaging(live=None, chunk_reads=None):
     imaging = object.__new__(ImagingAPI)
     imaging._scope = SimpleNamespace(
         illumination=SimpleNamespace(state_ch2color=lambda ch: {3: 'BF'}[ch]),
+        capabilities=SimpleNamespace(camera_model='simcam', camera_timestamp_tick_hz=1_000_000_000),
         _camera_driver=SimpleNamespace(
-            get_model_name=lambda: 'simcam',
             get_black_level=lambda: None,
-            timestamp_tick_frequency_hz=1_000_000_000,
             cam_image_handler=SimpleNamespace(get_last_chunks=get_last_chunks),
         ),
     )

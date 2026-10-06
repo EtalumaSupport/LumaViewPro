@@ -259,9 +259,9 @@ class ProtocolVideoStep:
             return prologue_outcome
 
         scope = self._scope
-        identity = scope.imaging.camera_identity
+        camera = scope.capabilities
         frame_size = scope.imaging.frame_size_cached
-        self._tick_freq_hz = identity['timestamp_tick_frequency_hz']
+        self._tick_freq_hz = camera.camera_timestamp_tick_hz
         # One scale snapshot per step, alongside the other start-of-recording
         # camera facts: the objective cannot change while a step records.
         self._pixel_size_um = resolve_recording_pixel_size(scope)
@@ -297,8 +297,8 @@ class ProtocolVideoStep:
                 'step_name': self._name,
                 'channel_color': step['Color'] if false_color_on else None,
                 'camera': {
-                    'model': identity['model'],
-                    'serial': identity['serial'],
+                    'model': camera.camera_model,
+                    'serial': camera.camera_serial_number,
                     'timestamp_tick_hz': self._tick_freq_hz,
                 },
                 'provenance': {

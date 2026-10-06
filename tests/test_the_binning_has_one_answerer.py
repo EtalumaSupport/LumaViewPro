@@ -30,7 +30,7 @@ def session():
 
 
 def test_it_answers_the_binning_the_camera_took(session):
-    offered = session.scope.imaging.get_available_binning_sizes()
+    offered = session.scope.capabilities.camera_binning_sizes
     size = max(offered)
 
     session.set_binning_size(size)
@@ -40,9 +40,18 @@ def test_it_answers_the_binning_the_camera_took(session):
 
 def test_a_refused_binning_leaves_the_answer_as_it_was(session):
     before = session.get_binning_size()
-    unsupported = max(session.scope.imaging.get_available_binning_sizes()) * 16
+    unsupported = max(session.scope.capabilities.camera_binning_sizes) * 16
 
     with pytest.raises(CameraSettingUnsupportedError):
         session.set_binning_size(unsupported)
+
+    assert session.get_binning_size() == before
+
+
+def test_with_no_camera_nothing_is_binned_and_nothing_is_stored(session, monkeypatch):
+    before = session.get_binning_size()
+    monkeypatch.setattr(type(session.scope), 'camera_connected', property(lambda self: False))
+
+    assert session.set_binning_size(1) is None
 
     assert session.get_binning_size() == before

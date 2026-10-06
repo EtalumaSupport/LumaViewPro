@@ -63,11 +63,9 @@ def _video_step(monkeypatch, tmp_path, *, timestamp_overlay, false_color=False):
     scope.imaging.frames_until_valid.return_value = 0
     scope.imaging.active_cached = False  # wait loop exits on its first tick
     scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {'focal_length': 45.0})
-    scope.imaging.camera_identity = {
-        'model': 'sim',
-        'serial': '0',
-        'timestamp_tick_frequency_hz': None,
-    }
+    scope.capabilities.camera_model = 'sim'
+    scope.capabilities.camera_serial_number = '0'
+    scope.capabilities.camera_timestamp_tick_hz = None
     scope.imaging.frame_size_cached = {'width': 64, 'height': 48}
 
     capture_config = MagicMock()

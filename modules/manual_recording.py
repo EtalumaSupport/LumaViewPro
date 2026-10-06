@@ -307,7 +307,7 @@ class ManualRecordingController:
         duration_s = get_manual_video_max_duration(settings)
         video_as_frames = settings['video_as_frames']
         capture_config = get_image_capture_config_from_settings(settings)
-        identity = scope.imaging.camera_identity
+        camera = scope.capabilities
 
         start_dt = datetime.datetime.now()
         start_time_str = start_dt.strftime('%Y-%m-%d_%H.%M.%S')
@@ -383,9 +383,9 @@ class ManualRecordingController:
             # deliberately saved gray.
             'channel_color': resolved_layer if false_color_on else None,
             'camera': {
-                'model': identity['model'],
-                'serial': identity['serial'],
-                'timestamp_tick_hz': identity['timestamp_tick_frequency_hz'],
+                'model': camera.camera_model,
+                'serial': camera.camera_serial_number,
+                'timestamp_tick_hz': camera.camera_timestamp_tick_hz,
             },
             'provenance': {
                 'host': gather_host_provenance(),
@@ -455,7 +455,7 @@ class ManualRecordingController:
                 false_color_on=false_color_on,
                 save_encoding=capture_config.save_encoding,
                 capture_depth=capture_config.capture_depth,
-                tick_freq_hz=identity['timestamp_tick_frequency_hz'],
+                tick_freq_hz=camera.camera_timestamp_tick_hz,
                 hyperstack=hyperstack,
                 pixel_size_um=claimed['pixel_size_um'],
                 to_plate=claimed['to_plate'],
@@ -483,9 +483,7 @@ class ManualRecordingController:
                 self._start_ts = self._clock()
                 self._effective_fps = effective_fps
                 self._stall_watch = StallWatch(self._stall_threshold_now(effective_fps, exposure))
-                self._rebaser = CameraTickRebaser(
-                    identity['timestamp_tick_frequency_hz'], self._clock
-                )
+                self._rebaser = CameraTickRebaser(camera.camera_timestamp_tick_hz, self._clock)
                 self._hyperstack_rows = [] if hyperstack else None
                 self._last_disk_check_ts = 0.0
                 self._on_complete = on_complete

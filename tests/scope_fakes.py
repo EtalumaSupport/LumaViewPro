@@ -137,6 +137,28 @@ def give_stub_lanes(scope):
     return scope
 
 
+def give_camera_capabilities(scope, camera):
+    """Give a `Lumascope.__new__` stub the capabilities a built scope reads off `camera`.
+
+    Built by the production constructor with no boards and no model, so the
+    stub's static camera facts are the ones its camera reports. Returns the
+    scope.
+    """
+    from drivers.null_ledboard import NullLEDBoard
+    from drivers.null_motorboard import NullMotionBoard
+    from modules.layer_record import UNRESOLVED
+    from modules.scope_capabilities import ScopeCapabilities
+
+    scope.capabilities = ScopeCapabilities.from_drivers(
+        motion=NullMotionBoard(),
+        led=NullLEDBoard(),
+        camera=camera,
+        layer_identity=UNRESOLVED,
+        scope_models={},
+    )
+    return scope
+
+
 def swap_lanes(scope, *, io=None, camera=None):
     """Put a test's own lane in place of a scope's: the one sanctioned lane seam.
 

@@ -25,7 +25,11 @@ from drivers.simulated_camera import SimulatedCamera
 from modules.exceptions import CameraSettingUnsupportedError
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
-from tests.scope_fakes import answer_auto_gain_like_the_api, give_stub_lanes
+from tests.scope_fakes import (
+    answer_auto_gain_like_the_api,
+    give_camera_capabilities,
+    give_stub_lanes,
+)
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
 AG_SETTINGS = {'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
@@ -81,6 +85,7 @@ def ag_less_imaging(ag_less_profile, asked):
     assert cam.profile.has_auto_gain is False
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
+    give_camera_capabilities(scope, cam)
     give_stub_lanes(scope)
     scope._cam_lock = threading.RLock()
     scope._state_lock = threading.RLock()
@@ -130,6 +135,7 @@ class TestTheAnswerTheGuiDisplays:
         try:
             scope = Lumascope.__new__(Lumascope)
             scope._camera_driver = cam
+            give_camera_capabilities(scope, cam)
             imaging = ImagingAPI(scope, cam)
             on = imaging.applied_auto_gain_for(True)
             assert (on.stored, on.applied, on.capped) == (True, True, False)

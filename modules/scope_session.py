@@ -2135,8 +2135,9 @@ class ScopeSession:
         # unit whose file says the wrong model configures for the wrong
         # axes. The motor driver caches its identity at connect, so the
         # read is synchronous; no board (or a board with no model) reports
-        # None and the stored selection stands.
-        detected = self.scope.diagnostics.get_microscope_model()
+        # None and the stored selection stands. The board's own report, not
+        # the scope's resolved model, which falls back to the selection.
+        detected = self.scope.diagnostics.get_motor_info()['model']
         stored = self.settings.get('microscope')
         if detected is not None and detected in scope_models and detected != stored:
             with self.settings_lock:
@@ -2853,7 +2854,7 @@ class ScopeSession:
         capture_depth = image_mode.resolve_image_mode(mode)['capture_depth']
         imaging = self.scope.imaging
         target = image_mode.select_capture_pixel_format(
-            capture_depth, imaging.get_supported_pixel_formats()
+            capture_depth, self.scope.capabilities.camera_pixel_formats
         )
         if target is not None and not imaging.set_pixel_format(target):
             return False
@@ -2884,8 +2885,10 @@ class ScopeSession:
                 stored) or the frame after it (the binning is stored, with the
                 frame the camera reports holding at it).
         """
+        if not self.scope.camera_connected:
+            return None
         imaging = self.scope.imaging
-        offered = imaging.get_available_binning_sizes()
+        offered = self.scope.capabilities.camera_binning_sizes
         label = binning.binning_size_int_to_str(size)
         if size not in offered:
             raise CameraSettingUnsupportedError(
@@ -2956,11 +2959,11 @@ class ScopeSession:
     def _native_frame(self) -> dict:
         """The stored unbinned region, or one rebuilt from the displayed frame.
 
-        The stored pair is returned as it is, never re-capped against the
-        live sensor size: a small reading during a reconnect would otherwise
-        shrink the stored region for good. Settings saved before the pair
-        existed hold only the displayed size, so the region is rebuilt as
-        displayed x stored binning, capped at the sensor.
+        The stored pair is returned as it is, never re-capped: a small
+        reading during a reconnect would otherwise shrink the stored region
+        for good. Settings saved before the pair existed hold only the
+        displayed size, so the region is rebuilt as displayed x stored
+        binning, capped at the largest frame the scope delivers.
         """
         frame = self.settings['frame']
         if 'native_width' in frame and 'native_height' in frame:
@@ -2969,10 +2972,15 @@ class ScopeSession:
         else:
             factor = binning.binning_size_str_to_int(self.settings['binning']['size'])
             displayed = {'width': int(frame['width']), 'height': int(frame['height'])}
-            cap = self.scope.imaging.get_native_resolution() or {
-                'width': displayed['width'] * factor,
-                'height': displayed['height'] * factor,
-            }
+            maximum = self.scope.capabilities.camera_max_frame_size
+            cap = (
+                {'width': maximum[0], 'height': maximum[1]}
+                if maximum
+                else {
+                    'width': displayed['width'] * factor,
+                    'height': displayed['height'] * factor,
+                }
+            )
             native = binning.displayed_to_native(displayed, factor, cap)
             source = f'rebuilt from {displayed["width"]}x{displayed["height"]} at {factor}x'
         # Whether the region came from the store or was rebuilt, and from
