@@ -135,6 +135,19 @@ def test_optics_and_led_block_come_from_the_models_row():
     assert _resolve_pixel_size_um(config, {'PixelSize': 2.2}, None) == 2.2
 
 
+def test_the_homing_phases_are_handed_over_as_the_section_holds_them():
+    """Checked whole at load; the shipped file's Index Search Max
+    Acceleration of 50 is a homing value, not the axis's full value, so the
+    limit's floor does not apply to it."""
+    config = Tmcm6110Config(SHIPPED_MOTOR_DEFAULTS)
+    assert dict(config.homing('Z')) == {
+        'Switch Search': {'Reference Search Mode': 65, 'Reference Search Speed': 500}
+    }
+    assert config.homing('X')['Switch Pre-move']['Max Positioning Speed'] == 2047
+    assert config.homing('Y')['Index Search']['Max Acceleration'] == 50
+    assert config.homing('Y')['Index Search']['Approach Speeds'] == (1000, 100)
+
+
 def test_the_constants_cannot_be_edited_through_a_read():
     config = Tmcm6110Config(SHIPPED_MOTOR_DEFAULTS)
     with pytest.raises(TypeError):
@@ -172,6 +185,26 @@ def test_no_section_is_refused():
         (lambda s: s['Axis Direction'].update({'X': 0}), r'Axis Direction\.X = 0 is not 1 or -1'),
         (lambda s: s['Axis Travel Limit'].pop('Y'), r'Axis Travel Limit\.Y is missing'),
         (lambda s: s.pop('Homing'), r'Homing is missing'),
+        (
+            lambda s: s['Homing']['Y']['Index Search'].pop('Back-off Microsteps'),
+            r'Homing\.Y\.Index Search\.Back-off Microsteps is missing',
+        ),
+        (
+            lambda s: s['Homing']['X']['Index Search'].update({'Max Acceleration': 99999}),
+            r'Homing\.X\.Index Search\.Max Acceleration = 99999 is outside 0\.\.2047',
+        ),
+        (
+            lambda s: s['Homing']['X']['Index Search'].update({'Approach Speeds': [1000]}),
+            r'Approach Speeds is not two speeds',
+        ),
+        (
+            lambda s: s['Homing']['Z']['Switch Search'].update({'Reference Search Speed': 5.0}),
+            r'Homing\.Z\.Switch Search\.Reference Search Speed is not an integer',
+        ),
+        (
+            lambda s: s['Axis Parameters']['X'].update({'Max Acceleration': 50}),
+            r'Axis Parameters\.X\.Max Acceleration = 50 is below 51',
+        ),
         (lambda s: s.pop('Travel Margin'), r'Travel Margin is missing'),
         (
             lambda s: s.update({'Travel Margin': 80}),

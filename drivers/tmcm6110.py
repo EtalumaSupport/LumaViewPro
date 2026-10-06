@@ -847,7 +847,8 @@ class Tmcm6110Board:
         anomalously slowly when its acceleration changes without it.
 
         The range is the API's: it refuses a value outside it before any
-        board is commanded.
+        board is commanded; the section's full value is checked at load to
+        be large enough that no admitted percentage rounds to 0.
 
         Raises:
             HardwareError: the board did not take it.
@@ -858,10 +859,7 @@ class Tmcm6110Board:
         with self._lock:
             self._exchange(SAP, AP_MAX_POSITIONING_SPEED, motor, params['Max Positioning Speed'])
             self._exchange(
-                SAP,
-                AP_MAX_ACCELERATION,
-                motor,
-                max(1, round(params['Max Acceleration'] * val_pct / 100)),
+                SAP, AP_MAX_ACCELERATION, motor, round(params['Max Acceleration'] * val_pct / 100)
             )
 
     def set_acceleration_limits(self, val_pct: int) -> None:

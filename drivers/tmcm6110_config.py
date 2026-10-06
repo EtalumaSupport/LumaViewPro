@@ -51,8 +51,9 @@ class Tmcm6110Config:
     switch the limit sits, for the units not measured. Both are per model,
     as the EL-0940's are.
 
-    The homing phases are the exception: each axis's must be a mapping, and
-    its contents are handed over as the section holds them.
+    The homing phases are checked with the rest: every value a phase
+    writes to the board is present and in range at load, never found
+    missing in the middle of a home.
     """
 
     # The TMCL axis parameters each axis is initialised with, by the name the
@@ -76,6 +77,40 @@ class Tmcm6110Config:
         'mm per Drive Revolution',
     )
 
+    # The smallest X/Y Max Acceleration a 1 % limit does not round to 0:
+    # the API's limit is a percentage from 1 to 100 of the full value, and
+    # round(50 * 1 / 100) is 0 under half-to-even.
+    MIN_LIMITABLE_ACCELERATION: ClassVar[int] = 51
+    _LIMITED_AXES: ClassVar[tuple] = ('X', 'Y')
+
+    # The homing phases each axis runs (Classic's sequence, as the driver
+    # sends it) and the TMCL values each phase writes, with the range the
+    # firmware manual gives the parameter: speeds and accelerations 0..2047,
+    # the reference search mode a byte (Classic uses 5 and 65).
+    _SPEED = (0, 2047)
+    _MODE = (0, 255)
+    _HOMING_PHASES: ClassVar[dict] = {
+        'X': ('Switch Pre-move', 'Index Search'),
+        'Y': ('Index Search',),
+        'Z': ('Switch Search',),
+    }
+    _PHASE_VALUES: ClassVar[dict] = {
+        'Switch Search': {'Reference Search Mode': _MODE, 'Reference Search Speed': _SPEED},
+        'Switch Pre-move': {
+            'Max Positioning Speed': _SPEED,
+            'Reference Search Mode': _MODE,
+            'Reference Search Speed': _SPEED,
+            'Reference Switch Speed': _SPEED,
+        },
+        'Index Search': {
+            'Back-off Microsteps': (1, 2**31 - 1),
+            'Max Acceleration': (0, 2047),
+            'Reference Search Mode': _MODE,
+            'Reference Search Speed': _SPEED,
+            'Reference Switch Speed': _SPEED,
+        },
+    }
+
     # The 6110 has no per-unit config to fail to read.
     board_config_read_ok: bool = True
 
@@ -98,17 +133,19 @@ class Tmcm6110Config:
         self._travel_limit_mm = {}
         self._homing = {}
         for axis in AXES:
-            params = {}
-            for name, (low, high) in self._AXIS_PARAMETER_RANGES.items():
-                value = self._value('Axis Parameters', axis, name)
-                if not isinstance(value, int) or isinstance(value, bool):
-                    raise ValueError(f'{SECTION}.Axis Parameters.{axis}.{name} is not an integer')
-                if not low <= value <= high:
-                    raise ValueError(
-                        f'{SECTION}.Axis Parameters.{axis}.{name} = {value} '
-                        f'is outside {low}..{high}'
-                    )
-                params[name] = value
+            params = {
+                name: self._integer(low, high, 'Axis Parameters', axis, name)
+                for name, (low, high) in self._AXIS_PARAMETER_RANGES.items()
+            }
+            if (
+                axis in self._LIMITED_AXES
+                and params['Max Acceleration'] < self.MIN_LIMITABLE_ACCELERATION
+            ):
+                raise ValueError(
+                    f'{SECTION}.Axis Parameters.{axis}.Max Acceleration = '
+                    f'{params["Max Acceleration"]} is below {self.MIN_LIMITABLE_ACCELERATION}, '
+                    f'the smallest a 1 % acceleration limit does not round to 0'
+                )
             self._axis_parameters[axis] = _frozen(params)
 
             steps, reduction, mm_per_rev = (
@@ -126,10 +163,7 @@ class Tmcm6110Config:
 
             self._travel_limit_mm[axis] = self._positive('Axis Travel Limit', axis)
 
-            homing = self._value('Homing', axis)
-            if not isinstance(homing, Mapping):
-                raise ValueError(f'{SECTION}.Homing.{axis} is not a mapping')
-            self._homing[axis] = _frozen(homing)
+            self._homing[axis] = _frozen(self._checked_homing(axis))
 
         self._travel_margin_mm = self._positive('Travel Margin')
         for axis in AXES:
@@ -152,6 +186,43 @@ class Tmcm6110Config:
         if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
             raise ValueError(f'{SECTION}.{".".join(path)} = {value!r} is not a positive number')
         return float(value)
+
+    def _integer(self, low: int, high: int, *path: str) -> int:
+        value = self._value(*path)
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f'{SECTION}.{".".join(path)} is not an integer')
+        if not low <= value <= high:
+            raise ValueError(f'{SECTION}.{".".join(path)} = {value} is outside {low}..{high}')
+        return value
+
+    def _checked_homing(self, axis: str) -> dict:
+        """The axis's homing phases, every value the driver writes checked."""
+        phases = {}
+        for phase in self._HOMING_PHASES[axis]:
+            values = {
+                name: self._integer(low, high, 'Homing', axis, phase, name)
+                for name, (low, high) in self._PHASE_VALUES[phase].items()
+            }
+            if phase == 'Index Search':
+                speeds = self._value('Homing', axis, phase, 'Approach Speeds')
+                if not isinstance(speeds, list) or len(speeds) != 2:
+                    raise ValueError(
+                        f'{SECTION}.Homing.{axis}.{phase}.Approach Speeds is not two speeds'
+                    )
+                low, high = self._SPEED
+                for speed in speeds:
+                    if (
+                        isinstance(speed, bool)
+                        or not isinstance(speed, int)
+                        or not low <= speed <= high
+                    ):
+                        raise ValueError(
+                            f'{SECTION}.Homing.{axis}.{phase}.Approach Speeds = {speeds!r} '
+                            f'has a speed outside {low}..{high}'
+                        )
+                values['Approach Speeds'] = list(speeds)
+            phases[phase] = values
+        return phases
 
     # --- Axis properties ---
 
