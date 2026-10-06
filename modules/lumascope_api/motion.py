@@ -745,12 +745,15 @@ class MotionAPI:
             _api_log.info('home DONE')
 
     @contextlib.contextmanager
-    def _safe_turret_move(self, restore_z: bool = True) -> Iterator[None]:
+    def _safe_turret_move(self, restore_z: bool = True) -> Iterator[int]:
         """Context manager that lowers Z to 0 before turret motion and restores after.
 
-        Use as ``with scope.motion._safe_turret_move(): ... move turret ...``.
-        Sets ``_is_turreting`` for the duration and restores the original
-        Z position even if the body raises.
+        Use as ``with scope.motion._safe_turret_move() as stop_generation:
+        ... move turret ...``; it yields the stop generation read before Z
+        was parked, the one a caller judges the whole change by. Sets
+        ``_is_turreting`` for the duration and restores the original Z
+        position even if the body raises -- unless a stop landed since Z
+        was parked: the person stopped the scope, so Z stays parked.
 
         Args:
             restore_z: When True (default), restore the original Z
@@ -765,6 +768,7 @@ class MotionAPI:
         # Save off current Z position before moving Z to 0
         logger.info('[SCOPE API ] Moving Z to 0', extra={'force_error': True})
         initial_z = self.get_current_position(axis='Z')
+        stop_generation = self._stop_generation
         # force: this retract is the turret-safety move, and it is also
         # the first motion of the turret-home recovery -- the case where
         # Z is legitimately still unknown because the home that would
@@ -774,14 +778,22 @@ class MotionAPI:
         self._move_absolute_impl('Z', position=0, force=True).wait()
         self._is_turreting = True
         try:
-            yield
+            yield stop_generation
         finally:
             # Always clear the flag, even if the body raised (e.g. driver
             # HardwareError from the turret home). Without this, a failed turret
             # home would leave _is_turreting=True and the stage stuck at
             # Z=0.
             self._is_turreting = False
-            if restore_z:
+            # The restore is a new move, which reads the generation after
+            # the stop and so is not withheld by it; this is what keeps a
+            # stopped change from driving Z back up.
+            if self._stopped_since(stop_generation):
+                logger.info(
+                    '[SCOPE API ] Leaving Z parked -- a stop landed during the turret change',
+                    extra={'force_error': True},
+                )
+            elif restore_z:
                 logger.info(f'[SCOPE API ] Restoring Z to {initial_z}', extra={'force_error': True})
                 # force for the same reason as the retract: this is the
                 # other half of one recovery, and refusing it would park
@@ -909,9 +921,13 @@ class MotionAPI:
         # park, move, restore -- returned: a raise anywhere in it leaves the
         # turret in no slot anyone can vouch for.
         self._last_turret_position = None
-        with self._safe_turret_move(restore_z=restore_z):
+        with self._safe_turret_move(restore_z=restore_z) as stop_generation:
             logger.info(f'[SCOPE API ] Moving T to position {position}')
             self._move_absolute_impl('T', position).wait()
+        # T's own wait judges only T; a stop after T arrived, before the
+        # restore, ended the change all the same.
+        if self._stopped_since(stop_generation):
+            raise MoveNotCompletedError('T', 'stopped')
         self._last_turret_position = int(position)
         self._preferred_turret_slot = int(position)
 

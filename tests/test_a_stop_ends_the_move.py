@@ -164,3 +164,90 @@ def test_a_move_a_stop_ended_reads_stopped_not_superseded(session, monkeypatch):
     assert _reason(first) == 'stopped'
     assert motion.get_axis_state('X') == AxisState.IDLE
     assert motion.get_current_position('X') == pytest.approx(driver.current_pos('X'), abs=0.1)
+
+
+@pytest.fixture
+def turret_session(tmp_path):
+    s = ScopeSession.create(
+        complete_settings(
+            live_folder=str(tmp_path),
+            microscope='LS850T',
+            objective_id='10x Oly',
+            turret_objectives={1: '10x Oly', 2: '4x Oly', 3: None, 4: None},
+        ),
+        simulate=True,
+    )
+    try:
+        home_sim_scope(s.scope)
+        s.scope.motion.move_absolute('Z', 3000.0)
+        s.scope.motion._driver.set_timing_mode('realistic')
+        yield s
+    finally:
+        s.shutdown()
+        s.scope.disconnect()
+
+
+def _turret_change_reason(motion):
+    try:
+        motion._move_turret_impl(2)
+    except MoveNotCompletedError as e:
+        return e.reason
+    return 'arrived'
+
+
+def test_a_stop_during_the_turret_leg_leaves_z_parked_and_no_slot(turret_session):
+    """A STOP while T turned: the move read 'stopped', and then the Z
+    restore drove the objective back up, a move nobody asked for after the
+    person stopped the scope."""
+    motion = turret_session.scope.motion
+    driver = motion._driver
+    sent = _wire(driver)
+
+    def stop_during_the_turn():
+        deadline = time.monotonic() + 5.0
+        while not any(c.startswith('TARGET_WT') for c in sent) and time.monotonic() < deadline:
+            time.sleep(0.001)
+        time.sleep(0.1)
+        motion.stop_motion()
+
+    stopper = threading.Thread(target=stop_during_the_turn)
+    stopper.start()
+    reason = _turret_change_reason(motion)
+    stopper.join()
+
+    assert reason == 'stopped'
+    after_stop = sent[sent.index('STOP') :]
+    assert not [c for c in after_stop if c.startswith('TARGET_WZ')], after_stop
+    assert driver.current_pos('Z') == pytest.approx(0.0, abs=0.1)
+    assert motion.get_turret_slot() is None
+
+
+def test_a_stop_after_the_turret_arrived_leaves_z_parked_and_no_slot(turret_session, monkeypatch):
+    """A STOP after T arrived and before the restore: the turn ended
+    unremarked, the restore read a generation already past the STOP, and
+    the change reported success with Z driven back up."""
+    motion = turret_session.scope.motion
+    driver = motion._driver
+    sent = _wire(driver)
+    real_move = motion._move_absolute_impl
+
+    def the_turn_arrives_then_a_stop(axis, *args, **kwargs):
+        handle = real_move(axis, *args, **kwargs)
+        if axis == 'T':
+            real_wait = handle.wait
+
+            def wait_then_stop(*wait_args, **wait_kwargs):
+                real_wait(*wait_args, **wait_kwargs)
+                motion.stop_motion()
+
+            handle.wait = wait_then_stop
+        return handle
+
+    monkeypatch.setattr(motion, '_move_absolute_impl', the_turn_arrives_then_a_stop)
+    reason = _turret_change_reason(motion)
+
+    assert reason == 'stopped'
+    after_stop = sent[sent.index('STOP') :]
+    assert not [c for c in after_stop if c.startswith('TARGET_WZ')], after_stop
+    assert driver.current_pos('Z') == pytest.approx(0.0, abs=0.1)
+    assert motion.get_turret_slot() is None
