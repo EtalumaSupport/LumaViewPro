@@ -822,7 +822,20 @@ def test_after_a_home_every_axis_is_at_0_and_arrived(homing_board, homing_sim):
         assert homing_board.target_status(axis)
         # At the reference itself: the index pulse, or Z's switch.
         assert homing_sim.axes[axis].p == pytest.approx(0)
-    assert homing_board.has_homed()
+
+
+def test_the_driver_keeps_no_record_of_a_home(homing_board):
+    """The board has none, so the driver answers none before and after: the
+    API's axis state is the one record, and a Z-only home cannot be read
+    here as X and Y homed."""
+    assert homing_board.detect_homed_axes() == []
+    assert homing_board.has_homed() is False
+    assert homing_board.zhome() is True
+    assert homing_board.has_homed() is False
+    assert homing_board.home() is True
+    assert homing_board.has_homed() is False
+    info = homing_board.fullinfo()
+    assert (info['x_homed'], info['y_homed'], info['z_homed']) == (False, False, False)
 
 
 def test_a_z_home_homes_z_alone(homing_board, homing_sim):
@@ -845,7 +858,6 @@ def test_no_stage_power_refuses_the_home_before_anything_is_sent(homing_board, h
         homing_board.home()
     assert (refused.value.reason, refused.value.moved) == ('stage_unpowered', False)
     assert [(c.command, c.type, c.motor) for c in _sent(homing_sim)] == [(GIO, *POWER_INPUT)]
-    assert not homing_board.has_homed()
 
 
 def test_an_open_lid_refuses_the_home_before_anything_moves(homing_board, homing_sim):
@@ -889,7 +901,6 @@ def test_a_lid_opened_during_a_home_stops_all_three_and_fails_it(homing_board, h
     sent = list(homing_sim.commands)
     assert sorted(c.motor for c in sent if c.command == MST) == [0, 1, 2]
     assert _writes(sent)[-3:] == END_SEARCHES
-    assert not homing_board.has_homed()
 
 
 def test_a_stop_from_another_thread_ends_the_home(homing_board, homing_sim):

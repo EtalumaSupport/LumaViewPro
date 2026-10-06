@@ -261,7 +261,6 @@ class Tmcm6110Board:
         # Set by motor_stop before it takes the lock, so a home in another
         # thread sends nothing more once a stop has begun.
         self._home_abort = threading.Event()
-        self._homed = False
         self._backend = backend
         self._serial: serial.SerialBase | None = None
         self.port: str | None = None
@@ -636,7 +635,6 @@ class Tmcm6110Board:
     def _home(self, phases, axes: tuple[str, ...]) -> bool:
         """Run ``phases`` in order, then set the target of each of ``axes`` to 0."""
         self._home_abort.clear()
-        self._homed = False
         with self._lock:
             if self._exchange(GIO, *POWER_INPUT) <= POWER_PRESENT_ABOVE:
                 raise MotionInterlockError('stage_unpowered', moved=False, stopped=False)
@@ -660,7 +658,6 @@ class Tmcm6110Board:
             self._end_reference_searches(raising=False)
             raise
         self._end_reference_searches(raising=True)
-        self._homed = True
         return True
 
     def _home_send(self, command: int, type_: int, motor: int, value: int = 0) -> int:
@@ -794,8 +791,10 @@ class Tmcm6110Board:
         raise HardwareError('the TMCM-6110 stage has no turret')
 
     def has_homed(self) -> bool:
-        """Whether this driver's last home completed."""
-        return self._homed
+        """False: the board keeps no record of a home, as ``detect_homed_axes``
+        answers none. The API's axis state is the one record of which axes
+        are homed; a latch here disagreed with it both ways."""
+        return False
 
     def has_turret(self) -> bool:
         return False
