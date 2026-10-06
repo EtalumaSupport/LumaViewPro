@@ -194,8 +194,8 @@ class TestTheFlagAndTheClaimEndTogether:
         from modules.sequenced_capture_runner import RunHandle
 
         runner._run_outcome = PendingRunOutcome()
-        run = runner._run_handle = RunHandle(runner, runner._run_outcome)
         runner._write_batch = RunWriteBatch(runner.file_io_executor)
+        run = runner._run_handle = RunHandle(runner, runner._run_outcome, runner._write_batch)
         assert runner.run_in_progress()
 
         def _boom(**_kwargs):

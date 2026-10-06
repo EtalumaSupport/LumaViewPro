@@ -199,11 +199,12 @@ def test_a_second_press_on_its_own_live_composite_stops_it_ahead_of_queued_work(
     app_ctx, runner, engine
 ):
     from modules.run_outcome import PendingRunOutcome
+    from modules.protocol_image_writer import RunWriteBatch
     from modules.sequenced_capture_runner import RunHandle
     from modules.sequential_io_executor import PRIORITY_HIGH
 
     starter = _Starter()
-    starter._composite_run = RunHandle(engine, PendingRunOutcome())
+    starter._composite_run = RunHandle(engine, PendingRunOutcome(), RunWriteBatch(MagicMock()))
     engine._is_live_run.side_effect = lambda run: run is starter._composite_run
 
     _click(starter)
@@ -258,10 +259,13 @@ def test_the_button_greys_while_anything_else_holds_the_scope(app_ctx):
     """The Session answers for this button's own run: another holder greys it,
     its own run leaves it live as that run's Stop."""
     from modules.run_outcome import PendingRunOutcome
+    from modules.protocol_image_writer import RunWriteBatch
     from modules.sequenced_capture_runner import RunHandle
 
     starter = _Starter()
-    own = RunHandle(app_ctx.sequenced_capture_runner, PendingRunOutcome())
+    own = RunHandle(
+        app_ctx.sequenced_capture_runner, PendingRunOutcome(), RunWriteBatch(MagicMock())
+    )
     starter._composite_run = own
     asked = []
 

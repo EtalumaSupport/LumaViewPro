@@ -24,6 +24,8 @@ ended; disarming on each refusal path would fix the exits by hand.
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 from tests.test_the_autofocus_button_runs_through_run_autofocus import (  # noqa: F401
     _live,
     held,
@@ -31,6 +33,7 @@ from tests.test_the_autofocus_button_runs_through_run_autofocus import (  # noqa
 )
 from modules.exceptions import ProtocolRunRefusedError
 from modules.run_outcome import PendingRunOutcome
+from modules.protocol_image_writer import RunWriteBatch
 from modules.sequenced_capture_runner import RunHandle
 
 
@@ -79,7 +82,10 @@ class TestARefusedAutofocusClick:
         )
 
     def test_the_next_run_gets_its_own(self, pressed):
-        first, second = pressed.handle, RunHandle(pressed.engine, PendingRunOutcome())
+        first, second = (
+            pressed.handle,
+            RunHandle(pressed.engine, PendingRunOutcome(), RunWriteBatch(MagicMock())),
+        )
         _live(pressed.engine, first)
         pressed.button.run_autofocus_from_ui()
         _live(pressed.engine)

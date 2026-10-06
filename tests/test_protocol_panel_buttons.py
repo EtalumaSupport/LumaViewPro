@@ -52,6 +52,7 @@ import ui.protocol_settings as ps
 import ui.ui_helpers as ui_helpers
 from modules.exceptions import ProtocolRunRefusedError, RunAlreadyEndedError
 from modules.run_outcome import PendingRunOutcome
+from modules.protocol_image_writer import RunWriteBatch
 from modules.sequenced_capture_runner import RunHandle
 from tests.pool_fakes import run_task_now
 
@@ -164,7 +165,7 @@ def shown(monkeypatch):
 
 def _handle(engine):
     """A run's handle over the engine stand-in, as the engine's start() makes it."""
-    return RunHandle(engine, PendingRunOutcome())
+    return RunHandle(engine, PendingRunOutcome(), RunWriteBatch(MagicMock()))
 
 
 def _live(engine, *runs):

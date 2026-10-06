@@ -53,7 +53,7 @@ def _make_runner_stub(scope, *, lease):
     an inert mock slot.
     """
     stub = MagicMock()
-    run = scr.RunHandle(stub, PendingRunOutcome())
+    run = scr.RunHandle(stub, PendingRunOutcome(), scr.RunWriteBatch(MagicMock()))
     stub.run_outcome = lambda: run
     stub._scope = scope
     stub._led_lease = lease

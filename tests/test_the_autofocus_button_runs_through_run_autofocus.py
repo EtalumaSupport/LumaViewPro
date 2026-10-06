@@ -42,6 +42,7 @@ import ui.ui_helpers as ui_helpers
 import ui.vertical_control as vc
 from modules.exceptions import ProtocolRunRefusedError, RunAlreadyEndedError
 from modules.run_outcome import PendingRunOutcome
+from modules.protocol_image_writer import RunWriteBatch
 from modules.sequenced_capture_runner import RunHandle
 from tests.pool_fakes import run_task_now
 
@@ -89,7 +90,7 @@ def pressed(monkeypatch, held):
     monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
     member = MagicMock()
     engine = MagicMock()
-    handle = RunHandle(engine, PendingRunOutcome())
+    handle = RunHandle(engine, PendingRunOutcome(), RunWriteBatch(MagicMock()))
     member.run_autofocus.return_value = handle
     engine._is_live_run.return_value = False
     engine._is_stopping.return_value = False
@@ -243,7 +244,9 @@ def test_the_button_is_disabled_while_its_own_request_is_in_flight(pressed, held
 def test_a_protocols_autofocus_is_not_this_buttons_to_show(pressed):
     """Another run is live -- a protocol with autofocus steps -- and this
     button started nothing: it draws idle."""
-    _live(pressed.engine, RunHandle(pressed.engine, PendingRunOutcome()))
+    _live(
+        pressed.engine, RunHandle(pressed.engine, PendingRunOutcome(), RunWriteBatch(MagicMock()))
+    )
     pressed.button.button.state = 'normal'
 
     pressed.button.draw_autofocus_button()
@@ -314,7 +317,10 @@ def test_a_stuck_autofocus_is_stopped_by_its_bound(pressed, real):
 
 
 def test_a_bound_that_outlived_its_run_leaves_the_next_autofocus_alone(pressed, real):
-    first, second = pressed.handle, RunHandle(pressed.engine, PendingRunOutcome())
+    first, second = (
+        pressed.handle,
+        RunHandle(pressed.engine, PendingRunOutcome(), RunWriteBatch(MagicMock())),
+    )
     _live(pressed.engine, first)
     real.button.run_autofocus_from_ui()
     [stale] = real.clock.scheduled
@@ -348,7 +354,9 @@ def test_the_button_greys_while_anything_else_holds_the_scope(pressed):
     its own run leaves it live as that run's Stop."""
     import modules.app_context as app_context
 
-    own = RunHandle(app_context.ctx.sequenced_capture_runner, PendingRunOutcome())
+    own = RunHandle(
+        app_context.ctx.sequenced_capture_runner, PendingRunOutcome(), RunWriteBatch(MagicMock())
+    )
     pressed.button._autofocus_run = own
     asked = []
 

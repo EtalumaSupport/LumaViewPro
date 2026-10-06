@@ -146,6 +146,7 @@ def test_the_handle_has_no_way_to_write_the_outcome():
     public = {name for name in vars(RunHandle) if not name.startswith('_')}
     assert public == {
         'wait',
+        'wait_for_files',
         'stop',
         'is_live',
         'is_stopping',

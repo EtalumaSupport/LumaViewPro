@@ -56,6 +56,7 @@ import ui.protocol_settings as ps
 import ui.zstack as zs
 from modules.exceptions import ProtocolRunRefusedError
 from modules.run_outcome import PendingRunOutcome
+from modules.protocol_image_writer import RunWriteBatch
 from modules.sequenced_capture_runner import RunHandle
 
 
@@ -86,7 +87,9 @@ class _ZStackStarter(zs.ZStack):
         self.ids = {'zstack_aqr_btn': self.button}
         self.zstack_pending = False
         # The handle this button's start returned.
-        self._zstack_run = RunHandle(_app_ctx.ctx.sequenced_capture_runner, PendingRunOutcome())
+        self._zstack_run = RunHandle(
+            _app_ctx.ctx.sequenced_capture_runner, PendingRunOutcome(), RunWriteBatch(MagicMock())
+        )
 
 
 @pytest.fixture

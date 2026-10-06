@@ -369,8 +369,8 @@ class RunWriteBatch:
             self._complete(*due)
         return count
 
-    def wait_complete(self, timeout_s: float) -> bool:
-        """Block until the batch completes, up to ``timeout_s``; True if it did."""
+    def wait_complete(self, timeout_s: float | None) -> bool:
+        """Block until the batch completes, up to ``timeout_s`` (None: no bound); True if it did."""
         return self._completed.wait(timeout=timeout_s)
 
     def wait_until_written(self, timeout_s: float) -> None:

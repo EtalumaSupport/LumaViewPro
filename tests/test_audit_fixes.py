@@ -9197,7 +9197,9 @@ class TestSCEResetSignalsAbort:
         # builds a run nobody started, which reset() is right to refuse.
         runner._run_trigger_source = 'test'
         runner._run_outcome = PendingRunOutcome()
-        run = runner._run_handle = RunHandle(runner, runner._run_outcome)
+        run = runner._run_handle = RunHandle(
+            runner, runner._run_outcome, RunWriteBatch(MagicMock())
+        )
         # _cleanup() has side effects we don't want to actually run; patch it.
         runner._cleanup = MagicMock()
 
@@ -9220,7 +9222,9 @@ class TestSCEResetSignalsAbort:
         # builds a run nobody started, which reset() is right to refuse.
         runner._run_trigger_source = 'test'
         runner._run_outcome = PendingRunOutcome()
-        run = runner._run_handle = RunHandle(runner, runner._run_outcome)
+        run = runner._run_handle = RunHandle(
+            runner, runner._run_outcome, RunWriteBatch(MagicMock())
+        )
         runner.protocol_thread.is_running = True
         runner._cleanup = MagicMock()
 
@@ -9243,7 +9247,9 @@ class TestSCEResetSignalsAbort:
         # builds a run nobody started, which reset() is right to refuse.
         runner._run_trigger_source = 'test'
         runner._run_outcome = PendingRunOutcome()
-        run = runner._run_handle = RunHandle(runner, runner._run_outcome)
+        run = runner._run_handle = RunHandle(
+            runner, runner._run_outcome, RunWriteBatch(MagicMock())
+        )
         runner.protocol_thread.is_running = False
         runner._cleanup = MagicMock()
 

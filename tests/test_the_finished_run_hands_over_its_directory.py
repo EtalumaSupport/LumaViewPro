@@ -146,8 +146,8 @@ class TestTheRunnerHandsOverItsOwnDirectory:
         )
         # The run start() would have committed, with its writes.
         runner._run_outcome = PendingRunOutcome()
-        run = runner._run_handle = RunHandle(runner, runner._run_outcome)
         runner._write_batch = RunWriteBatch(runner.file_io_executor)
+        run = runner._run_handle = RunHandle(runner, runner._run_outcome, runner._write_batch)
 
         runner._callbacks = ProtocolCallbacks(
             run_complete=lambda **kw: fired.append(('run_complete', kw.get('run_dir'))),

@@ -119,6 +119,29 @@ _ATTENDED_RUN_TRIGGERS = frozenset({'autofocus'})
 T = typing.TypeVar('T')
 
 
+@dataclasses.dataclass(frozen=True)
+class RunFiles:
+    """What became of one run's images, once its writes are done.
+
+    The run's batch's own account, read when it completed: outcome is
+    ``'written'`` when every image the run captured is on disk, else
+    ``'incomplete'``, with how many are not and why (the batch's
+    ``not_written_reason``).
+    """
+
+    outcome: str
+    written: int
+    not_written: int
+    not_written_reason: str | None
+
+
+def _remaining(deadline: float | None) -> float | None:
+    """Seconds left before *deadline*, never negative; None for no deadline."""
+    if deadline is None:
+        return None
+    return max(0.0, deadline - time.monotonic())
+
+
 class RunHandle:
     """One run, as the caller that started it holds it: watch it, wait for it, stop it.
 
@@ -130,13 +153,25 @@ class RunHandle:
     on is the engine's, and only the engine settles it.
     """
 
-    def __init__(self, engine: 'SequencedCaptureRunner', outcome: PendingRunOutcome) -> None:
+    def __init__(
+        self,
+        engine: 'SequencedCaptureRunner',
+        outcome: PendingRunOutcome,
+        write_batch: RunWriteBatch,
+    ) -> None:
         self._engine = engine
         self._pending = outcome
+        # This run's writes, the batch start() made with it -- never the
+        # engine's current batch, which the next run's start() replaces.
+        self._write_batch = write_batch
         # Written once, by the start() that made this handle, after the
         # run's setup: None for a run that saves nothing, or that never
         # started.
         self._run_dir: pathlib.Path | None = None
+        # Written once, by the run's cleanup, before the run ends: the
+        # thread building its hyperstacks, which writes after the batch
+        # completes; None for a run that builds none.
+        self._hyperstack_build: threading.Thread | None = None
 
     def wait(self, timeout_s: float | None) -> 'RunOutcome | None':
         """How this run ended, once it no longer holds the scope.
@@ -159,6 +194,44 @@ class RunHandle:
                 return None
             time.sleep(0.02)
         return outcome
+
+    def wait_for_files(self, timeout_s: float | None) -> RunFiles | None:
+        """What became of this run's images, once its files are done.
+
+        Blocks, inside one bound, until the run's images are on disk or
+        given up on, the run no longer holds the scope, and its hyperstack
+        build, when it has one, has finished -- so a caller woken here can
+        start the next run without a 'files_writing' refusal. One gap
+        remains, the same one wait() has: an autofocus sweep that does not
+        unwind inside cleanup's bound still refuses the next run
+        'autofocus_running'.
+
+        A hyperstack build's own failure is reported by the build; what is
+        returned here is the images.
+
+        Returns:
+            The run's images, or None when the bound passes first.
+        """
+        deadline = None if timeout_s is None else time.monotonic() + timeout_s
+        batch = self._write_batch
+        if not batch.wait_complete(_remaining(deadline)):
+            return None
+        while self.is_live:
+            if deadline is not None and time.monotonic() >= deadline:
+                return None
+            time.sleep(0.02)
+        # Read after the run ended: cleanup writes it before the run ends.
+        build = self._hyperstack_build
+        if build is not None:
+            build.join(_remaining(deadline))
+            if build.is_alive():
+                return None
+        return RunFiles(
+            outcome=batch.outcome,
+            written=batch.written,
+            not_written=batch.not_written,
+            not_written_reason=batch.not_written_reason,
+        )
 
     def stop(self) -> None:
         """Stop this run. Only asks: the run ends on its own thread.
@@ -1449,15 +1522,16 @@ class SequencedCaptureRunner:
             if plan.write_focus_to is not None:
                 outcome.record_focus_written(False)
             self._run_outcome = outcome
-            # What the caller holds: the run's identity for every question
-            # and Stop, published with the outcome it waits on.
-            handle = RunHandle(self, outcome)
-            self._run_handle = handle
             # The run's writes, created with its outcome and for the same
             # reasons: after the refusals, so a refused start leaves the live
             # run's batch in place; before anything can fail, so every run
             # that reaches cleanup has a batch to close.
-            self._write_batch = RunWriteBatch(self.file_io_executor)
+            write_batch = RunWriteBatch(self.file_io_executor)
+            self._write_batch = write_batch
+            # What the caller holds: the run's identity for every question
+            # and Stop, published with the outcome and the writes it waits on.
+            handle = RunHandle(self, outcome, write_batch)
+            self._run_handle = handle
 
             self._run_loop_future = None
             self._set_state(ProtocolState.RUNNING)
@@ -2357,7 +2431,7 @@ class SequencedCaptureRunner:
                 ending=ending,
                 record_cleanup_failures=run._pending.record_cleanup_failures,
             )
-            self._start_hyperstack_build()
+            run._hyperstack_build = self._start_hyperstack_build()
         finally:
             if not led_end_state_applied and getattr(self, '_led_lease', None) is not None:
                 # The run's LED end-state was never decided (the RUN_END

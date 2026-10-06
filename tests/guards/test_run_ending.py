@@ -263,7 +263,7 @@ def _stop_stub(trigger='test', loop_ended=False):
         LOGGER_NAME='TEST',
     )
     # The runner's own liveness answer, so the stub cannot disagree with it.
-    stub._run_handle = scr.RunHandle(stub, stub._run_outcome)
+    stub._run_handle = scr.RunHandle(stub, stub._run_outcome, scr.RunWriteBatch(MagicMock()))
     stub._last_run = lambda: scr.SequencedCaptureRunner._last_run(stub)
     stub._is_live_run_locked = lambda run: scr.SequencedCaptureRunner._is_live_run_locked(stub, run)
     return scr, stub, cleaned
@@ -383,7 +383,9 @@ def _cleanup_stub(latched=None, forced_dark=False):
 
     stub = MagicMock()
     # The run this cleanup is for is the runner's current run.
-    stub._last_run.return_value = scr.RunHandle(stub, PendingRunOutcome())
+    stub._last_run.return_value = scr.RunHandle(
+        stub, PendingRunOutcome(), scr.RunWriteBatch(MagicMock())
+    )
     stub._is_run_live = lambda: True
     stub._ending = latch
     stub._fatal_abort_event = fatal

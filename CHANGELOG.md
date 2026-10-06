@@ -2,6 +2,12 @@
 
 ## 4.0.0 (in development)
 
+- **A run's handle waits for its files**: new `handle.wait_for_files(timeout_s)` returns once
+  the run's images are on disk (and its hyperstacks built, when it saves them) and the run has
+  ended, so a next run is admitted, with what became of the images: `outcome`, `written`,
+  `not_written` and `not_written_reason`. Before, `wait()` returned while the files could
+  still be writing, a next run was refused `files_writing`, and a script polled
+  `session.protocol_files_draining`, which answers for whichever run ran last.
 - **The camera holds a layer's settings from bring-up, and after going to a step**: new
   `session.apply_layer_camera(layer)` puts a layer's stored exposure, gain and auto-gain on the
   camera. Bring-up applies BF, and `session.go_to_step` applies the step's layer while the

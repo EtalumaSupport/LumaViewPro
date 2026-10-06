@@ -20,11 +20,13 @@ Driven end to end on the simulated scope through the Session.
 """
 
 import contextlib
+from unittest.mock import MagicMock
 
 import pytest
 
 from modules.exceptions import FocusNotWrittenError, Refusal
 from modules.run_outcome import PendingRunOutcome, RunEnding
+from modules.protocol_image_writer import RunWriteBatch
 from modules.sequenced_capture_runner import RunHandle
 
 from tests.test_a_late_write_records_its_frame import _protocol, _step
@@ -197,7 +199,8 @@ class TestOnlyACompletedScanWritesItsFocus:
         engine = self._engine_after_a_scan(protocol)
 
         engine._write_focus(
-            RunEnding('completed', 'completed', 't', 'm'), RunHandle(engine, pending)
+            RunEnding('completed', 'completed', 't', 'm'),
+            RunHandle(engine, pending, RunWriteBatch(MagicMock())),
         )
 
         assert protocol.steps()['Z'].tolist() == [5111.0, 5222.0]
