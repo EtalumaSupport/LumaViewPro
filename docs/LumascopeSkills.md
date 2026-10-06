@@ -1049,6 +1049,8 @@ saved.message   # the folder it is in, and the address to send it to
 health = session.plugin_health()   # modules.plugins.PluginHealth, or None when no plugins load here
 health.namespaces                  # each namespace's NamespaceHealth: loaded, last_runtime_errors
 health.not_loaded                  # PluginNotLoaded(name, version, reason) for each that did not load
+
+session.plugin_api_level           # int: what this host does that a plugin may rely on ("Plugin API level")
 ```
 
 The full report holds the scope for a diagnostic around its hardware steps
@@ -1063,6 +1065,22 @@ namespace's health, and `not_loaded`: the plugins that did not load and
 why). A session gets plugin health only from a host that loads plugins and
 passes `ScopeSession.create(..., plugin_health=registry.health)`; any other
 writes `{"plugins": null, "why": "no plugin registry on this host"}`.
+
+#### Plugin API level
+
+`session.plugin_api_level` (`modules.plugins.PLUGIN_API_LEVEL`) says what
+this LumaViewPro does that a plugin may rely on, within its major version.
+A version cannot say it: `version.txt` names the promoted release, and many
+trunk commits share one beta number. A commit that changes behaviour a
+plugin relies on raises the level by one. A plugin that needs a level checks
+it at its own entry and refuses below it, naming both levels; a host older
+than the level has no `plugin_api_level`, which reads as 0
+(`getattr(session, 'plugin_api_level', 0)`). `PluginSpec.requires_lvp_version`
+still states the major version.
+
+| Level | Added |
+|---|---|
+| level 1 | `capabilities.camera_analog_gain_max_db`; `capabilities.camera_reports_temperature`, and `get_camera_temperatures_degc` answering `{}` only with no sensor, `None` with no camera, and raising on a failed read; `save_camera_state` / `restore_camera_state` covering pixel format, frame size, binning and black level. |
 
 ### Configuration queries
 

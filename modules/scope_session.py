@@ -58,6 +58,7 @@ from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.manual_capture import ManualCaptureController
 from modules.manual_recording import ManualRecordingController
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
+from modules.plugins import PLUGIN_API_LEVEL
 from modules.run_outcome import RunEnding
 from modules.scheduler import Scheduler, ThreadingTimerScheduler
 from modules.sequential_io_executor import IOTask, slow_task_budget
@@ -2312,6 +2313,15 @@ class ScopeSession:
         None on a host with no plugin registry: only the GUI loads plugins.
         """
         return None if self._plugin_health is None else self._plugin_health()
+
+    @property
+    def plugin_api_level(self) -> int:
+        """What this LumaViewPro does that a plugin may rely on.
+
+        ``modules.plugins.PLUGIN_API_LEVEL``; each level's additions are
+        listed in LumascopeSkills.md, "Plugin API level".
+        """
+        return PLUGIN_API_LEVEL
 
     def settings_are_provisional(self) -> bool:
         """Is the app running on defaults nobody has agreed to keep?
