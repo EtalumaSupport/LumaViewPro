@@ -556,6 +556,24 @@ class TestExclusivity:
         assert excinfo.value.holder_trigger == 'test'
         assert excinfo.value.message.startswith('The scan run is using the microscope')
 
+    @pytest.mark.parametrize(
+        ('kind', 'run', 'named'),
+        [
+            ('protocol', run_identity('api_zstack', 'Z-stack'), 'The Z-stack run'),
+            ('diagnostic', None, 'A diagnostic activity'),
+        ],
+        ids=['run', 'diagnostic'],
+    )
+    def test_the_refusal_names_what_holds_the_scope(self, tmp_path, kind, run, named):
+        """One phrasing with every other holder refusal: a run by its kind,
+        another activity by its kind -- never a trigger token."""
+        claim = ActivityClaim()
+        assert claim.try_claim(kind, run=run)
+        engine, _writer, _clock, _ = make_engine(tmp_path, claim=claim)
+        with pytest.raises(RecordingRefusedError) as excinfo:
+            engine.start(lambda: make_config(tmp_path, fps=5, duration_s=1))
+        assert excinfo.value.message.startswith(f'{named} is using the microscope')
+
     def test_a_recording_inside_a_run_leaves_the_runs_claim_held(self, tmp_path):
         """A video step records under the run's claim; its end must not
         free the claim the run holds until run end."""

@@ -51,7 +51,7 @@ from modules.activity_claim import (
     ActivityClaim,
     BorrowedClaim,
     FalsifyingChangeInFlightError,
-    the_run_named,
+    the_holder_named,
 )
 from modules.exceptions import RecordingRefusedError
 from modules.video_cadence import CadenceSelector, frame_budget
@@ -309,14 +309,13 @@ class VideoRecordingEngine:
                 # take: the activity that holds it names itself and, when
                 # it is a run, which run.
                 holder = self._claim.holder
-                if holder is not None and holder.run is not None:
-                    named = the_run_named(holder.run, sentence_start=True)
-                else:
-                    named = 'Another exclusive activity'
                 raise RecordingRefusedError(
                     reason='exclusive_activity_running',
                     title='Another Activity Running',
-                    message=f'{named} is using the microscope. Let it finish, then start the recording.',
+                    message=(
+                        f'{the_holder_named(holder)} is using the microscope. '
+                        'Let it finish, then start the recording.'
+                    ),
                     holder=holder.kind if holder is not None else None,
                     holder_trigger=(holder.run_trigger_source if holder is not None else None),
                 )

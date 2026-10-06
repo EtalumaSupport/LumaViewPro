@@ -37,7 +37,7 @@ from modules.activity_claim import (
     ActivityClaim,
     HeldClaim,
     acting,
-    the_run_named,
+    the_holder_named,
 )
 from modules.common_utils import CustomJSONizer
 from modules.exceptions import (
@@ -429,12 +429,7 @@ class ScopeSession:
             kind = holder.kind if holder is not None else None
             # The holder can release between the failed take and this read;
             # the refusal still stands, it just cannot name who refused it.
-            if holder is not None and holder.run is not None:
-                named = the_run_named(holder.run, sentence_start=True)
-            elif kind:
-                named = f'A {kind} activity'
-            else:
-                named = 'Another exclusive activity'
+            named = the_holder_named(holder)
             raise DiagnosticRefusedError(
                 reason='exclusive_activity_running',
                 title='Another Activity Running',

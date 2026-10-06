@@ -102,6 +102,21 @@ class ActivityHolder:
         return self.run.trigger if self.run is not None else None
 
 
+def the_holder_named(holder: ActivityHolder | None) -> str:
+    """Name what holds the scope, to open a refusal sentence.
+
+    A run by its kind ('The Z-stack run'), another activity by its kind ('A
+    diagnostic activity') -- an activity the user cannot name is one they
+    cannot go and stop. 'Another exclusive activity' only when the holder
+    released between the failed take and this read.
+    """
+    if holder is None:
+        return 'Another exclusive activity'
+    if holder.run is not None:
+        return the_run_named(holder.run, sentence_start=True)
+    return f'A {holder.kind} activity'
+
+
 class HeldClaim:
     """The claim as held by the one caller that took it.
 

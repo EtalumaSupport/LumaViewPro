@@ -30,6 +30,7 @@ from modules.activity_claim import (
     RunIdentity,
     Taking,
     acting,
+    the_holder_named,
     the_run_named,
 )
 from modules.autofocus_runner import AutofocusRunner
@@ -865,15 +866,10 @@ class SequencedCaptureRunner:
             )
         else:
             title = 'Another Activity Running'
-            # The kind, not the word "another": an activity the user cannot
-            # name is one they cannot go and stop.
-            if holder is not None and holder.run is not None:
-                named = the_run_named(holder.run, sentence_start=True)
-            elif kind:
-                named = f'A {kind} activity'
-            else:
-                named = 'Another exclusive activity'
-            message = f'{named} is using the microscope. Let it finish, then start the run.'
+            message = (
+                f'{the_holder_named(holder)} is using the microscope. '
+                'Let it finish, then start the run.'
+            )
         self._refuse(
             reason='exclusive_activity_running',
             title=title,
