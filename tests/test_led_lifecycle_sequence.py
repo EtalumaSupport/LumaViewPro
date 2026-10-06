@@ -773,8 +773,8 @@ def test_run_recovers_a_stranded_led_lease(scope, runner, tmp_path, caplog):
     assert completed, 'the run must complete after reclaiming the stranded lease'
     assert result.get('status') == 'completed', f'run must complete normally; got {result}'
     assert not stranded.held, 'the stranded lease must be dropped by the reclaim'
-    # run_complete fires during cleanup; the lease is released at cleanup
-    # end, just before the run leaves its run phase. Wait for that end.
+    # run_complete comes once the lease is released and the run has left
+    # its run phase; the poll confirms it.
     deadline = time.monotonic() + 5.0
     while runner.run_in_progress() and time.monotonic() < deadline:
         time.sleep(0.02)

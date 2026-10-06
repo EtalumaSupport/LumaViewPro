@@ -48,10 +48,10 @@ def lent_run_claim():
 def wait_until_not_running(session, timeout: float = 5.0) -> bool:
     """Wait for a finished run to release the activity claim.
 
-    `run_complete` fires DURING cleanup; the claim -- and with it
-    `session.is_protocol_running` -- releases at cleanup END, a moment
-    later. A test that waits on the callback and then asserts the state
-    immediately is asserting mid-teardown, and passes or fails on timing.
+    `run_complete` and `handle.wait()` come only once the claim -- and
+    with it `session.is_protocol_running` -- is released, so after either
+    this returns at once; it confirms the release for a test that asserts
+    the state without having waited on the run itself.
 
     Shared because two test modules assert this same state after a
     completed run, and a second copy is a second thing to drift.
@@ -67,11 +67,11 @@ def wait_until_not_running(session, timeout: float = 5.0) -> bool:
 def wait_until_ready_for_next_run(executor, timeout: float = 5.0) -> bool:
     """Wait until the engine will admit another run: ended AND drained.
 
-    `run_complete` fires DURING cleanup; the run ends (the engine goes
-    IDLE) at cleanup END, after its claim and lease are handed back, and
-    its files drain after that. A start before either is refused by
-    design -- `already_running`, then `files_writing` -- so a test that
-    starts its next run on the callback alone passes or fails on timing.
+    `run_complete` comes once the run has ended (the engine is IDLE, its
+    claim and lease handed back), and its files can still be draining
+    then. A start before they land is refused `files_writing` by design,
+    so a test that starts its next run on the callback alone passes or
+    fails on timing.
 
     Shared because every back-to-back test asks this same question, and a
     fixed sleep or a queue-only wait answers half of it.

@@ -1470,9 +1470,9 @@ class TestResetWhenNotRunning:
 class TestBackToBackRuns:
     """Run a protocol, wait for completion, then immediately run another.
 
-    run_complete fires during cleanup; the run ends when cleanup does, and
-    its files drain after that. A second start before both is refused by
-    design, so every back-to-back test waits on
+    run_complete comes once the run has ended, and its files can still be
+    draining then. A second start before they land is refused by design,
+    so every back-to-back test waits on
     wait_until_ready_for_next_run -- the designed contract, not a
     workaround for an executor bug.
     """
@@ -2126,7 +2126,7 @@ class TestValidationOrder:
         protocol = _make_single_step_protocol(color='BF')
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        # run_complete fires during cleanup; the run ends when cleanup does.
+        # run_complete comes once the run has ended; this confirms it.
         assert executor.wait_for_run_idle(COMPLETION_TIMEOUT), 'the run never ended'
         assert not executor.run_in_progress()
 
@@ -2289,7 +2289,7 @@ class TestMotionTimeoutEndsRunInsteadOfWedging:
             'fired. ERROR state must terminate the run, not be retried '
             'as a transient failure every period.'
         )
-        # run_complete fires during cleanup; the engine goes IDLE at its end.
+        # run_complete comes once the engine is IDLE; its files may still drain.
         assert wait_until_ready_for_next_run(executor), 'the run never ended after its timeout'
         assert executor._state == ProtocolState.IDLE, (
             f'Expected IDLE after cleanup, got {executor._state}'

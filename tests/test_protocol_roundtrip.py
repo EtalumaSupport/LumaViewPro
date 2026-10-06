@@ -1507,7 +1507,7 @@ class TestExecuteCancellation:
         # Should still fire run_complete callback
         completed = done.wait(timeout=COMPLETION_TIMEOUT)
         assert completed, 'Protocol did not fire run_complete after cancellation'
-        # run_complete fires during cleanup; the run ends when cleanup does.
+        # run_complete comes once the run has ended; this confirms it.
         assert executor.wait_for_run_idle(COMPLETION_TIMEOUT), 'the cancelled run never ended'
         assert not executor.run_in_progress(), 'Executor still running after cancel'
 

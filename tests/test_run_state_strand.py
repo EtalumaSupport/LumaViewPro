@@ -153,9 +153,8 @@ class TestClaimRefusalLeavesNoState:
             assert (settled.status, settled.reason) == ('completed', 'completed'), (
                 f'the first run reported {settled.status!r} ({settled.reason!r})'
             )
-            # run_complete fires during cleanup; the claim releases at
-            # cleanup END, moments later. Wait for the release before
-            # claiming as the recording.
+            # run_complete and wait() come once the claim is released;
+            # the poll confirms it before claiming as the recording.
             deadline = time.monotonic() + COMPLETION_TIMEOUT
             while session.activity_claim.owner is not None:
                 assert time.monotonic() < deadline, 'first run never released the claim'
@@ -212,9 +211,8 @@ class TestClaimRefusalLeavesNoState:
             assert done.wait(timeout=COMPLETION_TIMEOUT), (
                 'a valid run after a claim refusal must start and complete'
             )
-            # run_complete fires mid-cleanup; the claim releases at its
-            # end. Asserting straight off the callback reads teardown
-            # in progress and turns this into a coin flip.
+            # run_complete comes once the claim is released; this
+            # confirms it.
             assert wait_until_not_running(session)
         finally:
             if claim_held:
