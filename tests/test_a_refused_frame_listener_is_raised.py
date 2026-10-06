@@ -211,6 +211,10 @@ class TestAFailingHandlerIsBounded:
             removed.set()
 
         monkeypatch.setattr(sim_scope.imaging, '_remove_wrapper', observing_remove)
+        reported = threading.Event()
+        notification_center.notifications.add_listener(
+            lambda _n: reported.set(), min_severity=Severity.INFO
+        )
 
         def bad(*_a):
             raise ValueError('plugin bug')
@@ -219,7 +223,8 @@ class TestAFailingHandlerIsBounded:
         sim_scope.imaging.add_frame_listener(bad, name='bad_plugin')
         sim_scope.imaging.start_streaming()
         assert removed.wait(timeout=5.0), 'a handler failing every frame must be removed'
-        time.sleep(0.2)
+        # The removal is reported after it is made; the report is the signal.
+        assert reported.wait(timeout=5.0), 'the removal was never reported'
 
         assert len(logged) == 1, f'one traceback, not one per frame: {len(logged)}'
         assert bad not in sim_scope.imaging._frame_listener_wrappers
