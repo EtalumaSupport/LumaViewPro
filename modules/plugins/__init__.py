@@ -58,7 +58,7 @@ MINIMUM_PLUGIN_VERSIONS = {
 # reads it at its own entry through session.plugin_api_level and refuses
 # below what it needs; a host older than the level has no such member,
 # which the plugin reads as 0.
-PLUGIN_API_LEVEL = 1
+PLUGIN_API_LEVEL = 2
 
 # Mount points are locked to the set the host knows how to attach.
 # Additional names are added when a real consumer needs them, paired

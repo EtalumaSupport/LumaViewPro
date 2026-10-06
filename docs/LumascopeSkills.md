@@ -1081,6 +1081,7 @@ still states the major version.
 | Level | Added |
 |---|---|
 | level 1 | `capabilities.camera_analog_gain_max_db`; `capabilities.camera_reports_temperature`, and `get_camera_temperatures_degc` answering `{}` only with no sensor, `None` with no camera, and raising on a failed read; `save_camera_state` / `restore_camera_state` covering pixel format, frame size, binning and black level. |
+| level 2 | `imaging.get_black_level_range()`: the range `set_black_level` accepts for the current pixel format. |
 
 ### Configuration queries
 
@@ -1546,6 +1547,9 @@ scope.imaging.set_line_noise_reduction(True)       # same contract
 # a failed read at capture raises HardwareError and fails the capture.
 scope.imaging.get_black_level()                    # live read; None when no camera or none reported;
                                                    #   raises HardwareError when the read fails (no cache)
+scope.imaging.get_black_level_range()              # (minimum, maximum) set_black_level accepts, live, for the
+                                                   #   current pixel format; None when no camera or none settable;
+                                                   #   raises HardwareError when the read fails
 scope.imaging.set_black_level(value=4.0)           # value in effect; probe
                                                    #   scope.capabilities.camera_supports_black_level first;
                                                    #   raises HardwareError when the camera write fails

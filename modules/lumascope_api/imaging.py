@@ -2128,6 +2128,31 @@ class ImagingAPI:
             return None
         return driver.get_black_level()
 
+    def get_black_level_range(self) -> tuple[float, float] | None:
+        """Read the range ``set_black_level`` accepts, live, in the units of
+        ``get_black_level``.
+
+        The camera's own minimum and maximum for its current pixel format;
+        the range changes with the format. ``set_black_level`` refuses a value
+        outside it before anything reaches the camera.
+
+        Not cached: a failed read has no last-known-good to answer with.
+
+        Returns:
+            tuple[float, float] | None: ``(minimum, maximum)``; None when no
+                camera is active or the camera has no black level setting.
+                A camera holding its black level automatically still answers
+                its range; ``set_black_level`` is then refused by the camera.
+
+        Raises:
+            HardwareError: The camera has a black level setting and the read
+                failed.
+        """
+        driver = self._driver
+        if not driver or not driver.active:
+            return None
+        return driver.get_black_level_range()
+
     def get_resulting_frame_rate(self) -> float | None:
         """Read the frame rate the camera reports its current settings allow,
         live, in frames per second.

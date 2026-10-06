@@ -275,6 +275,10 @@ EXCLUDED = {
         'live read with no cache by design: a failed read raises HardwareError, '
         'None means no camera or none reported'
     ),
+    'get_black_level_range': (
+        'live read with no cache by design: a failed read raises HardwareError, '
+        'None means no camera or no black level setting'
+    ),
     'get_resulting_frame_rate': (
         'live read with no cache by design: a failed read raises HardwareError, '
         'None means no camera or none reported'
