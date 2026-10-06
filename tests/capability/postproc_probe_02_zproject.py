@@ -10,7 +10,6 @@ project it. No Kivy, no ui.* import.
 
 import pathlib
 import sys
-import time
 
 from harness import headless_session, probe_dir
 
@@ -29,10 +28,8 @@ def main() -> int:
         run_dir = pathlib.Path(pending.run_dir) if pending.run_dir else None
         print('run_dir:', run_dir)
         # The outcome answers before the run's files drain; the projection
-        # reads the run's record, so wait for the documented drain read.
-        deadline = time.monotonic() + 60
-        while session.protocol_files_draining and time.monotonic() < deadline:
-            time.sleep(0.05)
+        # reads the run's record, so wait for the run's files.
+        print('files:', pending.wait_for_files(timeout_s=60))
 
         # Find the run folder the z-stack produced.
         candidates = sorted(live.rglob('protocol_record.tsv'))

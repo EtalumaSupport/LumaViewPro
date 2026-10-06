@@ -98,9 +98,7 @@ def _run(session, runner, protocol, parent, name):
     ended = time.monotonic()
     # The outcome answers before the run's files drain; the folder is read
     # once the run has finished writing it.
-    deadline = time.monotonic() + 120
-    while session.protocol_files_draining and time.monotonic() < deadline:
-        time.sleep(0.05)
+    assert pending.wait_for_files(timeout_s=120) is not None, "the run's files never finished"
     records = sorted(parent.rglob('protocol_record.tsv'))
     return outcome, started, ended, (records[0] if records else None)
 
