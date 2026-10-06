@@ -21,7 +21,7 @@ from modules.exceptions import (
     CameraSettingUnsupportedError,
 )
 from modules.scope_session import ScopeSession
-from tests.camera_fakes import bare_ids_camera, bare_pylon_camera
+from tests.camera_fakes import bare_ids_camera, bare_pylon_camera, grab_a_frame_made_after_now
 from tests.settings_fixtures import complete_settings
 
 
@@ -43,6 +43,10 @@ def test_the_simulated_camera_offers_it_and_offsets_its_frames(sim_scope):
 def test_a_full_scale_pixel_saturates_under_the_offset_and_does_not_wrap(sim_scope):
     imaging = sim_scope.imaging
     sim_scope._camera_driver.set_test_pattern(enabled=True, pattern='White')
+    # The pattern is a simulator poke, which frame validity never hears of:
+    # wait out the frame being made when it changed, so the capture's frame
+    # is a white one.
+    grab_a_frame_made_after_now(sim_scope._camera_driver)
     full_scale = imaging.capture_and_wait(force_to_8bit=False, timeout_s=2.0)
 
     imaging.set_black_level(4.0)
