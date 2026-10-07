@@ -690,35 +690,33 @@ class ProtocolSettings(FloatLayout):
 
         logger.info('[LVP Main  ] ProtocolSettings.load_protocol()')
 
-        # The Session loads the file and puts the scope on its plate, or
-        # refuses and leaves the scope where it was; nothing below runs
-        # unless it answered with a protocol. Only then does the protocol's
-        # Layer Settings block go into the layer controls: a refused plate
-        # leaves the layers as the person set them.
-        def _load():
-            protocol = ctx.session.load_protocol(file_path=filepath)
-            ctx.session.apply_layer_settings(protocol)
-            return protocol
-
-        # The adoption is inside the reported call: a failure filling the
-        # panel (the plate pick, the spinners, the move to the first step) is
-        # reported here, not raised out of the file dialog's callback.
+        # The Session opens the file: the scope on its plate, its Layer
+        # Settings in the layer controls, its path remembered -- or a refusal,
+        # with none of them changed. The panel is drawn only from its answer.
+        # The adoption is inside the reported call: a failure drawing the
+        # panel (the spinners, the move to the first step) is reported here,
+        # not raised out of the file dialog's callback.
         adopted = []
 
         def _load_and_adopt():
-            self._adopt_protocol(_load(), filepath, navigate=navigate)
+            self._adopt_protocol(ctx.session.open_protocol(filepath), filepath, navigate=navigate)
             adopted.append(True)
 
         run_reported(_load_and_adopt, None, 'LOAD_PROTOCOL')
         return bool(adopted)
 
     def _adopt_protocol(self, protocol: Protocol, filepath: str, *, navigate: bool) -> None:
-        """Make ``protocol``, loaded from ``filepath``, the panel's and draw it."""
+        """Make ``protocol``, loaded from ``filepath``, the panel's and draw it.
+
+        Display only: the Session has already put the scope on the
+        protocol's plate, its Layer Settings in the layer controls and its
+        path in the settings, so a failure drawing the panel leaves nothing
+        half-written.
+        """
         ctx = _app_ctx.ctx
         self._protocol = protocol
         self._show_schedule()
 
-        ctx.set_protocol_filepath(filepath)
         self.ids['protocol_filename'].text = os.path.basename(filepath)
 
         num_steps = self._protocol.num_steps()
@@ -729,25 +727,23 @@ class ProtocolSettings(FloatLayout):
 
         labware = self._protocol.labware()
 
-        # The plate takes the route start-up uses: the spinner shows it, and
-        # the explicit call below hands it to the Session, the one writer of
-        # the labware key for every host. The spinner's own event cannot be
-        # relied on for that: an assignment equal to the current text does
-        # not dispatch, and the text can already show a plate the scope
-        # never took (a refused pick leaves it where the user put it).
-        # Declared twice because only one declaration is pending per name
-        # and either emission may be the one that consumes it.
-        gui_logger.note_write_back('LABWARE', labware)
-        self.ids['labware_spinner'].text = labware
-        gui_logger.note_write_back('LABWARE', labware)
-        self.select_labware()
+        # The spinner shows the plate the Session put the scope on. A changed
+        # text dispatches its select_labware, which re-selects that plate (a
+        # no-op at the Session) and logs it, so the write is declared; an
+        # equal text dispatches nothing, and a declaration left pending would
+        # swallow the person's next record of that plate.
+        if self.ids['labware_spinner'].text != labware:
+            gui_logger.note_write_back('LABWARE', labware)
+            self.ids['labware_spinner'].text = labware
         self.ids['capture_root'].text = self._protocol.capture_root()
 
         reset_acquire_ui()
         reset_stim_ui()
 
-        # Make steps available for drawing locations
+        # Make steps available for drawing locations, and draw them: outside a
+        # run the stage redraws only on XY motion, and a load need not move.
         ctx.stage.set_protocol_steps(self._protocol)
+        ctx.stage.full_redraw()
 
         # Restore the tiling selection. Tiling is baked into the steps as
         # expanded tile positions (one row per tile), not stored as a

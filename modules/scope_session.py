@@ -2175,11 +2175,34 @@ class ScopeSession:
         with self.settings_lock:
             self._store_setting('protocol.filepath', file_path)
 
+    def open_protocol(self, file_path: 'str | os.PathLike') -> 'Protocol':
+        """Load the protocol at ``file_path`` with its Layer Settings, and remember it.
+
+        The GUI's Load: ``load_protocol``, then ``apply_layer_settings``, then
+        ``set_protocol_filepath``, so the next start opens it. The path is
+        written last, once the scope is on the protocol's plate and the layer
+        controls hold its settings: a refused file leaves the remembered path
+        where it was.
+
+        It is not part of the L2 API surface, like the remembered path it
+        writes.
+
+        Raises:
+            ProtocolNotLoadedError, ProtocolFormatError,
+            ProtocolRunRefusedError, ConfigError,
+            HardwareCommandRefusedError: As ``load_protocol`` and
+                ``apply_layer_settings`` raise them; no path is remembered.
+        """
+        protocol = self.load_protocol(file_path)
+        self.apply_layer_settings(protocol)
+        self.set_protocol_filepath(os.fspath(file_path))
+        return protocol
+
     def open_remembered_protocol(self) -> 'Protocol | None':
         """Load the protocol the last start left behind, with its Layer Settings.
 
-        The start-up half of ``set_protocol_filepath``: ``load_protocol``, then
-        ``apply_layer_settings``. A path is forgotten only when there is no
+        The start-up half of ``set_protocol_filepath``: ``open_protocol`` on the
+        remembered path. A path is forgotten only when there is no
         file left to remember, or the file cannot be read. A refusal keeps it:
         the file is real and was chosen, and what is wrong (the turret's
         glass, the plate, a layer, the file's contents) can be put right and
@@ -2211,12 +2234,10 @@ class ScopeSession:
             self.set_protocol_filepath('')
             return None
         try:
-            protocol = self.load_protocol(file_path)
+            return self.open_protocol(file_path)
         except ProtocolNotLoadedError:
             self.set_protocol_filepath('')
             raise
-        self.apply_layer_settings(protocol)
-        return protocol
 
     def _store_setting(self, path: str, value: object) -> None:
         """Under ``settings_lock``: put ``value`` at ``path`` in the live settings.

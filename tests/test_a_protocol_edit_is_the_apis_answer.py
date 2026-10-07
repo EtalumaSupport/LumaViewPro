@@ -10,6 +10,7 @@ panel does after an accepted edit -- the move to the new step, the file
 name cleared for a new protocol -- is reached only on acceptance.
 """
 
+import ast
 import logging
 import pathlib
 import sys
@@ -57,6 +58,7 @@ from modules.exceptions import (
     ProtocolRunRefusedError,
 )
 from modules.protocol import ProtocolFormatError
+from tests.ast_seams import find_def
 from tests.scope_fakes import spec_scope
 from tests.settings_fixtures import protocol_filepath_writer, settings_writer
 
@@ -256,7 +258,7 @@ class TestLoad:
         return path
 
     def _refused_load(self, ctx, tsv, error):
-        ctx.session.load_protocol.side_effect = error
+        ctx.session.open_protocol.side_effect = error
         # The scope's own load is not the GUI's to call: a protocol loaded
         # there is adopted without the Session putting the scope on its plate.
         ctx.scope.protocols.load_protocol.side_effect = AssertionError('loaded past the Session')
@@ -267,7 +269,6 @@ class TestLoad:
 
         assert loaded is False
         assert panel._protocol is previous
-        assert not ctx.session.apply_layer_settings.called, 'a refused load changes no layer'
         assert ctx.settings['protocol']['filepath'] == 'plate.tsv'
         assert panel.ids['protocol_filename'].text == 'plate.tsv'
         assert panel.moves == []
@@ -302,44 +303,63 @@ class TestLoad:
         assert own_popups == [], 'the outcome is shown by the one reporter'
         assert [(n.title, n.message) for n in shown] == [('Protocol Refused', str(error))]
 
-    def test_the_loaded_protocols_layer_settings_go_in_before_it_is_adopted(
+    def test_a_failure_drawing_the_panel_is_reported_and_leaves_the_sessions_protocol(
         self, ctx, shown, own_popups, tsv
     ):
-        """An accepted plate is followed by the restore, in the one reported
-        call: a restore that fails leaves the panel on the protocol it had."""
-        accepted = _protocol()
-        ctx.session.load_protocol.return_value = accepted
-        refusal = ProtocolFormatError('a Layer Settings cell is not a number', file=tsv)
-        ctx.session.apply_layer_settings.side_effect = refusal
-        previous = _protocol()
-        panel = _Panel(previous)
-
-        loaded = panel.load_protocol(filepath=str(tsv), navigate=True)
-
-        ctx.session.apply_layer_settings.assert_called_once_with(accepted)
-        assert loaded is False
-        assert panel._protocol is previous
-        assert [n.title for n in shown] == ['Protocol Refused']
-
-    def test_a_failure_filling_the_panel_is_reported_not_raised(
-        self, ctx, shown, own_popups, tsv, monkeypatch
-    ):
         """The file dialog's callback has no reporter of its own: a failure
-        after the Session's load (here the plate pick) was raised out of it."""
-        ctx.session.load_protocol.return_value = _protocol()
+        drawing the panel after the Session opened the file was raised out of
+        it. The panel's protocol is then the one the Session opened, whose
+        plate, layer settings and path are already in place, not the one it
+        had beside a path naming another file."""
+        opened = _protocol()
+        ctx.session.open_protocol.return_value = opened
+        ctx.stage.set_protocol_steps.side_effect = RuntimeError('the stage could not draw')
         panel = _Panel(_protocol())
         panel.ids['labware_spinner'] = SimpleNamespace(text='')
 
-        def _boom():
-            raise RuntimeError('the plate pick failed')
-
-        monkeypatch.setattr(panel, 'select_labware', _boom, raising=False)
-
         loaded = panel.load_protocol(filepath=str(tsv), navigate=True)
 
         assert loaded is False
+        assert panel._protocol is opened
+        ctx.session.open_protocol.assert_called_once_with(str(tsv))
+        assert ctx.settings['protocol']['filepath'] == 'plate.tsv', 'the panel writes no path'
         [outcome] = shown
         assert (outcome.category, outcome.kind.value) == ('UI:LOAD_PROTOCOL', 'fault')
+
+    @pytest.mark.parametrize('shown_plate', ['6 well microplate', '96 well microplate'])
+    def test_an_adoption_draws_the_stage_and_declares_only_a_spinner_write_that_dispatches(
+        self, ctx, shown, tsv, monkeypatch, shown_plate
+    ):
+        """The stage redraws only on XY motion outside a run, so the adoption
+        draws the new steps itself. The spinner's write is declared to the GUI
+        log only when the text changes: an equal assignment dispatches no
+        record, and a declaration left pending would swallow the person's
+        next pick of that plate."""
+        opened = _protocol()
+        opened.labware.return_value = '6 well microplate'
+        ctx.session.open_protocol.return_value = opened
+        monkeypatch.setattr(ps, 'reset_acquire_ui', lambda: None)
+        monkeypatch.setattr(ps, 'reset_stim_ui', lambda: None)
+        monkeypatch.setattr(ps.gui_logger, '_write_backs', {})
+        panel = _Panel(_protocol())
+        panel.ids['labware_spinner'] = SimpleNamespace(text=shown_plate)
+
+        assert panel.load_protocol(filepath=str(tsv), navigate=True) is True
+
+        assert panel.ids['labware_spinner'].text == '6 well microplate'
+        ctx.stage.full_redraw.assert_called_once_with()
+        declared = ps.gui_logger.consume_write_back('LABWARE', '6 well microplate')
+        assert declared is (shown_plate != '6 well microplate')
+
+    def test_the_adoption_only_draws(self):
+        """Every write a Load makes is the Session's (``open_protocol``); the
+        adoption that follows draws the panel and writes nothing a failure
+        partway through it could leave half-done."""
+        fn = find_def('ui/protocol_settings.py', '_adopt_protocol', class_name='ProtocolSettings')
+        src = ast.unparse(fn)
+
+        for write in ('session.', 'set_protocol_filepath', 'select_labware(', 'update_settings'):
+            assert write not in src, f'the adoption calls {write!r}'
 
 
 class TestTheStartupLoad:
