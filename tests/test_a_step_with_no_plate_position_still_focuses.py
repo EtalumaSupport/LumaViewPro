@@ -78,3 +78,19 @@ def test_the_run_ends_at_the_steps_z_and_the_image_says_so(zonly_session, tmp_pa
     with tifffile.TiffFile(str(image)) as tf:
         plane = json.loads(tf.pages[0].tags['ImageDescription'].value)['Plane']
     assert plane['PositionZ'] == pytest.approx(STEP_Z_UM)
+
+
+def test_the_image_states_no_plate_position_on_a_scope_without_one(zonly_session, tmp_path):
+    """The step carries a plate X and Y, but this scope has no XY stage and
+    never went there: the image states its Z and no plate position, rather
+    than the step's X and Y as a place it was taken."""
+    _run_and_wait_for_files(zonly_session, tmp_path, _step_at(STEP_Z_UM))
+
+    (image,) = [
+        p for p in pathlib.Path(tmp_path).rglob('*') if p.suffix.lower() in ('.tif', '.tiff')
+    ]
+    with tifffile.TiffFile(str(image)) as tf:
+        plane = json.loads(tf.pages[0].tags['ImageDescription'].value)['Plane']
+    assert 'PositionX' not in plane
+    assert 'PositionY' not in plane
+    assert plane['PositionZ'] == pytest.approx(STEP_Z_UM)

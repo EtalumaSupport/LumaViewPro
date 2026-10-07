@@ -66,7 +66,6 @@ def _start_run(executor, tmp_path, done):
             'go_to_step': lambda **kw: None,
             'move_position': lambda axis: None,
         },
-        leds_state_at_end='off',
         autofocus_snapshot=autofocus_snapshot(),
     )
     run = executor.start(plan)
@@ -377,7 +376,6 @@ def _start_run_and_let_it_fail(executor, tmp_path):
         parent_dir=tmp_path / 'output',
         max_scans=1,
         callbacks={'go_to_step': lambda **kw: None, 'move_position': lambda axis: None},
-        leds_state_at_end='off',
         autofocus_snapshot=autofocus_snapshot(),
     )
     executor.start(plan)

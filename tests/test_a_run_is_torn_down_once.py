@@ -26,9 +26,9 @@ def _count_teardowns(executor, monkeypatch):
     teardowns = []
     teardown = executor._cleanup_inner
 
-    def counted(ending, run):
+    def counted(ending, run, after_end):
         teardowns.append(ending)
-        return teardown(ending, run)
+        return teardown(ending, run, after_end)
 
     monkeypatch.setattr(executor, '_cleanup_inner', counted)
     return teardowns

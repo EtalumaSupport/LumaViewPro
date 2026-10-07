@@ -28,10 +28,14 @@ import pytest
 from tests.af_drives import park_z
 from tests.scope_fakes import home_sim_scope, bind_settings_like_a_session
 from tests.protocol_drives import lent_run_claim
-from tests.frame_records import frame_record, plate
+from tests.frame_records import frame_record, plate, unpositioned
 from modules.protocol_image_writer import RunWriteBatch
 from modules.activity_claim import ActivityClaim
-from modules.exceptions import HomingFailedError, PositionOutOfRangeError
+from modules.exceptions import (
+    HardwareCommandRefusedError,
+    HomingFailedError,
+    PositionOutOfRangeError,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -43,6 +47,7 @@ from modules.notification_center import Severity
 from modules.run_outcome import EndingLatch, PendingRunOutcome, RunEnding
 from modules.sequenced_capture_runner import RunHandle
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
+from tests.protocol_drives import run_identity
 
 
 def _posted(centre_posts, *severities):
@@ -924,20 +929,24 @@ class TestPositionCache:
     def test_move_relative_updates_cache(self, sim_scope):
         """move_relative should accumulate into the cache."""
         sim_scope.motion.start_move_absolute('X', 1000.0)
-        sim_scope.motion.start_move_relative('X', 500.0)
-        assert sim_scope.motion.get_target_position('X') == 1500.0
+        sim_scope.motion.start_move_relative('X', 500.0).wait()
+        assert sim_scope.motion.get_target_position('X') == pytest.approx(1500.0, abs=0.1)
 
     def test_move_relative_negative(self, sim_scope):
         """Negative relative moves should subtract from cache."""
         sim_scope.motion.start_move_absolute('Z', 3000.0)
-        sim_scope.motion.start_move_relative('Z', -1000.0)
-        assert sim_scope.motion.get_target_position('Z') == 2000.0
+        sim_scope.motion.start_move_relative('Z', -1000.0).wait()
+        assert sim_scope.motion.get_target_position('Z') == pytest.approx(2000.0, abs=0.1)
 
     def test_get_all_axes(self, sim_scope):
         """get_target_position(None) returns dict of all axes."""
-        sim_scope.motion.start_move_absolute('X', 100.0)
-        sim_scope.motion.start_move_absolute('Y', 200.0)
-        sim_scope.motion.start_move_absolute('Z', 300.0)
+        moves = [
+            sim_scope.motion.start_move_absolute('X', 100.0),
+            sim_scope.motion.start_move_absolute('Y', 200.0),
+            sim_scope.motion.start_move_absolute('Z', 300.0),
+        ]
+        for move in moves:
+            move.wait()
         result = sim_scope.motion.get_target_position()
         assert isinstance(result, dict)
         assert result['X'] == 100.0
@@ -1062,15 +1071,14 @@ class TestAxisState:
         scope.motion._arrival_events = {ax: threading.Event() for ax in present}
         for ev in scope.motion._arrival_events.values():
             ev.set()
-        scope.motion._move_profile = dict.fromkeys(present)
 
         scope.motion.home(axis='T')
         assert scope.motion.get_axis_state('T') == AxisState.IDLE
 
-    def test_thome_on_no_turret_scope_is_silent_noop(self, _mock_heavy_deps):
-        """Audit B4 + Rule 8: calling home(axis='T') on a scope without a
-        turret must not raise and must leave T in UNKNOWN state --
-        there is no phantom T axis to transition.
+    def test_thome_on_no_turret_scope_is_refused(self, _mock_heavy_deps):
+        """Audit B4: home(axis='T') on a scope without a turret is refused
+        and leaves T in UNKNOWN state -- there is no phantom T axis to
+        transition.
 
         Building with sim_model='LS850' (no turret) makes capabilities.axes
         omit T from the start, so this exercises the real no-turret path --
@@ -1083,7 +1091,9 @@ class TestAxisState:
         try:
             assert 'T' not in tuple(scope._motion_driver.detect_present_axes())
             assert 'T' not in scope.capabilities.axes
-            scope.motion.home(axis='T')
+            with pytest.raises(HardwareCommandRefusedError) as caught:
+                scope.motion.home(axis='T')
+            assert caught.value.reason == 'axis_absent'
             assert scope.motion.get_axis_state('T') == AxisState.UNKNOWN
         finally:
             scope.disconnect()
@@ -1568,7 +1578,7 @@ class TestRule14_A4_PreRunValidationNotify:
 
 
 class TestRule14_A5_AreAllConnectedExceptionNotify:
-    """A5: are_all_connected() exception branch must notify (Rule 14)."""
+    """A5: the connection check's exception branch must notify (Rule 14)."""
 
     def test_are_all_connected_exception_branch_notifies(self, centre_posts):
         """A raising connectivity check aborts the run with a typed fault that shows as an error.
@@ -1580,7 +1590,7 @@ class TestRule14_A5_AreAllConnectedExceptionNotify:
         from modules.notification_center import notifications
 
         runner = _bare_capture_runner()
-        runner._scope.are_all_connected.side_effect = RuntimeError('usb tree gone')
+        runner._scope.unconnected_parts.side_effect = RuntimeError('usb tree gone')
         with pytest.raises(RunCheckFailedError) as raised:
             runner.prepare(**_scr_run_kwargs())
         assert not _posted(centre_posts, Severity.ERROR), (
@@ -1710,12 +1720,8 @@ def _run_cleanup_kwargs(**overrides):
     """Keyword args for protocol_cleanup.run_cleanup with MagicMock deps
     that complete a normal (non-aborted, no-AF, LEDs-off) cleanup; tests
     override the step or state under test.
-
-    ``protocol`` and ``run_dir`` are not run_cleanup's own arguments: they
-    go into the run's run_complete notice, with the callbacks and ending.
     """
     from modules.protocol_callbacks import ProtocolCallbacks
-    from modules.protocol_cleanup import RunCompleteNotice
     from modules.protocol_state_machine import ProtocolState
 
     callbacks = overrides.pop('callbacks', ProtocolCallbacks())
@@ -1740,12 +1746,6 @@ def _run_cleanup_kwargs(**overrides):
         'cancel_scheduled_events_fn': MagicMock(),
         'autofocus_thread': None,
         'write_batch': RunWriteBatch(MagicMock()),
-        'run_complete': RunCompleteNotice(
-            callbacks,
-            protocol=overrides.pop('protocol', MagicMock()),
-            ending=ending,
-            run_dir=overrides.pop('run_dir', None),
-        ),
         'ending': ending,
         'record_cleanup_failures': lambda steps: None,
     }
@@ -2933,6 +2933,13 @@ class TestIssue710_LumiLS820PlateViewRestored:
             and 'h_line_points' in '\n'.join(ast.unparse(s) for s in node.body)
         ]
         assert gates, 'the per-frame crosshair update is no longer a gated If'
+        # The gate may sit where the position is first held available.
+        gates += [
+            ast.unparse(node.test)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.If)
+            and any(ast.unparse(s) == 'position_available = True' for s in node.body)
+        ]
         assert any('_xy_stage_present()' in gate for gate in gates), (
             f'the crosshair gate must derive from the scope XY capability; found {gates!r}'
         )
@@ -3171,6 +3178,7 @@ def _bare_protocol_writer(**overrides):
         'engineering_mode': False,
         'run_claim': lent_run_claim(),
         'labware': plate(),
+        'to_plate': None,
         'captures_asked': 1,
     }
     scope_is_stubbed = 'scope' not in overrides
@@ -3358,7 +3366,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
                 significant_bits=8,
                 objective_id='4x Oly',
                 record=frame_record(),
-                stage_z_um=None,
+                position=unpositioned(),
             ),
             step=_protocol_step(),
             name='stepA_BF',
@@ -3585,7 +3593,7 @@ class TestPIW2_DisksUsageDeduped:
                     significant_bits=8,
                     objective_id='4x Oly',
                     record=frame_record(),
-                    stage_z_um=None,
+                    position=unpositioned(),
                 ),
                 step=_protocol_step(),
                 name='stepA_BF',
@@ -4049,8 +4057,9 @@ class TestFrameValidity_AutofocusDrainsBeforeScore:
     """AutofocusRunner's scan loop must drain LED/gain/exposure-pending
     frames before scoring. Bare get_image after Z arrival can score on a
     mid-LED-warmup or mid-gain-change frame, corrupting the focus curve
-    and landing the wrong best-Z. AF excludes z_move because AF is the
-    controller of Z moves; once is_moving() reports idle, Z is settled."""
+    and landing the wrong best-Z. Z's own move is drained too: is_moving()
+    reporting idle says the stage stopped, not that the next frame was made
+    after it did."""
 
     def _drive_full_af(self, monkeypatch):
         from tests.af_drives import af_runner_and_scope, drive_af
@@ -4075,16 +4084,16 @@ class TestFrameValidity_AutofocusDrainsBeforeScore:
             'bypasses frame_validity. Route through capture_and_wait.'
         )
 
-    def test_iterate_excludes_z_move_in_validity(self, monkeypatch):
-        """AF excludes z_move because is_moving() already gates motion; the
-        drain is for LED/gain/exposure transitions only."""
+    def test_iterate_waits_out_every_source_z_move_included(self, monkeypatch):
+        """AF excluded z_move, so a frame already on its way when a step's
+        move went out was scored at the new Z (the load census, 2026-10-06:
+        the sweep's peak step scored the step before's frame)."""
         scope, _ = self._drive_full_af(monkeypatch)
         grabs = scope.imaging.capture_and_wait.call_args_list
         assert grabs, 'the drive must reach the camera'
         for grab in grabs:
-            assert grab.kwargs.get('exclude_sources') == ('z_move',), (
-                "every AF grab must pass exclude_sources=('z_move',) since "
-                f'is_moving() already gates motion; got {grab}'
+            assert not grab.kwargs.get('exclude_sources'), (
+                f'an AF grab must wait out every pending source; got {grab}'
             )
 
 
@@ -9199,7 +9208,7 @@ class TestSCEResetSignalsAbort:
         # A live run always has a trigger and a handle: start() writes both
         # before it publishes liveness, under one lock. Leaving IDLE alone
         # builds a run nobody started, which reset() is right to refuse.
-        runner._run_trigger_source = 'test'
+        runner._run_identity = run_identity()
         runner._run_outcome = PendingRunOutcome()
         run = runner._run_handle = RunHandle(
             runner, runner._run_outcome, RunWriteBatch(MagicMock())
@@ -9224,7 +9233,7 @@ class TestSCEResetSignalsAbort:
         # A live run always has a trigger and a handle: start() writes both
         # before it publishes liveness, under one lock. Leaving IDLE alone
         # builds a run nobody started, which reset() is right to refuse.
-        runner._run_trigger_source = 'test'
+        runner._run_identity = run_identity()
         runner._run_outcome = PendingRunOutcome()
         run = runner._run_handle = RunHandle(
             runner, runner._run_outcome, RunWriteBatch(MagicMock())
@@ -9249,7 +9258,7 @@ class TestSCEResetSignalsAbort:
         # A live run always has a trigger and a handle: start() writes both
         # before it publishes liveness, under one lock. Leaving IDLE alone
         # builds a run nobody started, which reset() is right to refuse.
-        runner._run_trigger_source = 'test'
+        runner._run_identity = run_identity()
         runner._run_outcome = PendingRunOutcome()
         run = runner._run_handle = RunHandle(
             runner, runner._run_outcome, RunWriteBatch(MagicMock())
@@ -9275,7 +9284,7 @@ class TestSCEResetSignalsAbort:
         # A live run always has an owner: start() writes the trigger before
         # it publishes liveness, under one lock. Leaving IDLE alone builds
         # a run nobody started, which reset() is right to refuse.
-        runner._run_trigger_source = 'test'
+        runner._run_identity = run_identity()
         assert runner.wait_for_run_idle(timeout_s=0.2) is False
 
     def test_wait_for_run_idle_returns_when_cleanup_clears_flag(self):
@@ -9288,7 +9297,7 @@ class TestSCEResetSignalsAbort:
         # A live run always has an owner: start() writes the trigger before
         # it publishes liveness, under one lock. Leaving IDLE alone builds
         # a run nobody started, which reset() is right to refuse.
-        runner._run_trigger_source = 'test'
+        runner._run_identity = run_identity()
         threading.Timer(0.1, lambda: runner._set_state(ProtocolState.IDLE)).start()
         assert runner.wait_for_run_idle(timeout_s=2.0) is True
 
@@ -9931,8 +9940,8 @@ class TestLedSentinelReturnsAreNone:
     type is now uniform across the LED query surface."""
 
     def test_get_led_ma_returns_none_when_driver_absent(self):
-        """A diagnostic-mode instance with a NullLEDBoard driver path
-        exercises the not-self._driver branch -- returns None, not -1."""
+        """With the NullLEDBoard installed there is no board to describe:
+        the read answers None, never -1 or a made-up off state."""
         from drivers.null_ledboard import NullLEDBoard
 
         scope = build_scope(simulate=True, register_atexit=False)
@@ -9940,7 +9949,7 @@ class TestLedSentinelReturnsAreNone:
             scope._led_driver = NullLEDBoard()
             # IlluminationAPI._driver re-resolves through _scope._led_driver
             # each call, so the hot-swap propagates.
-            assert scope.illumination.get_led_state('Blue')['illumination_ma'] is None
+            assert scope.illumination.get_led_state('Blue') is None
         finally:
             scope.disconnect()
 
@@ -10738,8 +10747,8 @@ class TestShutdownLedsOffRoutedThroughIoExecutor:
             'so the LED serial bus is not contended by a parallel '
             'writer during shutdown drain.'
         )
-        assert 'IOTask(action=self.scope.illumination._leds_off_impl)' in block, (
-            'IOTask must wrap the private _leds_off_impl so '
+        assert 'IOTask(action=self.scope.illumination._leds_off_if_present)' in block, (
+            "IOTask must wrap the scope's own all-off, _leds_off_if_present, so "
             'the io lane serializes it with other LED writes.'
         )
         assert 'fut.result(timeout=2.0)' in block, (

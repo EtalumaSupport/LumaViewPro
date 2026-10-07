@@ -101,7 +101,13 @@ class TestAStallIsReported:
         with caplog.at_level(logging.INFO):
             camera.hold_frames(SimulatedStall(after_s=0.1, for_s=1.0))
             assert _wait_for(lambda: len(_stall_lines(caplog)) == 1, 3.0)
-            time.sleep(1.2)  # past the end of the first stall: frames flow again
+            # The check re-arms once it sees frames again -- the state this
+            # test is about; nothing public states it, and a clock only
+            # guesses when the check has looked.
+            imaging = session.scope.imaging
+            assert _wait_for(lambda: not imaging._stream_stall_reported, 10.0), (
+                'the check never saw frames resume'
+            )
             camera.hold_frames(SimulatedStall(after_s=0.1, for_s=1.0))
             assert _wait_for(lambda: len(_stall_lines(caplog)) == 2, 3.0), (
                 'a second stall after frames resumed was not seen'
@@ -114,13 +120,16 @@ class TestWhatIsNotAStall:
         imaging = session.scope.imaging
         imaging.set_exposure_ms(800.0)
         assert imaging.exposure_ms_cached == 800.0, 'precondition: the long exposure took'
+        started = time.monotonic()
         before = imaging._frames_delivered()
         with caplog.at_level(logging.INFO):
-            time.sleep(2.5)
-        delivered = imaging._frames_delivered() - before
-        assert 1 <= delivered <= 4, (
-            f'precondition: frames arrived about 0.8 s apart, past the floor ({delivered} in 2.5 s)'
-        )
+            assert _wait_for(lambda: imaging._frames_delivered() - before >= 3, 10.0), (
+                'precondition: the long-exposure stream delivered'
+            )
+        # Three frames span at least two 0.8 s gaps, each past the floor; a
+        # slow host only lengthens the span.
+        elapsed = time.monotonic() - started
+        assert elapsed >= 1.5, f'precondition: frames arrived {elapsed:.2f} s apart for three'
         assert shown == []
         assert _stall_lines(caplog) == []
 
@@ -135,14 +144,14 @@ class TestWhatIsNotAStall:
 class TestWhereItIsNotShown:
     def test_an_unattended_run_logs_the_stall_and_shows_nothing(self, session, shown, caplog):
         camera = session.scope._camera_driver
-        notifications.set_unattended_run(True)
+        notifications.open_run_scope(attended=False)
         try:
             with caplog.at_level(logging.INFO):
                 camera.hold_frames(SimulatedStall(after_s=0.1, for_s=1.5))
                 assert _wait_for(lambda: _stall_lines(caplog), 3.0), 'the stall was not seen'
                 time.sleep(0.3)
         finally:
-            notifications.set_unattended_run(False)
+            notifications.close_run_scope()
         assert shown == [], 'an unattended run showed a non-fatal fault'
         assert len(_stall_lines(caplog)) == 1, 'the muted stall was not logged once as a fault'
 

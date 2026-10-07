@@ -91,7 +91,7 @@ Methods on the L2 surface follow one of two contracts; if a method's docstring h
 - **Naming convention -- `*_cached` vs `get_*`**: a property ending in `_cached` (`gain_db_cached`, `exposure_ms_cached`, `frame_size_cached`, `pixel_format_cached`, `active_cached`, `min_frame_size_cached`, `max_exposure_ms_cached`, `max_gain_db_cached`, `min_exposure_ms_cached`, `min_gain_db_cached`) reads the host-side camera cache and performs **no driver I/O** -- safe to read at any frequency from any thread. A `get_*` method is a **live driver read** under the last-known-good contract above. The name carries the contract, so a call site's I/O behavior is visible without opening the implementation.
 - **State-changing operations** (setters like `move_absolute`, `led_on`, etc.) typically return `True` on success and `False` for "couldn't do it" (no driver, mode invalid, driver does not implement, etc.). A `Raises:` section in the docstring documents the typed exception (`HardwareError`, `CaptureError`, `ConfigError` from `modules.exceptions`) that propagates when the underlying SDK call itself fails. Some members still log and show their own notification before re-raising; they are being moved to raise only, so the failure is shown once, by whoever reports it. The typed exception is what L2 callers should catch. **Read the member's own `Raises:` section rather than this paragraph: it is the declaration, and not every setter returns a status.**
 - **Camera setting applies** (`set_gain_db`, `set_exposure_ms`, `set_black_level`, `set_frame_size`, `set_binning_size`, `set_pixel_format`) are the raise contract, not the True/False one. A confirmed driver rejection raises `CameraSettingRejected` (`modules.exceptions`), a fault carrying `setting`, `requested`, and the `title` and message a person reads; nothing is logged or shown before it reaches you, so reporting it is yours. Success is observed by the returned value, which is what the camera actually applied and may differ from the request: the DELIVERED size for the geometry setters, and for `set_gain_db` / `set_exposure_ms` the gain in dB / exposure in ms now in effect (a body snaps or quantizes). A gain or exposure outside the camera's declared range (`min_gain_db_cached` .. `max_gain_db_cached`, `min_exposure_ms_cached` .. `max_exposure_ms_cached`) is refused before anything reaches the camera with `CameraSettingOutOfRangeError`, a refusal and a `ValueError`, carrying `reason` (`gain_db_out_of_range` / `exposure_ms_out_of_range`), `requested`, `minimum` and `maximum`, and a message naming the range; an end the camera does not declare is `None` and is not checked. A frame width or height outside [`min_frame_size_cached`, the scope's maximum / the current binning] is refused the same way from `set_frame_size` (`frame_width_out_of_range` / `frame_height_out_of_range`); the scope's maximum is `capabilities.camera_max_frame_size`, unbinned: the sensor, or the model's smaller one where its lens images less of the sensor (1700 on the LS560). When it is `None` the maximum is unknown and is not checked. Inside the range every camera delivers exactly the size asked for: it acquires the next window up on its own grid and crops back. The Session's `set_frame_size` floors the size to even sides first (`get_pixel_alignment()`, `{2, 2}` on every camera) and refuses before it stores. Two cases are deliberately **not** rejections and do not raise: no camera is active (a quiet no-op per the missing-hardware contract), and a driver with no confirmation signal (it answers `None`, meaning "cannot confirm", not "refused"). Gain and exposure rejections are both confirmable on Basler and IDS bodies. On the Classic (FX2) body the sensor register write raises out of the driver rather than reporting a refusal, so a failed apply there reaches you as that exception instead of as `CameraSettingRejected`.
-- **Hardware-command dispatch** (LED, motion, and camera commands): each command submits to one of the scope's own lanes -- IO for LED and motion, CAMERA for camera -- and blocks until the hardware has it. Every `Lumascope` builds and starts its two lanes, a bare `Lumascope()` in a script included, so commands from every caller run one at a time per bus, in order. While a protocol run owns the lanes (or a lane is disabled), the command raises `HardwareCommandRefusedError` (`modules.exceptions`), carrying the machine-readable `reason` (`exclusive_activity_running`) and the refused member. After `scope.disconnect()` the lanes are shut, and every command raises at once with `reason` `scope_disconnected`. There is one form of each command; a caller that must not wait runs it on its own thread.
+- **Hardware-command dispatch** (LED, motion, and camera commands): each command submits to one of the scope's own lanes -- IO for LED and motion, CAMERA for camera -- and blocks until the hardware has it. Every `Lumascope` builds and starts its two lanes, a bare `Lumascope()` in a script included, so commands from every caller run one at a time per bus, in order. While a protocol run owns the lanes (or a lane is disabled), the command raises `HardwareCommandRefusedError` (`modules.exceptions`), carrying the machine-readable `reason` (`exclusive_activity_running`) and the refused member. After `scope.disconnect()` the lanes are shut, and every command raises at once with `reason` `scope_disconnected`, `stop_motion` included. A motion or LED command for hardware the scope does not have raises it too, before anything moves or lights, and its `missing` (a `MissingPart`, `modules.exceptions`) names the part, its words coming from it: `reason` `not_connected` when the model has a motor controller and none is connected -- never came up, or its cable pulled -- (`MissingPart.MOTOR_CONTROLLER`, "Check the USB cable ..."), or when no LED controller is connected (`MissingPart.LED_CONTROLLER`); `axis_absent` when the scope has no such motor or LED: `MissingPart.X`, `Y` or `Z` for an axis it lacks, `MissingPart.TURRET` for a turret, and `MissingPart.MOTORS` on a manual scope (LS620, LS560), for every motion command, `stop_motion`, `home()` and the acceleration limit included; `MissingPart.led(...)` for an LED the model lacks, named as the command named it ("This microscope has no Red LED.", "... no LED on channel 2."). A name that is no axis at all stays a `ValueError`. An LED off whose end state already holds is not refused: an off of a channel the API holds dark, of an LED the model lacks, or with no LED controller and nothing believed lit returns with nothing written and nothing logged. There is one form of each command; a caller that must not wait runs it on its own thread.
 - **Sentinel-return methods log** at `logger.warning` or `logger.info` per Rule 5; they do **not** fire user notifications (no actionable failure occurred -- the value is just unknown).
 - **`camera_connected` is an instantaneous, non-latching poll.** A `False` can be transient (a single flaky connectivity query on an otherwise healthy camera). Consumers may skip work on `False` and re-poll on their next cycle; they must never latch, self-cancel, or tear anything down on it -- one transient `False` on a multi-day run should cost one skipped cycle, not the rest of the session.
 - **`scope.imaging.camera_removed` is the latched answer.** It is True once the camera's driver has declared it removed (unplugged, off the bus), and stays True until the camera connects again. Unlike a `False` from `camera_connected`, it is never transient, so it is safe to act on: a run that fails a capture after the camera was removed ends at once, `status='failed'`, `reason='hardware_disconnected'`. False on a scope with no camera at all.
@@ -199,6 +199,7 @@ scope.initialize(config)
 
 ```python
 scope.are_all_connected()                 # LED + motor + camera all up (motor only if expected)
+scope.unconnected_parts()                 # ('LED controller', 'motor controller', 'camera') -- those not up; () when all are
 scope.motor_connected                     # motor board (property)
 scope.motion_expected                     # False on a manual scope (LS620, LS560): no motor board to connect
 scope.led_connected                       # LED board (property)
@@ -415,7 +416,7 @@ session.scope.settings_template                # every setting there is, with it
 session.set_high_conversion_gain(True)        # the camera takes it, then it is stored; False: neither
 session.set_line_noise_reduction(True)        # likewise for the line-noise filter
 session.set_scale_bar(True)                   # whether captures draw the scale bar: the setting the imaging API reads
-session.set_acceleration_limit(80)            # 1-100, else AccelerationLimitRefusedError (a ValueError) and nothing stored; the motors take it (if any), then it is stored
+session.set_acceleration_limit(80)            # 1-100, else AccelerationLimitRefusedError (a ValueError); the motors take it, then it is stored; with no motor controller HardwareCommandRefusedError ('not_connected' / 'axis_absent'); nothing stored on a raise
 session.save_bookmark(('X', 'Y'))             # the live position as the bookmark: X/Y plate mm, Z um
 session.save_all_bookmarks()                  # the live Z as the Z bookmark and every layer's focus
 session.save_settings(force=True)             # persist to data/current.json (raises if refused)
@@ -523,7 +524,7 @@ section above.
 
 ```python
 # LED
-session.scope.illumination.led_on('Blue', 200)      # blocks until the write has landed
+session.scope.illumination.led_on('Blue', 200)      # returns once the board has been sent the command
 session.scope.illumination.led_off('Blue')
 session.scope.illumination.leds_off()
 
@@ -573,16 +574,21 @@ paths = session.manual_capture.capture(
 ).result(timeout=30)
 ```
 
-It raises `ValueError` for a layer that is not a channel and
-`HardwareCommandRefusedError` (reason `'capture_in_flight'`) while an earlier
-still is running. The Future raises `ObjectiveUnknownError` when the
-objective in the light path is unknown (nothing captured),
-`HardwareCommandRefusedError` when a run holds the camera, and `CaptureError`
-(reason `'no_frame_returned'`, the capture engine's cause as its message) when
-no frame passed. `session.manual_capture.in_flight` is True while a still is
-running. A run started while a still is in flight is not refused: it waits
-for the still to finish before it touches the camera, so the still saves
-under the state it started with and the run begins after it.
+It raises `ValueError` for a layer that is not a channel, and
+`HardwareCommandRefusedError` with reason `'capture_in_flight'` while an
+earlier still is running, `'exclusive_activity_running'` while a run or a
+diagnostic holds the scope, and `'scope_disconnected'` when the camera is
+closed. When it returns, the still is on the camera lane. The Future raises
+`ObjectiveUnknownError` when the objective in the light path is unknown
+(nothing captured) and `CaptureError` (reason `'no_frame_returned'`, the
+capture engine's cause as its message) when no frame passed.
+`session.manual_capture.in_flight` is True from the call until the still
+has finished or been refused. A run started while a still is RUNNING waits
+for it to finish before it touches the camera, so the still saves under the
+state it started with and the run begins after it; a still not yet running
+when a run takes the scope (queued behind other camera work) is refused, and
+its Future raises `HardwareCommandRefusedError` (reason
+`'exclusive_activity_running'`).
 
 To save a frame you already hold, capture it and call `save_image`. It
 returns the saved path. When the file cannot be written (a missing or
@@ -689,7 +695,7 @@ else:
     print('protocol unchanged:', result.status, result.reason)
 ```
 
-The scan visits each step with autofocus on, whatever the step's own autofocus setting, and captures nothing; the protocol's autofocus settings are not changed. With the `bf_af_for_fluorescence` setting on, a fluorescence step takes the BF step's focus instead of sweeping, as it does in any run. When the scan completes, each step's Z becomes the focus found for it, written before `run_complete` is sent and before the run lets go of the scope, so a caller reading the protocol in `run_complete` or after `wait` sees the focused values. A step whose sweep found no focus keeps its Z. A scan that does not complete (stopped, failed) writes nothing, because it focused only some of the steps. A protocol whose steps changed during the scan -- a different number of them, or a step at a different position, channel or objective -- is left unchanged, and the person is told once as `Focus Not Saved` (`FocusNotWrittenError` in `modules.exceptions`, a refusal); the outcome's `focus_written` says which happened. The run-wide settings (illumination, gain, exposure, frame size) come from the settings store, so this run resolves exactly as the protocol panel's Autofocus All Steps button does.
+The scan visits each step with autofocus on, whatever the step's own autofocus setting, and captures nothing; the protocol's autofocus settings are not changed. With the `bf_af_for_fluorescence` setting on, a fluorescence step takes the BF step's focus instead of sweeping, as it does in any run. When the scan completes, each step's Z becomes the focus found for it, written before the run lets go of the scope, so a caller reading the protocol in `run_complete` or after `wait` sees the focused values. A step whose sweep found no focus keeps its Z. A scan that does not complete (stopped, failed) writes nothing, because it focused only some of the steps. A protocol whose steps changed during the scan -- a different number of them, or a step at a different position, channel or objective -- is left unchanged, and the person is told once as `Focus Not Saved` (`FocusNotWrittenError` in `modules.exceptions`, a refusal); the outcome's `focus_written` says which happened. The run-wide settings (illumination, gain, exposure, frame size) come from the settings store, so this run resolves exactly as the protocol panel's Autofocus All Steps button does.
 
 **Standalone z-stack.** `run_zstack(layer)` captures a stack on one layer, around the current stage position:
 
@@ -705,13 +711,13 @@ Unlike `run_autofocus`, the slices are the product: the run saves its images (un
 
 `return_to_start` is on by default: a stack ends at whichever end of its range it finished on, which is not where the operator was looking, so the stage goes back to the position the stack was centred on. Pass `return_to_start=False` to leave it where the stack ended.
 
-`run_single_scan()` runs one scan; `run_protocol()` runs the full multi-scan protocol. LumaViewPro's own Scan and Run buttons start their runs through these two calls. Both take an optional `run_trigger_source`, the provenance recorded on the run and named in a refusal's `holder_trigger` (default `'api_scan'` / `'api_protocol'`; the buttons pass `'scan'` / `'protocol'`), and an optional `engineering_mode`, whether the run stamps the turret position into its filenames (None, the default, reads the mode the session was built in). Both raise `ConfigError` if `image_capture_config` is omitted, and `ProtocolRunRefusedError` (`modules.exceptions`) when the run is refused before any state is committed -- already running, files still writing, empty protocol, a validation failure, hardware not connected, an axis whose position is unknown (`position_unknown`: the scope is not homed, or a home is still running -- the message names each axis), the stage's lid open (`lid_open`: every run moves X and Y, which the open lid refuses), or a live owner holding the illumination. Its `str()` is the sentence written for a person, and an L2 caller branches on its `reason` / `title` / `message` attributes (they map cleanly to a REST status code or a UI message). A run that could not be checked at all -- validating the protocol, reading whether the hardware is connected, or reading the stage's interlocks, crashed instead of answering -- is not a refusal: it raises `RunCheckFailedError` (`modules.exceptions`, reason `validation_crashed` or `hardware_state_unknown`), a fault with the crash chained as `__cause__`. Neither commits anything, so neither needs unwinding. See the `ProtocolRunner` source for optional callbacks, image-output config, etc. `files_complete` fires once per run, after its last image write lands, as `files_complete(protocol=..., run_dir=..., files=...)`: `files` is `'written'`, or `'incomplete'` when some of the run's images are not on disk -- given up on, never taken by the file writer, failed to save, refused because the save drive was nearly full, or a video step's file that did not finish. It counts images: a capture that produced no image is not a file, and is in the outcome's `captures` instead. When an image is not on disk the person is told once, as the last write lands. A callback written for the earlier two-argument form must accept `files`.
+`run_single_scan()` runs one scan; `run_protocol()` runs the full multi-scan protocol. LumaViewPro's own Scan and Run buttons start their runs through these two calls. Both take an optional `run_trigger_source`, the provenance recorded on the run and named in a refusal's `holder_trigger` (default `'api_scan'` / `'api_protocol'`; the buttons pass `'scan'` / `'protocol'`), and an optional `engineering_mode`, whether the run stamps the turret position into its filenames (None, the default, reads the mode the session was built in). Both raise `ConfigError` if `image_capture_config` is omitted, and `ProtocolRunRefusedError` (`modules.exceptions`) when the run is refused before any state is committed -- already running, files still writing, empty protocol, a validation failure, hardware not connected, an axis whose position is unknown (`position_unknown`: the scope is not homed, or a home is still running -- the message names each axis), the stage's lid open (`lid_open`: every run moves X and Y, which the open lid refuses), or a live owner holding the illumination. Its `str()` is the sentence written for a person, and an L2 caller branches on its `reason` / `title` / `message` attributes (they map cleanly to a REST status code or a UI message). A run that could not be checked at all -- validating the protocol, or reading whether the hardware is connected, or reading the stage's interlocks, crashed instead of answering -- is not a refusal: it raises `RunCheckFailedError` (`modules.exceptions`, reason `validation_crashed` or `hardware_state_unknown`), a fault with the crash chained as `__cause__`. Neither commits anything, so neither needs unwinding. See the `ProtocolRunner` source for optional callbacks, image-output config, etc. `run_complete` and `files_complete` reach a callback only once the run has let go of the scope -- it is no longer in progress and holds no claim -- so a callback can act on the scope at once; `run_complete` comes first. A run's files stop draining when its last image write lands, just before `files_complete`, so a new run started from inside `files_complete` is not refused `files_writing`. Under LumaViewPro's GUI both callbacks run on its UI thread; with no GUI they run on the thread that ended the run (the run's own thread, or for `files_complete` the file writer's, when the last write lands after the run ends). A callback may wait on its own run: inside one of the run's own callbacks, `handle.wait()` and `handle.wait_for_files()` return once the run has let go of the scope (a composite's, once its merge settles), without waiting for the callbacks. Never wait on a different run inside a callback, a run you just started there included: under the GUI that wait raises `RunWaitOnUiThreadError`, and with no GUI the callback can be running on the thread that run needs, so the wait runs out its bound. Start the run there, and wait on it from your own thread. `files_complete` fires once per run, after its last image write lands, as `files_complete(protocol=..., run_dir=..., files=...)`: `files` is `'written'`, or `'incomplete'` when some of the run's images are not on disk -- given up on, never taken by the file writer, failed to save, refused because the save drive was nearly full, or a video step's file that did not finish. It counts images: a capture that produced no image is not a file, and is in the outcome's `captures` instead. When an image is not on disk the person is told once, as the last write lands. A callback written for the earlier two-argument form must accept `files`.
 
-**How a run ends.** Every run that commits returns a handle, the run's one identity: everything a caller asks about its run, and its Stop, go through it. `handle.wait(timeout_s=...)` blocks until the run has ended and no longer holds the scope, then hands back its outcome, so the caller's next move or setting needs no second wait; it gives back `None` when the bound expires. A run's files can still be writing after it lets go of the scope, and a next run is refused `files_writing` until they land: `handle.wait_for_files(timeout_s=...)` blocks until this run's images are on disk or given up on, its hyperstack build (when it saves hyperstacks) has finished, and the run has ended, so a next run is admitted, and returns what became of the images -- `outcome` (`'written'`, or `'incomplete'` when any image is not on disk), `written`, `not_written`, and `not_written_reason` (`write_batch_save_failed`, `write_batch_disk_full`, `write_batch_abandoned`, `write_batch_not_taken`, `write_batch_video_unfinished`; `None` when every image landed) -- or `None` when the bound expires. A hyperstack build's own failure is reported by the build, not here. A call that is refused raises and returns no handle, so there is never a stale outcome to wait on.
+**How a run ends.** Every run that commits returns a handle, the run's one identity: everything a caller asks about its run, and its Stop, go through it. `handle.wait(timeout_s=...)` blocks until the run has ended, no longer holds the scope, and its `run_complete`, when it has one, has run, then hands back its outcome, so the caller's next move or setting needs no second wait and finds whatever its `run_complete` did; it gives back `None` when the bound expires. A video step's files are not among them: the run's end waits for each video step to finish writing (its frames, `recording_manifest.json` and MP4), up to 600 s, before it lets go of the scope, so `wait()` returns with them on disk; a video still writing at that bound is logged, the run ends without waiting further, and `session.close_drain_pending` reads True until it finishes. A run's other files can still be writing after it lets go of the scope, and a next run is refused `files_writing` until they land: `handle.wait_for_files(timeout_s=...)` blocks for everything `wait` does, then until this run's images are on disk or given up on, its hyperstack build (when it saves hyperstacks) has finished, and the run has said everything about them -- the report of a lost image, and its `files_complete` -- so a next run is admitted, and returns what became of the images -- `outcome` (`'written'`, or `'incomplete'` when any image is not on disk), `written`, `not_written`, and `not_written_reason` (`write_batch_save_failed`, `write_batch_disk_full`, `write_batch_abandoned`, `write_batch_not_taken`, `write_batch_video_unfinished`; `None` when every image landed) -- or `None` when the bound expires. A hyperstack build's own failure is reported by the build, not here. Either wait made on the thread that delivers the run's callbacks -- the GUI's UI thread -- outside those callbacks raises `RunWaitOnUiThreadError` (`modules.exceptions`), since it would wait on itself; and a wait with no bound under a host that has stopped delivering callbacks (a GUI that has closed) does not return. A call that is refused raises and returns no handle, so there is never a stale outcome to wait on.
 
-The outcome carries thirteen fields. `status` is one of `completed`, `incomplete`, `aborted`, `failed` or `failed_at_start`: `incomplete` is a run that reached its end without every capture it was asked for (`captures_failed`; the images it did capture are saved, and the person is told once), `aborted` is an ending someone asked for (`stopped`; `force_reset` and `shutdown` when the application tears the run down), `failed` is one the instrument imposed (`motion_timeout`, `camera_failure`, `disk_space_critical`, `consecutive_scan_failures`, `video_writer_died` (a video step's writer stopped working, so the run was stopped; the frames already written are on disk), `hardware_disconnected` (a part of the scope was disconnected mid-run; a capture that fails after the camera was declared removed ends the run at once), `interlock` (the stage's interlock refused a step's move -- the lid was opened mid-run -- so the run stopped at once; `title` and `message` carry the refusal's words), and `position_lost` -- an axis lost its position mid-run, so the run stopped at once and saved no image from that position; home before the next run), and `failed_at_start` is a run that could not begin after it committed. `reason` is the machine-readable cause, stable enough to branch on; `title` and `message` are the sentences a user reads, and never carry raw exception text. `merged`, `artifact_path` and `merge_reason` describe the composite merge only: a run with no merge reports `merged=False` with an empty `merge_reason`, so `merge_reason` is non-empty only when a merge was owed and produced no file. `af_data_saved` and `af_data_path` describe autofocus characterization data the same way: `af_data_saved` is true only when the data file was actually WRITTEN, and `af_data_path` names it. A run that asked for no data, a sweep that measured none, and a run whose queued write an abort discarded all report `af_data_saved=False` with `af_data_path=None` -- the fields answer "did it land", not "was it requested", so a headless caller never has to go looking on disk to find out. `af_focus_z_um` is the Z a standalone autofocus run chose as focus, or None when it chose none; only `run_autofocus` sets it, and every other run reports None, since a run that autofocuses at several steps has no one focus to report -- `run_autofocus_all_steps` answers in the protocol's Z column instead. `captures` is what the run captured of what it was asked for: `asked` (scans times steps for a run that saves images, 0 for one that saves none), `captured`, and `failed`, one entry per capture that produced no image with its `scan`, `step_index`, `step_name` and `cause`; it is counted once per scan and step, so a scan run again after a transient failure never counts a capture twice. `captures` is `None` only for a run a shutdown settled before it ended. `cleanup_failures` names the steps putting the scope back after the run that did not finish (`Restore LED states`, `Restore camera gain/exposure`, `Return to position`, ...): empty when the LEDs, camera settings and stage were all put back, `None` only for a run a shutdown settled before its cleanup ran. The person is told the same once, as `Protocol cleanup issues`. `focus_written` is whether `run_autofocus_all_steps` wrote the focus it found into the caller's protocol: `None` for every other run, `False` when the scan did not complete or the protocol's steps changed during it (the protocol is unchanged), `True` when it was written.
+The outcome carries thirteen fields. `status` is one of `completed`, `incomplete`, `aborted`, `failed` or `failed_at_start`: `incomplete` is a run that reached its end without every capture it was asked for (`captures_failed`; the images it did capture are saved, and the person is told once), `aborted` is an ending someone asked for (`stopped`; `force_reset` and `shutdown` when the application tears the run down), `failed` is one the instrument imposed (`motion_timeout`, `camera_failure`, `disk_space_critical`, `consecutive_scan_failures`, `video_writer_died` (a video step's writer stopped working, so the run was stopped; the frames already written are on disk), `hardware_disconnected` (a part of the scope was disconnected mid-run; a capture that fails after the camera was declared removed ends the run at once), `interlock` (the stage's interlock refused a step's move -- the lid was opened mid-run -- so the run stopped at once; `title` and `message` carry the refusal's words), and `position_lost` -- an axis lost its position mid-run, so the run stopped at once and saved no image from that position; home before the next run), and `failed_at_start` is a run that could not begin after it committed. `reason` is the machine-readable cause, stable enough to branch on; `title` and `message` are the sentences a user reads, and never carry raw exception text. `merged`, `artifact_path` and `merge_reason` describe the composite merge only: a run with no merge reports `merged=False` with an empty `merge_reason`, so `merge_reason` is non-empty only when a merge was owed and produced no file. `af_data_saved` and `af_data_path` describe autofocus characterization data the same way: `af_data_saved` is true only when the data file was actually WRITTEN, and `af_data_path` names it. A run that asked for no data, a sweep that measured none, and a run whose queued write an abort discarded all report `af_data_saved=False` with `af_data_path=None` -- the fields answer "did it land", not "was it requested", so a headless caller never has to go looking on disk to find out. `af_focus_z_um` is the Z a standalone autofocus run chose as focus, or None when it chose none; only `run_autofocus` sets it, and every other run reports None, since a run that autofocuses at several steps has no one focus to report -- `run_autofocus_all_steps` answers in the protocol's Z column instead. `captures` is what the run captured of what it was asked for: `asked` (scans times steps for a run that saves images, 0 for one that saves none), `captured`, and `failed`, one entry per capture that produced no image with its `scan`, `step_index`, `step_name` and `cause`; it is counted once per scan and step, so a scan run again after a transient failure never counts a capture twice. `captures` is `None` only for a run a shutdown settled before it ended. `cleanup_failures` names the steps putting the scope back after the run that did not finish (`Restore LED states`, `Restore camera gain/exposure`, `Return to position`, ...): empty when the LEDs, camera settings and stage were all put back, `None` only for a run a shutdown settled before its cleanup ran. The person is told the same once, as `Protocol cleanup issues`. `Stop autofocus` is an autofocus sweep that did not stop within 30 s of the run telling it to: the run keeps its own ending, the sweep can no longer reach the hardware, and autofocus and new runs are refused `autofocus_running` until it stops; restart LumaViewPro if it does not. `focus_written` is whether `run_autofocus_all_steps` wrote the focus it found into the caller's protocol: `None` for every other run, `False` when the scan did not complete or the protocol's steps changed during it (the protocol is unchanged), `True` when it was written.
 
-The two vocabularies are deliberately separate. A run that aborted names why in `reason` and leaves `merge_reason` empty; a run that reached its end but whose merge produced nothing reports its run status (`completed`, or `incomplete` when a channel failed) with the cause in `merge_reason`. `run_composite()` raises `CaptureError` carrying whichever of the two applies.
+The two vocabularies are deliberately separate. A run that aborted names why in `reason` and leaves `merge_reason` empty; a run that reached its end but whose merge produced nothing reports its run status (`completed`, or `incomplete` when a channel failed) with the cause in `merge_reason`. `run_composite()` raises `CaptureError` carrying whichever of the two applies. A merge that raised is posted to the listeners as that exception's own type, kind and title -- a refusal such as `PostProcessingRefusedError` (`no_data`, nothing usable to merge) as a warning, `RunFilesNotWrittenError` under "Run Images Not Written" -- with `merge_reason` its `reason` (`merge_error` when it carries none, posted under "Composite Failed"); a merge that could not start or produced no file is posted as `CompositeFailedError`. A composite missing a channel is told as its own `RunIncompleteError`, after the merge's notice, whether it merged or not. The merge's notice and the shortfall are delivered to the listeners before the outcome settles, so `run_composite()` and `handle.wait()` return after them.
 
 `handle.stop()` only asks: the run ends on its own thread, and `wait` tells you when it has. A Stop through a handle whose run has already ended does nothing to any run. When another run is live it is a refusal with reason `run_not_live`, and `holder_trigger` names the run that is live; when nothing is live it raises `RunAlreadyEndedError` -- not a refusal, since the run simply finished before the stop arrived. The handle also answers, about its own run only: `is_live`; `is_stopping`, True from an accepted Stop until the run's teardown finishes; `run_dir`, the run's folder (`None` for a run that saves nothing or never started); and for a progress readout `step_number` (the step executing now, counted from 1), `num_steps`, `remaining_scans` and `interval` (the scan period), each `None` once the run is no longer live.
 
@@ -805,14 +811,16 @@ scope.protocols.set_step_z(protocol, 0, z)
 scope.protocols.apply_focus_to_layer_steps(protocol, 'BF', z)
 ```
 
-**A step's motor targets.** `scope.protocols.step_targets(protocol, step_idx)` is the one conversion a run and a person's navigation share: a `StepTargets` (`modules.lumascope_api.protocols`) of `turret_slot` (the slot carrying the step's objective, chosen as `scope.motion.get_turret_position_for_objective_id` chooses it; None on a scope without a turret), and `x`, `y` and `z` in stage micrometres, X and Y converted on the protocol's own plate, not the scope's selected one. It raises `StepNotFoundError` for a `step_idx` the protocol lacks and `ConfigError` for a plate the catalogue does not have. `scope.protocols.plate_to_stage(protocol, px, py)` is the plate-to-stage conversion under it, on the protocol's plate; both take a `stage_offset=` to convert with a snapshot instead of the live offset, as a run does.
+**A step's motor targets.** `scope.protocols.step_targets(protocol, step_idx)` is the one conversion a run and a person's navigation share: a `StepTargets` (`modules.lumascope_api.protocols`) of `turret_slot` (the slot carrying the step's objective, chosen as `scope.motion.get_turret_position_for_objective_id` chooses it; None on a scope without a turret), and `x`, `y` and `z` in stage micrometres, X and Y converted on the protocol's own plate, not the scope's selected one; an axis the scope has no motor for is None, and nothing drives it. They come from `scope.protocols.stage_targets(protocol, px, py, z)`, which answers `(x, y, z)` the same way for any plate position and Z: the one conversion every step move takes, so a run's return to its first step between scans and after a z-stack drives only the axes the scope has too. It raises `StepNotFoundError` for a `step_idx` the protocol lacks and `ConfigError` for a plate the catalogue does not have. `scope.protocols.plate_to_stage(protocol, px, py)` is the plate-to-stage conversion under it, on the protocol's plate, whatever axes the scope has; all three take a `stage_offset=` to convert with a snapshot instead of the live offset, as a run does. `scope.protocols.plate_transform(protocol, stage_offset=offset)` is the inverse, bound when called: a function of `(sx_um, sy_um)` answering `(px_mm, py_mm)` on the protocol's plate with that offset, or None when `stage_offset` is None (a scope with no X/Y stage). A run states every frame it saves through it, stills and recorded frames alike: the position the stage was read at beside the grab, never the step's planned one, in the frame the run's steps were driven in, whatever plate is selected meanwhile; an axis the scope lacks or has lost its reference on states none.
 
 ```python
 targets = scope.protocols.step_targets(protocol, 2)   # StepTargets(turret_slot=1, x=..., y=..., z=...)
 sx, sy = scope.protocols.plate_to_stage(protocol, 60.0, 40.0)
+x, y, z = scope.protocols.stage_targets(protocol, 60.0, 40.0, 5000.0)   # None for each axis the scope has no motor for
+to_plate = scope.protocols.plate_transform(protocol, stage_offset=offset)   # stage um -> the protocol's plate mm, bound now
 ```
 
-**Going to a step.** `session.go_to_step(protocol, step_idx)` does what a click on a step does, as one task on the scope's IO lane: it asks every axis once whether it knows its position, turns the turret to the slot carrying the step's objective, starts X, Y and Z towards the step's targets together (`scope.protocols.step_targets`, above), puts the step's values into its layer's live settings (the layer acquiring as the step does, its focus at the step's Z, its stimulation from the step's), and applies the step's LED preview: the step's channel at its current when `protocol_led_on` is set, every channel dark when not. While the stage travels it puts the step's layer on the camera (`session.apply_layer_camera`, below), and it returns once the camera holds that layer's exposure, gain and auto-gain and X, Y and Z have arrived, waiting off the IO lane so the lane takes other work meanwhile; a move that does not arrive raises `MoveNotCompletedError`, with the layer and the preview already the step's, and a setting the camera refuses raises `CameraSettingRejected` once the stage has arrived. `session.start_go_to_step(protocol, step_idx)` does the same but for the camera and returns the started X, Y and Z moves without waiting (their `wait()` gives each outcome): the form for a click, where a second click re-targets the stage at once, and whose caller applies the camera. A scope with no motor board moves nothing and does the rest. A repeat of the step the session last went to (a re-click) does everything but the preview, so a channel lit or put out in between stays as it was; a run transition forgets it. It is refused before anything changes: a `step_idx` that is not a step of `protocol` with `StepNotFoundError`; a step whose objective this scope cannot put in the light path with `ProtocolRunRefusedError`; a step on a layer this scope lacks, or a stimulation naming no layer, with `ConfigError`; an axis that does not know its position with `AxisStateUnknownError` (logged and notified once); a scope held by a run or a diagnostic with `HardwareCommandRefusedError`. A step outside an axis's travel raises `PositionOutOfRangeError` from that axis's move; the axes before it have moved and nothing else changes.
+**Going to a step.** `session.go_to_step(protocol, step_idx)` does what a click on a step does, as one task on the scope's IO lane: it asks every axis once whether it knows its position, turns the turret to the slot carrying the step's objective, starts X, Y and Z towards the step's targets together (`scope.protocols.step_targets`, above), puts the step's values into its layer's live settings (the layer acquiring as the step does, its focus at the step's Z, its stimulation from the step's), and applies the step's LED preview: the step's channel at its current when `protocol_led_on` is set, every channel dark when not. While the stage travels it puts the step's layer on the camera (`session.apply_layer_camera`, below), and it returns once the camera holds that layer's exposure, gain and auto-gain and X, Y and Z have arrived, waiting off the IO lane so the lane takes other work meanwhile; a move that does not arrive raises `MoveNotCompletedError`, with the layer and the preview already the step's, and a setting the camera refuses raises `CameraSettingRejected` once the stage has arrived. `session.start_go_to_step(protocol, step_idx)` does the same but for the camera and returns the started X, Y and Z moves without waiting (their `wait()` gives each outcome): the form for a click, where a second click re-targets the stage at once, and whose caller applies the camera. Only the axes the scope has are moved: a manual scope moves nothing, does the rest and returns no moves; a motorized scope whose motor controller is not connected is refused with `HardwareCommandRefusedError` (`not_connected`) before anything changes, and so is a step whose preview would light on a scope with no LED controller connected (a dark preview needs none, so with `protocol_led_on` off the stage still moves); after `scope.disconnect()` it raises `scope_disconnected`. A repeat of the step the session last went to (a re-click) does everything but the preview, so a channel lit or put out in between stays as it was; a run transition forgets it. It is refused before anything changes: a `step_idx` that is not a step of `protocol` with `StepNotFoundError`; a step whose objective this scope cannot put in the light path with `ProtocolRunRefusedError`; a step on a layer this scope lacks, or a stimulation naming no layer, with `ConfigError`; an axis that does not know its position with `AxisStateUnknownError` (logged and notified once); a scope held by a run or a diagnostic with `HardwareCommandRefusedError`. A step outside an axis's travel raises `PositionOutOfRangeError` from that axis's move; the axes before it have moved and nothing else changes.
 
 ```python
 session.go_to_step(protocol, 2)                       # turret, X, Y, Z, the layer, the LED, the camera; returns on arrival
@@ -825,7 +833,7 @@ moves = session.start_go_to_step(protocol, 3)         # the same, started; each 
 session.apply_layer_camera('Blue')                   # {'gain_db': ..., 'exposure_ms': ...} now in effect
 ```
 
-**A step the run will refuse.** Every step cell is read as its column's type when a protocol is loaded or built: numbers for X, Y, Z, Illumination, Gain and Exposure, whole numbers for Sum, Z-Slice and the group IDs, True or False for Auto_Focus, Auto_Gain, False_Color, Custom Step and Auto_Named, `'image'` or `'video'` for Acquire, and a parsable config for Video Config and Stim_Config. A cell of the wrong type -- text in a number column, `maybe` in a True/False column, an empty position -- refuses the load with `ProtocolFormatError`, naming the file, the step and the column; nothing is guessed for it. A protocol built in memory (`config=`) is refused the same way, and the protocol's own writers refuse a value of the wrong type with `StepEditRefusedError`. A step index the protocol lacks is refused with `StepNotFoundError` by every writer and by `protocol.step(i)`. Both are `ProtocolError`s and refusals (`modules.protocol`): the reporter shows them as a warning, under "Step Not Changed" and "No Such Step", with no traceback. A step whose cells are the right type can still hold a value the run gate rejects (an exposure of 0, an objective not in the catalogue, an illumination above the board's maximum), and an add or update composed from live settings can too. Neither is refused: the load and the edit succeed, so the step can be fixed, and `session.load_protocol`, `add_step`, `update_step`, `delete_step` and `rename_step` report one notice, reason `protocol_steps_invalid`, listing the validator's lines. The run start refuses the protocol until every step is valid. A step on a layer this scope does not have is refused at load and when a run starts, reason `layer_not_on_scope`, naming the layers and the steps.
+**A step the run will refuse.** Every step cell is read as its column's type when a protocol is loaded or built: numbers for X, Y, Z, Illumination, Gain and Exposure, whole numbers for Sum, Z-Slice and the group IDs, True or False for Auto_Focus, Auto_Gain, False_Color, Custom Step and Auto_Named, `'image'` or `'video'` for Acquire, and a parsable config for Video Config and Stim_Config. A cell of the wrong type -- text in a number column, `maybe` in a True/False column, an empty position -- refuses the load with `ProtocolFormatError`, naming the file, the step and the column; nothing is guessed for it. A protocol built in memory (`config=`) is refused the same way, and the protocol's own writers refuse a value of the wrong type with `StepEditRefusedError`. A step index the protocol lacks is refused with `StepNotFoundError` by every writer and by `protocol.step(i)`; its words say how many steps there are ("The protocol has 6 steps.") and name no index, which is zero-based where a person counts from 1, and it carries `index`, the index refused as it was given, and `num_steps`. Both are `ProtocolError`s and refusals (`modules.protocol`): the reporter shows them as a warning, under "Step Not Changed" and "No Such Step", with no traceback. A step whose cells are the right type can still hold a value the run gate rejects (an exposure of 0, an objective not in the catalogue, an illumination above the board's maximum), and an add or update composed from live settings can too. Neither is refused: the load and the edit succeed, so the step can be fixed, and `session.load_protocol`, `add_step`, `update_step`, `delete_step` and `rename_step` report one notice, reason `protocol_steps_invalid`, listing the validator's lines. The run start refuses the protocol until every step is valid. A step on a layer this scope does not have is refused at load and when a run starts, reason `layer_not_on_scope`, naming the layers and the steps.
 
 ### Video steps and recordings
 
@@ -843,11 +851,13 @@ A manual frames recording with the hyperstack output format on builds one OME-TI
 
 Rate and duration come from the run's settings snapshot at start: `video.max_fps` (0 = uncapped; the effective rate is measured, not assumed) and `video.max_duration_seconds`. Mid-run settings edits do not affect a run in flight.
 
-Recording starts are guarded like protocol starts: `RecordingRefusedError` (`modules.exceptions`) mirrors the `ProtocolRunRefusedError` shape -- its `str()` is the sentence written for a person -- with machine-readable `reason` codes `recording_active` (another recording is live, or still finishing), `exclusive_activity_running` (a protocol run or other exclusive activity holds the session's activity claim), `camera_inactive`, `camera_exposure_unknown`, `insufficient_disk` and `capture_location_unusable`. Nothing is started when it raises.
+Recording starts are guarded like protocol starts: `RecordingRefusedError` (`modules.exceptions`) mirrors the `ProtocolRunRefusedError` shape -- its `str()` is the sentence written for a person -- with machine-readable `reason` codes `recording_active` (another recording is live, or still finishing), `exclusive_activity_running` (a protocol run or other exclusive activity holds the session's activity claim), `camera_inactive`, `camera_exposure_unknown`, `insufficient_disk`, `capture_location_unusable` and `falsifying_change_in_flight` (a change that would falsify the recording, such as a frame-size write, is still in flight). Nothing is started when it raises.
+
+**A manual recording from a script.** `session.manual_recording.start(layer=None, false_color_on=False, on_complete=None)` opens a recording of the live feed and returns once it is recording. The rate, the frames-or-MP4 choice and the duration cap (`video.max_duration_seconds`) come from the settings at that moment, and it is saved under `Manual/` in the live folder (`save_folder` names it). It raises `RecordingRefusedError` (the codes above), `ObjectiveUnknownError`, or `CaptureError` (`recording_not_started`, the camera refused the frame listener); nothing is started when it raises. `stop()` closes the recording and returns; frames still queued keep writing on their own. `is_recording` is True until the stop; `is_busy` until the frames, the MP4 close and any hyperstack build are done; `end_reason` says why the last recording ended (`'user_stop'`, `'duration_elapsed'`, `'camera_stalled'`, ...). `on_complete` is called on the finish thread once everything is written.
 
 While a manual recording holds the scope -- live or still draining its frames -- it refuses, for every caller, what would falsify its file: `imaging.set_frame_size`, `set_binning_size` and `set_pixel_format` (and the Session's `set_frame_size`, `set_binning_size` and `set_image_mode`, before either store is written), `motion.move_turret`, a home that moves the turret (`'T'`, or `'ALL'` on a scope with one), the Session's objective writers (`select_objective`, `assign_turret_objective`, `clear_turret_objective`, `clear_current_turret_objective`) and `select_labware`. Each raises `HardwareCommandRefusedError` with `reason='exclusive_activity_running'` and `holder='recording'`. X/Y/Z moves, a single-axis home, LED, gain and exposure stay open to an API caller; a recording's feed-death bound follows an exposure raised mid-recording. The LumaViewPro GUI locks its whole control surface during a live recording, Record/Stop excepted.
 
-Both refusal errors say busy-with-what: `holder` carries what holds the microscope at refusal time (`'protocol'`, `'recording'` or `'diagnostic'` for the exclusive-activity owner, `'autofocus'` for a sweep in flight, None for refusals that are not holder-shaped), and `holder_trigger` carries the `run_trigger_source` of the run behind that holder -- the run holding the scope, or, for an `autofocus_running` refusal, the run that dispatched the sweep (`'protocol'`, `'autofocus_scan'`, `'zstack'`, `'autofocus'`, `'api_scan'`, `'api_composite'`, `'composite'`, ...). A recording holder has no trigger -- its kind is the whole answer. File-drain refusals (`files_writing*`) carry the just-finished run's trigger so a poller can report whose files are draining.
+Both refusal errors say busy-with-what: `holder` carries what holds the microscope at refusal time (`'protocol'`, `'recording'` or `'diagnostic'` for the exclusive-activity owner, `'autofocus'` for a sweep that did not stop when its run ended, None for refusals that are not holder-shaped), and `holder_trigger` carries the `run_trigger_source` of the run behind that holder -- the run holding the scope, or, for an `autofocus_running` refusal, the run that dispatched the sweep (`'protocol'`, `'autofocus_scan'`, `'zstack'`, `'autofocus'`, `'api_scan'`, `'api_composite'`, `'composite'`, ...). The two are different axes: `holder` is the activity, `holder_trigger` the provenance string the run's starter passed, so a standalone autofocus refused for its own sweep carries `'autofocus'` in both. A recording holder has no trigger -- its kind is the whole answer. File-drain refusals (`files_writing*`) carry the just-finished run's trigger so a poller can report whose files are draining. The `message` names a run by its kind in words ("The Z-stack run is using the microscope"), never by its trigger token; branch on `holder_trigger`, show `message`.
 
 **Opening hyperstacks in Fiji:** the container is OME-TIFF; channel color travels as OME `Channel.Color`. Open via `Plugins > Bio-Formats > Importer` with **Color mode = Composite** (the choice persists per user through that dialog). A plain `File > Open` renders ImageJ's default LUTs, not the file's channel colors.
 
@@ -930,7 +940,7 @@ session.controls_locked          # full control-surface lock (any run lockout, o
 session.motion_enabled           # user stage motion allowed right now
 session.manual_recording.is_recording  # a manual recording is LIVE (not its file drain)
 session.recording_active         # a manual recording holds the scope and is live (False in its drain)
-session.close_drain_pending      # video frames still queued: a recording's drain, or a run's video tail
+session.close_drain_pending      # a close would cut video short: a manual recording live, draining or finishing its file, or a run's video step still writing
 session.close_drain_frames       # how many of those frames, across both drains (0 when none)
 session.discard_close_drain()    # a closing host's escape: drop every queued frame in both; written ones stay
 
@@ -948,7 +958,7 @@ session.notify_run_state()       # force a level-sync of all listeners
 A call that fails or is refused raises to you; that exception is the call's outcome, and it is yours to report. Outcomes that no caller waits on -- a camera stream that stops, a run that ends short of its captures, a recording the disk floor stopped, a finished run's file writer that stalls, a notice that a capture was saved without its position -- reach you through the session's outcome subscription instead:
 
 ```python
-def on_outcome(n):               # runs on the thread that reported it: return promptly, never wait on the scope
+def on_outcome(n):               # runs on the thread that reported it: return promptly, never wait on a run or the scope
     print(n.kind, n.title, n.message, n.reason, n.shown, n.outcome_id)
 
 session = ScopeSession.create(settings=settings, outcome_listener=on_outcome)   # hears bring-up too
@@ -967,7 +977,7 @@ Each call carries one `Notification` (`modules.notification_center`):
 | `remedy` | A `Remedy` when the outcome has one action that answers it: `session.apply_remedy(n.remedy)` takes it |
 | `solicited` | True when it answers a request a person or caller just made |
 | `fatal` | True for a fault that ends what was running |
-| `shown` | Whether the scope says this is for display now. False when it was muted: during a run nobody is watching (non-fatal outcomes), within 10 s of the same title being shown, or during shutdown. You receive muted outcomes too; a display shows only `shown` ones |
+| `shown` | Whether the scope says this is for display now. False when it was muted: during a scan, a protocol, an autofocus scan of every step, or a run under a diagnostic's claim (non-fatal outcomes; a standalone autofocus, composite or z-stack is shown, whoever started it); during a standalone autofocus, composite or z-stack, a non-fatal outcome identical to one already shown in that run (same category, title and message); an outcome you did not ask for whose category and title were shown less than 10 s ago, a fatal one included (an answer to a request is never muted this way, and showing it restarts the 10 s); or during shutdown. You receive muted outcomes too; a display shows only `shown` ones |
 | `outcome_id` | One per outcome. An outcome delivered muted and later shown (because someone asked for it) arrives twice with the same id, `shown` False then True; keep the first of an id to count each outcome once |
 | `wall_time`, `timestamp` | Wall-clock seconds, and a monotonic time for ordering within the process |
 | `severity`, `category`, `operation_key` | The log level, the subsystem, and the operation a notice-then-outcome pair is about |
@@ -1018,7 +1028,8 @@ False: a diagnostic is not a run.
 A diagnostic that needs autofocus runs the public one under its own claim,
 `runner.run_autofocus(layer, claim=held)` with the `held` the block yields.
 That run acts inside the diagnostic: it is not refused by it and cannot end
-it. When the block ends with such a run still live, the release waits for
+it, and its non-fatal outcomes are muted (`shown` False) -- the diagnostic
+gets the run's outcome from its handle and decides what to show. When the block ends with such a run still live, the release waits for
 the run first; if it is still live after the wait, the claim stays held and
 the block's end raises `RuntimeError`.
 
@@ -1048,6 +1059,8 @@ saved.message   # the folder it is in, and the address to send it to
 health = session.plugin_health()   # modules.plugins.PluginHealth, or None when no plugins load here
 health.namespaces                  # each namespace's NamespaceHealth: loaded, last_runtime_errors
 health.not_loaded                  # PluginNotLoaded(name, version, reason) for each that did not load
+
+session.plugin_api_level           # int: what this host does that a plugin may rely on ("Plugin API level")
 ```
 
 The full report holds the scope for a diagnostic around its hardware steps
@@ -1062,6 +1075,24 @@ namespace's health, and `not_loaded`: the plugins that did not load and
 why). A session gets plugin health only from a host that loads plugins and
 passes `ScopeSession.create(..., plugin_health=registry.health)`; any other
 writes `{"plugins": null, "why": "no plugin registry on this host"}`.
+
+#### Plugin API level
+
+`session.plugin_api_level` (`modules.plugins.PLUGIN_API_LEVEL`) says what
+this LumaViewPro does that a plugin may rely on, within its major version.
+A version cannot say it: `version.txt` names the promoted release, and many
+trunk commits share one beta number. A commit that changes behaviour a
+plugin relies on raises the level by one. A plugin that needs a level checks
+it at its own entry and refuses below it, naming both levels; a host older
+than the level has no `plugin_api_level`, which reads as 0
+(`getattr(session, 'plugin_api_level', 0)`). `PluginSpec.requires_lvp_version`
+still states the major version.
+
+| Level | Added |
+|---|---|
+| level 1 | `capabilities.camera_analog_gain_max_db`; `capabilities.camera_reports_temperature`, and `get_camera_temperatures_degc` answering `{}` only with no sensor, `None` with no camera, and raising on a failed read; `save_camera_state` / `restore_camera_state` covering pixel format, frame size, binning and black level. |
+| level 2 | `imaging.get_black_level_range()`: the range `set_black_level` accepts for the current pixel format. |
+| level 3 | With no LED board: `led_on` and a lighting transition raise `not_connected`, the LED state reads (`get_led_state`, `get_led_states`, `save_led_state`) answer `None`, and `capabilities.led_max_ma` / `led_channels` are `None`; `led_on` for an LED the model lacks raises `axis_absent`. |
 
 ### Configuration queries
 
@@ -1140,13 +1171,14 @@ scope.motion.home(axis='Z')                      # Z only
 scope.motion.home(axis='T')                      # turret only (parks Z at 0, homes T, restores Z)
 # Each blocks until the home is done and returns only when it established
 # the reference. Unknown axis raises ValueError. A home that could not
-# raises: HardwareCommandRefusedError (reason 'not_connected': no motor
-# controller; or 'lid_open' / 'stage_unpowered': the stage's interlock
-# refused the home before anything moved -- nothing moved, and every axis
-# keeps the state it had) or HomingFailedError (title 'Homing Failed';
-# .reason 'failed' | 'error' | 'unread' | 'lid_open' (the lid was opened
-# while the home moved) | 'stopped' (stop_motion ended it), .axes the axes
-# left unknown, chained from the driver's error when there is one).
+# raises: HardwareCommandRefusedError (reason 'not_connected' or 'axis_absent':
+# no motor controller, or no Z or turret to home; or 'lid_open' /
+# 'stage_unpowered': the stage's interlock refused the home before anything
+# moved; nothing moved, and every axis keeps the state it had) or
+# HomingFailedError (title 'Homing Failed'; .reason 'failed' | 'error' |
+# 'unread' | 'lid_open' (the lid was opened while the home moved) |
+# 'stopped' (stop_motion ended it), .axes the axes left unknown, chained
+# from the driver's error when there is one).
 scope.motion.has_homed()                         # True if the stage/focus axes know where they are
 scope.motion.position_is_known('T')              # turret-specific
 scope.motion.axes_without_position()             # {axis: 'unknown' | 'homing'}; {} when all known
@@ -1175,18 +1207,27 @@ scope.motion.axes_without_position()             # {axis: 'unknown' | 'homing'};
 # good -- not merely "a home once succeeded".
 
 # Position queries (µm for XYZ, 1–4 for turret). Read cache, no serial I/O.
-scope.motion.get_current_position('Z')           # predicted position during motion, confirmed when idle
-scope.motion.get_current_position()              # dict of all axes
+scope.motion.get_current_position('Z')           # polled position: refreshed while the axis moves, the last read when idle
+scope.motion.get_current_position()              # dict of the axes that have a position
 scope.motion.axis_positions()                    # {axis: AxisPosition(state, position)} in ONE snapshot; position is None unless the axis is IDLE or MOVING -- the read for a caller writing a position into a file
 scope.runtime_state.plate_transform()            # (sx_um, sy_um) -> (px_mm, py_mm), BOUND to the labware and offset registered now; None when either is unset. For a caller converting many positions over time (a recording, one per frame): every frame is stated in one frame of reference, and it cannot raise
-scope.motion.get_target_position('Z')            # target µm
+scope.motion.get_target_position('Z')            # the commanded target, moving or arrived; the polled position when none was reached (before a first move, after a home, a STOP or a fault)
 scope.motion.get_actual_position('Z')            # hardware position via serial (slow; use sparingly)
+# A position with no hardware behind it is None: an axis the scope does not
+# have, and every axis with no motor board installed (a manual scope, a board
+# that never came up, after disconnect()). A present axis keeps answering its
+# number, its reference lost or not; a pulled cable leaves the board installed.
+# A position the controller does not report is never answered with a number:
+# get_actual_position raises HardwareError, and HardwareCommandRefusedError
+# ('not_connected') when the installed controller is not connected. A move that needs a position it cannot
+# read -- a relative move's base, or Z for the backlash approach -- is refused
+# with HardwareCommandRefusedError ('position_unread'); nothing is driven.
 
 # Stop + tuning
 scope.motion.stop_motion()                       # stop all in-flight moves (the app-level abort for the move_* family)
 # A STOP the board did not take raises MotorStopFailedError (title 'Motor Stop
 # Failed', chained from the driver's error): the stage may still be moving.
-scope.motion.set_acceleration_limit(50)          # motor acceleration cap, percent of max (1-100, else AccelerationLimitRefusedError on every board)
+scope.motion.set_acceleration_limit(50)          # motor acceleration cap, percent of max (1-100, else AccelerationLimitRefusedError)
 scope.motion.set_precision_mode('Z', True)       # per-axis precision mode on the motor board
 
 # Absolute moves (µm). Each returns once the axis has arrived, or raises
@@ -1208,14 +1249,17 @@ scope.motion.start_move_relative('Z', 100).wait()
 
 # A move that does not complete raises MoveNotCompletedError, one object with
 # .axis, .reason and .title, and the axis is UNKNOWN afterwards (except
-# 'stopped'): 'driver_failed' (the board did not take the command; chained
-# from the driver's error), 'stalled' / 'board_lost' (the motion monitor gave
-# the axis up; a waited move raises the very object the monitor reported),
+# 'stopped' and 'superseded'): 'driver_failed' (the board did not take the command; chained
+# from the driver's error), 'stalled' / 'board_lost' / 'position_unread' (the
+# motion monitor gave the axis up -- the last when the board said it arrived but
+# never said where; a waited move raises the very object the monitor reported),
 # 'timed_out' (the wait's bound ran out), 'faulted' (set UNKNOWN by something
 # else during the wait), 'stopped' (a stop landed on it: stop_motion, or the
 # stage's own stop in refusing a move), 'superseded'
-# (another move on the same axis started before it arrived; the axis keeps
-# what that move gives it).
+# (another move or a home took the axis before it arrived; the axis keeps
+# what that command gives it). The outcome is fixed when the move ends: a
+# move that arrived reads arrived however late wait() is called, whatever
+# moved or stopped the axis since.
 
 # Interlocks. A stage that guards motion with its own inputs refuses a move
 # while one is open: HardwareCommandRefusedError, .reason 'lid_open' (title
@@ -1277,7 +1321,7 @@ and the board answers X and Y on a Z-only scope too, so read limits only
 for the axes `capabilities.axes` names. The turret's `'T'` answers None:
 it moves by slot, not by distance.
 
-**Z overshoot:** firmware moves below target then approaches from below, eliminating leadscrew backlash for consistent focus.
+**Z overshoot:** firmware moves below target then approaches from below, eliminating leadscrew backlash for consistent focus. The leg below is part of the move: Z reads `'moving'` from the first target write, `wait_until_finished_moving()` waits through the leg and the approach, and a frame grabbed during either is not valid.
 
 **Axis state model:**
 
@@ -1291,8 +1335,9 @@ scope.motion.is_any_axis_moving()
 **Position listeners** (push-based):
 
 ```python
-def on_position(axis: str, target: float, state: str):
-    print(f"{axis} → {target:.1f}µm ({state})")
+def on_position(axis: str, position: float, state: str):
+    # the polled position, what get_current_position(axis) returns now -- not the target
+    print(f"{axis} → {position:.1f}µm ({state})")
 
 scope.motion.add_position_listener(on_position)
 scope.motion.remove_position_listener(on_position)
@@ -1312,13 +1357,13 @@ on the board. Ask `caps.led_colors` for what a given scope can actually drive.
 Passing an integer still works today as a legacy compatibility form, but it is
 not the supported contract and will not be part of the REST surface.
 
-**Colours the scope cannot drive**: `led_on` with a colour name the scope has no LED channel for raises `ConfigError` naming the colour (it never maps to a substitute channel); `led_off` with such a colour is an idempotent no-op — a channel the scope does not have is already off. Numeric channel arguments are always range-checked and raise `ValueError` when invalid.
+**LEDs the scope cannot drive**: `led_on` asks, in order, whether the channel is one at all, whether an LED controller is connected, and whether this model has the LED. A name that is no layer raises `ConfigError`, and a number outside the installed board's table `ValueError`. With no LED controller connected it raises `HardwareCommandRefusedError` (`not_connected`, `MissingPart.LED_CONTROLLER`). An LED this model does not have -- a layer it lacks (an LS560's `'Red'`), a layer that drives no LED (`'Lumi'`), or a number no layer of the model drives (an LS560's `2`) -- raises `HardwareCommandRefusedError` (`axis_absent`, `MissingPart.led(...)`), and nothing lights; it never maps to a substitute channel. A model this release does not know (its layer identity unresolved) takes the board's numbers. `led_off` of an LED the scope does not have is an idempotent no-op — a channel the scope does not have is already off.
 
 **Luminescence** (`Lumi`): not an LED channel. In luminescence mode, all LEDs must be off — the image captures emitted light only.
 
 ```python
 scope.illumination.led_on('Blue', 200)                 # Blue LED at 200 mA
-scope.illumination.led_on('Blue', 200, block=True)     # wait for firmware confirmation
+scope.illumination.led_on('Blue', 200, block=True)     # EL-0940 board: re-send until the board echoes it, up to 5 s, never raising; FX2: no effect
 scope.illumination.led_off('Blue')
 scope.illumination.leds_off()                          # turn off all LEDs
 
@@ -1340,7 +1385,10 @@ Lumascope holds the authoritative LED state in an internal cache. The API layer'
 ```python
 scope.illumination.get_led_state('Blue')               # {'enabled': True, 'illumination_ma': 200} when on; {'enabled': False, 'illumination_ma': None} when off
 scope.illumination.get_led_states()                    # all channels, same per-channel shape as get_led_state
+scope.illumination.save_led_state('mine')              # a snapshot for restore_led_state
 ```
+
+With no LED board installed -- none came up, or after `scope.disconnect()` -- the three answer `None`: there is no board whose state to describe, which is not the same answer as every channel off. `disconnect()` darkens the board and leaves nothing believed lit. A frame captured then records no LED lit.
 
 ### Exclusivity — a run holds the LEDs
 
@@ -1352,7 +1400,7 @@ scope.illumination.led_off('BF')
 scope.illumination.leds_off()                          # unconditional off (shutdown / cleanup)
 ```
 
-**A run can hold the LEDs exclusively, and a write refused on that account is SILENT.** While a protocol run, autofocus or another subsystem holds the internal LED lease, an `led_on` / `led_off` from anyone else is refused: the LED does not change, the refusal is recorded in `api.log`, and **the call raises nothing.** A refused `led_on` returns `None` where one that commanded returns the current; a refused `led_off` returns `None` exactly as a successful one does. The refusal is deliberate — it stops a live UI change from disturbing a run's channels — but nothing is raised, so unless your code checks `led_on`'s return a capture taken afterwards can come back dark with nothing in your own code to explain why. If an LED command appears to do nothing, check whether a run is in flight before suspecting the hardware. (Making this refusal visible at the API boundary is open work; the lease itself is internal machinery and not L2 surface.)
+**A run holds the LEDs, and a write from outside it raises.** While a protocol run, an autofocus run or a diagnostic holds the scope, an `led_on`, `led_off` or `restore_led_state` from any other caller raises `HardwareCommandRefusedError` (`reason='exclusive_activity_running'`, with `holder` naming what holds the scope), and the LED does not change. `leds_off()` is never refused: it is the unconditional off for shutdown and cleanup.
 
 ### Save / restore — the autofocus pattern
 
@@ -1396,9 +1444,11 @@ driver is `scope.imaging._driver` (private; reach through the API).
 # grabbing; capture/get_image need a live feed, so start it first. The
 # Session factories release the gate at bring-up, after initialize; a bare
 # Lumascope you constructed yourself needs the explicit call.
-scope.imaging.start_streaming()   # begin the live feed (idempotent; also
-                                  # restarts a feed stopped via stop_streaming)
-scope.imaging.stop_streaming()    # stop the feed (get_image then times out)
+scope.imaging.start_streaming()   # start the live feed and return; it does not wait for a
+                                  # frame (idempotent; restarts a stopped feed)
+scope.imaging.stop_streaming()    # stop the feed; capture_and_wait then fails
+image = scope.imaging.capture_and_wait()  # the first frame after a start: a frame that
+                                  # arrives after this call
 scope.imaging.is_streaming()      # True while acquiring (queries the driver)
 ```
 
@@ -1462,7 +1512,8 @@ image = scope.imaging.capture_and_wait(
                                            # sum is uint16 on every camera and
                                            # saturates at 65535
     sum_delay_s=0.05,                      # delay between sum frames
-    exclude_sources=('z_move',),           # don't wait for this source (AF uses this)
+    exclude_sources=(),                    # sources not to wait for; the frame can then
+                                           # predate that change (see Frame validity)
 )
 
 # Exposure (milliseconds) + gain (dB)
@@ -1534,6 +1585,9 @@ scope.imaging.set_line_noise_reduction(True)       # same contract
 # a failed read at capture raises HardwareError and fails the capture.
 scope.imaging.get_black_level()                    # live read; None when no camera or none reported;
                                                    #   raises HardwareError when the read fails (no cache)
+scope.imaging.get_black_level_range()              # (minimum, maximum) set_black_level accepts, live, for the
+                                                   #   current pixel format; None when no camera or none settable;
+                                                   #   raises HardwareError when the read fails
 scope.imaging.set_black_level(value=4.0)           # value in effect; probe
                                                    #   scope.capabilities.camera_supports_black_level first;
                                                    #   raises HardwareError when the camera write fails
@@ -1650,6 +1704,8 @@ The snapshot is **omit-if-unknown**: it always carries `tag`, and carries `gain_
 
 The snapshot also carries `auto_gain_arm`: the standing continuous auto-gain arm at save time, or `None`. `restore_camera_state` puts the loop back the way the snapshot found it -- re-armed when an arm was recorded (clamping the exposure to the channel class's ceiling like any arm), disarmed when none was recorded and one stands now, untouched when the field is absent. A save/restore pair around your own camera work therefore hands the live view back adjusting if it was adjusting before.
 
+With a camera active the snapshot also carries `frame_size` (`{'width', 'height'}`) and `pixel_format`, `binning` where `capabilities.camera_binning_sizes` offers more than one size, and `black_level` where `capabilities.camera_supports_black_level` is True. These are read live, and a read that fails raises `HardwareError` from `save_camera_state`: they are never left out silently. `restore_camera_state` writes each of them only where it differs from the camera's value now (a frame size, format or binning write restarts grabbing), in the order binning, frame size, pixel format, black level, then gain, exposure and the arm; a refusal of binning, frame size or format raises `CameraSettingRejected` there and the rest is not restored. The conversion-gain and line-noise modes are not in the snapshot (they have no getters).
+
 ### Camera listeners
 
 ```python
@@ -1689,7 +1745,7 @@ The six listener families each pass a different callback signature -- register a
 
 | Listener | Register via | Callback signature |
 |---|---|---|
-| Motion / position | `scope.motion.add_position_listener` | `on_position(axis: str, target: float, state: str)` |
+| Motion / position | `scope.motion.add_position_listener` | `on_position(axis: str, position: float, state: str)` |
 | LED / illumination | `scope.illumination.add_led_listener` | `on_led(channel: str, enabled: bool, illumination_ma: float)` |
 | Camera params | `scope.imaging.add_camera_listener` | `on_camera(param: str, value: float)` |
 | Live frame | `scope.imaging.add_frame_listener` | `on_frame(image, timestamp, chunks)` |
@@ -1705,7 +1761,7 @@ The last two rows are not registered on the scope. **Run state** is registered o
 ```python
 scope.camera_connected                             # bool property (mirror of motor_connected / led_connected)
 scope.imaging.active_cached                        # True if grabbing
-scope.diagnostics.get_camera_temperatures_degc()        # temperature sensors (SDK-dependent)
+scope.diagnostics.get_camera_temperatures_degc()        # temperature sensors; {} no sensor, None no camera, a failed read raises
 scope.capabilities.camera_model                    # the camera's model, serial number (camera_serial_number) and
                                                    # timestamp clock (camera_timestamp_tick_hz), read at connect
 scope.diagnostics.get_camera_profile_info()        # sensor specs + dynamic ranges; None when no camera is
@@ -1813,7 +1869,7 @@ turret     — turret move
 
 Each source has its own skip count in `FrameValidity.SKIP_FRAMES`; `invalidate()` raises `ValueError` for a source with no count rather than settling it on a count nobody chose.
 
-When you need to capture *during* a source's active motion (e.g., autofocus captures while Z is moving), pass that source to `exclude_sources` in `capture_and_wait()`.
+`exclude_sources` in `capture_and_wait()` skips the wait for a source, so the frame returned can predate that source's change -- a frame already on its way when the change went out. That fits a frame you only show; never pass it for a frame you measure or record. Autofocus waits out each Z move. Earlier builds, the 4.0.0 beta included, excluded `z_move`, so a step could score the previous step's frame at its own Z. Each sweep step now costs the `z_move` count (2 frames) after its move.
 
 ---
 
@@ -1840,8 +1896,10 @@ scope.capabilities.lens_focal_length_mm    # tube-lens focal length, mm, or None
 # fails. Returns {'connected': False} when no camera is active.
 info = scope.diagnostics.get_camera_diagnostic_info()
 
-# Camera temperature sensors. Returns dict {sensor_name: degC} or
-# empty when the camera lacks temperature sensors or is inactive.
+# Camera temperature sensors. Returns dict {sensor_name: degC}; empty only
+# for a camera with no temperature sensor (capabilities.camera_reports_temperature
+# False); None when no camera is active. A read that fails on an active camera
+# raises HardwareError: neither {} nor None ever stands for a failure.
 temps = scope.diagnostics.get_camera_temperatures_degc()
 
 # The camera's link, live: {'transport': 'USB3' | 'GigE' | 'USB2',
@@ -1913,9 +1971,9 @@ caps.has_turret                 # True if the turret axis is present
 caps.model                      # e.g. 'LS850T'; the layer identity's model, '' if none
 
 # LED
-caps.led_channels               # e.g. (0, 1, 2, 3) for FX2 scopes; (0..5) for RP2040
-caps.led_colors                 # e.g. ('BF', 'Blue', 'Green', 'Red') — what THIS scope can do
-caps.led_max_ma                 # per-channel current cap
+caps.led_channels               # e.g. (0, 1, 2, 3) for FX2 scopes; (0..5) for RP2040; None when the scope came up without its LED board
+caps.led_colors                 # e.g. ('BF', 'Blue', 'Green', 'Red') — the layers THIS model lights, from its identity, board or not
+caps.led_max_ma                 # per-channel current cap; None when the scope came up without its LED board
 caps.has_firmware_stim          # firmware-timed stim support on the LED board
 
 # Optics -- resolved from the first real source, never a hardcoded default:
@@ -1940,6 +1998,12 @@ caps.camera_binning_sizes       # e.g. (1, 2, 4)
 caps.camera_max_frame_size      # (width, height) unbinned, in pixels: the smallest of the sensor the profile
                                 # documents, the camera's own maximum and the model's (data/scopes.json
                                 # MaxFrame); None if none of them is known
+caps.camera_analog_gain_max_db  # dB: the most gain applied before a digital stage (above it the camera
+                                # multiplies digitised values). The profile's analog maximum, or the camera's
+                                # live maximum where it has no digital stage; None if neither is known.
+                                # The whole range, analog and digital, is scope.imaging.max_gain_db_cached
+caps.camera_reports_temperature # the camera has a temperature sensor (probed at connect); False:
+                                # get_camera_temperatures_degc answers {}
 # Exposure ceiling: scope.imaging.max_exposure_ms_cached (ms; None if no camera) -- see scope.imaging
 ```
 
@@ -1947,7 +2011,7 @@ Important consequences:
 
 - **`camera_max_frame_size` is `None` when no camera is connected** (or none of its sources answered). Check it before using it as a `scope.imaging.set_frame_size(w, h)` target, and divide by the binning in force; `set_frame_size` returns `None` (no-op) when no camera is active. With a live camera it returns the DELIVERED geometry and raises `CameraSettingRejected` if the apply is refused.
 - **LED channel count varies by scope, and not only by driver family.** An LS620 (FX2 driver) exposes 4 channels (`BF`, `Blue`, `Green`, `Red`); an **LS560, same driver family, exposes 2** (`BF`, `Green`); RP2040-based scopes expose 6 (`BF`, `PC`, `DF`, `Blue`, `Green`, `Red`). Don't iterate over a hardcoded list — iterate over `caps.led_colors`.
-- **Some scopes have no motor at all.** LS560/LS620 have `caps.axes == ()`. Calling `scope.motion.move_absolute('X', …)` against such a scope is a no-op, not an error — but your UI should hide motion controls based on `caps.has_xy_stage` etc.
+- **Some scopes have no motor at all.** LS560/LS620 have `caps.axes == ()`. Calling `scope.motion.move_absolute('X', …)` against such a scope raises `HardwareCommandRefusedError` (`axis_absent`, `MissingPart.MOTORS`), as a Z-only scope does for X (`MissingPart.X`); hide motion controls based on `caps.has_xy_stage`, `caps.has_focus` and `caps.has_turret`.
 - **Travel limits come from `scope.motion.get_axis_limits(axis)`**, read-only, for present axes; check `caps.has_xy_stage` (or `axis in caps.axes`) before asking about X/Y. A run whose steps lie outside these limits is refused before it starts (reason `positions_outside_travel`), naming each step and the axis; X/Y are judged on the protocol's plate at `scope.runtime_state.get_stage_offset()`, the offset the run moves with. A run whose steps need an axis the scope does not have is refused as `positions_unreachable`.
 
 ---
@@ -2214,7 +2278,9 @@ mistaken for a success. A composite merged from fewer channels than it
 was asked for reports `status='incomplete'` and names the failed channels
 in `captures.failed`. To
 launch one without waiting, call `runner.start_composite(...)`, which
-returns the run's merge outcome to wait on or ignore. With no
+returns the run's handle once the run is committed and refuses as
+`run_composite` does; `handle.wait(timeout_s=...)` gives the outcome once
+the merge settles, or `None` when the bound expires. With no
 `parent_dir` the run lands under `Manual/Composites` in the live folder,
 where the Composite button puts it.
 
@@ -2332,16 +2398,16 @@ session.shutdown()          # the factory built this scope, so shutdown() discon
 Use for development, CI, and unit tests without hardware.
 
 ```python
-scope = Lumascope(simulate=True)
-scope.imaging.start_streaming()   # a scope you build yourself streams once started
+session = ScopeSession.create(settings, simulate=True)   # brought up and streaming
+scope = session.scope
 
 # All API calls work identically:
 scope.illumination.led_on('Blue', 200)
 scope.motion.move_absolute('Z', 5000)
-image = scope.imaging.get_image()
+image = scope.imaging.capture_and_wait()
 ```
 
-A camera connects configured but not grabbing, simulated or real, so a `Lumascope` you build yourself returns no frame from `get_image()` until `scope.imaging.start_streaming()`. A scope brought up through `ScopeSession.create()` is already streaming.
+A scope brought up through `ScopeSession.create()` is already streaming. A bare `Lumascope` you build yourself has no settings, so a capture raises `ConfigError` until it is composed into a session; compose it with `ScopeSession.create(scope=...)` (above).
 
 **Only in `simulate=True`**: `set_timing_mode('fast')` lets simulator tests run faster by skipping artificial serial / motor / camera delays. Same private-driver access pattern: timing-mode control is a simulator test-infrastructure feature, not an L2 surface.
 

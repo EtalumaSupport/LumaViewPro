@@ -49,7 +49,6 @@ from tests.protocol_drives import (
     autofocus_snapshot,
     held_run_claim,
     wait_for_run_end,
-    wait_until_ready_for_next_run,
 )
 from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
 
@@ -57,6 +56,8 @@ from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_l
 # Test constants
 # ---------------------------------------------------------------------------
 COMPLETION_TIMEOUT = 15  # seconds -- generous for CI
+# A bound only on a stuck file lane: a loaded host can take seconds to write.
+FILES_WAIT_S = 60
 
 
 # ---------------------------------------------------------------------------
@@ -293,13 +294,18 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         parent_dir=tmp_path / 'output',
         max_scans=run_kwargs.pop('max_scans', 1),
         callbacks=callbacks,
-        leds_state_at_end=run_kwargs.pop('leds_state_at_end', 'off'),
         autofocus_snapshot=run_kwargs.pop('autofocus_snapshot', autofocus_snapshot()),
         **run_kwargs,
     )
-    executor.start(plan)
+    handle = executor.start(plan)
 
     completed = wait_for_run_end(done, heartbeat)
+    # The images and the record are on the file lane; they are there once
+    # the run says its files are done, not when it lets go of the scope.
+    if completed:
+        assert handle.wait_for_files(timeout_s=FILES_WAIT_S) is not None, (
+            'the run never finished its files'
+        )
     return completed, result_holder
 
 
@@ -381,7 +387,7 @@ class TestSingleScanBasicImage:
         protocol = _make_single_step_protocol(color='BF', illumination=75.0)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        # After protocol with leds_state_at_end='off', all LEDs should be off
+        # A scan ends with every LED off
         for color in scope._led_driver.led_ma:
             assert not scope.illumination.get_led_state(color)['enabled'], (
                 f'LED {color} still on after protocol'
@@ -648,7 +654,7 @@ class TestSingleScanFluorescence:
         protocol = _make_single_step_protocol(color='Red', illumination=100.0)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        # After protocol with leds_state_at_end='off', LEDs are off --
+        # A scan ends with every LED off --
         # completion confirms the LED was used during the protocol
 
     # Every layer of the suite's scope (an LS850T: no Lumi). A luminescence
@@ -697,6 +703,34 @@ class TestSingleScanVideo:
         assert manifests, 'the frames leg must write its manifest in the recording folder'
         manifest = json.loads(manifests[0].read_text())
         assert manifest['frames_written'] == len(frames)
+
+    def test_frames_state_the_plate_the_run_moved_on_not_the_selected_one(
+        self, executor, scope, tmp_path
+    ):
+        """The protocol is on the 6-well plate while the scope has the
+        Four-Slide Holder selected, 0.26 mm narrower. The run drives its
+        steps on the protocol's plate, so its frames state their positions
+        there: the step's own plate X and Y, not the same stage point read
+        on the selected plate."""
+        import tifffile
+
+        from tests.scope_fakes import bind_settings_like_a_session
+
+        bind_settings_like_a_session(scope)['protocol']['labware'] = 'Four-Slide Holder'
+        protocol = _make_single_step_protocol(
+            color='BF',
+            acquire='video',
+            video_config={'duration': 0.5, 'fps': 5},
+        )
+        completed, _ = _run_and_wait(executor, protocol, tmp_path, video_as_frames=True)
+        assert completed
+        frames = list(tmp_path.rglob('*_Frame_*.tiff'))
+        assert frames, 'the frames leg must write per-frame TIFF artifacts'
+        with tifffile.TiffFile(str(frames[0])) as tf:
+            described = json.loads(tf.pages[0].tags['ImageDescription'].value)
+        step = protocol.step(idx=0)
+        assert described['plate_pos_mm']['x'] == pytest.approx(step['X'], abs=0.01)
+        assert described['plate_pos_mm']['y'] == pytest.approx(step['Y'], abs=0.01)
 
 
 class TestFullProtocol:
@@ -777,19 +811,20 @@ class TestLedStateAtEnd:
 
     def test_leds_off_at_end(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
-        completed, _ = _run_and_wait(executor, protocol, tmp_path, leds_state_at_end='off')
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         # Verify all LEDs are off via simulator public API
         for color in scope._led_driver.led_ma:
             assert not scope.illumination.get_led_state(color)['enabled'], f'LED {color} still on'
 
     def test_return_to_original_leds(self, executor, scope, tmp_path):
-        # Turn on BF LED before protocol so executor captures it as original state
+        # Turn on BF LED before the run so the executor captures it as the
+        # original state. A one-position run hands the LEDs back as found.
         bf_ch = scope.illumination.color2ch(color='BF')
         scope.illumination.led_on(bf_ch, 25)
         protocol = _make_single_step_protocol(color='BF')
         completed, _ = _run_and_wait(
-            executor, protocol, tmp_path, leds_state_at_end='return_to_original'
+            executor, protocol, tmp_path, run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK
         )
         assert completed
 
@@ -1156,9 +1191,14 @@ class TestRunModeSingleZStack:
 
 
 class TestRunModeSingleAutofocusScan:
-    """SINGLE_AUTOFOCUS_SCAN run mode."""
+    """The autofocus run modes: one position, and every step."""
 
-    def test_completes(self, executor, scope, tmp_path):
+    @pytest.mark.parametrize(
+        'run_mode',
+        [SequencedCaptureRunMode.SINGLE_AUTOFOCUS, SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN],
+        ids=lambda m: m.value,
+    )
+    def test_completes(self, executor, scope, tmp_path, run_mode):
         protocol = _make_single_step_protocol(color='BF', auto_focus=True)
 
         af = executor._autofocus_runner
@@ -1173,16 +1213,10 @@ class TestRunModeSingleAutofocusScan:
             executor,
             protocol,
             tmp_path,
-            run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
+            run_mode=run_mode,
             max_scans=1,
         )
         assert completed
-
-
-# SINGLE_AUTOFOCUS run mode retired -- standalone AF routes directly
-# through AutofocusThread.run_autofocus() from the UI, bypassing the
-# SequencedCapture path. Coverage for the standalone AF flow lives in
-# the autofocus_thread regression tests.
 
 
 # ---------------------------------------------------------------------------
@@ -1401,7 +1435,6 @@ class TestCancellationMidRun:
             parent_dir=tmp_path / 'output',
             max_scans=100,
             callbacks=callbacks,
-            leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
         run = executor.start(plan)
@@ -1439,7 +1472,6 @@ class TestCancellationMidRun:
             parent_dir=tmp_path / 'output',
             max_scans=1,
             callbacks=callbacks,
-            leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
         run = executor.start(plan)
@@ -1473,11 +1505,10 @@ class TestResetWhenNotRunning:
 class TestBackToBackRuns:
     """Run a protocol, wait for completion, then immediately run another.
 
-    run_complete fires during cleanup; the run ends when cleanup does, and
-    its files drain after that. A second start before both is refused by
-    design, so every back-to-back test waits on
-    wait_until_ready_for_next_run -- the designed contract, not a
-    workaround for an executor bug.
+    run_complete comes once the run has ended, and its files can still be
+    draining then. A second start before they land is refused by design,
+    so _run_and_wait returns only once the run's wait_for_files has -- the
+    designed contract, not a workaround for an executor bug.
     """
 
     def test_two_sequential_runs(self, executor, scope, tmp_path):
@@ -1485,8 +1516,6 @@ class TestBackToBackRuns:
 
         completed1, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed1, 'First run did not complete'
-
-        assert wait_until_ready_for_next_run(executor), 'First run never ended and drained'
 
         # Second run -- uses a fresh tmp subdir to avoid directory collision
         completed2, _ = _run_and_wait(executor, protocol, tmp_path / 'run2')
@@ -1497,7 +1526,6 @@ class TestBackToBackRuns:
             protocol = _make_single_step_protocol(color=color)
             completed, _ = _run_and_wait(executor, protocol, tmp_path / f'run{i}')
             assert completed, f'Run {i} ({color}) did not complete'
-            assert wait_until_ready_for_next_run(executor), f'Run {i} never ended and drained'
 
 
 # ---------------------------------------------------------------------------
@@ -1537,7 +1565,6 @@ class TestDisconnectedScope:
                 parent_dir=tmp_path / 'output',
                 max_scans=1,
                 callbacks=callbacks,
-                leds_state_at_end='off',
                 autofocus_snapshot=autofocus_snapshot(),
             )
 
@@ -1717,7 +1744,6 @@ class TestSavingWithNoneParentDir:
             parent_dir=None,
             max_scans=1,
             callbacks=callbacks,
-            leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
         executor.start(plan)
@@ -1769,7 +1795,6 @@ class TestMinimalCallbacks:
             parent_dir=tmp_path / 'output',
             max_scans=1,
             callbacks={'run_complete': on_complete},
-            leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
         executor.start(plan)
@@ -1842,7 +1867,6 @@ class TestCleanupConcurrency:
                 'run_complete': lambda **kw: done.set(),
                 'go_to_step': lambda **kw: None,
             },
-            leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
         run = executor.start(plan)
@@ -2105,7 +2129,6 @@ class TestCameraStateRestoration:
                 'run_complete': lambda **kw: done.set(),
                 'go_to_step': lambda **kw: None,
             },
-            leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
         run = executor.start(plan)
@@ -2134,7 +2157,7 @@ class TestValidationOrder:
         protocol = _make_single_step_protocol(color='BF')
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        # run_complete fires during cleanup; the run ends when cleanup does.
+        # run_complete comes once the run has ended; this confirms it.
         assert executor.wait_for_run_idle(COMPLETION_TIMEOUT), 'the run never ended'
         assert not executor.run_in_progress()
 
@@ -2166,7 +2189,6 @@ class TestCleanupCorrectness:
                 'run_complete': lambda **kw: done.set(),
                 'go_to_step': lambda **kw: None,
             },
-            leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
         run = executor.start(plan)
@@ -2189,8 +2211,6 @@ class TestCleanupCorrectness:
         assert completed_a
         # Should restore to 8.0/80.0
         assert scope.imaging.get_gain_db() == pytest.approx(8.0, abs=0.1)
-
-        assert wait_until_ready_for_next_run(executor), 'Run A never ended and drained'
 
         # Run B: change gain before second run
         scope.imaging.set_gain_db(2.0)
@@ -2298,8 +2318,6 @@ class TestMotionTimeoutEndsRunInsteadOfWedging:
             'fired. ERROR state must terminate the run, not be retried '
             'as a transient failure every period.'
         )
-        # run_complete fires during cleanup; the engine goes IDLE at its end.
-        assert wait_until_ready_for_next_run(executor), 'the run never ended after its timeout'
         assert executor._state == ProtocolState.IDLE, (
             f'Expected IDLE after cleanup, got {executor._state}'
         )
@@ -2429,7 +2447,6 @@ class TestRunReturnValueContract:
             parent_dir=tmp_path / 'output',
             max_scans=1,
             callbacks=cbs,
-            leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
 

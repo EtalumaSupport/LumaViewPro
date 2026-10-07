@@ -490,30 +490,35 @@ def test_run_start_owns_a_standing_live_arm():
     """A run holds a live-view arm that stood when it began: disarmed at
     start, re-armed by the cleanup restore. Left standing, an auto-gain-off
     protocol's first capture locked it and re-armed it, and every capture
-    after that did the same -- a run the user set to manual ran auto. The
-    manual autofocus one-shot keeps the arm: it focuses the field the user
-    is watching, live arm included, and its own lock scans at what that arm
-    achieved."""
+    after that did the same -- a run the user set to manual ran auto. An
+    autofocus scan is a protocol's steps too and is taken the same way, so
+    each step focuses at its own values. The manual autofocus one-shot keeps
+    the arm: it focuses the field the user is watching, live arm included,
+    and its own lock scans at what that arm achieved."""
     from modules.sequenced_capture_runner import SequencedCaptureRunMode
     from tests.protocol_drives import bare_capture_runner
 
-    imaging, cam = _build(ae_lands_on_ms=8.0)
-    _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
-    runner = bare_capture_runner()
-    runner._scope.imaging = imaging
-    runner._saved_camera_state = imaging.save_camera_state('protocol')
-    runner._run_mode = SequencedCaptureRunMode.FULL_PROTOCOL
-    runner._take_auto_gain_arm_for_run()
-    assert cam._auto_gain_enabled is False
-    assert imaging._auto_gain_arm is None
-    assert runner._saved_camera_state['auto_gain_arm'] is not None
+    for run_mode in (
+        SequencedCaptureRunMode.FULL_PROTOCOL,
+        SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
+    ):
+        imaging, cam = _build(ae_lands_on_ms=8.0)
+        _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
+        runner = bare_capture_runner()
+        runner._scope.imaging = imaging
+        runner._saved_camera_state = imaging.save_camera_state('protocol')
+        runner._run_mode = run_mode
+        runner._take_auto_gain_arm_for_run()
+        assert cam._auto_gain_enabled is False, run_mode
+        assert imaging._auto_gain_arm is None, run_mode
+        assert runner._saved_camera_state['auto_gain_arm'] is not None, run_mode
 
     imaging, cam = _build(ae_lands_on_ms=8.0)
     _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
     runner = bare_capture_runner()
     runner._scope.imaging = imaging
     runner._saved_camera_state = imaging.save_camera_state('protocol')
-    runner._run_mode = SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN
+    runner._run_mode = SequencedCaptureRunMode.SINGLE_AUTOFOCUS
     runner._take_auto_gain_arm_for_run()
     assert cam._auto_gain_enabled is True
     assert imaging._auto_gain_arm is not None

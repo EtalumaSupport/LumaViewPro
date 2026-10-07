@@ -44,7 +44,7 @@ def _draining(session, *, stalled: bool, writes: int = 1) -> RunWriteBatch:
     batch = RunWriteBatch(lane)
     for i in range(writes):
         batch.submit(lambda: None, {}, what=f'The image {i}', pace_until=None)
-    batch.close(lambda outcome: None)
+    batch.close()
     session.sequenced_capture_runner._write_batch = batch
     return batch
 

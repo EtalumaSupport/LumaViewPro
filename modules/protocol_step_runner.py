@@ -184,9 +184,11 @@ class ProtocolStepRunner:
                 # field firmware without a STOP command. A STOP that failed is
                 # logged once and folded into the run's one fatal popup: the
                 # power-cycle advice has to reach the person, and the run
-                # must still reach ERROR.
+                # must still reach ERROR. Asked first: a controller lost
+                # mid-run has nothing to stop, and its refusal would skip both.
                 try:
-                    p._scope.motion.stop_motion()
+                    if p._scope.motor_connected:
+                        p._scope.motion.stop_motion()
                 except MotorStopFailedError as e:
                     notifications.report_outcome(
                         e, solicited=False, category='Protocol', log_only=True
@@ -286,7 +288,7 @@ class ProtocolStepRunner:
                 save_results_to_file=p._save_autofocus_data,
                 results_dir=p._parent_dir,
                 write_batch=p._write_batch,
-                run_trigger_source=p._run_trigger_source,
+                run=p._run_identity,
                 callbacks=af_executor_callbacks,
                 led_color=step['Color'],
                 led_illumination=step['Illumination'],
@@ -469,7 +471,7 @@ class ProtocolStepRunner:
                     # cannot disagree about what run-end will light.
                     is_run_end_boundary = True
                     resolved_policy, snapshot_lit = resolve_end_state(
-                        p._leds_state_at_end,
+                        p._run_mode.leds_state_at_end,
                         getattr(p, '_original_led_states', None),
                         p._scope.illumination.state_color2ch,
                     )
@@ -595,16 +597,15 @@ class ProtocolStepRunner:
         sliders, manual moves) mid-step.
         """
         p = self._p
-        sx = sy = None
-        if (px is not None) and (py is not None):
-            # Against the plate the PROTOCOL stores, not the one the session
-            # has selected -- a run images the plate it was written for even
-            # if the operator has since picked a different one -- and with
-            # the offset this run started with.
-            sx, sy = p._scope.protocols.plate_to_stage(
-                p._protocol, px, py, stage_offset=p._stage_offset
-            )
-        self._move_to_stage(sx, sy, z)
+        # Through the one conversion a step move takes, so only the axes this
+        # scope has are driven; against the plate the PROTOCOL stores, not
+        # the one the session has selected -- a run images the plate it was
+        # written for even if the operator has since picked a different
+        # one -- and with the offset this run started with.
+        sx, sy, sz = p._scope.protocols.stage_targets(
+            p._protocol, px, py, z, stage_offset=p._stage_offset
+        )
+        self._move_to_stage(sx, sy, sz)
 
     def _move_to_stage(self, sx: float | None, sy: float | None, z: float | None) -> None:
         """Move each given axis to its stage target, X then Y then Z, and record it."""
@@ -806,7 +807,9 @@ class ProtocolStepRunner:
         board reports the channel on; the short settle after covers the board's
         on-to-stable lag before the grab. A same-color step that kept its channel
         lit is left untouched (the diff self-skips), so consecutive z-slices do
-        not blink off->on.
+        not blink off->on. With no LED controller connected the light is
+        refused (``not_connected``) and the refusal ends the run as a
+        disconnect, before the step's frame is grabbed.
         """
         p = self._p
         if p._aborted.is_set():
@@ -814,19 +817,11 @@ class ProtocolStepRunner:
             # abort path is turning the LEDs off, and a stray on here flashes
             # the sample at cancel time.
             return
-        if not p._scope.led_connected:
-            # A disconnected LED board makes every step grab a dark frame; say so
-            # at the capture point so a black-frame run is diagnosable.
-            logger.warning(
-                '[Capture   ] LED controller not available; step channel not illuminated.'
-            )
-            return
         channel = p._scope.illumination.color2ch(step['Color'])
         if channel is None and step['Color'] in common_utils.get_layers_with_led():
-            # The board is connected (checked above) and the layer is one
-            # that drives an LED, so an unresolvable name here means this
-            # unit's identity has no such layer: the step will capture
-            # dark, deterministically, every scan. Say so per step -- a
+            # The layer is one that drives an LED, so an unresolvable name
+            # here means this unit's identity has no such layer: the step
+            # will capture dark, deterministically, every scan. Say so per step -- a
             # run in progress gets logs, not popups -- rather than let
             # the frames come back dark with no named cause.
             logger.error(

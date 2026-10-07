@@ -139,7 +139,7 @@ class TestTheEngineRefuses:
                     executor,
                     tmp_path,
                     read_only / 'Autofocus Characterization',
-                    run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
+                    run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
                     run_trigger_source='autofocus',
                     disable_saving_artifacts=True,
                     save_autofocus_data=True,

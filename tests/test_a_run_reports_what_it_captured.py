@@ -32,7 +32,11 @@ def _run(runner, run_parent, steps, callbacks=None):
         image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
         callbacks=callbacks or {},
     )
-    return pending.wait(timeout_s=WAIT_S)
+    outcome = pending.wait(timeout_s=WAIT_S)
+    # The record and the images are on the file lane; they are there once
+    # the run says its files are done, not when it lets go of the scope.
+    assert pending.wait_for_files(timeout_s=WAIT_S) is not None, 'the run never finished its files'
+    return outcome
 
 
 def _two_steps():
@@ -228,6 +232,38 @@ class TestACompositeMissingAChannel:
         assert _FAILING in outcome.captures.failed[0].step_name, outcome.captures
         assert len(reported) == 1, reported
 
+    def test_its_shortfall_is_told_before_its_outcome_settles(self, tmp_path):
+        """A caller the outcome releases finds the run's reports already
+        made: the shortfall is reported while the outcome is still armed."""
+        from modules.notification_center import notifications
+        from tests.test_composite_run_failures import _FAILING, _fail_these_channels
+
+        step_colors = ('BF', _FAILING, 'Green')
+        settings = headless_settings(tmp_path, acquiring=step_colors)
+        states_at_report = []
+        report = notifications.report_outcome
+        with open_composite_session(settings) as (session, runner):
+
+            def recorded(outcome, *a, **kw):
+                if isinstance(outcome, RunIncompleteError):
+                    states_at_report.append(session.sequenced_capture_runner._run_outcome.state)
+                return report(outcome, *a, **kw)
+
+            notifications.report_outcome = recorded
+            try:
+                outcome = runner.run_composite(
+                    sequence_name='two_of_three',
+                    parent_dir=str(tmp_path),
+                    callbacks=_fail_these_channels(
+                        session.scope._camera_driver, step_colors, {_FAILING}
+                    ),
+                )
+                told_when_returned = list(states_at_report)
+            finally:
+                notifications.report_outcome = report
+        assert outcome.merged, outcome
+        assert told_when_returned == ['armed'], told_when_returned
+
 
 def _files_complete(seen):
     deadline = time.monotonic() + WAIT_S
@@ -323,7 +359,8 @@ class TestTheFileCountCountsImages:
         batch = RunWriteBatch(MagicMock())
         batch.count_not_written('video_unfinished', 'The video V1')
         outcomes = []
-        batch.close(outcomes.append)
+        batch.close()
+        batch.when_complete(outcomes.append)
         assert outcomes == ['incomplete']
         assert (batch.written, batch.not_written) == (0, 1)
         assert batch.not_written_reason == 'write_batch_video_unfinished'
@@ -482,7 +519,9 @@ class TestTheFilesLineAndItsReport:
 
 
 class TestACompositeThatCannotMerge:
-    def test_its_one_report_names_the_channel_that_failed(self, tmp_path, centre_posts):
+    def test_the_refusal_and_the_shortfall_are_each_told_as_themselves(
+        self, tmp_path, centre_posts
+    ):
         from modules.notification_center import Severity
         from tests.test_composite_run_failures import _FAILING, _fail_these_channels
 
@@ -496,7 +535,10 @@ class TestACompositeThatCannotMerge:
                 ),
             ).wait(timeout_s=WAIT_S)
         assert settled is not None and not settled.merged, settled
-        shown = [(n.title, n.message) for n in centre_posts if n.severity == Severity.ERROR]
-        failed = [message for title, message in shown if title == 'Composite Failed']
-        assert len(failed) == 1, shown
-        assert _FAILING in failed[0], failed[0]
+        assert settled.merge_reason == 'no_data', settled
+        # Two notices, each its own type: the merge's refusal, then the run's
+        # shortfall naming the channel that failed. Neither is folded into a
+        # "Composite Failed".
+        shown = [(n.title, n.message) for n in centre_posts if n.severity >= Severity.WARNING]
+        assert [title for title, _ in shown] == ['Composite Not Possible', 'Run Incomplete'], shown
+        assert _FAILING in shown[1][1], shown[1][1]

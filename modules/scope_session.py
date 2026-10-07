@@ -32,7 +32,13 @@ import modules.app_context as _app_ctx
 import modules.settings_init as settings_init
 from lvp_logger import logger
 from modules import binning, common_utils, image_mode, settings_paths
-from modules.activity_claim import SCOPE_HOLDING_KINDS, ActivityClaim, HeldClaim, acting
+from modules.activity_claim import (
+    SCOPE_HOLDING_KINDS,
+    ActivityClaim,
+    HeldClaim,
+    acting,
+    the_holder_named,
+)
 from modules.common_utils import CustomJSONizer
 from modules.exceptions import (
     HARDWARE_STATE_REASONS,
@@ -49,10 +55,11 @@ from modules.exceptions import (
     ScopeModelUnknownError,
     SettingsSaveRefusedError,
 )
-from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
+from modules.lumascope_api.illumination import LedLease, LedTransition, LedTransitionCtx
 from modules.manual_capture import ManualCaptureController
 from modules.manual_recording import ManualRecordingController
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
+from modules.plugins import PLUGIN_API_LEVEL
 from modules.run_outcome import RunEnding
 from modules.scheduler import Scheduler, ThreadingTimerScheduler
 from modules.sequential_io_executor import IOTask, slow_task_budget
@@ -424,7 +431,7 @@ class ScopeSession:
             kind = holder.kind if holder is not None else None
             # The holder can release between the failed take and this read;
             # the refusal still stands, it just cannot name who refused it.
-            named = f'A {kind} activity' if kind else 'Another exclusive activity'
+            named = the_holder_named(holder)
             raise DiagnosticRefusedError(
                 reason='exclusive_activity_running',
                 title='Another Activity Running',
@@ -491,7 +498,7 @@ class ScopeSession:
 
     @property
     def close_drain_pending(self) -> bool:
-        """True while either video drain still holds queued frames.
+        """True while a close would cut video short: a recording live, draining or finishing, or a run's video step writing.
 
         What a close would interrupt on the video side, in one read: a
         manual recording's own drain, or a finished run's video-step
@@ -1780,8 +1787,9 @@ class ScopeSession:
         moves once that task has run, before the stage arrives: each move's
         ``wait()`` says whether it got there, and ``go_to_step`` waits on
         them. A person's click is a gesture and does not wait; a fault on
-        the way is the motion monitor's to report. A scope with no motor
-        board moves nothing, does the rest and returns no moves.
+        the way is the motion monitor's to report. Only the axes this scope
+        has are moved: a manual scope moves nothing, does the rest and
+        returns no moves.
 
         A repeat of the step this session last went to (a re-click, a
         re-typed number) does everything but the preview: a channel the
@@ -1800,7 +1808,10 @@ class ScopeSession:
                 Nothing changes.
             AxisStateUnknownError: an axis the step moves does not know
                 its position. Nothing changes.
-            HardwareCommandRefusedError: a run or a diagnostic holds the
+            HardwareCommandRefusedError: ``'not_connected'``, this scope's
+                motor controller is not connected, or its LED controller is
+                not and the step's preview would light; ``'scope_disconnected'``
+                after ``disconnect()``; or a run or a diagnostic holds the
                 scope. Nothing changes.
             PositionOutOfRangeError: the step lies outside an axis's travel;
                 the axes before it have moved, nothing else changes.
@@ -1820,11 +1831,7 @@ class ScopeSession:
                 )
         # Converted here, from the step read above, so the lane moves to the
         # step this call was made for whatever the list holds by then.
-        targets = (
-            self.scope.protocols.step_targets(protocol, step_idx)
-            if self.scope.motor_connected
-            else None
-        )
+        targets = self.scope.protocols.step_targets(protocol, step_idx)
         # Every member inside bounds its own wait, so the task has no bound
         # of its own to add.
         return self.io_executor.call(
@@ -1834,39 +1841,46 @@ class ScopeSession:
         )
 
     def _go_to_step_on_lane(
-        self, protocol: 'Protocol', step_idx: int, step, targets: 'StepTargets | None'
+        self, protocol: 'Protocol', step_idx: int, step, targets: 'StepTargets'
     ) -> 'tuple[MoveInFlight, ...]':
         """The lane half of ``go_to_step``: ask once, start the moves, load the layer, preview.
 
-        Returns the started X, Y and Z moves; none when there is no motor
-        board.
+        Returns the started moves, one per axis this scope has among X, Y
+        and Z; none on a manual scope.
         """
-        moves: tuple[MoveInFlight, ...] = ()
-        if targets is not None:
-            motion = self.scope.motion
-            # The turret included: a failed turret home leaves T unknown
-            # while the stage axes still know theirs.
-            motion.refuse_unknown_positions(
-                self.scope.capabilities.axes, recording=False, then='go to the step'
-            )
-            if targets.turret_slot is not None:
-                # The step's own Z move follows, so the turret need not put Z back.
-                motion.move_turret(targets.turret_slot, restore_z=False)
-            moves = (
-                motion.start_move_absolute('X', targets.x),
-                motion.start_move_absolute('Y', targets.y),
-                motion.start_move_absolute('Z', targets.z),
-            )
-        self._load_step_into_layer(step)
+        motion = self.scope.motion
+        # A motorized scope whose controller is out of reach cannot go to the
+        # step: one that never came up has no axes, so the moves below would
+        # be none and the step a silent no-op.
+        motion.refuse_controller_not_connected('go_to_step')
         last = self._last_step_gone_to
+        preview = None
+        if last is None or last[0] is not protocol or last[1] != step_idx:
+            preview = self._step_led_ctx(step)
+            # A preview that would light needs the LED controller, asked
+            # before anything moves; a dark one needs no board.
+            if LedLease.target_leds(LedTransition.MANUAL_STEP, preview):
+                self.scope.illumination.refuse_controller_not_connected('go_to_step')
+        # The turret included: a failed turret home leaves T unknown
+        # while the stage axes still know theirs.
+        motion.refuse_unknown_positions(
+            self.scope.capabilities.axes, recording=False, then='go to the step'
+        )
+        if targets.turret_slot is not None:
+            # The step's own Z move follows, so the turret need not put Z back.
+            motion.move_turret(targets.turret_slot, restore_z=False)
+        moves = tuple(
+            motion.start_move_absolute(axis, target)
+            for axis, target in (('X', targets.x), ('Y', targets.y), ('Z', targets.z))
+            if target is not None
+        )
+        self._load_step_into_layer(step)
         self._last_step_gone_to = (protocol, step_idx)
-        if last is not None and last[0] is protocol and last[1] == step_idx:
+        if preview is None:
             return moves
         # After the step's moves are started, in the same task: a toggle the
         # person makes while the stage travels lands after the step's preview.
-        self.scope.illumination.apply_transition(
-            LedTransition.MANUAL_STEP, self._step_led_ctx(step)
-        )
+        self.scope.illumination.apply_transition(LedTransition.MANUAL_STEP, preview)
         return moves
 
     def _load_step_into_layer(self, step) -> None:
@@ -2307,6 +2321,15 @@ class ScopeSession:
         None on a host with no plugin registry: only the GUI loads plugins.
         """
         return None if self._plugin_health is None else self._plugin_health()
+
+    @property
+    def plugin_api_level(self) -> int:
+        """What this LumaViewPro does that a plugin may rely on.
+
+        ``modules.plugins.PLUGIN_API_LEVEL``; each level's additions are
+        listed in LumascopeSkills.md, "Plugin API level".
+        """
+        return PLUGIN_API_LEVEL
 
     def settings_are_provisional(self) -> bool:
         """Is the app running on defaults nobody has agreed to keep?
@@ -2784,14 +2807,15 @@ class ScopeSession:
     def set_acceleration_limit(self, val_pct: int) -> None:
         """Set the motors' acceleration limit, as a percent of the firmware's maximum, and store it.
 
-        The one writer of ``motion.acceleration_max_pct``. With a motor
-        controller, stored once it took the value; with none, nothing is
-        commanded and the value is stored.
+        The one writer of ``motion.acceleration_max_pct``, stored once the
+        motor controller took the value.
 
         Raises:
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'axis_absent'``, no motor controller to take it. Nothing
+                is stored.
             AccelerationLimitRefusedError: ``val_pct`` is outside the range
-                the motion API accepts, on every board (a ValueError).
-                Nothing is stored.
+                the motion API accepts (a ValueError). Nothing is stored.
         """
         self.scope.motion.set_acceleration_limit(val_pct=val_pct)
         with self.settings_lock:
@@ -3228,14 +3252,15 @@ class ScopeSession:
             # Only while the lane's worker is alive: a submission to a lane
             # with no worker is never serviced, and the wait would run out
             # its bound for nothing -- disconnect() below turns the LEDs
-            # off inline either way. The 2 s bound keeps the calling
-            # thread from blocking on slow serial.
+            # off inline either way. The scope's own off asks presence
+            # first, so with no LED controller it writes nothing. The 2 s
+            # bound keeps the calling thread from blocking on slow serial.
             logger.info('[Session  ] shutdown: leds_off through the io lane')
             try:
                 from modules.sequential_io_executor import IOTask
 
                 fut = self.io_executor.put(
-                    IOTask(action=self.scope.illumination._leds_off_impl),
+                    IOTask(action=self.scope.illumination._leds_off_if_present),
                     return_future=True,
                     override=self._io_override_key,
                 )

@@ -92,10 +92,13 @@ def test_a_fan_write_with_no_reply_is_not_a_success(motor):
 
 
 @pytest.mark.slow
-def test_a_stop_with_no_reply_is_not_a_stop_and_caches_nothing(motor):
+def test_a_stop_with_no_reply_raises_and_caches_nothing(motor):
+    """The board may have taken a STOP it did not answer: that is neither
+    a stop nor firmware without STOP, so it raises."""
     board, sim = motor
     sim.drop_next_reply()
-    assert board.motor_stop() is False
+    with pytest.raises(HardwareError):
+        board.motor_stop()
     assert getattr(board, '_supports_stop_cached', None) is None
     # The next stop reaches the board, which answers that it has no STOP.
     assert board.motor_stop() is False

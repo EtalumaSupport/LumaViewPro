@@ -4,6 +4,8 @@
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
 import pytest
+
+from drivers.exceptions import HardwareError
 from drivers.null_motorboard import NullMotionBoard
 
 
@@ -21,8 +23,8 @@ class TestNullMotionBoardInterface:
         assert hasattr(board.thread_lock, 'acquire')
         assert hasattr(board.thread_lock, 'release')
 
-    def test_has_overshoot(self, board):
-        assert board.overshoot is False
+    def test_has_no_backlash(self, board):
+        assert board.backlash_um() == 0.0
 
     def test_has_axes_config(self, board):
         # No board, no axes: an empty config, not a motorised scope's.
@@ -42,29 +44,20 @@ class TestNullMotionBoardMovement:
     def test_move_abs_pos_noop(self, board):
         board.move_abs_pos('Z', 5000.0)
 
-    def test_move_rel_pos_noop(self, board):
-        board.move_rel_pos('X', 100.0)
-
 
 class TestNullMotionBoardPosition:
-    """Position queries return 0."""
+    """Position queries raise: there is no board to report a position."""
 
     @pytest.fixture
     def board(self):
         return NullMotionBoard()
 
-    def test_target_pos_zero(self, board):
-        assert board.target_pos('Z') == 0.0
-        assert board.target_pos('X') == 0.0
-
-    def test_current_pos_zero(self, board):
-        assert board.current_pos('Z') == 0.0
-
-    def test_target_pos_steps_zero(self, board):
-        assert board.target_pos_steps('Z') == 0
-
-    def test_current_pos_steps_zero(self, board):
-        assert board.current_pos_steps('Z') == 0
+    @pytest.mark.parametrize(
+        'read', ['target_pos', 'current_pos', 'target_pos_steps', 'current_pos_steps']
+    )
+    def test_a_position_read_raises(self, board, read):
+        with pytest.raises(HardwareError):
+            getattr(board, read)('Z')
 
 
 class TestNullMotionBoardStatus:

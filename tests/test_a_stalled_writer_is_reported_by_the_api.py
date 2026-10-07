@@ -92,7 +92,7 @@ def _batch(
     for i in range(writes):
         batch.submit(lambda: None, {}, what=f'The image {i}', pace_until=None)
     if closed:
-        batch.close(lambda outcome: None)
+        batch.close()
     session.sequenced_capture_runner._write_batch = batch
     return batch
 

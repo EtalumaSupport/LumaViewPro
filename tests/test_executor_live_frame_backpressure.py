@@ -20,7 +20,6 @@ producer was the memmap record path the engine replaced.
 """
 
 import threading
-import time
 
 from modules.sequential_io_executor import (
     ENQUEUED,
@@ -68,10 +67,7 @@ def test_worker_frees_inflight_slot_on_dequeue():
         ran = threading.Event()
         assert ex.put(IOTask(lambda: ran.set(), droppable_live=True)) is ENQUEUED
         assert ran.wait(2.0)  # the task actually ran
-        # The decrement happens right after get(), before run; allow a beat.
-        deadline = time.monotonic() + 1.0
-        while ex._live_inflight != 0 and time.monotonic() < deadline:
-            time.sleep(0.02)
+        # The worker frees the slot right after get(), before it runs the task.
         assert ex._live_inflight == 0
     finally:
         ex.shutdown(wait=True)

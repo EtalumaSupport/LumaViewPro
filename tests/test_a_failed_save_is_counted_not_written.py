@@ -37,7 +37,8 @@ def lane():
 
 def _closed(batch):
     seen = []
-    batch.close(seen.append)
+    batch.close()
+    batch.when_complete(seen.append)
     return seen
 
 

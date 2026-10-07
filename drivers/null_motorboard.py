@@ -20,6 +20,7 @@ import logging
 import threading
 from collections.abc import Mapping
 
+from drivers.exceptions import HardwareError
 from drivers.registry import motor_registry
 from drivers.motorconfig import read_only_axes_config
 
@@ -31,13 +32,12 @@ class NullMotionBoard:
     """No-op motor board that satisfies the full MotorBoard interface.
 
     Attributes match what ``lumascope_api.py`` and other callers access
-    directly (``driver``, ``overshoot``, ``thread_lock``, etc.).
+    directly (``driver``, ``thread_lock``, etc.).
     """
 
     def __init__(self):
         # Required attributes accessed directly by lumascope_api and callers
         self.driver = True  # truthy sentinel -- satisfies `not self.motion.driver`
-        self.overshoot = False
         self.thread_lock = threading.RLock()
         self._lock = self.thread_lock  # alias used by SerialBoard pattern
         self._state_lock = threading.Lock()
@@ -59,8 +59,6 @@ class NullMotionBoard:
         # configuration's answer first -- so a scope with no motor board
         # recorded that scope's scale instead of its own.
         self.motorconfig = None
-
-        self.backlash = 0.0
 
         self.axes_config = read_only_axes_config({})
 
@@ -92,48 +90,49 @@ class NullMotionBoard:
         """Null implementation: no-op."""
         pass
 
-    def move_abs_pos(self, axis: str, pos: float, overshoot_enabled: bool = True) -> None:
-        """Null implementation: no-op."""
-        pass
+    def backlash_um(self) -> float:
+        """Z antibacklash, um: how far below its target a downward Z move
+        approaches from (the motion API's backlash leg)."""
+        return 0.0
 
-    def move_rel_pos(self, axis, um, overshoot_enabled=False) -> None:
+    def move_abs_pos(self, axis: str, pos: float) -> None:
         """Null implementation: no-op."""
         pass
 
     # ------------------------------------------------------------------
-    # Position queries (return 0)
+    # Position queries: there is no board to read
     # ------------------------------------------------------------------
-    def target_pos(self, axis) -> float:
-        """Null implementation: returns sentinel value.
+    def target_pos(self, axis: str) -> float:
+        """Null implementation: raises, as a board that cannot be read does.
 
-        Returns:
-            float: Always 0.0.
+        Raises:
+            HardwareError: there is no motor board.
         """
-        return 0.0
+        raise HardwareError(f'target_pos({axis}): no motor board')
 
-    def current_pos(self, axis) -> float:
-        """Null implementation: returns sentinel value.
+    def current_pos(self, axis: str) -> float:
+        """Null implementation: raises, as a board that cannot be read does.
 
-        Returns:
-            float: Always 0.0.
+        Raises:
+            HardwareError: there is no motor board.
         """
-        return 0.0
+        raise HardwareError(f'current_pos({axis}): no motor board')
 
-    def target_pos_steps(self, axis) -> int:
-        """Null implementation: returns sentinel value.
+    def target_pos_steps(self, axis: str) -> int:
+        """Null implementation: raises, as a board that cannot be read does.
 
-        Returns:
-            int: Always 0.
+        Raises:
+            HardwareError: there is no motor board.
         """
-        return 0
+        raise HardwareError(f'target_pos_steps({axis}): no motor board')
 
-    def current_pos_steps(self, axis) -> int:
-        """Null implementation: returns sentinel value.
+    def current_pos_steps(self, axis: str) -> int:
+        """Null implementation: raises, as a board that cannot be read does.
 
-        Returns:
-            int: Always 0.
+        Raises:
+            HardwareError: there is no motor board.
         """
-        return 0
+        raise HardwareError(f'current_pos_steps({axis}): no motor board')
 
     # ------------------------------------------------------------------
     # Status

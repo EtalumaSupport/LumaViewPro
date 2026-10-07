@@ -22,14 +22,13 @@ import ast
 import dataclasses
 import pathlib
 import threading
-import time
 from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 
 from tests.protocol_drives import lent_run_claim
-from tests.frame_records import frame_record, plate
+from tests.frame_records import frame_record, plate, unpositioned
 from modules.protocol_image_writer import RunWriteBatch
 from modules.activity_claim import ActivityClaim
 from modules.exceptions import ConfigError
@@ -55,7 +54,8 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 TILING_CONFIGS = REPO_ROOT / 'data' / 'tiling.json'
 
 COMPLETION_TIMEOUT = 20  # seconds
-SAVE_FLUSH_TIMEOUT = 5  # seconds to wait for the file-IO thread's save
+# A bound only on a stuck file lane: a loaded host can take seconds to write.
+FILES_WAIT_S = 60
 
 
 # ---------------------------------------------------------------------------
@@ -213,18 +213,15 @@ def _run_one_still(executor, tmp_path, config):
             'go_to_step': lambda **kw: None,
             'move_position': lambda axis: None,
         },
-        leds_state_at_end='off',
         autofocus_snapshot=autofocus_snapshot(),
     )
-    executor.start(plan)
+    handle = executor.start(plan)
     assert done.wait(timeout=COMPLETION_TIMEOUT), 'run did not complete'
+    # The save runs on the file lane, after the run lets go of the scope.
+    assert handle.wait_for_files(timeout_s=FILES_WAIT_S) is not None, "the run's files never landed"
 
 
-def _wait_for_saves(recorded):
-    """The save runs on the file-IO thread; poll briefly for it to land."""
-    deadline = time.monotonic() + SAVE_FLUSH_TIMEOUT
-    while not recorded and time.monotonic() < deadline:
-        time.sleep(0.05)
+def _saves(recorded):
     assert recorded, 'the run must reach save_image for its one still'
     return recorded
 
@@ -256,7 +253,7 @@ class TestHeadlessStillHonorsRunMode:
 
         _run_one_still(executor, tmp_path, ImageCaptureConfig.from_image_mode(mode))
 
-        saves = _wait_for_saves(recorded)
+        saves = _saves(recorded)
         assert saves[0]['save_encoding'] == expected_encoding, (
             f'a headless {mode} run must save {expected_encoding}, got {saves[0]["save_encoding"]}'
         )
@@ -296,6 +293,7 @@ class TestOneRunOneEncoding:
             engineering_mode=False,
             run_claim=lent_run_claim(),
             labware=plate(),
+            to_plate=None,
             captures_asked=1,
         )
 
@@ -322,7 +320,7 @@ class TestOneRunOneEncoding:
                 significant_bits=12,
                 objective_id='4x Oly',
                 record=frame_record(),
-                stage_z_um=None,
+                position=unpositioned(),
             ),
             step=step,
             name='A1_BF',
@@ -405,7 +403,7 @@ class TestSettingsDoNotOverrideRunConfig:
 
         _run_one_still(executor, tmp_path, ImageCaptureConfig.from_image_mode('12bit_scientific'))
 
-        saves = _wait_for_saves(recorded)
+        saves = _saves(recorded)
         assert saves[0]['save_encoding'] == SAVE_ENCODING_RIGHT_ALIGNED, (
             'the prepared run config must win over live ctx.settings; '
             f'got {saves[0]["save_encoding"]}'

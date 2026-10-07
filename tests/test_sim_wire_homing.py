@@ -49,7 +49,7 @@ def test_after_home_every_axis_is_at_its_target(board):
 @pytest.mark.slow
 def test_after_a_turret_home_z_is_back_at_its_target(board):
     assert board.home()
-    board.move_abs_pos('Z', 3000.0, overshoot_enabled=False)
+    board.move_abs_pos('Z', 3000.0)
     assert board.wait_for_position('Z', timeout=10.0)
     assert board.thome()
     for axis in 'ZT':

@@ -63,7 +63,7 @@ def _spy_lane(lane):
 
 
 def _drain_before_lane_shutdown(events):
-    puts = [i for i, e in enumerate(events) if e[0] == 'put' and e[1] == '_leds_off_impl']
+    puts = [i for i, e in enumerate(events) if e[0] == 'put' and e[1] == '_leds_off_if_present']
     shuts = [i for i, e in enumerate(events) if e[0] == 'shutdown']
     return bool(puts) and bool(shuts) and puts[0] < shuts[0]
 
@@ -78,8 +78,8 @@ class TestAFactoryBuiltScopeIsTornDown:
         unregistered = _record_unregister(monkeypatch)
         session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         scope = session.scope
-        stop_motion = MagicMock(wraps=scope.motion.stop_motion)
-        monkeypatch.setattr(scope.motion, 'stop_motion', stop_motion)
+        stop_motion = MagicMock(wraps=scope.motion._stop)
+        monkeypatch.setattr(scope.motion, '_stop', stop_motion)
         events = _spy_lane(session.executor_bundle.io_executor)
         try:
             session.shutdown()
@@ -118,15 +118,13 @@ class TestAFactoryBuiltScopeIsTornDown:
     def test_a_pass_that_raised_can_be_retried(self, tmp_path, monkeypatch, session_log):
         session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         scope = session.scope
-        monkeypatch.setattr(
-            scope.motion, 'stop_motion', MagicMock(side_effect=RuntimeError('bus gone'))
-        )
+        monkeypatch.setattr(scope.motion, '_stop', MagicMock(side_effect=RuntimeError('bus gone')))
         try:
             with pytest.raises(ScopeDisconnectError) as excinfo:
                 session.shutdown()
             assert isinstance(excinfo.value.__cause__, RuntimeError)
             assert session._shut_down is False, 'a pass that raised is not a completed pass'
-            monkeypatch.setattr(scope.motion, 'stop_motion', MagicMock())
+            monkeypatch.setattr(scope.motion, '_stop', MagicMock())
             session.shutdown()
             assert session._shut_down is True
             assert scope.motor_connected is False
@@ -145,8 +143,8 @@ class TestACallersScopeIsLeftAlone:
         session, scope = self._caller_session()
         session.shutdown()
         scope.disconnect.assert_not_called()
-        scope.motion.stop_motion.assert_not_called()
-        scope.illumination._leds_off_impl.assert_not_called()
+        scope.motion._stop.assert_not_called()
+        scope.illumination._leds_off_if_present.assert_not_called()
         # The lanes are the scope's, and the scope is the caller's: they run on.
         session.io_executor.put.assert_not_called()
         session.io_executor.shutdown.assert_not_called()
@@ -159,7 +157,7 @@ class TestACallersScopeIsLeftAlone:
         )
         session.shutdown()
         scope.disconnect.assert_not_called()
-        scope.motion.stop_motion.assert_not_called()
+        scope.motion._stop.assert_not_called()
         session.io_executor.put.assert_not_called()
 
     def test_a_second_shutdown_logs_and_touches_nothing(self, session_log):
@@ -183,12 +181,21 @@ class TestDisconnectShutsTheLanesFirst:
         in_flight, release = threading.Event(), threading.Event()
 
         def hold():
+            # Released only by the teardown below (or the finally), never by
+            # a clock: a hold that let go on its own would run the led_on
+            # before the disconnect on a slow host.
             in_flight.set()
-            release.wait(2.0)
+            release.wait()
 
         lane.put(IOTask(action=hold))
         assert in_flight.wait(2.0)
         outcome = {}
+        # The board the queued led_on would reach: disconnect() replaces it
+        # and clears the state store, so it is asked directly.
+        board_on = []
+        board = scope._led_driver
+        real_board_on = board.led_on
+        board.led_on = lambda *a, **kw: (board_on.append(a), real_board_on(*a, **kw))[1]
 
         def turn_on():
             try:
@@ -213,10 +220,12 @@ class TestDisconnectShutsTheLanesFirst:
             release.set()
             time.sleep(0.3)
 
-        with patch.object(scope.illumination, '_leds_off_emergency', off_then_finish):
-            scope.disconnect()
+        try:
+            with patch.object(scope.illumination, '_leds_off_emergency', off_then_finish):
+                scope.disconnect()
+        finally:
+            release.set()
         caller.join(3.0)
 
         assert 'error' in outcome, f'the queued led_on was not cancelled: {outcome}'
-        lit = [c for c, st in scope.illumination.get_led_states().items() if st.get('enabled')]
-        assert lit == [], f'channels lit after disconnect: {lit}'
+        assert board_on == [], f'the board was lit after disconnect: {board_on}'

@@ -294,6 +294,7 @@ def _video_session_autogain_call(autogain_settings):
         record_step_row=MagicMock(),
         record_dropped_capture=MagicMock(),
         run_claim=lent_run_claim(),
+        to_plate=None,
     )
     from unittest.mock import patch
 

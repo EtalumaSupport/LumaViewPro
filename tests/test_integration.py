@@ -25,6 +25,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
+from tests.protocol_drives import run_identity
 
 # Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
 # tests/conftest.py at module-import time. Test-specific mocks below.
@@ -56,13 +57,14 @@ from tests.protocol_drives import (
     autofocus_snapshot,
     held_run_claim,
     wait_for_run_end,
-    wait_until_ready_for_next_run,
 )
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 COMPLETION_TIMEOUT = 30  # generous for CI
+# A bound only on a stuck file lane: a loaded host can take seconds to write.
+FILES_WAIT_S = 60
 
 
 # ---------------------------------------------------------------------------
@@ -221,14 +223,19 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         parent_dir=tmp_path / 'output',
         max_scans=run_kwargs.pop('max_scans', 1),
         callbacks=callbacks,
-        leds_state_at_end=run_kwargs.pop('leds_state_at_end', 'off'),
         enable_image_saving=run_kwargs.pop('enable_image_saving', False),
         autofocus_snapshot=autofocus_snapshot(),
         **run_kwargs,
     )
-    executor.start(plan)
+    handle = executor.start(plan)
 
     completed = wait_for_run_end(done, heartbeat)
+    # The images and the record are on the file lane; they are there once
+    # the run says its files are done, not when it lets go of the scope.
+    if completed:
+        assert handle.wait_for_files(timeout_s=FILES_WAIT_S) is not None, (
+            'the run never finished its files'
+        )
     return completed, result_holder
 
 
@@ -329,9 +336,9 @@ class TestIntegrationSingleStep:
         assert completed, 'Protocol did not complete within timeout'
 
     def test_leds_off_after_completion(self, executor, scope, tmp_path):
-        """After protocol completes with leds_state_at_end='off', all LEDs should be off."""
+        """After a scan completes, all LEDs should be off."""
         protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 100.0}])
-        completed, _ = _run_and_wait(executor, protocol, tmp_path, leds_state_at_end='off')
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
         # All LED channels should be off
@@ -611,7 +618,7 @@ class TestIntegrationAutofocus:
         thread.start()
         try:
             future = thread.run_autofocus(
-                run_trigger_source='autofocus',
+                run=run_identity('autofocus'),
                 objective_id='10x Oly',
                 led_color='BF',
                 led_illumination=50.0,
@@ -663,7 +670,7 @@ class TestIntegrationAutofocus:
         thread.start()
         try:
             return thread.run_autofocus(
-                run_trigger_source='autofocus',
+                run=run_identity('autofocus'),
                 objective_id='10x Oly',
                 led_color='BF',
                 led_illumination=50.0,
@@ -767,8 +774,6 @@ class TestIntegrationStateAssertions:
         # First run
         completed_1, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed_1, 'First protocol run did not complete'
-
-        assert wait_until_ready_for_next_run(executor), 'First run never ended and drained'
 
         # Second run -- should start without being blocked
         completed_2, _ = _run_and_wait(executor, protocol, tmp_path)
@@ -1177,7 +1182,7 @@ class TestRestAPIPrep:
             try:
                 objectives = session.scope.runtime_state.get_available_objectives()
                 future = thread.run_autofocus(
-                    run_trigger_source='autofocus',
+                    run=run_identity('autofocus'),
                     objective_id=objectives[0],
                     # Lit, because a sweep in the dark has no focus to find.
                     # The production caller supplies the step's channel and
@@ -1218,7 +1223,7 @@ class TestRestAPIPrep:
             try:
                 objectives = session.scope.runtime_state.get_available_objectives()
                 future = thread.run_autofocus(
-                    run_trigger_source='autofocus',
+                    run=run_identity('autofocus'),
                     objective_id=objectives[0],
                     led_color='BF',
                     led_illumination=100.0,
@@ -1227,8 +1232,7 @@ class TestRestAPIPrep:
                     ),
                 )
 
-                # Give the thread a moment to enter AFE.run()
-                time.sleep(0.1)
+                # Running from the moment run_autofocus returns.
                 assert thread.is_running is True
 
                 thread.abort()

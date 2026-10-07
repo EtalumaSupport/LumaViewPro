@@ -21,6 +21,7 @@ from scipy.ndimage import uniform_filter
 from lvp_logger import logger
 from drivers.camera import Camera, FrameGrid, ImageHandlerBase, link_info
 from drivers.camera_profiles import simulated_profile
+from drivers.exceptions import HardwareError
 from drivers.registry import camera_registry
 from drivers.simulated_specimen import specimen_frames
 
@@ -112,7 +113,7 @@ class SimulatedCamera(Camera):
         width: int = _SENSOR['width'],
         height: int = _SENSOR['height'],
         grab_delay: float = 0.0,
-        z_position_func: Callable[[], float] | None = None,
+        z_position_func: Callable[[], float | None] | None = None,
         illumination_func: Callable[[], float] | None = None,
         timing: str = 'fast',
     ):
@@ -638,8 +639,16 @@ class SimulatedCamera(Camera):
 
         Returns:
             dict: ``{'sensor': 35.0, 'board': 40.0}``.
+
+        Raises:
+            HardwareError: No camera is active.
         """
+        if not self.active:
+            raise HardwareError('Camera temperature read: no camera is active')
         return {'sensor': 35.0, 'board': 40.0}
+
+    def supports_temperature(self) -> bool:
+        return bool(self.active)
 
     # ------------------------------------------------------------------
     # Frame rate
@@ -787,10 +796,12 @@ class SimulatedCamera(Camera):
         """Apply blur based on distance from focal Z position."""
         # Query Z position from motor if callback is wired
         if self._z_position_func is not None:
-            try:
-                self._z_position = self._z_position_func()
-            except Exception:
-                pass
+            z = self._z_position_func()
+            if z is None:
+                # No focus axis to read: a manual scope is focused by hand,
+                # so its sample is rendered in focus.
+                return img
+            self._z_position = z
 
         defocus = abs(self._z_position - self._focal_z)
         if defocus < 1.0:

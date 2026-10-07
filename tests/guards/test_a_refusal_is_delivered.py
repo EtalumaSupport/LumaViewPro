@@ -40,7 +40,7 @@ def centre_and_seen():
 def test_a_refusal_reaches_a_user_the_run_thinks_is_absent(centre_and_seen):
     """The unattended mute must not swallow an answer to a button press."""
     centre, seen = centre_and_seen
-    centre.set_unattended_run(True)
+    centre.open_run_scope(attended=False)
 
     centre.warning(
         'Protocol', 'Already Running', 'A protocol run is already in progress.', solicited=True
@@ -70,7 +70,7 @@ def test_asking_twice_gets_answered_twice(centre_and_seen):
 def test_an_unsolicited_fault_is_still_muted_during_an_unattended_run(centre_and_seen):
     """The suppression this does NOT remove: nobody asked for this one."""
     centre, seen = centre_and_seen
-    centre.set_unattended_run(True)
+    centre.open_run_scope(attended=False)
 
     centre.warning('Camera', 'Camera Setting Not Applied', 'the camera rejected the gain')
 
@@ -115,7 +115,7 @@ def test_the_runner_funnel_delivers_its_refusal_during_an_unattended_run(monkeyp
     centre = NotificationCenter(dedup_window_s=10.0)
     seen = []
     centre.add_listener(seen.append, min_severity=Severity.NOTICE)
-    centre.set_unattended_run(True)
+    centre.open_run_scope(attended=False)
     monkeypatch.setattr(nc, 'notifications', centre)
 
     runner = object.__new__(SequencedCaptureRunner)

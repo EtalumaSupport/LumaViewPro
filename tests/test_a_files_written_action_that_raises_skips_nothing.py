@@ -9,6 +9,7 @@ were done, a Session that went on reading the drain as live -- and the raise
 was only logged. Each is now contained on its own, and reported.
 """
 
+import contextlib
 import time
 
 import modules.protocol_cleanup as protocol_cleanup
@@ -37,19 +38,28 @@ def test_a_raising_run_complete_send_still_tells_the_files_and_ends_the_drain(
 
     monkeypatch.setattr(notifications, 'report_outcome', _report)
 
-    def _raising_send(self, *args, **kwargs):
-        raise _SendError('run_complete could not be sent')
+    schedule = protocol_cleanup._schedule_cleanup_ui
 
-    monkeypatch.setattr(protocol_cleanup.RunCompleteNotice, 'send', _raising_send)
+    def _cannot_send_run_complete(func, step_label, *args, **kwargs):
+        if step_label == 'Run-complete callback':
+            raise _SendError('run_complete could not be sent')
+        return schedule(func, step_label, *args, **kwargs)
+
+    monkeypatch.setattr(protocol_cleanup, '_schedule_cleanup_ui', _cannot_send_run_complete)
     files = []
     with open_composite_session(headless_settings(tmp_path)) as (session, runner):
         outcome = runner.run_single_scan(
             protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
             parent_dir=str(tmp_path / 'runs'),
             image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
-            callbacks={'files_complete': lambda **kw: files.append(kw['files'])},
+            callbacks={
+                'run_complete': lambda **kw: None,
+                'files_complete': lambda **kw: files.append(kw['files']),
+            },
         )
-        outcome.wait(timeout_s=WAIT_S)
+        # A run_complete that could not be sent is told all the same: the
+        # wait does not run out its bound on a delivery that never comes.
+        assert outcome.wait(timeout_s=WAIT_S) is not None
         deadline = time.monotonic() + WAIT_S
         while not files and time.monotonic() < deadline:
             time.sleep(0.02)
@@ -71,7 +81,8 @@ def test_the_batch_reports_a_completion_action_that_raises_and_still_completes(m
     def _raising(outcome):
         raise _SendError('the completion action fell over')
 
-    batch.close(_raising)
+    batch.close()
+    batch.when_complete(_raising)
 
     assert batch.wait_complete(0.1)
     assert not batch.draining
@@ -97,7 +108,9 @@ def test_a_callback_that_fails_after_the_run_does_not_say_the_images_were_saved(
     def _raising(dt):
         raise _SendError('files_complete fell over')
 
-    protocol_cleanup._schedule_cleanup_ui(_raising, 'Files-complete callback', [], summary_sent)
+    protocol_cleanup._schedule_cleanup_ui(
+        _raising, 'Files-complete callback', [], summary_sent, contextlib.nullcontext()
+    )
 
     [(_category, _title, message)] = shown
     assert 'Files-complete callback' in message

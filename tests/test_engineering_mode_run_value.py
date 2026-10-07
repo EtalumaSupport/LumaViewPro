@@ -132,6 +132,7 @@ class TestTheWriterIsHandedTheMode:
             'video_max_fps': 0,
             'run_claim': lent_run_claim(),
             'labware': plate(),
+            'to_plate': None,
         }
 
         with pytest.raises(TypeError, match='engineering_mode'):

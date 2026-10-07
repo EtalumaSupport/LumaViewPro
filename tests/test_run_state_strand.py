@@ -153,9 +153,8 @@ class TestClaimRefusalLeavesNoState:
             assert (settled.status, settled.reason) == ('completed', 'completed'), (
                 f'the first run reported {settled.status!r} ({settled.reason!r})'
             )
-            # run_complete fires during cleanup; the claim releases at
-            # cleanup END, moments later. Wait for the release before
-            # claiming as the recording.
+            # run_complete and wait() come once the claim is released;
+            # the poll confirms it before claiming as the recording.
             deadline = time.monotonic() + COMPLETION_TIMEOUT
             while session.activity_claim.owner is not None:
                 assert time.monotonic() < deadline, 'first run never released the claim'
@@ -212,9 +211,8 @@ class TestClaimRefusalLeavesNoState:
             assert done.wait(timeout=COMPLETION_TIMEOUT), (
                 'a valid run after a claim refusal must start and complete'
             )
-            # run_complete fires mid-cleanup; the claim releases at its
-            # end. Asserting straight off the callback reads teardown
-            # in progress and turns this into a coin flip.
+            # run_complete comes once the claim is released; this
+            # confirms it.
             assert wait_until_not_running(session)
         finally:
             if claim_held:
@@ -237,9 +235,10 @@ class TestTheHolderIsTheLiveRun:
         home_sim_scope(session.scope)
         runner = session.create_protocol_runner()
         try:
-            # Read from inside the run: run_complete fires during
-            # cleanup, with the claim still held, so this observes the
-            # holder while it holds rather than racing the run's end.
+            # Read from inside the run: run_scan_pre fires from the run
+            # loop, with the claim held, so this observes the holder while
+            # it holds rather than racing the run's end. run_complete no
+            # longer can: it comes after the run has let go.
             observed = {}
 
             def _observe(**_kwargs):
@@ -252,7 +251,7 @@ class TestTheHolderIsTheLiveRun:
                 sequence_name='holder_scan',
                 parent_dir=str(tmp_path),
                 image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
-                callbacks={'run_complete': _observe, 'files_complete': lambda **kw: None},
+                callbacks={'run_scan_pre': _observe, 'files_complete': lambda **kw: None},
             )
             assert run.wait(timeout_s=COMPLETION_TIMEOUT) is not None
 

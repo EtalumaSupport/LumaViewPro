@@ -106,7 +106,6 @@ try:
         autogain_settings=config_helpers.get_auto_gain_settings(settings),
         callbacks={'ui': 'x10 GUI callbacks'},
         return_to_position=session.get_current_plate_position(),
-        leds_state_at_end='return_to_original',
         engineering_mode=session.engineering_mode,
         autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
             settings, session.settings_lock

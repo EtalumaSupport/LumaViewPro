@@ -29,7 +29,7 @@ def _fault():
 
 def test_a_report_muted_by_an_unattended_run_leaves_it_to_the_request(centre):
     fault = _fault()
-    centre.set_unattended_run(True)
+    centre.open_run_scope(attended=False)
     centre.report_outcome(fault, solicited=False, category='Motion')
     assert centre.shown == []
 

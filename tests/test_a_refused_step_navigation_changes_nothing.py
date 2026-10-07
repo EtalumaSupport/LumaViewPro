@@ -241,7 +241,7 @@ class TestAnAdmissibleNavigationStillWorks:
     def test_an_index_before_the_first_step_is_the_sessions_to_refuse(self, nav_env):
         """A typed 0 arrives as -1; the panel clears its pointer only for a
         protocol with no steps, never for a number the protocol lacks."""
-        nav_env.session_go_to_step.side_effect = StepNotFoundError('The protocol has no step 0.')
+        nav_env.session_go_to_step.side_effect = StepNotFoundError(index=-1, num_steps=2)
 
         _navigate(ON_TURRET, step_idx=-1)
 

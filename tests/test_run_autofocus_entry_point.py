@@ -60,7 +60,7 @@ class TestTheRunIsAnAutofocusOfItsOwn:
     def test_it_prepares_as_an_autofocus_scan(self):
         runner = _runner()
         runner.run_autofocus(layer='BF')
-        assert _prepared(runner)['run_mode'] is SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN
+        assert _prepared(runner)['run_mode'] is SequencedCaptureRunMode.SINGLE_AUTOFOCUS
 
     def test_it_runs_exactly_one_scan(self):
         runner = _runner()
@@ -92,7 +92,7 @@ class TestTheRunIsAnAutofocusOfItsOwn:
         # traverse that must end dark.
         runner = _runner()
         runner.run_autofocus(layer='BF')
-        assert _prepared(runner)['leds_state_at_end'] == 'return_to_original'
+        assert _prepared(runner)['run_mode'].leds_state_at_end == 'return_to_original'
 
 
 class TestCharacterizationDataIsOptIn:

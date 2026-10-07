@@ -267,7 +267,6 @@ class Tmcm6110Board:
         self._backend = backend
         self._serial: serial.SerialBase | None = None
         self.port: str | None = None
-        self.overshoot = False
         self.firmware_version: str | None = None
         self.firmware_date = None
         self.motorconfig: Tmcm6110Config | None = None
@@ -524,30 +523,19 @@ class Tmcm6110Board:
         """
         self._exchange(MVP, MVP_ABS, self._motor(axis), self._to_board(axis, steps))
 
-    def move_abs_pos(self, axis: str, pos: float, overshoot_enabled: bool = True) -> None:
-        """Move to ``pos`` micrometres. No overshoot: Classic compensated
-        no backlash on the LS720, and none is measured.
+    def backlash_um(self) -> float:
+        """Z antibacklash, um: none. Classic compensated no backlash on the
+        LS720, and none is measured, so a Z move has no approach leg."""
+        return 0.0
+
+    def move_abs_pos(self, axis: str, pos: float) -> None:
+        """Move to ``pos`` micrometres, in one leg.
 
         Travel is not checked here: the motion API refuses a target
         outside travel before it calls this.
         """
         self._motor(axis)
         self.move(axis, self.axes_config[axis]['move_func'](pos))
-
-    def move_rel_pos(self, axis: str, um: float, overshoot_enabled: bool = False) -> None:
-        """Move by ``um`` from the board's current target.
-
-        Raises:
-            HardwareError: the target could not be read, so the move did
-                not happen.
-        """
-        pos = self.target_pos(axis)
-        if pos is None:
-            raise HardwareError(
-                f'move_rel_pos({axis}): cannot read the current target '
-                f'position; the move did not happen'
-            )
-        self.move_abs_pos(axis, pos + um)
 
     def _read_usteps(self, axis: str, parameter: int) -> int | None:
         try:

@@ -51,6 +51,7 @@ def _writer(file_io_executor=None):
         engineering_mode=False,
         run_claim=lent_run_claim(),
         labware=plate(),
+        to_plate=None,
         captures_asked=1,
     )
 
@@ -77,7 +78,7 @@ def _owed(writer):
 
 def _close(writer):
     """The run's cleanup ending its writes."""
-    writer._write_batch.close(lambda outcome: None)
+    writer._write_batch.close()
 
 
 class TestStillPendingWrites:

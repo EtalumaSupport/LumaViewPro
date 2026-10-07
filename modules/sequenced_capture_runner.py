@@ -1,5 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import collections
+import contextlib
 import copy
 import dataclasses
 import datetime
@@ -22,8 +24,18 @@ from modules.protocol_run_loop import ProtocolRunLoop
 from modules.lumascope_api import AxisState, Lumascope
 
 import modules.image_mode as image_mode
+from modules import kivy_utils
 
-from modules.activity_claim import ActivityClaim, ActivityHolder, BorrowedClaim, Taking, acting
+from modules.activity_claim import (
+    ActivityClaim,
+    ActivityHolder,
+    BorrowedClaim,
+    RunIdentity,
+    Taking,
+    acting,
+    the_holder_named,
+    the_run_named,
+)
 from modules.autofocus_runner import AutofocusRunner
 from modules.exceptions import (
     CameraSettingRejected,
@@ -38,6 +50,7 @@ from modules.exceptions import (
     RunImagesNotSavedError,
     RunIncompleteError,
     RunStartError,
+    RunWaitOnUiThreadError,
     SingleScanNotice,
     describe_unknown_positions,
 )
@@ -101,21 +114,6 @@ step_dict = {
 """
 
 
-# Run kinds whose user is waiting in front of the scope, keyed by the
-# RunPlan.run_trigger_source the entry point supplies.
-#
-# The Autofocus button is the only one today: it takes seconds and saves
-# nothing, so its failures belong on screen. Every other kind this runner
-# drives is a batch that runs for minutes and writes files, where a modal
-# would stall the run in front of an empty chair and transient faults
-# would pile up.
-#
-# Deliberately NOT a classification of all nine trigger sources. Several
-# of them are already described elsewhere in the tree in terms that
-# disagree with each other, and settling that is its own change with its
-# own evidence. This set answers one question: raise popups, or log them.
-_ATTENDED_RUN_TRIGGERS = frozenset({'autofocus'})
-
 T = typing.TypeVar('T')
 
 
@@ -164,29 +162,111 @@ class RunHandle:
         # This run's writes, the batch start() made with it -- never the
         # engine's current batch, which the next run's start() replaces.
         self._write_batch = write_batch
-        # Written once, by the start() that made this handle, after the
-        # run's setup: None for a run that saves nothing, or that never
-        # started.
+        # Written by the start() that made this handle, after the run's
+        # setup and before its loop is dispatched: None for a run that
+        # saves nothing, or that never started.
         self._run_dir: pathlib.Path | None = None
         # Written once, by the run's cleanup, before the run ends: the
         # thread building its hyperstacks, which writes after the batch
         # completes; None for a run that builds none.
         self._hyperstack_build: threading.Thread | None = None
+        # Set once the run's run_complete, then its files_complete, has run
+        # -- or at once when it has none to run -- on every path that
+        # reaches IDLE. What the waits wait for last.
+        self._run_told = threading.Event()
+        self._files_told = threading.Event()
+        # The threads delivering one of this run's callbacks right now, with
+        # how many deliveries deep: a callback that waits on its own run
+        # there must not wait for its own delivery to end. A count, because
+        # another run's delivery can nest inside this one's on its thread.
+        self._delivery_lock = threading.Lock()
+        self._deliveries: collections.Counter[threading.Thread] = collections.Counter()
 
     def wait(self, timeout_s: float | None) -> 'RunOutcome | None':
-        """How this run ended, once it no longer holds the scope.
+        """How this run ended, once it no longer holds the scope and has told its caller.
 
         Blocks for the outcome, then, inside the same bound, for the run's
-        teardown to finish, so a caller woken here can start the next run,
-        move the stage or write a setting without a second wait. A new run
-        can still be refused while this run's files finish writing; that
-        refusal is the drain's.
+        teardown to finish and its run_complete to have run, so a caller
+        woken here can start the next run, move the stage or write a setting
+        without a second wait, and reads what its run_complete did. A new
+        run can still be refused while this run's files finish writing;
+        that refusal is the drain's.
+
+        Made from inside one of this run's own callbacks, it does not wait
+        for that callback: it returns once the run has let go of the scope.
 
         Returns:
             The run's outcome, or None when the bound passes first.
+
+        Raises:
+            RunWaitOnUiThreadError: made on the thread that delivers the
+                run's callbacks, outside them -- it would wait on itself.
         """
         deadline = None if timeout_s is None else time.monotonic() + timeout_s
-        outcome = self._pending.wait(timeout_s=timeout_s)
+        own = self._waiting_inside_own_delivery()
+        outcome = self._wait_released(deadline)
+        if outcome is None:
+            return None
+        if not own and not self._run_told.wait(_remaining(deadline)):
+            return None
+        return outcome
+
+    def wait_for_files(self, timeout_s: float | None) -> RunFiles | None:
+        """What became of this run's images, once its files are done and told.
+
+        Blocks, inside one bound, for everything wait() does, then until the
+        run's images are on disk or given up on, its hyperstack build, when
+        it has one, has finished, and the run has said everything about
+        them -- the lost-image report, the record's reconcile and its
+        files_complete -- so a caller woken here can start the next run
+        without a 'files_writing' refusal. One thing can still refuse it,
+        as after wait(): an autofocus sweep that did not stop inside
+        cleanup's bound, which the run's outcome names as a cleanup
+        failure, refuses the next run 'autofocus_running' until it stops.
+
+        A hyperstack build's own failure is reported by the build; what is
+        returned here is the images. Made from inside one of this run's own
+        callbacks, it does not wait for this run's callbacks.
+
+        Returns:
+            The run's images, or None when the bound passes first. The
+            images are accounted for only once the run's cleanup has closed
+            its writes, so a shutdown that ends the session before that
+            cleanup runs leaves them unaccounted, and the wait answers None.
+
+        Raises:
+            RunWaitOnUiThreadError: made on the thread that delivers the
+                run's callbacks, outside them -- it would wait on itself.
+        """
+        deadline = None if timeout_s is None else time.monotonic() + timeout_s
+        own = self._waiting_inside_own_delivery()
+        if self._wait_released(deadline) is None:
+            return None
+        batch = self._write_batch
+        if not batch.wait_complete(_remaining(deadline)):
+            return None
+        # Read after the run ended: cleanup writes it before the run ends.
+        build = self._hyperstack_build
+        if build is not None:
+            build.join(_remaining(deadline))
+            if build.is_alive():
+                return None
+        if not own:
+            # Both, in order: under the GUI a run with no files_complete has
+            # its files told at once, while its run_complete waits its turn.
+            for told in (self._run_told, self._files_told):
+                if not told.wait(_remaining(deadline)):
+                    return None
+        return RunFiles(
+            outcome=batch.outcome,
+            written=batch.written,
+            not_written=batch.not_written,
+            not_written_reason=batch.not_written_reason,
+        )
+
+    def _wait_released(self, deadline: float | None) -> 'RunOutcome | None':
+        """The run's outcome once it no longer holds the scope; None at *deadline*."""
+        outcome = self._pending.wait(timeout_s=_remaining(deadline))
         if outcome is None:
             return None
         while self.is_live:
@@ -195,46 +275,36 @@ class RunHandle:
             time.sleep(0.02)
         return outcome
 
-    def wait_for_files(self, timeout_s: float | None) -> RunFiles | None:
-        """What became of this run's images, once its files are done.
+    def _waiting_inside_own_delivery(self) -> bool:
+        """Whether this thread is delivering one of this run's callbacks; refuses the UI thread otherwise.
 
-        Blocks, inside one bound, until the run's images are on disk or
-        given up on, the run no longer holds the scope, and its hyperstack
-        build, when it has one, has finished -- so a caller woken here can
-        start the next run without a 'files_writing' refusal. One gap
-        remains, the same one wait() has: an autofocus sweep that does not
-        unwind inside cleanup's bound still refuses the next run
-        'autofocus_running'.
-
-        A hyperstack build's own failure is reported by the build; what is
-        returned here is the images.
-
-        Returns:
-            The run's images, or None when the bound passes first. The
-            images are accounted for only once the run's cleanup has closed
-            its writes, so a shutdown that ends the session before that
-            cleanup runs leaves them unaccounted, and the wait answers None.
+        Inside its own delivery a wait skips its told waits, which only that
+        delivery ending could satisfy -- checked first, so a callback the GUI
+        delivers may still wait on its own run. Outside one, the UI thread
+        is where the told waits' deliveries run, so a wait there is refused.
         """
-        deadline = None if timeout_s is None else time.monotonic() + timeout_s
-        batch = self._write_batch
-        if not batch.wait_complete(_remaining(deadline)):
-            return None
-        while self.is_live:
-            if deadline is not None and time.monotonic() >= deadline:
-                return None
-            time.sleep(0.02)
-        # Read after the run ended: cleanup writes it before the run ends.
-        build = self._hyperstack_build
-        if build is not None:
-            build.join(_remaining(deadline))
-            if build.is_alive():
-                return None
-        return RunFiles(
-            outcome=batch.outcome,
-            written=batch.written,
-            not_written=batch.not_written,
-            not_written_reason=batch.not_written_reason,
-        )
+        me = threading.current_thread()
+        with self._delivery_lock:
+            if self._deliveries[me]:
+                return True
+        if me is kivy_utils.ui_thread():
+            raise RunWaitOnUiThreadError()
+        return False
+
+    @contextlib.contextmanager
+    def _delivering(self, told: threading.Event):
+        """Deliver one of this run's callbacks on this thread; *told* is set once it has run."""
+        me = threading.current_thread()
+        with self._delivery_lock:
+            self._deliveries[me] += 1
+        try:
+            yield
+        finally:
+            with self._delivery_lock:
+                self._deliveries[me] -= 1
+                if not self._deliveries[me]:
+                    del self._deliveries[me]
+            told.set()
 
     def stop(self) -> None:
         """Stop this run. Only asks: the run ends on its own thread.
@@ -318,7 +388,6 @@ class RunPlan:
     # The caller's own protocol, not a copy: the one object a completed
     # autofocus scan writes its focus into.
     write_focus_to: Protocol | None
-    leds_state_at_end: str
     video_as_frames: bool
     autofocus_snapshot: AutofocusSnapshot
     keep_led_between_steps: bool
@@ -429,7 +498,8 @@ class SequencedCaptureRunner:
         self._autofocus_runner = autofocus_runner
 
         self._scope = scope
-        self._run_trigger_source = None
+        # The run this runner last started: its trigger and its kind's words.
+        self._run_identity: RunIdentity | None = None
         # LED lease held for the duration of a scan -- acquired at run
         # start, passed to AF steps as the parent lease, released in
         # cleanup. None outside a run.
@@ -495,7 +565,7 @@ class SequencedCaptureRunner:
     def _reset_vars(self):
         self._run_dir = None
         self._tiling_configs_file_loc = None
-        self._run_trigger_source = None
+        self._run_identity = None
         self._image_writer = None
         # Nulled, not replaced: the next run's start() builds a fresh one
         # under the run lock. A run that never started must leave nothing
@@ -690,16 +760,17 @@ class SequencedCaptureRunner:
             if not self._is_run_live():
                 raise RunAlreadyEndedError('That run has already ended; no run is live.')
             if not self._is_live_run_locked(run):
-                holder = self._run_trigger_source
+                holder = self._run_identity
                 self._refuse(
                     reason='run_not_live',
                     title='Run Already Ended',
                     message=(
-                        f'That run has already ended. {self._the_run_holding_the_scope(holder)} '
+                        'That run has already ended. '
+                        f'{the_run_named(holder, sentence_start=True)} '
                         'is using the microscope now; stop it from its own control.'
                     ),
                     holder='protocol',
-                    holder_trigger=holder,
+                    holder_trigger=holder.trigger if holder is not None else None,
                 )
 
             # Recorded only past the guard above: a Stop that was refused
@@ -732,7 +803,7 @@ class SequencedCaptureRunner:
 
             logger.warning(
                 f'[{self.LOGGER_NAME}] force_reset({reason}): tearing down the '
-                f'{self._run_trigger_source} run without an owner check'
+                f'{self._last_run_trigger()} run without an owner check'
             )
             ending = RunEnding('aborted', 'force_reset', 'Protocol Stopped', reason)
             self._ending.set_if_unset(ending)
@@ -781,11 +852,12 @@ class SequencedCaptureRunner:
 
     @property
     def video_drain_busy(self) -> bool:
-        """True while a video step's write drain or finish outlives the run.
+        """True while a video step's write drain or finish is still running.
 
-        The app-close gate reads this: a run can end (or abort) while a
-        video drain tail is still writing final artifacts, and a silent
-        close in that window eats the tail.
+        The run's end waits for it, bounded (``wait_for_video_drains``), so
+        after the run it is True only when a drain outran that wait. The
+        app-close gate reads this: a close in that window cuts the video
+        short.
         """
         writer = self._image_writer
         return writer is not None and writer.video_busy
@@ -817,23 +889,13 @@ class SequencedCaptureRunner:
         return self._curr_step + 1
 
     @staticmethod
-    def _the_run_holding_the_scope(holder_trigger: 'str | None') -> str:
-        """Name the run that holds the scope, for a refusal to put in a sentence.
+    def _identity_of(plan: RunPlan) -> RunIdentity:
+        """The run a plan starts: its trigger, and its kind in words."""
+        return RunIdentity(trigger=plan.run_trigger_source, words=plan.run_mode.words)
 
-        One phrasing, one home. Every start refusal is handed the holder
-        already; before this they each printed a literal instead, so a
-        user turned away from a Z-stack by their own protocol read "a
-        protocol run is already in progress" and had to guess which
-        control to go back to. The stop refusal in _reset() has always
-        named it; this is that sentence's other half.
-
-        Falls back to the indefinite form rather than printing None: a
-        trigger is absent only where no run holds the scope, and a
-        sentence a user reads must still parse.
-        """
-        if not holder_trigger:
-            return 'A run'
-        return f'The {holder_trigger} run'
+    def _last_run_trigger(self) -> 'str | None':
+        """The trigger of the run this runner last started; None before any."""
+        return self._run_identity.trigger if self._run_identity is not None else None
 
     def _refuse_already_running(self) -> typing.NoReturn:
         """Refuse a start because a run already holds the scope.
@@ -842,16 +904,16 @@ class SequencedCaptureRunner:
         same question and printed the same literal in two places -- two
         phases with one answer between them.
         """
-        holder_trigger = self._run_trigger_source
+        holder = self._run_identity
         self._refuse(
             reason='already_running',
             title='Already Running',
             message=(
-                f'{self._the_run_holding_the_scope(holder_trigger)} is using the microscope. '
+                f'{the_run_named(holder, sentence_start=True)} is using the microscope. '
                 'Stop it from the control that started it, or let it finish.'
             ),
             holder='protocol',
-            holder_trigger=holder_trigger,
+            holder_trigger=holder.trigger if holder is not None else None,
         )
 
     def _refuse_foreign_holder(self, claim: 'ActivityClaim | BorrowedClaim') -> None:
@@ -881,10 +943,10 @@ class SequencedCaptureRunner:
             )
         else:
             title = 'Another Activity Running'
-            # The kind, not the word "another": an activity the user cannot
-            # name is one they cannot go and stop.
-            named = f'A {kind} activity' if kind else 'Another exclusive activity'
-            message = f'{named} is using the microscope. Let it finish, then start the run.'
+            message = (
+                f'{the_holder_named(holder)} is using the microscope. '
+                'Let it finish, then start the run.'
+            )
         self._refuse(
             reason='exclusive_activity_running',
             title=title,
@@ -967,7 +1029,6 @@ class SequencedCaptureRunner:
         # Anything a normal run must do with a found focus therefore cannot
         # be gated on this.
         write_focus_to: Protocol | None = None,
-        leds_state_at_end: str = 'off',
         video_as_frames: bool = False,
         keep_led_between_steps: bool = False,
         bf_af_for_fluorescence: bool = False,
@@ -980,9 +1041,9 @@ class SequencedCaptureRunner:
     ) -> RunPlan:
         """Validate a run request and build its immutable RunPlan.
 
-        Mutates no runner state, commands no hardware -- its one read of
-        the hardware is the stage's interlocks -- and writes nothing to
-        disk: a refused prepare is observationally a no-op. The
+        Mutates no runner state, commands no hardware -- it reads which
+        parts are connected and the stage's interlocks -- and writes nothing
+        to disk: a refused prepare is observationally a no-op. The
         record getters (run_dir(), num_scans()) still answer for the
         previous run; run_trigger_source() answers for whoever holds
         the scope, which a refused prepare did not change either. Callers commit their own
@@ -998,10 +1059,8 @@ class SequencedCaptureRunner:
                 errors, hardware not connected, an axis position not
                 known, the stage's lid open). The user has already been
                 notified once when this raises.
-            ValueError: leds_state_at_end is not a supported literal --
-                a programming error at the call site, not a refusal.
             TypeError: image_capture_config is not an ImageCaptureConfig
-                -- same class of call-site programming error.
+                -- a programming error at the call site, not a refusal.
         """
         # A foreign exclusive activity (a video recording, a diagnostic) is
         # the durable, user-actionable reason a run cannot start, and
@@ -1035,11 +1094,11 @@ class SequencedCaptureRunner:
             if batch.stalled(WRITE_STALL_FATAL_S):
                 unsaved = batch.pending
                 stalled = FileWriterStalledError.stalled_sentence(
-                    self._the_run_holding_the_scope(self._run_trigger_source),
+                    the_run_named(self._run_identity, sentence_start=True),
                     batch.describe_stuck_write(),
                 )
                 self._refuse(
-                    holder_trigger=self._run_trigger_source,
+                    holder_trigger=self._last_run_trigger(),
                     reason='files_writing_stalled',
                     title=FileWriterStalledError.title,
                     message=(
@@ -1052,19 +1111,19 @@ class SequencedCaptureRunner:
                 reason='files_writing',
                 title='Files Still Writing',
                 message=(
-                    f'{self._the_run_holding_the_scope(self._run_trigger_source)} is still '
+                    f'{the_run_named(self._run_identity, sentence_start=True)} is still '
                     'writing its files. Please wait.'
                 ),
-                holder_trigger=self._run_trigger_source,
+                holder_trigger=self._last_run_trigger(),
             )
 
-        # Nearly vestigial now that a standalone autofocus is itself a
-        # run (already_running fires first) -- kept deliberately for the
-        # abort-tail window where the AF thread is still winding down
-        # after the run flag clears.
-        # A winding-down autofocus still drives the Z axis and its LED
-        # restore; starting a run under it would contest Z motion and
-        # illumination (dark AF frames, garbage focus).
+        # A sweep still in flight with no run holding the scope is one its
+        # run's cleanup gave up waiting for: stuck, and recorded as that
+        # run's cleanup failure. (A sweep inside a live run is refused
+        # above, as the run.) Its run's lease and claim are gone, so it
+        # can no longer drive anything, but the one autofocus thread is
+        # still inside it, and a run started now would queue its own
+        # sweeps behind a call that may never return.
         in_flight_sweep = (
             self.autofocus_thread.in_flight_sweep if self.autofocus_thread is not None else None
         )
@@ -1073,18 +1132,13 @@ class SequencedCaptureRunner:
                 reason='autofocus_running',
                 title='Autofocus Running',
                 message=(
-                    f'An autofocus sweep from the {in_flight_sweep.run_trigger_source} run '
-                    'is still running. Stop it or let it finish, then start the run.'
+                    f'The autofocus sweep from {the_run_named(in_flight_sweep.run)} '
+                    'did not stop when its run ended. Restart LumaViewPro if it '
+                    'does not clear.'
                 ),
                 holder='autofocus',
-                holder_trigger=in_flight_sweep.run_trigger_source,
+                holder_trigger=in_flight_sweep.run.trigger,
             )
-
-        if leds_state_at_end not in (
-            'off',
-            'return_to_original',
-        ):
-            raise ValueError(f'Unsupported value for leds_state_at_end: {leds_state_at_end}')
 
         # A wrong-shaped config (e.g. a legacy dict) must fail at this
         # boundary, not as an AttributeError on the protocol thread after
@@ -1122,6 +1176,25 @@ class SequencedCaptureRunner:
                 reason='empty_protocol',
                 title='No Steps',
                 message='Protocol has no steps. Add at least one step before running.',
+            )
+
+        # Before the step validation: a scope missing a part is told that
+        # first, not a symptom of it -- with no LED board there is no current
+        # cap to judge a step's illumination against.
+        try:
+            unconnected = self._scope.unconnected_parts()
+        except Exception as ex:
+            self._hardware_state_unknown('check hardware connection status', ex)
+        named = [f'the {part}' for part in unconnected]
+        if named:
+            parts = named[0] if len(named) == 1 else f'{", ".join(named[:-1])} and {named[-1]}'
+            self._refuse(
+                reason='hardware_disconnected',
+                title='Hardware Disconnected',
+                message=(
+                    f'{parts[0].upper()}{parts[1:]} {"is" if len(named) == 1 else "are"} '
+                    'not connected. Check connections and try again.'
+                ),
             )
 
         # Pre-run validation: the steps are well-formed enough to run
@@ -1191,27 +1264,12 @@ class SequencedCaptureRunner:
         # memory meets it only here.
         self._scope.protocols.refuse_absent_layers(protocol)
 
-        try:
-            all_connected = self._scope.are_all_connected()
-        except Exception as ex:
-            self._hardware_state_unknown('check hardware connection status', ex)
-        if not all_connected:
-            self._refuse(
-                reason='hardware_disconnected',
-                title='Hardware Disconnected',
-                message=(
-                    'Not all hardware components are connected. Check connections and try again.'
-                ),
-            )
-
         # After the connection gate, so a motorized scope whose board fell
         # off is told it is disconnected rather than that it cannot move;
         # after the objective gate, so a protocol for glass this scope cannot
-        # put in the light path is told that first. The offset is the scope's,
-        # the one the gate judges X/Y with, snapshotted so the run converts
-        # with the offset it was admitted at.
-        self._scope.protocols.refuse_unreachable_positions(protocol.steps(), protocol.labware())
-        stage_offset = copy.deepcopy(self._scope.runtime_state.get_stage_offset())
+        # put in the light path is told that first. Before the not-homed
+        # gate: a scope with no motor for an axis cannot be homed into one.
+        self._scope.protocols.refuse_unreachable_positions(protocol.steps())
         self._scope.protocols.refuse_camera_values_out_of_range(protocol.steps())
 
         # Every run mode moves every axis this scope has, and each move on
@@ -1255,6 +1313,13 @@ class SequencedCaptureRunner:
                     'Close it, then start the run.'
                 ),
             )
+
+        # After the not-homed gate: an unhomed scope is told to home, not
+        # that its steps are outside travel. The offset is the scope's, the
+        # one the gate judges X/Y with, snapshotted so the run converts with
+        # the offset it was admitted at.
+        self._scope.protocols.refuse_positions_outside_travel(protocol.steps(), protocol.labware())
+        stage_offset = copy.deepcopy(self._scope.runtime_state.get_stage_offset())
 
         # The last gate, and the only one about where the run SAVES rather
         # than about the instrument. Without it a bad save location is
@@ -1324,7 +1389,6 @@ class SequencedCaptureRunner:
             disable_saving_artifacts=disable_saving_artifacts,
             save_autofocus_data=save_autofocus_data,
             write_focus_to=write_focus_to,
-            leds_state_at_end=leds_state_at_end,
             video_as_frames=video_as_frames,
             # The states freeze with the plan; the restorer is a function,
             # which deepcopy leaves as the same object, so it keeps writing
@@ -1350,12 +1414,13 @@ class SequencedCaptureRunner:
         capture, re-arms it -- every capture of a run the user set to
         manual then runs auto and pays the settle -- and a protocol's
         first autofocus step scans at the live view's values instead of
-        the step's. The manual autofocus one-shot keeps the arm: it
-        focuses the field the user is watching, live arm included, and
-        its own lock scans at what that arm achieved.
+        the step's. An autofocus scan is a protocol's steps too, and
+        focuses each at that step's values. The manual autofocus one-shot
+        keeps the arm: it focuses the field the user is watching, live arm
+        included, and its own lock scans at what that arm achieved.
         """
         arm = self._saved_camera_state.get('auto_gain_arm')
-        if arm is None or self._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN:
+        if arm is None or self._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS:
             return
         try:
             self._scope.imaging.set_auto_gain(False, dict(arm.settings))
@@ -1459,7 +1524,7 @@ class SequencedCaptureRunner:
             # same call that takes it: the holder question has one store,
             # and it is the one that already knows whether anything holds
             # the scope at all.
-            held = claim.try_claim('protocol', run_trigger_source=plan.run_trigger_source)
+            held = claim.try_claim('protocol', run=self._identity_of(plan))
             if held is None:
                 self._refuse_exclusive_activity(claim.holder)
             self._held_claim = held
@@ -1495,7 +1560,6 @@ class SequencedCaptureRunner:
             self._disable_saving_artifacts = plan.disable_saving_artifacts
             self._save_autofocus_data = plan.save_autofocus_data
             self._write_focus_to = plan.write_focus_to
-            self._leds_state_at_end = plan.leds_state_at_end
             self._keep_led_between_steps = plan.keep_led_between_steps
             self._video_as_frames = plan.video_as_frames
             self._bf_af_for_fluorescence = plan.bf_af_for_fluorescence
@@ -1505,7 +1569,7 @@ class SequencedCaptureRunner:
             self._engineering_mode = plan.engineering_mode
             self._stage_offset = plan.stage_offset
             self._composite_thresholds_percent = plan.composite_thresholds_percent
-            self._run_trigger_source = plan.run_trigger_source
+            self._run_identity = self._identity_of(plan)
             # Failure-safe defaults: a setup failure below unwinds through
             # the normal run cleanup, which reads these; a prior run's stale
             # snapshots must not leak into that unwind.
@@ -1578,16 +1642,18 @@ class SequencedCaptureRunner:
         try:
             # Declare whether anyone is watching, so non-fatal popups are
             # suppressed for a batch nobody is in front of and delivered for
-            # an operation the user is waiting on. Cleared on every cleanup
+            # an operation the user is waiting on. Closed on every cleanup
             # path in _cleanup_inner.
             #
-            # Passing an unconditional True here is what silenced the
-            # Autofocus button's own failure popup: the button runs through
-            # this runner, so the run suppressed the very message it existed
-            # to produce, ~0.5s before cleanup lowered the flag again.
+            # What the run does decides it, never who started it: a REST
+            # autofocus is the same operation as the button's. A run under a
+            # borrowed claim is one step of its caller's activity, which gets
+            # the outcome through the handle and decides what to show.
             from modules.notification_center import notifications
 
-            notifications.set_unattended_run(plan.run_trigger_source not in _ATTENDED_RUN_TRIGGERS)
+            notifications.open_run_scope(
+                attended=plan.run_mode.is_one_position and plan.borrowed_claim is None
+            )
 
             # Resolved once here, before anything touches the disk, so a
             # scope with no registered source path fails the run at start
@@ -1621,6 +1687,9 @@ class SequencedCaptureRunner:
                 engineering_mode=self._engineering_mode,
                 run_claim=self._held_claim.lend(),
                 labware=self._scope.wellplate_loader.get_plate(plate_key=self._protocol.labware()),
+                to_plate=self._scope.protocols.plate_transform(
+                    self._protocol, stage_offset=self._stage_offset
+                ),
                 captures_asked=(
                     plan.n_scans * self._protocol.num_steps()
                     if plan.enable_image_saving and not plan.disable_saving_artifacts
@@ -1647,6 +1716,12 @@ class SequencedCaptureRunner:
             with self._run_lock:
                 stopped = self._ending.get()
                 if stopped is None:
+                    # The run's folder, as its setup left it (None when it
+                    # saves nothing), written to the handle before the loop
+                    # can run: once the loop ends the run, a run_complete
+                    # subscriber may start the next, whose setup replaces
+                    # the runner's.
+                    handle._run_dir = self._run_dir
                     dispatch_future = self.protocol_thread.run_protocol(
                         functools.partial(self._run_loop_under_claim, handle)
                     )
@@ -1672,10 +1747,6 @@ class SequencedCaptureRunner:
         else:
             if stopped is not None:
                 self._unwind_undispatched_run(stopped, handle)
-
-        # The run's folder, as its setup left it: None when it saves
-        # nothing, and when a failed or stopped start unwound it.
-        handle._run_dir = self._run_dir
 
         # Reached on the failed-at-start and stopped-before-dispatch paths too, where the unwind has
         # already resolved the outcome: the caller waits and is told at once.
@@ -1742,9 +1813,8 @@ class SequencedCaptureRunner:
             )
         self._ending.set_if_unset(ending)
         self._unwind_undispatched_run(ending, run)
-        # Notify AFTER cleanup: on an unattended run start() enabled the popup
-        # suppression, which drops this non-fatal error until cleanup's
-        # set_unattended_run(False) restores popups.
+        # Notify AFTER cleanup: on an unattended run start() opened a muting
+        # run scope, which drops this non-fatal error until cleanup closes it.
         from modules.notification_center import notifications
 
         notifications.report_outcome(
@@ -1774,8 +1844,9 @@ class SequencedCaptureRunner:
         # A run that never started has no usable run directory; answering
         # with the (possibly just-deleted) path would send callers'
         # started-run follow-ups (last-save-folder shortcuts) to a dead
-        # location.
+        # location. The handle too: a dispatch that was refused wrote it.
         self._run_dir = None
+        run._run_dir = None
         self._cleanup(ending, run)
 
     def abort_run_fatal(self, reason: str, title: str, message: str) -> None:
@@ -1863,6 +1934,7 @@ class SequencedCaptureRunner:
         force_reset, for a run whose loop ended without unwinding it. No
         two of them can reach the same run.
         """
+        after_end: list[typing.Callable[[], None]] = []
         try:
             # Cleanup runs on whichever thread ended the run -- the protocol
             # thread, a stop pressed in the GUI, a script's reset -- and its
@@ -1871,15 +1943,27 @@ class SequencedCaptureRunner:
             # taking left keeps the thread's own.
             held = self._held_claim
             if held is None:
-                self._cleanup_inner(ending, run)
+                self._cleanup_inner(ending, run, after_end)
             else:
                 with acting(held):
-                    self._cleanup_inner(ending, run)
+                    self._cleanup_inner(ending, run, after_end)
         finally:
-            # After IDLE: a listener that reads is_live_run, or starts the
-            # next run, sees the run ended.
-            if self._on_run_idle is not None:
-                self._on_run_idle()
+            # After IDLE and the release, outside the run's taking: a
+            # listener that reads is_live_run, or starts the next run, sees
+            # the run ended -- the Session's levels first, then run_complete,
+            # then the files' completion. The callbacks go through the UI
+            # dispatcher: under the GUI on its thread, else inline on the
+            # thread that ended the run, where a callback that waits on a
+            # run it starts waits behind itself. Each on its own: a raise in
+            # one must not skip the rest.
+            from modules.notification_center import notifications
+
+            told = [self._on_run_idle] if self._on_run_idle is not None else []
+            for tell in told + after_end:
+                try:
+                    tell()
+                except Exception as ex:
+                    notifications.report_outcome(ex, solicited=False, category='Protocol')
 
     def _run_loop_under_claim(self, run: RunHandle) -> None:
         """The run loop, on the protocol thread, acting under the run's taking.
@@ -1997,14 +2081,9 @@ class SequencedCaptureRunner:
                 # Only a standalone autofocus run has one focus to report;
                 # the sweep clears its result per run, so a sweep that chose
                 # none reads None here rather than an earlier run's focus.
-                # An autofocus scan of every step runs in the same mode and
-                # is told apart by the protocol it writes its focus into:
-                # its answer is that protocol's Z column, not the last
-                # step's focus.
-                if (
-                    self._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN
-                    and self._write_focus_to is None
-                ):
+                # An autofocus scan of every step answers with the protocol's
+                # Z column it wrote, not the last step's focus.
+                if self._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS:
                     outcome.record_autofocus_focus(self._autofocus_runner.best_focus_position())
             if (
                 ending.status not in ('completed', 'incomplete')
@@ -2080,7 +2159,7 @@ class SequencedCaptureRunner:
         from modules.notification_center import notifications
 
         stalled = FileWriterStalledError(
-            self._the_run_holding_the_scope(self._run_trigger_source),
+            the_run_named(self._run_identity, sentence_start=True),
             batch.describe_stuck_write(),
             batch.pending,
         )
@@ -2166,7 +2245,7 @@ class SequencedCaptureRunner:
         Returns:
             The build thread, or None when this run does not build.
         """
-        if self._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN:
+        if self._run_mode.is_autofocus:
             return None
         config = self._image_capture_config
         if config is None or config.output_format_sequenced != image_mode.OUTPUT_FORMAT_HYPERSTACK:
@@ -2222,9 +2301,9 @@ class SequencedCaptureRunner:
         )
         has_turret = self._scope.capabilities.has_turret
         tiling_configs_file_loc = self._tiling_configs_file_loc
-        # A composite missing a channel is told by the merge, once, beside
-        # what the channels it has made: the run's shortfall alone when the
-        # merge succeeds, inside the merge failure when it does not.
+        # A composite missing a channel is told by the merge, once, as its
+        # own notice after what became of the merge, whether it merged or
+        # not, and before the outcome settles.
         incomplete = None
         if ending.status == 'incomplete':
             tally = self._image_writer.capture_tally
@@ -2234,22 +2313,47 @@ class SequencedCaptureRunner:
                 failed_steps=[failed.step_name for failed in tally.failed],
             )
 
-        def _fail(reason: str, detail: str, cause: BaseException | None = None) -> None:
-            # The one place a merge failure becomes visible: one report,
-            # one resolved outcome -- the shape a run
-            # refusal uses, so a caller waiting on the outcome never
-            # re-notifies. Success is silent by design: the saved folder
-            # is the record, and the button handed the UI back at run end.
-            # A merge that raised is the failure's cause, so the one record
-            # carries its traceback.
+        def _settle(
+            failure: BaseException | None, *, artifact_path: str | None, merge_reason: str
+        ) -> None:
+            # Every exit of the merge ends here, in one order: what is owed
+            # is reported, then the outcome settles, so a caller it releases
+            # finds the run's reports already made. A merge failure is one
+            # report of it, then the run's shortfall when it has one, and
+            # one resolved outcome -- the shape a run refusal uses, so a
+            # caller waiting on the outcome never re-notifies. Success is
+            # silent by design: the saved folder is the record, and the
+            # button handed the UI back at run end. The failure is reported
+            # as its own type, as the hyperstack build reports its own: a
+            # refusal shows as one, under its own title, only an exception
+            # whose type has no title is named "Composite Failed", and a
+            # raised one's record carries its traceback. The resolve is in a
+            # finally: this thread is the one thing that settles the armed
+            # outcome, so a raise while reporting would otherwise leave the
+            # caller waiting out its whole bound.
             from modules.notification_center import notifications
 
-            if incomplete is not None:
-                detail = f'{incomplete} {detail}'
-            failure = CompositeFailedError(detail, reason)
-            failure.__cause__ = cause
-            notifications.report_outcome(failure, solicited=False, category='Protocol')
-            outcome.resolve(token, merged=False, artifact_path=None, merge_reason=reason)
+            try:
+                if failure is not None:
+                    notifications.report_outcome(
+                        failure,
+                        solicited=False,
+                        category='Protocol',
+                        fault_title='Composite Failed',
+                    )
+                if incomplete is not None:
+                    notifications.report_outcome(incomplete, solicited=False, category='Protocol')
+            finally:
+                outcome.resolve(
+                    token,
+                    merged=artifact_path is not None,
+                    artifact_path=artifact_path,
+                    merge_reason=merge_reason,
+                )
+
+        def _fail(reason: str, detail: str) -> None:
+            # The merge's own reasons, where nothing was raised.
+            _settle(CompositeFailedError(detail, reason), artifact_path=None, merge_reason=reason)
 
         # Decline-to-start is TOTAL: anything that makes a merge impossible
         # settles here and now, rather than leaving the outcome armed with
@@ -2273,24 +2377,18 @@ class SequencedCaptureRunner:
                     brightness_thresholds_percent=thresholds,
                 )
             except Exception as ex:
-                # A typed outcome says why in its own reason and words; only
-                # an exception that carries neither is named by its class.
-                reason = getattr(ex, 'reason', None)
-                if reason:
-                    _fail(reason, str(ex), cause=ex)
-                else:
-                    _fail(
-                        'merge_error', f'The merge failed with {type(ex).__name__}: {ex}', cause=ex
-                    )
+                # A typed outcome says why in its own reason, kind and words;
+                # an exception that carries no reason is the merge's error.
+                _settle(
+                    ex,
+                    artifact_path=None,
+                    merge_reason=getattr(ex, 'reason', None) or 'merge_error',
+                )
                 return
             paths = result.get('artifact_paths') or []
             if paths:
                 logger.info(f'[{self.LOGGER_NAME}] Composite saved: {paths[0]}')
-                outcome.resolve(token, merged=True, artifact_path=paths[0], merge_reason='')
-                if incomplete is not None:
-                    from modules.notification_center import notifications
-
-                    notifications.report_outcome(incomplete, solicited=False, category='Protocol')
+                _settle(None, artifact_path=paths[0], merge_reason='')
             else:
                 _fail('merge_failed', 'The merge finished without producing a composite file.')
 
@@ -2311,16 +2409,18 @@ class SequencedCaptureRunner:
         return thread
 
     def _close_run_writes(
-        self, write_batch: RunWriteBatch, run_complete: RunCompleteNotice
-    ) -> None:
-        """Close the run's writes, and set what follows the last one landing.
+        self, write_batch: RunWriteBatch, ending: RunEnding, run: RunHandle
+    ) -> typing.Callable[[str], None]:
+        """Close the run's writes; return what follows the last one landing.
 
         Once every image the run captured is on disk -- or given up on by a
         writer recovery or a shutdown -- the execution record completes and
-        reconciles, run_complete goes out if cleanup never reached it, then
-        files_complete with the outcome, then the Session hears the drain
-        end. Everything is captured by value: by then a successor run may
-        own this runner's fields.
+        reconciles, the Session hears the drain end, and files_complete goes
+        out with the outcome last, so marking *run*'s files told covers every
+        action. The returned actions are handed to the batch by the run's
+        end, after the run has let go of the scope, so none reaches a caller
+        while the run still holds it. Everything is captured by value: by
+        then a successor run may own this runner's fields.
 
         Never raises: it runs in cleanup's finally ahead of the releases, and
         a raise there would leak the claim and refuse every future run.
@@ -2336,9 +2436,9 @@ class SequencedCaptureRunner:
         # are not all there, in the one report its run makes.
         merge_reports_files = (
             self._run_mode is SequencedCaptureRunMode.SINGLE_COMPOSITE
-            and run_complete.ending.status in ('completed', 'incomplete')
+            and ending.status in ('completed', 'incomplete')
         )
-        already_told = run_complete.ending.reason in FILES_LOST_ENDINGS
+        already_told = ending.reason in FILES_LOST_ENDINGS
 
         def _complete_record() -> None:
             try:
@@ -2386,16 +2486,15 @@ class SequencedCaptureRunner:
                 )
             if record is not None:
                 actions.append(_complete_record)
-            actions.append(run_complete.send)
-            actions.append(
-                lambda: schedule_files_complete(
-                    callbacks, protocol=protocol, run_dir=run_dir, files=outcome
-                )
-            )
             # The drain's end is a run-state change: the Session re-reads
             # its levels, as it does when the run itself goes idle.
             if on_run_state is not None:
                 actions.append(on_run_state)
+            actions.append(
+                lambda: schedule_files_complete(
+                    callbacks, run=run, protocol=protocol, run_dir=run_dir, files=outcome
+                )
+            )
             for action in actions:
                 try:
                     action()
@@ -2403,22 +2502,34 @@ class SequencedCaptureRunner:
                     notifications.report_outcome(ex, solicited=False, category='Protocol')
 
         try:
-            write_batch.close(_files_written)
+            write_batch.close()
         except Exception as ex:
             notifications.report_outcome(ex, solicited=False, category='Protocol')
+        return _files_written
 
-    def _cleanup_inner(self, ending: RunEnding, run: RunHandle):
+    def _cleanup_inner(
+        self, ending: RunEnding, run: RunHandle, after_end: list[typing.Callable[[], None]]
+    ):
+        """Put the scope back and let go of it; what tells callers goes in *after_end*.
+
+        The caller runs *after_end* once this has returned or raised, when
+        the run is IDLE and its claim released: a caller told the run is
+        over can act on the scope at once. Filled on every path out.
+        """
         from modules.notification_center import notifications
 
-        # Restore popups: the unattended-run suppression ends here, on
-        # every cleanup path (normal end and abort). Unconditional -- an
-        # attended run never raised it, and lowering it twice is harmless,
-        # where missing one lowering mutes popups for the whole session.
-        notifications.set_unattended_run(False)
+        # The run's scope ends here, on every cleanup path (normal end and
+        # abort). Unconditional -- closing twice is harmless, where missing
+        # one close would judge every later post as this run's.
+        notifications.close_run_scope()
 
         led_end_state_applied = False
         # This run's writes and its one run_complete, read while the run is
-        # still this runner's.
+        # still this runner's. The notice carries the run's protocol, ending
+        # and directory by value: it is sent after the release, when a
+        # successor's start() may have replaced the runner's fields, and a
+        # subscriber would otherwise process the successor's directory as
+        # this run's.
         write_batch = self._write_batch
         run_complete = None
         try:
@@ -2450,7 +2561,7 @@ class SequencedCaptureRunner:
                 set_state_fn=self._set_state,
                 scan_in_progress=self._scan_in_progress,
                 forced_dark=forced_dark,
-                leds_state_at_end=self._leds_state_at_end,
+                leds_state_at_end=self._run_mode.leds_state_at_end,
                 original_led_states=self._original_led_states,
                 autofocus_snapshot=self._autofocus_snapshot,
                 saved_camera_state=getattr(self, '_saved_camera_state', None),
@@ -2462,7 +2573,6 @@ class SequencedCaptureRunner:
                 cancel_scheduled_events_fn=self._cancel_all_scheduled_events,
                 autofocus_thread=self.autofocus_thread,
                 write_batch=write_batch,
-                run_complete=run_complete,
                 logger_name=self.LOGGER_NAME,
                 ending=ending,
                 record_cleanup_failures=run._pending.record_cleanup_failures,
@@ -2480,11 +2590,17 @@ class SequencedCaptureRunner:
                 # owned the run's LEDs (double cleanup, early return)
                 # must not darken a prior cleanup's restored end-state.
                 try:
-                    self._scope.illumination.force_off()
-                    logger.warning(
-                        f'[{self.LOGGER_NAME}] Cleanup: LED end-state undecided; '
-                        'forced all channels dark before lease release'
-                    )
+                    if self._scope.illumination.force_off():
+                        logger.warning(
+                            f'[{self.LOGGER_NAME}] Cleanup: LED end-state undecided; '
+                            'forced all channels dark before lease release'
+                        )
+                    else:
+                        logger.warning(
+                            f'[{self.LOGGER_NAME}] Cleanup: LED end-state undecided, and '
+                            'the LED controller is not connected, so no channel could be '
+                            'forced dark; a channel the board holds lit stays lit'
+                        )
                 except Exception:
                     logger.error(
                         f'[{self.LOGGER_NAME}] Cleanup: forced LED extinguish failed',
@@ -2495,16 +2611,18 @@ class SequencedCaptureRunner:
             # outcome, and a next run's prepare(), read this batch, and must
             # find it closed and still draining rather than open and not yet
             # asked.
-            self._close_run_writes(
-                write_batch,
-                run_complete
-                or RunCompleteNotice(
-                    self._callbacks,
-                    protocol=self._protocol,
-                    ending=self._ending.get() or ending,
-                    run_dir=self._run_dir,
-                ),
+            run_complete = run_complete or RunCompleteNotice(
+                self._callbacks,
+                protocol=self._protocol,
+                ending=self._ending.get() or ending,
+                run_dir=self._run_dir,
             )
+            files_written = self._close_run_writes(write_batch, run_complete.ending, run)
+            # Told after the release, run_complete first: a subscriber hears
+            # the run end before its files, on every path, a cleanup that
+            # raised above included.
+            after_end.append(lambda: run_complete.send(run))
+            after_end.append(lambda: write_batch.when_complete(files_written))
             # Settle (or arm) the run's merge outcome before the releases
             # below, while the fields it reads are still this run's: once
             # the run is IDLE a successor's start() replaces them.

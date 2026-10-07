@@ -48,6 +48,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from tests.settings_fixtures import complete_settings
+from tests.protocol_drives import run_identity
 
 # Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
 # tests/conftest.py at module-import time. Mock settings_init before
@@ -78,6 +79,8 @@ from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
 
 COMPLETION_TIMEOUT = 15  # seconds -- generous for CI
+# A bound only on a stuck file lane: a loaded host can take seconds to write.
+FILES_WAIT_S = 60
 
 TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
@@ -260,7 +263,6 @@ def _prepare(executor, protocol, tmp_path, callbacks=None, sequence_name='refusa
         parent_dir=tmp_path / 'output',
         max_scans=1,
         callbacks=cbs,
-        leds_state_at_end='off',
         # The snapshot carries its own restorer, so cleanup never reaches
         # the global settings module that other test files replace with
         # import-order-dependent stand-ins.
@@ -273,25 +275,11 @@ def _run_to_completion(executor, protocol, tmp_path):
     plan = _prepare(
         executor, protocol, tmp_path, callbacks={'run_complete': lambda **kw: done.set()}
     )
-    executor.start(plan)
+    handle = executor.start(plan)
     assert done.wait(timeout=COMPLETION_TIMEOUT), 'run did not complete within timeout'
-
-
-def _wait_for_file_queue_drain(executor, timeout=5.0):
-    """Wait until the last run's files have landed: its write batch, the
-    store prepare()'s files_writing gate reads."""
-    batch = executor.write_batch()
-    if batch is not None and not batch.wait_complete(timeout):
-        raise TimeoutError("the last run's files did not land in time")
-
-
-def _wait_for_session_files_written(session, timeout=5.0):
-    """The Session's answer to the same question, for an L2 caller."""
-    deadline = time.monotonic() + timeout
-    while session.protocol_files_draining:
-        if time.monotonic() > deadline:
-            raise TimeoutError("the last run's files did not land in time")
-        time.sleep(0.05)
+    # Its files land after it lets go of the scope, and prepare() refuses
+    # the next run until they have.
+    assert handle.wait_for_files(timeout_s=FILES_WAIT_S) is not None, "the run's files never landed"
 
 
 def _wait_for_executors_out_of_protocol_mode(executor, timeout=5.0):
@@ -319,7 +307,7 @@ def _a_closed_batch_still_writing(*, stuck_write=None):
     lane.describe_running_task.return_value = stuck_write
     batch = RunWriteBatch(lane)
     batch.submit(lambda: None, {}, what='a capture', pace_until=None)
-    batch.close(lambda outcome: None)
+    batch.close()
     return batch
 
 
@@ -414,7 +402,7 @@ class TestHeadlessRefusalDoesNotHang:
             # The completed run is still writing its files, and prepare()
             # refuses a new run until they land -- a refusal this test is
             # not about.
-            _wait_for_session_files_written(session)
+            assert first.wait_for_files(timeout_s=FILES_WAIT_S) is not None
 
             # A refused run raises out of run_single_scan; nothing waits.
             with pytest.raises(ProtocolRunRefusedError) as excinfo:
@@ -460,7 +448,6 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
         self, executor, tmp_path, monkeypatch, centre_posts
     ):
         _run_to_completion(executor, _make_single_step_protocol(), tmp_path)
-        _wait_for_file_queue_drain(executor)
         output_dir = tmp_path / 'output'
         listing_after_first = sorted(p.name for p in output_dir.iterdir())
 
@@ -529,7 +516,6 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
 
     def test_refused_prepare_preserves_previous_run_state(self, executor, tmp_path, monkeypatch):
         _run_to_completion(executor, _make_single_step_protocol(), tmp_path)
-        _wait_for_file_queue_drain(executor)
         output_dir = tmp_path / 'output'
         first_run_dir = executor.run_dir()
         first_num_scans = executor.num_scans()
@@ -591,7 +577,6 @@ class TestTheCompositeChannelFloor:
             parent_dir=tmp_path / 'output',
             max_scans=1,
             callbacks={'go_to_step': lambda **kw: None, 'move_position': lambda axis: None},
-            leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
 
@@ -793,7 +778,7 @@ class TestRefusalNotifyOnceFunnel:
             return protocol
 
         def hardware_disconnected(mp):
-            mp.setattr(scope, 'are_all_connected', lambda: False)
+            mp.setattr(scope, 'unconnected_parts', lambda: ('camera',))
             return _make_single_step_protocol()
 
         def position_unknown(mp):
@@ -815,7 +800,7 @@ class TestRefusalNotifyOnceFunnel:
             mp.setattr(
                 executor.autofocus_thread,
                 'in_flight_sweep',
-                AutofocusSweep(future=Future(), run_trigger_source='autofocus'),
+                AutofocusSweep(future=Future(), run=run_identity('autofocus')),
             )
             return _make_single_step_protocol()
 

@@ -8,10 +8,14 @@ work out which control to go back to. The stop refusal in ``reset()`` has
 always named the holder; these are the other half of that sentence, and
 they now share its phrasing rather than copying its words.
 
-The holder is not new state. ``_run_trigger_source`` is written by
-``start()`` with the claim, and the file-drain gates read it as the
-just-finished run's -- which is exactly the run whose files are still
-landing, so naming it there is naming the right run.
+The holder is not new state. ``_run_identity`` is written by ``start()``
+with the claim, and the file-drain gates read it as the just-finished
+run's -- which is exactly the run whose files are still landing, so naming
+it there is naming the right run.
+
+The run is named by its kind in a person's words ('the Z-stack run'), never
+by the token its starter passed ('zstack', 'api_autofocus_scan'): the token
+is provenance, carried on the refusal as ``holder_trigger``.
 """
 
 from __future__ import annotations
@@ -34,13 +38,14 @@ from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     executors,
     scope,
 )
+from tests.protocol_drives import run_identity
 
 
 def _a_zstack_holds_the_scope(executor):
     """The state start() commits for a live z-stack run, as its fields:
     the phase, the trigger, and the handle start() returned."""
     executor._set_state(ProtocolState.RUNNING)
-    executor._run_trigger_source = 'zstack'
+    executor._run_identity = run_identity('zstack', 'Z-stack')
     executor._run_outcome = PendingRunOutcome()
 
 
@@ -69,9 +74,11 @@ class TestTheRefusalNamesTheHolder:
             executor._set_state(ProtocolState.IDLE)
 
         assert refusal.value.reason == 'already_running'
-        assert 'zstack' in refusal.value.message, (
+        assert refusal.value.message.startswith('The Z-stack run is using the microscope'), (
             f'the refusal must name the run that has the scope: {refusal.value.message!r}'
         )
+        assert 'zstack' not in refusal.value.message, 'a raw trigger token reached a person'
+        assert refusal.value.holder_trigger == 'zstack'
         assert 'A protocol run is already in progress' not in refusal.value.message, (
             'the old literal told every caller the same thing about a different run'
         )
@@ -80,23 +87,24 @@ class TestTheRefusalNamesTheHolder:
         self, executor, tmp_path, monkeypatch
     ):
         """The just-finished run, which is the one still writing."""
-        executor._run_trigger_source = 'zstack'
+        executor._run_identity = run_identity('zstack', 'Z-stack')
         # The finished run's write batch, closed with a write still to land:
         # a real batch over a stand-in lane that never runs it.
         lane = MagicMock()
         lane.in_flight_task_stalled.return_value = False
         still_writing = RunWriteBatch(lane)
         still_writing.submit(lambda: None, {}, what='a capture', pace_until=None)
-        still_writing.close(lambda outcome: None)
+        still_writing.close()
         monkeypatch.setattr(executor, '_write_batch', still_writing)
 
         with pytest.raises(ProtocolRunRefusedError) as refusal:
             _start_a_scan(executor, tmp_path)
 
         assert refusal.value.reason == 'files_writing'
-        assert 'zstack' in refusal.value.message, (
+        assert refusal.value.message.startswith('The Z-stack run is still writing'), (
             f'"previous run" named no run at all: {refusal.value.message!r}'
         )
+        assert refusal.value.holder_trigger == 'zstack'
 
     def test_a_refused_stop_still_names_the_owner(self, executor):
         """The sentence this shares: a stop naming a run that has ended,
@@ -111,7 +119,51 @@ class TestTheRefusalNamesTheHolder:
 
         assert refusal.value.reason == 'run_not_live'
         assert refusal.value.holder_trigger == 'zstack'
-        assert 'zstack' in refusal.value.message
+        assert 'The Z-stack run is using the microscope now' in refusal.value.message
+        assert 'zstack' not in refusal.value.message
+
+
+class TestARawTokenNeverReachesAPerson:
+    def test_an_api_run_is_named_by_its_kind(self, executor, tmp_path):
+        """A script's autofocus scan once read 'The api_autofocus_scan run'.
+        The token is the caller's provenance; the sentence names the run."""
+        executor._set_state(ProtocolState.RUNNING)
+        executor._run_identity = run_identity('api_autofocus_scan', 'autofocus scan')
+        executor._run_outcome = PendingRunOutcome()
+        try:
+            with pytest.raises(ProtocolRunRefusedError) as refusal:
+                _start_a_scan(executor, tmp_path)
+        finally:
+            executor._set_state(ProtocolState.IDLE)
+
+        assert refusal.value.message.startswith('The autofocus scan run is using the microscope')
+        assert 'api_' not in refusal.value.message
+        assert refusal.value.holder_trigger == 'api_autofocus_scan'
+
+    def test_a_diagnostic_refused_by_a_run_names_the_run(self):
+        from modules.activity_claim import ActivityClaim
+        from modules.exceptions import DiagnosticRefusedError
+        from modules.scope_session import ScopeSession
+
+        session = ScopeSession.__new__(ScopeSession)
+        session.activity_claim = ActivityClaim()
+        held = session.activity_claim.try_claim(
+            'protocol', run=run_identity('api_zstack', 'Z-stack')
+        )
+        try:
+            with pytest.raises(DiagnosticRefusedError) as refusal, session.diagnostic_claim():
+                pass
+        finally:
+            held.release()
+
+        assert refusal.value.message.startswith('The Z-stack run is using the microscope')
+        assert refusal.value.holder_trigger == 'api_zstack'
+
+    def test_a_run_claim_without_its_run_cannot_be_taken(self):
+        from modules.activity_claim import ActivityClaim
+
+        with pytest.raises(ValueError):
+            ActivityClaim().try_claim('protocol')
 
 
 class TestTheSentenceStillParsesWithNoHolder:
@@ -122,7 +174,7 @@ class TestTheSentenceStillParsesWithNoHolder:
         the indefinite article rather than to 'The None run'.
         """
         executor._set_state(ProtocolState.RUNNING)
-        executor._run_trigger_source = None
+        executor._run_identity = None
         try:
             with pytest.raises(ProtocolRunRefusedError) as refusal:
                 _start_a_scan(executor, tmp_path)

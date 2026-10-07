@@ -92,7 +92,7 @@ class TestTheLaneIsHeld:
             # A run's writes, queued behind the stuck one, and the run over.
             batch = RunWriteBatch(session.file_io_executor)
             batch.submit(lambda: None, {}, what='The image', pace_until=None)
-            batch.close(lambda outcome: None)
+            batch.close()
             session.sequenced_capture_runner._write_batch = batch
 
             assert _wait_for(

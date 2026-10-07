@@ -140,7 +140,7 @@ class TestWhatASubscriberHears:
         self, session, centre
     ):
         heard = _listening(session)
-        centre.set_unattended_run(True)
+        centre.open_run_scope(attended=False)
 
         shown = centre.error('Camera', 'Camera Not Delivering Frames', 'stalled')
 
@@ -160,9 +160,9 @@ class TestWhatASubscriberHears:
         heard = _listening(session)
         fault = _StreamStoppedError('stopped')
 
-        centre.set_unattended_run(True)
+        centre.open_run_scope(attended=False)
         centre.report_outcome(fault, solicited=False, category='Camera')
-        centre.set_unattended_run(False)
+        centre.close_run_scope()
         centre.report_outcome(fault, solicited=True, category='Camera')
 
         assert [n.shown for n in heard] == [False, True]
@@ -183,7 +183,7 @@ class TestWhatASubscriberHears:
                 self.remedy = remedy
 
         heard = _listening(session)
-        centre.set_unattended_run(True)
+        centre.open_run_scope(attended=False)
         centre.report_outcome(_WriterStalledError(), solicited=False, category='Files')
 
         assert [(n.kind, n.fatal, n.shown, n.remedy) for n in heard] == [

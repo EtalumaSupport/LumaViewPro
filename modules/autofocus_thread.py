@@ -12,7 +12,7 @@ or failure).
 Public API:
   start()                       -- spawn worker thread
   stop(timeout)                 -- signal stop, join with bound timeout
-  run_autofocus(run_trigger_source=..., **kwargs)
+  run_autofocus(run=..., **kwargs)
                                 -- enqueue an AF request; returns a Future.
                                    Future resolves to best_focus_position
                                    (float | None) on success, or carries
@@ -38,7 +38,7 @@ from concurrent.futures import Future
 from dataclasses import dataclass
 from typing import Any
 
-from modules.activity_claim import acting, current_taking
+from modules.activity_claim import RunIdentity, acting, current_taking, the_run_named
 from modules.exceptions import AutofocusAborted
 
 logger = logging.getLogger('LVP.modules.autofocus_thread')
@@ -61,7 +61,7 @@ class AutofocusSweep:
     """
 
     future: Future
-    run_trigger_source: str
+    run: RunIdentity
 
 
 class AutofocusThread:
@@ -141,18 +141,17 @@ class AutofocusThread:
 
     # ---- public API ----
 
-    def run_autofocus(self, *, run_trigger_source: str, **kwargs) -> Future:
+    def run_autofocus(self, *, run: RunIdentity, **kwargs) -> Future:
         """Enqueue an AF request. Returns a Future that resolves to the
         best focus position (float | None) on success, or carries the
         exception on failure or abort.
 
         Args:
-            run_trigger_source: the trigger of the run dispatching this
-                sweep. Required, because every dispatch has one and a
-                sweep whose owner is unknown is precisely what the
-                refusals downstream cannot describe. Recorded with the
-                Future AND forwarded to the runner, which gates its own
-                failure popups on it.
+            run: the run dispatching this sweep. Required, because every
+                dispatch has one and a sweep whose owner is unknown is
+                precisely what the refusals downstream cannot describe.
+                Recorded with the Future; its trigger is forwarded to the
+                runner, which logs it.
             **kwargs: forwarded verbatim to AutofocusRunner.run().
 
         Returns:
@@ -160,21 +159,21 @@ class AutofocusThread:
             block; ignore to fire-and-forget. Caller-requested abort
             surfaces as AutofocusAborted via the Future.
         """
-        request_kwargs = {**kwargs, 'run_trigger_source': run_trigger_source}
+        request_kwargs = {**kwargs, 'run_trigger_source': run.trigger}
         future: Future = Future()
         with self._state_lock:
             in_flight = self._current_sweep
             if in_flight is not None and not in_flight.future.done():
                 future.set_exception(
                     RuntimeError(
-                        'Autofocus already in progress, dispatched by the '
-                        f'{in_flight.run_trigger_source} run'
+                        'Autofocus already in progress, dispatched by '
+                        f'{the_run_named(in_flight.run)}'
                     )
                 )
                 return future
             self._current_sweep = AutofocusSweep(
                 future=future,
-                run_trigger_source=run_trigger_source,
+                run=run,
             )
             # Clear _aborted under the same lock that publishes the
             # sweep. A concurrent abort() reads is_running under this

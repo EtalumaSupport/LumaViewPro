@@ -42,7 +42,16 @@ def test_manual_recording_ends_within_the_stall_bound(sim_scope, tmp_path, monke
         scope=sim_scope, settings=settings, activity_claim=ActivityClaim(), scheduler=scheduler
     )
     controller.start()
-    time.sleep(1.0)
+    # The feed dies only once the recording has a frame on disk to keep.
+    deadline = time.monotonic() + 30.0
+    while (
+        not list(controller.save_folder.glob('ManualVideo_Frame_*.tiff'))
+        and time.monotonic() < deadline
+    ):
+        time.sleep(0.05)
+    assert list(controller.save_folder.glob('ManualVideo_Frame_*.tiff')), (
+        'precondition: the recording wrote a frame before the feed died'
+    )
     sim_scope.imaging.stop_streaming()
 
     deadline = time.monotonic() + 30.0
@@ -55,6 +64,7 @@ def test_manual_recording_ends_within_the_stall_bound(sim_scope, tmp_path, monke
     assert controller.end_reason == 'camera_stalled'
     while controller.is_busy and time.monotonic() < deadline:
         time.sleep(0.1)
+    assert not controller.is_busy, 'the recording never finished its files'
 
     manifest_path = controller.save_folder / 'recording_manifest.json'
     assert manifest_path.exists()

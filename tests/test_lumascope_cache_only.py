@@ -43,7 +43,7 @@ def _explode(name):
 
 
 @pytest.fixture
-def scope_with_io_traps():
+def scope_with_io_traps(monkeypatch):
     """Build a real Lumascope(simulate=True) with serial-equivalent and
     SDK-equivalent methods replaced by exploding stubs.
 
@@ -54,17 +54,16 @@ def scope_with_io_traps():
     raise AssertionError when LVP-A-7's atexit-registered
     _emergency_shutdown -> disconnect -> stop_motion fires at pytest
     interpreter exit. The trap is the whole point of the fixture; we
-    just want it scoped to the test, not to interpreter teardown.
+    just want it scoped to the test, not to interpreter teardown. The
+    traps are monkeypatched for the same reason: undone before the scope's
+    teardown disconnect, whose STOP is real serial I/O.
     """
     scope = build_scope(simulate=True, register_atexit=False)
 
     # Trap motor-board serial-equivalent methods.
-    if hasattr(scope._motion_driver, 'exchange_command'):
-        scope._motion_driver.exchange_command = _explode('motion.exchange_command')
-    if hasattr(scope._motion_driver, 'exchange_json'):
-        scope._motion_driver.exchange_json = _explode('motion.exchange_json')
-    if hasattr(scope._motion_driver, 'exchange_multiline'):
-        scope._motion_driver.exchange_multiline = _explode('motion.exchange_multiline')
+    for attr in ('exchange_command', 'exchange_json', 'exchange_multiline'):
+        if hasattr(scope._motion_driver, attr):
+            monkeypatch.setattr(scope._motion_driver, attr, _explode(f'motion.{attr}'))
 
     # Trap camera SDK-equivalent methods that would indicate live I/O.
     cam = scope._camera_driver
@@ -78,7 +77,7 @@ def scope_with_io_traps():
             'update_camera_config',
         ):
             if hasattr(cam, attr):
-                setattr(cam, attr, _explode(f'camera.{attr}'))
+                monkeypatch.setattr(cam, attr, _explode(f'camera.{attr}'))
 
     return scope
 

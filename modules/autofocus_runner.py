@@ -18,11 +18,13 @@ import modules.path_utils as path_utils
 import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
 import modules.lumascope_api as lumascope_api
+from modules.activity_claim import current_taking
 from modules.exceptions import (
     AutofocusAborted,
     AutofocusFailedError,
     AutofocusZNotRestoredError,
     CameraSettingRejected,
+    HardwareCommandRefusedError,
 )
 from modules.kivy_utils import schedule_ui as _schedule_ui
 from modules.lumascope_api.illumination import (
@@ -53,6 +55,19 @@ def _describe_restore(restore: dict) -> str:
         return 'nothing'
     shown = {k: (v is not None) if k == 'auto_gain_arm' else v for k, v in restore.items()}
     return str(shown)
+
+
+def _its_run_has_ended() -> bool:
+    """Whether the run this sweep acts under has let go of the scope.
+
+    A sweep that outlives its run -- stuck past cleanup's bound -- wakes into
+    refusals and timeouts that are the stuck sweep itself, already told once
+    in the run's cleanup summary. Told again, they would report a fault to a
+    person whose run is over; a refused LED lease is kept quiet for the same
+    reason.
+    """
+    taking = current_taking()
+    return taking is not None and not taking.holds
 
 
 class AutofocusRunner:
@@ -308,21 +323,14 @@ class AutofocusRunner:
             # is_focusing.
             self._led_lease = led_lease.acquire_child('autofocus')
             if self._led_lease is None:
-                # A live owner holds illumination authority. AF without the
-                # lease would sweep an unlit field and commit a garbage Z --
-                # refuse the run loudly instead. error severity: the
-                # operation ABORTED, and the likeliest contention (a running
-                # protocol) suppresses non-fatal popups, which would
-                # otherwise swallow exactly this message.
+                # The child is refused only once the lease AF was handed has
+                # been released: the run this sweep belongs to has ended, and
+                # whatever holds the LEDs now is not it. AF without the lease
+                # would sweep an unlit field and commit a garbage Z, so it
+                # stops as an abort. Nobody is told: the run's own end is the
+                # report.
                 holder = self._scope.illumination.led_lease_purpose
-                holder_desc = f'Another operation ({holder})' if holder else 'Another operation'
                 logger.error(f'[AF] LED lease refused (held live by {holder!r}); aborting run')
-                notifications.error(
-                    'Autofocus',
-                    'Autofocus Did Not Start',
-                    f'{holder_desc} is controlling the microscope '
-                    'illumination. Let it finish, then run autofocus.',
-                )
                 raise AutofocusAborted(f'LED authority held live by {holder!r}')
             # Make the AF channel the only lit one before scanning, confirmed
             # on (AF_ENTER blocks) so the focus metric never reads a dark or
@@ -399,9 +407,11 @@ class AutofocusRunner:
                 logger.debug('[AF] precision restore in error path failed', exc_info=True)
             self._is_focusing_event.clear()
             self._is_complete_event.clear()
-            if isinstance(ex, AutofocusFailedError):
+            if isinstance(ex, (AutofocusFailedError, HardwareCommandRefusedError)):
                 # A refusal the sweep decided, already logged with its
-                # numbers, is reported as itself.
+                # numbers, is reported as itself; so is a command the
+                # hardware refused -- the light that could not go on names
+                # the missing LED controller, not an unexpected error.
                 failed = ex
             else:
                 params_repr = repr(getattr(self, '_params', None))[:500]
@@ -413,7 +423,10 @@ class AutofocusRunner:
                 failed.__cause__ = ex
             # An unattended run's mute keeps this off the screen; the run
             # captures at its fallback Z and the report is the record.
-            notifications.report_outcome(failed, solicited=False, category='Autofocus')
+            if _its_run_has_ended():
+                logger.warning(f'[AF] {failed} -- after its run ended, so not reported')
+            else:
+                notifications.report_outcome(failed, solicited=False, category='Autofocus')
             raise
 
         finally:
@@ -466,9 +479,11 @@ class AutofocusRunner:
                 # so the user / protocol sees the state they started from.
                 # _af_in_progress clears LAST so any caller polling
                 # AFE.in_progress() does not race ahead before restoration
-                # finishes.
+                # finishes. Asked first: a controller lost mid-sweep has no
+                # precision to restore.
                 try:
-                    self._scope.motion.set_precision_mode('Z', True)
+                    if self._scope.motor_connected:
+                        self._scope.motion.set_precision_mode('Z', True)
                 except Exception:
                     logger.debug('[AF] precision restore in finally failed', exc_info=True)
                 # A run that chose a focus leaves the stage standing there; one
@@ -495,9 +510,14 @@ class AutofocusRunner:
                             z_lost='Z' in self._scope.motion.axes_without_position()
                         )
                         not_restored.__cause__ = restore_ex
-                        notifications.report_outcome(
-                            not_restored, solicited=False, category='Autofocus'
-                        )
+                        if _its_run_has_ended():
+                            logger.warning(
+                                f'[AF] {not_restored} -- after its run ended, so not reported'
+                            )
+                        else:
+                            notifications.report_outcome(
+                                not_restored, solicited=False, category='Autofocus'
+                            )
                 # The AF-end LED state is the authority's AF_TO_CAPTURE decision:
                 # hold the AF channel for the following capture, or restore the
                 # pre-AF snapshot. Hold only on success -- after an abort or error
@@ -694,10 +714,11 @@ class AutofocusRunner:
         while True:
             # accept_dark: AF consumes focus scores, not saved truth,
             # and a hard dark-reject mid-sweep would stall the scan; the
-            # mean-intensity retry below handles dark frames.
-            image = self._scope.imaging.capture_and_wait(
-                accept_dark=True, exclude_sources=('z_move',)
-            )
+            # mean-intensity retry below handles dark frames. The Z move is
+            # waited out like any other change: a frame already on its way
+            # when the move went out shows the previous step's Z, and its
+            # score would be recorded at this one.
+            image = self._scope.imaging.capture_and_wait(accept_dark=True)
             count += 1
             if isinstance(image, np.ndarray):
                 break
@@ -719,9 +740,7 @@ class AutofocusRunner:
         mean_intensity = float(np.mean(image))
         if mean_intensity < 1.0:
             _af_log.warning(f'  DARK FRAME: mean={mean_intensity:.2f}, retrying')
-            retry = self._scope.imaging.capture_and_wait(
-                accept_dark=True, exclude_sources=('z_move',)
-            )
+            retry = self._scope.imaging.capture_and_wait(accept_dark=True)
             if isinstance(retry, np.ndarray):
                 image = retry
 

@@ -136,7 +136,7 @@ class TestSimulatedMotorBoard:
 
     def test_move_absolute_z(self):
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
-        board.move_abs_pos('Z', 7000, overshoot_enabled=False)
+        board.move_abs_pos('Z', 7000)
         pos = board.current_pos('Z')
         assert abs(pos - 7000) < 1  # within rounding
 
@@ -147,18 +147,12 @@ class TestSimulatedMotorBoard:
         assert abs(board.current_pos('X') - 60000) < 1
         assert abs(board.current_pos('Y') - 40000) < 1
 
-    def test_move_relative(self):
-        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
-        board.move_abs_pos('X', 50000)
-        board.move_rel_pos('X', 10000)
-        assert abs(board.current_pos('X') - 60000) < 1
-
     def test_a_target_past_travel_is_driven_not_clamped(self):
         """Travel is the motion API's refusal, as on the real board; a
         driver that clamped made a refused move look like one that
         succeeded and stopped short."""
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
-        board.move_abs_pos('Z', 99999, overshoot_enabled=False)
+        board.move_abs_pos('Z', 99999)
         assert abs(board.current_pos('Z') - 99999) < 1
 
     def test_target_status(self):
@@ -277,7 +271,7 @@ class TestSimulatedMotorBoard:
         def move_axis(axis, positions):
             try:
                 for pos in positions:
-                    board.move_abs_pos(axis, pos, overshoot_enabled=False)
+                    board.move_abs_pos(axis, pos)
             except Exception as e:
                 errors.append(e)
 
@@ -292,14 +286,6 @@ class TestSimulatedMotorBoard:
             t.join(timeout=10)
 
         assert not errors
-
-    def test_overshoot_z(self):
-        """Z overshoot should work without errors."""
-        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
-        board.move_abs_pos('Z', 5000, overshoot_enabled=False)
-        board.move_abs_pos('Z', 3000, overshoot_enabled=True)
-        pos = board.current_pos('Z')
-        assert abs(pos - 3000) < 1
 
     # --- detect_present_axes tests ---
 
@@ -336,7 +322,7 @@ class TestSimulatedMotorBoard:
         """After a move, current_pos_steps returns raw microstep position."""
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         target_um = 5000
-        board.move_abs_pos('Z', target_um, overshoot_enabled=False)
+        board.move_abs_pos('Z', target_um)
         steps = board.current_pos_steps('Z')
         assert isinstance(steps, int)
         expected_steps = board.z_um2ustep(target_um)
@@ -346,7 +332,7 @@ class TestSimulatedMotorBoard:
         """target_pos_steps returns raw target microstep position."""
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         target_um = 7000
-        board.move_abs_pos('Z', target_um, overshoot_enabled=False)
+        board.move_abs_pos('Z', target_um)
         steps = board.target_pos_steps('Z')
         assert isinstance(steps, int)
         expected_steps = board.z_um2ustep(target_um)
@@ -377,6 +363,95 @@ class TestSimulatedMotorBoard:
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850')
         result = board.thome()
         assert result is True
+
+
+class TestATravelHold:
+    """A held move halts part of the way, reports itself not arrived, and
+    finishes only once released; a STOP or a new target ends the hold."""
+
+    # About half a second of realistic X travel.
+    TARGET_UM = 20000
+
+    @staticmethod
+    def _held(board, axis='X', at_fraction=0.5):
+        hold = board.hold_travel(axis, at_fraction=at_fraction)
+        board.move_abs_pos(axis, TestATravelHold.TARGET_UM)
+        # A read is what finds the stage at the hold, as the monitor's poll does.
+        deadline = time.monotonic() + 10.0
+        while not hold.reached.is_set() and time.monotonic() < deadline:
+            board.target_status(axis)
+            time.sleep(0.005)
+        assert hold.reached.is_set(), 'the move never reached its hold'
+        return hold
+
+    @staticmethod
+    def _arrives(board, axis='X'):
+        deadline = time.monotonic() + 10.0
+        while not board.target_status(axis):
+            assert time.monotonic() < deadline, 'the released move never arrived'
+            time.sleep(0.005)
+
+    @staticmethod
+    def _board():
+        return SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='realistic')
+
+    def test_a_held_move_stands_part_of_the_way_and_has_not_arrived(self):
+        board = self._board()
+        self._held(board)
+        at = board.current_pos('X')
+        assert at == pytest.approx(self.TARGET_UM / 2, rel=0.01)
+        # Past the time the whole move takes, it still stands there.
+        time.sleep(0.6)
+        assert board.current_pos('X') == at
+        assert board.target_status('X') is False
+
+    def test_a_released_move_travels_on_and_arrives(self):
+        board = self._board()
+        hold = self._held(board)
+        hold.release()
+        self._arrives(board)
+        assert board.current_pos('X') == pytest.approx(self.TARGET_UM, abs=1)
+
+    def test_a_stop_ends_the_hold_where_the_stage_stood(self):
+        board = self._board()
+        self._held(board)
+        board.exchange_command('STOP')
+        assert board.target_status('X') is True
+        assert board.current_pos('X') == pytest.approx(self.TARGET_UM / 2, rel=0.01)
+        # The hold was that move's: the next one is not held.
+        board.move_abs_pos('X', 0)
+        self._arrives(board)
+
+    def test_a_new_target_ends_the_hold(self):
+        board = self._board()
+        self._held(board)
+        board.move_abs_pos('X', 5000)
+        self._arrives(board)
+        assert board.current_pos('X') == pytest.approx(5000, abs=1)
+
+    def test_a_home_ends_the_hold(self):
+        board = self._board()
+        self._held(board, axis='Z')
+        board.zhome()
+        assert board.current_pos('Z') == 0
+        # The hold went with the move it held: the axis takes a new one.
+        board.hold_travel('Z').release()
+
+    def test_a_hold_is_refused_where_a_move_does_not_travel(self):
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='fast')
+        with pytest.raises(ValueError, match='realistic'):
+            board.hold_travel('X')
+
+    @pytest.mark.parametrize('at_fraction', [0.0, 1.0, 1.5])
+    def test_a_hold_is_part_of_the_way_along(self, at_fraction):
+        with pytest.raises(ValueError, match='part of the way'):
+            self._board().hold_travel('X', at_fraction=at_fraction)
+
+    def test_an_axis_takes_one_hold(self):
+        board = self._board()
+        board.hold_travel('X')
+        with pytest.raises(ValueError, match='already has a hold'):
+            board.hold_travel('X')
 
 
 # ---------------------------------------------------------------------------
@@ -420,7 +495,7 @@ class TestAllModels:
     @pytest.mark.parametrize('model', ALL_MODELS)
     def test_z_axis_works(self, model):
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model=model)
-        board.move_abs_pos('Z', 5000, overshoot_enabled=False)
+        board.move_abs_pos('Z', 5000)
         assert abs(board.current_pos('Z') - 5000) < 1
 
     @pytest.mark.parametrize('model', ALL_MODELS)
@@ -1330,7 +1405,6 @@ class TestCameraProfiles:
         assert p.sensor == 'Sony IMX676-AAMR1-C'
         assert p.exposure_max_us == 10_000_000
         assert p.gain.analog_max_db == 30.0
-        assert p.has_temperature is True
 
     def test_lookup_known_ids_model(self):
         from drivers.camera_profiles import lookup_profile
@@ -1557,7 +1631,8 @@ class TestFailureInjection:
             motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, fail_after=5, timing='instant'
         )
         m.exchange_command('HOME')  # cmd 1
-        m.move_abs_pos('Z', 5000)  # cmds 2-3
+        m.move_abs_pos('Z', 5000)  # cmd 2: one leg, one target write
+        assert m.exchange_command('ACTUAL_RZ') is not None  # cmd 3
         assert m.exchange_command('ACTUAL_RZ') is not None  # cmd 4
         assert m.exchange_command('ACTUAL_RZ') is not None  # cmd 5
         assert m.exchange_command('ACTUAL_RZ') is None  # the board is gone after the fifth

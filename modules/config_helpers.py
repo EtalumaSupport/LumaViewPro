@@ -20,7 +20,7 @@ import modules.binning as binning
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 from lvp_logger import logger, metrics_logger
-from modules.exceptions import ConfigError, HardwareCommandRefusedError
+from modules.exceptions import ConfigError
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol_state_machine import SequencedCaptureRunMode
@@ -164,13 +164,13 @@ def get_sequenced_run_settings(settings: dict, *, run_mode: SequencedCaptureRunM
     writers spell them.
 
     ``run_mode`` carries the one run kind whose values are not the user's:
-    an autofocus scan must NOT hold the excitation LED across focus moves
-    (photobleaching the sample) and saves nothing, so it never keeps the
-    LED between steps and never makes per-channel folders, whatever the
-    settings say. That guarantee lives here, once, rather than as an
+    an autofocus run, at one position or every step, must NOT hold the
+    excitation LED across focus moves (photobleaching the sample) and saves
+    nothing, so it never keeps the LED between steps and never makes
+    per-channel folders, whatever the settings say. That guarantee lives here, once, rather than as an
     omission at each autofocus call site.
     """
-    autofocus_scan = run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN
+    autofocus_scan = run_mode.is_autofocus
     return {
         'keep_led_between_steps': (
             False if autofocus_scan else settings.get('keep_led_between_steps', False)
@@ -406,9 +406,8 @@ def get_current_plate_position(
             Converting through a different plate would put every position
             in the wrong frame.
     """
+    scope.motion.refuse_controller_not_connected('get_current_plate_position')
     if not scope.motor_connected:
-        if scope.motion_expected:
-            raise HardwareCommandRefusedError('not_connected', 'get_current_plate_position')
         # A manual scope has no motor controller by design. What its steps
         # record in place of a position is not decided here; until it is,
         # the origin stands in, and is logged as the stand-in it is.

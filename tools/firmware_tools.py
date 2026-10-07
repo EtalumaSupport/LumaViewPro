@@ -290,11 +290,11 @@ def cmd_homing_test(args):
 
         ref_positions = {}
         for axis in axes:
-            pos = _get_position_steps(board, axis)
-            if pos is None:
-                print(f'ERROR: Cannot read {axis} position')
+            try:
+                ref_positions[axis] = _get_position_steps(board, axis)
+            except HardwareError as e:
+                print(f'ERROR: Cannot read {axis} position: {e}')
                 sys.exit(1)
-            ref_positions[axis] = pos
 
         print(f'Reference positions: {ref_positions}')
         print(f'Initial home took {dt:.0f}ms')
@@ -344,10 +344,11 @@ def cmd_homing_test(args):
                 cycle_result['errors'].append(f'Home failed: {resp}')
             else:
                 for axis in axes:
-                    pos = _get_position_steps(board, axis)
-                    if pos is None:
+                    try:
+                        pos = _get_position_steps(board, axis)
+                    except HardwareError as e:
                         cycle_result['success'] = False
-                        cycle_result['errors'].append(f'{axis} position read failed')
+                        cycle_result['errors'].append(f'{axis} position read failed: {e}')
                         continue
                     cycle_result['positions'][axis] = pos
                     delta = pos - ref_positions[axis]

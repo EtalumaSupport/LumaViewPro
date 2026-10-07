@@ -162,7 +162,9 @@ class TestHeadlessImports:
         def fake_dispatcher(func, timeout):
             calls.append((func, timeout))
 
-        _kivy_utils.set_ui_dispatcher(fake_dispatcher)
+        _kivy_utils.set_ui_dispatcher(
+            _kivy_utils.UiDispatcher(schedule=fake_dispatcher, thread=None)
+        )
         try:
 
             def my_func(dt):
@@ -317,7 +319,6 @@ class TestHeadlessProtocolExecution:
                     parent_dir=tmp_path / 'output',
                     max_scans=1,
                     callbacks=callbacks,
-                    leds_state_at_end='off',
                     enable_image_saving=False,
                     autofocus_snapshot=autofocus_snapshot(),
                 )

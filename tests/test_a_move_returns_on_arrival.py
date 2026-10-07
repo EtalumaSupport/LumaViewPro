@@ -27,7 +27,7 @@ import time
 
 import pytest
 
-from modules.exceptions import MoveNotCompletedError
+from modules.exceptions import HardwareCommandRefusedError, MoveNotCompletedError
 from modules.lumascope_api.motion import AxisState, MotionAPI
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import IOTask
@@ -262,13 +262,18 @@ class TestAnAxisTheScopeLacks:
             s.shutdown()
             s.scope.disconnect()
 
-    def test_a_move_on_it_drives_nothing_and_returns(self, z_only):
+    def test_a_move_on_it_is_refused_and_drives_nothing(self, z_only):
         motion = z_only.scope.motion
 
-        motion.move_absolute('X', 1000.0)
-        motion.move_relative('X', 10.0)
-        motion.start_move_absolute('X', 1000.0).wait()
-        motion.start_move_relative('X', 10.0).wait()
+        for move in (
+            lambda: motion.move_absolute('X', 1000.0),
+            lambda: motion.move_relative('X', 10.0),
+            lambda: motion.start_move_absolute('X', 1000.0),
+            lambda: motion.start_move_relative('X', 10.0),
+        ):
+            with pytest.raises(HardwareCommandRefusedError) as caught:
+                move()
+            assert caught.value.reason == 'axis_absent'
 
         assert not motion.is_moving()
 

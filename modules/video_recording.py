@@ -47,7 +47,12 @@ from typing import Any
 
 from lib import profile_trace
 from lvp_logger import logger
-from modules.activity_claim import ActivityClaim, BorrowedClaim, FalsifyingChangeInFlightError
+from modules.activity_claim import (
+    ActivityClaim,
+    BorrowedClaim,
+    FalsifyingChangeInFlightError,
+    the_holder_named,
+)
 from modules.exceptions import RecordingRefusedError
 from modules.video_cadence import CadenceSelector, frame_budget
 
@@ -308,7 +313,7 @@ class VideoRecordingEngine:
                     reason='exclusive_activity_running',
                     title='Another Activity Running',
                     message=(
-                        'Another exclusive activity is using the microscope. '
+                        f'{the_holder_named(holder)} is using the microscope. '
                         'Let it finish, then start the recording.'
                     ),
                     holder=holder.kind if holder is not None else None,

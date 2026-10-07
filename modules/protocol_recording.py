@@ -124,6 +124,11 @@ class ProtocolVideoStep:
         run_claim: The run's activity claim, lent to this step. The
             recording acts under it, and the step's end leaves it held:
             the run releases its claim at run end, never per step.
+        to_plate: The run's stage-to-plate transform
+            (``protocols.plate_transform``): the protocol's plate and the
+            offset the run started with, bound at run start, so every frame
+            states its position in the frame the run moved in. None on a
+            scope with no X/Y stage, whose frames state no plate position.
         clock: Injectable time source (seconds); tests drive it.
     """
 
@@ -146,6 +151,7 @@ class ProtocolVideoStep:
         record_step_row: Callable[..., None],
         record_dropped_capture: Callable[..., None],
         run_claim: BorrowedClaim,
+        to_plate: Callable[[float, float], tuple[float, float]] | None,
         clock: Callable[[], float] = time.time,
     ):
         self._scope = scope
@@ -164,6 +170,7 @@ class ProtocolVideoStep:
         self._record_step_row = record_step_row
         self._record_dropped_capture = record_dropped_capture
         self._run_claim = run_claim
+        self._to_plate = to_plate
         self._clock = clock
 
         self._engine: VideoRecordingEngine | None = None
@@ -265,15 +272,6 @@ class ProtocolVideoStep:
         # One scale snapshot per step, alongside the other start-of-recording
         # camera facts: the objective cannot change while a step records.
         self._pixel_size_um = resolve_recording_pixel_size(scope)
-        # The plate transform bound now, so every frame is stated in the
-        # frame of reference the step began in. A run always has labware;
-        # a step without one records no plate position and says so.
-        self._to_plate = scope.runtime_state.plate_transform() if self._video_as_frames else None
-        if self._video_as_frames and self._to_plate is None:
-            logger.warning(
-                f'[ProtocolVideo] {self._name}: no labware or stage offset is '
-                'registered; frames will record no plate position'
-            )
         self._rebaser = CameraTickRebaser(self._tick_freq_hz, self._clock)
         self._start_dt = datetime.datetime.now()
 

@@ -223,7 +223,7 @@ def test_the_members_the_api_reads(board):
     assert board.found is True
     assert board.firmware_responding is True
     assert board.firmware_date is None
-    assert board.overshoot is False
+    assert board.backlash_um() == 0.0
     assert board.detect_present_axes() == ['X', 'Y', 'Z']
     assert board.detect_homed_axes() == []
     assert board.get_microscope_model() == 'LS720'
@@ -256,22 +256,14 @@ def test_the_board_counts_from_the_index_position_by_each_axis_sign(board, sim):
     assert sim.position('Y') == -6400
 
 
-def test_a_relative_move_is_from_the_board_target(board):
-    board.move_abs_pos('Z', 100)
-    board.move_rel_pos('Z', 50)
-    _wait_arrival(board, 'Z')
-    assert board.current_pos('Z') == pytest.approx(150, abs=0.1)
-
-
 @pytest.mark.parametrize('axis', ['X', 'Y'])
 def test_the_lid_is_read_before_every_command_that_starts_x_or_y(board, sim, axis):
     _sent(sim)
     board.move_abs_pos(axis, 100)
-    board.move_rel_pos(axis, 100)
     board.move(axis, 3200)
     sent = _sent(sim)
     starts = [i for i, c in enumerate(sent) if c.command == MVP]
-    assert len(starts) == 3
+    assert len(starts) == 2
     for i in starts:
         assert (sent[i - 1].command, sent[i - 1].type, sent[i - 1].motor) == (GIO, *LID_INPUT)
 
@@ -453,14 +445,6 @@ def test_an_axis_that_keeps_moving_past_the_bound_makes_the_stop_raise():
     # Every axis that did stop still has its target written.
     written = [c.motor for c in _sent(sim) if (c.command, c.type) == (SAP, AP_TARGET_POSITION)]
     assert sorted(written) == [1, 2]
-
-
-def test_a_relative_move_with_an_unreadable_target_does_not_move(board, sim):
-    sim.silent = True
-    with pytest.raises(HardwareError, match='cannot read the current target'):
-        board.move_rel_pos('Z', 50)
-    sim.silent = False
-    assert not any(c.command == MVP for c in _sent(sim))
 
 
 def _wait_switch(board, axis, timeout=5.0):

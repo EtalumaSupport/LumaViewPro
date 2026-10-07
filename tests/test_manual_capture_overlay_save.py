@@ -53,9 +53,7 @@ def capture_ctx(tmp_path):
     scope.imaging._capture_and_wait_impl.return_value = np.zeros((4, 4), dtype=np.uint8)
     scope.imaging.capture_frame_depth.return_value = 8
     scope.imaging.last_capture_info = {'frame_record': frame_record()}
-    scope.imaging._dispatch_camera.side_effect = (
-        lambda impl, name, args=(), kwargs=None, *, timeout_s: impl(*args, **(kwargs or {}))
-    )
+    scope.imaging._submit_camera.side_effect = _run_on_the_calling_thread
     return types.SimpleNamespace(
         scope=scope,
         tmp_path=tmp_path,
@@ -63,6 +61,13 @@ def capture_ctx(tmp_path):
         use_bullseye=False,
         use_crosshairs=False,
     )
+
+
+def _run_on_the_calling_thread(impl, name, args=(), *, waiter):
+    try:
+        waiter.set_result(impl(*args))
+    except Exception as exc:
+        waiter.set_exception(exc)
 
 
 def _run_capture(ctx, sum_count=1):

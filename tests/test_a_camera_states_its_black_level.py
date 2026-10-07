@@ -21,7 +21,7 @@ from modules.exceptions import (
     CameraSettingUnsupportedError,
 )
 from modules.scope_session import ScopeSession
-from tests.camera_fakes import bare_ids_camera, bare_pylon_camera
+from tests.camera_fakes import bare_ids_camera, bare_pylon_camera, grab_a_frame_made_after_now
 from tests.settings_fixtures import complete_settings
 
 
@@ -43,6 +43,10 @@ def test_the_simulated_camera_offers_it_and_offsets_its_frames(sim_scope):
 def test_a_full_scale_pixel_saturates_under_the_offset_and_does_not_wrap(sim_scope):
     imaging = sim_scope.imaging
     sim_scope._camera_driver.set_test_pattern(enabled=True, pattern='White')
+    # The pattern is a simulator poke, which frame validity never hears of:
+    # wait out the frame being made when it changed, so the capture's frame
+    # is a white one.
+    grab_a_frame_made_after_now(sim_scope._camera_driver)
     full_scale = imaging.capture_and_wait(force_to_8bit=False, timeout_s=2.0)
 
     imaging.set_black_level(4.0)
@@ -74,6 +78,33 @@ def test_a_value_outside_the_range_is_refused_and_nothing_moves(sim_scope):
     assert imaging.get_black_level() == 0.0
 
 
+def test_the_range_is_the_one_the_setter_refuses_outside(sim_scope):
+    imaging = sim_scope.imaging
+    low, high = imaging.get_black_level_range()
+    assert (low, high) == sim_scope._camera_driver.get_black_level_range()
+    assert imaging.set_black_level(high) == high
+    with pytest.raises(CameraSettingOutOfRangeError) as refused:
+        imaging.set_black_level(high + 1.0)
+    assert refused.value.maximum == high
+
+
+def test_a_failed_range_read_raises(sim_scope):
+    with (
+        patch.object(
+            sim_scope._camera_driver,
+            'get_black_level_range',
+            side_effect=HardwareError('BlackLevel range read failed'),
+        ),
+        pytest.raises(HardwareError, match='BlackLevel range read failed'),
+    ):
+        sim_scope.imaging.get_black_level_range()
+
+
+def test_no_active_camera_has_no_range(sim_scope):
+    with patch.object(sim_scope._camera_driver, '_active', None):
+        assert sim_scope.imaging.get_black_level_range() is None
+
+
 def test_a_failed_read_fails_the_capture_and_records_no_frame(sim_scope):
     imaging = sim_scope.imaging
     driver = sim_scope._camera_driver
@@ -99,6 +130,7 @@ def test_the_fx2_reports_its_row_black_target_and_offers_no_setting(fx2_session)
     scope = fx2_session.scope
     assert scope.capabilities.camera_supports_black_level is False
     assert scope.imaging.get_black_level() == 0.0
+    assert scope.imaging.get_black_level_range() is None
     with pytest.raises(CameraSettingUnsupportedError):
         scope.imaging.set_black_level(4.0)
     assert scope.imaging.capture_and_wait(accept_dark=True, timeout_s=2.0) is not None

@@ -111,15 +111,13 @@ class TestAShortRunWhileTheFileWorkerWaits:
             finally:
                 release.set()
 
-            # The image and then its row: wait for both, bounded, since the
-            # loss this pins is silent -- nothing ever arrives.
-            deadline = time.monotonic() + 5.0
-            while time.monotonic() < deadline:
-                images = _images(run_parent)
-                rows = _record_rows(run_parent)
-                if images and rows:
-                    break
-                time.sleep(0.05)
+            # The run's files are done, written or given up on; the loss
+            # this pins is silent, so what is on disk then is the answer.
+            assert outcome.wait_for_files(timeout_s=WAIT_S) is not None, (
+                'the run never finished its files'
+            )
+            images = _images(run_parent)
+            rows = _record_rows(run_parent)
 
         assert len(images) == 1, f'the run reported completed and wrote {len(images)} image(s)'
         assert len(rows) == 1, f'the record holds {len(rows)} row(s)'

@@ -273,9 +273,28 @@ class StepNotFoundError(Refusal, ProtocolError):
     A refusal: the caller named a step, and the words say which steps there
     are. Unmarked, a Delete on an empty protocol was reported as a fault --
     "Operation failed", an ERROR and a traceback for a designed answer.
+
+    The words name no index: the index is the API's, zero-based, and a
+    person who typed a step number into the panel counts from 1. A caller
+    that wants it reads it here.
+
+    Attributes:
+        index: The index refused, as the caller gave it.
+        num_steps: How many steps the protocol has.
     """
 
     title = 'No Such Step'
+
+    def __init__(self, index: int, num_steps: int):
+        if num_steps == 0:
+            words = 'The protocol has no steps.'
+        elif num_steps == 1:
+            words = 'The protocol has 1 step.'
+        else:
+            words = f'The protocol has {num_steps} steps.'
+        super().__init__(words)
+        self.index = index
+        self.num_steps = num_steps
 
 
 class StepEditRefusedError(Refusal, ProtocolError):
@@ -1111,7 +1130,9 @@ class Protocol:
             }
         )
 
-    def validate_steps(self, objective_helper: 'ObjectiveLoader', *, led_max_ma: int) -> list:
+    def validate_steps(
+        self, objective_helper: 'ObjectiveLoader', *, led_max_ma: int | None
+    ) -> list:
         """Validate all step fields and return a list of error strings.
 
         Args:
@@ -1121,6 +1142,9 @@ class Protocol:
                 (``capabilities.led_max_ma``). Asked of the caller, not
                 carried on the protocol: a copy made for a run would not
                 carry it, and the gate would admit a step the LED refuses.
+                None on a scope that came up without its LED board: there
+                is no cap to judge against, and a run on it is refused for
+                the missing LED controller.
 
         Returns an empty list if all steps are valid.
         """
@@ -1165,7 +1189,7 @@ class Protocol:
             illum = step['Illumination']
             if illum < 0:
                 errors.append(f'{label}: Illumination must be 0 or more mA, got {illum}')
-            elif illum > led_max_ma:
+            elif led_max_ma is not None and illum > led_max_ma:
                 errors.append(f'{label}: Illumination must be 0-{led_max_ma} mA, got {illum}')
 
             gain = step['Gain']
@@ -1201,7 +1225,7 @@ class Protocol:
         *,
         objective_helper: 'ObjectiveLoader',
         wellplate_loader: 'labware_loader.WellPlateLoader',
-        led_max_ma: int,
+        led_max_ma: int | None,
     ) -> list:
         """Validate that the protocol's steps are well-formed enough to run.
 
@@ -1209,12 +1233,13 @@ class Protocol:
         checks a run needs on top: unique capture filenames and a known plate.
         Whether the positions lie inside the stage's travel is the scope's
         question, asked by the run gate
-        (``ProtocolsAPI.refuse_unreachable_positions``).
+        (``ProtocolsAPI.refuse_positions_outside_travel``).
 
         Args:
             objective_helper: The scope's objective catalogue.
             wellplate_loader: The scope's labware catalogue.
-            led_max_ma: The scope's LED current cap (``capabilities.led_max_ma``).
+            led_max_ma: The scope's LED current cap (``capabilities.led_max_ma``);
+                None with no LED board (see ``validate_steps``).
 
         Returns:
             List of error strings. Empty list if all checks pass.
@@ -1269,9 +1294,7 @@ class Protocol:
             self._num_steps_cache = len(self._config['steps'])
         return self._num_steps_cache
 
-    def _refuse_unless_in_range(
-        self, what: str, idx: int, *, lowest: int = 0, past_end: int = 0
-    ) -> None:
+    def _refuse_unless_in_range(self, idx: int, *, lowest: int = 0, past_end: int = 0) -> None:
         """Refuse an index that names no step, before anything is written.
 
         A step index is 0..num_steps-1. insert_step's places widen it by one
@@ -1287,13 +1310,7 @@ class Protocol:
         highest = num_steps - 1 + past_end
         if lowest <= idx <= highest:
             return
-        if highest < lowest:
-            # Every index is outside an empty protocol, so the index says
-            # nothing; the GUI's is its no-selection -1.
-            raise StepNotFoundError('The protocol has no steps.')
-        raise StepNotFoundError(
-            f'{what} {idx} is outside {lowest} to {highest}: the protocol has {num_steps} steps.'
-        )
+        raise StepNotFoundError(idx, num_steps)
 
     @property
     def step_list_revision(self) -> int:
@@ -1504,7 +1521,7 @@ class Protocol:
         )
 
     def modify_autofocus(self, step_idx: int, enabled: bool) -> None:
-        self._refuse_unless_in_range('Step index', step_idx)
+        self._refuse_unless_in_range(step_idx)
         self._config['steps'].at[step_idx, 'Auto_Focus'] = self._typed_value('Auto_Focus', enabled)
 
     def modify_autofocus_all_steps(self, enabled: bool):
@@ -1512,7 +1529,7 @@ class Protocol:
             self.modify_autofocus(step_idx=idx, enabled=enabled)
 
     def delete_step(self, step_idx: int) -> None:
-        self._refuse_unless_in_range('Step index', step_idx)
+        self._refuse_unless_in_range(step_idx)
         self._config['steps'].drop(index=step_idx, axis=0, inplace=True)
         self._config['steps'].reset_index(drop=True, inplace=True)
         self._step_list_changed()
@@ -1540,7 +1557,7 @@ class Protocol:
         self._config['duration'] = duration
 
     def modify_step_z_height(self, step_idx: int, z: float) -> None:
-        self._refuse_unless_in_range('Step index', step_idx)
+        self._refuse_unless_in_range(step_idx)
         self._config['steps'].at[step_idx, 'Z'] = self._typed_value('Z', z)
 
     # What makes a step the one a focus was found for. Not the step-list
@@ -1608,7 +1625,7 @@ class Protocol:
 
         Returns the number of slices moved.
         """
-        self._refuse_unless_in_range('Step index', reference_step_idx)
+        self._refuse_unless_in_range(reference_step_idx)
         z = self._typed_value('Z', z)
         steps = self._config['steps']
         group_id = steps.at[reference_step_idx, 'Z-Stack Group ID']
@@ -1679,7 +1696,7 @@ class Protocol:
         step_idx: int,
         step_name: str,
     ) -> None:
-        self._refuse_unless_in_range('Step index', step_idx)
+        self._refuse_unless_in_range(step_idx)
         self._config['steps'].at[step_idx, 'Label'] = Protocol._sanitized_label(step_name)
         # A user typing a name makes it theirs: clear the auto flag so a later
         # channel change does not regenerate over it.
@@ -1703,7 +1720,7 @@ class Protocol:
         change updates exactly the channel token while the label -- user text
         or auto base -- rides along untouched.
         """
-        self._refuse_unless_in_range('Step index', step_idx)
+        self._refuse_unless_in_range(step_idx)
 
         # Every value is read before any is written, so a refused one leaves
         # the step as it was.
@@ -1752,9 +1769,9 @@ class Protocol:
                 raise StepEditRefusedError('Must specify only after_step or before_step, not both')
 
             if before_step is not None:
-                self._refuse_unless_in_range('before_step', before_step, past_end=1)
+                self._refuse_unless_in_range(before_step, past_end=1)
             else:
-                self._refuse_unless_in_range('after_step', after_step, lowest=-1)
+                self._refuse_unless_in_range(after_step, lowest=-1)
 
         _validate_inputs()
 
@@ -1840,7 +1857,7 @@ class Protocol:
         position from, so a stale hold does not merely misinform the caller,
         it is written into the saved image.
         """
-        self._refuse_unless_in_range('Step index', idx)
+        self._refuse_unless_in_range(idx)
         return to_python_scalars(self._config['steps'].iloc[idx])
 
     def apply_tiling(

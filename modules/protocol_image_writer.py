@@ -39,6 +39,7 @@ from modules.lumascope_api.imaging import capture_failure_cause
 from modules.notification_center import notifications
 from modules.protocol import Protocol
 from modules.protocol_recording import ProtocolVideoStep
+from modules.recording_frames import FrameFact, frame_fact
 from modules.run_outcome import CaptureTally, EndingLatch, FailedCapture, RunEnding
 from modules.sequential_io_executor import IOTask
 
@@ -121,8 +122,8 @@ class RunWriteBatch:
     ``written``, or ``incomplete`` when any of the run's images is not on
     disk: a recovery or a shutdown gave up on it, a stuck writer refused it,
     its save failed or was refused for disk space, or a video step's file
-    did not finish -- and runs the actions the run's cleanup handed to
-    ``close``. The counts are of images: a write that saves none (a record
+    did not finish -- and runs the actions the run's end handed to
+    ``when_complete``. The counts are of images: a write that saves none (a record
     row, a data file) is waited for and never counted.
 
     Nothing is ever discarded while completion is reported: a write handed
@@ -326,21 +327,39 @@ class RunWriteBatch:
             raise RunWriteRefusedError('writer_shut_down', what)
         return result
 
-    def close(self, on_complete: Callable[[str], None]) -> None:
-        """End the run's writes; ``on_complete(outcome)`` runs once the last lands.
+    def close(self) -> None:
+        """End the run's writes; the batch completes once the last lands.
 
-        Called once, by the run's cleanup, on every path out of it. A write
-        handed over after this is refused. When nothing is outstanding the
-        completion runs now, on the caller's thread.
+        Called once, by the run's cleanup, on every path out of it, before
+        the run ends: from here the batch reads as draining, which is what
+        refuses a next run over this one's writes. A write handed over
+        after this is refused. Closing runs no action: those are handed
+        over by ``when_complete``, once the run has let go of the scope.
         """
         with self._cond:
             if self._closed:
                 raise RuntimeError("a run's writes were closed twice")
             self._closed = True
-            self._on_complete = on_complete
             due = self._take_completion_locked()
         if due is not None:
             self._complete(*due)
+
+    def when_complete(self, on_complete: Callable[[str], None]) -> None:
+        """Run ``on_complete(outcome)`` once, when the batch completes.
+
+        Now, on the caller's thread, when the last write has already
+        landed; otherwise on the thread that lands it. Handed over by the
+        run's end, after the run has let go of the scope, so the actions
+        -- files_complete among them -- never reach a caller while the run
+        still holds it.
+        """
+        with self._cond:
+            if self._on_complete is not None:
+                raise RuntimeError("a run's completion was handed over twice")
+            self._on_complete = on_complete
+            outcome = self._outcome
+        if outcome is not None:
+            self._run_completion(on_complete, outcome)
 
     def abandon(self, cause: str) -> int:
         """Give up on every outstanding write; returns how many.
@@ -482,6 +501,12 @@ class RunWriteBatch:
         # and a listener re-reading the levels on it must already read the
         # drain as over -- no later edge would correct it.
         self._completed.set()
+        # None until the run's end hands its actions over; when_complete
+        # runs them then, having read the outcome under the same lock.
+        if on_complete is not None:
+            self._run_completion(on_complete, outcome)
+
+    def _run_completion(self, on_complete, outcome: str) -> None:
         # Outside the lock: the actions schedule callbacks and read state
         # that must not wait on a write landing.
         try:
@@ -505,15 +530,15 @@ class CapturedFrame(NamedTuple):
     Coupling them to the frame at capture makes handing over a frame
     without them unrepresentable. The same holds for everything else the
     file records: the instrument's own account of the frame (``record``),
-    and the height the stage was at when it was taken -- after an autofocus
-    sweep that is the focus it found, not the step's planned Z.
+    and where the stage was when it was taken (``position``) -- after an
+    autofocus sweep the focus it found, not the step's planned Z.
     """
 
     image: np.ndarray
     significant_bits: int
     objective_id: str
     record: FrameRecord
-    stage_z_um: float | None
+    position: FrameFact
 
 
 class ProtocolImageWriter:
@@ -579,6 +604,11 @@ class ProtocolImageWriter:
         # against. Its files name their wells and plate from it, not from
         # the plate the scope has selected, which a headless run never sets.
         labware: WellPlate,
+        # The stage-to-plate transform of the frame the run moves in -- the
+        # protocol's plate and the offset the run started with -- that every
+        # frame the run saves states its position through. None on a scope
+        # with no X/Y stage: its frames state no plate position.
+        to_plate: Callable[[float, float], tuple[float, float]] | None,
         # How many captures the run is asked for: scans times steps for a
         # run that saves images, 0 for one that saves none. The runner
         # knows the scan count; the writer counts what became of each.
@@ -600,6 +630,7 @@ class ProtocolImageWriter:
         self._engineering_mode = engineering_mode
         self._run_claim = run_claim
         self._labware = labware
+        self._to_plate = to_plate
         self._video_steps: list[ProtocolVideoStep] = []
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
@@ -857,10 +888,9 @@ class ProtocolImageWriter:
         # it previously waited for a slot -- accepted.
         if aborting:
             step_color = step.get('Color', '')
-            # led_connected term: color2ch also returns None
-            # when no LED board is present at all -- a
-            # board-less run's failures are not a missing
-            # channel and must keep the camera wording.
+            # led_connected term: with the LED controller gone
+            # the failures are the disconnect's, not a missing
+            # channel, and keep the camera wording.
             undrivable = (
                 step_color in common_utils.get_layers_with_led()
                 and self._scope.led_connected
@@ -1267,6 +1297,7 @@ class ProtocolImageWriter:
                             name=name,
                         ),
                         run_claim=self._run_claim,
+                        to_plate=self._to_plate,
                     )
                     self._video_steps.append(recorder)
                     outcome = recorder.run_blocking()
@@ -1332,12 +1363,6 @@ class ProtocolImageWriter:
                     # that delivers a black frame fails loudly while an
                     # illumination-0 or luminescence step stays dark by
                     # design.
-                    # The height the frame is taken at, read with the stage
-                    # settled for the grab: after an autofocus sweep the
-                    # stage sits at the focus it found, which the step row
-                    # handed in here -- read before the sweep -- does not
-                    # carry. A scope without Z has no height to record.
-                    frame_stage_z_um = self._scope.motion.get_target_position().get('Z')
                     captured_image = self._scope.imaging.capture_and_wait(
                         force_to_8bit=capture_depth == 8,
                         all_ones_check=True,
@@ -1370,6 +1395,14 @@ class ProtocolImageWriter:
                     # and the darkness is recorded on the row below, so a run
                     # whose illumination is genuinely broken cannot end with a
                     # clean manifest built from black frames.
+                    # Where the stage was, read beside the grab with the
+                    # reader a manual still and every recorded frame use:
+                    # after an autofocus sweep that is the focus it found,
+                    # not the step's planned Z, and an axis the scope lacks
+                    # or has lost its reference on states no position.
+                    frame_position = frame_fact(
+                        self._scope, channel_tiebreak=step['Color'], to_plate=self._to_plate
+                    )
                     capture_info = self._scope.imaging.last_capture_info or {}
                     if not capture_info.get('dark_saved'):
                         self._consecutive_capture_failures = 0
@@ -1434,7 +1467,7 @@ class ProtocolImageWriter:
                                 significant_bits=frame_significant_bits,
                                 objective_id=frame_objective_id,
                                 record=frame_record,
-                                stage_z_um=frame_stage_z_um,
+                                position=frame_position,
                             ),
                             'enable_image_saving': enable_image_saving,
                             'separate_folder_per_channel': separate_folder_per_channel,
@@ -1600,13 +1633,13 @@ class ProtocolImageWriter:
                     jpeg_quality=self._config.jpg_quality,
                     channel=step['Color'],
                     false_color_on=bool(step['False_Color']),
-                    # A step's X and Y are plate mm and its Z is stage um --
-                    # the frames the saved file declares, so each goes into
-                    # the parameter named for it and reaches the file
-                    # unconverted.
-                    plate_x_mm=step['X'],
-                    plate_y_mm=step['Y'],
-                    stage_z_um=captured_image.stage_z_um,
+                    # The frame's position fact holds plate mm for X and Y
+                    # and stage um for Z -- the frames the saved file
+                    # declares, so each goes into the parameter named for it
+                    # and reaches the file unconverted.
+                    plate_x_mm=captured_image.position.plate_x_mm,
+                    plate_y_mm=captured_image.position.plate_y_mm,
+                    stage_z_um=captured_image.position.z_um,
                     save_encoding=self._config.save_encoding,
                     significant_bits=captured_image.significant_bits,
                     objective_id=captured_image.objective_id,

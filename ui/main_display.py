@@ -48,10 +48,11 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             # Thread spawn/join overhead; generation does NOT bump
             # so the texture stays on the last rendered frame.
             scope_display.pause()
-            if self.scope.led_connected:
-                self._pause_led_snapshot = illumination.save_led_state('camera_pause')
-                # LED observer handles UI button sync
-                submit_reported(illumination.leds_off, None, 'CAM_PAUSE_LEDS', lane=io_executor)
+            # None with no LED board: nothing to restore on resume, and the
+            # off is satisfied with nothing lit.
+            self._pause_led_snapshot = illumination.save_led_state('camera_pause')
+            # LED observer handles UI button sync
+            submit_reported(illumination.leds_off, None, 'CAM_PAUSE_LEDS', lane=io_executor)
         else:
             if self._pause_led_snapshot:
                 snapshot = self._pause_led_snapshot

@@ -124,7 +124,7 @@ def test_a_fault_arrives_as_a_fault_in_its_own_words_with_its_reason(centre, fau
 
 def test_a_failed_run_is_shown_through_an_unattended_runs_mute_and_a_failed_start_is_not(centre):
     heard = _heard(centre)
-    centre.set_unattended_run(True)
+    centre.open_run_scope(attended=False)
 
     centre.report_outcome(
         exc.RunFailedError(reason='disk_space_critical', title='Disk Space Critical', message='m'),

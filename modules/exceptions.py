@@ -936,6 +936,23 @@ class RunAlreadyEndedError(Quiet, ProtocolError):
     """
 
 
+class RunWaitOnUiThreadError(ProtocolError):
+    """A run's wait was made on the thread that delivers the run's callbacks.
+
+    Under the GUI a run's ``run_complete`` and ``files_complete`` are
+    delivered on the UI thread, and a run's waits return only once they
+    have run, so a wait there would wait on itself. Not a refusal: a caller
+    that blocks the UI thread on a run is a defect in the caller, and the
+    GUI displays a run's end from its callbacks, never by waiting on it.
+    """
+
+    def __init__(self):
+        super().__init__(
+            "A run's wait was made on the thread that delivers the run's callbacks, "
+            'where it would wait on itself.'
+        )
+
+
 class RunStartError(ProtocolError):
     """A sequenced run failed after it was committed but before it ran.
 
@@ -1838,12 +1855,19 @@ class HardwareCommandRefusedError(Refusal, Exception):
     stamps the active objective's scale into each capture, so a change
     mid-run is a command against the run's hardware state.
 
-    A home with no motor controller connected raises it as well
-    (``'not_connected'``): nothing was driven, and the person's remedy is
-    the cable, not a retry. So does a move or a home the stage's own
-    interlock refused before anything moved (``INTERLOCK_REASONS``): the
-    lid is open, or the stage has no power; the refused axis is where it
-    was, its position known.
+    A motion or LED command for hardware the scope does not have raises it
+    too, and ``missing`` names the part: ``'not_connected'`` when the model
+    has a motor controller and none is connected, whose remedy is the cable,
+    or when no LED controller is connected; ``'axis_absent'`` when the
+    scope has no such motor or LED -- a Z-only scope asked for X, a scope
+    with no turret asked for one, a manual scope asked for any motion, an
+    LS560 asked to light Red. Nothing was driven. So does a move whose drive needs a
+    position the controller did not report (``'position_unread'``): the
+    relative base, or Z for the backlash approach. Nothing was driven and
+    the axis keeps its state.
+    So does a move or a home the stage's own interlock refused before
+    anything moved (``INTERLOCK_REASONS``): the lid is open, or the stage
+    has no power; the refused axis is where it was, its position known.
 
     A declined request, not a fault, so it is a ``Refusal``: the lane shows
     it as a warning in its own words and logs one line without a
@@ -1856,15 +1880,31 @@ class HardwareCommandRefusedError(Refusal, Exception):
         reason: Machine-readable refusal code.
         member: The member or task that was refused, for the log.
         holder: The kind of activity holding the scope, when known.
+        missing: The part the command needed and the scope does not have,
+            for ``'not_connected'`` and ``'axis_absent'``; None otherwise.
         title: The heading shown with the sentence, which follows the reason:
             nothing connected is not a busy microscope.
     """
 
-    def __init__(self, reason: str, member: str, holder: str | None = None):
-        super().__init__(_command_refused_sentence(reason, holder))
+    def __init__(
+        self,
+        reason: str,
+        member: str,
+        holder: str | None = None,
+        *,
+        missing: 'MissingPart | None' = None,
+    ):
+        if (missing is None) != (reason not in _MISSING_PART_REASONS):
+            raise TypeError(f'a {reason!r} refusal takes missing= exactly when it names a part')
+        if missing is not None and missing.reason != reason:
+            raise TypeError(f'{missing} is refused as {missing.reason!r}, not {reason!r}')
+        super().__init__(
+            missing.sentence if missing is not None else _command_refused_sentence(reason, holder)
+        )
         self.reason = reason
         self.member = member
         self.holder = holder
+        self.missing = missing
         self.title = _COMMAND_REFUSED_TITLES.get(reason, 'Microscope Busy')
 
 
@@ -1880,9 +1920,93 @@ HARDWARE_STATE_REASONS = frozenset({'not_connected'}) | INTERLOCK_REASONS
 _COMMAND_REFUSED_TITLES = {
     'not_connected': 'Not Connected',
     'scope_disconnected': 'Not Connected',
+    'axis_absent': 'Not on This Microscope',
+    'position_unread': 'Motor Controller Not Responding',
     'lid_open': 'Lid Open',
     'stage_unpowered': 'No Stage Power',
 }
+
+
+@dataclass(frozen=True)
+class MissingPart:
+    """The hardware a refused command needed that the scope does not have.
+
+    The refusal's reason and its sentence are the part's, so no raise words
+    its own: a controller the model has is not connected, and every other
+    part -- a motor, the turret, an LED -- is not on this scope. The motion
+    parts and the LED controller are the class's constants; an LED is named
+    when it is refused (``MissingPart.led``), by layer or by channel number,
+    as the command named it.
+
+    Attributes:
+        name: The part, for the log.
+        reason: ``'not_connected'`` for a controller, ``'axis_absent'``
+            otherwise.
+        sentence: What the person at the scope is told.
+    """
+
+    name: str
+    reason: str
+    sentence: str
+
+    MOTOR_CONTROLLER: ClassVar['MissingPart']
+    MOTORS: ClassVar['MissingPart']
+    X: ClassVar['MissingPart']
+    Y: ClassVar['MissingPart']
+    Z: ClassVar['MissingPart']
+    TURRET: ClassVar['MissingPart']
+    LED_CONTROLLER: ClassVar['MissingPart']
+
+    @classmethod
+    def axis(cls, axis: str) -> 'MissingPart':
+        """The part for a motion axis name, ``'X'``, ``'Y'``, ``'Z'`` or ``'T'``.
+
+        Raises:
+            ValueError: ``axis`` is not one of them.
+        """
+        try:
+            return _AXIS_PARTS[axis]
+        except KeyError:
+            raise ValueError(f'{axis!r} is not a motion axis') from None
+
+    @classmethod
+    def led(cls, led: 'str | int') -> 'MissingPart':
+        """The part for an LED this scope's model does not have.
+
+        Args:
+            led: The layer name the command gave, or the channel number.
+        """
+        if isinstance(led, str):
+            return cls(f'{led} LED', 'axis_absent', f'This microscope has no {led} LED.')
+        return cls(
+            f'LED channel {led}', 'axis_absent', f'This microscope has no LED on channel {led}.'
+        )
+
+
+MissingPart.MOTOR_CONTROLLER = MissingPart(
+    'motor controller',
+    'not_connected',
+    'The motor controller is not connected. Check the USB cable and that '
+    'no other program is holding the port.',
+)
+MissingPart.MOTORS = MissingPart('motors', 'axis_absent', 'This microscope has no motors.')
+MissingPart.X = MissingPart('X', 'axis_absent', 'This microscope has no X motor.')
+MissingPart.Y = MissingPart('Y', 'axis_absent', 'This microscope has no Y motor.')
+MissingPart.Z = MissingPart('Z', 'axis_absent', 'This microscope has no Z motor.')
+MissingPart.TURRET = MissingPart('T', 'axis_absent', 'This microscope has no turret.')
+MissingPart.LED_CONTROLLER = MissingPart(
+    'LED controller', 'not_connected', 'The LED controller is not connected.'
+)
+_AXIS_PARTS = {
+    'X': MissingPart.X,
+    'Y': MissingPart.Y,
+    'Z': MissingPart.Z,
+    'T': MissingPart.TURRET,
+}
+
+
+_MISSING_PART_REASONS = frozenset({'not_connected', 'axis_absent'})
+
 
 _HOLDER_NOUNS = {'protocol': 'A run', 'diagnostic': 'A diagnostic', 'recording': 'A recording'}
 
@@ -1894,10 +2018,10 @@ def _command_refused_sentence(reason: str, holder: str | None) -> str:
         return 'The activity that sent this command has ended, so the command was not sent.'
     if reason == 'scope_disconnected':
         return 'The microscope has been disconnected, so the command was not sent.'
-    if reason == 'not_connected':
+    if reason == 'position_unread':
         return (
-            'The motor controller is not connected. Check the USB cable and that '
-            'no other program is holding the port.'
+            'The motor controller did not report the stage position, so the move '
+            'was not sent. Try again; if it repeats, check the USB cable.'
         )
     if reason == 'lid_open':
         return "The microscope's lid is open. Close it to move or home the stage."
@@ -2139,15 +2263,17 @@ class MoveNotCompletedError(Exception):
             target within the motion bound. ``'board_lost'`` -- the
             monitor lost the motor board while the axis moved.
             ``'faulted'`` -- something else set the axis UNKNOWN during
-            the wait (a disconnect, a home). ``'timed_out'`` -- the wait's
+            the wait (a disconnect, a home). ``'position_unread'`` -- the
+            board reported the axis arrived but not where, within the
+            motion bound. ``'timed_out'`` -- the wait's
             bound ran out before the axis arrived. Each of those leaves
-            the axis UNKNOWN. ``'stopped'`` -- a stop landed on it while it
-            moved, ``stop_motion`` or the stage's own stop in refusing a
-            move; the axis is where the stop left it, which its position
-            reports, and a turret is in no known slot. ``'superseded'`` --
-            another move on the same axis started before this one arrived;
-            the axis is going where that move sent it, and that move's own
-            outcome says whether it got there. ``'still_moving'`` -- a wait
+            the axis UNKNOWN. ``'stopped'`` -- a stop the board took while
+            it moved halted it, ``stop_motion`` or the stage's own stop in
+            refusing a move; the axis is where the stop left it, which its
+            position reports, and a turret is in no known slot.
+            ``'superseded'`` -- another move or a home took the axis before
+            this one arrived; that command's own outcome says where the
+            axis went. ``'still_moving'`` -- a wait
             for motion the caller did not start ran out of time with the
             axis still moving; the axis keeps the state its own move gives
             it.
@@ -2171,21 +2297,23 @@ class MoveNotCompletedError(Exception):
             'it stalled or the board was lost during the move. The {axis} position '
             'is now unknown -- home the scope before moving it again.'
         ),
+        'position_unread': (
+            'it stopped, but the motor board did not report where. The {axis} '
+            'position is now unknown -- home the scope before moving it again.'
+        ),
         'timed_out': (
             'it did not arrive within the motion time limit. The {axis} position '
             'is now unknown -- home the scope before moving it again.'
         ),
         'stopped': 'the motors were stopped before it arrived.',
-        'superseded': (
-            'another move on the {axis} axis started before it arrived, so the axis '
-            'is going where that move sent it.'
-        ),
+        'superseded': 'another command on the {axis} axis was given before it arrived.',
         'still_moving': 'the {axis} axis was still moving when the wait ran out of time.',
     }
 
     _TITLES: ClassVar[dict[str, str]] = {
         'stalled': 'Motor Axis Stalled',
         'board_lost': 'Motor Board Disconnected',
+        'position_unread': 'Motor Position Unknown',
     }
 
     def __init__(self, axis: str, reason: str):

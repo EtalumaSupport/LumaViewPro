@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from drivers.exceptions import HardwareError
+from drivers.null_ledboard import NullLEDBoard
 from lvp_logger import logger
 
 if TYPE_CHECKING:
@@ -196,17 +197,20 @@ class ScopeCapabilities:
     sensor property); never a hardcoded default."""
 
     # ---- LED ----
-    led_channels: tuple[int, ...]
-    """LED channel indices available -- from `led.available_channels()`.
-    RP2040 = (0,1,2,3,4,5), FX2/LVC = (0,1,2,3). NullLEDBoard also returns
-    the 6-channel set for Rule 8 silent-noop compatibility."""
+    led_channels: tuple[int, ...] | None
+    """LED channel indices the installed board addresses -- from
+    `led.available_channels()`. RP2040 = (0,1,2,3,4,5), FX2/LVC =
+    (0,1,2,3). None when the scope came up without its LED board."""
 
     led_colors: tuple[str, ...]
-    """Color names available -- from `led.available_colors()`."""
+    """Layer names of this model that drive an LED -- from the resolved
+    layer identity, so a scope that came up without its LED board still
+    names its model's LEDs."""
 
-    led_max_ma: int
+    led_max_ma: int | None
     """Maximum LED current per channel, in mA, as published by the connected
-    LED driver (`led.max_ma()`); 0 when no driver answers."""
+    LED driver (`led.max_ma()`); 0 when a driver does not answer; None when
+    the scope came up without its LED board."""
 
     # ---- Camera ----
     camera_model: str | None
@@ -239,6 +243,22 @@ class ScopeCapabilities:
     3840 x 2160). None when none of them is known: no camera, or its boot
     read failed (logged at warning). ``scope.imaging.set_frame_size``
     refuses a frame above it, divided by the binning in force."""
+
+    camera_analog_gain_max_db: float | None
+    """The most gain, in dB, the camera applies before a digital stage:
+    the analog maximum its profile documents, or, for a camera whose
+    profile states no digital stage, the live maximum it reported at
+    connect (all its gain is analog). Above it the camera multiplies
+    digitised values, which raises the noise with the signal. None when
+    neither is known: no camera, a camera with a digital stage and no
+    documented split, or a maximum the connect read did not get."""
+
+    camera_reports_temperature: bool
+    """True if the camera has a temperature sensor, probed from its
+    temperature node at connect. Where it is False,
+    ``scope.diagnostics.get_camera_temperatures_degc`` answers ``{}``;
+    where it is True an empty answer cannot happen, and a read that fails
+    raises."""
 
     is_color_native: bool = False
     """True if the camera natively produces 3-channel color frames
@@ -321,8 +341,14 @@ class ScopeCapabilities:
         pixel_size_um = _resolve_pixel_size_um(motorconfig, optics, camera)
         lens_focal_length_mm = _resolve_lens_focal_length_mm(motorconfig, optics)
 
-        # LED
-        led_channels = _probe('led.available_channels', lambda: tuple(led.available_channels()), ())
+        # LED. A scope that came up without its board has no channels and
+        # no current cap, not the null board's stand-in table and 0 mA.
+        led_present = not isinstance(led, NullLEDBoard)
+        led_channels = (
+            _probe('led.available_channels', lambda: tuple(led.available_channels()), ())
+            if led_present
+            else None
+        )
         # Colour NAMES come from the unit's resolved layer identity, not
         # the driver: the driver knows which board channels it can drive,
         # while which layer names exist (and what they drive) is unit
@@ -337,7 +363,7 @@ class ScopeCapabilities:
         # The cap is the driver's to publish; there is no value to assume
         # in its place. A driver that does not answer leaves no legal
         # current above zero.
-        led_max_ma = _probe('led.max_ma', lambda: int(led.max_ma()), 0)
+        led_max_ma = _probe('led.max_ma', lambda: int(led.max_ma()), 0) if led_present else None
 
         # Camera
         camera_model: str | None = None
@@ -348,6 +374,8 @@ class ScopeCapabilities:
         camera_pixel_formats: tuple[str, ...] = ()
         camera_binning_sizes: tuple[int, ...] = ()
         camera_max_frame_size: tuple[int, int] | None = None
+        camera_analog_gain_max_db: float | None = None
+        camera_reports_temperature = False
         is_color_native = False
         native_bit_depth = 16
         camera_supports_conversion_gain_mode = False
@@ -368,6 +396,11 @@ class ScopeCapabilities:
                 native = getattr(profile, 'native_resolution', None)
                 if native:
                     documented = (int(native['width']), int(native['height']))
+                gain = profile.gain
+                if gain.analog_max_db is not None:
+                    camera_analog_gain_max_db = float(gain.analog_max_db)
+                elif not gain.has_digital and gain.total_max_db is not None:
+                    camera_analog_gain_max_db = float(gain.total_max_db)
             size = _probe('camera.get_max_frame_size', lambda: camera.get_max_frame_size(), None)
             reported = (int(size['width']), int(size['height'])) if size else None
             camera_max_frame_size = _smallest_frame(
@@ -390,13 +423,19 @@ class ScopeCapabilities:
                 lambda: bool(camera.supports_black_level()),
                 False,
             )
+            camera_reports_temperature = _probe(
+                'camera.supports_temperature',
+                lambda: bool(camera.supports_temperature()),
+                False,
+            )
             # Record the detected low-noise toggles so a support bundle shows
             # whether they were available on this camera without debug mode.
             logger.info(
                 f'[CAPABILITIES] camera={camera_model!r} '
                 f'conversion_gain_mode={camera_supports_conversion_gain_mode} '
                 f'line_noise_reduction={camera_supports_line_noise_reduction} '
-                f'black_level={camera_supports_black_level}'
+                f'black_level={camera_supports_black_level} '
+                f'temperature={camera_reports_temperature}'
             )
 
         return cls(
@@ -419,6 +458,8 @@ class ScopeCapabilities:
             camera_pixel_formats=camera_pixel_formats,
             camera_binning_sizes=camera_binning_sizes,
             camera_max_frame_size=camera_max_frame_size,
+            camera_analog_gain_max_db=camera_analog_gain_max_db,
+            camera_reports_temperature=camera_reports_temperature,
             is_color_native=is_color_native,
             native_bit_depth=native_bit_depth,
             camera_supports_conversion_gain_mode=camera_supports_conversion_gain_mode,

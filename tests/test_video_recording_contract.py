@@ -27,6 +27,7 @@ from tests.video_engine_harness import (
     FrameFeed,
     WriterStub,
 )
+from tests.protocol_drives import run_identity
 
 # Every recording manifest must carry at least these keys; downstream
 # consumers (support bundles, char tooling, the end-of-run report) key
@@ -255,16 +256,18 @@ class TestDrainContinuesAfterCapture:
 
 class TestStopPromptness:
     def test_stop_closes_selection_within_one_decision(self, tmp_path):
-        engine, writer, clock, _ = make_engine(tmp_path)
+        engine, _writer, clock, _ = make_engine(tmp_path)
         engine.start(lambda: make_config(tmp_path, fps=10, duration_s=10))
         feed = FrameFeed()
         feed_uniform(engine, clock, feed, delivery_fps=10, duration_s=1)
         engine.stop('user_stop')
         assert not engine.is_recording
-        selected_at_stop = engine.pending_writes + len(writer.written)
+        # The engine's own count: the writer lane runs on, and a sum of its
+        # queue and its written list counts a frame twice mid-write.
+        selected_at_stop = engine.frames_selected
         # Frames delivered after stop are never selected.
         feed_uniform(engine, clock, feed, delivery_fps=10, duration_s=1)
-        assert engine.pending_writes + len(writer.written) == selected_at_stop
+        assert engine.frames_selected == selected_at_stop
         assert engine.wait_for_drain(timeout=5)
         assert engine.result().frames_selected == selected_at_stop
 
@@ -444,31 +447,6 @@ class TestManifestNamesTheArtifactItDescribes:
         assert list(tmp_path.glob('*_manifest.json')) == []
 
 
-class TestManifestWriteFailureIsLoud:
-    def test_manifest_write_failure_rides_the_result_non_fatally(self, tmp_path):
-        # The manifest is the SOLE carrier of the recording's channel
-        # color and measured rate; a silent write failure downgrades
-        # every later build of these frames to grayscale at an
-        # unmeasured rate. Non-fatal: the frames are the artifact and
-        # stay intact, so the recording must not abort.
-        engine, writer, clock, _ = make_engine(tmp_path)
-        engine.start(lambda: make_config(tmp_path, fps=5, duration_s=1))
-        feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
-        # A directory squatting on the manifest path makes the write
-        # raise without touching the frames.
-        (tmp_path / 'recording_manifest.json').mkdir()
-        engine.stop('user_stop')
-        assert engine.wait_for_drain(timeout=5)
-
-        result = engine.result()
-        assert result.manifest_path is None
-        assert not result.aborted, 'a manifest write failure must not abort the recording'
-        assert writer.written, 'frames must still be on disk'
-        assert isinstance(result.manifest_failure, OSError), (
-            'the lost details file must reach the caller that reports it'
-        )
-
-
 class TestFrameIdentityTravelsWithTheFrame:
     """Chunk metadata rides the queue to the write edge and the manifest.
 
@@ -543,22 +521,41 @@ class TestExclusivity:
 
     def test_engine_refuses_when_claim_held_by_protocol(self, tmp_path):
         claim = ActivityClaim()
-        assert claim.try_claim('protocol')
+        assert claim.try_claim('protocol', run=run_identity())
         engine, _writer, _clock, _ = make_engine(tmp_path, claim=claim)
         with pytest.raises(RecordingRefusedError) as excinfo:
             engine.start(lambda: make_config(tmp_path, fps=5, duration_s=1))
         assert excinfo.value.reason == 'exclusive_activity_running'
-        # Busy-with-what rides the payload: the holder's kind always,
-        # and the holding run's trigger when the claimant supplied one
-        # (none here, so it stays None rather than guessing).
+        # Busy-with-what rides the payload: the holder's kind, and the
+        # holding run's trigger -- a run claim cannot be taken without its
+        # run -- with the run named by its kind in the sentence.
         assert excinfo.value.holder == 'protocol'
-        assert excinfo.value.holder_trigger is None
+        assert excinfo.value.holder_trigger == 'test'
+        assert excinfo.value.message.startswith('The scan run is using the microscope')
+
+    @pytest.mark.parametrize(
+        ('kind', 'run', 'named'),
+        [
+            ('protocol', run_identity('api_zstack', 'Z-stack'), 'The Z-stack run'),
+            ('diagnostic', None, 'A diagnostic activity'),
+        ],
+        ids=['run', 'diagnostic'],
+    )
+    def test_the_refusal_names_what_holds_the_scope(self, tmp_path, kind, run, named):
+        """One phrasing with every other holder refusal: a run by its kind,
+        another activity by its kind -- never a trigger token."""
+        claim = ActivityClaim()
+        assert claim.try_claim(kind, run=run)
+        engine, _writer, _clock, _ = make_engine(tmp_path, claim=claim)
+        with pytest.raises(RecordingRefusedError) as excinfo:
+            engine.start(lambda: make_config(tmp_path, fps=5, duration_s=1))
+        assert excinfo.value.message.startswith(f'{named} is using the microscope')
 
     def test_a_recording_inside_a_run_leaves_the_runs_claim_held(self, tmp_path):
         """A video step records under the run's claim; its end must not
         free the claim the run holds until run end."""
         claim = ActivityClaim()
-        run = claim.try_claim('protocol', run_trigger_source='scan')
+        run = claim.try_claim('protocol', run=run_identity('scan'))
         engine, _writer, _clock, _ = make_engine(tmp_path, claim=run.lend())
 
         engine.start(lambda: make_config(tmp_path, fps=5, duration_s=10))
@@ -572,7 +569,7 @@ class TestExclusivity:
 
     def test_a_recording_lent_a_claim_its_run_no_longer_holds_is_refused(self, tmp_path):
         claim = ActivityClaim()
-        run = claim.try_claim('protocol', run_trigger_source='scan')
+        run = claim.try_claim('protocol', run=run_identity('scan'))
         lent = run.lend()
         run.release()
         engine, _writer, _clock, _ = make_engine(tmp_path, claim=lent)
@@ -583,7 +580,7 @@ class TestExclusivity:
 
     def test_claim_refusal_names_the_holding_runs_trigger(self, tmp_path):
         claim = ActivityClaim()
-        assert claim.try_claim('protocol', run_trigger_source='autofocus_scan')
+        assert claim.try_claim('protocol', run=run_identity('autofocus_scan'))
         engine, _writer, _clock, _ = make_engine(tmp_path, claim=claim)
         with pytest.raises(RecordingRefusedError) as excinfo:
             engine.start(lambda: make_config(tmp_path, fps=5, duration_s=1))
@@ -663,9 +660,9 @@ class TestSessionActivityClaim:
         claim = headless_session.activity_claim
         recording = claim.try_claim('recording')
         assert recording
-        assert not claim.try_claim('protocol')
+        assert not claim.try_claim('protocol', run=run_identity())
         recording.release()
-        protocol = claim.try_claim('protocol')
+        protocol = claim.try_claim('protocol', run=run_identity())
         assert protocol
         protocol.release()
 

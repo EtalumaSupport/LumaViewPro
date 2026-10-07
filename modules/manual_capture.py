@@ -19,7 +19,6 @@ import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 import modules.image_utils as image_utils
 from modules import capture_overlays, path_utils
-from modules.activity_claim import Taking, acting, current_taking
 from modules.exceptions import (
     CaptureError,
     CapturePositionNotRecordedNotice,
@@ -95,19 +94,29 @@ class ManualCaptureController:
                 the mode at run time passes its live flag.
 
         Returns:
-            A Future of the paths written, the unmarked file first. It
-            raises what the capture raised: ``ObjectiveUnknownError`` when
-            the objective in the light path is unknown (nothing captured),
-            ``HardwareCommandRefusedError`` when a run holds the camera,
-            ``CaptureError`` (reason ``'no_frame_returned'``) when no frame
-            passed, with the capture engine's cause as its message. The
-            Future sets no timeout: its caller bounds its own wait.
+            A Future of the paths written, the unmarked file first. The
+            still is on the camera lane when this returns, so a run started
+            after it waits for it while it runs. The Future raises what the
+            capture raised: ``ObjectiveUnknownError`` when the objective in
+            the light path is unknown (nothing captured), ``CaptureError``
+            (reason ``'no_frame_returned'``) when no frame passed, with the
+            capture engine's cause as its message;
+            ``HardwareCommandRefusedError`` (reason
+            ``'exclusive_activity_running'``) when a run took the scope
+            while the still was queued behind other camera work, before it
+            started; ``CancelledError`` when the lane dropped it unrun (the
+            scope disconnected). The Future sets no timeout: its caller
+            bounds its own wait.
 
         Raises:
             ValueError: ``layer`` is not a channel. Refused before anything
                 is named, created or captured.
             HardwareCommandRefusedError: reason ``'capture_in_flight'``,
-                while an earlier still has not finished.
+                while an earlier still has not finished;
+                ``'exclusive_activity_running'``, while a run or a
+                diagnostic holds the scope and this call is not made under
+                its taking; ``'scope_disconnected'``, when the camera lane
+                is closed.
         """
         if layer is not None and layer not in common_utils.get_layers():
             raise ValueError(
@@ -128,46 +137,28 @@ class ManualCaptureController:
                 ),
             )
             future: concurrent.futures.Future = concurrent.futures.Future()
+            # Marked running before anyone else holds it, so only the lane
+            # settles it: a caller's cancel() is refused, and cannot release
+            # the guard a second time beside the lane.
             future.set_running_or_notify_cancel()
-            # The still is its caller's: a diagnostic holding the scope takes
-            # one under its own taking, so the thread acts under whatever
-            # taking the caller acts under.
-            threading.Thread(
-                target=self._run,
-                args=(request, future, current_taking()),
-                name='manual-capture',
-                daemon=True,
-            ).start()
+            # Submitted on the caller's thread, under the caller's taking: a
+            # diagnostic holding the scope takes a still under its own, and
+            # a run that takes the scope after this returns finds the still
+            # already on the lane.
+            request.scope.imaging._submit_camera(
+                self._still_body, _MEMBER, args=(request,), waiter=future
+            )
         except BaseException:
             self._in_flight.release()
             raise
+        future.add_done_callback(lambda _settled: self._release_if_unrun(request))
         return future
 
-    def _run(
-        self,
-        request: '_StillRequest',
-        future: concurrent.futures.Future,
-        taking: 'Taking | None',
-    ) -> None:
-        # The camera executor's own future is a per-thread waiter reused on
-        # that thread's next submit, so it cannot be handed to a caller; this
-        # thread waits on it and settles a standard Future instead.
-        try:
-            with acting(taking):
-                paths = request.scope.imaging._dispatch_camera(
-                    self._still_body,
-                    _MEMBER,
-                    args=(request,),
-                    timeout_s=None,
-                )
-        except BaseException as exc:
-            if not request.body_started.is_set():
-                # Refused or cancelled before the lane ran the body, so the
-                # body's own release never happens.
-                self._in_flight.release()
-            future.set_exception(exc)
-            return
-        future.set_result(paths)
+    def _release_if_unrun(self, request: '_StillRequest') -> None:
+        # Refused while queued or dropped before the lane ran the body, so
+        # the body's own release never happens.
+        if not request.body_started.is_set():
+            self._in_flight.release()
 
     def _still_body(self, request: '_StillRequest') -> list[pathlib.Path]:
         """The whole still on the camera worker: grab, record and write.

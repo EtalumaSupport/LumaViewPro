@@ -154,6 +154,38 @@ def test_an_insert_outside_the_protocol_is_refused(place):
 
 
 @pytest.mark.parametrize(
+    ('num_steps', 'words'),
+    [
+        (6, 'The protocol has 6 steps.'),
+        (1, 'The protocol has 1 step.'),
+        (0, 'The protocol has no steps.'),
+    ],
+)
+def test_the_refusal_names_the_steps_there_are_and_carries_the_index(num_steps, words):
+    # The index is the API's, zero-based: a person who typed 99 into the
+    # panel's step box is refused index 98. The words leave it out, so they
+    # read the same to that person and to a REST caller, who reads it here.
+    protocol = _build_protocol(
+        [_make_step(name=f'A{i + 1}_BF', well=f'A{i + 1}') for i in range(num_steps)]
+    )
+
+    with pytest.raises(StepNotFoundError) as refused:
+        protocol.delete_step(step_idx=98)
+
+    assert str(refused.value) == words
+    assert refused.value.index == 98
+    assert refused.value.num_steps == num_steps
+
+
+def test_an_insert_refused_carries_the_place_it_was_given():
+    with pytest.raises(StepNotFoundError) as refused:
+        _insert(_protocol(), before_step=NUM_STEPS + 1)
+
+    assert refused.value.index == NUM_STEPS + 1
+    assert refused.value.num_steps == NUM_STEPS
+
+
+@pytest.mark.parametrize(
     'place', [{}, {'after_step': 0, 'before_step': 1}], ids=['neither', 'both']
 )
 def test_an_insert_naming_no_place_or_two_is_refused(place):

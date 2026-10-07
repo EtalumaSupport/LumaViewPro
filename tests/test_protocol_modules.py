@@ -50,6 +50,7 @@ class TestSequencedCaptureRunMode:
             'full_protocol',
             'single_scan',
             'single_zstack',
+            'single_autofocus',
             'single_autofocus_scan',
             'single_composite',
         }
@@ -411,16 +412,12 @@ class TestRunCleanup:
             validate_transition(state[0], s)
             state[0] = s
 
-        from modules.protocol_cleanup import RunCompleteNotice
-
         io_exec = _FakeExecutor()
         # autofocus_thread replaces autofocus_io_executor in Stage B2;
         # MagicMock so the cleanup tests can assert abort() was called.
         af_thread = MagicMock()
         file_exec = _FakeExecutor()
         camera_exec = _FakeExecutor()
-        # The run's run_complete notice is built from the run's own
-        # callbacks and ending, so an override of either reaches it too.
         callbacks = overrides.pop('callbacks', ProtocolCallbacks())
         ending = overrides.pop(
             'ending',
@@ -444,9 +441,6 @@ class TestRunCleanup:
             'cancel_scheduled_events_fn': lambda: None,
             'autofocus_thread': af_thread,
             'write_batch': RunWriteBatch(file_exec),
-            'run_complete': RunCompleteNotice(
-                callbacks, protocol=None, ending=ending, run_dir=None
-            ),
             'ending': ending,
             'record_cleanup_failures': lambda steps: None,
         }
@@ -495,21 +489,13 @@ class TestRunCleanup:
         camera.put.assert_not_called()
         camera.protocol_put.assert_not_called()
 
-    def test_cleanup_fires_run_complete_callback(self):
-        from modules.protocol_cleanup import run_cleanup
-
-        completed = []
-        cb = ProtocolCallbacks(run_complete=lambda protocol=None, **kwargs: completed.append(True))
-        args, _ = self._make_cleanup_args(callbacks=cb)
-        run_cleanup(**args)
-        assert len(completed) == 1
-
-    def test_files_complete_is_the_closed_batchs_not_cleanups(self):
-        """run_cleanup sends run_complete and never files_complete: the run's
-        files are complete when its batch is -- closed, with nothing
-        outstanding. The runner closes the batch after cleanup, and a batch
-        with nothing outstanding completes at the close: files_complete once,
-        after run_complete.
+    def test_files_complete_is_handed_over_after_the_close(self):
+        """run_cleanup sends neither run_complete nor files_complete: the run
+        sends both once it has let go of the scope. The runner closes the
+        batch before the run ends, so a next run reads it as draining, and a
+        batch with nothing outstanding completes at the close -- but its
+        files_complete goes out only when the run's end hands the actions
+        over.
         """
         from types import SimpleNamespace
 
@@ -523,7 +509,7 @@ class TestRunCleanup:
         )
         args, _ = self._make_cleanup_args(callbacks=cb)
         run_cleanup(**args)
-        assert fired == ['run_complete'], 'cleanup must leave files_complete to the batch'
+        assert fired == [], "cleanup must leave both callbacks to the run's end"
 
         # The runner's close, on a runner that saves no record.
         runner = SimpleNamespace(
@@ -536,8 +522,14 @@ class TestRunCleanup:
             _run_mode=None,
             LOGGER_NAME='TEST',
         )
-        SequencedCaptureRunner._close_run_writes(runner, args['write_batch'], args['run_complete'])
-        assert fired == ['run_complete', 'files_complete']
+        batch = args['write_batch']
+        files_written = SequencedCaptureRunner._close_run_writes(
+            runner, batch, args['ending'], MagicMock()
+        )
+        assert batch.wait_complete(0), 'a batch with nothing outstanding completes at the close'
+        assert fired == [], 'closing the batch must not send files_complete'
+        batch.when_complete(files_written)
+        assert fired == ['files_complete']
 
     def test_cleanup_handles_missing_callbacks_gracefully(self):
         from modules.protocol_cleanup import run_cleanup
@@ -722,6 +714,7 @@ class TestProtocolImageWriterWriteCapture:
             engineering_mode=False,
             run_claim=lent_run_claim(),
             labware=plate(),
+            to_plate=None,
             captures_asked=1,
         )
         return writer
@@ -862,7 +855,7 @@ class TestFinalStepKeepsLedWhenCleanupRestoresIt:
     holds the channel lit, an empty target lets it go dark.
     """
 
-    def _boundary_target_for(self, *, leds_state_at_end, original_led_states, n_scans=1):
+    def _boundary_target_for(self, *, run_mode, original_led_states, n_scans=1):
         """Drive the final step of a scan and return the STEP_BOUNDARY target
         the runner asks the authority for (empty set = goes dark, non-empty =
         held lit)."""
@@ -875,7 +868,7 @@ class TestFinalStepKeepsLedWhenCleanupRestoresIt:
             protocol_step(),
             _disable_saving_artifacts=False,
             _run_dir=MagicMock(),
-            _leds_state_at_end=leds_state_at_end,
+            _run_mode=run_mode,
             _original_led_states=original_led_states,
             _n_scans=n_scans,
         )
@@ -907,25 +900,25 @@ class TestFinalStepKeepsLedWhenCleanupRestoresIt:
 
     def test_final_scan_restore_keeps_lit_channel(self):
         assert self._boundary_target_for(
-            leds_state_at_end='return_to_original',
+            run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
             original_led_states=self._lit_before_run(),
         ), 'cleanup is about to re-light this channel; turning it off here blinks'
 
     def test_final_scan_restore_skips_unlit_channel(self):
         assert not self._boundary_target_for(
-            leds_state_at_end='return_to_original',
+            run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
             original_led_states={'BF': {'enabled': False, 'illumination_ma': 0.0}},
         ), 'a channel dark before the run must go dark at the end'
 
     def test_leds_off_at_end_never_keeps(self):
         assert not self._boundary_target_for(
-            leds_state_at_end='off',
+            run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
             original_led_states=self._lit_before_run(),
-        ), "leds_state_at_end='off' must always end dark"
+        ), 'a run that ends dark must always end dark'
 
     def test_non_final_scan_stays_dark(self):
         assert not self._boundary_target_for(
-            leds_state_at_end='return_to_original',
+            run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
             original_led_states=self._lit_before_run(),
             n_scans=2,
         ), 'inter-scan waits must run dark (sample safety) on non-final scans'

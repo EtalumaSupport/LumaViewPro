@@ -15,6 +15,7 @@ import pytest
 
 from modules.exceptions import DiagnosticRefusedError, HardwareCommandRefusedError
 from tests.scope_fakes import spec_scope
+from tests.protocol_drives import run_identity
 
 
 def _make_session():
@@ -125,20 +126,23 @@ class TestTheDiagnosticIsRefusedWhenTheScopeIsHeld:
     @pytest.mark.parametrize('holder_kind', ['protocol', 'recording', 'diagnostic'])
     def test_refused_naming_the_holder_and_nothing_taken(self, holder_kind):
         session = _make_session()
-        other = session.activity_claim.try_claim(holder_kind, run_trigger_source=None)
+        run = run_identity() if holder_kind == 'protocol' else None
+        other = session.activity_claim.try_claim(holder_kind, run=run)
         try:
             with pytest.raises(DiagnosticRefusedError) as excinfo, session.diagnostic_claim():
                 pytest.fail('the block ran while another activity held the scope')
             assert excinfo.value.reason == 'exclusive_activity_running'
             assert excinfo.value.holder == holder_kind
-            assert holder_kind in excinfo.value.message
+            # A run is named by its kind in words; any other activity by its kind.
+            named = 'The scan run' if holder_kind == 'protocol' else holder_kind
+            assert named in excinfo.value.message
             assert other.holds, "a refused diagnostic must not touch the holder's claim"
         finally:
             other.release()
 
     def test_a_run_holders_trigger_is_named(self):
         session = _make_session()
-        run = session.activity_claim.try_claim('protocol', run_trigger_source='scan')
+        run = session.activity_claim.try_claim('protocol', run=run_identity('scan'))
         try:
             with pytest.raises(DiagnosticRefusedError) as excinfo, session.diagnostic_claim():
                 pass
@@ -155,7 +159,7 @@ class TestALentClaim:
 
         claim = ActivityClaim()
         held = claim.try_claim('diagnostic')
-        borrowing = held.lend().try_claim('protocol', run_trigger_source='api_autofocus')
+        borrowing = held.lend().try_claim('protocol', run=run_identity('api_autofocus'))
         assert borrowing.holds
         borrowing.release()
         assert held.holds, "a borrowing's release must leave the lender's claim held"
@@ -168,7 +172,7 @@ class TestALentClaim:
 
         claim = ActivityClaim()
         held = claim.try_claim('diagnostic')
-        run_taking = held.lend().try_claim('protocol', run_trigger_source='api_autofocus')
+        run_taking = held.lend().try_claim('protocol', run=run_identity('api_autofocus'))
         recording_taking = run_taking.lend().try_claim('recording')
         assert recording_taking is not None and recording_taking.holds
         recording_taking.release()
@@ -189,7 +193,7 @@ class TestALentClaim:
         assert borrow.blocking_holder.kind == 'recording', (
             "once the lender released, whoever took the claim since is in the borrow's way"
         )
-        assert borrow.try_claim('protocol') is None
+        assert borrow.try_claim('protocol', run=run_identity()) is None
         later.release()
 
 

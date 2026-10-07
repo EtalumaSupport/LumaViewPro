@@ -86,9 +86,16 @@ class TestAFailedMergeTellsTheUserOnce:
                 ),
             )
 
+        # The post-processor's refusal is told as itself: a warning under
+        # its own title, never re-typed as a merge failure. The run's missing
+        # channel is its own notice, after it.
         assert excinfo.value.reason == 'no_data'
-        notice = self._assert_one_failure_notice(seen)
-        assert notice.message, 'the failure notice must say what went wrong'
+        told = [(n.title, n.severity) for n in seen if n.severity >= Severity.NOTICE]
+        assert told == [
+            ('Composite Not Possible', Severity.WARNING),
+            ('Run Incomplete', Severity.ERROR),
+        ], told
+        assert 'Blue' in seen[-1].message, 'the shortfall must name the channel that failed'
 
     def test_the_merge_raises(self, tmp_path, monkeypatch):
         from modules.composite_generation import CompositeGeneration
@@ -155,5 +162,8 @@ class TestAFailedMergeTellsTheUserOnce:
         ):
             runner.run_composite(sequence_name='drain', parent_dir=str(tmp_path))
 
+        # The wait's own outcome, told under its own title as the
+        # hyperstack build tells it.
         assert excinfo.value.reason == 'write_batch_timeout'
-        self._assert_one_failure_notice(seen)
+        told = [(n.title, n.severity) for n in seen if n.severity >= Severity.NOTICE]
+        assert told == [('Run Images Not Written', Severity.ERROR)], told

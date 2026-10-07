@@ -31,6 +31,7 @@ _DRIVER_FACTS = frozenset(
         'timestamp_tick_frequency_hz',
         'get_supported_pixel_formats',
         'get_max_frame_size',
+        'analog_max_db',
     }
 )
 
@@ -114,5 +115,6 @@ def test_the_walk_finds_every_kind_of_read():
         "c = getattr(driver, 'timestamp_tick_frequency_hz', None)\n"
         'd = driver.get_max_frame_size()\n'
         'e = profile.native_resolution\n'
+        'f = camera.profile.gain.analog_max_db\n'
     )
-    assert sorted(lineno for lineno, _ in _reads(ast.parse(source))) == [1, 2, 3, 4, 5]
+    assert sorted(lineno for lineno, _ in _reads(ast.parse(source))) == [1, 2, 3, 4, 5, 6]

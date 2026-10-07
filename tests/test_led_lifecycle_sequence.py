@@ -330,12 +330,12 @@ def _run_protocol(
     protocol,
     tmp_path,
     *,
-    leds_state_at_end='off',
+    run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
     keep_led_between_steps=False,
     max_scans=1,
     timeout=30,
 ):
-    """Run a protocol to completion (SINGLE_SCAN) and block on the done Event.
+    """Run a protocol to completion (a scan by default) and block on the done Event.
 
     max_scans > 1 runs a multi-scan (timelapse-shaped) session; pair it with
     _build_two_scan_protocol's near-zero period so it finishes in test time.
@@ -353,7 +353,7 @@ def _run_protocol(
         keep_led_between_steps=keep_led_between_steps,
         protocol=protocol,
         run_trigger_source='test',
-        run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
+        run_mode=run_mode,
         sequence_name='led_lifecycle',
         image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
         autogain_settings={
@@ -365,7 +365,6 @@ def _run_protocol(
         parent_dir=tmp_path / 'output',
         max_scans=max_scans,
         callbacks=callbacks,
-        leds_state_at_end=leds_state_at_end,
         autofocus_snapshot=autofocus_snapshot(),
     )
     runner.start(plan)
@@ -389,13 +388,13 @@ def _recorded_run(
     specs,
     *,
     keep_led_between_steps=False,
-    leds_state_at_end='off',
+    run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
     prelit=None,
 ):
     sub = LedSubstream()
     if prelit:
-        # A pre-run Live LED so leds_state_at_end='return_to_original' has
-        # something to restore (the snapshot is taken at lease acquire).
+        # A pre-run Live LED so a one-position run has something to
+        # restore (the snapshot is taken at lease acquire).
         scope.illumination.led_on(
             channel=scope.illumination.color2ch(prelit[0]), illumination_ma=prelit[1]
         )
@@ -405,7 +404,7 @@ def _recorded_run(
         runner,
         protocol,
         tmp_path,
-        leds_state_at_end=leds_state_at_end,
+        run_mode=run_mode,
         keep_led_between_steps=keep_led_between_steps,
     )
     assert completed, f'protocol did not complete in time\n{sub.render()}'
@@ -499,27 +498,26 @@ def test_s4_two_color_one_lit_at_a_time(scope, runner, tmp_path):
 
 
 def test_s10_run_end_off_leaves_all_dark(scope, runner, tmp_path):
-    """leds_state_at_end='off': every channel dark at run end."""
+    """A scan: every channel dark at run end."""
     sub = _recorded_run(
         scope,
         runner,
         tmp_path,
         [('A1', 'Green', {})],
-        leds_state_at_end='off',
     )
     assert sub.on_events() == [('Green', 250.0)], sub.render()
     assert sub.final_lit() == set(), sub.render()
 
 
 def test_s10_run_end_return_to_original_relights_prerun_channel(scope, runner, tmp_path):
-    """leds_state_at_end='return_to_original': a pre-run Live channel is re-lit
-    at the final boundary (no blink), distinct from the 'off' policy."""
+    """A one-position run (a z-stack): a pre-run Live channel is re-lit at
+    the final boundary (no blink), distinct from a scan's dark end."""
     sub = _recorded_run(
         scope,
         runner,
         tmp_path,
         [('A1', 'Green', {})],
-        leds_state_at_end='return_to_original',
+        run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
         prelit=('Blue', 120.0),
     )
     assert sub.on_events() == [('Green', 250.0), ('Blue', 120.0)], sub.render()
@@ -775,8 +773,8 @@ def test_run_recovers_a_stranded_led_lease(scope, runner, tmp_path, caplog):
     assert completed, 'the run must complete after reclaiming the stranded lease'
     assert result.get('status') == 'completed', f'run must complete normally; got {result}'
     assert not stranded.held, 'the stranded lease must be dropped by the reclaim'
-    # run_complete fires during cleanup; the lease is released at cleanup
-    # end, just before the run leaves its run phase. Wait for that end.
+    # run_complete comes once the lease is released and the run has left
+    # its run phase; the poll confirms it.
     deadline = time.monotonic() + 5.0
     while runner.run_in_progress() and time.monotonic() < deadline:
         time.sleep(0.02)

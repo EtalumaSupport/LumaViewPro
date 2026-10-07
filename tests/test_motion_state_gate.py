@@ -40,7 +40,12 @@ import pytest
 
 from drivers.exceptions import HardwareError
 from drivers.sim_wire.mp import tmc5072
-from modules.exceptions import AxisStateUnknownError, HomingFailedError, MoveNotCompletedError
+from modules.exceptions import (
+    AxisStateUnknownError,
+    HardwareCommandRefusedError,
+    HomingFailedError,
+    MoveNotCompletedError,
+)
 from modules.lumascope_api import AxisState
 from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
@@ -142,8 +147,8 @@ def test_absolute_move_refuses_on_unknown_axis(scope):
 
 @pytest.mark.slow
 def test_relative_move_refuses_on_unknown_axis(scope):
-    """The relative path does not route through the absolute one -- it
-    calls ``move_rel_pos`` directly, so it needs its own gate."""
+    """The relative path does not route through the absolute one, so it
+    needs its own gate."""
     _home_and_fail(scope)
     with pytest.raises(AxisStateUnknownError) as exc:
         scope.motion._move_relative_impl('X', distance=50)
@@ -186,10 +191,10 @@ def test_absolute_move_still_works_on_a_known_axis(scope):
 @pytest.mark.slow
 def test_forced_move_still_drives_on_unknown_axis(scope):
     _home_and_fail(scope)
-    scope.motion._move_absolute_impl('Z', position=0, force=True)
-    assert scope.motion._axis_state['Z'] == AxisState.MOVING, (
-        'a forced move must actually drive, not refuse'
-    )
+    # A refusal raises here; a forced move drives, and its wait returns only
+    # once Z arrived.
+    scope.motion._move_absolute_impl('Z', position=0, force=True).wait()
+    assert scope.motion._axis_state['Z'] == AxisState.IDLE
 
 
 @pytest.mark.slow
@@ -352,8 +357,11 @@ def test_api_marks_axis_unknown_when_the_driver_move_raises(scope, centre_posts)
     scope.motion._home_impl()
     _pull_the_cable(scope)
 
+    # No backlash leg, so no position read: the target write is what fails.
+    # A move that needs a read first is refused before anything is driven
+    # (test_a_failed_position_read_is_never_a_position).
     with pytest.raises(MoveNotCompletedError) as failed:
-        scope.motion._move_absolute_impl('Z', position=1000)
+        scope.motion._move_absolute_impl('Z', position=1000, overshoot_enabled=False)
 
     assert scope.motion._axis_state['Z'] == AxisState.UNKNOWN, (
         'a move that failed at the driver must leave the axis UNKNOWN, not IDLE'
@@ -366,12 +374,15 @@ def test_api_marks_axis_unknown_when_the_driver_move_raises(scope, centre_posts)
 
 
 def test_a_failed_move_then_refuses_the_next_one(scope):
-    """The two halves compose: a dead-board move poisons the axis, and
-    the gate then refuses the follow-up instead of driving blind again."""
+    """The two halves compose: a dead-board move poisons the axis, and the
+    follow-up is refused instead of driving blind again -- first for the
+    controller the failed write found gone, which is the person's remedy."""
     scope.motion._home_impl()
     _pull_the_cable(scope)
     with pytest.raises(MoveNotCompletedError):
-        scope.motion._move_absolute_impl('Z', position=1000)
+        scope.motion._move_absolute_impl('Z', position=1000, overshoot_enabled=False)
 
-    with pytest.raises(AxisStateUnknownError):
+    assert scope.motion.get_axis_state('Z') == AxisState.UNKNOWN
+    with pytest.raises(HardwareCommandRefusedError) as refused:
         scope.motion._move_absolute_impl('Z', position=2000)
+    assert refused.value.reason == 'not_connected'

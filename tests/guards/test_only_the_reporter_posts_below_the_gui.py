@@ -47,10 +47,6 @@ _NOT_YET_TYPED = {
         1,
         'the LED confirmation-before-cache work',
     ),
-    ('modules/autofocus_runner.py', 'AutofocusRunner.run'): (
-        1,
-        'the attendedness of the autofocus lease refusal',
-    ),
 }
 
 

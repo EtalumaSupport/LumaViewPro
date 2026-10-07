@@ -504,7 +504,6 @@ class TestFrameValidityDuringHoming:
         scope.motion._arrival_events = {ax: threading.Event() for ax in present}
         for ev in scope.motion._arrival_events.values():
             ev.set()
-        scope.motion._move_profile = dict.fromkeys(present)
 
         captured = {}
         original_thome = scope._motion_driver.thome
@@ -666,7 +665,7 @@ class TestLEDChannelDiscovery:
 
 class TestPerAxisDictsFromDriver:
     """Audit B4: per-axis state dicts (_pos_cache, _axis_state,
-    _arrival_events, _move_profile) are sized at __init__ from
+    _arrival_events) are sized at __init__ from
     `motion.detect_present_axes()`, not from a hardcoded 4-axis tuple.
 
     Tests cover:
@@ -690,7 +689,6 @@ class TestPerAxisDictsFromDriver:
         assert set(scope.motion._pos_cache.keys()) == present
         assert set(scope.motion._axis_state.keys()) == present
         assert set(scope.motion._arrival_events.keys()) == present
-        assert set(scope.motion._move_profile.keys()) == present
 
     def test_z_only_scope_dicts_have_only_z(self):
         """Simulate an LS820, a Z-only scope."""
@@ -703,12 +701,10 @@ class TestPerAxisDictsFromDriver:
         scope.motion._arrival_events = {ax: threading.Event() for ax in present}
         for ev in scope.motion._arrival_events.values():
             ev.set()
-        scope.motion._move_profile = dict.fromkeys(present)
 
         assert set(scope.motion._pos_cache.keys()) == {'Z'}
         assert set(scope.motion._axis_state.keys()) == {'Z'}
         assert set(scope.motion._arrival_events.keys()) == {'Z'}
-        assert set(scope.motion._move_profile.keys()) == {'Z'}
 
     def test_null_motor_yields_empty_dicts(self):
         """A scope with no motor hardware (NullMotionBoard) should have
@@ -719,56 +715,10 @@ class TestPerAxisDictsFromDriver:
         scope.motion._pos_cache = dict.fromkeys(present, 0.0)
         scope.motion._axis_state = dict.fromkeys(present, AxisState.UNKNOWN)
         scope.motion._arrival_events = {ax: threading.Event() for ax in present}
-        scope.motion._move_profile = dict.fromkeys(present)
 
         assert scope.motion._pos_cache == {}
         assert scope.motion._axis_state == {}
         assert scope.motion._arrival_events == {}
-        assert scope.motion._move_profile == {}
-
-    def test_move_absolute_on_absent_axis_is_silent_noop_rule_8(self):
-        """Rule 8: API silently no-ops for absent axes. An LS820 user
-        calling move_absolute('X', 0) gets a silent no-op, not
-        a ValueError or HardwareError, regardless of whether they thought
-        to call has_axis() first."""
-        scope = build_scope(simulate=True)
-        scope._motion_driver.detect_present_axes = lambda: ['Z']
-        present = scope._motion_driver.detect_present_axes()
-        scope.motion._pos_cache = dict.fromkeys(present, 0.0)
-        scope.motion._axis_state = dict.fromkeys(present, AxisState.UNKNOWN)
-        scope.motion._arrival_events = {ax: threading.Event() for ax in present}
-        for ev in scope.motion._arrival_events.values():
-            ev.set()
-        scope.motion._move_profile = dict.fromkeys(present)
-
-        scope.motion.move_absolute('X', 100)
-        scope.motion.move_absolute('Y', 100)
-        # T is not an absent axis to no-op: the generic door refuses the
-        # turret on every scope, because the turret moves only by slot.
-        with pytest.raises(ValueError, match='move_turret'):
-            scope.motion.move_absolute('T', 0)
-        assert 'X' not in scope.motion._pos_cache
-        assert 'Y' not in scope.motion._pos_cache
-        assert 'T' not in scope.motion._pos_cache
-
-        scope.motion.move_relative('X', 50)
-        assert 'X' not in scope.motion._pos_cache
-
-    def test_move_on_null_motor_is_silent_noop_rule_8(self):
-        """Same Rule 8 contract on a system with NO motor hardware at
-        all (NullMotionBoard). Pre-B4 behavior was silent no-op via
-        VALID_AXES validation passing through to NullMotionBoard.move_abs_pos
-        no-op -- this contract must be preserved."""
-        scope = build_scope(simulate=True)
-        scope._motion_driver = NullMotionBoard()
-        scope.motion._pos_cache = {}
-        scope.motion._axis_state = {}
-        scope.motion._arrival_events = {}
-        scope.motion._move_profile = {}
-
-        scope.motion.move_absolute('Z', 100)
-        scope.motion.move_absolute('X', 0)
-        scope.motion.move_relative('Z', 10)
 
     def test_move_with_invalid_axis_name_still_raises(self):
         """Input sanity check still rejects non-axis names. _VALID_AXIS_NAMES
@@ -1053,9 +1003,9 @@ class TestScopeCapabilities:
         assert caps.has_xy_stage is False
         assert caps.has_turret is False
 
-    def test_null_led_still_reports_six_channels_for_compat(self):
-        """Per B3 compat: NullLEDBoard reports 6 channels so Rule 8
-        silent no-ops work on channels 0-5. Capabilities mirrors that."""
+    def test_a_scope_without_its_led_board_reports_no_channels_or_cap(self):
+        """The null board's stand-in table is not the scope's: a scope that
+        came up without its LED board reports no channels and no cap."""
         from modules.layer_record import UNRESOLVED
         from modules.scope_capabilities import ScopeCapabilities
 
@@ -1066,8 +1016,8 @@ class TestScopeCapabilities:
             layer_identity=UNRESOLVED,
             scope_models={},
         )
-        assert len(caps.led_channels) == 6
-        assert caps.led_channels == (0, 1, 2, 3, 4, 5)
+        assert caps.led_channels is None
+        assert caps.led_max_ma is None
 
     def test_four_channel_led_capabilities(self):
         """An FX2-style 4-channel LED driver propagates through."""

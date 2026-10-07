@@ -34,8 +34,7 @@ def test_disconnect_mid_move_faults_axis_and_notifies(centre_posts):
     scope._motion_driver.is_connected = lambda: False
 
     # Drive an axis MOVING; the monitor wakes and now sees the disconnect.
-    motion._set_axis_state('Z', AxisState.MOVING)
-    assert motion.is_moving()
+    assert motion._begin_move('Z', motion._stop_generation)
 
     assert _wait_until(lambda: not motion.is_moving()), (
         'a disconnected axis must leave MOVING within the fault deadline, not hang forever'

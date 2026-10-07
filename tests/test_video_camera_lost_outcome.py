@@ -50,6 +50,7 @@ def _make_recorder(tmp_path, clock, active_cached=True):
         record_dropped_capture=MagicMock(),
         clock=lambda: clock['t'],
         run_claim=lent_run_claim(),
+        to_plate=None,
     )
 
 

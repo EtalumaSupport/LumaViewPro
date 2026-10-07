@@ -103,8 +103,10 @@ def _make_parent(clock, n_scans, period_s, first_scan_lead_s=30.0, later_scan_le
 def _run(clock, parent):
     loop = ProtocolRunLoop(parent)
     with (
-        mock.patch('modules.protocol_run_loop.time.monotonic', clock.monotonic),
-        mock.patch('modules.protocol_run_loop.time.sleep', clock.sleep),
+        # The loop's own name for time, not the time module: patching
+        # time.sleep through it would hand every thread in the process the
+        # fake clock, and a leftover thread's sleep would advance it.
+        mock.patch('modules.protocol_run_loop.time', clock),
         mock.patch('modules.protocol_run_loop._schedule_ui', lambda cb, *a, **k: None),
     ):
         loop._run_loop_inner(PendingRunOutcome())

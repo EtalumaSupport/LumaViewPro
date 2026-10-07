@@ -17,7 +17,9 @@ import ast
 
 from tests.ast_seams import production_modules, walk_defs
 
-_READERS = frozenset({'get_current_position', 'get_target_position', 'axis_positions'})
+_READERS = frozenset(
+    {'get_current_position', 'get_target_position', 'get_actual_position', 'axis_positions'}
+)
 
 # Saves the position into a setting or a step. Must ask the motion API's
 # refuse_unknown_positions(..., recording=True) before reading.
@@ -39,7 +41,6 @@ CLASSIFIED = {
     'modules/lumascope_api/protocols.py::ProtocolsAPI.focus_z': SAVES,
     'modules/lumascope_api/runtime_state.py::RuntimeState.get_well_label': CAPTURE_METADATA,
     'modules/recording_frames.py::frame_fact': CAPTURE_METADATA,
-    'modules/protocol_image_writer.py::ProtocolImageWriter.capture': RUN,
     'modules/protocol_step_runner.py::ProtocolStepRunner._grease_redist_w_pos': RUN,
     'ui/motion_settings.py::XYStageControl.get_xy_targets': DISPLAYS,
     'ui/shader.py::ShaderViewer._update_status_bar': DISPLAYS,

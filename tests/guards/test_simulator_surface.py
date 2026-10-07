@@ -98,7 +98,9 @@ _BOARD_PAIRS = (
 # constants (test-harness affordances, on every simulator),
 # `load_cycle_images` plus the camera's virtual-specimen focus modeling
 # (`set_focal_z`, `set_blur_per_um`, ...), the camera's `hold_frames` (a
-# stalled stream, set from the --sim-camera-stall launch argument), and six firmware-update
+# stalled stream, set from the --sim-camera-stall launch argument), the
+# motor's `hold_travel` (a move held part of the way, so a test acts on a
+# move that is provably travelling), and six firmware-update
 # methods on the motor simulator that anticipate the firmware-updating
 # work landing on the FW branch. Those six have no caller yet; when that
 # code calls them, `test_no_production_code_calls_simulator_only_names`
@@ -106,7 +108,7 @@ _BOARD_PAIRS = (
 # point.
 _SIM_ONLY_NAME_BUDGET = {
     'LEDBoard': 4,
-    'MotorBoard': 12,
+    'MotorBoard': 13,
     'Camera': 14,
 }
 

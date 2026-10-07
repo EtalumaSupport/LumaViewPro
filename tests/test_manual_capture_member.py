@@ -30,6 +30,7 @@ from modules.lumascope_api.imaging import capture_failure_cause
 from modules.sequential_io_executor import IOTask
 from tests.scope_fakes import home_sim_scope
 from tests.test_composite_run_e2e import headless_settings
+from tests.protocol_drives import run_identity
 
 RESULT_TIMEOUT_S = 30.0
 
@@ -258,18 +259,32 @@ class TestRefusalsAndFailures:
             first.result(timeout=RESULT_TIMEOUT_S)
             assert not session.manual_capture.in_flight
 
-    def test_a_still_while_a_run_holds_the_camera_gets_the_lanes_refusal(self, still_session):
+    def test_a_still_while_a_run_holds_the_camera_is_refused_at_the_call(self, still_session):
         session, _ = still_session
-        held = session.activity_claim.try_claim('protocol', run_trigger_source='test')
+        held = session.activity_claim.try_claim('protocol', run=run_identity('test'))
         assert held is not None
         try:
-            future = session.manual_capture.capture(layer=None, false_color_on=False)
             with pytest.raises(HardwareCommandRefusedError) as refused:
-                future.result(timeout=RESULT_TIMEOUT_S)
+                session.manual_capture.capture(layer=None, false_color_on=False)
         finally:
             held.release()
         assert refused.value.reason == 'exclusive_activity_running'
         assert not session.manual_capture.in_flight, 'a refused still kept the guard'
+
+    def test_a_still_the_lane_drops_unrun_settles_and_frees_the_guard(self, still_session):
+        """The lane drops what it holds when the scope goes away; a still it
+        dropped must say so, not leave its caller and the guard waiting."""
+        session, _ = still_session
+        blocker = _LaneBlocker(session)
+        try:
+            future = session.manual_capture.capture(layer=None, false_color_on=False)
+            _wait_until_queued(session, 1)
+            session.camera_executor.clear_pending()
+        finally:
+            blocker.release()
+        with pytest.raises(concurrent.futures.CancelledError):
+            future.result(timeout=RESULT_TIMEOUT_S)
+        assert not session.manual_capture.in_flight, 'a dropped still kept the guard'
 
     def test_no_frame_raises_with_the_engines_cause(self, still_session):
         session, tmp_path = still_session

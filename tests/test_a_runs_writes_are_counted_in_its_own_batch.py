@@ -59,7 +59,8 @@ def _close(batch):
         seen.append(outcome)
         done.set()
 
-    batch.close(_on_complete)
+    batch.close()
+    batch.when_complete(_on_complete)
     return seen, done
 
 

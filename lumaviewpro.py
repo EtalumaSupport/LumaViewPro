@@ -1029,10 +1029,11 @@ class LumaViewProApp(TooltipMixin, App):
 
         _ui = Clock.schedule_once
 
-        # Also set the global dispatcher for kivy_utils.schedule_ui()
-        from modules.kivy_utils import set_ui_dispatcher
+        # Also set the global dispatcher for kivy_utils.schedule_ui(). The
+        # Clock delivers on the main thread, the one Kivy runs on.
+        from modules.kivy_utils import UiDispatcher, set_ui_dispatcher
 
-        set_ui_dispatcher(_ui)
+        set_ui_dispatcher(UiDispatcher(schedule=_ui, thread=threading.main_thread()))
 
         # The Session composes the instrument -- the scope (the camera
         # registry picks by priority, Pylon -> IDS -> FX2, reading the

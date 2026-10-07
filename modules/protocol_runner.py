@@ -141,8 +141,8 @@ class ProtocolRunner:
                 reads the mode the session was built in.
 
         Returns:
-            The committed run's outcome. wait(timeout_s=...) on it for the
-            status, reason, title and message the run ended with.
+            The committed run's handle. wait(timeout_s=...) on it for the
+            outcome: the status, reason, title and message the run ended with.
 
         Raises:
             ConfigError: image_capture_config was not provided -- there is
@@ -163,8 +163,6 @@ class ProtocolRunner:
             enable_image_saving=enable_image_saving,
             callbacks=callbacks,
             return_to_position=return_to_position,
-            # A scan traverses the plate and may end unattended.
-            leds_state_at_end='off',
             engineering_mode=engineering_mode,
         )
 
@@ -198,8 +196,8 @@ class ProtocolRunner:
                 reads the mode the session was built in.
 
         Returns:
-            The committed run's outcome. wait(timeout_s=...) on it for the
-            status, reason, title and message the run ended with.
+            The committed run's handle. wait(timeout_s=...) on it for the
+            outcome: the status, reason, title and message the run ended with.
 
         Raises:
             ConfigError: image_capture_config was not provided -- there is
@@ -219,8 +217,6 @@ class ProtocolRunner:
             image_capture_config=image_capture_config,
             enable_image_saving=enable_image_saving,
             callbacks=callbacks,
-            # A protocol traverses the plate and may end unattended.
-            leds_state_at_end='off',
             engineering_mode=engineering_mode,
         )
 
@@ -256,7 +252,8 @@ class ProtocolRunner:
                 reads the mode the session was built in.
 
         Returns:
-            The run's outcome, to wait on or to ignore.
+            The committed run's handle, to wait on or to ignore;
+            wait(timeout_s=...) on it gives the run's outcome.
 
         Raises:
             ProtocolRunRefusedError: Fewer than two channels are set to
@@ -289,11 +286,6 @@ class ProtocolRunner:
             ),
             enable_image_saving=True,
             callbacks=callbacks,
-            # A composite is an interactive act on a scope the user is
-            # standing at: it hands the illumination back the way it was
-            # found, rather than forcing every channel dark the way an
-            # unattended scan does.
-            leds_state_at_end='return_to_original',
             composite_thresholds_percent=config_helpers.get_composite_blend_thresholds(settings),
             engineering_mode=engineering_mode,
         )
@@ -351,15 +343,17 @@ class ProtocolRunner:
                 caller's activity and cannot release its claim; it is
                 refused if that claim no longer holds. None takes the scope
                 for this run alone.
-            run_trigger_source: Who asked for the run. The Autofocus button
-                passes its own, which the engine treats as attended; a
-                script keeps the default.
+            run_trigger_source: Who asked for the run, recorded on it and
+                named in refusals. The Autofocus button passes its own; a
+                script keeps the default. Either way the run is attended
+                -- its failures are shown -- unless it runs under *claim*.
             engineering_mode: Whether the run follows engineering-mode
                 behaviour. None takes the session's; the GUI passes its live
                 flag, which its plugin can change after the session exists.
 
         Returns:
-            The run's outcome, to wait on or to ignore.
+            The committed run's handle, to wait on or to ignore;
+            wait(timeout_s=...) on it gives the run's outcome.
 
         Raises:
             ConfigError: *layer* is not a layer this release has.
@@ -402,7 +396,7 @@ class ProtocolRunner:
             )
         return self._run(
             protocol=protocol,
-            run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
+            run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
             run_trigger_source=run_trigger_source,
             max_scans=1,
             sequence_name=sequence_name,
@@ -410,10 +404,6 @@ class ProtocolRunner:
             image_capture_config=config_helpers.get_image_capture_config_from_settings(settings),
             enable_image_saving=False,
             callbacks=callbacks,
-            # A one-field operation at a scope someone is standing at, so it
-            # hands the illumination back the way it was found rather than
-            # forcing every channel dark the way a plate traverse does.
-            leds_state_at_end='return_to_original',
             disable_saving_artifacts=True,
             save_autofocus_data=save_characterization_data,
             claim=claim,
@@ -432,7 +422,8 @@ class ProtocolRunner:
         One scan that visits each step with autofocus on, whatever each
         step's own autofocus setting, and captures nothing. When the scan
         completes, each step's Z becomes the focus found for it, written
-        before run_complete is sent and before the run lets go of the scope.
+        before the run lets go of the scope, so it is in the protocol when
+        run_complete is sent.
         A scan that does not complete writes nothing, because it focused
         only some of the steps.
 
@@ -453,7 +444,8 @@ class ProtocolRunner:
                 flag, which its plugin can change after the session exists.
 
         Returns:
-            The run's outcome, to wait on or to ignore.
+            The committed run's handle, to wait on or to ignore;
+            wait(timeout_s=...) on it gives the run's outcome.
 
         Raises:
             ProtocolRunRefusedError: The runner refused the request
@@ -474,9 +466,6 @@ class ProtocolRunner:
             image_capture_config=config_helpers.get_image_capture_config_from_settings(settings),
             enable_image_saving=False,
             callbacks=callbacks,
-            # It traverses every step's position, so it ends dark rather than
-            # leaving the sample lit after it moves away.
-            leds_state_at_end='off',
             disable_saving_artifacts=True,
             engineering_mode=engineering_mode,
             write_focus_to=protocol,
@@ -543,7 +532,8 @@ class ProtocolRunner:
                 stage without filling the disk.
 
         Returns:
-            The run's outcome, to wait on or to ignore.
+            The committed run's handle, to wait on or to ignore;
+            wait(timeout_s=...) on it gives the run's outcome.
 
         Raises:
             ConfigError: *layer* is not a layer this release has.
@@ -588,9 +578,6 @@ class ProtocolRunner:
             enable_image_saving=enable_image_saving,
             callbacks=callbacks,
             return_to_position=position if return_to_start else None,
-            # A one-field operation at a scope someone is standing at, so it
-            # hands the illumination back the way it was found.
-            leds_state_at_end='return_to_original',
             engineering_mode=engineering_mode,
         )
 
@@ -682,7 +669,6 @@ class ProtocolRunner:
         enable_image_saving: bool = True,
         callbacks: dict[str, typing.Callable] | None = None,
         return_to_position: dict | None = None,
-        leds_state_at_end: str = 'off',
         composite_thresholds_percent: dict | None = None,
         engineering_mode: bool | None = None,
         disable_saving_artifacts: bool = False,
@@ -693,7 +679,7 @@ class ProtocolRunner:
         """Internal: configure and launch the sequenced capture executor.
 
         Returns:
-            The committed run's outcome.
+            The committed run's handle.
 
         Raises:
             ConfigError: image_capture_config was not provided; raised
@@ -771,7 +757,6 @@ class ProtocolRunner:
             autogain_settings=autogain_settings,
             callbacks=run_callbacks,
             return_to_position=return_to_position,
-            leds_state_at_end=leds_state_at_end,
             composite_thresholds_percent=composite_thresholds_percent,
             engineering_mode=engineering_mode,
             # Forwarded with the boundary's own names and its own defaults,

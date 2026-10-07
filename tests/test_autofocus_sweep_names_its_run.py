@@ -20,6 +20,7 @@ import pytest
 from modules.autofocus_thread import AutofocusThread
 from modules.exceptions import ProtocolRunRefusedError
 from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
+from tests.protocol_drives import run_identity
 
 
 class _BlockingAFE:
@@ -54,24 +55,23 @@ def thread(afe):
 
 class TestTheSweepRecordsItsDispatcher:
     def test_the_in_flight_sweep_names_the_run_that_dispatched_it(self, thread, afe):
-        thread.run_autofocus(run_trigger_source='protocol', objective_id='4x')
+        thread.run_autofocus(run=run_identity('protocol', 'protocol'), objective_id='4x')
         assert afe.entered_run.wait(timeout=2.0)
 
         sweep = thread.in_flight_sweep
         assert sweep is not None
-        assert sweep.run_trigger_source == 'protocol'
+        assert sweep.run.trigger == 'protocol'
 
     def test_the_trigger_is_also_forwarded_to_the_runner(self, thread, afe):
-        """Captured AND forwarded: the runner gates its own failure
-        popups on the same value, so consuming it here would pop a modal
-        on every protocol run's autofocus failure."""
-        thread.run_autofocus(run_trigger_source='protocol', objective_id='4x')
+        """Captured AND forwarded: the runner logs the trigger of the run
+        its sweep belongs to."""
+        thread.run_autofocus(run=run_identity('protocol', 'protocol'), objective_id='4x')
         assert afe.entered_run.wait(timeout=2.0)
 
         assert afe.run_calls[0]['run_trigger_source'] == 'protocol'
 
     def test_the_sweep_is_gone_once_it_finishes(self, thread, afe):
-        future = thread.run_autofocus(run_trigger_source='protocol', objective_id='4x')
+        future = thread.run_autofocus(run=run_identity('protocol', 'protocol'), objective_id='4x')
         assert afe.entered_run.wait(timeout=2.0)
 
         afe.release.set()
@@ -81,7 +81,7 @@ class TestTheSweepRecordsItsDispatcher:
 
 class TestTheRefusalNamesTheRun:
     def test_a_run_refused_for_a_live_sweep_is_told_whose_sweep(self, thread, afe):
-        thread.run_autofocus(run_trigger_source='protocol', objective_id='4x')
+        thread.run_autofocus(run=run_identity('protocol', 'protocol'), objective_id='4x')
         assert afe.entered_run.wait(timeout=2.0)
 
         runner = bare_capture_runner(autofocus_thread=thread)
@@ -92,13 +92,15 @@ class TestTheRefusalNamesTheRun:
         assert refusal.reason == 'autofocus_running'
         assert refusal.holder == 'autofocus'
         assert refusal.holder_trigger == 'protocol'
-        assert 'protocol' in refusal.message, 'the refusal must name the run that owns the sweep'
+        assert 'from the protocol run' in refusal.message, (
+            'the refusal must name the run that owns the sweep'
+        )
 
     def test_a_finished_sweep_refuses_nothing(self, thread, afe):
         """The gate reads the in-flight snapshot, so a sweep that has
         resolved stops blocking runs the instant it resolves -- it does
         not wait for the worker to clear its bookkeeping."""
-        future = thread.run_autofocus(run_trigger_source='protocol', objective_id='4x')
+        future = thread.run_autofocus(run=run_identity('protocol', 'protocol'), objective_id='4x')
         assert afe.entered_run.wait(timeout=2.0)
         afe.release.set()
         assert future.result(timeout=5.0) == 5000.0

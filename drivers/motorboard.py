@@ -60,20 +60,6 @@ _ZHOME_REPLY_TIMEOUT_S = 30.0
 _THOME_REPLY_TIMEOUT_S = 45.0
 _HOME_REPLY_TIMEOUT_S = 100.0
 
-# How long the Z overshoot leg may take to reach its point before the move
-# fails. The leg's wait is the one loop in a move with no reply timeout of
-# its own: the board answers every STATUS_R, it is the stage that may never
-# arrive, so without a bound a leg that never arrived held the IO lane for
-# good and the caller got the lane's bare TimeoutError at 30 s while the
-# loop ran on. Sized to fit inside the motion API's 30 s dispatch bound
-# beside one 5 s poll overrun, the move's other exchanges and its queue
-# residence. The worst legitimate leg is so far derived, not measured:
-# 6.25 s across every config in data/ on the simulator's ramp model, and
-# 5.07 s for an 11.2 mm downward Z move with overshoot run there, nearly
-# all of it the leg. To be confirmed on the LS850T with a full-travel
-# downward Z move (the arrival plan's bench row).
-OVERSHOOT_LEG_TIMEOUT_S = 15.0
-
 # What every consumer gets when FULLINFO is missing, unsupported, or
 # unparseable. Every key the parsed record has, so a caller reading a
 # field off a fallback record gets a safe answer instead of a KeyError.
@@ -153,7 +139,6 @@ class MotorBoard(SerialBoard):
         **kwargs,
     ):
         self._state_lock = threading.Lock()
-        self.overshoot = False
         self._has_turret = False
         self.initial_homing_complete = False
         self.initial_t_homing_complete = False
@@ -201,7 +186,6 @@ class MotorBoard(SerialBoard):
         and attempt to reopen the serial port while it's already open --
         causing PermissionError on Windows. (#610)
         """
-        self.backlash = self.motorconfig.antibacklash_um('Z')
         self.axes_config = read_only_axes_config(
             {
                 'Z': {
@@ -469,41 +453,64 @@ class MotorBoard(SerialBoard):
         """
         return list(self._board_record()['homed_axes'])
 
-    def current_pos_steps(self, axis: str) -> int | None:
+    def current_pos_steps(self, axis: str) -> int:
         """Get current position in raw microsteps (no unit conversion).
 
         Args:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
 
         Returns:
-            int | None: Microstep position, or None on failure.
-        """
-        try:
-            response = self.exchange_command('ACTUAL_R' + axis)
-            if response is None:
-                return None
-            return int(response)
-        except (ValueError, TypeError) as e:
-            logger.warning(f'[XYZ Class ] current_pos_steps({axis}) failed: {e}')
-            return None
+            int: Microstep position.
 
-    def target_pos_steps(self, axis: str) -> int | None:
+        Raises:
+            ValueError: ``axis`` is not a motor axis.
+            HardwareError: the board did not report the position.
+        """
+        return self._read_register('ACTUAL_R', axis)
+
+    def target_pos_steps(self, axis: str) -> int:
         """Get target position in raw microsteps (no unit conversion).
 
         Args:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
 
         Returns:
-            int | None: Microstep target, or None on failure.
+            int: Microstep target.
+
+        Raises:
+            ValueError: ``axis`` is not a motor axis.
+            HardwareError: the board did not report the target.
         """
+        return self._read_register('TARGET_R', axis)
+
+    def _read_register(self, register: str, axis: str) -> int:
+        """Read one position register, in microsteps.
+
+        A read the board did not answer raises, as an unanswered target
+        write does: an answer standing in for it (None, 0) was taken for
+        a position by the layers above.
+
+        Raises:
+            ValueError: ``axis`` is not a motor axis.
+            HardwareError: no reply, or a reply that is not a number.
+        """
+        if axis not in ('X', 'Y', 'Z', 'T'):
+            raise ValueError(f'Invalid axis {axis!r}')
+        response = self.exchange_command(register + axis)
         try:
-            response = self.exchange_command('TARGET_R' + axis)
-            if response is None:
-                return None
             return int(response)
-        except (ValueError, TypeError) as e:
-            logger.warning(f'[XYZ Class ] target_pos_steps({axis}) failed: {e}')
-            return None
+        except (TypeError, ValueError) as e:
+            raise HardwareError(
+                f'{register}{axis}: the board did not report a position (reply {response!r})'
+            ) from e
+
+    def _user_units(self, axis: str, steps: int) -> float | int:
+        """Microsteps to microns for X/Y/Z, to the 1-based position for T."""
+        if axis == 'Z':
+            return self.z_ustep2um(steps)
+        if axis in ('X', 'Y'):
+            return self.xy_ustep2um(steps)
+        return self.t_ustep2pos(steps)
 
     # ----------------------------------------------------------
     # Acceleration control functions
@@ -1129,162 +1136,65 @@ class MotorBoard(SerialBoard):
         #     target_pos = int(self.exchange_command('TARGET_R' + axis))
 
     # Get target position
-    def target_pos(self, axis: str) -> float | int | None:
+    def target_pos(self, axis: str) -> float | int:
         """Get the target position of an axis in user units.
 
         Args:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
 
         Returns:
-            float | int | None: Microns for X/Y/Z, 1-based position for
-                T, or None on failure.
+            float | int: Microns for X/Y/Z, 1-based position for T.
+
+        Raises:
+            ValueError: ``axis`` is not a motor axis.
+            HardwareError: the board did not report the target.
         """
-
-        try:
-            response = self.exchange_command('TARGET_R' + axis)
-            position = int(response)
-        except Exception as e:
-            logger.warning(f'[XYZ Class ] target_pos({axis}) failed: {e}')
-            return None
-
-        if axis == 'Z':
-            um = self.z_ustep2um(position)
-            return um
-        elif (axis == 'X') or (axis == 'Y'):
-            um = self.xy_ustep2um(position)
-            return um
-        elif axis == 'T':
-            return self.t_ustep2pos(position)
-        else:
-            return None
+        return self._user_units(axis, self._read_register('TARGET_R', axis))
 
     # Get current position (in um or position for Turret)
-    def current_pos(self, axis: str) -> float | int | None:
+    def current_pos(self, axis: str) -> float | int:
         """Get the current position of an axis in user units.
 
         Args:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
 
         Returns:
-            float | int | None: Microns for X/Y/Z, 1-based position for
-                T, or None on failure.
+            float | int: Microns for X/Y/Z, 1-based position for T.
+
+        Raises:
+            ValueError: ``axis`` is not a motor axis.
+            HardwareError: the board did not report the position.
         """
+        return self._user_units(axis, self._read_register('ACTUAL_R', axis))
 
-        try:
-            response = self.exchange_command('ACTUAL_R' + axis)
-            position = int(response)
-        except Exception as e:
-            logger.warning(f'[XYZ Class ] current_pos({axis}) failed: {e}')
-            return None
-
-        if axis == 'Z':
-            um = self.z_ustep2um(position)
-            return um
-        elif (axis == 'X') or (axis == 'Y'):
-            um = self.xy_ustep2um(position)
-            return um
-        elif axis == 'T':
-            return self.t_ustep2pos(position)
-        else:
-            return None
+    def backlash_um(self) -> float:
+        """Z antibacklash, um: how far below its target a downward Z move
+        approaches from (the motion API's backlash leg)."""
+        return self.motorconfig.antibacklash_um('Z')
 
     # Move to absolute position (in um or degrees for Turret)
-    def move_abs_pos(self, axis: str, pos: float, overshoot_enabled: bool = True) -> None:
-        """Move an axis to an absolute position in user units.
+    def move_abs_pos(self, axis: str, pos: float) -> None:
+        """Move an axis to an absolute position in user units, in one leg.
 
-        For Z, when ``overshoot_enabled`` is True the move first travels
-        below the target by ``backlash`` microns and then climbs back
-        up so backlash is always taken in the same direction.
+        The Z backlash approach is the motion API's (``MotionAPI._drive_to``),
+        which drives each of its legs through here.
 
         Args:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
             pos: Target absolute position. Microns for X/Y/Z, 1-based
                 position for T.
-            overshoot_enabled: When True, apply Z backlash compensation
-                if the target is sufficiently below the current
-                position. Ignored for non-Z axes.
 
         Travel is not checked here: the motion API refuses a target
         outside travel before it calls this. Clamping here instead made a
         refused move look like a successful one that stopped short.
 
         Raises:
-            HardwareError: ``axis`` is not in ``axes_config``; the board did
-                not answer a target write; or the overshoot leg did not
-                reach its point within ``OVERSHOOT_LEG_TIMEOUT_S``.
+            HardwareError: ``axis`` is not in ``axes_config``, or the board
+                did not answer the target write.
         """
-        # logger.info('move_abs_pos', axis, pos)
-        AXES_CONFIG = self.axes_config
-
-        if axis not in AXES_CONFIG:
+        if axis not in self.axes_config:
             raise HardwareError(f'Unsupported axis ({axis})')
-
-        axis_config = AXES_CONFIG[axis]
-
-        steps = axis_config['move_func'](pos)
-
-        if overshoot_enabled and (
-            axis == 'Z'
-        ):  # perform overshoot to always come from one direction
-            # get current position
-            current = self.current_pos('Z')
-
-            # if the current position is above the new target position
-            # and 50um above the height of the backlash
-            if current is not None and (current > pos) and (pos > (self.backlash + 50)):
-                # In process of overshoot
-                with self._state_lock:
-                    self.overshoot = True
-                try:
-                    # First overshoot downwards
-                    overshoot = self.z_um2ustep(pos - self.backlash)  # target minus backlash
-                    overshoot = max(1, overshoot)
-                    self.move(axis, overshoot)
-                    deadline = time.monotonic() + OVERSHOOT_LEG_TIMEOUT_S
-                    while not self.target_status('Z'):
-                        if time.monotonic() > deadline:
-                            raise HardwareError(
-                                f'move_abs_pos(Z, {pos}): the overshoot leg did not reach '
-                                f'its point within {OVERSHOOT_LEG_TIMEOUT_S:.0f} s'
-                            )
-                        time.sleep(0.02)  # 50Hz -- matches motion monitor rate
-                finally:
-                    # Always clear overshoot flag, even on disconnect/exception
-                    with self._state_lock:
-                        self.overshoot = False
-
-        self.move(axis, steps)
-
-    # Move by relative distance (in um or degrees for Turret)
-    def move_rel_pos(self, axis: str, um: float, overshoot_enabled: bool = False) -> None:
-        """Move an axis by a relative offset in user units.
-
-        Reads the current target, adds ``um``, and dispatches an
-        absolute move.
-
-        Args:
-            axis: Axis letter ('X', 'Y', 'Z', 'T').
-            um: Offset to apply. Microns for X/Y/Z, position-count
-                offset for T.
-            overshoot_enabled: When True, apply Z backlash compensation
-                during the underlying absolute move.
-
-        Raises:
-            HardwareError: The current target could not be read, so
-                there is no basis to move relative to.
-        """
-
-        # Read target position in um
-        pos = self.target_pos(axis)
-        if pos is None:
-            # A relative move is defined against the current target; if
-            # that cannot be read there is nothing to add to. Skipping
-            # quietly reported success for a jog that never moved.
-            raise HardwareError(
-                f'move_rel_pos({axis}): cannot read the current target '
-                f'position; the move did not happen'
-            )
-        self.move_abs_pos(axis, pos + um, overshoot_enabled=overshoot_enabled)
+        self.move(axis, self.axes_config[axis]['move_func'](pos))
 
     # ----------------------------------------------------------
     # Ramp and Reference Switch Status Register
@@ -1382,6 +1292,11 @@ class MotorBoard(SerialBoard):
 
         Idempotent + safe to call concurrently with other operations
         (per SerialBoard's exchange_command lock).
+
+        Raises:
+            HardwareError: the board did not answer the STOP. It may have
+                taken it, so the stage may be stopping or still moving:
+                neither a stop nor an answer about support.
         """
         # Cached "unsupported" -- silently skip the wire (and skip the
         # FIRMWARE ERROR warning that exchange_command would emit).
@@ -1391,6 +1306,10 @@ class MotorBoard(SerialBoard):
         # when this send turns out to be the first-contact probe of
         # legacy firmware; _record_support logs that case at INFO.
         resp = self.exchange_command('STOP', expect_unsupported=True)
+        if resp is None:
+            raise HardwareError(
+                'STOP: no reply from the motor board; the stage may still be moving'
+            )
         return self._record_support('STOP', '_supports_stop_cached', resp)
 
     # return True if current position and target position are the same

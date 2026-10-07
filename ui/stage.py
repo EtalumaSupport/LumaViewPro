@@ -478,15 +478,17 @@ class Stage(Widget):
         coordinate_transformer = ctx.coordinate_transformer
         scope = ctx.scope
 
-        # Until the stage is homed there is no position to show: the labware
-        # is drawn without the crosshair and the selected well.
+        # Until the stage is homed there is no position to show, and a scope
+        # with no XY stage has none at all: the labware is drawn without the
+        # crosshair and the selected well. Gated on the stage capability, NOT
+        # the transient run lock -- the crosshair stays visible during a run.
         position_available = False
         x_target = None
         y_target = None
         x_current = None
         y_current = None
 
-        if scope.motion.has_homed():
+        if scope.motion.has_homed() and self._xy_stage_present():
             # Position cache auto-refreshes on first read if stale (>80ms)
             x_target = scope.motion.get_target_position('X')
             y_target = scope.motion.get_target_position('Y')
@@ -621,39 +623,27 @@ class Stage(Widget):
                 )
 
             # Draw crosshairs (updates every frame - but only 2 lines!).
-            # Skip on scopes without an XY stage: there is no live XY position
-            # to indicate, so the crosshair would be meaningless on the
-            # single-plate view. Gated on the stage capability, NOT the
-            # transient run lock -- the crosshair stays visible during a run.
-            if self._xy_stage_present():
-                pixel_x, pixel_y = coordinate_transformer.stage_to_pixel(
-                    labware=labware,
-                    stage_offset=settings['stage_offset'],
-                    sx=x_current,
-                    sy=y_current,
-                    scale_x=scale_x,
-                    scale_y=scale_y,
-                )
+            pixel_x, pixel_y = coordinate_transformer.stage_to_pixel(
+                labware=labware,
+                stage_offset=settings['stage_offset'],
+                sx=x_current,
+                sy=y_current,
+                scale_x=scale_x,
+                scale_y=scale_y,
+            )
 
-                x_center = x + pixel_x
-                y_center = y + pixel_y
+            x_center = x + pixel_x
+            y_center = y + pixel_y
 
-                # Update crosshairs properties (instead of recreating)
-                h_line_points = [x_center - 10, y_center, x_center + 10, y_center]
-                v_line_points = [x_center, y_center - 10, x_center, y_center + 10]
-                Clock.schedule_once(
-                    lambda dt, pts=h_line_points: setattr(self._crosshair_h_line, 'points', pts), 0
-                )
-                Clock.schedule_once(
-                    lambda dt, pts=v_line_points: setattr(self._crosshair_v_line, 'points', pts), 0
-                )
-            else:
-                Clock.schedule_once(
-                    lambda dt: setattr(self._crosshair_h_line, 'points', [0, 0, 0, 0]), 0
-                )
-                Clock.schedule_once(
-                    lambda dt: setattr(self._crosshair_v_line, 'points', [0, 0, 0, 0]), 0
-                )
+            # Update crosshairs properties (instead of recreating)
+            h_line_points = [x_center - 10, y_center, x_center + 10, y_center]
+            v_line_points = [x_center, y_center - 10, x_center, y_center + 10]
+            Clock.schedule_once(
+                lambda dt, pts=h_line_points: setattr(self._crosshair_h_line, 'points', pts), 0
+            )
+            Clock.schedule_once(
+                lambda dt, pts=v_line_points: setattr(self._crosshair_v_line, 'points', pts), 0
+            )
 
             self._prev_x_target = x_target
             self._prev_y_target = y_target

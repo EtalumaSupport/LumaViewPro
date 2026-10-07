@@ -42,7 +42,9 @@ def stage_and_motion(monkeypatch):
         _app_ctx,
         'ctx',
         SimpleNamespace(
-            settings={}, coordinate_transformer=None, scope=SimpleNamespace(motion=motion)
+            settings={},
+            coordinate_transformer=None,
+            scope=SimpleNamespace(motion=motion, capabilities=SimpleNamespace(has_xy_stage=True)),
         ),
     )
     monkeypatch.setattr(stage_module, 'get_selected_labware', _refuse_to_draw)

@@ -47,8 +47,18 @@ ENTRY_POINT_GROUP = 'lvp.plugins'
 # fail mid-use. A host change the plugin must follow raises the value
 # here, in the same commit, to the plugin version that follows it.
 MINIMUM_PLUGIN_VERSIONS = {
-    'etaluma_engineering': '1.0.14',
+    'etaluma_engineering': '1.0.38',
 }
+
+# What this LumaViewPro does that a plugin may rely on, within its major
+# version: no version can say it, since version.txt names the promoted
+# release and many trunk commits share one beta number. A commit that
+# changes behaviour a plugin relies on raises it by one, in that commit,
+# with its row in docs/LumascopeSkills.md ("Plugin API level"). A plugin
+# reads it at its own entry through session.plugin_api_level and refuses
+# below what it needs; a host older than the level has no such member,
+# which the plugin reads as 0.
+PLUGIN_API_LEVEL = 3
 
 # Mount points are locked to the set the host knows how to attach.
 # Additional names are added when a real consumer needs them, paired

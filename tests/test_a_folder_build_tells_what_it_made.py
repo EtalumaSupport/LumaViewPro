@@ -262,12 +262,16 @@ def test_a_stitch_says_which_group_it_is_on_and_what_is_left(tmp_path, monkeypat
 
 def test_a_stitchs_time_estimate_counts_the_group_now_starting(tmp_path, monkeypatch):
     import itertools
+    from types import SimpleNamespace
 
     import modules.protocol_post_processor as protocol_post_processor
 
-    # Every group takes 10 s by the build's own clock.
+    # Every group takes 10 s by the build's own clock: the module's own name
+    # for time, so no other thread reads these ticks.
     ticks = itertools.count(step=10.0)
-    monkeypatch.setattr(protocol_post_processor.time, 'perf_counter', lambda: next(ticks))
+    monkeypatch.setattr(
+        protocol_post_processor, 'time', SimpleNamespace(perf_counter=lambda: next(ticks))
+    )
 
     seen = _drive_scripted('Stitcher', tmp_path, monkeypatch, stitching_mode='quality')
 

@@ -38,7 +38,6 @@ from tests.protocol_drives import (
     StepHeartbeat,
     autofocus_snapshot,
     wait_for_run_end,
-    wait_until_ready_for_next_run,
 )
 from tests.scope_fakes import configure_turret_like_bringup
 from unittest.mock import MagicMock
@@ -49,6 +48,8 @@ from unittest.mock import MagicMock
 # ---------------------------------------------------------------------------
 
 COMPLETION_TIMEOUT = 20  # seconds
+# A bound only on a stuck file lane: a loaded host can take seconds to write.
+FILES_WAIT_S = 60
 
 TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
@@ -322,12 +323,17 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         parent_dir=tmp_path / 'output',
         max_scans=run_kwargs.pop('max_scans', 1),
         callbacks=callbacks,
-        leds_state_at_end=run_kwargs.pop('leds_state_at_end', 'off'),
         autofocus_snapshot=autofocus_snapshot(),
         **run_kwargs,
     )
-    executor.start(plan)
+    handle = executor.start(plan)
     completed = wait_for_run_end(done, heartbeat)
+    # The images and the record are on the file lane; they are there once
+    # the run says its files are done, not when it lets go of the scope.
+    if completed:
+        assert handle.wait_for_files(timeout_s=FILES_WAIT_S) is not None, (
+            'the run never finished its files'
+        )
     return completed, result_holder
 
 
@@ -925,8 +931,6 @@ class TestExecuteSaveLoadRun:
         completed_a, _ = _run_and_wait(executor, proto_a, tmp_path / 'run_a')
         assert completed_a, 'Protocol A did not complete'
 
-        assert wait_until_ready_for_next_run(executor), 'Protocol A never ended and drained'
-
         proto_b = _build_protocol(
             [
                 _make_step(name='B1_Red', color='Red', acquire='image'),
@@ -1495,7 +1499,6 @@ class TestExecuteCancellation:
             parent_dir=tmp_path / 'output',
             max_scans=1,
             callbacks=callbacks,
-            leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(),
         )
         executor.start(plan)
@@ -1509,7 +1512,7 @@ class TestExecuteCancellation:
         # Should still fire run_complete callback
         completed = done.wait(timeout=COMPLETION_TIMEOUT)
         assert completed, 'Protocol did not fire run_complete after cancellation'
-        # run_complete fires during cleanup; the run ends when cleanup does.
+        # run_complete comes once the run has ended; this confirms it.
         assert executor.wait_for_run_idle(COMPLETION_TIMEOUT), 'the cancelled run never ended'
         assert not executor.run_in_progress(), 'Executor still running after cancel'
 
@@ -1520,7 +1523,7 @@ class TestExecuteLEDRestore:
     def test_leds_off_after_protocol(self, executor, scope, tmp_path):
         steps = [_make_step(color='Green', illumination=200.0)]
         proto = _build_protocol(steps)
-        completed, _ = _run_and_wait(executor, proto, tmp_path, leds_state_at_end='off')
+        completed, _ = _run_and_wait(executor, proto, tmp_path)
         assert completed
 
         # All LEDs should be off after protocol
@@ -1623,8 +1626,6 @@ class TestRealPathExecution:
         proto_a = _build_protocol([_make_step(name='A1_BF', color='BF')])
         completed_a, _ = _run_and_wait(real_executor, proto_a, tmp_path / 'run_a')
         assert completed_a, 'Protocol A with real motion did not complete'
-
-        assert wait_until_ready_for_next_run(real_executor), 'Protocol A never ended and drained'
 
         proto_b = _build_protocol(
             [
@@ -1937,7 +1938,6 @@ class TestExecutorEdgeCases:
                 parent_dir=tmp_path / 'output',
                 max_scans=1,
                 callbacks={'run_complete': lambda **kw: done.set()},
-                leds_state_at_end='off',
                 autofocus_snapshot=autofocus_snapshot(),
             )
         assert not done.is_set(), 'run_complete must not fire for a refused run'

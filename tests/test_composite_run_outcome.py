@@ -65,7 +65,7 @@ class TestCompositeRunsAsItsOwnKind:
         # policy and would leave an interactive user's channel off.
         runner = _runner()
         runner.run_composite()
-        assert runner._executor.prepare.call_args.kwargs['leds_state_at_end'] == (
+        assert runner._executor.prepare.call_args.kwargs['run_mode'].leds_state_at_end == (
             'return_to_original'
         )
 
@@ -87,13 +87,13 @@ class TestCompositeRunsAsItsOwnKind:
             protocol=protocol,
             image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
         )
-        assert runner._executor.prepare.call_args.kwargs['leds_state_at_end'] == 'off'
+        assert runner._executor.prepare.call_args.kwargs['run_mode'].leds_state_at_end == 'off'
 
         runner.run_protocol(
             protocol=protocol,
             image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
         )
-        assert runner._executor.prepare.call_args.kwargs['leds_state_at_end'] == 'off'
+        assert runner._executor.prepare.call_args.kwargs['run_mode'].leds_state_at_end == 'off'
 
 
 class TestCompositeOutcomeIsObservable:

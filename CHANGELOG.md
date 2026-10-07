@@ -2,6 +2,27 @@
 
 ## 4.0.0 (in development)
 
+- **An autofocus sweep that will not stop is a cleanup failure**: when a stopped run's autofocus
+  sweep has not unwound 30 s after being told to, the run's `cleanup_failures` names
+  `Stop autofocus` and the person is told once in the cleanup summary; the run keeps its own
+  ending. Until the sweep stops, a new run is refused `autofocus_running` with words that say so
+  (restart LumaViewPro if it does not clear), and the sweep, once free, reports nothing. Before,
+  the wait was 10 s and only logged, the refusal said "Stop it" with nothing left to stop, and the
+  freed sweep reported its refused restore and capture as faults of a run that was over.
+- **A Z move is moving through its backlash leg**: a Z move down drives below its target and
+  approaches from below; the axis now reads `'moving'` from its first target write, so
+  `wait_until_finished_moving()`, `get_axis_state('Z')`, `axis_positions()`, the position
+  listeners and frame validity all see the leg as the move. Before, the axis went `'moving'` only
+  after the leg, nearly the whole move: a wait returned at once, the state read idle at the start
+  position, and a frame grabbed during the leg was judged valid.
+- **A still is refused by the call, and is on the camera when the call returns (SDK, breaking)**:
+  `session.manual_capture.capture()` raises `HardwareCommandRefusedError` (reason
+  `'exclusive_activity_running'`) while a run or a diagnostic holds the scope, and
+  `'scope_disconnected'` when the camera is closed. Before, it returned a Future that raised
+  the refusal, and the still reached the camera only some time after the call, so a run started
+  just after it could refuse a still the caller had already been given a Future for. A still
+  queued behind other camera work when a run takes the scope is still refused through its
+  Future.
 - **A host closing mid-write asks the session (SDK, breaking)**: new `session.close_drain_frames`
   (how many video frames are still queued, a manual recording's and a run's video tail together)
   and `session.discard_close_drain()`, beside `close_drain_pending`. `ProtocolRunner`'s

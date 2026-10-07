@@ -434,13 +434,18 @@ class ImageSettings(BoxLayout):
         """Size each layer's illumination slider from the connected LED
         driver's cap, through the getter that also applies the transmitted-
         layer policy. The one owner of ill_slider.max; the .kv value is the
-        placeholder until the scope is built.
+        placeholder until the scope is built. A scope with no LED board has
+        no cap to size from, and its illumination controls are hidden
+        (set_layer_led_controller_support).
         """
         for layer in common_utils.get_layers():
+            layer_obj = self.layer_lookup(layer=layer)
+            if not layer_obj.led_controller_support:
+                continue
             bound = get_layer_illumination_slider_max(layer)
             if bound is None:
                 continue
-            self.layer_lookup(layer=layer).ids['ill_slider'].max = bound
+            layer_obj.ids['ill_slider'].max = bound
 
     def set_layer_autogain_support(self):
         """Gate the Auto Gain/Exp control on the camera's hardware AG/AE support.
@@ -464,6 +469,16 @@ class ImageSettings(BoxLayout):
         for layer in common_utils.get_layers():
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.camera_autogain_support = supported
+
+    def set_layer_led_controller_support(self):
+        """Hide every layer's LED toggle and illumination current when the
+        scope came up without its LED board: its capabilities carry no LED
+        channels. Display of the API's answer, set where the capabilities
+        are synced.
+        """
+        present = _app_ctx.ctx.scope.capabilities.led_channels is not None
+        for layer in common_utils.get_layers():
+            self.layer_lookup(layer=layer).led_controller_support = present
 
     def sync_camera_capability_ranges(self):
         """Resync every per-layer camera control from the live camera caps.
@@ -492,6 +507,7 @@ class ImageSettings(BoxLayout):
         try:
             self.set_layer_exposure_ranges()
             self.set_layer_gain_ranges()
+            self.set_layer_led_controller_support()
             self.set_layer_illumination_ranges()
             self.set_layer_autogain_support()
         finally:
@@ -690,7 +706,9 @@ class ImageSettings(BoxLayout):
         for layer in common_utils.get_layers():
             layer_accordion = self.accordion_item_lookup(layer=layer)
             if layer_accordion.collapse:
-                if illumination.get_led_state(channel=layer)['enabled']:
+                # None with no LED board installed: nothing is lit.
+                state = illumination.get_led_state(channel=layer)
+                if state is not None and state['enabled']:
                     submit_reported(
                         lambda lit=layer: illumination.led_off(lit),
                         None,

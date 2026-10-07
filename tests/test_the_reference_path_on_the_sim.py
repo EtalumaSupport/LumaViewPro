@@ -21,6 +21,7 @@ from tests.scope_fakes import home_sim_scope
 from tests.shown_outcomes import capture_shown
 from tests.test_the_gui_displays_the_turret import _Stand, session, stand  # noqa: F401 -- fixtures
 from ui import ui_helpers
+from tests.protocol_drives import run_identity
 
 OUTCOMES = 'LVP.outcomes'
 NOTIFICATIONS = 'LVP.notifications'
@@ -36,7 +37,7 @@ def _records(caplog):
 
 @pytest.fixture
 def run_holds_the_scope(session):
-    held = session.activity_claim.try_claim('protocol')
+    held = session.activity_claim.try_claim('protocol', run=run_identity())
     assert held is not None
     yield
     held.release()

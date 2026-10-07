@@ -174,6 +174,7 @@ class _AfRig:
         save_data: bool,
         borrowed_claim=None,
         run_trigger_source: str = 'autofocus',
+        run_mode: SequencedCaptureRunMode = SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
     ):
         """Prepare one standalone AF run; the plan, not yet started."""
         done = self._done = threading.Event()
@@ -181,7 +182,7 @@ class _AfRig:
         return self.runner.prepare(
             protocol=_make_af_step_protocol(),
             run_trigger_source=run_trigger_source,
-            run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
+            run_mode=run_mode,
             sequence_name='autofocus',
             image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
             autogain_settings={
@@ -201,7 +202,6 @@ class _AfRig:
                 'run_complete': lambda **kw: done.set(),
                 'files_complete': lambda **kw: files_done.set(),
             },
-            leds_state_at_end='off',
             autofocus_snapshot=autofocus_snapshot(
                 states={
                     'BF': True,
@@ -393,16 +393,22 @@ class TestTheSweepDoesNotReturnBeforeItsWriteLands:
         waiter = _ReusableTaskWaiter()
         runner._data_write_future = waiter
 
-        HOLD_S = 0.25
-        threading.Timer(HOLD_S, lambda: waiter.set_result(None)).start()
-        started = time.monotonic()
-        runner._await_data_write()
-        elapsed = time.monotonic() - started
+        # Asked of the write, not of a clock: the clock read after the
+        # timer's start lost the gap between them under load and read a
+        # full wait as 0.248 s of 0.25 (the load census, 2026-10-06).
+        written = threading.Event()
 
-        assert elapsed >= HOLD_S, (
+        def complete_the_write():
+            written.set()
+            waiter.set_result(None)
+
+        threading.Timer(0.25, complete_the_write).start()
+        runner._await_data_write()
+
+        assert written.is_set(), (
             'the sweep returned before its queued write completed; a reader '
             'would be told nothing was written by a sweep whose file lands '
-            f'moments later (waited {elapsed:.3f}s for a {HOLD_S}s write)'
+            'moments later'
         )
 
     def test_a_cancelled_write_does_not_cost_the_bound(self):
@@ -432,12 +438,16 @@ class TestTheSweepDoesNotReturnBeforeItsWriteLands:
     def test_nothing_queued_needs_no_wait(self):
         """A refused submit returns no waiter, and saved_data_path stays None."""
         runner = self._bare_runner()
+        from modules.autofocus_runner import AF_DATA_WRITE_WAIT_S
+
         runner._data_write_future = None
 
         started = time.monotonic()
         runner._await_data_write()
 
-        assert time.monotonic() - started < 0.1
+        # A wait would sit out the bound; a loaded host can make a no-op
+        # take tens of milliseconds, never half of it.
+        assert time.monotonic() - started < AF_DATA_WRITE_WAIT_S / 2
         assert runner.saved_data_path() is None
 
     def test_the_waiter_is_consumed_so_a_later_sweep_cannot_inherit_it(self):

@@ -127,7 +127,6 @@ MOTION_ONLY_METHODS = frozenset(
         'get_current_position',
         'get_limit_switch_status',
         'get_limit_switch_status_all_axes',
-        '_get_overshoot',
         'get_target_position',
         'get_target_status',
         'get_turret_position_for_objective_id',

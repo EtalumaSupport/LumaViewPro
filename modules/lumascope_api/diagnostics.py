@@ -121,7 +121,7 @@ class DiagnosticsAPI:
         self._scope = scope
 
     # --- Camera probes ---
-    def get_camera_temperatures_degc(self) -> dict:
+    def get_camera_temperatures_degc(self) -> dict | None:
         """Get all camera temperature sensor readings.
 
         Runs on the camera lane, admitted whatever holds the scope: the read
@@ -129,8 +129,13 @@ class DiagnosticsAPI:
         with another camera write, but a run does not stop it.
 
         Returns:
-            dict: Mapping of sensor name to temperature in degC.
-            Empty dict if camera is inactive or has no temperature sensors.
+            dict | None: Mapping of sensor name to temperature in degC. Empty
+            only for a camera with no temperature sensor
+            (``capabilities.camera_reports_temperature`` False). None when no
+            camera is active.
+
+        Raises:
+            HardwareError: A camera is active and the read failed.
         """
         return self._scope.imaging._dispatch_camera(
             self._get_camera_temperatures_degc_impl,
@@ -139,14 +144,11 @@ class DiagnosticsAPI:
             override=True,
         )
 
-    def _get_camera_temperatures_degc_impl(self) -> dict:
-        if not self._scope._camera_driver or not self._scope._camera_driver.active:
-            return {}
-        try:
-            return self._scope._camera_driver.get_all_temperatures()
-        except Exception as e:
-            logger.debug(f'[SCOPE API ] get_camera_temperatures_degc failed: {e}')
-            return {}
+    def _get_camera_temperatures_degc_impl(self) -> dict | None:
+        driver = self._scope._camera_driver
+        if not driver or not driver.active:
+            return None
+        return driver.get_all_temperatures()
 
     def get_camera_link_info(self) -> dict | None:
         """Read the camera's link, live.
@@ -232,7 +234,7 @@ class DiagnosticsAPI:
         # when unknown) -- a provenance label, not a control input.
         info['sdk_version'] = self._scope._camera_driver.get_sdk_info().get('version')
 
-        info['temperatures'] = self.get_camera_temperatures_degc()
+        _try('temperatures', self.get_camera_temperatures_degc)
         return info
 
     def run_camera_bandwidth_test(

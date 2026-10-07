@@ -32,6 +32,7 @@ def test_stim_probe_logs_to_serial_log(caplog, monkeypatch):
     import logging
     import threading
     import time
+    from types import SimpleNamespace
     from unittest.mock import MagicMock
 
     from drivers.ledboard import LEDBoard
@@ -45,7 +46,11 @@ def test_stim_probe_logs_to_serial_log(caplog, monkeypatch):
     driver.in_waiting = 0
     board.driver = driver
 
-    monkeypatch.setattr(time, 'sleep', lambda s: None)
+    import drivers.ledboard
+
+    monkeypatch.setattr(
+        drivers.ledboard, 'time', SimpleNamespace(monotonic=time.monotonic, sleep=lambda s: None)
+    )
     with caplog.at_level(logging.INFO, logger='LVP.serial'):
         assert board.supports_firmware_stim() is True
 

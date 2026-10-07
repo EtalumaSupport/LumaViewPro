@@ -124,18 +124,15 @@ def test_a_write_the_board_never_got_is_not_believed(scope):
     assert _believed(illumination) == {}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=pytest.fail.Exception,
-    reason='once the link is lost, led_on logs "LED controller not available" and returns; '
-    'nothing is raised and nothing is shown',
-)
 def test_a_write_to_a_lost_board_fails_out_loud(scope):
+    from modules.exceptions import HardwareCommandRefusedError
+
     illumination, board, _posts = scope
     board.unplug()
     illumination.led_on(1, 10)
-    with pytest.raises(Exception):  # noqa: B017 -- which error is the fix's to choose
+    with pytest.raises(HardwareCommandRefusedError) as refused:
         illumination.led_on(2, 10)
+    assert refused.value.reason == 'not_connected'
 
 
 @pytest.mark.xfail(

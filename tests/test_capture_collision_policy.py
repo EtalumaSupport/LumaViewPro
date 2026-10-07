@@ -520,6 +520,7 @@ def test_video_step_row_records_writers_actual_path(tmp_path, monkeypatch):
         record_dropped_capture=MagicMock(),
         clock=lambda: clock['t'],
         run_claim=lent_run_claim(),
+        to_plate=None,
     )
 
     outcomes = []

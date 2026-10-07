@@ -155,7 +155,8 @@ class Notification:
 
     Every listener receives every post, shown or not: ``shown`` is the
     centre's decision whether this one is for display now (shutdown, an
-    unattended run's mute and the dedup window say no), so a listener that
+    unattended run's mute, an attended run that already showed the same post,
+    and the dedup window say no), so a listener that
     displays opens only the shown ones and a listener that records keeps
     them all.
     """
@@ -196,6 +197,18 @@ class Notification:
     # Wall-clock seconds, for a client in another process; ``timestamp`` is
     # monotonic and orders two notifications within this one.
     wall_time: float = field(default_factory=time.time)
+
+
+@dataclass
+class _RunScope:
+    """A live run, as the centre judges the posts made during it."""
+
+    attended: bool
+    # (category, title, message) of every post shown during the run: an
+    # attended run shows an identical non-fatal post once. The message is in
+    # the key because different refusals share a title -- a refused gain and
+    # a refused exposure are both 'Camera Setting Not Applied'.
+    shown: set[tuple[str, str, str]] = field(default_factory=set)
 
 
 def _log_display_line(
@@ -241,17 +254,19 @@ class NotificationCenter:
         # flood during close that fires when queued IO tasks fail en
         # masse after the motor/camera disconnects. Issue #622.
         self._shutting_down = False
-        # Unattended-run suppression. While a run nobody is watching is in
-        # flight, non-fatal notifications still LOG but raise no popup -- a
-        # modal could stall the run, and transient faults would pile up in
-        # front of an empty chair. Fatal notifications (lost connection, a
-        # run-aborting fault) still reach listeners.
+        # The live run, while one is in flight; None otherwise. During a run
+        # nobody is watching, non-fatal notifications still LOG but raise no
+        # popup -- a modal could stall the run, and transient faults would
+        # pile up in front of an empty chair. During a run someone is
+        # standing at, a fault that repeats every step is shown once rather
+        # than once per dedup window. Fatal notifications (lost connection, a
+        # run-aborting fault) reach listeners either way.
         #
         # ATTENDEDNESS, not "a run is in flight": the capture runner drives
         # short interactive operations too, and one of those suppressing its
-        # own failure popup is exactly the bug this name now prevents. The
-        # runner decides which kind it is and says so; this flag only obeys.
-        self._unattended_run = False
+        # own failure popup is exactly the bug this split prevents. The
+        # runner decides which kind it is and says so; the scope only obeys.
+        self._run_scope: _RunScope | None = None
 
     def set_shutting_down(self, value: bool = True) -> None:
         """Toggle suppression of listener dispatch. Call from on_stop
@@ -261,17 +276,27 @@ class NotificationCenter:
         with self._lock:
             self._shutting_down = bool(value)
 
-    def set_unattended_run(self, value: bool = True) -> None:
-        """Toggle suppression of NON-FATAL listener dispatch for a run nobody
-        is watching. Fatal notifications still reach listeners; logs always
-        capture everything. Pair with the run's start + every cleanup path so
-        the flag cannot stick on and mute popups after the run ends.
+    def open_run_scope(self, *, attended: bool) -> None:
+        """Judge the posts that follow as a live run's, until close_run_scope().
+
+        An unattended run mutes NON-FATAL, unsolicited posts; an attended run
+        shows each identical one once. Fatal and solicited posts are judged as
+        outside a run; logs always capture everything.
 
         The caller passes attendedness, not "am I busy": an interactive
-        operation that routes through the same runner must pass False, or it
-        silences its own failure popup."""
+        operation that routes through the same runner must pass True, or it
+        silences its own failure popup. Opening replaces any scope left open,
+        so a missed close is healed by the next run rather than muting every
+        later one.
+        """
         with self._lock:
-            self._unattended_run = bool(value)
+            self._run_scope = _RunScope(attended=attended)
+
+    def close_run_scope(self) -> None:
+        """End the live run's judgement. Idempotent: pair it with every
+        cleanup path, so the scope cannot stick on after the run ends."""
+        with self._lock:
+            self._run_scope = None
 
     # ------------------------------------------------------------------
     # Producer API (any thread)
@@ -295,11 +320,12 @@ class NotificationCenter:
         """Post a notification and log its display line.  Thread-safe.
 
         Returns whether it was shown: False when shutdown, an unattended run's
-        mute or the dedup window suppressed it. Every listener receives it
-        either way, with ``shown`` saying which.
+        mute, an attended run that already showed the same post, or the dedup
+        window suppressed it. Every listener receives it either way, with
+        ``shown`` saying which.
 
-        ``fatal`` notifications reach listeners even while a protocol
-        suppresses non-fatal popups (set via ``set_unattended_run``).
+        ``fatal`` notifications are shown even while a run suppresses
+        non-fatal popups (its scope, ``open_run_scope``).
 
         ``solicited`` notifications answer a request that just arrived, so
         neither suppression rule applies to them: the caller is present by
@@ -392,11 +418,15 @@ class NotificationCenter:
         suppressed_reason = None
         with self._lock:
             listeners = list(self._listeners)
+            scope = self._run_scope
+            judged_by_run = scope is not None and not fatal and not solicited
             if self._shutting_down:
                 suppressed_reason = 'shutdown'  # logged above; suppressed during close
-            elif self._unattended_run and not fatal and not solicited:
+            elif judged_by_run and not scope.attended:
                 # logged above; non-fatal popups suppressed on an unattended run
                 suppressed_reason = 'unattended_run'
+            elif judged_by_run and (category, title, message) in scope.shown:
+                suppressed_reason = 'shown_this_run'
             else:
                 last = self._dedup.get(key, 0.0)
                 # The window still advances for a solicited notification, so a
@@ -406,6 +436,8 @@ class NotificationCenter:
                     suppressed_reason = 'dedup'  # already shown recently
                 else:
                     self._dedup[key] = now
+            if suppressed_reason is None and scope is not None:
+                scope.shown.add((category, title, message))
         shown = suppressed_reason is None
         if not shown:
             # The forensic write above happens BEFORE this decision, so on its

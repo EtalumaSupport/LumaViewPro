@@ -30,7 +30,7 @@ import logging
 import math
 import pathlib
 import typing
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
 import modules.common_utils as common_utils
@@ -58,13 +58,14 @@ class StepTargets:
     """Where a protocol step puts the scope, in the frames the motors take.
 
     ``turret_slot`` is None on a scope with no turret. ``x`` and ``y`` are
-    stage micrometres on the protocol's own plate; ``z`` is the step's.
+    stage micrometres on the protocol's own plate; ``z`` is the step's. An
+    axis the scope has no motor for is None (``stage_targets``).
     """
 
     turret_slot: int | None
-    x: float
-    y: float
-    z: float
+    x: float | None
+    y: float | None
+    z: float | None
 
 
 class ProtocolsAPI:
@@ -561,6 +562,75 @@ class ProtocolsAPI:
             py=py,
         )
 
+    def plate_transform(
+        self, protocol: Protocol, *, stage_offset: dict | None
+    ) -> Callable[[float, float], tuple[float, float]] | None:
+        """The stage-to-plate transform of ``protocol``'s frame: ``plate_to_stage`` inverted.
+
+        What a run states a frame's position in: the plate the protocol
+        stores and the offset the run started with, the frame its steps
+        were driven in. The selected plate and the live offset are the
+        frame of a capture made outside a run
+        (``runtime_state.plate_transform``); a run converted through them
+        would state its positions in a frame it never moved in once the
+        operator picked another plate. Both are bound when this is called,
+        so a later change moves no position it converts, and it cannot
+        raise.
+
+        Args:
+            protocol: The protocol whose plate the positions are stated on.
+            stage_offset: The offset the run started with; None on a scope
+                with no X/Y stage, which has no plate position to state.
+
+        Returns:
+            A function of ``(sx_um, sy_um)`` answering ``(px_mm, py_mm)``,
+            or None when ``stage_offset`` is.
+
+        Raises:
+            ConfigError: the protocol's plate is not in the catalogue.
+        """
+        if stage_offset is None:
+            return None
+        labware = self._scope.wellplate_loader.get_plate(plate_key=protocol.labware())
+        stage_offset = dict(stage_offset)
+
+        def to_plate(sx: float, sy: float) -> tuple[float, float]:
+            return _coordinate_transformer.stage_to_plate(
+                labware=labware, stage_offset=stage_offset, sx=sx, sy=sy
+            )
+
+        return to_plate
+
+    def stage_targets(
+        self,
+        protocol: Protocol,
+        px: float | None,
+        py: float | None,
+        z: float | None,
+        *,
+        stage_offset: dict | None = None,
+    ) -> tuple[float | None, float | None, float | None]:
+        """A plate position and Z of ``protocol`` as the stage targets this scope drives.
+
+        The one conversion every step move takes its targets from -- a run's
+        steps, its return between scans and after a z-stack, a person's Go
+        To Step -- so none drives an axis the scope lacks: an axis with no
+        motor is None, and so are X and Y when ``px`` or ``py`` is. X and Y
+        are converted as ``plate_to_stage`` converts them.
+
+        Returns:
+            ``(x, y, z)`` in stage micrometres, each None where nothing is
+            driven.
+
+        Raises:
+            ConfigError: as ``plate_to_stage``.
+        """
+        axes = self._scope.capabilities.axes
+        x = y = None
+        if 'X' in axes and 'Y' in axes and px is not None and py is not None:
+            x, y = self.plate_to_stage(protocol, px, py, stage_offset=stage_offset)
+        return x, y, (z if 'Z' in axes else None)
+
     def step_targets(
         self, protocol: Protocol, step_idx: int, *, stage_offset: dict | None = None
     ) -> StepTargets:
@@ -568,11 +638,12 @@ class ProtocolsAPI:
 
         The turret slot is the one carrying the step's objective, chosen as
         ``motion.get_turret_position_for_objective_id`` chooses it, so
-        navigating to a step and running it look through the same glass.
+        navigating to a step and running it look through the same glass. X,
+        Y and Z are ``stage_targets``'s: None for an axis the scope lacks.
 
         Raises:
             StepNotFoundError: ``step_idx`` is not a step of ``protocol``.
-            ConfigError: as ``plate_to_stage``.
+            ConfigError: as ``stage_targets``.
             RuntimeError: this scope has a turret and no slot carries the
                 step's objective. The admissibility rule
                 (``refuse_unaddressable_objectives``) reads the same turret
@@ -593,8 +664,10 @@ class ProtocolsAPI:
                     'though the admissibility rule accepted it from the same turret '
                     'configuration'
                 )
-        x, y = self.plate_to_stage(protocol, step['X'], step['Y'], stage_offset=stage_offset)
-        return StepTargets(turret_slot=turret_slot, x=x, y=y, z=step['Z'])
+        x, y, z = self.stage_targets(
+            protocol, step['X'], step['Y'], step['Z'], stage_offset=stage_offset
+        )
+        return StepTargets(turret_slot=turret_slot, x=x, y=y, z=z)
 
     def _travel_limits(self) -> dict:
         """The travel limits of each axis this scope has a motor for, by axis.
@@ -856,22 +929,18 @@ class ProtocolsAPI:
                     ),
                 )
 
-    def refuse_unreachable_positions(self, steps: pd.DataFrame, labware_key: str) -> None:
-        """Refuse a protocol whose steps this scope's stage cannot reach.
+    def refuse_unreachable_positions(self, steps: pd.DataFrame) -> None:
+        """Refuse a protocol whose steps need motion this scope has no motor for.
 
-        Two questions, in this order. Presence: a move on an axis the scope
-        lacks does nothing and reports nothing, so a run whose steps sit at
-        different places on that axis would image one place and save each
-        image under its step's name and coordinates. A manual scope (no
-        motor board) lacks every axis; a Z-only scope lacks X and Y. Steps
-        that all sit at one place on a missing axis ask for no motion there
-        and are admitted: a single-location time lapse on a manual scope is
-        the case this keeps. Autofocus moves Z, so it needs a Z axis.
-
-        Travel: a step outside an axis's limits would drive the stage to the
-        end of travel and stop the run there. Judged on the axes the scope
-        has, at the scope's stage offset -- the one the run converts plate
-        positions with -- on the protocol's own plate.
+        A run drives only the axes the scope has (``stage_targets``), so a
+        run whose steps sit at different places on a missing axis would image
+        one place and save each image under its step's name and coordinates.
+        A manual scope (no motor board) lacks every axis; a Z-only scope
+        lacks X and Y. Steps that all sit at one place on a missing axis ask
+        for no motion there and are admitted: a single-location time lapse on
+        a manual scope is the case this keeps. Autofocus moves Z, so it needs
+        a Z axis. Permanent, so it is asked before whether the scope knows
+        its position.
 
         A consult seam, not part of the L2 API surface: an L2 caller meets
         this rule by starting a run, which asks it here.
@@ -879,16 +948,10 @@ class ProtocolsAPI:
         Args:
             steps: The protocol's steps table (``Protocol.steps()``), its
                 positions already validated as numbers.
-            labware_key: The plate the protocol's X/Y are measured on
-                (``Protocol.labware()``), already validated as known.
 
         Raises:
-            ProtocolRunRefusedError: The steps need motion this scope cannot
-                make (``positions_unreachable``), or lie outside its travel
-                (``positions_outside_travel``). It has been logged and shown
-                before it is raised.
-            ConfigError: No session has bound the scope, so it has no
-                stage offset to judge X/Y with.
+            ProtocolRunRefusedError: ``positions_unreachable``. It has been
+                logged and shown before it is raised.
         """
         present = set(self._scope.capabilities.axes)
         needed = []
@@ -911,6 +974,31 @@ class ProtocolsAPI:
                 ),
             )
 
+    def refuse_positions_outside_travel(self, steps: pd.DataFrame, labware_key: str) -> None:
+        """Refuse a protocol whose steps lie outside this scope's stage travel.
+
+        A step outside an axis's limits would drive the stage to the end of
+        travel and stop the run there. Judged on the axes the scope has, at
+        the scope's stage offset -- the one the run converts plate positions
+        with -- on the protocol's own plate. Asked once the scope knows its
+        position: an unhomed scope is told to home, not that its steps are
+        outside travel.
+
+        A consult seam, not part of the L2 API surface: an L2 caller meets
+        this rule by starting a run, which asks it here.
+
+        Args:
+            steps: The protocol's steps table (``Protocol.steps()``), its
+                positions already validated as numbers.
+            labware_key: The plate the protocol's X/Y are measured on
+                (``Protocol.labware()``), already validated as known.
+
+        Raises:
+            ProtocolRunRefusedError: ``positions_outside_travel``. It has
+                been logged and shown before it is raised.
+            ConfigError: No session has bound the scope, so it has no
+                stage offset to judge X/Y with.
+        """
         from modules.protocol import axes_outside_travel
 
         axis_limits = self._travel_limits()

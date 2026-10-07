@@ -24,6 +24,7 @@ from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 from tests.shown_outcomes import capture_shown
 from ui import ui_helpers
 from ui.ui_helpers import run_reported, submit_reported
+from tests.protocol_drives import run_identity
 
 _WAIT_S = 2.0
 
@@ -221,7 +222,7 @@ class TestTheLaneForm:
         assert redrawn == ['T']
 
     def test_a_refusal_at_submit_redraws_once(self, shown, headless, lane, claim):
-        held = claim.try_claim('protocol', run_trigger_source='test')
+        held = claim.try_claim('protocol', run=run_identity('test'))
         ran = []
         redrawn = []
         try:
@@ -246,7 +247,7 @@ class TestTheLaneForm:
         ran = []
         redrawn = []
         submit_reported(lambda: ran.append(1), lambda: redrawn.append('T'), 'T', lane=lane)
-        held = claim.try_claim('protocol', run_trigger_source='test')
+        held = claim.try_claim('protocol', run=run_identity('test'))
         try:
             gate.set()
             deadline = time.monotonic() + _WAIT_S
@@ -266,7 +267,7 @@ class TestTheLaneForm:
         assert redrawn == ['T']
 
     def test_a_refusal_names_the_gesture_not_the_wrapper(self, shown, headless, lane, claim):
-        held = claim.try_claim('protocol', run_trigger_source='test')
+        held = claim.try_claim('protocol', run=run_identity('test'))
         try:
             submit_reported(lambda: None, None, 'LED_Blue', lane=lane)
         finally:

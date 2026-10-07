@@ -36,6 +36,7 @@ import pytest
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import IOTask
 from tests.settings_fixtures import complete_settings
+from tests.protocol_drives import run_identity
 
 
 @pytest.fixture
@@ -160,7 +161,7 @@ class TestIsProtocolRunning:
         assert headless_session.is_protocol_running is False
 
     def test_tracks_the_claim_in_both_directions(self, headless_session):
-        held = headless_session.activity_claim.try_claim('protocol')
+        held = headless_session.activity_claim.try_claim('protocol', run=run_identity())
         assert held
         assert headless_session.is_protocol_running is True
         held.release()

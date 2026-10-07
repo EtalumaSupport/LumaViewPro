@@ -429,7 +429,10 @@ class FrameLayout(NamedTuple):
     ``w`` stored are the first of them, from byte ``column``: with
     Mirror_Column clear, as the driver leaves it, the columns are read out in
     numerical order from Column_Start (RR R0x020), so the extra ones come
-    last. After ``FRAME_DELIM``
+    last. With Mirror_Row set, as the driver sets it, the rows are read out
+    from Row_Start + Row_Size down to Row_Start, so the row skipped first and
+    the row not stored last trade ends and the ``h`` stored are the same
+    sensor rows, reversed. After ``FRAME_DELIM``
     comes the first output row, which the parser skips (``skip`` bytes, one
     more than a row), then the ``h`` stored rows, then the last output row,
     which it does not store. Both unstored rows carry sensor data. The row's
@@ -486,6 +489,20 @@ REG_PLL_CFG2 = 0x12
 REG_READ_MODE2 = 0x20
 REG_GLOBAL_GAIN = 0x35
 REG_ROW_BLACK = 0x49
+
+# Read Mode 2's readout-order bits (RR R0x020): each reverses its axis.
+MIRROR_ROW = 0x8000
+MIRROR_COLUMN = 0x4000
+
+# Read Mode 2 as connect writes it: Mirror_Row set, Mirror_Column clear, Row_BLC
+# on. LumaViewPro shows and saves a frame's first row at the bottom, and every
+# camera delivers to that; Basler and IDS reverse their columns at the sensor to
+# do it. The FX2 scopes' optics put the image on this sensor so that it reads
+# correctly with its rows in numerical order shown top-down, as LumaView Classic
+# showed it, so here the sensor reverses its rows. A USAF target facing the
+# objective then reads as it does on an LS850, where with Mirror_Column alone
+# it read rotated 180 degrees and with neither flipped top-to-bottom.
+READ_MODE2 = MIRROR_ROW | 0x0040
 
 # The Row Black Target written at connect, and the black level the camera
 # reports: one value, so the report cannot drift from the write.
@@ -2103,11 +2120,10 @@ class FX2Camera(Camera):
         # pixel clocks where it may not be strictly necessary.
         self._write_sensor_registers(((0x7F, 0x0000),))
 
-        # Read Mode 2 is its reset default, Row_BLC on and Mirror_Column
-        # clear, the value LumaView Classic wrote. With Mirror_Column set, an
-        # LS620 read a USAF target facing the camera mirrored, where the
-        # LS850 reads it correctly.
-        self._write_sensor_registers(((REG_READ_MODE2, 0x0040),))
+        # Read Mode 2 sets the orientation the frames are delivered in
+        # (READ_MODE2). Mirror_Row causes a bad frame when written (RR
+        # R0x020); this write comes before the stream starts.
+        self._write_sensor_registers(((REG_READ_MODE2, READ_MODE2),))
         # The Row Black Target is 0, not its default 0xA8: the default gives
         # every image a floor of about 10.5 counts in 8 bits, the dark floor
         # LumaView images once had and were better without. The cost, measured

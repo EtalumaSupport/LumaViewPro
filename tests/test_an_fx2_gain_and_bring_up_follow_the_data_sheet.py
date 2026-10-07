@@ -122,7 +122,7 @@ def test_connect_writes_the_documents_registers_and_leaves_r0x62_at_its_default(
     after = dict(writes[len(BRING_UP) :])
     assert after[0x7F] == 0x0000  # DG p7
     assert after[0x49] == 0x0000  # the black target, kept at 0 by ruling
-    assert after[0x20] == 0x0040  # Row_BLC; Mirror_Column clear
+    assert after[0x20] == 0x8040  # Mirror_Row, Row_BLC; Mirror_Column clear
     assert 0x62 not in dict(writes)
 
 

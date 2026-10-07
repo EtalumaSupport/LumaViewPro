@@ -50,6 +50,31 @@ def acting(taking: 'Taking | None') -> Iterator[None]:
 
 
 @dataclass(frozen=True)
+class RunIdentity:
+    """Which run: where it came from, and what it is in a person's words.
+
+    ``trigger`` is provenance -- the run_trigger_source its starter passed,
+    recorded and handed to callers as ``holder_trigger``. ``words`` is the
+    run's kind as a sentence names it ('Z-stack'), so a refusal never prints
+    a raw token such as 'api_autofocus_scan'. One object, so the two cannot
+    come from different runs.
+    """
+
+    trigger: str
+    words: str
+
+
+def the_run_named(run: RunIdentity | None, *, sentence_start: bool = False) -> str:
+    """Name a run for a refusal sentence: 'the Z-stack run', or 'a run'.
+
+    One phrasing, one home. 'a run' only where no run is known -- a holder
+    that released between a failed take and the read of who held it.
+    """
+    named = f'the {run.words} run' if run is not None else 'a run'
+    return named[0].upper() + named[1:] if sentence_start else named
+
+
+@dataclass(frozen=True)
 class ActivityHolder:
     """Who holds the session's one exclusive activity.
 
@@ -57,12 +82,39 @@ class ActivityHolder:
     one immutable object published by a single attribute store, so a
     reader that sees the holder sees the run behind it and cannot pair
     a live claim with a name read an instant earlier or later. An
-    activity that is not a run carries no trigger: a recording's kind
-    IS the whole answer.
+    activity that is not a run carries no run: a recording's kind IS the
+    whole answer. A run holder without its run cannot be built.
     """
 
     kind: str
-    run_trigger_source: str | None = None
+    run: RunIdentity | None = None
+
+    def __post_init__(self) -> None:
+        if (self.kind == 'protocol') != (self.run is not None):
+            raise ValueError(
+                f'a {self.kind!r} holder with run={self.run!r}: a run names its run, '
+                'and nothing else does'
+            )
+
+    @property
+    def run_trigger_source(self) -> str | None:
+        """The holding run's trigger; None for an activity that is not a run."""
+        return self.run.trigger if self.run is not None else None
+
+
+def the_holder_named(holder: ActivityHolder | None) -> str:
+    """Name what holds the scope, to open a refusal sentence.
+
+    A run by its kind ('The Z-stack run'), another activity by its kind ('A
+    diagnostic activity') -- an activity the user cannot name is one they
+    cannot go and stop. 'Another exclusive activity' only when the holder
+    released between the failed take and this read.
+    """
+    if holder is None:
+        return 'Another exclusive activity'
+    if holder.run is not None:
+        return the_run_named(holder.run, sentence_start=True)
+    return f'A {holder.kind} activity'
 
 
 class HeldClaim:
@@ -179,13 +231,13 @@ class BorrowedClaim:
             return None
         return self.holder
 
-    def try_claim(self, owner: str, run_trigger_source: str | None = None) -> _Borrowing | None:
+    def try_claim(self, owner: str, run: RunIdentity | None = None) -> _Borrowing | None:
         """Act under the lender's taking; None once the lender no longer holds.
 
         A run that borrows is recorded on the claim as the run holding the
-        scope, with its trigger; the holder stays the lender.
+        scope, with its identity; the holder stays the lender.
         """
-        return self._lender.claim._lend(self._lender, owner, run_trigger_source)
+        return self._lender.claim._lend(self._lender, owner, run)
 
     def announce(self) -> None:
         """Tell the claim's listener of a change the work made, as ActivityClaim.announce.
@@ -279,16 +331,15 @@ class ActivityClaim:
         borrowing, run = lent
         return run if borrowing.holds else None
 
-    def try_claim(self, owner: str, run_trigger_source: str | None = None) -> HeldClaim | None:
+    def try_claim(self, owner: str, run: RunIdentity | None = None) -> HeldClaim | None:
         """Atomically claim for ``owner``; None when already held.
 
         Args:
             owner: the kind of activity claiming -- a description for
                 display and refusal text, not a credential.
-            run_trigger_source: which run is claiming, when the
-                claimant is a run. Optional because a recording has no
-                trigger; a run always passes one, which its own claim
-                site is what enforces.
+            run: which run is claiming. Required when ``owner`` is
+                ``'protocol'`` and refused otherwise: the holder cannot be
+                built any other way.
 
         Returns:
             The HeldClaim that alone can release this taking, or None
@@ -297,7 +348,10 @@ class ActivityClaim:
         Raises:
             FalsifyingChangeInFlightError: ``owner`` is ``'recording'`` and a
                 write that would falsify it is running.
+            ValueError: a run claimed without its identity, or another
+                activity claimed with one.
         """
+        holder = ActivityHolder(kind=owner, run=run)
         with self._lock:
             if owner == 'recording' and self._falsifying:
                 raise FalsifyingChangeInFlightError()
@@ -305,7 +359,7 @@ class ActivityClaim:
                 return None
             held = HeldClaim(self)
             self._held = held
-            self._holder = ActivityHolder(kind=owner, run_trigger_source=run_trigger_source)
+            self._holder = holder
         self.announce()
         return held
 
@@ -366,24 +420,20 @@ class ActivityClaim:
     def _is_held_by(self, held: HeldClaim) -> bool:
         return self._held is held
 
-    def _lend(
-        self, lender: Taking, owner: str, run_trigger_source: str | None
-    ) -> _Borrowing | None:
+    def _lend(self, lender: Taking, owner: str, run: RunIdentity | None) -> _Borrowing | None:
         """A borrowing of *lender*'s taking; a run's is recorded and announced.
 
         Decided under the lock a release takes, so a run is never recorded
         against a lender that has already released.
         """
+        holder = ActivityHolder(kind=owner, run=run)
         with self._lock:
             if not lender.holds:
                 return None
             borrowing = _Borrowing(lender)
             is_run = owner == 'protocol'
             if is_run:
-                self._lent_run = (
-                    borrowing,
-                    ActivityHolder(kind=owner, run_trigger_source=run_trigger_source),
-                )
+                self._lent_run = (borrowing, holder)
         if is_run:
             self.announce()
         return borrowing

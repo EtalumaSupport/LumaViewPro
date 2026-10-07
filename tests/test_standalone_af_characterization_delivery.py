@@ -12,7 +12,7 @@ stayed empty -- "queued" is not "delivered"
 (tests/test_af_char_save_on_all_exits.py pins queued-on-a-mock, which
 is exactly the blind spot the drop lived in).
 
-The standalone button now starts a one-position SINGLE_AUTOFOCUS_SCAN
+The standalone button now starts a one-position SINGLE_AUTOFOCUS
 run, so the file executor is in protocol mode for the AF's whole
 window and the save rides the run's file queue.  This pin drives that
 engine path end to end -- real simulated scope, real executors, real
@@ -26,7 +26,6 @@ import datetime
 import pathlib
 import sys
 import threading
-import time
 from unittest.mock import MagicMock
 
 # Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
@@ -150,7 +149,7 @@ class TestStandaloneAfDeliversCharacterizationData:
             plan = runner.prepare(
                 protocol=_make_af_step_protocol(),
                 run_trigger_source='autofocus',
-                run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
+                run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
                 sequence_name='autofocus',
                 image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
                 autogain_settings={
@@ -170,7 +169,6 @@ class TestStandaloneAfDeliversCharacterizationData:
                     'run_complete': lambda **kw: done.set(),
                     'files_complete': lambda **kw: files_done.set(),
                 },
-                leds_state_at_end='off',
                 autofocus_snapshot=autofocus_snapshot(
                     states={
                         'BF': True,
@@ -187,13 +185,9 @@ class TestStandaloneAfDeliversCharacterizationData:
             assert done.wait(timeout=COMPLETION_TIMEOUT), 'AF run did not complete'
             assert files_done.wait(timeout=COMPLETION_TIMEOUT), 'AF run files_complete did not fire'
 
-            deadline = time.monotonic() + 10.0
-            files = []
-            while time.monotonic() < deadline:
-                files = [p for p in char_dir.rglob('*') if p.is_file()]
-                if files:
-                    break
-                time.sleep(0.1)
+            # files_complete comes after the run's last write lands, and the
+            # data rides the run's writes: it is on disk now or never.
+            files = [p for p in char_dir.rglob('*') if p.is_file()]
             assert files, (
                 'an AF run with save_autofocus_data=True must leave its '
                 'characterization data on disk; an empty folder means the '

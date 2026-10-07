@@ -28,6 +28,7 @@ from tests.test_manual_recording_controller import (
 )
 from tests.test_video_recording_contract import make_config
 from tests.video_engine_harness import FakeClock, FrameFeed, ManualFireScheduler, WriterStub
+from tests.protocol_drives import run_identity
 
 
 def _engine_heard_by(tmp_path, claim_for, *, blocked=False):
@@ -53,7 +54,7 @@ def _own_claim(listener):
 
 
 def _lent_run_claim(listener):
-    run = ActivityClaim(on_transition=listener).try_claim('protocol', run_trigger_source='scan')
+    run = ActivityClaim(on_transition=listener).try_claim('protocol', run=run_identity('scan'))
     return run.lend()
 
 
