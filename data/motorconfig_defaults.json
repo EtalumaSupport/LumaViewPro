@@ -149,7 +149,8 @@
             "Z": {
                 "Switch Search": {
                     "Reference Search Mode": 65,
-                    "Reference Search Speed": 500
+                    "Reference Search Speed": 500,
+                    "Back-off Microsteps": 3643
                 }
             }
         }

@@ -54,7 +54,11 @@ class Tmcm6110Config:
 
     Each axis's index position is where the API places the board's 0: its
     registration against the plate, measured on the bench (X and Y; Z's is
-    0, its switch). The direction is the sign from the board's position to
+    0). X and Y's board 0 is their index pulse. Z's is its switch backed off
+    upward: a move back down meets the switch a few micrometres above the 0
+    its search sets (1.04 um and 9.39 um on two bench LS720s), so a 0 at
+    the switch itself could not be reached. Some Z actuators shipped
+    without an index pulse, so Z cannot home to one. The direction is the sign from the board's position to
     the API's, so ``API = index position + direction * board position``.
     The board's travel runs negative from its 0 on every axis, so X, whose
     sign is +1, runs down from its index toward the plate's column-12 end,
@@ -104,7 +108,11 @@ class Tmcm6110Config:
         'Z': ('Switch Search',),
     }
     _PHASE_VALUES: ClassVar[dict] = {
-        'Switch Search': {'Reference Search Mode': _MODE, 'Reference Search Speed': _SPEED},
+        'Switch Search': {
+            'Reference Search Mode': _MODE,
+            'Reference Search Speed': _SPEED,
+            'Back-off Microsteps': (1, 2**31 - 1),
+        },
         'Switch Pre-move': {
             'Max Positioning Speed': _SPEED,
             'Reference Search Mode': _MODE,
@@ -258,8 +266,18 @@ class Tmcm6110Config:
         return self._index_position_mm[axis.upper()] * 1000.0
 
     def travel_limit_um(self, axis: str) -> float:
-        """The axis's far limit switch, measured as distance from the index."""
+        """The axis's far limit switch, measured as distance from the
+        reference: X and Y's index, Z's switch."""
         return self._travel_limit_mm[axis.upper()] * 1000.0
+
+    def zero_above_reference_um(self, axis: str) -> float:
+        """How far the board's 0 sits from the reference the travel is
+        measured from: Z's back-off off its switch; X and Y's 0 is their
+        index itself."""
+        search = self.homing(axis).get('Switch Search')
+        if search is None:
+            return 0.0
+        return search['Back-off Microsteps'] * 1000.0 / self.usteps_per_mm(axis)
 
     def travel_margin_um(self) -> float:
         """How far inside each far switch the travel limit sits."""
@@ -270,7 +288,12 @@ class Tmcm6110Config:
         the margin inside its far switch, on the side its direction puts
         the far switch."""
         index = self.index_position_um(axis)
-        far = index - self.direction(axis) * (self.travel_limit_um(axis) - self.travel_margin_um())
+        span = (
+            self.travel_limit_um(axis)
+            - self.zero_above_reference_um(axis)
+            - self.travel_margin_um()
+        )
+        far = index - self.direction(axis) * span
         return {'min': min(index, far), 'max': max(index, far)}
 
     def axis_parameters(self, axis: str) -> Mapping:

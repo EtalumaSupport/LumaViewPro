@@ -7,8 +7,8 @@ one reply per command, nothing unsolicited. It holds no per-unit config and
 runs no Etaluma firmware; everything it is told comes from the "TMCM-6110"
 section of the shipped motor defaults (``Tmcm6110Config``).
 
-Positions are microsteps on the board, 0 at each axis's index (Z's
-switch) and negative away from it. The API sees micrometres in the frame
+Positions are microsteps on the board, 0 at each axis's index (Z's: its
+switch, backed off upward) and negative away from it. The API sees micrometres in the frame
 the plate transform shares with every model: the board's 0 sits at the
 axis's index position from the config, and its direction says which way
 the API's position grows. X grows away from the plate's column-12 end, as
@@ -613,8 +613,8 @@ class Tmcm6110Board:
     def home(self) -> bool:
         """Home all three axes with LumaView Classic's sequence.
 
-        Z first, to its switch, so the objective is down before X or Y
-        moves; then X to its switch; then Y and X each to their switch, off
+        Z first, to its switch and back up off it to its 0, so the
+        objective is down before X or Y moves; then X to its switch; then Y and X each to their switch, off
         it, back onto it slowly and on to the index pulse, where the
         position is set to 0. Every axis's target is then set to 0, so
         target and actual agree, and each axis reads its index position
@@ -635,7 +635,7 @@ class Tmcm6110Board:
         )
 
     def zhome(self) -> bool:
-        """Home Z alone, to its switch, with the same checks as ``home``."""
+        """Home Z alone, as ``home`` homes it, with the same checks."""
         return self._home((self._home_z,), ('Z',))
 
     def _home(self, phases, axes: tuple[str, ...]) -> bool:
@@ -726,15 +726,24 @@ class Tmcm6110Board:
         return lambda: self._exchange(GAP, AP_ACTUAL_VELOCITY, MOTORS[axis]) == 0
 
     def _home_z(self) -> None:
+        """Z to its switch, then up off it, where the position becomes 0:
+        a move back down meets the switch a few micrometres above the 0 the
+        search sets, so a 0 on the switch would stop Z short of every move
+        to 0."""
         search = self.motorconfig.homing('Z')['Switch Search']
+        motor = MOTORS['Z']
         self._set_switch_polarities()
         self._init_axis('Z')
-        self._home_send(SAP, AP_REFERENCE_SEARCH_MODE, MOTORS['Z'], search['Reference Search Mode'])
-        self._home_send(
-            SAP, AP_REFERENCE_SEARCH_SPEED, MOTORS['Z'], search['Reference Search Speed']
-        )
-        self._home_send(RFS, RFS_START, MOTORS['Z'])
+        self._home_send(SAP, AP_REFERENCE_SEARCH_MODE, motor, search['Reference Search Mode'])
+        self._home_send(SAP, AP_REFERENCE_SEARCH_SPEED, motor, search['Reference Search Speed'])
+        self._home_send(RFS, RFS_START, motor)
         self._await('Z to its switch', self._stopped('Z'))
+        self._home_send(MVP, MVP_REL, motor, -search['Back-off Microsteps'])
+        self._await(
+            'Z off its switch',
+            lambda: self._exchange(GAP, AP_TARGET_REACHED, motor) == 1,
+        )
+        self._home_send(SAP, AP_ACTUAL_POSITION, motor, 0)
 
     def _home_x_to_switch(self) -> None:
         """X to its switch fast, so the Y search starts with X out of the way."""

@@ -136,7 +136,13 @@ def test_the_index_positions_are_the_bench_ls720s_and_place_each_axis_travel():
         'min': pytest.approx(950),
         'max': pytest.approx(950 + 79_790 - 1_000),
     }
-    assert config.limits_um('Z') == {'min': 0.0, 'max': pytest.approx(12_030 - 1_000)}
+    # Z's travel is measured from its switch; its 0 sits 3643 microsteps
+    # (200 um) above it.
+    assert config.zero_above_reference_um('Z') == pytest.approx(200, abs=0.01)
+    assert config.limits_um('Z') == {
+        'min': 0.0,
+        'max': pytest.approx(12_030 - 200 - 1_000, abs=0.01),
+    }
 
 
 def test_ramp_params_are_a_profile_for_every_axis():
@@ -164,7 +170,11 @@ def test_the_homing_phases_are_handed_over_as_the_section_holds_them():
     limit's floor does not apply to it."""
     config = Tmcm6110Config(SHIPPED_MOTOR_DEFAULTS)
     assert dict(config.homing('Z')) == {
-        'Switch Search': {'Reference Search Mode': 65, 'Reference Search Speed': 500}
+        'Switch Search': {
+            'Reference Search Mode': 65,
+            'Reference Search Speed': 500,
+            'Back-off Microsteps': 3643,
+        }
     }
     assert config.homing('X')['Switch Pre-move']['Max Positioning Speed'] == 2047
     assert config.homing('Y')['Index Search']['Max Acceleration'] == 50
@@ -208,6 +218,10 @@ def test_no_section_is_refused():
         (lambda s: s['Axis Direction'].update({'X': 0}), r'Axis Direction\.X = 0 is not 1 or -1'),
         (lambda s: s['Axis Travel Limit'].pop('Y'), r'Axis Travel Limit\.Y is missing'),
         (lambda s: s['Index Position'].pop('X'), r'Index Position\.X is missing'),
+        (
+            lambda s: s['Homing']['Z']['Switch Search'].pop('Back-off Microsteps'),
+            r'Homing\.Z\.Switch Search\.Back-off Microsteps is missing',
+        ),
         (
             lambda s: s['Index Position'].update({'Y': '0.95'}),
             r"Index Position\.Y = '0\.95' is not a number",

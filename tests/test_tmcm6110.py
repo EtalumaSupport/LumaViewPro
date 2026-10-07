@@ -213,7 +213,7 @@ def test_the_limits_run_from_each_index_position_to_the_margin_inside_its_far_sw
         'min': pytest.approx(950),
         'max': pytest.approx(950 + 78_790),
     }
-    assert board.get_axis_limits('Z') == {'min': 0.0, 'max': pytest.approx(11_030)}
+    assert board.get_axis_limits('Z') == {'min': 0.0, 'max': pytest.approx(10_830, abs=0.01)}
 
 
 # --- The surface every motor driver provides ------------------------------
@@ -330,7 +330,8 @@ def test_a_lid_opened_between_two_phases_of_a_home_is_refused_at_the_next_start(
         True,
     )
     assert not any((c.command, c.type, c.motor) == (RFS, RFS_START, 0) for c in sim.commands)
-    assert sim.axes['Z'].p == 0
+    # Z homed: backed off 3643 microsteps above its switch.
+    assert sim.axes['Z'].p == -3643
 
 
 def test_an_open_lid_refuses_x_and_stops_all_three(board, sim):
@@ -479,7 +480,10 @@ def test_the_simulated_switches_sit_at_the_sections_measured_ends(homing_board):
         index_um = board.motorconfig.index_position_um(axis)
         # Away from the index: down on X, up on Y and Z.
         away = -board.motorconfig.direction(axis)
-        far_um = board.motorconfig.travel_limit_um(axis)
+        # The far switch's distance from the board's 0, not from the reference.
+        far_um = board.motorconfig.travel_limit_um(
+            axis
+        ) - board.motorconfig.zero_above_reference_um(axis)
         board.move(axis, board._um2ustep(axis, index_um + away * (far_um + 5_000)))
         _wait_switch(board, axis)
         assert board.limit_switch_status(axis) == (1, 0), axis
@@ -806,6 +810,9 @@ def test_a_home_sends_classics_sequence(homing_board, homing_sim):
         (SAP, 193, 2, 65),
         (SAP, 194, 2, 500),
         (RFS, 0, 2, 0),
+        # then up off the switch, and 0 there (Classic's 0 was the switch)
+        (MVP, 1, 2, -3643),
+        (SAP, 1, 2, 0),
         # X, fast to its switch (PreInitializeXAxisToLimitSwitch)
         *_init(0, 16, 2, 2047, 500),
         (SAP, 193, 0, 65),
@@ -834,8 +841,24 @@ def test_after_a_home_every_axis_is_at_its_index_position_and_arrived(homing_boa
         assert homing_board.current_pos(axis) == index_um
         assert homing_board.target_pos(axis) == index_um
         assert homing_board.target_status(axis)
-        # At the reference itself: the index pulse, or Z's switch.
-        assert homing_sim.axes[axis].p == pytest.approx(0)
+    # X and Y at their index pulse; Z the back-off above its switch.
+    assert homing_sim.axes['X'].p == pytest.approx(0)
+    assert homing_sim.axes['Y'].p == pytest.approx(0)
+    assert homing_sim.axes['Z'].p == pytest.approx(-3643)
+
+
+def test_after_a_home_z_reaches_0_clear_of_its_switch(homing_board, homing_sim):
+    """The bench LS720 (2026-10-06): with 0 at Z's switch, a move to 0 met
+    the switch at 9.39 um and stalled. Z's 0 is 200 um above the switch, so
+    a move there arrives with the switch open."""
+    homing_board.home()
+    homing_board.move_abs_pos('Z', 2_000)
+    _wait_arrival(homing_board, 'Z')
+    homing_board.move_abs_pos('Z', 0)
+    _wait_arrival(homing_board, 'Z')
+    assert homing_board.current_pos('Z') == 0
+    assert homing_board.limit_switch_status('Z') == (0, 0)
+    assert homing_board.motorconfig.zero_above_reference_um('Z') == pytest.approx(200, abs=0.1)
 
 
 def test_a_home_reads_no_homing_value_the_config_does_not_check():
