@@ -1290,7 +1290,8 @@ scope.motion.start_move_relative('Z', 100).wait()
 
 # Interlocks. A stage that guards motion with its own inputs refuses a move
 # while one is open: HardwareCommandRefusedError, .reason 'lid_open' (title
-# 'Lid Open'; it refuses X and Y moves and homes, and Z still moves) or
+# 'Lid Open'; it refuses X and Y moves and every home, a Z-only home
+# included, and Z moves still go) or
 # 'stage_unpowered' (title 'No Stage Power'; it refuses a home). The refused
 # axis did not move and its position stays known; an axis the stage stopped
 # in refusing it ends where it stopped, its position known, as after a Stop.
@@ -1912,7 +1913,9 @@ Each source has its own skip count in `FrameValidity.SKIP_FRAMES`; `invalidate()
 Hardware diagnostic probes and identity getters live on the `scope.diagnostics` sub-API. Per-call (no persistent state); meant for tech-support reports, bench tooling, and bring-up scripts that want one-shot snapshots of camera / motor / LED state.
 
 ```python
-scope.diagnostics.get_motor_info()         # the model the board reports ('LS850'), serial, firmware, axis config
+scope.diagnostics.get_motor_info()         # the model the board reports ('LS850'), serial, firmware, axis config,
+                                           #   command_set: 'text' (the EL-0940's INFO, FULLINFO, ACTUAL_R, ...),
+                                           #   None (no text commands, e.g. the LS720's TMCM-6110; or no board)
 scope.capabilities.model                   # the model the scope runs as: the board's, else the selection
 scope.diagnostics.get_led_info()           # firmware_version, connected, command_set:
                                            #   'v2' (INFO, SELFTEST, I2CSCAN, LEDREAD),
