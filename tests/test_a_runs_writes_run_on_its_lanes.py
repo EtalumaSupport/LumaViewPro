@@ -82,7 +82,6 @@ def _run_protocol(session, tmp_path, steps) -> None:
         protocol=_build_real_protocol(steps),
         sequence_name='lanes',
         parent_dir=str(tmp_path),
-        image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
         callbacks={
             'run_complete': lambda **kw: None,
             'files_complete': lambda **kw: files_written.set(),

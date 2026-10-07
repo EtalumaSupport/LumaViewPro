@@ -386,7 +386,6 @@ class TestHeadlessRefusalDoesNotHang:
                 protocol=_make_single_step_protocol(),
                 sequence_name='refusal_headless_first',
                 parent_dir=str(tmp_path),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 callbacks={
                     'run_complete': lambda **kw: done.set(),
                     'files_complete': lambda **kw: None,
@@ -410,7 +409,6 @@ class TestHeadlessRefusalDoesNotHang:
                     protocol=_build_real_protocol([]),
                     sequence_name='refusal_headless_refused',
                     parent_dir=str(tmp_path),
-                    image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 )
             assert excinfo.value.reason == 'empty_protocol'
             assert not session.is_protocol_running, (
@@ -423,7 +421,6 @@ class TestHeadlessRefusalDoesNotHang:
                 protocol=_make_single_step_protocol(),
                 sequence_name='refusal_headless_second',
                 parent_dir=str(tmp_path),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 callbacks={
                     'run_complete': lambda **kw: done2.set(),
                     'files_complete': lambda **kw: None,
@@ -493,11 +490,11 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
         _run_to_completion(executor, _make_single_step_protocol(), tmp_path)
 
     def test_a_run_whose_protocol_copy_cannot_be_written_fails_at_start(
-        self, executor, tmp_path, centre_posts
+        self, executor, tmp_path, centre_posts, monkeypatch
     ):
         """The run's folder holds the protocol it ran; without it the images
         cannot be traced to the steps that took them, so the run does not
-        begin. The copy's name puts it in a folder that does not exist."""
+        begin. The file system refuses the copy."""
         captured = _capture_notifications(centre_posts)
         completions = []
         plan = _prepare(
@@ -505,8 +502,12 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
             _make_single_step_protocol(),
             tmp_path,
             callbacks={'run_complete': lambda **kw: completions.append(kw)},
-            sequence_name='no_such_folder/refusal_contract',
         )
+
+        def _refused(**kwargs):
+            raise OSError('No space left on device')
+
+        monkeypatch.setattr(plan.protocol, 'to_file', _refused)
         outcome = executor.start(plan).wait(COMPLETION_TIMEOUT)
 
         assert (outcome.status, outcome.reason) == ('failed_at_start', 'run_dir_init_failed')
@@ -742,6 +743,10 @@ RUNNER_REFUSAL_COVERAGE = {
     ),
     'capture_location_unusable': (
         'tests/test_a_run_cannot_start_where_it_cannot_save.py::TestTheEngineRefuses'
+    ),
+    'sequence_name_invalid': (
+        'tests/test_a_run_name_is_a_name.py::'
+        'test_a_name_that_is_a_path_is_refused_once_and_nothing_is_written'
     ),
 }
 

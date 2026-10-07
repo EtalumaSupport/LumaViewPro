@@ -476,37 +476,43 @@ class TestSettingsSnapshot:
 
     def test_update_settings_writes_value(self):
         session = self._session({})
-        session.update_settings('live_folder', '/tmp/test')
-        assert session.settings['live_folder'] == '/tmp/test'
+        session.update_settings('video.max_fps', 12)
+        assert session.settings['video']['max_fps'] == 12
 
     def test_update_settings_overwrites_existing(self):
-        session = self._session({'live_folder': '/old'})
-        session.update_settings('live_folder', '/new')
-        assert session.settings['live_folder'] == '/new'
+        session = self._session({})
+        session.update_settings('video.max_fps', 12)
+        session.update_settings('video.max_fps', 13)
+        assert session.settings['video']['max_fps'] == 13
 
     def test_snapshot_after_update(self):
         session = self._session({})
-        session.update_settings('live_folder', '/value1')
+        session.update_settings('video.max_fps', 11)
         snap = session.get_settings_snapshot()
-        session.update_settings('live_folder', '/value2')
+        session.update_settings('video.max_fps', 22)
 
-        assert snap['live_folder'] == '/value1'
-        assert session.settings['live_folder'] == '/value2'
+        assert snap['video']['max_fps'] == 11
+        assert session.settings['video']['max_fps'] == 22
 
-    def test_context_forwards_to_the_session_store(self):
+    def test_context_forwards_to_the_session_store(self, tmp_path):
         """One dict and one lock -- reachable two ways, stored once.
 
         A second store on the context would drift from the session's the
         moment either side wrote, and nothing would report the mismatch.
         """
-        session = self._session({'live_folder': '/x'})
+        session = self._session({'live_folder': str(tmp_path)})
         ctx = AppContext(session=session)
 
         assert ctx.settings is session.settings
         assert ctx.settings_lock is session.settings_lock
 
-        ctx.update_settings('live_folder', '/y')
-        assert session.settings['live_folder'] == '/y'
+        ctx.update_settings('video.max_fps', 14)
+        assert session.settings['video']['max_fps'] == 14
+        ctx.set_protocol_filepath('/data/plate.tsv')
+        assert session.settings['protocol']['filepath'] == '/data/plate.tsv'
+        live = pathlib.Path(session.settings['live_folder']) / 'chosen'
+        ctx.set_live_folder(str(live))
+        assert session.settings['live_folder'] == str(live) and live.is_dir()
 
     def test_context_without_a_session_refuses_rather_than_defaulting(self):
         """An empty dict here would read as "nothing configured" and be wrong."""

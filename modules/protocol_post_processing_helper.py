@@ -7,6 +7,7 @@ import pandas as pd
 
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
+import modules.path_utils as path_utils
 import modules.recording_frames as recording_frames
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
@@ -83,7 +84,14 @@ class ProtocolPostProcessingHelper:
 
         return pathlib.Path('-'.join(used_functions))
 
-    def _find_protocol_tsvs(self, path: pathlib.Path) -> dict[str, pathlib.Path] | None:
+    def _find_protocol_tsvs(self, path: pathlib.Path) -> dict | None:
+        """The run folder's files, or None when it holds no run record and protocol.
+
+        Raises:
+            ValueError: the run record cannot be read, or names a protocol
+                outside the run folder -- the message says which, for a
+                person.
+        """
 
         # If provided a file, change to the parent folder
         try:
@@ -113,9 +121,15 @@ class ProtocolPostProcessingHelper:
 
         loc_data['protocol_root_dir'] = protocol_root_dir
         loc_data['protocol_execution_record'] = protocol_execution_record_file_loc
-        protocol_execution_record = ProtocolExecutionRecord.from_file(
-            file_path=protocol_execution_record_file_loc
-        )
+        try:
+            protocol_execution_record = ProtocolExecutionRecord.from_file(
+                file_path=protocol_execution_record_file_loc
+            )
+        except (OSError, ValueError) as e:
+            raise ValueError(
+                f'The run record {protocol_execution_record_file_loc.name} could not be read ({e}).'
+            ) from e
+        loc_data['execution_record'] = protocol_execution_record
 
         # Search for the post-processing record TSV
         post_record_filename = ProtocolPostRecord.DEFAULT_FILENAME
@@ -128,6 +142,14 @@ class ProtocolPostProcessingHelper:
         # Search for the protocol TSV
         protocol_file_relative_loc = protocol_execution_record.protocol_file_loc()
         protocol_file_loc = protocol_root_dir / protocol_file_relative_loc
+        # The record is data in the folder, not the program's own: a path in
+        # it that climbs out of the run folder would read a file the run
+        # never wrote.
+        if not path_utils.resolves_inside(protocol_root_dir, protocol_file_loc):
+            raise ValueError(
+                f'The run record names its protocol as {str(protocol_file_relative_loc)!r}, '
+                f'which is outside the run folder {protocol_root_dir}.'
+            )
         if not protocol_file_loc.is_file():
             return None
 
@@ -224,11 +246,16 @@ class ProtocolPostProcessingHelper:
         selected_path = pathlib.Path(path)
         logger.info(f'{self._name}: Loading folder {selected_path}')
 
-        protocol_tsvs = self._find_protocol_tsvs(path=selected_path)
-
         # Each 'status': False below is a folder this cannot process, which
         # the caller raises as a refusal; the reporter logs it once, so none
         # is logged here.
+        try:
+            protocol_tsvs = self._find_protocol_tsvs(path=selected_path)
+        except ValueError as e:
+            return {
+                'status': False,
+                'message': str(e),
+            }
         if protocol_tsvs is None:
             return {
                 'status': False,
@@ -268,16 +295,7 @@ class ProtocolPostProcessingHelper:
                 'message': msg,
             }
 
-        protocol_execution_record = ProtocolExecutionRecord.from_file(
-            file_path=protocol_tsvs['protocol_execution_record'],
-        )
-
-        if protocol_execution_record is None:
-            msg = 'Protocol Execution Record not loaded'
-            return {
-                'status': False,
-                'message': msg,
-            }
+        protocol_execution_record = protocol_tsvs['execution_record']
 
         if protocol_execution_record.num_records() == 0:
             msg = 'Protocol Execution Record has no records'
@@ -301,9 +319,8 @@ class ProtocolPostProcessingHelper:
                 # append mode, and current-format rows under its old header
                 # would misalign every column on the next load.
                 record_loc = protocol_tsvs['protocol_post_record']
-                preserved_loc = record_loc.with_name(record_loc.name + '.unreadable')
                 try:
-                    os.replace(record_loc, preserved_loc)
+                    preserved_loc = path_utils.move_aside(record_loc, '.unreadable')
                 except OSError as move_error:
                     msg = (
                         f'The post-processing record {record_loc.name} could not be '

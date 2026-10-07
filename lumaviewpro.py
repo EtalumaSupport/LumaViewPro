@@ -1196,17 +1196,12 @@ class LumaViewProApp(TooltipMixin, App):
             if mount_point == 'left_sidebar.accordion':
                 try:
                     plugin_item = builder()
-                    # The accordion itself no longer carries the exclusive-
-                    # activity lock (its bind would swallow the run/stop
-                    # toggles' abort clicks); runtime-mounted items inherit
-                    # the lock explicitly so plugin tabs grey out like the
-                    # built-in regions.
-                    plugin_item.disabled = bool(self.controls_locked)
-                    self.bind(
-                        controls_locked=lambda _app, value, item=plugin_item: setattr(
-                            item, 'disabled', value
-                        )
-                    )
+                    # The item carries no exclusive-activity lock, as the
+                    # accordion carries none: a lock on the whole item would
+                    # grey out a control that must stay live during a run,
+                    # such as the plugin's own Stop. A plugin locks its own
+                    # controls, as the built-in regions do, from the
+                    # session's run-state listeners.
                     motionsettings_accordion.add_widget(plugin_item)
                     logger.info(f'[LVP Main  ] Mounted {plugin_name} at {mount_point}')
                 except Exception as e:
@@ -1285,12 +1280,13 @@ class LumaViewProApp(TooltipMixin, App):
         gui_logger.window_event('focus', f'focused={focused}')
 
     def on_request_close(self, *args) -> bool:
-        """Kivy on_request_close hook: show a confirmation popup if a protocol is running.
+        """Kivy on_request_close hook: show a confirmation popup naming what holds the scope.
 
         Returns:
             True to prevent window close (popup shown); False to allow close.
         """
-        protocol_running = ctx.session.run_lockout
+        lockout = ctx.session.run_lockout_named
+        protocol_running = lockout is not None
         # Crash-forensics: log the close request to BOTH the main log
         # (so post-mortem can correlate against the shutdown sequence)
         # and the GUI interactions log (so the gui-log timeline names
@@ -1312,7 +1308,7 @@ class LumaViewProApp(TooltipMixin, App):
             Clock.schedule_once(
                 lambda dt: show_confirmation_popup(
                     title='Confirm Exit',
-                    message='A protocol is currently running.\n\nAre you sure you want to exit?',
+                    message=f'{lockout}\n\nAre you sure you want to exit?',
                     confirm_text='Confirm Exit',
                     cancel_text='Cancel',
                     on_confirm=self.stop,

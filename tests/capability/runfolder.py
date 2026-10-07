@@ -20,8 +20,6 @@ def run_protocol_folder(
     positions: list | None = None,
     single_scan: bool = True,
 ):
-    import modules.config_helpers as config_helpers
-
     config = session.get_sequenced_capture_config(tiling=tiling, use_zstacking=use_zstacking)
     if positions is not None:
         # Keep the probe run small. The session selector always plans the
@@ -29,13 +27,11 @@ def run_protocol_folder(
         # z-stack lanes put into this config.
         config['positions'] = positions
     protocol = session.scope.protocols.create_protocol(input_config=config)
-    capture_config = config_helpers.get_image_capture_config_from_settings(session.settings)
     launch = runner.run_single_scan if single_scan else runner.run_protocol
     pending = launch(
         protocol=protocol,
         sequence_name=sequence_name,
         parent_dir=str(live),
-        image_capture_config=capture_config,
         enable_image_saving=True,
     )
     outcome = pending.wait(timeout_s=600)

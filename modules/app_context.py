@@ -154,3 +154,11 @@ class AppContext:
     def update_settings(self, path: str, value: object) -> None:
         """Write one setting by its dotted path; ``ScopeSession.update_settings``."""
         self._require_session().update_settings(path, value)
+
+    def set_live_folder(self, folder: str) -> None:
+        """Make ``folder`` the live folder; ``ScopeSession.set_live_folder``."""
+        self._require_session().set_live_folder(folder)
+
+    def set_protocol_filepath(self, file_path: str) -> None:
+        """Remember the protocol to open at the next start; ``ScopeSession.set_protocol_filepath``."""
+        self._require_session().set_protocol_filepath(file_path)

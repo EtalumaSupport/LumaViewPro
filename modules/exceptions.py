@@ -79,6 +79,30 @@ class RemedyUnknownError(Refusal, ValueError):
         self.member = member
 
 
+class LiveFolderPathRefusedError(Refusal, ValueError):
+    """A wire caller's path was refused: it does not name a place inside the live folder.
+
+    Raised by ``ScopeSession.live_folder_path``. A REST caller names a file
+    or folder by a name under the live folder, the one folder it may reach;
+    a name that is a path of its own, or that climbs out, reaches the rest
+    of the machine.
+
+    Attributes:
+        reason: ``'outside_live_folder'`` -- the name is empty, absolute,
+            carries a drive or a network share, or leads outside the live
+            folder through ``..`` or a link. ``'capture_location_unusable'``
+            -- the live folder itself is missing or not a folder.
+        name: The name that was given.
+    """
+
+    title = 'Path Not Available'
+
+    def __init__(self, reason: str, name: str, message: str):
+        super().__init__(message)
+        self.reason = reason
+        self.name = name
+
+
 class Quiet:
     """An outcome that is recorded and never shown: nothing failed and nothing was declined.
 
@@ -750,15 +774,18 @@ class SettingsSaveRefusedError(Refusal, ConfigError):
 class SettingRefusedError(Refusal, ConfigError):
     """A settings write was refused; nothing was written.
 
-    Raised by ``ScopeSession.update_settings``. A caller that maps refusals
-    to responses branches on ``reason``; a person reads the message.
+    Raised by ``ScopeSession.update_settings`` and ``set_live_folder``. A
+    caller that maps refusals to responses branches on ``reason``; a person
+    reads the message.
 
     Attributes:
         reason: ``'has_member'`` -- the setting is changed by its own
             Session member, named in ``member``. ``'not_a_setting'`` -- no
             setting has this path. ``'block'`` -- the path names a block of
             settings, which is written one setting at a time.
-            ``'wrong_kind'`` -- the value is not the kind the setting holds.
+            ``'installation_only'`` -- the setting is read only from the
+            installation's settings file. ``'wrong_kind'`` -- the value is
+            not the kind the setting holds.
             ``'out_of_range'`` -- the value is outside the setting's range.
         path: The dotted path that was written.
         member: The member that changes the setting, for ``'has_member'``;
@@ -1048,8 +1075,9 @@ class PostProcessingRefusedError(Refusal, CaptureError):
 
     Nothing broke: the folder holds no images, no groups this operation can
     combine, only derived outputs, only groups whose outputs would share a
-    name, source images in a format the operation cannot re-read, or
-    protocol data that could not be loaded; or the cell-count method it was
+    name, source images in a format the operation cannot re-read, protocol
+    data that could not be loaded, or outputs the folder's protocol would
+    name outside the folder; or the cell-count method it was
     given cannot be used. The message says which, in words written for the
     person, and what to do.
 
@@ -2578,7 +2606,7 @@ class FrameDepthError(Exception):
 
 # Where a support report or a logs zip is sent. The one copy: the saved
 # report's words and the failed report's words both name it.
-SUPPORT_ADDRESS = 'techsupport@etaluma.com'
+SUPPORT_ADDRESS = 'support@etaluma.com'
 
 
 class SupportReportNotSavedError(Exception):

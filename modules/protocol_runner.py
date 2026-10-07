@@ -16,11 +16,7 @@ Usage
     runner = ProtocolRunner(session)
 
     protocol = Protocol.from_file("my_protocol.csv")
-    pending = runner.run_single_scan(
-        protocol,
-        sequence_name="test_scan",
-        image_capture_config=runner.build_image_capture_config(image_mode="8bit"),
-    )
+    pending = runner.run_single_scan(protocol, sequence_name="test_scan")
     result = pending.wait(timeout_s=300)     # pending.stop() stops it
     print(result.status, result.reason, result.message)
 """
@@ -28,9 +24,8 @@ Usage
 import pathlib
 import typing
 
-import modules.image_mode as image_mode_module
 from modules.activity_claim import HeldClaim
-from modules.exceptions import CaptureError, ConfigError
+from modules.exceptions import CaptureError
 from modules.protocol import Protocol
 from modules.run_outcome import RunOutcome
 from modules.sequenced_capture_runner import (
@@ -74,38 +69,6 @@ class ProtocolRunner:
         return self._executor
 
     # ------------------------------------------------------------------
-    # Config helpers (pure -- no GUI reads)
-    # ------------------------------------------------------------------
-
-    def build_image_capture_config(
-        self,
-        *,
-        image_mode: str,
-        live_format: str = 'TIFF',
-        sequenced_format: str = 'TIFF',
-        jpg_quality: int = 90,
-    ) -> image_mode_module.ImageCaptureConfig:
-        """Build an image capture config without reading from GUI.
-
-        image_mode is required: a headless run is a deliberate act by a
-        script author, and an unstated mode silently decided the science
-        data's bit depth (a script that captured full depth on older
-        releases would quietly produce 8-bit files). capture_depth and
-        save_encoding are derived together from the one image_mode value
-        rather than carried independently, so the config that drives capture
-        also drives the save: a 12-bit-scaled capture cannot be paired with
-        an 8-bit save that stores it right-aligned (dark). This is the
-        GUI-less mirror of get_image_capture_config_from_ui; both route
-        through the same one constructor so the two paths cannot drift.
-        """
-        return image_mode_module.ImageCaptureConfig.from_image_mode(
-            image_mode,
-            output_format_live=live_format,
-            output_format_sequenced=sequenced_format,
-            jpg_quality=jpg_quality,
-        )
-
-    # ------------------------------------------------------------------
     # Run methods
     # ------------------------------------------------------------------
 
@@ -114,7 +77,6 @@ class ProtocolRunner:
         protocol: Protocol,
         sequence_name: str = 'scan',
         parent_dir: pathlib.Path | str | None = None,
-        image_capture_config: image_mode_module.ImageCaptureConfig | None = None,
         enable_image_saving: bool = True,
         callbacks: dict[str, typing.Callable] | None = None,
         return_to_position: dict | None = None,
@@ -125,10 +87,9 @@ class ProtocolRunner:
 
         Args:
             protocol: Protocol defining the steps to execute
-            sequence_name: Name for the output folder
+            sequence_name: The name of the protocol file the run saves in
+                its folder ('.tsv' added): a name, not a path
             parent_dir: Parent directory for output (defaults to settings['live_folder']/ProtocolData)
-            image_capture_config: The run's capture/save intent; REQUIRED.
-                Build one with build_image_capture_config(image_mode=...).
             enable_image_saving: Whether to save captured images
             callbacks: Optional dict of callback functions
             return_to_position: Optional position to return to after scan
@@ -145,9 +106,6 @@ class ProtocolRunner:
             outcome: the status, reason, title and message the run ended with.
 
         Raises:
-            ConfigError: image_capture_config was not provided -- there is
-                no silent default image mode; the caller states the run's
-                bit depth explicitly.
             ProtocolRunRefusedError: The run was refused before any state
                 was committed; no handle is returned and
                 session.is_protocol_running stays False.
@@ -159,7 +117,6 @@ class ProtocolRunner:
             max_scans=1,
             sequence_name=sequence_name,
             parent_dir=parent_dir,
-            image_capture_config=image_capture_config,
             enable_image_saving=enable_image_saving,
             callbacks=callbacks,
             return_to_position=return_to_position,
@@ -171,7 +128,6 @@ class ProtocolRunner:
         protocol: Protocol,
         sequence_name: str = 'protocol',
         parent_dir: pathlib.Path | str | None = None,
-        image_capture_config: image_mode_module.ImageCaptureConfig | None = None,
         enable_image_saving: bool = True,
         callbacks: dict[str, typing.Callable] | None = None,
         run_trigger_source: str = 'api_protocol',
@@ -181,10 +137,9 @@ class ProtocolRunner:
 
         Args:
             protocol: Protocol defining the steps, period, and duration
-            sequence_name: Name for the output folder
+            sequence_name: The name of the protocol file the run saves in
+                its folder ('.tsv' added): a name, not a path
             parent_dir: Parent directory for output
-            image_capture_config: The run's capture/save intent; REQUIRED.
-                Build one with build_image_capture_config(image_mode=...).
             enable_image_saving: Whether to save captured images
             callbacks: Optional dict of callback functions
             run_trigger_source: Provenance recorded on the run and named
@@ -200,9 +155,6 @@ class ProtocolRunner:
             outcome: the status, reason, title and message the run ended with.
 
         Raises:
-            ConfigError: image_capture_config was not provided -- there is
-                no silent default image mode; the caller states the run's
-                bit depth explicitly.
             ProtocolRunRefusedError: The run was refused before any state
                 was committed; no handle is returned and
                 session.is_protocol_running stays False.
@@ -214,7 +166,6 @@ class ProtocolRunner:
             max_scans=None,
             sequence_name=sequence_name,
             parent_dir=parent_dir,
-            image_capture_config=image_capture_config,
             enable_image_saving=enable_image_saving,
             callbacks=callbacks,
             engineering_mode=engineering_mode,
@@ -237,7 +188,8 @@ class ProtocolRunner:
         this run kind exists to retire.
 
         Args:
-            sequence_name: Name for the output folder.
+            sequence_name: The name of the protocol file the run saves in
+                its folder ('.tsv' added): a name, not a path.
             parent_dir: Parent directory for output. Defaults to
                 'Manual/Composites' under the live folder, where the button
                 already puts it, so a script's composite and a click's land
@@ -281,9 +233,6 @@ class ProtocolRunner:
             max_scans=1,
             sequence_name=sequence_name,
             parent_dir=parent_dir,
-            image_capture_config=(
-                config_helpers.get_composite_image_capture_config_from_settings(settings)
-            ),
             enable_image_saving=True,
             callbacks=callbacks,
             composite_thresholds_percent=config_helpers.get_composite_blend_thresholds(settings),
@@ -330,7 +279,8 @@ class ProtocolRunner:
                 names it (af_data_saved / af_data_path), which is the only
                 way a headless caller can tell a delivered file from a
                 requested one.
-            sequence_name: Name for the run.
+            sequence_name: The name of the protocol file the run saves in
+                its folder ('.tsv' added): a name, not a path.
             parent_dir: Where characterization data goes. Defaults to
                 'Autofocus Characterization' under the live folder, where
                 the button already puts it. Unused when no data is saved:
@@ -401,7 +351,6 @@ class ProtocolRunner:
             max_scans=1,
             sequence_name=sequence_name,
             parent_dir=parent_dir,
-            image_capture_config=config_helpers.get_image_capture_config_from_settings(settings),
             enable_image_saving=False,
             callbacks=callbacks,
             disable_saving_artifacts=True,
@@ -452,18 +401,14 @@ class ProtocolRunner:
                 (already running, files still writing, hardware not
                 connected, a step it cannot run); no state was committed.
         """
-        import modules.config_helpers as config_helpers
-
         scan = protocol.copy_for_execution()
         scan.modify_autofocus_all_steps(enabled=True)
-        settings = self.session.capture_settings_snapshot()
         return self._run(
             protocol=scan,
             run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
             run_trigger_source=run_trigger_source,
             max_scans=1,
             sequence_name='af_scan',
-            image_capture_config=config_helpers.get_image_capture_config_from_settings(settings),
             enable_image_saving=False,
             callbacks=callbacks,
             disable_saving_artifacts=True,
@@ -508,7 +453,8 @@ class ProtocolRunner:
 
         Args:
             layer: Which layer to capture ('BF', 'Green', ...).
-            sequence_name: Name for the output folder.
+            sequence_name: The name of the protocol file the run saves in
+                its folder ('.tsv' added): a name, not a path.
             parent_dir: Parent directory for output. Defaults to
                 'Manual/Z-Stacks' under the live folder, where the button
                 already puts it.
@@ -574,7 +520,6 @@ class ProtocolRunner:
             max_scans=1,
             sequence_name=sequence_name,
             parent_dir=parent_dir,
-            image_capture_config=config_helpers.get_image_capture_config_from_settings(settings),
             enable_image_saving=enable_image_saving,
             callbacks=callbacks,
             return_to_position=position if return_to_start else None,
@@ -610,7 +555,8 @@ class ProtocolRunner:
         ``captures``, beside its path.
 
         Args:
-            sequence_name: Name for the output folder.
+            sequence_name: The name of the protocol file the run saves in
+                its folder ('.tsv' added): a name, not a path.
             parent_dir: Parent directory for output. Defaults to
                 'Manual/Composites' under the live folder, as start_composite.
             callbacks: Optional dict of callback functions.
@@ -665,7 +611,6 @@ class ProtocolRunner:
         max_scans: int | None,
         sequence_name: str,
         parent_dir: pathlib.Path | str | None = None,
-        image_capture_config: image_mode_module.ImageCaptureConfig | None = None,
         enable_image_saving: bool = True,
         callbacks: dict[str, typing.Callable] | None = None,
         return_to_position: dict | None = None,
@@ -682,25 +627,11 @@ class ProtocolRunner:
             The committed run's handle.
 
         Raises:
-            ConfigError: image_capture_config was not provided; raised
-                before any executor starts or hardware moves.
             ProtocolRunRefusedError: The runner refused the request (already
                 running, files still writing, empty/invalid protocol,
                 hardware not connected); no state was committed and the
                 user was already notified once.
         """
-        # No silent default: an unstated image mode silently decided the
-        # data's bit depth (an older-release script that captured full depth
-        # would quietly produce 8-bit files). The caller states intent once;
-        # this raises before any executor starts or hardware moves.
-        if image_capture_config is None:
-            raise ConfigError(
-                'image_capture_config is required for a headless run: pass '
-                'image_capture_config=runner.build_image_capture_config('
-                "image_mode='8bit') (or one of the 12-bit modes) so the "
-                "run's capture depth and save encoding are explicit."
-            )
-
         # One copy of the settings, taken under the lock, for every value the
         # run reads from them: a caller on the worker pool (the GUI's Run, a
         # REST handler) reaches here while another thread may be writing the
@@ -708,6 +639,20 @@ class ProtocolRunner:
         # autofocus snapshot below is the exception: its restorer writes back
         # into the live store, so it takes the lock itself.
         settings = self.session.get_settings_snapshot()
+
+        import modules.config_helpers as config_helpers
+
+        # The image mode and formats are the store's, read once here for every
+        # run kind, so a script and the GUI's Run get the same files from the
+        # same settings; session.set_image_mode is how a caller chooses. A
+        # composite's merge reads its inputs back as 8-bit, so its rule is the
+        # composite one.
+        if run_mode == SequencedCaptureRunMode.SINGLE_COMPOSITE:
+            image_capture_config = config_helpers.get_composite_image_capture_config_from_settings(
+                settings
+            )
+        else:
+            image_capture_config = config_helpers.get_image_capture_config_from_settings(settings)
 
         # A run that saves no artifacts and was given no directory writes
         # nowhere, and keeps None: prepare() reads it that way and does not
@@ -731,8 +676,6 @@ class ProtocolRunner:
             f'pixel_format={self.session.scope.imaging.pixel_format_cached} '
             f'save_encoding={image_capture_config.save_encoding}'
         )
-
-        import modules.config_helpers as config_helpers
 
         autogain_settings = config_helpers.get_auto_gain_settings(settings)
 

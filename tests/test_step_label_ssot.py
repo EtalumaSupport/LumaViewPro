@@ -741,6 +741,8 @@ def test_unreadable_post_record_moved_aside_and_fresh_record_started(tmp_path, m
     corrupt_path.write_text(corrupt_text)
 
     helper = ProtocolPostProcessingHelper()
+    exec_record = MagicMock()
+    exec_record.num_records.return_value = 1
     monkeypatch.setattr(
         helper,
         '_find_protocol_tsvs',
@@ -748,15 +750,11 @@ def test_unreadable_post_record_moved_aside_and_fresh_record_started(tmp_path, m
             'protocol_root_dir': tmp_path,
             'protocol': tmp_path / 'protocol.tsv',
             'protocol_execution_record': tmp_path / 'protocol_execution_record.tsv',
+            'execution_record': exec_record,
             'protocol_post_record': corrupt_path,
         },
     )
     monkeypatch.setattr(pph.Protocol, 'from_file', staticmethod(lambda **kwargs: MagicMock()))
-    exec_record = MagicMock()
-    exec_record.num_records.return_value = 1
-    monkeypatch.setattr(
-        pph.ProtocolExecutionRecord, 'from_file', staticmethod(lambda **kwargs: exec_record)
-    )
     monkeypatch.setattr(
         helper, '_get_image_filenames_from_folder', lambda **kwargs: {'raw': [], 'post': []}
     )

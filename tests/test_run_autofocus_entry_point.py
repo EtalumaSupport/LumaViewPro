@@ -222,7 +222,6 @@ class TestTheExistingFamilyIsUnchanged:
         protocol = MagicMock(spec=Protocol)
         runner.run_single_scan(
             protocol,
-            image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
         )
         prepared = _prepared(runner)
         assert prepared['disable_saving_artifacts'] is False

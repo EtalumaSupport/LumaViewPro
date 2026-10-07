@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Any
 import modules.app_context as _app_ctx
 import modules.settings_init as settings_init
 from lvp_logger import logger
-from modules import binning, common_utils, image_mode, settings_paths
+from modules import binning, common_utils, image_mode, path_utils, settings_paths
 from modules.activity_claim import (
     SCOPE_HOLDING_KINDS,
     ActivityClaim,
@@ -48,11 +48,14 @@ from modules.exceptions import (
     FileWriterNotStuckError,
     HardwareCommandRefusedError,
     HomingFailedError,
+    LiveFolderPathRefusedError,
     ObjectiveUnknownError,
+    ProtocolNotLoadedError,
     Remedy,
     RemedyUnknownError,
     ScopeDisconnectError,
     ScopeModelUnknownError,
+    SettingRefusedError,
     SettingsSaveRefusedError,
 )
 from modules.lumascope_api.illumination import LedLease, LedTransition, LedTransitionCtx
@@ -576,7 +579,22 @@ class ScopeSession:
         protocol frees its claim while its files drain, but the control
         surface stays locked until the queue empties.
         """
-        return self.activity_claim.owner in SCOPE_HOLDING_KINDS or self.protocol_files_draining
+        return self.run_lockout_named is not None
+
+    @property
+    def run_lockout_named(self) -> str | None:
+        """What locks the controls, as a sentence a person reads; None while nothing does.
+
+        The run by its kind, a diagnostic as one (a characterization and the
+        support report share its claim), or a finished run's files still
+        writing. The one rule ``run_lockout`` reads.
+        """
+        holder = self.activity_claim.holder
+        if holder is not None and holder.kind in SCOPE_HOLDING_KINDS:
+            return f'{the_holder_named(holder)} is in progress.'
+        if self.protocol_files_draining:
+            return "A protocol's files are still being written."
+        return None
 
     @property
     def recording_active(self) -> bool:
@@ -2023,20 +2041,22 @@ class ScopeSession:
         tear a snapshot being taken concurrently, and takes none of the
         checks below.
 
-        ``live_folder`` is stored as it is at load: a folder given relative
-        to the installation is made absolute, and created.
-
         A setting that has its own member -- the objective, the plate, the
-        image mode, a layer's acquire mode or focus, ... -- is changed only
-        through that member, which checks it against the scope or changes
-        another setting with it; the refusal names the member. A block
-        (``'video'``) is not written whole: each of its settings has a path.
+        image mode, a layer's acquire mode or focus, the live folder, ... --
+        is changed only through that member, which checks it against the
+        scope or changes another setting with it; the refusal names the
+        member. A setting that decides how the next start reaches the scope
+        or the machine -- the REST server and its key, the start mode, the
+        profilers and debugging switches -- is read only from the
+        installation's settings file, so no caller can reconfigure the scope
+        it drives. A block (``'video'``) is not written whole: each of its
+        settings has a path.
 
         Raises:
             SettingRefusedError: ``path`` is owned by a Session member
-                (named), is not a setting, or names a block; or ``value`` is
-                not the setting's kind or is outside its range. Nothing is
-                written.
+                (named), is set only by the installation, is not a setting,
+                or names a block; or ``value`` is not the setting's kind or
+                is outside its range. Nothing is written.
             ConfigError: these settings were never prepared from the
                 template and lack the block the path is in. Nothing is
                 written.
@@ -2044,11 +2064,124 @@ class ScopeSession:
                 ``protocol.duration`` no protocol can run. Nothing is
                 written.
         """
-        value = settings_paths.check_write(
-            self.scope.settings_template, path, value, installation=self.scope.source_path
-        )
+        settings_paths.check_write(self.scope.settings_template, path, value)
         with self.settings_lock:
             self._store_setting(path, value)
+
+    def set_live_folder(self, folder: str) -> None:
+        """Make ``folder`` the live folder, where captures and runs are saved.
+
+        The one writer of ``live_folder``, stored as it is at load: a folder
+        given relative to the installation is made absolute, and created. A
+        folder that cannot be created is still stored; captures into it are
+        refused, naming it, until it is reachable.
+
+        Raises:
+            SettingRefusedError: ``'out_of_range'``, ``folder`` is a string
+                no file system can name (a NUL byte). Nothing is written.
+        """
+        try:
+            stored = settings_init.bring_up_live_folder(logger, folder, self.scope.source_path)
+        except ValueError as e:
+            # pathlib's answer to a string no file system can name (a NUL byte).
+            raise SettingRefusedError(
+                'out_of_range', 'live_folder', f'{folder!r} is not a path'
+            ) from e
+        with self.settings_lock:
+            self._store_setting('live_folder', stored)
+
+    def live_folder_path(self, name: str) -> pathlib.Path:
+        """The absolute path that ``name``, a name under the live folder, names.
+
+        The one door from a wire caller's path argument to the file system:
+        a REST bridge passes every path a caller gives through this, so the
+        caller reaches the live folder and nothing beside it. A Python or GUI
+        caller passes any path straight to the member it calls. The live
+        folder is not created here: one that is missing is an unplugged drive
+        or a stale setting.
+
+        Raises:
+            LiveFolderPathRefusedError: ``'outside_live_folder'``, ``name`` is
+                empty, absolute, carries a drive (``C:x``, ``C:\\x``) or a
+                network share, is no file system's name (a NUL byte), or
+                resolves outside the live folder through
+                ``..`` or a link; ``'capture_location_unusable'``, the live
+                folder is missing or is not a folder.
+        """
+        try:
+            root = path_utils.require_capture_location(self.get_setting('live_folder'))
+        except path_utils.CaptureLocationError as e:
+            raise LiveFolderPathRefusedError('capture_location_unusable', name, str(e)) from e
+        root = root.resolve()
+        # Read as Windows reads it on every host, so a drive, a share or a
+        # rooted name is refused wherever the server runs; its root also
+        # catches a POSIX absolute name.
+        as_windows = pathlib.PureWindowsPath(name)
+        if (
+            not name
+            or '\x00' in name
+            or as_windows.drive
+            or as_windows.root
+            or not path_utils.resolves_inside(root, root / name)
+        ):
+            raise LiveFolderPathRefusedError(
+                'outside_live_folder',
+                name,
+                f'{name!r} does not name a place inside the live folder {root}. Give a '
+                'name relative to the live folder, such as ProtocolData/run1.',
+            )
+        return (root / name).resolve()
+
+    def set_protocol_filepath(self, file_path: str) -> None:
+        """Remember ``file_path`` as the protocol to open at the next start; ``''`` forgets it.
+
+        The one writer of ``protocol.filepath``, which the next start opens.
+        """
+        with self.settings_lock:
+            self._store_setting('protocol.filepath', file_path)
+
+    def open_remembered_protocol(self) -> 'Protocol | None':
+        """Load the protocol the last start left behind, with its Layer Settings.
+
+        The start-up half of ``set_protocol_filepath``: ``load_protocol``, then
+        ``apply_layer_settings``. A path is forgotten only when there is no
+        file left to remember, or the file cannot be read. A refusal keeps it:
+        the file is real and was chosen, and what is wrong (the turret's
+        glass, the plate, a layer, the file's contents) can be put right and
+        the protocol loaded again.
+
+        The GUI's start-up adoption; not part of the L2 API surface, like the
+        remembered path it reads.
+
+        Returns:
+            The protocol, or None when no path is remembered or its file is
+            gone (the path is then forgotten, logged at INFO: a protocol moved
+            or deleted since is not a fault).
+
+        Raises:
+            ProtocolNotLoadedError: The file is there and cannot be read; the
+                path is forgotten.
+            ProtocolFormatError, ProtocolRunRefusedError, ConfigError,
+            HardwareCommandRefusedError: As ``load_protocol`` raises them;
+                the path is kept.
+        """
+        with self.settings_lock:
+            file_path = self.settings['protocol']['filepath']
+        # Asked before any path test: Path('') is the working folder, which
+        # exists, so an empty path would be loaded and fail as a fault.
+        if not file_path:
+            return None
+        if not pathlib.Path(file_path).exists():
+            logger.info(f'[Session   ] The remembered protocol {file_path} is gone; forgotten.')
+            self.set_protocol_filepath('')
+            return None
+        try:
+            protocol = self.load_protocol(file_path)
+        except ProtocolNotLoadedError:
+            self.set_protocol_filepath('')
+            raise
+        self.apply_layer_settings(protocol)
+        return protocol
 
     def _store_setting(self, path: str, value: object) -> None:
         """Under ``settings_lock``: put ``value`` at ``path`` in the live settings.

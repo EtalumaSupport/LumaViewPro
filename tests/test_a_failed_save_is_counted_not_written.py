@@ -109,7 +109,6 @@ class TestARunWhoseSaveFails:
             outcome = runner.run_single_scan(
                 protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(tmp_path / 'runs'),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 callbacks={'files_complete': lambda **kw: files.append(kw['files'])},
             )
             assert outcome.wait(timeout_s=WAIT_S) is not None

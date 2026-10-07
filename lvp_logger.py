@@ -566,16 +566,19 @@ kivy_logger.propagate = True
 # DEBUG firehose does not flood the bundle. The console handler echoes to the
 # terminal only in debug: every logger now propagates to root, so a non-debug
 # console would surface all LVP + framework output as terminal noise (the
-# reason the old non-debug path stripped root's stream handlers). It is also
-# gated on sys.stderr -- a packaged windowed build has none, and a StreamHandler
-# over a missing stream raises on emit.
+# reason the old non-debug path stripped root's stream handlers). It writes to
+# the process's own stderr, never to whatever sys.stderr is at import: Kivy
+# replaces sys.stderr with a stream that logs each line, so a handler made after
+# Kivy loaded wrote into it and logged its own output until the recursion limit.
+# It is also gated on that stream -- a packaged windowed build has none, and a
+# StreamHandler over a missing stream raises on emit.
 file_handler.setLevel(_log_level)
 _root_logger = logging.getLogger()
 _root_logger.setLevel(logging.DEBUG)
 _root_logger.addHandler(file_handler)
 _root_logger.addHandler(error_file_handler)
-if debug and sys.stderr is not None:
-    _root_console = logging.StreamHandler()
+if debug and sys.__stderr__ is not None:
+    _root_console = logging.StreamHandler(sys.__stderr__)
     _root_console.setLevel(_log_level)
     _root_console.setFormatter(CustomFormatter())
     _root_logger.addHandler(_root_console)

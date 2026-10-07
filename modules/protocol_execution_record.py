@@ -184,23 +184,37 @@ class ProtocolExecutionRecord:
         return len(self._records)
 
     @classmethod
-    def from_file(cls, file_path: pathlib.Path):
+    def from_file(cls, file_path: pathlib.Path) -> 'ProtocolExecutionRecord':
+        """The run record saved at ``file_path``.
+
+        Raises:
+            OSError: the file cannot be opened.
+            ValueError: the file is not a run record this release reads: the
+                wrong header or version, or a row cut short or malformed.
+        """
+        try:
+            return cls._read(file_path)
+        except (StopIteration, IndexError, csv.Error) as e:
+            raise ValueError(f'{pathlib.Path(file_path).name} is cut short or malformed') from e
+
+    @classmethod
+    def _read(cls, file_path: pathlib.Path) -> 'ProtocolExecutionRecord':
         with open(file_path) as fp:
             csvreader = csv.reader(fp, delimiter='\t')
             header = next(csvreader)
             if header[0] != cls.FILE_HEADER:
-                raise Exception('Invalid protocol execution record')
+                raise ValueError('Invalid protocol execution record')
 
             version = next(csvreader)
             if version[0] != 'Version':
-                raise Exception('Version key not found')
+                raise ValueError('Version key not found')
 
             if int(version[1]) not in (2, 3):  # Add 3 to supported versions
-                raise Exception('Unsupported protocol execution record version')
+                raise ValueError('Unsupported protocol execution record version')
 
             protocol_file_loc_row = next(csvreader)
             if protocol_file_loc_row[0] != 'Protocol File':
-                raise Exception('Protocol file location not found in file')
+                raise ValueError('Protocol file location not found in file')
 
             protocol_file_loc = protocol_file_loc_row[1]
 

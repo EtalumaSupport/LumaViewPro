@@ -9,6 +9,7 @@ import typing
 import pandas as pd
 
 import modules.image_utils as image_utils
+import modules.path_utils as path_utils
 import modules.recording_frames as recording_frames
 from modules.common_utils import PostFunction
 from modules.exceptions import (
@@ -148,6 +149,22 @@ class ProtocolPostProcessor(abc.ABC):
         root_path: pathlib.Path,
     ):
         raise NotImplementedError('Implement in child class')
+
+    def _planned_output(
+        self, root_path: pathlib.Path, group: pd.DataFrame, **kwargs
+    ) -> tuple[str, pd.Series, pathlib.Path]:
+        """What ``group`` builds: its file name, the flags its record carries, and where it lands."""
+        output_filename = self._generate_filename(df=group, **kwargs)
+        record_data_post_functions = group.iloc[0][PostFunction.list_values()]
+        record_data_post_functions[self._post_function.value] = True
+        output_subfolder = self._post_processing_helper.generate_output_dir_name(
+            record=record_data_post_functions
+        )
+        return (
+            output_filename,
+            record_data_post_functions,
+            root_path / output_subfolder / output_filename,
+        )
 
     def _get_objective_short_name_if_has_turret(self, objective_id: str) -> str | None:
         if not self._has_turret:
@@ -382,11 +399,22 @@ class ProtocolPostProcessor(abc.ABC):
         # unambiguous ones: an already-captured folder with baked-in
         # colliding names (which renaming protocol steps cannot repair)
         # stays post-processable for everything else.
+        #
+        # An output is named from the protocol's step data, which a folder
+        # carries as text: a well or label holding '..' or a separator would
+        # put the output outside the folder it was asked to build in. Every
+        # group is checked before any is built, so a refusal writes no output.
         planned_names = {}
         for _, group in groups:
             if len(group) <= 1:
                 continue
-            name = self._generate_filename(df=group, **kwargs)
+            name, _flags, output_file_loc = self._planned_output(root_path, group, **kwargs)
+            if not path_utils.resolves_inside(root_path, output_file_loc):
+                raise self._refuse(
+                    'output_outside_folder',
+                    f'The output {name!r} would be written outside {root_path}: the '
+                    'protocol in this folder names a step with a path. No output was written.',
+                )
             planned_names[name] = planned_names.get(name, 0) + 1
         colliding_names = {name for name, count in planned_names.items() if count > 1}
         for name in sorted(colliding_names):
@@ -429,18 +457,13 @@ class ProtocolPostProcessor(abc.ABC):
                 )
                 continue
 
-            output_filename = self._generate_filename(df=group, **kwargs)
+            output_filename, record_data_post_functions, output_file_loc = self._planned_output(
+                root_path, group, **kwargs
+            )
             if output_filename in colliding_names:
                 refused_count += 1
                 continue
             row0 = group.iloc[0]
-            record_data_post_functions = row0[PostFunction.list_values()]
-            record_data_post_functions[self._post_function.value] = True
-            output_subfolder = self._post_processing_helper.generate_output_dir_name(
-                record=record_data_post_functions
-            )
-            output_path = root_path / output_subfolder
-            output_file_loc = output_path / output_filename
             output_file_loc_rel = output_file_loc.relative_to(root_path)
             group_label = (
                 f'well={row0.get("Well", "")} color={row0.get("Color", "")} '

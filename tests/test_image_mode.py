@@ -705,26 +705,6 @@ def test_write_video_frame_rejects_unknown_save_encoding(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_build_image_capture_config_couples_save_encoding_to_image_mode():
-    """The GUI-less config builder emits save_encoding coupled to image_mode,
-    the same shape get_image_capture_config_from_ui produces -- so the protocol
-    path cannot capture 12-bit-scaled yet silently save right-aligned (dark)."""
-    from modules.protocol_runner import ProtocolRunner
-
-    runner = ProtocolRunner.__new__(ProtocolRunner)
-
-    cfg = runner.build_image_capture_config(image_mode='12bit_scaled')
-    assert cfg.image_mode == '12bit_scaled'
-    assert cfg.capture_depth == 12
-    assert cfg.save_encoding == 'msb_aligned'
-
-    # No silent default mode: a headless caller must state the bit depth
-    # explicitly, so a no-arg build fails loudly instead of quietly
-    # producing 8-bit data.
-    with pytest.raises(TypeError):
-        runner.build_image_capture_config()
-
-
 def test_write_tiff_requires_save_encoding(tmp_path):
     """write_tiff cannot be called without save_encoding -- the depth-less-write
     guard, now extended to encoding. A defaulted None silently right-aligned a

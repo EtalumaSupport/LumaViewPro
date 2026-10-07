@@ -42,7 +42,6 @@ def _one_run(tmp_path, monkeypatch):
                 [_step('C1', 0, x=20.0, gain=1.0), _step('C2', 1, x=20.0, gain=1.0)]
             ),
             parent_dir=str(tmp_path / 'runs'),
-            image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
             callbacks={'files_complete': lambda **kw: files.append(kw['run_dir'])},
         )
         assert outcome.wait(timeout_s=WAIT_S) is not None

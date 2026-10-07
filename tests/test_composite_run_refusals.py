@@ -168,7 +168,6 @@ class TestARivalRunRefusesTheComposite:
             _plain_scan_protocol(session),
             sequence_name='scan_incumbent',
             parent_dir=str(tmp_path),
-            image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
             callbacks=gate.callbacks(),
         )
         try:

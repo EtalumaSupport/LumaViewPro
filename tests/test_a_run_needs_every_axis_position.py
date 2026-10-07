@@ -106,7 +106,6 @@ def _run(session, tmp_path, protocol=None, scans=1):
         'protocol': protocol or _make_single_step_protocol(),
         'sequence_name': 'position',
         'parent_dir': str(tmp_path),
-        'image_capture_config': runner.build_image_capture_config(image_mode='8bit'),
         'callbacks': {'run_complete': lambda **kw: done.set(), 'files_complete': lambda **kw: None},
     }
     if scans == 1:

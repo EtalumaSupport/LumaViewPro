@@ -580,7 +580,6 @@ class TestTheCallerHoldsTheEndingOfTheRunItStarted:
                 _plain_scan_protocol(session),
                 sequence_name='ending_scan',
                 parent_dir=str(tmp_path),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 callbacks={'run_complete': lambda **kw: reported.update(kw)},
             )
             assert pending is not None, (
@@ -610,7 +609,6 @@ class TestTheCallerHoldsTheEndingOfTheRunItStarted:
                 _plain_scan_protocol(session),
                 sequence_name='no_merge_scan',
                 parent_dir=str(tmp_path),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
             )
             settled = pending.wait(timeout_s=60)
 

@@ -8,7 +8,6 @@ from modules.api_auth import (
     validate_api_key,
     is_auth_required,
     check_auth,
-    ensure_api_key_for_non_localhost,
 )
 
 
@@ -108,25 +107,3 @@ class TestCheckAuth:
         ok, msg = check_auth(settings, None)
         assert ok is False
         assert 'non-localhost' in msg
-
-
-class TestEnsureApiKeyForNonLocalhost:
-    """Verify auto-generation of API keys."""
-
-    def test_generates_key_for_non_localhost(self):
-        settings = {'rest_api': {'host': '0.0.0.0', 'api_key': None}}
-        key = ensure_api_key_for_non_localhost(settings)
-        assert key is not None
-        assert len(key) == 64
-        assert settings['rest_api']['api_key'] == key
-
-    def test_no_key_for_localhost(self):
-        settings = {'rest_api': {'host': '127.0.0.1', 'api_key': None}}
-        key = ensure_api_key_for_non_localhost(settings)
-        assert key is None
-
-    def test_no_overwrite_existing_key(self):
-        settings = {'rest_api': {'host': '0.0.0.0', 'api_key': 'existing'}}
-        key = ensure_api_key_for_non_localhost(settings)
-        assert key is None
-        assert settings['rest_api']['api_key'] == 'existing'

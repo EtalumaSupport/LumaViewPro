@@ -23,7 +23,6 @@ def _scan(runner, run_parent, name):
     return runner.run_single_scan(
         protocol=_protocol([_step(name, 0, x=20.0, gain=1.0)]),
         parent_dir=str(run_parent),
-        image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
     )
 
 

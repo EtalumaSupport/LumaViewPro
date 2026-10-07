@@ -836,11 +836,13 @@ class ProtocolsAPI:
         """Refuse unless this scope can put every objective named here in the light path.
 
         The one rule behind every moment that admits a protocol: starting
-        a run, loading a file, building a new protocol, and navigating to
-        a single step. Each of those carried its own version of it and the
-        versions disagreed, so a protocol the run refused could still be
-        loaded, displayed and navigated -- and the step pointer moved
-        before anything had been asked at all.
+        a run, loading a file, and navigating to a single step. A new
+        protocol needs no ask: it names only the objective in the light
+        path, and its build is refused while that one is unknown. Each of
+        those carried its own version of the rule and the versions
+        disagreed, so a protocol the run refused could still be loaded,
+        displayed and navigated -- and the step pointer moved before
+        anything had been asked at all.
 
         With a turret, an objective is addressable when a slot is assigned
         to it. An unassigned turret therefore addresses NOTHING and

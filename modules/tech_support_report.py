@@ -3,7 +3,7 @@
 Tech Support Report Generator for LumaViewPro.
 
 Collects comprehensive diagnostic information and bundles it into a ZIP file
-on the user's Desktop for emailing to techsupport@etaluma.com.
+on the user's Desktop for emailing to support@etaluma.com.
 
 Two modes:
   1. Integrated: Called from the LumaViewPro GUI "Generate Support Report"

@@ -24,7 +24,6 @@ import pytest
 from modules import config_helpers
 from modules.composite_generation import CompositeGeneration
 from modules.exceptions import PostProcessingRefusedError
-from modules.protocol_runner import ProtocolRunner
 
 # pin-justified: kv is declarative source with no headless seam; the kv
 # text is the contract.
@@ -60,21 +59,6 @@ def test_quality_row_shared_across_live_and_sequenced():
 
 
 # --- Part 2: jpg_quality threads through the capture config ------------------
-
-
-def test_build_image_capture_config_carries_jpg_quality_default():
-    runner = ProtocolRunner.__new__(ProtocolRunner)
-    cfg = runner.build_image_capture_config(image_mode='8bit', sequenced_format='JPG')
-    assert cfg.output_format_sequenced == 'JPG'
-    assert cfg.jpg_quality == 90
-
-
-def test_build_image_capture_config_carries_custom_jpg_quality():
-    runner = ProtocolRunner.__new__(ProtocolRunner)
-    cfg = runner.build_image_capture_config(
-        image_mode='8bit', sequenced_format='JPG', jpg_quality=55
-    )
-    assert cfg.jpg_quality == 55
 
 
 def test_settings_config_reads_jpg_quality():

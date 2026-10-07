@@ -575,7 +575,7 @@ _UI_ANSWERER_CALL_PIN = {
     'ui/layer_control.py': 3,
     'ui/microscope_settings.py': 4,
     'ui/motion_settings.py': 1,
-    'ui/protocol_settings.py': 4,
+    'ui/protocol_settings.py': 3,
     'ui/scope_display.py': 1,
     'ui/shader.py': 2,
     'ui/stage.py': 4,
@@ -765,7 +765,7 @@ _GUI_ORCHESTRATION_PIN = {
 
 _MODULES_CONTEXT_READ_PIN = {
     'modules/config_helpers.py': 4,
-    'modules/config_ui_getters.py': 8,
+    'modules/config_ui_getters.py': 7,
     'modules/derived_output_encoding.py': 3,
     'modules/executor_registry.py': 0,
     'modules/metrics_logger.py': 0,

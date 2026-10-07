@@ -121,7 +121,6 @@ def _run_with_every_write_held(tmp_path, monkeypatch, steps, on_capture=None):
         outcome = runner.run_single_scan(
             protocol=_protocol(steps),
             parent_dir=str(run_parent),
-            image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
             callbacks={'files_complete': lambda **kw: files_written.set()},
         )
         result = outcome.wait(timeout_s=120.0)
@@ -183,11 +182,18 @@ class TestALateWriteRecordsItsFrame:
     def test_an_autofocused_file_records_the_z_it_was_taken_at(self, tmp_path, monkeypatch):
         """Autofocus leaves the stage at its best focus and the frame is taken
         there; the step row the capture was handed is the one read before the
-        sweep, so its Z is the planned height, not the height of the frame."""
+        sweep, so its Z is the planned height, not the height of the frame.
+
+        The height the frame was taken at is where the stage reports it is,
+        not where it was commanded: a focus found between two motor steps is
+        reached as the nearest step, so the two differ by a fraction of a
+        step (14 of 200 loaded runs, the axis idle in every one).
+        """
         stage_z_at_capture = {}
 
         def _note_stage_z(writer, step):
-            stage_z_at_capture[step['Name']] = writer._scope.motion.get_target_position()['Z']
+            reported = writer._scope.motion.axis_positions()['Z']
+            stage_z_at_capture[step['Name']] = reported.position
 
         files = _run_with_every_write_held(
             tmp_path,

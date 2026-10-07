@@ -1,7 +1,6 @@
 # Copyright Etaluma, Inc.
 import logging
 import os
-import pathlib
 import time
 import typing
 
@@ -14,7 +13,6 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules.config_ui_getters import (
     get_active_layer_config,
-    get_image_capture_config_from_ui,
     get_zstack_params,
     is_image_saving_enabled,
 )
@@ -595,18 +593,17 @@ class ProtocolSettings(FloatLayout):
         run_reported(lambda: self.new_protocol_ex(protocol), _redraw, 'NEW_PROTOCOL')
 
     def new_protocol_ex(self, protocol):
-        """Adopt *protocol* once the API accepts the objectives it names.
+        """Adopt *protocol*, which the Session built.
 
-        The API owns the rule and raises its own refusal, so there is nothing
-        to decide or announce here: a protocol built from a selection the
-        scope cannot address is simply not adopted. The move to the first
-        step comes last, reached only once the protocol is the panel's.
+        It names only the objective in the light path, which this scope can
+        address; the Session refuses the build while that objective is
+        unknown, so there is nothing to ask here. The move to the first step
+        comes last, reached only once the protocol is the panel's.
         """
         ctx = _app_ctx.ctx
-        ctx.scope.protocols.refuse_unaddressable_objectives(protocol.steps()['Objective'].to_list())
         self._protocol = protocol
         self._show_schedule()
-        ctx.update_settings('protocol.filepath', '')
+        ctx.set_protocol_filepath('')
         self.curr_step = 0
         self.go_to_step(step_idx=0)
 
@@ -628,61 +625,50 @@ class ProtocolSettings(FloatLayout):
         Clock.schedule_once(lambda dt: setattr(self, 'done', True), 0)
 
     def load_persisted_protocol(self) -> None:
-        """Load the protocol the last session left behind, once, at startup.
+        """Adopt the protocol the last session left behind, once, at startup.
 
         Called by the startup sequence after the objective question has
         been answered or found not to be owed, because the answer decides
         what the turret carries and therefore whether the saved protocol
         can be performed at all.
 
-        A refusal KEEPS the remembered path. The file is real and the user
-        chose it; what is wrong is the scope's turret, which they can fix
-        and then reload. Clearing it would answer "your protocol is gone"
-        to a problem that is not about the protocol. Only a path with no
-        file behind it is forgotten, because there is nothing left to
-        remember.
+        The Session opens it and decides whether the remembered path is
+        kept (``ScopeSession.open_remembered_protocol``): a refusal keeps
+        it, a missing or unreadable file forgets it. The panel shows what
+        the Session answered: the protocol, or the kept file's name over an
+        empty protocol, so the person can see which protocol to come back
+        to.
 
         Non-navigating, as the startup load has always been: it adopts the
         protocol and fills the panel without driving the stage.
         """
         ctx = _app_ctx.ctx
-        settings = ctx.settings
-        filepath = settings['protocol']['filepath']
+        try:
+            protocol = ctx.session.open_remembered_protocol()
+            if protocol is not None:
+                self._adopt_protocol(protocol, ctx.settings['protocol']['filepath'], navigate=False)
+                return
+        except Exception as e:
+            # Logged, not shown: nobody asked for this load. A refusal the
+            # API has already reported is not logged again.
+            from modules.notification_center import notifications
 
-        # An empty path is no saved protocol, asked before any load: Path('')
-        # is the working folder and exists, so loading it fails and reads as
-        # a fault when nothing went wrong.
-        loaded = False
+            notifications.report_outcome(
+                e, solicited=False, category='UI:LOAD_PROTOCOL', log_only=True
+            )
+
+        filepath = ctx.settings['protocol']['filepath']
         if filepath:
-            try:
-                loaded = self.load_protocol(filepath=filepath, suppress_popup=True, navigate=False)
-            except Exception as e:
-                # Logged, not shown: nobody asked for this load. A refusal the
-                # API has already reported is not logged again.
-                from modules.notification_center import notifications
-
-                notifications.report_outcome(
-                    e, solicited=False, category='UI:LOAD_PROTOCOL', log_only=True
-                )
-                loaded = False
-
-        if loaded:
-            return
-
-        if not filepath or not pathlib.Path(filepath).exists():
-            logger.info('[LVP Main  ] No saved protocol loaded at startup -- using empty protocol')
-            _app_ctx.ctx.update_settings('protocol.filepath', '')
-        else:
-            # The file is still there and something about this scope
-            # refused it. Keep the name on screen as well as in settings:
-            # it is the only thing telling the user which protocol they
-            # need to come back to, and load_protocol only writes the
-            # label on the path where it succeeds.
+            # Refused and kept: the name on screen is the only thing telling
+            # the person which protocol to come back to, and the adoption
+            # writes it only for a protocol it adopts.
             self.ids['protocol_filename'].text = os.path.basename(filepath)
             logger.info(
                 f'[LVP Main  ] Saved protocol {filepath} was not adopted at startup; '
                 'its path is kept so it can be reloaded once the scope can perform it'
             )
+        else:
+            logger.info('[LVP Main  ] No saved protocol loaded at startup -- using empty protocol')
 
         self._protocol = ctx.session.create_empty_protocol()
         self._show_schedule()
@@ -690,9 +676,9 @@ class ProtocolSettings(FloatLayout):
 
     # Load Protocol from File
     def load_protocol(
-        self, filepath='./data/new_default_protocol.tsv', suppress_popup=False, *, navigate
-    ):
-        """Adopt a protocol from disk and fill the panel.
+        self, filepath: str = './data/new_default_protocol.tsv', *, navigate: bool
+    ) -> bool:
+        """Load a protocol from disk through the Session and fill the panel.
 
         ``navigate`` says whether a person asked for this load, and so
         whether the stage may drive to the current step. Required rather
@@ -704,11 +690,6 @@ class ProtocolSettings(FloatLayout):
 
         logger.info('[LVP Main  ] ProtocolSettings.load_protocol()')
 
-        if not pathlib.Path(filepath).exists():
-            if suppress_popup:
-                return False
-            raise FileNotFoundError(f'Protocol not found at {filepath}')
-
         # The Session loads the file and puts the scope on its plate, or
         # refuses and leaves the scope where it was; nothing below runs
         # unless it answered with a protocol. Only then does the protocol's
@@ -719,21 +700,25 @@ class ProtocolSettings(FloatLayout):
             ctx.session.apply_layer_settings(protocol)
             return protocol
 
-        if suppress_popup:
-            # The startup adoption: its caller logs what this raises and
-            # keeps the remembered path.
-            protocol = _load()
-        else:
-            loaded = []
-            run_reported(lambda: loaded.append(_load()), None, 'LOAD_PROTOCOL')
-            if not loaded:
-                return False
-            protocol = loaded[0]
+        # The adoption is inside the reported call: a failure filling the
+        # panel (the plate pick, the spinners, the move to the first step) is
+        # reported here, not raised out of the file dialog's callback.
+        adopted = []
 
+        def _load_and_adopt():
+            self._adopt_protocol(_load(), filepath, navigate=navigate)
+            adopted.append(True)
+
+        run_reported(_load_and_adopt, None, 'LOAD_PROTOCOL')
+        return bool(adopted)
+
+    def _adopt_protocol(self, protocol: Protocol, filepath: str, *, navigate: bool) -> None:
+        """Make ``protocol``, loaded from ``filepath``, the panel's and draw it."""
+        ctx = _app_ctx.ctx
         self._protocol = protocol
         self._show_schedule()
 
-        _app_ctx.ctx.update_settings('protocol.filepath', filepath)
+        ctx.set_protocol_filepath(filepath)
         self.ids['protocol_filename'].text = os.path.basename(filepath)
 
         num_steps = self._protocol.num_steps()
@@ -782,8 +767,6 @@ class ProtocolSettings(FloatLayout):
         if navigate:
             self.go_to_step(step_idx=self.curr_step)
 
-        return True
-
     def get_default_name_for_curr_step(self):
         step = self.get_curr_step()
         return common_utils.build_step_name(common_utils.step_components(step))
@@ -817,7 +800,7 @@ class ProtocolSettings(FloatLayout):
             # Reached only once the file is written: a failed save leaves the
             # panel naming the file it had, which is still the one on disk.
             if update_protocol_filepath:
-                _app_ctx.ctx.update_settings('protocol.filepath', filepath)
+                _app_ctx.ctx.set_protocol_filepath(filepath)
             self.ids['protocol_filename'].text = os.path.basename(filepath)
 
         run_reported(_save, None, 'SAVE_PROTOCOL')
@@ -1365,7 +1348,6 @@ class ProtocolSettings(FloatLayout):
         )
 
         sequence_name = self.ids['protocol_filename'].text
-        image_capture_config = get_image_capture_config_from_ui()
         enable_image_saving = is_image_saving_enabled()
         engineering_mode = ctx.engineering_mode
 
@@ -1373,7 +1355,6 @@ class ProtocolSettings(FloatLayout):
             started = start_run(
                 protocol,
                 sequence_name=sequence_name,
-                image_capture_config=image_capture_config,
                 enable_image_saving=enable_image_saving,
                 callbacks=callbacks,
                 run_trigger_source=run_trigger_source,

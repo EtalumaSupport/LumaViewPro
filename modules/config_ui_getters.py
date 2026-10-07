@@ -15,7 +15,6 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 import modules.labware as labware
-from modules.image_mode import ImageCaptureConfig
 
 logger = logging.getLogger('LVP.modules.config_ui_getters')
 
@@ -255,24 +254,3 @@ def get_selected_labware() -> tuple[str, labware.WellPlate]:
         _app_ctx.ctx.settings,
         _app_ctx.ctx.wellplate_loader,
     )
-
-
-# ---------------------------------------------------------------------------
-# Image capture / sequenced capture
-# ---------------------------------------------------------------------------
-
-
-def get_image_capture_config_from_ui() -> ImageCaptureConfig:
-    """The image capture config for the running GUI.
-
-    Reads the settings store, not the widgets. Every value here is
-    committed to settings the moment the user picks it -- each output-format
-    spinner handler writes its key, and the image-mode selector writes its
-    key alongside the display mirror it drives -- so the store is already
-    the current answer and the widgets are a rendering of it. Assembling
-    the config from the widgets instead gave a headless caller, which can
-    only see the store, a different answer than the screen; the mode also
-    reaches saved output through capture_depth, so the drift was reachable
-    in the files.
-    """
-    return config_helpers.get_image_capture_config_from_settings(_app_ctx.ctx.settings)

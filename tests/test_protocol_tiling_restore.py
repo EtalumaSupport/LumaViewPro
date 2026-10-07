@@ -14,7 +14,7 @@ re-applying a grid over a tiled protocol, which has no un-tile path.
 
 Fix
 ---
-- ProtocolSettings.load_protocol sets the spinner from Protocol.tiling(),
+- ProtocolSettings._adopt_protocol (every load's adoption) sets the spinner from Protocol.tiling(),
   which infers the label from the steps' Tile column values
   (TilingConfig.determine_tiling_label_from_tiles -- the authoritative
   per-step tile assignment; step NAMES are never parsed, so tile-shaped
@@ -105,15 +105,15 @@ def _calls(method: ast.FunctionDef, attr: str) -> bool:
 
 def test_load_protocol_restores_tiling_spinner():
     # The panel shows the protocol's answer and works nothing out itself.
-    load = _method('load_protocol')
+    load = _method('_adopt_protocol')
     assert _calls(load, 'tiling'), (
-        'load_protocol must set the spinner from Protocol.tiling() so it '
+        'the adoption must set the spinner from Protocol.tiling() so it '
         'reflects an already-tiled protocol.'
     )
     assert not _calls(load, 'determine_tiling_label_from_tiles')
     src = ast.get_source_segment(PROTOCOL_SETTINGS_SRC.read_text(), load)
     assert 'tiling_size_spinner' in src, (
-        'load_protocol must set the tiling_size_spinner from the inferred label.'
+        'the adoption must set the tiling_size_spinner from the inferred label.'
     )
 
 

@@ -259,3 +259,40 @@ class TestTransitionNotification:
         session._run_state_listeners.append(lambda: fired.append(True))
         session.notify_run_state()
         assert fired
+
+
+class TestTheLockoutNamesWhatHoldsTheScope:
+    """What locks the controls, in the words the close prompt shows: a
+    characterization or the support report is not 'a protocol', and a
+    finished run's files still writing are not a run in progress."""
+
+    def test_nothing_locking_names_nothing(self):
+        assert _make_session().run_lockout_named is None
+
+    def test_a_run_is_named_by_its_kind(self):
+        from modules.activity_claim import the_run_named
+
+        session = _make_session()
+        run = run_identity()
+        assert session.activity_claim.try_claim('protocol', run=run)
+        assert session.run_lockout_named == (
+            f'{the_run_named(run, sentence_start=True)} is in progress.'
+        )
+
+    def test_a_diagnostic_is_named_as_one(self):
+        session = _make_session()
+        assert session.activity_claim.try_claim('diagnostic')
+        assert session.run_lockout_named == 'A diagnostic activity is in progress.'
+        assert session.run_lockout is True
+
+    def test_a_recording_is_not_a_lockout(self):
+        session = _make_session()
+        assert session.activity_claim.try_claim('recording')
+        assert session.run_lockout_named is None
+
+    @pytest.mark.slow
+    def test_a_finished_runs_files_are_named_as_files(self):
+        session = _make_session()
+        _draining_run(session)
+        assert session.run_lockout_named == "A protocol's files are still being written."
+        assert session.run_lockout is True

@@ -20,6 +20,7 @@ import pytest
 
 from modules import kivy_utils
 from modules.exceptions import RunCleanupFailedError, RunWaitOnUiThreadError
+from modules.protocol import Protocol
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
@@ -33,9 +34,6 @@ def _scan(runner, parent, callbacks, *, save=True, sequence_name=None):
         enable_image_saving=save,
         protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
         parent_dir=str(parent),
-        image_capture_config=runner.build_image_capture_config(
-            image_mode='8bit', sequenced_format='TIFF'
-        ),
         callbacks=callbacks,
         **kwargs,
     )
@@ -178,9 +176,9 @@ class TestACallbackThatWaitsOnItsOwnRun:
         assert answers['wait_for_files'] is not None, answers
         assert answers['took_s'] < BOUND_S / 2, answers
 
-    def test_returns_with_a_failed_start_delivered_inside_it(self, scope):
-        # A's run_complete starts B, which fails after it commits (its run
-        # folder cannot be made): B's cleanup runs inline, and its
+    def test_returns_with_a_failed_start_delivered_inside_it(self, scope, monkeypatch):
+        # A's run_complete starts B, which fails after it commits (its
+        # protocol copy cannot be written): B's cleanup runs inline, and its
         # run_complete is delivered inside A's on A's thread. B's delivery
         # ending must not make A's wait wait on A's own delivery. A saves
         # nothing, so B is not refused for A's files first.
@@ -189,6 +187,9 @@ class TestACallbackThatWaitsOnItsOwnRun:
         handle_box = {'ready': threading.Event()}
         nested = {}
 
+        def _copy_refused(self, **kwargs):
+            raise OSError('No space left on device')
+
         def _b_run_complete(**kwargs):
             nested['thread'] = threading.current_thread()
             nested['inside_a'] = 'a_thread' in nested and 'a_left' not in nested
@@ -196,13 +197,9 @@ class TestACallbackThatWaitsOnItsOwnRun:
         def _a_run_complete(**kwargs):
             assert handle_box['ready'].wait(BOUND_S)
             nested['a_thread'] = threading.current_thread()
+            monkeypatch.setattr(Protocol, 'to_file', _copy_refused)
             try:
-                _scan(
-                    runner,
-                    runs,
-                    {'run_complete': _b_run_complete},
-                    sequence_name='no_such_folder/b',
-                )
+                _scan(runner, runs, {'run_complete': _b_run_complete}, sequence_name='b')
             except Exception as ex:
                 nested['b_start'] = ex
             _waits_on_its_own_run(answers, handle_box)(**kwargs)

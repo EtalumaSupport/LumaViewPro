@@ -42,7 +42,6 @@ def test_an_auto_gain_step_arms_captures_and_disarms_inside_its_run(tmp_path):
             protocol=_build_real_protocol([step]),
             sequence_name='auto_gain',
             parent_dir=str(tmp_path),
-            image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
             callbacks={
                 'run_complete': lambda **kw: None,
                 'files_complete': lambda **kw: files_written.set(),

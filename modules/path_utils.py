@@ -44,6 +44,16 @@ def require_capture_location(live_folder: str | pathlib.Path) -> pathlib.Path:
     return folder
 
 
+def resolves_inside(root: str | pathlib.Path, path: str | pathlib.Path) -> bool:
+    """Whether ``path`` is ``root`` or under it, once every link and ``..`` in both is followed.
+
+    A name built from data -- a record's protocol path, an output named from
+    a protocol's steps -- can climb out of the folder it is joined to; the
+    text alone cannot tell, so both sides are resolved first.
+    """
+    return pathlib.Path(path).resolve().is_relative_to(pathlib.Path(root).resolve())
+
+
 def allocate_directory(desired: pathlib.Path) -> pathlib.Path:
     """Reserve a new directory at ``desired``, or the next free name after it.
 
@@ -93,6 +103,31 @@ def allocate_directory(desired: pathlib.Path) -> pathlib.Path:
         f'{desired.name} and its first {MAX_COLLISION_SUFFIX} numbered variants '
         'all exist in the capture location. Move or remove some captures, or '
         'choose a different save location.'
+    )
+
+
+def move_aside(path: pathlib.Path, suffix: str) -> pathlib.Path:
+    """Rename ``path`` to its name plus ``suffix``, or the next free numbered name.
+
+    A name already taken is never replaced, so every copy moved aside before
+    is kept.
+
+    Returns:
+        Where the file now is.
+
+    Raises:
+        OSError: the rename failed, or the name and its first
+            MAX_COLLISION_SUFFIX numbered variants all exist.
+    """
+    candidates = [path.with_name(path.name + suffix)] + [
+        path.with_name(f'{path.name}{suffix}_{i:03d}') for i in range(1, MAX_COLLISION_SUFFIX + 1)
+    ]
+    for candidate in candidates:
+        if not candidate.exists():
+            os.replace(path, candidate)
+            return candidate
+    raise FileExistsError(
+        f'{path.name}{suffix} and its first {MAX_COLLISION_SUFFIX} numbered variants all exist'
     )
 
 

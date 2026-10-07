@@ -5,8 +5,9 @@
 settings, for the GUI, a plugin, a script and REST alike. This module is
 its check, kept free of the Session so it can be read and tested alone:
 the path is one leaf of the shipped template, the value is that leaf's
-kind, the setting has no Session member of its own, and the value is in
-the range the writer owns for it.
+kind, the setting has no Session member of its own and is not one only
+the installation sets, and the value is in the range the writer owns for
+it.
 """
 
 from __future__ import annotations
@@ -14,8 +15,6 @@ from __future__ import annotations
 import typing
 
 import modules.common_utils as common_utils
-import modules.settings_init as settings_init
-from lvp_logger import logger
 from modules.exceptions import SettingRefusedError, StoredSettingReplacedNotice
 from modules.image_mode import VALID_LIVE_OUTPUT_FORMATS, VALID_SEQUENCED_OUTPUT_FORMATS
 from modules.lumascope_api._constants import refuse_acceleration_pct
@@ -28,6 +27,8 @@ from modules.tiling_config import TilingConfig
 # naming the member. ``*`` stands for any layer.
 SETTINGS_WITH_A_MEMBER: typing.Final[dict[str, str]] = {
     'microscope': 'select_model',
+    'live_folder': 'set_live_folder',
+    'protocol.filepath': 'set_protocol_filepath',
     'objective_id': 'select_objective',
     'objective_confirmed': 'confirm_objective',
     'turret_objectives': 'assign_turret_objective',
@@ -44,6 +45,28 @@ SETTINGS_WITH_A_MEMBER: typing.Final[dict[str, str]] = {
     '*.auto_gain': 'set_layer_auto_gain',
     '*.focus': 'save_focus',
 }
+
+# A setting only the installation's settings file sets: it decides how the
+# next start reaches the scope, the machine or its files -- the server and
+# its key, the start mode, the single-instance port, what is profiled and
+# where the profile is written. No write changes it, from any caller, so
+# no caller can reconfigure the scope it is driving. A path at or under a
+# key here is refused.
+INSTALLATION_ONLY: typing.Final[frozenset[str]] = frozenset(
+    {
+        'rest_api',
+        'mode',
+        'lvp_lock_port',
+        'profile_trace_output_dir',
+        'debug_mode',
+        'cprofile_enabled',
+        'profile_trace_enabled',
+        'tracemalloc_enabled',
+        'memory_profile_enabled',
+        'memory_profile_interval_s',
+        'fx2_debug_wire_enabled',
+    }
+)
 
 VIDEO_MAX_FPS_LIMIT: typing.Final = 200
 """The highest recording-rate cap a person may set; 0 means no cap."""
@@ -100,21 +123,6 @@ _RANGES: typing.Final[dict[str, typing.Callable[[typing.Any], None]]] = {
 }
 
 
-def _live_folder(value: str, installation: str) -> str:
-    try:
-        return settings_init.bring_up_live_folder(logger, value, installation)
-    except ValueError as e:
-        # pathlib's answer to a string no file system can name (a NUL byte).
-        raise SettingRefusedError('out_of_range', 'live_folder', f'{value!r} is not a path') from e
-
-
-# A setting stored in a form of its own rather than as given, by the same
-# rule its value takes when the settings file is loaded.
-_STORED_FORM: typing.Final[dict[str, typing.Callable[[typing.Any, str], typing.Any]]] = {
-    'live_folder': _live_folder,
-}
-
-
 def _kind(value: object) -> str:
     # bool first: True is an int. Exact types, so a numpy scalar -- a float
     # subclass that json cannot save -- is its own kind and refused.
@@ -149,19 +157,23 @@ def member_for(path: str) -> str | None:
     return None
 
 
-def check_write(template: dict, path: str, value: object, *, installation: str) -> object:
-    """The value to store at ``path``, or a refusal of a write the store must not take.
+def is_installation_only(path: str) -> bool:
+    """Whether the setting at ``path`` is set only by the installation's settings file."""
+    return path.split('.')[0] in INSTALLATION_ONLY
+
+
+def check_write(template: dict, path: str, value: object) -> None:
+    """Refuse a write the store must not take; return when ``value`` may be stored at ``path``.
 
     ``template`` is the shipped ``settings.json``, which describes every
     setting there is. A leaf the template holds as null is one with no
-    shipped value; it takes any scalar. ``installation`` is the folder the
-    scope was started on: a live folder given relative to it is stored
-    absolute, and created.
+    shipped value; it takes any scalar.
 
     Raises:
         SettingRefusedError: ``path`` is owned by a Session member (named),
-            is not a setting, or names a block rather than one setting; or
-            ``value`` is not the setting's kind, or is outside its range.
+            is set only by the installation's settings file, is not a
+            setting, or names a block rather than one setting; or ``value``
+            is not the setting's kind, or is outside its range.
         ProtocolScheduleRefusedError: a protocol period or duration no
             protocol can run.
     """
@@ -169,6 +181,10 @@ def check_write(template: dict, path: str, value: object, *, installation: str) 
     if member is not None:
         raise SettingRefusedError(
             'has_member', path, f'it is changed by ScopeSession.{member}', member=member
+        )
+    if is_installation_only(path):
+        raise SettingRefusedError(
+            'installation_only', path, "it is read from the installation's settings file"
         )
     shipped: object = template
     for segment in path.split('.'):
@@ -180,8 +196,6 @@ def check_write(template: dict, path: str, value: object, *, installation: str) 
             'block', path, 'it is a block of settings; change each by its own path'
         )
     _refuse_kind_or_range(shipped, path, value)
-    stored_form = _STORED_FORM.get(path)
-    return value if stored_form is None else stored_form(value, installation)
 
 
 def _refuse_kind_or_range(shipped: object, path: str, value: object) -> None:

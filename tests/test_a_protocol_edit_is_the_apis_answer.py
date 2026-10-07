@@ -58,7 +58,7 @@ from modules.exceptions import (
 )
 from modules.protocol import ProtocolFormatError
 from tests.scope_fakes import spec_scope
-from tests.settings_fixtures import settings_writer
+from tests.settings_fixtures import protocol_filepath_writer, settings_writer
 
 
 def _refusal():
@@ -113,6 +113,7 @@ def ctx(monkeypatch):
         stage=MagicMock(),
         settings=settings,
         update_settings=settings_writer(settings),
+        set_protocol_filepath=protocol_filepath_writer(settings),
         image_settings=MagicMock(),
     )
     monkeypatch.setattr(_app_ctx, 'ctx', context)
@@ -187,21 +188,6 @@ class TestNewProtocol:
         assert (panel.ids['protocol_filename'].text, panel.ids['capture_root'].text) == ('', '')
         assert panel.moves == [0]
 
-    def test_a_refused_adoption_is_shown_once_and_changes_nothing(self, ctx, shown):
-        ctx.session.new_protocol.return_value = _protocol()
-        ctx.scope.protocols.refuse_unaddressable_objectives.side_effect = _refusal()
-        previous = _protocol()
-        panel = _Panel(previous)
-
-        panel.new_protocol()
-
-        assert [n.title for n in shown] == ['Objective Not Available']
-        assert panel._protocol is previous
-        assert ctx.settings['protocol']['filepath'] == 'plate.tsv'
-        assert panel.ids['protocol_filename'].text == 'plate.tsv'
-        assert panel.ids['capture_root'].text == 'root'
-        assert panel.moves == []
-
     def test_a_refused_build_is_shown_once_and_adopts_nothing(self, ctx, shown):
         ctx.session.new_protocol.side_effect = _refusal()
         previous = _protocol()
@@ -211,7 +197,6 @@ class TestNewProtocol:
 
         assert [n.title for n in shown] == ['Objective Not Available']
         assert panel._protocol is previous
-        assert not ctx.scope.protocols.refuse_unaddressable_objectives.called
 
 
 class TestSave:
@@ -336,6 +321,26 @@ class TestLoad:
         assert panel._protocol is previous
         assert [n.title for n in shown] == ['Protocol Refused']
 
+    def test_a_failure_filling_the_panel_is_reported_not_raised(
+        self, ctx, shown, own_popups, tsv, monkeypatch
+    ):
+        """The file dialog's callback has no reporter of its own: a failure
+        after the Session's load (here the plate pick) was raised out of it."""
+        ctx.session.load_protocol.return_value = _protocol()
+        panel = _Panel(_protocol())
+        panel.ids['labware_spinner'] = SimpleNamespace(text='')
+
+        def _boom():
+            raise RuntimeError('the plate pick failed')
+
+        monkeypatch.setattr(panel, 'select_labware', _boom, raising=False)
+
+        loaded = panel.load_protocol(filepath=str(tsv), navigate=True)
+
+        assert loaded is False
+        [outcome] = shown
+        assert (outcome.category, outcome.kind.value) == ('UI:LOAD_PROTOCOL', 'fault')
+
 
 class TestTheStartupLoad:
     def test_a_refusal_already_reported_is_not_logged_again(
@@ -351,7 +356,9 @@ class TestTheStartupLoad:
         saved = tmp_path / 'saved.tsv'
         saved.write_text('LumaViewPro Protocol\n')
         ctx.settings['protocol']['filepath'] = str(saved)
-        ctx.session.load_protocol.side_effect = refusal
+        # The Session keeps a refused file's path (open_remembered_protocol's
+        # own tests); the panel shows the refusal's outcome and writes nothing.
+        ctx.session.open_remembered_protocol.side_effect = refusal
         monkeypatch.setattr(ps.ProtocolSettings, 'update_step_ui', lambda self: None)
         panel = _Panel(_protocol())
 
@@ -360,4 +367,4 @@ class TestTheStartupLoad:
 
         assert shown == [], 'nobody asked for the startup load'
         assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
-        assert ctx.settings['protocol']['filepath'] == str(saved), 'a refusal keeps the path'
+        assert ctx.settings['protocol']['filepath'] == str(saved), 'the panel writes no path'

@@ -1,9 +1,11 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import csv
 import ctypes
 import dataclasses
 import enum
 import gc
+import io
 import json
 import numbers
 import os
@@ -635,6 +637,40 @@ def resolve_channel_identity(illumination: 'IlluminationAPI', open_layer: str | 
             if state['enabled']:
                 return color
     return open_layer or DEFAULT_LAYER
+
+
+def read_table(text: str, *, sep: str) -> tuple[list[str], list[list[str]]]:
+    """The header and rows of a delimited table, every cell the text written.
+
+    The inverse of ``csv.writer``, which every LumaViewPro table writer is:
+    no cell is turned into a missing value, a number or a date here, so a
+    step named ``NA`` reads back as ``NA``; each reader types its own
+    columns by its own rule. Blank lines are skipped.
+
+    Raises:
+        ValueError: the text has no header, a header naming one column
+            twice, a NUL, a quote the csv module cannot close, or a row
+            whose cell count is not the header's. No LumaViewPro writer
+            produces any of them.
+    """
+    if '\x00' in text:
+        raise ValueError('it holds a NUL character, which no table cell can hold')
+    try:
+        rows = [row for row in csv.reader(io.StringIO(text), delimiter=sep, strict=True) if row]
+    except csv.Error as e:
+        raise ValueError(f'it is not a well-formed table ({e})') from None
+    if not rows:
+        raise ValueError('its table has no header row')
+    header, body = rows[0], rows[1:]
+    repeated = sorted({column for column in header if header.count(column) > 1})
+    if repeated:
+        raise ValueError(f'its table header names {", ".join(map(repr, repeated))} more than once')
+    for number, row in enumerate(body, 2):
+        if len(row) != len(header):
+            raise ValueError(
+                f'row {number} of its table has {len(row)} cells where the header has {len(header)}'
+            )
+    return header, body
 
 
 def to_bool(val) -> bool:

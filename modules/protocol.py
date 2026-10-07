@@ -451,6 +451,23 @@ _STEP_CELLS = {
 }
 
 
+def _read_step_cell(df: pd.DataFrame, column: str, position: int) -> object:
+    """The step at ``position``'s ``column`` cell, read as its column's type.
+
+    Raises:
+        ProtocolFormatError: the cell is not of its column's type; the words
+            name the step and the column.
+    """
+    cell = df[column].iloc[position]
+    try:
+        return _STEP_CELLS[column](cell)
+    except ValueError as e:
+        name = df['Name'].iloc[position]
+        raise ProtocolFormatError(
+            f'step {position + 1} ({name}) has {column} {cell!r}, which {e}.'
+        ) from None
+
+
 # Each Layer Settings column after 'Layer', with the type its cell is read
 # as. Every cell but Acquire may be blank, read as None: the layer's control
 # keeps what it holds.
@@ -1400,18 +1417,14 @@ class Protocol:
             ProtocolFormatError: a cell is not of its column's type.
         """
         dtypes = cls._create_empty_steps_df().dtypes
-        columns = {}
-        for column, read in _STEP_CELLS.items():
-            values = []
-            for position, cell in enumerate(df[column]):
-                try:
-                    values.append(read(cell))
-                except ValueError as e:
-                    name = df['Name'].iloc[position]
-                    raise ProtocolFormatError(
-                        f'step {position + 1} ({name}) has {column} {cell!r}, which {e}.'
-                    ) from None
-            columns[column] = pd.Series(values, index=df.index, dtype=dtypes[column])
+        columns = {
+            column: pd.Series(
+                [_read_step_cell(df, column, position) for position in range(len(df))],
+                index=df.index,
+                dtype=dtypes[column],
+            )
+            for column in _STEP_CELLS
+        }
         return df.assign(**columns)
 
     @staticmethod
@@ -2613,8 +2626,9 @@ class Protocol:
         ``runnable`` is False for a reader that never runs or edits the
         protocol -- post-processing a finished run reads its record and never
         its period -- so a file saved before the period had a floor, or with
-        a step cell a run would refuse, stays readable there with its cells
-        as read. Every other reader leaves it True: a period or duration no
+        a blank step cell a run would refuse, stays readable there; a step
+        cell that is neither blank nor its column's type refuses the file
+        either way. Every other reader leaves it True: a period or duration no
         protocol can run raises ProtocolScheduleRefusedError, naming the
         file, and a step cell or a Layer Settings cell that is not of its
         column's type raises ProtocolFormatError, naming the file, the step
@@ -2845,21 +2859,11 @@ class Protocol:
             if config.get('layer_settings') == {}:
                 raise ProtocolFormatError('its Layer Settings block has no rows.', file=file_path)
 
-        table_lines = []
-        for line in fp:
-            table_lines.append(line)
-
-        table_str = ''.join(table_lines)
-        # Pin the text-identity columns to str at read time: pandas type
-        # inference otherwise turns a numeric-looking name or label ('0600')
-        # into a float ('600.0') that corrupts every derived filename on
-        # reload.
-        protocol_df = pd.read_csv(
-            io.StringIO(table_str),
-            sep='\t',
-            lineterminator='\n',
-            dtype={'Name': str, 'Label': str, 'Well': str, 'Tile': str},
-        ).fillna('')
+        try:
+            header, rows = common_utils.read_table(''.join(fp), sep='\t')
+        except ValueError as e:
+            raise ProtocolFormatError(f'{e}.', file=file_path) from None
+        protocol_df = pd.DataFrame(rows, columns=header, dtype=object)
 
         # M19: Validate required columns before processing.
         # Old versions use 'Channel' instead of 'Color' -- accept either.
@@ -2889,6 +2893,26 @@ class Protocol:
             # downstream (name derivation, validation, the image writer)
             # reads 'Color', so normalize once at the read boundary.
             protocol_df = protocol_df.rename(columns={'Channel': 'Color'})
+
+        # Each step cell is read by its column's reader, so a name or label of
+        # 'NA' or '0600' stays that text and a number is the number written.
+        # A blank cell stays blank: a runnable protocol refuses it at
+        # construction, and post-processing's reader keeps it. Any other cell
+        # its reader refuses refuses the file, naming the step and column. The
+        # config columns are parsed below, with their legacy repairs.
+        for column in _STEP_CELLS:
+            if column in protocol_df.columns and column not in _DICT_COLUMNS:
+                try:
+                    protocol_df[column] = pd.Series(
+                        [
+                            '' if cell == '' else _read_step_cell(protocol_df, column, position)
+                            for position, cell in enumerate(protocol_df[column])
+                        ],
+                        index=protocol_df.index,
+                        dtype=object,
+                    ).infer_objects()
+                except ProtocolFormatError as e:
+                    raise ProtocolFormatError(str(e), file=file_path) from None
 
         # A runnable protocol's Z-Slice is read with its other cells, and a
         # blank one refuses the file (no shipped writer left one blank). The
