@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING
 import modules.common_utils as common_utils
 from modules.coord_transformations import CoordinateTransformer
 from modules.exceptions import (
+    PositionOutOfRangeError,
     ProtocolRunRefusedError,
     ProtocolStepsInvalidNotice,
     unknown_positions_sentence,
@@ -389,14 +390,48 @@ class ProtocolsAPI:
                 answers is the last one it reported. Reported once by the
                 motion API.
         """
+        self._refuse_no_focus_axis(then)
+        self._scope.motion.refuse_unknown_positions(('Z',), recording=True, then=then)
+        return self._scope.motion.get_current_position('Z')
+
+    def check_focus_z(self, z_um: float, *, then: str) -> float:
+        """A given Z, as a focus to save into a layer: one this scope's Z can reach.
+
+        A layer's focus is where every new step of the layer is born, so a
+        number no move could reach would be refused at every step made from
+        it. This says only that the number is such a Z; where it came from is
+        the caller's.
+
+        Args:
+            z_um: The Z, in micrometres.
+            then: What the user does once the scope has a Z, ending the
+                refusal (e.g. ``'save the focus'``).
+
+        Returns:
+            ``z_um`` as a float.
+
+        Raises:
+            ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
+                has no Z axis. Logged and notified once.
+            PositionOutOfRangeError: ``z_um`` is not a finite number, or lies
+                outside Z's travel.
+        """
+        self._refuse_no_focus_axis(then)
+        z = float(z_um)
+        limits = self._scope.motion.get_axis_limits('Z')
+        low, high = (-math.inf, math.inf) if limits is None else (limits['min'], limits['max'])
+        if not (math.isfinite(z) and low <= z <= high):
+            raise PositionOutOfRangeError('Z', z, low, high)
+        return z
+
+    def _refuse_no_focus_axis(self, then: str) -> None:
+        """Refuse ``positions_unreachable`` on a scope with no Z axis."""
         if not self._scope.capabilities.has_focus:
             self._refuse(
                 reason='positions_unreachable',
                 title='Position Not Reachable',
                 message=f'This scope has no motor for Z, so it cannot {then}.',
             )
-        self._scope.motion.refuse_unknown_positions(('Z',), recording=True, then=then)
-        return self._scope.motion.get_current_position('Z')
 
     def set_step_z(self, protocol: Protocol, step_idx: int, z: float) -> None:
         """Write ``z`` as step ``step_idx``'s Z.

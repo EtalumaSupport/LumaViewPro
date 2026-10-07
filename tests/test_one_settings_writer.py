@@ -87,7 +87,7 @@ def test_a_refused_write_names_why_and_writes_nothing(session, path, value, reas
         ('frame.width', 'set_frame_size'),
         ('Blue.acquire', 'set_layer_acquire'),
         ('Blue.auto_gain', 'set_layer_auto_gain'),
-        ('Blue.focus', 'save_focus'),
+        ('Blue.focus', 'save_layer_focus'),
     ],
 )
 def test_a_setting_with_a_member_is_refused_naming_it(session, path, member):

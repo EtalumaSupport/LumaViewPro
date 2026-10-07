@@ -1662,14 +1662,45 @@ class ScopeSession:
         self._refuse_layer_not_on_scope(layer, then='take a focus')
         step = None if step_idx is None else protocol.step(idx=step_idx)
         z = self.scope.protocols.focus_z(then='save the focus')
-        with self.settings_lock:
-            self._store_setting(f'{layer}.focus', z)
+        self._store_layer_focus(layer, z)
         if step is None or step['Color'] != layer:
             logger.info(f'[Session  ] Focus saved: {layer} Z={z}, no step written')
             return SavedFocus(z=z, step_idx=None)
         self.scope.protocols.set_step_z(protocol, step_idx, z)
         logger.info(f'[Session  ] Focus saved: {layer} Z={z}, and as the Z of step {step_idx}')
         return SavedFocus(z=z, step_idx=step_idx)
+
+    def save_layer_focus(self, layer: str, z_um: float) -> None:
+        """Store ``z_um`` as ``layer``'s focus, the Z every new step of the layer is born at.
+
+        The door for a caller that holds a number rather than a stage: the
+        Autofocus button saving the Z its run chose, a script saving one it
+        measured. It says only that the number is a Z this scope's focus can
+        reach; it guarantees nothing about where the number came from.
+        ``save_focus``, which saves the live Z, writes through the same path.
+
+        Raises:
+            ConfigError: this scope has no ``layer``. Nothing is written.
+            ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
+                has no Z axis. Nothing is written.
+            PositionOutOfRangeError: ``z_um`` is not a finite number, or lies
+                outside Z's travel. Nothing is written.
+        """
+        self._refuse_layer_not_on_scope(layer, then='take a focus')
+        z = self._store_layer_focus(layer, z_um)
+        logger.info(f'[Session  ] Focus saved: {layer} Z={z}')
+
+    def _store_layer_focus(self, layer: str, z_um: float) -> float:
+        """The one write of a layer's focus, refused unless Z can reach it; returns the Z stored.
+
+        ``save_all_bookmarks`` alone writes a focus beside it: it stores the
+        bookmark and every layer's focus under one hold of the lock, and its
+        Z is the live one, which ``focus_z`` has already checked.
+        """
+        z = self.scope.protocols.check_focus_z(z_um, then='save the focus')
+        with self.settings_lock:
+            self._store_setting(f'{layer}.focus', z)
+        return z
 
     def save_bookmark(self, axes: 'Iterable[str]') -> dict:
         """Save where the stage is on ``axes`` as the bookmark, as the bookmark buttons do.
@@ -1729,8 +1760,7 @@ class ScopeSession:
         """
         self._refuse_layer_not_on_scope(layer, then='take a focus')
         z = self.scope.protocols.focus_z(then='apply the focus')
-        with self.settings_lock:
-            self._store_setting(f'{layer}.focus', z)
+        self._store_layer_focus(layer, z)
         updated = self.scope.protocols.apply_focus_to_layer_steps(protocol, layer, z)
         logger.info(f'[Session  ] Focus applied: {layer} Z={z} to {updated} step(s)')
         return updated

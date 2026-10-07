@@ -43,7 +43,7 @@ SETTINGS_WITH_A_MEMBER: typing.Final[dict[str, str]] = {
     'bookmark': 'save_bookmark',
     '*.acquire': 'set_layer_acquire',
     '*.auto_gain': 'set_layer_auto_gain',
-    '*.focus': 'save_focus',
+    '*.focus': 'save_layer_focus',
 }
 
 # A setting only the installation's settings file sets: it decides how the
