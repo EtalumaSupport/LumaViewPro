@@ -174,12 +174,14 @@ class TestAnEmptyPathIsNoSavedProtocol:
     def test_nothing_is_loaded_and_nothing_is_reported(self, monkeypatch, caplog):
         """A run of an unsaved protocol leaves the remembered path empty.
         Path('') is the working folder and exists, so loading it raised and
-        an ERROR with a traceback said a fault happened where none did."""
+        an ERROR with a traceback said a fault happened where none did. The
+        Session answers None for an empty path without loading
+        (test_the_remembered_protocol_is_forgotten_only_when_gone); the
+        panel then adopts the empty protocol and reports nothing."""
         import logging
         from types import SimpleNamespace
 
         import modules.app_context as _app_ctx
-        from modules.exceptions import ProtocolNotLoadedError
         from tests.settings_fixtures import protocol_filepath_writer, settings_writer
         from ui.protocol_settings import ProtocolSettings
 
@@ -192,21 +194,16 @@ class TestAnEmptyPathIsNoSavedProtocol:
                 settings=settings,
                 update_settings=settings_writer(settings),
                 set_protocol_filepath=protocol_filepath_writer(settings),
-                session=SimpleNamespace(create_empty_protocol=lambda: empty),
+                session=SimpleNamespace(
+                    create_empty_protocol=lambda: empty,
+                    open_remembered_protocol=lambda: None,
+                ),
             ),
         )
-        loads = []
-
-        def _load_protocol(**kw):
-            # What the real load does with '': the file read raises.
-            loads.append(kw)
-            raise ProtocolNotLoadedError(
-                file='', cause=FileNotFoundError(2, 'No such file or directory')
-            )
-
+        adopted = []
         drawn = []
         stand = SimpleNamespace(
-            load_protocol=_load_protocol,
+            _adopt_protocol=lambda *a, **kw: adopted.append(a),
             _show_schedule=lambda: drawn.append('schedule'),
             update_step_ui=lambda: drawn.append('steps'),
         )
@@ -214,7 +211,7 @@ class TestAnEmptyPathIsNoSavedProtocol:
         with caplog.at_level(logging.INFO):
             ProtocolSettings.load_persisted_protocol(stand)
 
-        assert loads == []
+        assert adopted == []
         assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
         assert any('No saved protocol loaded at startup' in r.getMessage() for r in caplog.records)
         assert settings['protocol']['filepath'] == ''
@@ -224,19 +221,18 @@ class TestAnEmptyPathIsNoSavedProtocol:
 
 
 class TestARefusedStartupLoadKeepsThePath:
-    def test_the_loader_only_clears_a_path_with_no_file_behind_it(self):
+    def test_the_panel_leaves_the_remembered_path_to_the_session(self):
+        """Which failure forgets the path is the Session's rule
+        (open_remembered_protocol, tested in
+        test_the_remembered_protocol_is_forgotten_only_when_gone): the panel
+        asks it to open the protocol and never writes the path itself."""
         fn = find_def('ui/protocol_settings.py', 'load_persisted_protocol')
         assert fn is not None, 'the startup loader is gone'
         src = ast.unparse(fn)
 
-        assert 'exists()' in src, (
-            'the loader clears the remembered path without asking whether the '
-            'file is still there, so a refusal reads as a missing protocol'
-        )
-        cleared = src.count("set_protocol_filepath('')")
-        assert cleared == 1, (
-            f'the path is cleared on {cleared} branches; only the absent-file branch may clear it'
-        )
+        assert 'open_remembered_protocol()' in src
+        assert 'set_protocol_filepath' not in src
+        assert 'exists()' not in src
 
     def test_a_kept_path_is_also_shown(self):
         """Keeping the path in settings is no use if the panel reads blank.
@@ -272,12 +268,12 @@ class TestAdoptingIsNotNavigating:
 
     @staticmethod
     def _navigate_kwarg(fn):
-        """The ``navigate=`` value passed to the load_protocol call in ``fn``."""
+        """The ``navigate=`` value passed to the load or adoption call in ``fn``."""
         for node in ast.walk(fn):
             if not isinstance(node, ast.Call):
                 continue
             name = getattr(node.func, 'attr', getattr(node.func, 'id', None))
-            if name != 'load_protocol':
+            if name not in ('load_protocol', '_adopt_protocol'):
                 continue
             for kw in node.keywords:
                 if kw.arg == 'navigate':

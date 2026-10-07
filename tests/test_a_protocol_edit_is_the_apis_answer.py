@@ -336,7 +336,9 @@ class TestTheStartupLoad:
         saved = tmp_path / 'saved.tsv'
         saved.write_text('LumaViewPro Protocol\n')
         ctx.settings['protocol']['filepath'] = str(saved)
-        ctx.session.load_protocol.side_effect = refusal
+        # The Session keeps a refused file's path (open_remembered_protocol's
+        # own tests); the panel shows the refusal's outcome and writes nothing.
+        ctx.session.open_remembered_protocol.side_effect = refusal
         monkeypatch.setattr(ps.ProtocolSettings, 'update_step_ui', lambda self: None)
         panel = _Panel(_protocol())
 
@@ -345,4 +347,4 @@ class TestTheStartupLoad:
 
         assert shown == [], 'nobody asked for the startup load'
         assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
-        assert ctx.settings['protocol']['filepath'] == str(saved), 'a refusal keeps the path'
+        assert ctx.settings['protocol']['filepath'] == str(saved), 'the panel writes no path'

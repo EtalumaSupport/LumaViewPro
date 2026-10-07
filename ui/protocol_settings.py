@@ -1,7 +1,6 @@
 # Copyright Etaluma, Inc.
 import logging
 import os
-import pathlib
 import time
 import typing
 
@@ -626,61 +625,52 @@ class ProtocolSettings(FloatLayout):
         Clock.schedule_once(lambda dt: setattr(self, 'done', True), 0)
 
     def load_persisted_protocol(self) -> None:
-        """Load the protocol the last session left behind, once, at startup.
+        """Adopt the protocol the last session left behind, once, at startup.
 
         Called by the startup sequence after the objective question has
         been answered or found not to be owed, because the answer decides
         what the turret carries and therefore whether the saved protocol
         can be performed at all.
 
-        A refusal KEEPS the remembered path. The file is real and the user
-        chose it; what is wrong is the scope's turret, which they can fix
-        and then reload. Clearing it would answer "your protocol is gone"
-        to a problem that is not about the protocol. Only a path with no
-        file behind it is forgotten, because there is nothing left to
-        remember.
+        The Session opens it and decides whether the remembered path is
+        kept (``ScopeSession.open_remembered_protocol``): a refusal keeps
+        it, a missing or unreadable file forgets it. The panel shows what
+        the Session answered: the protocol, or the kept file's name over an
+        empty protocol, so the person can see which protocol to come back
+        to.
 
         Non-navigating, as the startup load has always been: it adopts the
         protocol and fills the panel without driving the stage.
         """
         ctx = _app_ctx.ctx
-        settings = ctx.settings
-        filepath = settings['protocol']['filepath']
+        protocol = None
+        try:
+            protocol = ctx.session.open_remembered_protocol()
+        except Exception as e:
+            # Logged, not shown: nobody asked for this load. A refusal the
+            # API has already reported is not logged again.
+            from modules.notification_center import notifications
 
-        # An empty path is no saved protocol, asked before any load: Path('')
-        # is the working folder and exists, so loading it fails and reads as
-        # a fault when nothing went wrong.
-        loaded = False
-        if filepath:
-            try:
-                loaded = self.load_protocol(filepath=filepath, suppress_popup=True, navigate=False)
-            except Exception as e:
-                # Logged, not shown: nobody asked for this load. A refusal the
-                # API has already reported is not logged again.
-                from modules.notification_center import notifications
+            notifications.report_outcome(
+                e, solicited=False, category='UI:LOAD_PROTOCOL', log_only=True
+            )
 
-                notifications.report_outcome(
-                    e, solicited=False, category='UI:LOAD_PROTOCOL', log_only=True
-                )
-                loaded = False
-
-        if loaded:
+        filepath = ctx.settings['protocol']['filepath']
+        if protocol is not None:
+            self._adopt_protocol(protocol, filepath, navigate=False)
             return
 
-        if not filepath or not pathlib.Path(filepath).exists():
-            logger.info('[LVP Main  ] No saved protocol loaded at startup -- using empty protocol')
-            _app_ctx.ctx.set_protocol_filepath('')
-        else:
-            # The file is still there and something about this scope
-            # refused it. Keep the name on screen as well as in settings:
-            # it is the only thing telling the user which protocol they
-            # need to come back to, and load_protocol only writes the
-            # label on the path where it succeeds.
+        if filepath:
+            # Refused and kept: the name on screen is the only thing telling
+            # the person which protocol to come back to, and the adoption
+            # writes it only for a protocol it adopts.
             self.ids['protocol_filename'].text = os.path.basename(filepath)
             logger.info(
                 f'[LVP Main  ] Saved protocol {filepath} was not adopted at startup; '
                 'its path is kept so it can be reloaded once the scope can perform it'
             )
+        else:
+            logger.info('[LVP Main  ] No saved protocol loaded at startup -- using empty protocol')
 
         self._protocol = ctx.session.create_empty_protocol()
         self._show_schedule()
@@ -688,9 +678,9 @@ class ProtocolSettings(FloatLayout):
 
     # Load Protocol from File
     def load_protocol(
-        self, filepath='./data/new_default_protocol.tsv', suppress_popup=False, *, navigate
-    ):
-        """Adopt a protocol from disk and fill the panel.
+        self, filepath: str = './data/new_default_protocol.tsv', *, navigate: bool
+    ) -> bool:
+        """Load a protocol from disk through the Session and fill the panel.
 
         ``navigate`` says whether a person asked for this load, and so
         whether the stage may drive to the current step. Required rather
@@ -702,11 +692,6 @@ class ProtocolSettings(FloatLayout):
 
         logger.info('[LVP Main  ] ProtocolSettings.load_protocol()')
 
-        if not pathlib.Path(filepath).exists():
-            if suppress_popup:
-                return False
-            raise FileNotFoundError(f'Protocol not found at {filepath}')
-
         # The Session loads the file and puts the scope on its plate, or
         # refuses and leaves the scope where it was; nothing below runs
         # unless it answered with a protocol. Only then does the protocol's
@@ -717,21 +702,20 @@ class ProtocolSettings(FloatLayout):
             ctx.session.apply_layer_settings(protocol)
             return protocol
 
-        if suppress_popup:
-            # The startup adoption: its caller logs what this raises and
-            # keeps the remembered path.
-            protocol = _load()
-        else:
-            loaded = []
-            run_reported(lambda: loaded.append(_load()), None, 'LOAD_PROTOCOL')
-            if not loaded:
-                return False
-            protocol = loaded[0]
+        loaded = []
+        run_reported(lambda: loaded.append(_load()), None, 'LOAD_PROTOCOL')
+        if not loaded:
+            return False
+        self._adopt_protocol(loaded[0], filepath, navigate=navigate)
+        return True
 
+    def _adopt_protocol(self, protocol: Protocol, filepath: str, *, navigate: bool) -> None:
+        """Make ``protocol``, loaded from ``filepath``, the panel's and draw it."""
+        ctx = _app_ctx.ctx
         self._protocol = protocol
         self._show_schedule()
 
-        _app_ctx.ctx.set_protocol_filepath(filepath)
+        ctx.set_protocol_filepath(filepath)
         self.ids['protocol_filename'].text = os.path.basename(filepath)
 
         num_steps = self._protocol.num_steps()
@@ -779,8 +763,6 @@ class ProtocolSettings(FloatLayout):
         # question it was answering a question it could no longer see.
         if navigate:
             self.go_to_step(step_idx=self.curr_step)
-
-        return True
 
     def get_default_name_for_curr_step(self):
         step = self.get_curr_step()

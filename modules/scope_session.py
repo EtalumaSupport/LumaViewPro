@@ -49,6 +49,7 @@ from modules.exceptions import (
     HomingFailedError,
     LiveFolderPathRefusedError,
     ObjectiveUnknownError,
+    ProtocolNotLoadedError,
     Remedy,
     RemedyUnknownError,
     ScopeDisconnectError,
@@ -2137,6 +2138,49 @@ class ScopeSession:
         """
         with self.settings_lock:
             self._store_setting('protocol.filepath', file_path)
+
+    def open_remembered_protocol(self) -> 'Protocol | None':
+        """Load the protocol the last start left behind, with its Layer Settings.
+
+        The start-up half of ``set_protocol_filepath``: ``load_protocol``, then
+        ``apply_layer_settings``. A path is forgotten only when there is no
+        file left to remember, or the file cannot be read. A refusal keeps it:
+        the file is real and was chosen, and what is wrong (the turret's
+        glass, the plate, a layer, the file's contents) can be put right and
+        the protocol loaded again.
+
+        The GUI's start-up adoption; not part of the L2 API surface, like the
+        remembered path it reads.
+
+        Returns:
+            The protocol, or None when no path is remembered or its file is
+            gone (the path is then forgotten, logged at INFO: a protocol moved
+            or deleted since is not a fault).
+
+        Raises:
+            ProtocolNotLoadedError: The file is there and cannot be read; the
+                path is forgotten.
+            ProtocolFormatError, ProtocolRunRefusedError, ConfigError,
+            HardwareCommandRefusedError: As ``load_protocol`` raises them;
+                the path is kept.
+        """
+        with self.settings_lock:
+            file_path = self.settings['protocol']['filepath']
+        # Asked before any path test: Path('') is the working folder, which
+        # exists, so an empty path would be loaded and fail as a fault.
+        if not file_path:
+            return None
+        if not pathlib.Path(file_path).exists():
+            logger.info(f'[Session   ] The remembered protocol {file_path} is gone; forgotten.')
+            self.set_protocol_filepath('')
+            return None
+        try:
+            protocol = self.load_protocol(file_path)
+        except ProtocolNotLoadedError:
+            self.set_protocol_filepath('')
+            raise
+        self.apply_layer_settings(protocol)
+        return protocol
 
     def _store_setting(self, path: str, value: object) -> None:
         """Under ``settings_lock``: put ``value`` at ``path`` in the live settings.
