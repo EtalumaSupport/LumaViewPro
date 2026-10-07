@@ -8,6 +8,7 @@ import json
 import math
 import numbers
 import os
+import re
 import time
 import uuid
 from collections.abc import Mapping
@@ -20,7 +21,7 @@ import modules.image_utils as image_utils
 
 from lvp_logger import logger
 from modules.cell_count import CellCount
-from modules.common_utils import CustomJSONizer
+from modules.common_utils import CustomJSONizer, read_table
 from modules.exceptions import (
     CellCountScaleDroppedNotice,
     PostProcessingFailedError,
@@ -38,6 +39,12 @@ GRAPHING_OPERATION = 'Graphing'
 # The layout time.ctime writes each image's time in, which a results file is
 # read back by. '%d' also reads ctime's space-padded day.
 RESULTS_TIME_FORMAT = '%a %b %d %H:%M:%S %Y'
+
+# How a number is written in a results file: a column whose every cell is
+# written this way is a column of numbers, of whole numbers when every cell
+# is the first form.
+_WHOLE_NUMBER = re.compile(r'[+-]?\d+')
+_NUMBER = re.compile(r'[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?')
 
 # What marks a JSON file as a saved cell-count method.
 # Version 2: context.pixels_per_um is an optional override. Every version-1 file
@@ -304,13 +311,18 @@ def save_cell_count_method(method: Mapping, path: str | os.PathLike) -> None:
 def read_cell_count_results(path: str | os.PathLike) -> pd.DataFrame:
     """Read a cell-count results file into a table to graph.
 
-    A ``time`` column of text is parsed by the format the count writes it
-    in, so it reads back as a datetime column; a ``time`` column of numbers,
-    and every other column, keeps the type pandas reads it as. Which columns can be plotted is ``results_axes``'s answer.
+    Every cell is read as the text written. A column whose every cell is a
+    number is a column of numbers (whole numbers when every cell is one);
+    any other column is text, so a cell such as ``NA`` is never read as a
+    missing number. A ``time`` column of text is parsed by the format the
+    count writes it in, so it reads back as a datetime column. Which columns
+    can be plotted is ``results_axes``'s answer.
 
     Raises:
         PostProcessingRefusedError: reason ``results_unreadable``; the file
-            cannot be read, is not a CSV, has a time the count did not write,
+            cannot be read, is not a CSV LumaViewPro could have written (not
+            UTF-8, a NUL, a quote that does not close, a row of the wrong
+            length), has a time the count did not write,
             or has no column of numbers to plot. The message names the file.
     """
 
@@ -322,11 +334,18 @@ def read_cell_count_results(path: str | os.PathLike) -> pd.DataFrame:
         )
 
     try:
-        table = pd.read_csv(path)
+        with open(path, encoding='utf-8-sig', newline='') as f:
+            columns, rows = read_table(f.read(), sep=',')
     except OSError as e:
         raise refuse(f'it could not be read ({e.strerror})') from e
     except ValueError as e:
         raise refuse(f'it is not a CSV file ({e})') from e
+    table = pd.DataFrame(
+        {
+            column: _results_column([row[position] for row in rows])
+            for position, column in enumerate(columns)
+        }
+    )
     if 'time' in table and not pd.api.types.is_numeric_dtype(table['time']):
         try:
             table['time'] = pd.to_datetime(table['time'], format=RESULTS_TIME_FORMAT)
@@ -335,6 +354,15 @@ def read_cell_count_results(path: str | os.PathLike) -> pd.DataFrame:
     if not results_axes(table)[1]:
         raise refuse('it has no column of numbers to plot')
     return table
+
+
+def _results_column(cells: list[str]) -> pd.Series:
+    """One results column: numbers when every cell is written as one, else its text."""
+    if cells and all(_WHOLE_NUMBER.fullmatch(cell) for cell in cells):
+        return pd.Series([int(cell) for cell in cells], dtype='int64')
+    if cells and all(_NUMBER.fullmatch(cell) for cell in cells):
+        return pd.Series([float(cell) for cell in cells], dtype='float64')
+    return pd.Series(cells, dtype=object)
 
 
 def results_axes(table: pd.DataFrame) -> tuple[list[str], list[str]]:
@@ -484,7 +512,7 @@ class PostProcessing:
         results_file_path = os.path.join(path, 'results.csv')
         temp_path = os.path.join(path, f'.results.{uuid.uuid4().hex}.tmp.csv')
         try:
-            with open(temp_path, 'w', newline='') as f:
+            with open(temp_path, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow(fields)
                 for record in results:
