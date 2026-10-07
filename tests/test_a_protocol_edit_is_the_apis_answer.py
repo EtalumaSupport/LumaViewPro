@@ -321,6 +321,26 @@ class TestLoad:
         assert panel._protocol is previous
         assert [n.title for n in shown] == ['Protocol Refused']
 
+    def test_a_failure_filling_the_panel_is_reported_not_raised(
+        self, ctx, shown, own_popups, tsv, monkeypatch
+    ):
+        """The file dialog's callback has no reporter of its own: a failure
+        after the Session's load (here the plate pick) was raised out of it."""
+        ctx.session.load_protocol.return_value = _protocol()
+        panel = _Panel(_protocol())
+        panel.ids['labware_spinner'] = SimpleNamespace(text='')
+
+        def _boom():
+            raise RuntimeError('the plate pick failed')
+
+        monkeypatch.setattr(panel, 'select_labware', _boom, raising=False)
+
+        loaded = panel.load_protocol(filepath=str(tsv), navigate=True)
+
+        assert loaded is False
+        [outcome] = shown
+        assert (outcome.category, outcome.kind.value) == ('UI:LOAD_PROTOCOL', 'fault')
+
 
 class TestTheStartupLoad:
     def test_a_refusal_already_reported_is_not_logged_again(

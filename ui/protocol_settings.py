@@ -643,9 +643,11 @@ class ProtocolSettings(FloatLayout):
         protocol and fills the panel without driving the stage.
         """
         ctx = _app_ctx.ctx
-        protocol = None
         try:
             protocol = ctx.session.open_remembered_protocol()
+            if protocol is not None:
+                self._adopt_protocol(protocol, ctx.settings['protocol']['filepath'], navigate=False)
+                return
         except Exception as e:
             # Logged, not shown: nobody asked for this load. A refusal the
             # API has already reported is not logged again.
@@ -656,10 +658,6 @@ class ProtocolSettings(FloatLayout):
             )
 
         filepath = ctx.settings['protocol']['filepath']
-        if protocol is not None:
-            self._adopt_protocol(protocol, filepath, navigate=False)
-            return
-
         if filepath:
             # Refused and kept: the name on screen is the only thing telling
             # the person which protocol to come back to, and the adoption
@@ -702,12 +700,17 @@ class ProtocolSettings(FloatLayout):
             ctx.session.apply_layer_settings(protocol)
             return protocol
 
-        loaded = []
-        run_reported(lambda: loaded.append(_load()), None, 'LOAD_PROTOCOL')
-        if not loaded:
-            return False
-        self._adopt_protocol(loaded[0], filepath, navigate=navigate)
-        return True
+        # The adoption is inside the reported call: a failure filling the
+        # panel (the plate pick, the spinners, the move to the first step) is
+        # reported here, not raised out of the file dialog's callback.
+        adopted = []
+
+        def _load_and_adopt():
+            self._adopt_protocol(_load(), filepath, navigate=navigate)
+            adopted.append(True)
+
+        run_reported(_load_and_adopt, None, 'LOAD_PROTOCOL')
+        return bool(adopted)
 
     def _adopt_protocol(self, protocol: Protocol, filepath: str, *, navigate: bool) -> None:
         """Make ``protocol``, loaded from ``filepath``, the panel's and draw it."""
