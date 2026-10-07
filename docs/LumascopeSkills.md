@@ -1213,7 +1213,9 @@ scope.motion.home(axis='T')                      # turret only (parks Z at 0, ho
 # HomingFailedError (title 'Homing Failed'; .reason 'failed' | 'error' |
 # 'unread' | 'lid_open' (the lid was opened while the home moved) |
 # 'stopped' (stop_motion ended it), .axes the axes left unknown, chained
-# from the driver's error when there is one).
+# from the driver's error when there is one). A stop_motion that lands
+# after home() is called but before the board starts homing ends the home
+# 'stopped' with .axes empty: nothing moved, every axis keeps its state.
 scope.motion.has_homed()                         # True if the stage/focus axes know where they are
 scope.motion.position_is_known('T')              # turret-specific
 scope.motion.axes_without_position()             # {axis: 'unknown' | 'homing'}; {} when all known
