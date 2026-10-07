@@ -43,6 +43,16 @@ def _prepare(executor, tmp_path, callbacks, **overrides):
     return executor.prepare(**{**plan_args, **overrides})
 
 
+def _refuse_the_protocol_copy(monkeypatch, plan):
+    """Make ``plan``'s run fail at start: the file system refuses its protocol copy."""
+
+    def _refused(**kwargs):
+        raise OSError('No space left on device')
+
+    monkeypatch.setattr(plan.protocol, 'to_file', _refused)
+    return plan
+
+
 def _what_the_subscriber_saw(executor, told: threading.Event, seen: list):
     def record(**kwargs):
         seen.append((executor.run_in_progress(), executor.run_trigger_source()))
@@ -76,17 +86,16 @@ def test_files_complete_reaches_its_subscriber_after_the_run_let_go(executor, tm
     assert seen == [(False, None)], 'the run still held the scope when its files were reported'
 
 
-def test_a_failed_start_says_so_after_it_let_go(executor, tmp_path):
-    # The copy of the protocol names a folder that does not exist, so the
-    # run fails at start and unwinds on start()'s thread.
+def test_a_failed_start_says_so_after_it_let_go(executor, tmp_path, monkeypatch):
+    # The copy of the protocol cannot be written, so the run fails at start
+    # and unwinds on start()'s thread.
     told, seen = threading.Event(), []
     plan = _prepare(
         executor,
         tmp_path,
         {'run_complete': _what_the_subscriber_saw(executor, told, seen)},
-        sequence_name='no_such_folder/lets_go',
     )
-    executor.start(plan)
+    executor.start(_refuse_the_protocol_copy(monkeypatch, plan))
     assert told.wait(COMPLETION_TIMEOUT), 'run_complete never came'
     assert seen == [(False, None)], 'the failed start still held the scope when it said so'
 
@@ -121,7 +130,7 @@ def test_a_run_complete_subscriber_can_start_the_next_run(executor, tmp_path):
 
 
 def test_a_failed_starts_handle_keeps_no_folder_when_its_subscriber_starts_the_next(
-    executor, tmp_path
+    executor, tmp_path, monkeypatch
 ):
     # A failed start ends on start()'s own thread, so its run_complete runs
     # there before start() returns; a subscriber that starts a run which
@@ -135,11 +144,8 @@ def test_a_failed_starts_handle_keeps_no_folder_when_its_subscriber_starts_the_n
         second.append(executor.start(plan))
 
     failed = executor.start(
-        _prepare(
-            executor,
-            tmp_path,
-            {'run_complete': start_the_next},
-            sequence_name='no_such_folder/lets_go',
+        _refuse_the_protocol_copy(
+            monkeypatch, _prepare(executor, tmp_path, {'run_complete': start_the_next})
         )
     )
     assert second, 'the subscriber never started the next run'

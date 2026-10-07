@@ -87,7 +87,8 @@ class ProtocolRunner:
 
         Args:
             protocol: Protocol defining the steps to execute
-            sequence_name: Name for the output folder
+            sequence_name: The name of the protocol file the run saves in
+                its folder ('.tsv' added): a name, not a path
             parent_dir: Parent directory for output (defaults to settings['live_folder']/ProtocolData)
             enable_image_saving: Whether to save captured images
             callbacks: Optional dict of callback functions
@@ -136,7 +137,8 @@ class ProtocolRunner:
 
         Args:
             protocol: Protocol defining the steps, period, and duration
-            sequence_name: Name for the output folder
+            sequence_name: The name of the protocol file the run saves in
+                its folder ('.tsv' added): a name, not a path
             parent_dir: Parent directory for output
             enable_image_saving: Whether to save captured images
             callbacks: Optional dict of callback functions
@@ -186,7 +188,8 @@ class ProtocolRunner:
         this run kind exists to retire.
 
         Args:
-            sequence_name: Name for the output folder.
+            sequence_name: The name of the protocol file the run saves in
+                its folder ('.tsv' added): a name, not a path.
             parent_dir: Parent directory for output. Defaults to
                 'Manual/Composites' under the live folder, where the button
                 already puts it, so a script's composite and a click's land
@@ -276,7 +279,8 @@ class ProtocolRunner:
                 names it (af_data_saved / af_data_path), which is the only
                 way a headless caller can tell a delivered file from a
                 requested one.
-            sequence_name: Name for the run.
+            sequence_name: The name of the protocol file the run saves in
+                its folder ('.tsv' added): a name, not a path.
             parent_dir: Where characterization data goes. Defaults to
                 'Autofocus Characterization' under the live folder, where
                 the button already puts it. Unused when no data is saved:
@@ -449,7 +453,8 @@ class ProtocolRunner:
 
         Args:
             layer: Which layer to capture ('BF', 'Green', ...).
-            sequence_name: Name for the output folder.
+            sequence_name: The name of the protocol file the run saves in
+                its folder ('.tsv' added): a name, not a path.
             parent_dir: Parent directory for output. Defaults to
                 'Manual/Z-Stacks' under the live folder, where the button
                 already puts it.
@@ -550,7 +555,8 @@ class ProtocolRunner:
         ``captures``, beside its path.
 
         Args:
-            sequence_name: Name for the output folder.
+            sequence_name: The name of the protocol file the run saves in
+                its folder ('.tsv' added): a name, not a path.
             parent_dir: Parent directory for output. Defaults to
                 'Manual/Composites' under the live folder, as start_composite.
             callbacks: Optional dict of callback functions.

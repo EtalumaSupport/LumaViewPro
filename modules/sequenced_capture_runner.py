@@ -1037,7 +1037,8 @@ class SequencedCaptureRunner:
             ProtocolRunRefusedError: The run cannot start (already
                 running, files still writing, empty protocol, validation
                 errors, hardware not connected, an axis position not
-                known). The user has already been notified once when
+                known, a save location that cannot be used, a
+                sequence_name that is a path rather than a name). The user has already been notified once when
                 this raises.
             TypeError: image_capture_config is not an ImageCaptureConfig
                 -- a programming error at the call site, not a refusal.
@@ -1315,6 +1316,25 @@ class SequencedCaptureRunner:
                         'location, then try again.'
                     ),
                 )
+
+        # The name becomes the protocol file saved inside the run folder;
+        # joined there, a separator or a drive would put that file anywhere
+        # the process can write, and '..' names no file. A blank name is the
+        # run's own 'unsaved_protocol'.
+        if sequence_name and (
+            '/' in sequence_name
+            or '\\' in sequence_name
+            or pathlib.PureWindowsPath(sequence_name).drive
+            or sequence_name == '..'
+        ):
+            self._refuse(
+                reason='sequence_name_invalid',
+                title='Run Name Not Valid',
+                message=(
+                    f'Cannot start the run: its name {sequence_name!r} is a path, not a '
+                    "name. Name it without '/', '\\', a drive or '..', then try again."
+                ),
+            )
 
         # Lightweight copy -- shares read-only loaders, copies only the
         # mutable steps DataFrame (which AF modifies via
