@@ -249,3 +249,18 @@ def test_the_api_registers_the_6110_with_the_other_motor_drivers():
         check=True,
     ).stdout.split()
     assert 'tmcm6110' in names
+
+
+def test_a_z_move_down_drives_one_leg_on_a_stage_with_no_backlash(homed):
+    # The motion API approaches a downward Z target from below on a board
+    # with a backlash; the 6110 has none, so the move is the target alone,
+    # not a leg to the same point first.
+    from drivers.tmcm6110 import MOTORS, MVP
+
+    homed.motion.move_absolute('Z', 3000)
+    board = _board(homed)
+    board.commands.clear()
+    homed.motion.move_absolute('Z', 1500, overshoot_enabled=True)
+    starts = [c for c in board.commands if c.command == MVP and c.motor == MOTORS['Z']]
+    assert len(starts) == 1
+    assert homed.motion.get_current_position('Z') == pytest.approx(1500, abs=1)
