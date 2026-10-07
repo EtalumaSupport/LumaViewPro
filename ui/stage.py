@@ -581,16 +581,18 @@ class Stage(Widget):
 
         # Only draw crosshairs and selected well if position is available (after homing)
         if position_available:
+            target_well = None
             if labware.has_wells():
-                # Draw selected well (updates when target changes)
                 target_plate_x, target_plate_y = coordinate_transformer.stage_to_plate(
                     labware=labware,
                     stage_offset=settings['stage_offset'],
                     sx=x_target,
                     sy=y_target,
                 )
-
-                target_i, target_j = labware.get_well_index(target_plate_x, target_plate_y)
+                target_well = labware.get_well_index(target_plate_x, target_plate_y)
+            if target_well is not None:
+                # Draw selected well (updates when target changes)
+                target_i, target_j = target_well
                 target_well_plate_x, target_well_plate_y = labware.get_well_position(
                     target_i, target_j
                 )
@@ -616,8 +618,9 @@ class Stage(Widget):
                     0,
                 )
             else:
-                # A zero-well plate has no selected well; collapse the ring
-                # so the previous labware's ring does not linger on screen.
+                # No well under the target (a zero-well plate, or a target
+                # off the plate's wells); collapse the ring so the previous
+                # one does not linger on screen.
                 Clock.schedule_once(
                     lambda dt: setattr(self._selected_well_line, 'ellipse', (0, 0, 0, 0)), 0
                 )

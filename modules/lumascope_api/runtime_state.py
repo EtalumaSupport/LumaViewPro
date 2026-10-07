@@ -339,7 +339,8 @@ class RuntimeState:
 
         Returns:
             str | None: Well label (e.g. ``"A1"``); ``''`` when the selected
-            labware has no wells (the Blank plate); None when X or Y does not
+            labware has no wells (the Blank plate) or the position is more
+            than half a pitch beyond its outer well centres; None when X or Y does not
             know its position, or the scope has no X or Y at all. Consumers
             omit the well from filenames and metadata for both rather than
             stamping a fabricated one -- an axis that lost its reference keeps

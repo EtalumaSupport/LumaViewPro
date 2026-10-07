@@ -17,7 +17,12 @@ import json
 import tifffile
 
 from modules.notification_center import Severity
-from tests.test_manual_capture_member import _capture, _open_session, _settings
+from tests.test_manual_capture_member import (
+    _capture,
+    _open_session,
+    _settings,
+    over_the_first_well,
+)
 
 
 def _session(tmp_path, microscope):
@@ -54,10 +59,9 @@ class TestAnXYScope:
     def test_a_homed_stage_names_its_well(self, tmp_path, centre_posts):
         with _session(tmp_path, 'LS850') as session:
             assert session.scope.capabilities.has_xy_stage
-            label = session.scope.runtime_state.get_well_label()
+            label = over_the_first_well(session)
             (path,) = _capture(session)
 
-        assert label
         assert path.name == f'live_{label}_BF_000001.tiff'
         assert _description(path)['Plate']['WellLabel'] == label
         assert _warnings(centre_posts) == []

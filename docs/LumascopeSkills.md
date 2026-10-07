@@ -265,7 +265,7 @@ scope.motion.is_current_turret_position_objective_set()        # False when the 
 # Labware + stage offset -- the plate-coordinate inputs
 scope.runtime_state.get_labware()                      # the plate the settings select, from the catalogue
 scope.runtime_state.get_stage_offset()                 # {'x': ..., 'y': ...} in um, a copy
-scope.runtime_state.get_well_label()                   # 'A1' for the current stage XY; '' when the labware has no wells
+scope.runtime_state.get_well_label()                   # 'A1' for the current stage XY; '' when the labware has no wells or XY is off its wells
 
 # Stage µm → plate mm using the selected labware + stage offset
 # (the bound form of CoordinateTransformer.stage_to_plate; raises
