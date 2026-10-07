@@ -3919,8 +3919,8 @@ class ImagingAPI:
     def stop_streaming(self) -> None:
         """Stop camera streaming, and wait.
 
-        After this, ``get_image()`` / ``capture_and_wait()`` time out until
-        streaming resumes. No-op when no camera is attached. Dispatched as
+        After this, ``capture_and_wait()`` fails until streaming resumes;
+        ``get_image()`` still returns the last frame the camera delivered. No-op when no camera is attached. Dispatched as
         ``start_streaming`` is.
         """
         return self._dispatch_camera(

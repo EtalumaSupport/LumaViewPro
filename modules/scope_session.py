@@ -497,7 +497,7 @@ class ScopeSession:
 
     @property
     def close_drain_pending(self) -> bool:
-        """True while either video drain still holds queued frames.
+        """True while a close would cut video short: a recording live, draining or finishing, or a run's video step writing.
 
         What a close would interrupt on the video side, in one read: a
         manual recording's own drain, or a finished run's video-step

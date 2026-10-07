@@ -32,7 +32,7 @@ import logging as _logging
 import threading
 import time
 from typing import TYPE_CHECKING, ClassVar, NoReturn
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 
 from drivers.exceptions import HardwareError
 from drivers.null_motorboard import NullMotionBoard
@@ -1328,11 +1328,12 @@ class MotionAPI:
         with self._axis_state_lock:
             return self._axis_state.get(axis, AxisState.UNKNOWN)
 
-    def add_position_listener(self, listener) -> None:
+    def add_position_listener(self, listener: Callable[[str, float, str], None]) -> None:
         """Register a callback for position/state changes on any axis.
 
-        The listener is called with ``(axis, target_pos, state)`` whenever
-        the position cache or axis state changes. It fires from the thread
+        The listener is called with ``(axis, position, state)`` whenever
+        the position cache or axis state changes: the polled position,
+        what ``get_current_position(axis)`` returns then, not the target. It fires from the thread
         that caused the change (IO executor, motion monitor, etc.), so
         listeners **must** schedule any UI work via ``Clock.schedule_once``.
 
@@ -1359,14 +1360,14 @@ class MotionAPI:
     def _fire_position_listeners(self, axis: str):
         """Notify all position listeners of a change on *axis*."""
         with self._pos_cache_lock:
-            target = self._pos_cache.get(axis, 0.0)
+            position = self._pos_cache.get(axis, 0.0)
         with self._axis_state_lock:
             state = self._axis_state.get(axis, AxisState.UNKNOWN)
         with self._position_listeners_lock:
             listeners = list(self._position_listeners)
         for fn in listeners:
             try:
-                fn(axis, target, state)
+                fn(axis, position, state)
             except Exception as ex:
                 # No caller waits on a listener, so its fault stops here; the
                 # other listeners are still told.

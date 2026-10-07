@@ -141,8 +141,8 @@ class ProtocolRunner:
                 reads the mode the session was built in.
 
         Returns:
-            The committed run's outcome. wait(timeout_s=...) on it for the
-            status, reason, title and message the run ended with.
+            The committed run's handle. wait(timeout_s=...) on it for the
+            outcome: the status, reason, title and message the run ended with.
 
         Raises:
             ConfigError: image_capture_config was not provided -- there is
@@ -196,8 +196,8 @@ class ProtocolRunner:
                 reads the mode the session was built in.
 
         Returns:
-            The committed run's outcome. wait(timeout_s=...) on it for the
-            status, reason, title and message the run ended with.
+            The committed run's handle. wait(timeout_s=...) on it for the
+            outcome: the status, reason, title and message the run ended with.
 
         Raises:
             ConfigError: image_capture_config was not provided -- there is
@@ -252,7 +252,8 @@ class ProtocolRunner:
                 reads the mode the session was built in.
 
         Returns:
-            The run's outcome, to wait on or to ignore.
+            The committed run's handle, to wait on or to ignore;
+            wait(timeout_s=...) on it gives the run's outcome.
 
         Raises:
             ProtocolRunRefusedError: Fewer than two channels are set to
@@ -351,7 +352,8 @@ class ProtocolRunner:
                 flag, which its plugin can change after the session exists.
 
         Returns:
-            The run's outcome, to wait on or to ignore.
+            The committed run's handle, to wait on or to ignore;
+            wait(timeout_s=...) on it gives the run's outcome.
 
         Raises:
             ConfigError: *layer* is not a layer this release has.
@@ -442,7 +444,8 @@ class ProtocolRunner:
                 flag, which its plugin can change after the session exists.
 
         Returns:
-            The run's outcome, to wait on or to ignore.
+            The committed run's handle, to wait on or to ignore;
+            wait(timeout_s=...) on it gives the run's outcome.
 
         Raises:
             ProtocolRunRefusedError: The runner refused the request
@@ -529,7 +532,8 @@ class ProtocolRunner:
                 stage without filling the disk.
 
         Returns:
-            The run's outcome, to wait on or to ignore.
+            The committed run's handle, to wait on or to ignore;
+            wait(timeout_s=...) on it gives the run's outcome.
 
         Raises:
             ConfigError: *layer* is not a layer this release has.
@@ -675,7 +679,7 @@ class ProtocolRunner:
         """Internal: configure and launch the sequenced capture executor.
 
         Returns:
-            The committed run's outcome.
+            The committed run's handle.
 
         Raises:
             ConfigError: image_capture_config was not provided; raised

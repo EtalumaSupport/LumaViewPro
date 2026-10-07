@@ -253,6 +253,8 @@ class ManualRecordingController:
             ObjectiveUnknownError: No one can say which objective is in the
                 light path, so the recording's frames would carry no scale.
                 Nothing is committed.
+            CaptureError: ``'recording_not_started'``, the camera did not
+                accept the frame listener; the start is unwound.
         """
         # Exclusivity has to span the finish, not just the drain. The
         # engine frees its claim before the finish thread stops reading

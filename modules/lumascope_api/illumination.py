@@ -957,7 +957,7 @@ class IlluminationAPI:
         Drivers that don't expose the field
         (NullLEDBoard, SimulatedLEDBoard, FX2 -- pre-migration) are
         silently skipped via getattr-default. notification_center
-        dedups by (category, title) over a 5s window so a stream of
+        dedups by (category, title) over a 10 s window so a stream of
         protocol-driven led_on failures yields one popup, not thirty.
         """
         err = getattr(self._driver, 'last_command_error', None)

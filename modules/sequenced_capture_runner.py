@@ -852,11 +852,12 @@ class SequencedCaptureRunner:
 
     @property
     def video_drain_busy(self) -> bool:
-        """True while a video step's write drain or finish outlives the run.
+        """True while a video step's write drain or finish is still running.
 
-        The app-close gate reads this: a run can end (or abort) while a
-        video drain tail is still writing final artifacts, and a silent
-        close in that window eats the tail.
+        The run's end waits for it, bounded (``wait_for_video_drains``), so
+        after the run it is True only when a drain outran that wait. The
+        app-close gate reads this: a close in that window cuts the video
+        short.
         """
         writer = self._image_writer
         return writer is not None and writer.video_busy
