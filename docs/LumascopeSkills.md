@@ -940,6 +940,9 @@ the same derivations LVP's own GUI mirrors into kv properties
 
 ```python
 session.run_lockout              # True during a run, a diagnostic, OR a run's post-run file drain
+session.run_lockout_named        # that lockout as a sentence a person reads ('The Z-stack run is in
+                                 # progress.', 'A diagnostic activity is in progress.', "A protocol's
+                                 # files are still being written."); None while nothing locks
 session.is_protocol_running      # True while a protocol-class run holds the scope (a run lent a
                                  # diagnostic's claim included)
 session.run_in_progress          # the engine's run in any phase, its teardown included

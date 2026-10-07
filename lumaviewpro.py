@@ -1285,12 +1285,13 @@ class LumaViewProApp(TooltipMixin, App):
         gui_logger.window_event('focus', f'focused={focused}')
 
     def on_request_close(self, *args) -> bool:
-        """Kivy on_request_close hook: show a confirmation popup if a protocol is running.
+        """Kivy on_request_close hook: show a confirmation popup naming what holds the scope.
 
         Returns:
             True to prevent window close (popup shown); False to allow close.
         """
-        protocol_running = ctx.session.run_lockout
+        lockout = ctx.session.run_lockout_named
+        protocol_running = lockout is not None
         # Crash-forensics: log the close request to BOTH the main log
         # (so post-mortem can correlate against the shutdown sequence)
         # and the GUI interactions log (so the gui-log timeline names
@@ -1312,7 +1313,7 @@ class LumaViewProApp(TooltipMixin, App):
             Clock.schedule_once(
                 lambda dt: show_confirmation_popup(
                     title='Confirm Exit',
-                    message='A protocol is currently running.\n\nAre you sure you want to exit?',
+                    message=f'{lockout}\n\nAre you sure you want to exit?',
                     confirm_text='Confirm Exit',
                     cancel_text='Cancel',
                     on_confirm=self.stop,

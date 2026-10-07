@@ -577,7 +577,22 @@ class ScopeSession:
         protocol frees its claim while its files drain, but the control
         surface stays locked until the queue empties.
         """
-        return self.activity_claim.owner in SCOPE_HOLDING_KINDS or self.protocol_files_draining
+        return self.run_lockout_named is not None
+
+    @property
+    def run_lockout_named(self) -> str | None:
+        """What locks the controls, as a sentence a person reads; None while nothing does.
+
+        The run by its kind, a diagnostic as one (a characterization and the
+        support report share its claim), or a finished run's files still
+        writing. The one rule ``run_lockout`` reads.
+        """
+        holder = self.activity_claim.holder
+        if holder is not None and holder.kind in SCOPE_HOLDING_KINDS:
+            return f'{the_holder_named(holder)} is in progress.'
+        if self.protocol_files_draining:
+            return "A protocol's files are still being written."
+        return None
 
     @property
     def recording_active(self) -> bool:
