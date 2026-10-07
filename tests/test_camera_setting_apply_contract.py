@@ -31,7 +31,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from modules.exceptions import CameraSettingRejected
+from modules.exceptions import CameraSettingRejected, HardwareCommandRefusedError, MissingPart
 from modules.notification_center import Severity
 from tests.test_camera_getter_sentinel_containment import (
     GOOD_ROUND,
@@ -216,33 +216,33 @@ def test_set_pixel_format_driver_raise_becomes_typed_rejection(centre_posts):
     assert imaging.pixel_format_cached == 'Mono12'
 
 
-# --- D. Absent / inactive camera stays a quiet sentinel -------------------------
+# --- D. Absent / inactive camera is refused, naming it ---------------------------
 
 
-def test_absent_camera_setters_return_sentinels_and_notify(centre_posts):
+def _refused_for_the_camera(apply) -> None:
+    with pytest.raises(HardwareCommandRefusedError) as exc:
+        apply()
+    assert exc.value.missing == MissingPart.CAMERA
+
+
+def test_absent_camera_setters_are_refused_and_post_nothing(centre_posts):
     imaging = _build_imaging(None)
 
-    assert imaging.set_frame_size(1900, 1900) is None
-    assert len(_posted(centre_posts, Severity.WARNING)) == 1
+    _refused_for_the_camera(lambda: imaging.set_frame_size(1900, 1900))
+    _refused_for_the_camera(lambda: imaging.set_binning_size(2))
+    _refused_for_the_camera(lambda: imaging.set_pixel_format('Mono8'))
 
-    assert imaging.set_binning_size(2) is False
-    assert len(_posted(centre_posts, Severity.WARNING)) == 2
-
-    assert imaging.set_pixel_format('Mono8') is False
-    assert len(_posted(centre_posts, Severity.WARNING)) == 3
-
-    assert (
-        _posted(centre_posts, Severity.ERROR) == []
-    )  # absent is the quiet shape, not the loud one
+    # Reporting the refusal is the caller's: the API posts nothing.
+    assert _posted(centre_posts, Severity.WARNING) == []
     # Nothing recorded in the cache: every entry still holds its seed.
     assert imaging.frame_size_cached == {'width': 0, 'height': 0}
     assert imaging._binning_size == 1
     assert imaging.pixel_format_cached is None
 
 
-def test_inactive_driver_setters_return_sentinels_without_reaching_driver(centre_posts):
-    # The absent guard checks driver.active too: an inactive driver used to
-    # fall through to the driver's own False (and set_binning_size then
+def test_inactive_driver_setters_are_refused_without_reaching_driver(centre_posts):
+    # The presence question reads driver.active too: an inactive driver used
+    # to fall through to the driver's own False (and set_binning_size then
     # treated it as a live rejection).
     driver = apply_driver(active=False)
     reached = []
@@ -251,12 +251,11 @@ def test_inactive_driver_setters_return_sentinels_without_reaching_driver(centre
     driver.apply_pixel_format = lambda fmt: reached.append(fmt) or True
     imaging = _build_imaging(driver)
 
-    assert imaging.set_frame_size(1900, 1900) is None
-    assert imaging.set_binning_size(2) is False
-    assert imaging.set_pixel_format('Mono8') is False
+    _refused_for_the_camera(lambda: imaging.set_frame_size(1900, 1900))
+    _refused_for_the_camera(lambda: imaging.set_binning_size(2))
+    _refused_for_the_camera(lambda: imaging.set_pixel_format('Mono8'))
     assert reached == [], 'an inactive driver must never receive the apply'
-    assert len(_posted(centre_posts, Severity.WARNING)) == 3
-    assert _posted(centre_posts, Severity.ERROR) == []
+    assert _posted(centre_posts, Severity.WARNING) == []
 
 
 # --- F. initialize persisted-binning reconciliation ------------------------------
@@ -389,15 +388,15 @@ def test_initialize_supported_binning_fires_no_reconciliation_warning(monkeypatc
 
 
 def test_initialize_without_camera_skips_reconciliation_quietly(monkeypatch):
-    # No camera: the applies are quiet no-ops and reconciliation must not run
-    # at all -- the absent-fallback capability values must not masquerade as
-    # a camera's answer and fire a false 'not supported' ERROR.
-    applied, _frames, errors, reached_end = _drive_initialize(
+    # No camera: nothing is applied and reconciliation must not run at all --
+    # the absent-fallback capability values must not masquerade as a
+    # camera's answer and fire a false 'not supported' ERROR.
+    applied, frames, errors, reached_end = _drive_initialize(
         _init_config(8, frame_width=484, frame_height=304),
         monkeypatch,
         no_camera=True,
     )
-    assert applied == [8], 'no reconciliation without a camera: the persisted factor passes'
+    assert (applied, frames) == ([], []), 'with no camera there is nothing to apply'
     assert errors == [], f'no reconciliation/rejection ERROR may fire without a camera: {errors}'
     assert reached_end, 'initialize must complete without a camera'
 

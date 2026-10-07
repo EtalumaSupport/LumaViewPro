@@ -14,7 +14,11 @@ import logging
 
 import pytest
 
-from modules.exceptions import CameraSettingUnsupportedError
+from modules.exceptions import (
+    CameraSettingUnsupportedError,
+    HardwareCommandRefusedError,
+    MissingPart,
+)
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
@@ -52,6 +56,8 @@ def test_with_no_camera_nothing_is_binned_and_nothing_is_stored(session, monkeyp
     before = session.get_binning_size()
     monkeypatch.setattr(type(session.scope), 'camera_connected', property(lambda self: False))
 
-    assert session.set_binning_size(1) is None
+    with pytest.raises(HardwareCommandRefusedError) as exc:
+        session.set_binning_size(1)
+    assert exc.value.missing == MissingPart.CAMERA
 
     assert session.get_binning_size() == before

@@ -5041,23 +5041,27 @@ class TestPylonDiagnosticProbe:
         assert hasattr(DiagnosticsAPI, 'run_pylon_diagnostic_probe')
         assert callable(DiagnosticsAPI.run_pylon_diagnostic_probe)
 
-    def test_no_camera_returns_disconnected(self):
-        """Returns {'connected': False, 'errors': [...]} when no camera."""
-        scope = self._make_scope_with_fake_camera(None)
-        result = scope.diagnostics.run_pylon_diagnostic_probe(duration_s=0.0)
-        assert result['connected'] is False
-        assert isinstance(result.get('errors'), list)
+    def test_no_camera_is_refused_naming_it(self):
+        """With no camera the probe is refused, naming the camera."""
+        from modules.exceptions import HardwareCommandRefusedError, MissingPart
 
-    def test_inactive_camera_returns_disconnected(self):
-        """Camera object exists but inactive -> disconnected."""
+        scope = self._make_scope_with_fake_camera(None)
+        with pytest.raises(HardwareCommandRefusedError) as exc:
+            scope.diagnostics.run_pylon_diagnostic_probe(duration_s=0.0)
+        assert exc.value.missing == MissingPart.CAMERA
+
+    def test_an_inactive_camera_is_refused_naming_it(self):
+        """Camera object exists but inactive: no camera is connected."""
+        from modules.exceptions import HardwareCommandRefusedError, MissingPart
 
         class _Fake:
             active = None
 
-        result = self._make_scope_with_fake_camera(_Fake()).diagnostics.run_pylon_diagnostic_probe(
-            duration_s=0.0
-        )
-        assert result['connected'] is False
+        with pytest.raises(HardwareCommandRefusedError) as exc:
+            self._make_scope_with_fake_camera(_Fake()).diagnostics.run_pylon_diagnostic_probe(
+                duration_s=0.0
+            )
+        assert exc.value.missing == MissingPart.CAMERA
 
     def test_unsupported_driver_returns_supported_false(self):
         """Driver returning supported=False (e.g. IDSCamera stub) is
@@ -5066,6 +5070,9 @@ class TestPylonDiagnosticProbe:
 
         class _StubDriver:
             active = True  # truthy
+
+            def is_connected(self):
+                return True
 
             def read_diagnostic_snapshot(self, duration_s, drain_camera_side_errors):
                 return {
@@ -5091,6 +5098,9 @@ class TestPylonDiagnosticProbe:
         class _NoMethodDriver:
             active = True
 
+            def is_connected(self):
+                return True
+
         result = self._make_scope_with_fake_camera(
             _NoMethodDriver()
         ).diagnostics.run_pylon_diagnostic_probe(duration_s=0.0)
@@ -5107,6 +5117,9 @@ class TestPylonDiagnosticProbe:
 
         class _Driver:
             active = True
+
+            def is_connected(self):
+                return True
 
             def read_diagnostic_snapshot(self, duration_s, drain_camera_side_errors):
                 return {'connected': True, 'supported': True, 'camera': {}, 'config': {}}

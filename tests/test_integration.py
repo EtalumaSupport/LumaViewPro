@@ -967,11 +967,15 @@ class TestRestAPIPrep:
         assert 'Mono8' in formats
 
     def test_pixel_format_inactive_camera(self):
-        """Pixel format methods should handle inactive camera gracefully."""
+        """With no camera the format reads None and a format write is refused."""
+        from modules.exceptions import HardwareCommandRefusedError, MissingPart
+
         session = ScopeSession.create(complete_settings(), simulate=True)
         session.scope._camera_driver = None
         assert session.scope.imaging._get_pixel_format() is None
-        assert session.scope.imaging.set_pixel_format('Mono8') is False
+        with pytest.raises(HardwareCommandRefusedError) as exc:
+            session.scope.imaging.set_pixel_format('Mono8')
+        assert exc.value.missing == MissingPart.CAMERA
 
     def test_get_motor_info(self):
         """get_motor_info() should return model, serial, firmware."""

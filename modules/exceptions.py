@@ -444,9 +444,11 @@ class FocusNotWrittenError(Refusal, ProtocolError):
     again focuses the steps it has now.
 
     Attributes:
+        reason: ``'focus_not_written'``.
         difference: What no longer matches, in the words the person reads.
     """
 
+    reason = 'focus_not_written'
     title = 'Focus Not Saved'
 
     def __init__(self, difference: str):
@@ -635,9 +637,11 @@ class FocusNotSavedError(Refusal, ConfigError):
     stored placeholder is what sent every such channel to one fixed height.
 
     Attributes:
+        reason: ``'focus_not_saved'``.
         layer: The channel asked about.
     """
 
+    reason = 'focus_not_saved'
     title = 'No Focus Saved'
 
     def __init__(self, layer: str):
@@ -808,9 +812,11 @@ class ScopeModelUnknownError(Refusal, ValueError):
     models the catalogue does list.
 
     Attributes:
+        reason: ``'model_unknown'``.
         model: The model that was refused.
     """
 
+    reason = 'model_unknown'
     title = 'Unknown Scope Model'
 
     def __init__(self, model: str, known: Iterable[str]):
@@ -1934,7 +1940,7 @@ class MissingPart:
     The refusal's reason and its sentence are the part's, so no raise words
     its own: a controller the model has is not connected, and every other
     part -- a motor, the turret, an LED -- is not on this scope. The motion
-    parts and the LED controller are the class's constants; an LED is named
+    parts, the LED controller and the camera are the class's constants; an LED is named
     when it is refused (``MissingPart.led``), by layer or by channel number,
     as the command named it.
 
@@ -1956,6 +1962,7 @@ class MissingPart:
     Z: ClassVar['MissingPart']
     TURRET: ClassVar['MissingPart']
     LED_CONTROLLER: ClassVar['MissingPart']
+    CAMERA: ClassVar['MissingPart']
 
     @classmethod
     def axis(cls, axis: str) -> 'MissingPart':
@@ -1997,6 +2004,7 @@ MissingPart.TURRET = MissingPart('T', 'axis_absent', 'This microscope has no tur
 MissingPart.LED_CONTROLLER = MissingPart(
     'LED controller', 'not_connected', 'The LED controller is not connected.'
 )
+MissingPart.CAMERA = MissingPart('camera', 'not_connected', 'The camera is not connected.')
 _AXIS_PARTS = {
     'X': MissingPart.X,
     'Y': MissingPart.Y,
@@ -2076,9 +2084,11 @@ class AccelerationLimitRefusedError(Refusal, ValueError):
     so callers that catch a bad argument keep working.
 
     Attributes:
+        reason: ``'acceleration_out_of_range'``.
         value: What was given, as given.
     """
 
+    reason = 'acceleration_out_of_range'
     title = 'Acceleration Limit Not Changed'
 
     def __init__(self, value: object, low: int, high: int):
@@ -2115,6 +2125,7 @@ class PositionOutOfRangeError(Refusal, ValueError):
     refusal is the same event, and only the sentence differs.
     """
 
+    reason = 'position_out_of_range'
     title = 'Position Out of Range'
 
     def __init__(
@@ -2220,12 +2231,14 @@ class AxisStateUnknownError(Refusal, Exception):
     several-axis gesture reads as one.
 
     Attributes:
+        reason: ``'position_unknown'``.
         axes: Every refused axis, mapped to its state, in the scope's axis
             order.
         axis: The first of them, for callers that map a refusal to a
             response by a single axis (REST status codes, SDK branches).
     """
 
+    reason = 'position_unknown'
     title = 'Scope Not Homed'
 
     def __init__(self, axes: dict[str, str], then: str = 'move it'):
@@ -2265,7 +2278,8 @@ class MoveNotCompletedError(Exception):
             ``'faulted'`` -- something else set the axis UNKNOWN during
             the wait (a disconnect, a home). ``'position_unread'`` -- the
             board reported the axis arrived but not where, within the
-            motion bound. ``'timed_out'`` -- the wait's
+            motion bound. ``'status_unread'`` -- the board did not report
+            whether the axis arrived, within the motion bound. ``'timed_out'`` -- the wait's
             bound ran out before the axis arrived. Each of those leaves
             the axis UNKNOWN. ``'stopped'`` -- a stop the board took while
             it moved halted it, ``stop_motion`` or the stage's own stop in
@@ -2301,6 +2315,10 @@ class MoveNotCompletedError(Exception):
             'it stopped, but the motor board did not report where. The {axis} '
             'position is now unknown -- home the scope before moving it again.'
         ),
+        'status_unread': (
+            'the motor board did not report whether it arrived. The {axis} '
+            'position is now unknown -- home the scope before moving it again.'
+        ),
         'timed_out': (
             'it did not arrive within the motion time limit. The {axis} position '
             'is now unknown -- home the scope before moving it again.'
@@ -2314,6 +2332,7 @@ class MoveNotCompletedError(Exception):
         'stalled': 'Motor Axis Stalled',
         'board_lost': 'Motor Board Disconnected',
         'position_unread': 'Motor Position Unknown',
+        'status_unread': 'Motor Position Unknown',
     }
 
     def __init__(self, axis: str, reason: str):

@@ -87,11 +87,11 @@ The remainder of this document is organized as the sub-API reference (one sectio
 Methods on the L2 surface follow one of two contracts; if a method's docstring has a `Raises:` section it follows the raise contract, otherwise the sentinel contract.
 
 - **Hardware-state queries** (capability probes, status reads, getters like `get_led_state`, `get_target_position`, `get_led_states`, `max_gain_db_cached`, `read_motor_fan_rpm`) return a sentinel value -- `None`, `False`, or an empty container -- when the value cannot be read (no hardware, channel not set, firmware does not implement the probe). No exception is raised. The caller branches on the sentinel.
-- **Camera value getters** (`get_gain_db`, `get_exposure_ms`, `get_width`/`get_height`, `get_binning_size`) are a stricter subclass of the sentinel contract: a **transient read failure is invisible** -- the getter answers with the validated last-known-good value, so a momentary USB/SDK glitch can never hand you a failure code where a physical value belongs (no `-1` gain into arithmetic, no `None` frame size into a subscript). The documented camera-absent defaults (`get_gain_db` -1.0, `get_exposure_ms` 0.0, width/height getters 0, `get_binning_size` 1) occur **only** when no camera is active or the value has never been successfully read -- stable states you can see coming via `camera_connected`, not something a transient failure produces mid-session. Callers that must record what the hardware was at a specific moment (file metadata, logs of record) use `get_live_camera_settings()` instead: it returns only fields whose driver read succeeded right now (`gain_db`, `exposure_ms`, `frame_size`, `pixel_format`) and omits the rest -- there, unknown stays unknown by design.
+- **Camera value getters** (`get_gain_db`, `get_exposure_ms`, `get_width`/`get_height`, `get_binning_size`) are a stricter subclass of the sentinel contract: a **transient read failure is invisible** -- the getter answers with the validated last-known-good value, so a momentary USB/SDK glitch can never hand you a failure code where a physical value belongs (no `-1` gain into arithmetic, no `None` frame size into a subscript). The no-camera answers (`get_gain_db`, `get_exposure_ms` and the width/height getters `None`, `get_binning_size` 1) occur **only** when no camera is active or the value has never been successfully read -- stable states you can see coming via `camera_connected`, not something a transient failure produces mid-session. Callers that must record what the hardware was at a specific moment (file metadata, logs of record) use `get_live_camera_settings()` instead: it returns only fields whose driver read succeeded right now (`gain_db`, `exposure_ms`, `frame_size`, `pixel_format`) and omits the rest -- there, unknown stays unknown by design.
 - **Naming convention -- `*_cached` vs `get_*`**: a property ending in `_cached` (`gain_db_cached`, `exposure_ms_cached`, `frame_size_cached`, `pixel_format_cached`, `active_cached`, `min_frame_size_cached`, `max_exposure_ms_cached`, `max_gain_db_cached`, `min_exposure_ms_cached`, `min_gain_db_cached`) reads the host-side camera cache and performs **no driver I/O** -- safe to read at any frequency from any thread. A `get_*` method is a **live driver read** under the last-known-good contract above. The name carries the contract, so a call site's I/O behavior is visible without opening the implementation.
 - **State-changing operations** (setters like `move_absolute`, `led_on`, etc.) typically return `True` on success and `False` for "couldn't do it" (no driver, mode invalid, driver does not implement, etc.). A `Raises:` section in the docstring documents the typed exception (`HardwareError`, `CaptureError`, `ConfigError` from `modules.exceptions`) that propagates when the underlying SDK call itself fails. Some members still log and show their own notification before re-raising; they are being moved to raise only, so the failure is shown once, by whoever reports it. The typed exception is what L2 callers should catch. **Read the member's own `Raises:` section rather than this paragraph: it is the declaration, and not every setter returns a status.**
-- **Camera setting applies** (`set_gain_db`, `set_exposure_ms`, `set_black_level`, `set_frame_size`, `set_binning_size`, `set_pixel_format`) are the raise contract, not the True/False one. A confirmed driver rejection raises `CameraSettingRejected` (`modules.exceptions`), a fault carrying `setting`, `requested`, and the `title` and message a person reads; nothing is logged or shown before it reaches you, so reporting it is yours. Success is observed by the returned value, which is what the camera actually applied and may differ from the request: the DELIVERED size for the geometry setters, and for `set_gain_db` / `set_exposure_ms` the gain in dB / exposure in ms now in effect (a body snaps or quantizes). A gain or exposure outside the camera's declared range (`min_gain_db_cached` .. `max_gain_db_cached`, `min_exposure_ms_cached` .. `max_exposure_ms_cached`) is refused before anything reaches the camera with `CameraSettingOutOfRangeError`, a refusal and a `ValueError`, carrying `reason` (`gain_db_out_of_range` / `exposure_ms_out_of_range`), `requested`, `minimum` and `maximum`, and a message naming the range; an end the camera does not declare is `None` and is not checked. A frame width or height outside [`min_frame_size_cached`, the scope's maximum / the current binning] is refused the same way from `set_frame_size` (`frame_width_out_of_range` / `frame_height_out_of_range`); the scope's maximum is `capabilities.camera_max_frame_size`, unbinned: the sensor, or the model's smaller one where its lens images less of the sensor (1700 on the LS560). When it is `None` the maximum is unknown and is not checked. Inside the range every camera delivers exactly the size asked for: it acquires the next window up on its own grid and crops back. The Session's `set_frame_size` floors the size to even sides first (`get_pixel_alignment()`, `{2, 2}` on every camera) and refuses before it stores. Two cases are deliberately **not** rejections and do not raise: no camera is active (a quiet no-op per the missing-hardware contract), and a driver with no confirmation signal (it answers `None`, meaning "cannot confirm", not "refused"). Gain and exposure rejections are both confirmable on Basler and IDS bodies. On the Classic (FX2) body the sensor register write raises out of the driver rather than reporting a refusal, so a failed apply there reaches you as that exception instead of as `CameraSettingRejected`.
-- **Hardware-command dispatch** (LED, motion, and camera commands): each command submits to one of the scope's own lanes -- IO for LED and motion, CAMERA for camera -- and blocks until the hardware has it. Every `Lumascope` builds and starts its two lanes, a bare `Lumascope()` in a script included, so commands from every caller run one at a time per bus, in order. While a protocol run owns the lanes (or a lane is disabled), the command raises `HardwareCommandRefusedError` (`modules.exceptions`), carrying the machine-readable `reason` (`exclusive_activity_running`) and the refused member. After `scope.disconnect()` the lanes are shut, and every command raises at once with `reason` `scope_disconnected`, `stop_motion` included. A motion or LED command for hardware the scope does not have raises it too, before anything moves or lights, and its `missing` (a `MissingPart`, `modules.exceptions`) names the part, its words coming from it: `reason` `not_connected` when the model has a motor controller and none is connected -- never came up, or its cable pulled -- (`MissingPart.MOTOR_CONTROLLER`, "Check the USB cable ..."), or when no LED controller is connected (`MissingPart.LED_CONTROLLER`); `axis_absent` when the scope has no such motor or LED: `MissingPart.X`, `Y` or `Z` for an axis it lacks, `MissingPart.TURRET` for a turret, and `MissingPart.MOTORS` on a manual scope (LS620, LS560), for every motion command, `stop_motion`, `home()` and the acceleration limit included; `MissingPart.led(...)` for an LED the model lacks, named as the command named it ("This microscope has no Red LED.", "... no LED on channel 2."). A name that is no axis at all stays a `ValueError`. An LED off whose end state already holds is not refused: an off of a channel the API holds dark, of an LED the model lacks, or with no LED controller and nothing believed lit returns with nothing written and nothing logged. There is one form of each command; a caller that must not wait runs it on its own thread.
+- **Camera setting applies** (`set_gain_db`, `set_exposure_ms`, `set_black_level`, `set_frame_size`, `set_binning_size`, `set_pixel_format`) are the raise contract, not the True/False one. A confirmed driver rejection raises `CameraSettingRejected` (`modules.exceptions`), a fault carrying `setting`, `requested`, and the `title` and message a person reads; nothing is logged or shown before it reaches you, so reporting it is yours. Success is observed by the returned value, which is what the camera actually applied and may differ from the request: the DELIVERED size for the geometry setters, and for `set_gain_db` / `set_exposure_ms` the gain in dB / exposure in ms now in effect (a body snaps or quantizes). A gain or exposure outside the camera's declared range (`min_gain_db_cached` .. `max_gain_db_cached`, `min_exposure_ms_cached` .. `max_exposure_ms_cached`) is refused before anything reaches the camera with `CameraSettingOutOfRangeError`, a refusal and a `ValueError`, carrying `reason` (`gain_db_out_of_range` / `exposure_ms_out_of_range`), `requested`, `minimum` and `maximum`, and a message naming the range; an end the camera does not declare is `None` and is not checked. A frame width or height outside [`min_frame_size_cached`, the scope's maximum / the current binning] is refused the same way from `set_frame_size` (`frame_width_out_of_range` / `frame_height_out_of_range`); the scope's maximum is `capabilities.camera_max_frame_size`, unbinned: the sensor, or the model's smaller one where its lens images less of the sensor (1700 on the LS560). When it is `None` the maximum is unknown and is not checked. Inside the range every camera delivers exactly the size asked for: it acquires the next window up on its own grid and crops back. The Session's `set_frame_size` floors the size to even sides first (`get_pixel_alignment()`, `{2, 2}` on every camera) and refuses before it stores. With no camera connected each raises `HardwareCommandRefusedError` (`not_connected`, `MissingPart.CAMERA`; see the dispatch paragraph below), not `CameraSettingRejected`. A driver with no confirmation signal is deliberately **not** a rejection and does not raise: it answers `None`, meaning "cannot confirm", not "refused". Gain and exposure rejections are both confirmable on Basler and IDS bodies. On the Classic (FX2) body the sensor register write raises out of the driver rather than reporting a refusal, so a failed apply there reaches you as that exception instead of as `CameraSettingRejected`.
+- **Hardware-command dispatch** (LED, motion, and camera commands): each command submits to one of the scope's own lanes -- IO for LED and motion, CAMERA for camera -- and blocks until the hardware has it. Every `Lumascope` builds and starts its two lanes, a bare `Lumascope()` in a script included, so commands from every caller run one at a time per bus, in order. While a protocol run owns the lanes (or a lane is disabled), the command raises `HardwareCommandRefusedError` (`modules.exceptions`), carrying the machine-readable `reason` (`exclusive_activity_running`) and the refused member. After `scope.disconnect()` the lanes are shut, and every command raises at once with `reason` `scope_disconnected`, `stop_motion` included. A motion, LED or camera command for hardware the scope does not have raises it too, before anything moves, lights or is written, and its `missing` (a `MissingPart`, `modules.exceptions`) names the part, its words coming from it: `reason` `not_connected` when the model has a motor controller and none is connected -- never came up, or its cable pulled -- (`MissingPart.MOTOR_CONTROLLER`, "Check the USB cable ..."), or when no LED controller is connected (`MissingPart.LED_CONTROLLER`), or no camera ("The camera is not connected.", `MissingPart.CAMERA`: every camera command, the camera's diagnostic runners, `add_frame_listener` and a manual still's Future included); `axis_absent` when the scope has no such motor or LED: `MissingPart.X`, `Y` or `Z` for an axis it lacks, `MissingPart.TURRET` for a turret, and `MissingPart.MOTORS` on a manual scope (LS620, LS560), for every motion command, `stop_motion`, `home()` and the acceleration limit included; `MissingPart.led(...)` for an LED the model lacks, named as the command named it ("This microscope has no Red LED.", "... no LED on channel 2."). A name that is no axis at all stays a `ValueError`. An LED off whose end state already holds is not refused: an off of a channel the API holds dark, of an LED the model lacks, or with no LED controller and nothing believed lit returns with nothing written and nothing logged. So with no camera does a camera off, with the answer it gives with a camera: `stop_streaming` (None), `set_auto_gain(False, ...)` and `set_auto_exposure_time(False)` (True), `lock_auto_gain` (an `AutoGainLock` whose `state` is None: no arm can stand), and `restore_camera_state` of a snapshot taken with no camera (a snapshot holding a setting is refused). `remove_frame_listener` never needs a camera. There is one form of each command; a caller that must not wait runs it on its own thread.
 - **Sentinel-return methods log** at `logger.warning` or `logger.info` per Rule 5; they do **not** fire user notifications (no actionable failure occurred -- the value is just unknown).
 - **`camera_connected` is an instantaneous, non-latching poll.** A `False` can be transient (a single flaky connectivity query on an otherwise healthy camera). Consumers may skip work on `False` and re-poll on their next cycle; they must never latch, self-cancel, or tear anything down on it -- one transient `False` on a multi-day run should cost one skipped cycle, not the rest of the session.
 - **`scope.imaging.camera_removed` is the latched answer.** It is True once the camera's driver has declared it removed (unplugged, off the bus), and stays True until the camera connects again. Unlike a `False` from `camera_connected`, it is never transient, so it is safe to act on: a run that fails a capture after the camera was removed ends at once, `status='failed'`, `reason='hardware_disconnected'`. False on a scope with no camera at all.
@@ -398,7 +398,7 @@ session.frame_at_binning(2)                  # the frame set_binning_size(2) wil
 session.get_binning_size()                   # the binning factor in force, e.g. 2: the one the camera took
 ```
 
-With no camera connected, `set_binning_size` and `set_frame_size` return `None` and store nothing. `set_image_mode` stores the mode for bring-up to apply.
+With no camera connected, `set_binning_size` and `set_frame_size` raise `HardwareCommandRefusedError` (`not_connected`, `MissingPart.CAMERA`) and store nothing. `set_image_mode` stores the mode for bring-up to apply.
 
 The image mode is a save policy, and every camera honours every mode. `'8bit'` reduces each frame to 8 bits. The three full-depth modes keep the payload at the depth the frame has: `'12bit_scientific'` (labelled "Scientific (full depth)") stores it right-aligned, `'12bit_scaled'` ("Scaled (full depth)") left-justifies it to fill its 16-bit container, and `'12bit_false_color_rgb'` ("RGB (full depth)") writes it as false-colour RGB. The ids keep their `12bit_` names: a camera with a 12-bit format is asked for it in a full-depth mode, and an 8-bit camera (LS560/620/720) delivers 8 bits in every mode. Bring-up runs the saved mode as saved.
 
@@ -665,7 +665,7 @@ print(result.status, result.reason, result.message)
 pending.stop()
 ```
 
-**Standalone autofocus.** `run_autofocus(layer)` focuses once on one layer at the current stage position, without a protocol:
+**Standalone autofocus.** `run_autofocus(layer)` focuses once on one layer at the current stage position, without a protocol. Before a home there is no current position to start from: it raises `AxisStateUnknownError` (from `session.get_current_plate_position()`), as `run_zstack` and `start_composite` do:
 
 ```python
 pending = runner.run_autofocus('BF', save_characterization_data=True)
@@ -757,7 +757,7 @@ lock = session.set_layer_auto_gain('BF', False)
 lock.state, session.settings['BF']['gain_db'], session.settings['BF']['exposure_ms']
 ```
 
-**Creating a protocol.** `session.new_protocol(tiling='1x1', use_zstacking=False, period=None, duration=None)` does what the GUI's New does: one step per layer whose `acquire` is set, at every well of the session's labware, with the current objective, tiled and z-stacked as asked. `period` and `duration` are `datetime.timedelta`s; one left out (None) is the stored default's (`settings['protocol']`), and one scan is `timedelta(0)`. The GUI passes the schedule on screen. When no layer is set to acquire it raises `ProtocolRunRefusedError` with reason `no_acquiring_layer`, and a `tiling` this installation does not offer raises it with reason `tiling_unknown`; each is logged and notified once and builds nothing; a labware with no wells gives an empty protocol to fill with `add_step`. `session.create_empty_protocol()` is the no-step protocol that needs no objective.
+**Creating a protocol.** `session.new_protocol(tiling='1x1', use_zstacking=False, period=None, duration=None)` does what the GUI's New does: one step per layer whose `acquire` is set, at every well of the session's labware, with the current objective, tiled and z-stacked as asked. `period` and `duration` are `datetime.timedelta`s; one left out (None) is the stored default's (`settings['protocol']`), and one scan is `timedelta(0)`. The GUI passes the schedule on screen. When no layer is set to acquire it raises `ProtocolRunRefusedError` with reason `no_acquiring_layer`, and a `tiling` this installation does not offer raises it with reason `tiling_unknown`; each is logged and notified once and builds nothing; a labware with no wells gives an empty protocol to fill with `add_step`. When a layer set to acquire has no saved focus its steps take the current Z, so with Z's position unknown (before a home) it raises `AxisStateUnknownError` naming Z, reported once, and builds nothing; with every acquiring layer focused it builds before a home too. `session.create_empty_protocol()` is the no-step protocol that needs no objective.
 
 **A protocol's schedule.** `protocol.period()` and `protocol.duration()` are the protocol's own, and the run runs them. `protocol.modify_time_params(period=..., duration=...)` sets both: a period is None or `timedelta(0)` (one scan) or at least one second, and a duration is None, `timedelta(0)` or more. Anything else -- a sub-second or negative period, a negative duration, a value that is not a `timedelta` -- raises `ProtocolScheduleRefusedError` (from `modules.protocol`; a `ProtocolFormatError`, a refusal) naming the value and the rule, and the protocol keeps the schedule it had; nothing is raised to one second. A protocol built with one, or a file carrying one, is refused the same way, the file by name. Post-processing a finished run reads its saved protocol without judging the schedule, which it never uses, so a run saved by a release that allowed a shorter period can still be stitched or projected. `schedule_from_units('period', minutes)` and `schedule_from_units('duration', hours)` convert the units the file and the settings hold, refusing what is not a runnable number.
 
@@ -820,14 +820,14 @@ x, y, z = scope.protocols.stage_targets(protocol, 60.0, 40.0, 5000.0)   # None f
 to_plate = scope.protocols.plate_transform(protocol, stage_offset=offset)   # stage um -> the protocol's plate mm, bound now
 ```
 
-**Going to a step.** `session.go_to_step(protocol, step_idx)` does what a click on a step does, as one task on the scope's IO lane: it asks every axis once whether it knows its position, turns the turret to the slot carrying the step's objective, starts X, Y and Z towards the step's targets together (`scope.protocols.step_targets`, above), puts the step's values into its layer's live settings (the layer acquiring as the step does, its focus at the step's Z, its stimulation from the step's), and applies the step's LED preview: the step's channel at its current when `protocol_led_on` is set, every channel dark when not. While the stage travels it puts the step's layer on the camera (`session.apply_layer_camera`, below), and it returns once the camera holds that layer's exposure, gain and auto-gain and X, Y and Z have arrived, waiting off the IO lane so the lane takes other work meanwhile; a move that does not arrive raises `MoveNotCompletedError`, with the layer and the preview already the step's, and a setting the camera refuses raises `CameraSettingRejected` once the stage has arrived. `session.start_go_to_step(protocol, step_idx)` does the same but for the camera and returns the started X, Y and Z moves without waiting (their `wait()` gives each outcome): the form for a click, where a second click re-targets the stage at once, and whose caller applies the camera. Only the axes the scope has are moved: a manual scope moves nothing, does the rest and returns no moves; a motorized scope whose motor controller is not connected is refused with `HardwareCommandRefusedError` (`not_connected`) before anything changes, and so is a step whose preview would light on a scope with no LED controller connected (a dark preview needs none, so with `protocol_led_on` off the stage still moves); after `scope.disconnect()` it raises `scope_disconnected`. A repeat of the step the session last went to (a re-click) does everything but the preview, so a channel lit or put out in between stays as it was; a run transition forgets it. It is refused before anything changes: a `step_idx` that is not a step of `protocol` with `StepNotFoundError`; a step whose objective this scope cannot put in the light path with `ProtocolRunRefusedError`; a step on a layer this scope lacks, or a stimulation naming no layer, with `ConfigError`; an axis that does not know its position with `AxisStateUnknownError` (logged and notified once); a scope held by a run or a diagnostic with `HardwareCommandRefusedError`. A step outside an axis's travel raises `PositionOutOfRangeError` from that axis's move; the axes before it have moved and nothing else changes.
+**Going to a step.** `session.go_to_step(protocol, step_idx)` does what a click on a step does, as one task on the scope's IO lane: it asks every axis once whether it knows its position, turns the turret to the slot carrying the step's objective, starts X, Y and Z towards the step's targets together (`scope.protocols.step_targets`, above), puts the step's values into its layer's live settings (the layer acquiring as the step does, its focus at the step's Z, its stimulation from the step's), and applies the step's LED preview: the step's channel at its current when `protocol_led_on` is set, every channel dark when not. While the stage travels it puts the step's layer on the camera (`session.apply_layer_camera`, below), and it returns once the camera holds that layer's exposure, gain and auto-gain and X, Y and Z have arrived, waiting off the IO lane so the lane takes other work meanwhile; a move that does not arrive raises `MoveNotCompletedError`, with the layer and the preview already the step's, and a setting the camera refuses raises `CameraSettingRejected` once the stage has arrived. `session.start_go_to_step(protocol, step_idx)` does the same but for the camera and returns the started X, Y and Z moves without waiting (their `wait()` gives each outcome): the form for a click, where a second click re-targets the stage at once, and whose caller applies the camera. Only the axes the scope has are moved: a manual scope moves nothing, does the rest and returns no moves; a motorized scope whose motor controller is not connected is refused with `HardwareCommandRefusedError` (`not_connected`) before anything changes, and so is a scope with no camera connected (`MissingPart.CAMERA`), and a step whose preview would light on a scope with no LED controller connected (a dark preview needs none, so with `protocol_led_on` off the stage still moves); after `scope.disconnect()` it raises `scope_disconnected`. A repeat of the step the session last went to (a re-click) does everything but the preview, so a channel lit or put out in between stays as it was; a run transition forgets it. It is refused before anything changes: a `step_idx` that is not a step of `protocol` with `StepNotFoundError`; a step whose objective this scope cannot put in the light path with `ProtocolRunRefusedError`; a step on a layer this scope lacks, or a stimulation naming no layer, with `ConfigError`; an axis that does not know its position with `AxisStateUnknownError` (logged and notified once); a scope held by a run or a diagnostic with `HardwareCommandRefusedError`. A step outside an axis's travel raises `PositionOutOfRangeError` from that axis's move; the axes before it have moved and nothing else changes.
 
 ```python
 session.go_to_step(protocol, 2)                       # turret, X, Y, Z, the layer, the LED, the camera; returns on arrival
 moves = session.start_go_to_step(protocol, 3)         # the same, started; each move's wait() gives its outcome
 ```
 
-**Putting a layer on the camera.** `session.apply_layer_camera(layer)` puts the layer's stored exposure, gain and auto-gain on the camera and waits; it returns the gain and exposure now in effect (None with no camera). A stored auto-gain arms the live auto loop, capped to the layer's channel class; a camera without hardware auto-gain applies the layer manually. Bring-up applies BF this way (skipped with no camera, or on a scope with no BF layer), and `go_to_step` the step's layer. Refused: a layer this scope lacks with `ConfigError`; a scope held by a run (an autofocus is one) or a diagnostic with `HardwareCommandRefusedError`; a setting the camera refuses raises `CameraSettingRejected` with the other settings applied.
+**Putting a layer on the camera.** `session.apply_layer_camera(layer)` puts the layer's stored exposure, gain and auto-gain on the camera and waits; it returns the gain and exposure now in effect. A stored auto-gain arms the live auto loop, capped to the layer's channel class; a camera without hardware auto-gain applies the layer manually. Bring-up applies BF this way (skipped with no camera, or on a scope with no BF layer), and `go_to_step` the step's layer. Refused: a layer this scope lacks with `ConfigError`; a scope held by a run (an autofocus is one) or a diagnostic, or with no camera connected (`not_connected`), with `HardwareCommandRefusedError`; a setting the camera refuses raises `CameraSettingRejected` with the other settings applied.
 
 ```python
 session.apply_layer_camera('Blue')                   # {'gain_db': ..., 'exposure_ms': ...} now in effect
@@ -973,7 +973,7 @@ Each call carries one `Notification` (`modules.notification_center`):
 |---|---|
 | `kind` | `OutcomeKind`, a string enum: `'refusal'` (declined; nothing broke), `'fault'` (something failed), `'notice'` (information; nothing failed), or `'unclassified'` (a notification posted without declaring its kind; these are being moved to declared kinds) |
 | `title`, `message` | The heading and the sentence, written for the person |
-| `reason` | The outcome's machine-readable code, stable enough to branch on (a refusal's, a fault's or a notice's); empty for one that declares none |
+| `reason` | The outcome's machine-readable code, stable enough to branch on (a refusal's, a fault's or a notice's). Every refusal declares one (`tests/guards/test_every_refusal_states_its_reason.py`); empty for a fault or notice that declares none |
 | `remedy` | A `Remedy` when the outcome has one action that answers it: `session.apply_remedy(n.remedy)` takes it |
 | `solicited` | True when it answers a request a person or caller just made |
 | `fatal` | True for a fault that ends what was running |
@@ -1093,6 +1093,7 @@ still states the major version.
 | level 1 | `capabilities.camera_analog_gain_max_db`; `capabilities.camera_reports_temperature`, and `get_camera_temperatures_degc` answering `{}` only with no sensor, `None` with no camera, and raising on a failed read; `save_camera_state` / `restore_camera_state` covering pixel format, frame size, binning and black level. |
 | level 2 | `imaging.get_black_level_range()`: the range `set_black_level` accepts for the current pixel format. |
 | level 3 | With no LED board: `led_on` and a lighting transition raise `not_connected`, the LED state reads (`get_led_state`, `get_led_states`, `save_led_state`) answer `None`, and `capabilities.led_max_ma` / `led_channels` are `None`; `led_on` for an LED the model lacks raises `axis_absent`. |
+| level 4 | With no camera: every camera command raises `not_connected` (`MissingPart.CAMERA`) but an off whose end state holds; `get_gain_db`, `get_exposure_ms`, `get_width` and `get_height` answer `None`; after `disconnect()` the camera cache holds the no-camera values and `get_camera_temperatures_degc` / `get_camera_link_info` answer `None`. |
 
 ### Configuration queries
 
@@ -1105,7 +1106,9 @@ session.capture_settings_snapshot()      # settings snapshot with objective_id s
                                          # for composing a capture or run; not for saving
 session.get_current_plate_position()     # current XY in plate coords; ConfigError when the stored plate is not in
                                          # the catalogue; HardwareCommandRefusedError('not_connected') when this
-                                         # model has a motor controller and none is connected
+                                         # model has a motor controller and none is connected;
+                                         # AxisStateUnknownError when an axis does not know its position
+                                         # (before a home) -- never a converted number nobody read
 session.get_auto_gain_settings()         # auto-gain config
 session.get_stim_configs()               # stim settings per layer
 session.get_enabled_stim_configs()       # only the enabled ones
@@ -1125,8 +1128,12 @@ config = session.get_sequenced_capture_config(tiling='2x2', use_zstacking=True)
 
 A layer whose focus was never saved (`get_layer_configs()[layer]['focus']`
 is `None`) is imaged at the stage's Z when the config was built: the
-config carries it as `current_z`, read from `get_current_plate_position()`.
-A layer with a saved focus keeps it.
+config carries it as `current_z`, Z's position from `scope.motion.axis_positions()`,
+or `None` while Z does not know it (before a home); a scope with no Z motor
+carries the plate position's Z. A layer with a saved focus keeps it.
+`new_protocol` refuses the unknown Z; a config passed to
+`scope.protocols.create_protocol` with an unfocused acquiring layer and no
+`current_z` raises `ConfigError`.
 
 The GUI builds the same configuration through the same builder, supplying
 those two from its own controls, so a scripted run and a run started from the
@@ -1250,9 +1257,10 @@ scope.motion.start_move_relative('Z', 100).wait()
 # A move that does not complete raises MoveNotCompletedError, one object with
 # .axis, .reason and .title, and the axis is UNKNOWN afterwards (except
 # 'stopped' and 'superseded'): 'driver_failed' (the board did not take the command; chained
-# from the driver's error), 'stalled' / 'board_lost' / 'position_unread' (the
-# motion monitor gave the axis up -- the last when the board said it arrived but
-# never said where; a waited move raises the very object the monitor reported),
+# from the driver's error), 'stalled' / 'board_lost' / 'position_unread' /
+# 'status_unread' (the motion monitor gave the axis up -- 'position_unread' when
+# the board said it arrived but never said where, 'status_unread' when it never
+# said whether it arrived; a waited move raises the very object the monitor reported),
 # 'timed_out' (the wait's bound ran out), 'faulted' (set UNKNOWN by something
 # else during the wait), 'stopped' (a stop landed on it: stop_motion, or the
 # stage's own stop in refusing a move), 'superseded'
@@ -1277,7 +1285,9 @@ step = scope.motion.jog_step('Z', coarse=True)
 scope.motion.move_relative('Z', -step)
 
 # Status
-scope.motion.get_target_status('Z')              # True if target reached
+scope.motion.get_target_status('Z')              # True if target reached, False if short of it;
+                                                 # HardwareCommandRefusedError 'not_connected' / 'axis_absent'
+                                                 # for hardware the scope lacks, HardwareError on a failed read
 scope.motion.is_moving()                         # any axis moving?
 scope.motion.wait_until_finished_moving()        # block until the axes moving now stop; raises MoveNotCompletedError
                                                  # if one ended UNKNOWN, or 'still_moving' if the wait ran out
@@ -1286,8 +1296,11 @@ scope.motion.position_is_known('Z')              # False until homed: an absolut
 # Limit switches -- why a move stopped short. Reaching a limit is reported,
 # not raised, so a move that ran out of travel and one that arrived look the
 # same until you ask.
-scope.motion.get_limit_switch_status('X')        # (left, right); 1 engaged, 0 clear, -1 unreadable
-scope.motion.get_limit_switch_status_all_axes()  # dict of axis -> that pair, for the axes the board has
+scope.motion.get_limit_switch_status('X')        # (left, right); 1 engaged, 0 clear, -1 unreadable;
+                                                 # HardwareCommandRefusedError 'not_connected' / 'axis_absent'
+                                                 # for a switch the scope lacks -- never (0, 0)
+scope.motion.get_limit_switch_status_all_axes()  # dict of axis -> that pair, for the axes the board has;
+                                                 # 'not_connected' with no motor controller
 
 # Turret
 scope.capabilities.has_turret                    # turret presence probe
@@ -1518,9 +1531,9 @@ image = scope.imaging.capture_and_wait(
 
 # Exposure (milliseconds) + gain (dB)
 scope.imaging.set_exposure_ms(exposure_ms=50)
-scope.imaging.get_exposure_ms()                  # last-known-good on transient read failure; 0.0 camera-absent
+scope.imaging.get_exposure_ms()                  # last-known-good on transient read failure; None camera-absent
 scope.imaging.set_gain_db(gain_db=10.0)
-scope.imaging.get_gain_db()                           # last-known-good on transient read failure; -1.0 camera-absent
+scope.imaging.get_gain_db()                           # last-known-good on transient read failure; None camera-absent
 
 # Live-confirmed readings for metadata / records: only fields whose
 # driver read succeeded RIGHT NOW; a field whose read failed is omitted
@@ -1575,7 +1588,7 @@ scope.imaging.update_auto_gain_target_brightness(0.5)   # live setpoint tweak wh
 
 # Camera-model-specific tuning knobs. Probe support first:
 # scope.capabilities.camera_supports_conversion_gain_mode / _line_noise_reduction.
-scope.imaging.set_conversion_gain_mode('High')     # True when applied; False when unsupported / no camera
+scope.imaging.set_conversion_gain_mode('High')     # True when applied; False when unsupported; refused not_connected with no camera
 scope.imaging.set_line_noise_reduction(True)       # same contract
 
 # Black level: the camera's own offset parameter, in the camera's own units
@@ -1600,14 +1613,15 @@ scope.imaging.get_resulting_frame_rate()           # fps; None when no camera or
                                                    #   raises HardwareError when the read fails (no cache)
 
 # Frame size (getters answer last-known-good on a transient read
-# failure; None / 0 only when no camera is active or never read)
+# failure; None only when no camera is active or never read)
 delivered = scope.imaging.set_frame_size(2048, 2048)
 # Returns the DELIVERED {'width','height'}: the size asked for, on every
 # camera (it acquires the next window up on its grid and crops back).
 # Only a size within one grid step of the camera's own maximum comes
 # back smaller: no window on its grid holds it.
 # Raises CameraSettingRejected (modules.exceptions) when a live camera
-# refuses the apply; returns None (no-op) when no camera is active.
+# refuses the apply; raises HardwareCommandRefusedError (not_connected)
+# when no camera is connected.
 # Base geometry code on the returned dict, never on the request.
 scope.imaging.frame_size_cached                    # {'width': ..., 'height': ...} -- cache read, no driver I/O
 scope.capabilities.camera_max_frame_size           # (width, height) the scope's unbinned frame ceiling: the sensor,
@@ -1617,7 +1631,7 @@ scope.imaging.get_pixel_alignment()                # {'width','height'} delivera
 # Binning
 scope.imaging.set_binning_size(2)
 # True when applied; raises CameraSettingRejected when a live camera
-# refuses; False (no-op) only when no camera is active. Same contract
+# refuses; HardwareCommandRefusedError (not_connected) with no camera. Same contract
 # for set_pixel_format. Success is observed by the return value,
 # rejection by the typed raise -- a dropped return cannot silently
 # record a rejected apply.
@@ -1626,7 +1640,7 @@ scope.capabilities.camera_binning_sizes            # e.g. (1, 2, 4)
 scope.imaging.set_pixel_format('Mono12')           # True when applied; raises CameraSettingRejected on refusal
 scope.capabilities.camera_pixel_formats            # e.g. ('Mono8', 'Mono12') -- the enumeration for set_pixel_format
 
-# Geometry value getters (last-known-good on a transient failed read; 0 camera-absent)
+# Geometry value getters (last-known-good on a transient failed read; None camera-absent)
 scope.imaging.get_width()
 scope.imaging.get_height()
 
@@ -1734,6 +1748,7 @@ scope.imaging.remove_frame_listener(on_frame)
 - **Don't-mutate contract.** The `image` array is shared across all listeners. Write to your own output buffer if you need to keep results; mutating the array affects later listeners + downstream display / capture consumers.
 - **Budget.** Each handler must complete within ~24 ms (anchored to a 30 fps target, half the inter-frame window). Over-budget invocations log a WARNING. After 30 consecutive over-budget hits, the handler is auto-removed and reported once as a `FrameHandlerRemovedError` warning (reason `over_budget`).
 - **A handler that raises.** The first error of a run of failures is logged with its traceback; the rest are counted. A handler that raises on 30 consecutive frames is removed the same way (reason `raised`). A frame it handles without raising resets the count.
+- **With no camera connected** `add_frame_listener` raises `HardwareCommandRefusedError` (`not_connected`, `MissingPart.CAMERA`; `scope_disconnected` after `disconnect()`) and registers nothing.
 - **A registration the camera refuses** raises `FrameListenerNotRegisteredError` (a `CaptureError`, `reason='frame_listener_refused'`), chained from the driver's error; nothing is left registered, so the call can be retried.
 - **Removal.** Once `remove_frame_listener` returns, no new call reaches the handler (a call already running completes), even if the camera driver fails to unregister it.
 - **Re-entrancy.** A handler will not be re-entered on the same thread; the driver's fire-site is single-threaded.
@@ -1898,7 +1913,7 @@ info = scope.diagnostics.get_camera_diagnostic_info()
 
 # Camera temperature sensors. Returns dict {sensor_name: degC}; empty only
 # for a camera with no temperature sensor (capabilities.camera_reports_temperature
-# False); None when no camera is active. A read that fails on an active camera
+# False); None when no camera is connected, after disconnect() too. A read that fails on an active camera
 # raises HardwareError: neither {} nor None ever stands for a failure.
 temps = scope.diagnostics.get_camera_temperatures_degc()
 
@@ -1907,7 +1922,8 @@ temps = scope.diagnostics.get_camera_temperatures_degc()
 # each None where the camera does not report it (packet size and delay are
 # GigE's). The speed is in the unit the camera declares, never converted:
 # Basler's varies by model; the FX2's is 'Mbps'.
-# None when no camera is active; a failed read raises HardwareError.
+# None when no camera is connected, after disconnect() too; a failed read
+# raises HardwareError.
 link = scope.diagnostics.get_camera_link_info()
 
 # Throughput and latency characterization. Both run through the
@@ -2009,7 +2025,7 @@ caps.camera_reports_temperature # the camera has a temperature sensor (probed at
 
 Important consequences:
 
-- **`camera_max_frame_size` is `None` when no camera is connected** (or none of its sources answered). Check it before using it as a `scope.imaging.set_frame_size(w, h)` target, and divide by the binning in force; `set_frame_size` returns `None` (no-op) when no camera is active. With a live camera it returns the DELIVERED geometry and raises `CameraSettingRejected` if the apply is refused.
+- **`camera_max_frame_size` is `None` when no camera is connected** (or none of its sources answered). Check it before using it as a `scope.imaging.set_frame_size(w, h)` target, and divide by the binning in force; `set_frame_size` raises `HardwareCommandRefusedError` (`not_connected`) when no camera is connected. With a live camera it returns the DELIVERED geometry and raises `CameraSettingRejected` if the apply is refused.
 - **LED channel count varies by scope, and not only by driver family.** An LS620 (FX2 driver) exposes 4 channels (`BF`, `Blue`, `Green`, `Red`); an **LS560, same driver family, exposes 2** (`BF`, `Green`); RP2040-based scopes expose 6 (`BF`, `PC`, `DF`, `Blue`, `Green`, `Red`). Don't iterate over a hardcoded list — iterate over `caps.led_colors`.
 - **Some scopes have no motor at all.** LS560/LS620 have `caps.axes == ()`. Calling `scope.motion.move_absolute('X', …)` against such a scope raises `HardwareCommandRefusedError` (`axis_absent`, `MissingPart.MOTORS`), as a Z-only scope does for X (`MissingPart.X`); hide motion controls based on `caps.has_xy_stage`, `caps.has_focus` and `caps.has_turret`.
 - **Travel limits come from `scope.motion.get_axis_limits(axis)`**, read-only, for present axes; check `caps.has_xy_stage` (or `axis in caps.axes`) before asking about X/Y. A run whose steps lie outside these limits is refused before it starts (reason `positions_outside_travel`), naming each step and the axis; X/Y are judged on the protocol's plate at `scope.runtime_state.get_stage_offset()`, the offset the run moves with. A run whose steps need an axis the scope does not have is refused as `positions_unreachable`.

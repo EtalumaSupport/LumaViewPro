@@ -2,66 +2,58 @@
 traceback per poll when the motor is disconnected.
 
 On a USB yank mid-move the motion-monitor thread keeps polling
-get_target_status. (get_home_status carried the same guard and was
-retired with the member.) The driver correctly raises a typed
-HardwareError (Rule 29); the API correctly catches it for a state query and
-returns the not-at-target sentinel (Rule 8). But it logged logger.exception
-(full ERROR traceback) for that expected, handled disconnect -- the stack
-traces Eric saw. Now the API short-circuits on `not motor_connected`
-(mirroring the home() guard) so the poll never provokes the exception, and a
-typed HardwareError at the unplug instant logs a warning WITHOUT a traceback.
-A genuinely unexpected error still logs with a traceback.
+get_target_status. It logged logger.exception (full ERROR traceback) for
+that expected disconnect on every poll -- the stack traces Eric saw.
+
+get_target_status no longer answers a failure as "not at target": with no
+controller it is refused before the driver is asked, and a failed read
+raises the driver's HardwareError to its caller without logging it. The
+monitor, its one polling caller, warns once per move (its own test:
+test_a_motion_status_read_never_answers_a_failure.py).
 """
 
-import types
-from unittest.mock import MagicMock
+import logging
 
 import pytest
 
 from drivers.exceptions import HardwareError
-from modules.lumascope_api import motion as motion_mod
-from modules.lumascope_api.motion import MotionAPI
-
-
-def _fake(motor_connected, *, driver_exc=None, has_turret=False):
-    driver = MagicMock()
-    driver.has_turret.return_value = has_turret
-    if driver_exc is not None:
-        driver.target_status.side_effect = driver_exc
-    else:
-        driver.target_status.return_value = True
-    return types.SimpleNamespace(
-        _scope=types.SimpleNamespace(motor_connected=motor_connected),
-        _driver=driver,
-    )
+from modules.exceptions import HardwareCommandRefusedError
+from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 
 
 @pytest.fixture
-def log(monkeypatch):
-    fake_log = MagicMock()
-    monkeypatch.setattr(motion_mod, 'logger', fake_log)
-    return fake_log
+def scope(tmp_path):
+    session = _session(tmp_path, 'LS850')
+    yield session.scope
+    session.shutdown()
 
 
-@pytest.mark.parametrize('method', ['get_target_status'])
-def test_disconnected_returns_sentinel_without_touching_driver(method, log):
-    fake = _fake(motor_connected=False)
-    assert getattr(MotionAPI, method)(fake, 'Z') is False
-    fake._driver.target_status.assert_not_called()
-    log.exception.assert_not_called()
-    log.warning.assert_not_called()
+def test_disconnected_is_refused_without_touching_driver(scope, monkeypatch):
+    sent = []
+    monkeypatch.setattr(scope._motion_driver, 'is_connected', lambda: False)
+    monkeypatch.setattr(scope._motion_driver, 'target_status', lambda ax: sent.append(ax))
+
+    with pytest.raises(HardwareCommandRefusedError) as exc:
+        scope.motion.get_target_status('Z')
+
+    assert exc.value.reason == 'not_connected'
+    assert sent == []
 
 
-@pytest.mark.parametrize('method', ['get_target_status'])
-def test_hardware_error_warns_without_traceback(method, log):
-    fake = _fake(motor_connected=True, driver_exc=HardwareError('no response from motor board'))
-    assert getattr(MotionAPI, method)(fake, 'Z') is False
-    log.warning.assert_called_once()
-    log.exception.assert_not_called()  # no full traceback for an expected disconnect
+def test_hardware_error_reaches_the_caller_without_a_traceback(scope, caplog):
+    scope._motion_driver._fail_on.add('STATUS_RZ')
+
+    with caplog.at_level(logging.DEBUG), pytest.raises(HardwareError):
+        scope.motion.get_target_status('Z')
+
+    assert not [r for r in caplog.records if r.exc_info], 'no full traceback for a failed read'
 
 
-@pytest.mark.parametrize('method', ['get_target_status'])
-def test_unexpected_error_still_logs_traceback(method, log):
-    fake = _fake(motor_connected=True, driver_exc=ValueError('genuinely unexpected'))
-    assert getattr(MotionAPI, method)(fake, 'Z') is False
-    log.exception.assert_called_once()  # real bug -> keep the traceback
+def test_unexpected_error_reaches_the_caller(scope, monkeypatch):
+    def broken(axis):
+        raise ValueError('genuinely unexpected')
+
+    monkeypatch.setattr(scope._motion_driver, 'target_status', broken)
+
+    with pytest.raises(ValueError, match='genuinely unexpected'):
+        scope.motion.get_target_status('Z')

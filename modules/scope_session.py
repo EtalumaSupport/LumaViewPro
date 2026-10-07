@@ -1157,14 +1157,20 @@ class ScopeSession:
 
         The GUI builds the same config through the same builder, supplying
         these two from its widgets.
+
+        Its ``current_z`` is Z's position, or None while Z has none, so a
+        config never carries a number nobody read; ``new_protocol`` refuses
+        that before a step would be saved at it. A scope with no Z motor
+        takes the plate read's answer.
         """
         import modules.config_helpers as config_helpers
 
+        z = self.scope.motion.axis_positions().get('Z')
         return config_helpers.get_sequenced_capture_config_from_settings(
             self.capture_settings_snapshot(),
             objective_helper=self.objective_helper,
             wellplate_loader=self.wellplate_loader,
-            current_z=self.get_current_plate_position()['z'],
+            current_z=z.position if z is not None else self.get_current_plate_position()['z'],
             tiling=tiling,
             use_zstacking=use_zstacking,
         )
@@ -1418,13 +1424,13 @@ class ScopeSession:
 
         Returns:
             What ``scope.imaging.apply_layer_camera_settings`` returns: the
-            gain and exposure now in effect, or None when no camera is
-            active.
+            gain and exposure now in effect.
 
         Raises:
             ConfigError: this scope has no ``layer``; nothing is applied.
             HardwareCommandRefusedError: a run or a diagnostic holds the
-                scope (an autofocus is a run); nothing is applied.
+                scope (an autofocus is a run), or ``'not_connected'``, naming
+                the camera, with none connected; nothing is applied.
             CameraSettingRejected: the camera refused a setting; the others
                 were applied.
         """
@@ -1478,13 +1484,25 @@ class ScopeSession:
                 the light path is unknown; a z-stack with no extent).
             ProtocolScheduleRefusedError: ``period`` or ``duration`` is one no
                 protocol can run.
+            AxisStateUnknownError: an acquiring layer has no saved focus, so
+                its steps would save the current Z, and Z does not know its
+                position. Reported once.
         """
+        from modules.protocol import Protocol
+
         config = self.get_sequenced_capture_config(tiling=tiling, use_zstacking=use_zstacking)
         if period is not None:
             config['period'] = period
         if duration is not None:
             config['duration'] = duration
-        self.scope.protocols.refuse_no_acquiring_layer(config['layer_configs'])
+        layer_configs = config['layer_configs']
+        self.scope.protocols.refuse_no_acquiring_layer(layer_configs)
+        if any(
+            Protocol.layer_acquires(cfg) and cfg['focus'] is None for cfg in layer_configs.values()
+        ):
+            self.scope.motion.refuse_unknown_positions(
+                ('Z',), recording=True, then='make a new protocol'
+            )
         return self.scope.protocols.create_protocol(input_config=config)
 
     def create_empty_protocol(self) -> 'Protocol':
@@ -1809,8 +1827,9 @@ class ScopeSession:
             AxisStateUnknownError: an axis the step moves does not know
                 its position. Nothing changes.
             HardwareCommandRefusedError: ``'not_connected'``, this scope's
-                motor controller is not connected, or its LED controller is
-                not and the step's preview would light; ``'scope_disconnected'``
+                motor controller or camera is not connected, or its LED
+                controller is not and the step's preview would light;
+                ``'scope_disconnected'``
                 after ``disconnect()``; or a run or a diagnostic holds the
                 scope. Nothing changes.
             PositionOutOfRangeError: the step lies outside an axis's travel;
@@ -1853,6 +1872,9 @@ class ScopeSession:
         # step: one that never came up has no axes, so the moves below would
         # be none and the step a silent no-op.
         motion.refuse_controller_not_connected('go_to_step')
+        # The step's layer goes onto the camera after the moves; with no
+        # camera the step would be moved to and stored with nothing to see.
+        self.scope.imaging.refuse_camera_not_connected('go_to_step')
         last = self._last_step_gone_to
         preview = None
         if last is None or last[0] is not protocol or last[1] != step_idx:
@@ -2778,6 +2800,24 @@ class ScopeSession:
             raise ValueError(f'turret slot must be a whole number 1-4, got {position!r}')
 
     def get_current_plate_position(self) -> dict:
+        """The stage's position in plate coordinates, on the session's labware.
+
+        Returns:
+            dict: ``'x'`` and ``'y'`` in mm, ``'z'`` in um.
+
+        Raises:
+            AxisStateUnknownError: an axis the scope has does not know its
+                position (before a home, after a lost reference), so there
+                is no position to convert. Reported once.
+            HardwareCommandRefusedError: ``'not_connected'``, the model's
+                motor controller is not connected.
+        """
+        # The cable before the reference: with the controller gone every
+        # axis is unknown, and the remedy is the cable, not a home.
+        self.scope.motion.refuse_controller_not_connected('get_current_plate_position')
+        self.scope.motion.refuse_unknown_positions(
+            ('X', 'Y', 'Z'), recording=True, then='try again'
+        )
         return self._plate_position(self.settings.get('protocol', {}).get('labware'))
 
     def _plate_position(self, labware_id: str) -> dict:
@@ -2830,9 +2870,13 @@ class ScopeSession:
         never names a mode the camera is not in.
 
         Returns:
-            True when the camera took it and it is stored. False when no
-            camera is connected, the camera has no such mode, or it refused
-            (each reported by the imaging API); nothing is stored.
+            True when the camera took it and it is stored. False when the
+            camera has no such mode or it refused (each reported by the
+            imaging API); nothing is stored.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected. Nothing is stored.
         """
         if not self.scope.imaging.set_conversion_gain_mode('High' if enabled else 'Low'):
             return False
@@ -2847,9 +2891,13 @@ class ScopeSession:
         the camera took it, as ``set_high_conversion_gain`` is.
 
         Returns:
-            True when the camera took it and it is stored. False when no
-            camera is connected, the camera has no such filter, or it refused
-            (each reported by the imaging API); nothing is stored.
+            True when the camera took it and it is stored. False when the
+            camera has no such filter or it refused (each reported by the
+            imaging API); nothing is stored.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected. Nothing is stored.
         """
         if not self.scope.imaging.set_line_noise_reduction(enabled):
             return False
@@ -2900,19 +2948,21 @@ class ScopeSession:
         binning the camera has not reached.
 
         Returns:
-            The frame the camera delivers, ``{'width', 'height'}``. None when
-            no camera is connected; nothing is stored.
+            The frame the camera delivers, ``{'width', 'height'}``.
 
         Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected. Nothing is stored.
             CameraSettingUnsupportedError: This camera does not offer
                 ``size``. Nothing reaches the camera.
             CameraSettingRejected: The camera refused the binning (nothing is
                 stored) or the frame after it (the binning is stored, with the
                 frame the camera reports holding at it).
         """
-        if not self.scope.camera_connected:
-            return None
         imaging = self.scope.imaging
+        # Asked before the offered sizes: a scope with no camera offers
+        # none, and "does not support" would name the wrong cause.
+        imaging.refuse_camera_not_connected('set_binning_size')
         offered = self.scope.capabilities.camera_binning_sizes
         label = binning.binning_size_int_to_str(size)
         if size not in offered:
@@ -2943,9 +2993,12 @@ class ScopeSession:
 
         Returns:
             The frame the camera delivers: the request floored to even
-            sides. None when no camera is connected; nothing is stored.
+            sides.
 
         Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected; ``'scope_disconnected'`` after
+                ``disconnect()``. Nothing is stored.
             CameraSettingOutOfRangeError: The size, floored to even sides, is
                 below the camera's minimum frame or above the scope's maximum
                 at the stored binning. Nothing is stored.

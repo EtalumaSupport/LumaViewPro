@@ -257,9 +257,11 @@ class ProtocolFormatError(Refusal, ProtocolError):
     one log line -- needs no log line of its own beside each check.
 
     Attributes:
+        reason: ``'protocol_invalid'``.
         file: The file refused, or None for a protocol built in memory.
     """
 
+    reason = 'protocol_invalid'
     title = 'Protocol Refused'
 
     def __init__(self, problem: str, file=None):
@@ -279,10 +281,12 @@ class StepNotFoundError(Refusal, ProtocolError):
     that wants it reads it here.
 
     Attributes:
+        reason: ``'no_such_step'``.
         index: The index refused, as the caller gave it.
         num_steps: How many steps the protocol has.
     """
 
+    reason = 'no_such_step'
     title = 'No Such Step'
 
     def __init__(self, index: int, num_steps: int):
@@ -304,6 +308,7 @@ class StepEditRefusedError(Refusal, ProtocolError):
     or an insert that names no place or two. A refusal, as a missing step is.
     """
 
+    reason = 'step_value_refused'
     title = 'Step Not Changed'
 
 
@@ -311,9 +316,12 @@ class ProtocolScheduleRefusedError(ProtocolFormatError):
     """A period or duration the scope cannot run, refused rather than changed.
 
     Attributes:
+        reason: ``'schedule_not_runnable'``.
         key: ``'period'`` or ``'duration'``.
         value: What was given, as given.
     """
+
+    reason = 'schedule_not_runnable'
 
     _RULES: ClassVar[dict] = {
         'period': 'a period is 0 (one scan) or at least 1 second',

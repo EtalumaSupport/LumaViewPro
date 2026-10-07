@@ -1528,7 +1528,7 @@ def get_sequenced_capture_config_from_settings(
     objective_helper: ObjectiveLoader,
     wellplate_loader: WellPlateLoader,
     *,
-    current_z: float,
+    current_z: float | None,
     tiling: str = '1x1',
     use_zstacking: bool = False,
 ) -> dict:

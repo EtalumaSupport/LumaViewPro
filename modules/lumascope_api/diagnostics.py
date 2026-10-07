@@ -132,16 +132,14 @@ class DiagnosticsAPI:
             dict | None: Mapping of sensor name to temperature in degC. Empty
             only for a camera with no temperature sensor
             (``capabilities.camera_reports_temperature`` False). None when no
-            camera is active.
+            camera is connected, after ``disconnect()`` too: a read with no
+            camera to describe.
 
         Raises:
             HardwareError: A camera is active and the read failed.
         """
-        return self._scope.imaging._dispatch_camera(
-            self._get_camera_temperatures_degc_impl,
-            'get_camera_temperatures_degc',
-            timeout_s=self._scope.imaging._CAMERA_WRITE_TIMEOUT_S,
-            override=True,
+        return self._read_camera_or_none(
+            self._get_camera_temperatures_degc_impl, 'get_camera_temperatures_degc'
         )
 
     def _get_camera_temperatures_degc_impl(self) -> dict | None:
@@ -168,16 +166,30 @@ class DiagnosticsAPI:
                 FX2); it is never converted, and a camera that declares no
                 unit reports the unit None. The packet size and inter-packet
                 delay are GigE's stream settings. None when no camera is
-                active.
+                connected, after ``disconnect()`` too.
 
         Raises:
             HardwareError: A field the camera reports could not be read.
         """
-        return self._scope.imaging._dispatch_camera(
-            self._get_camera_link_info_impl,
-            'get_camera_link_info',
-            timeout_s=self._scope.imaging._CAMERA_WRITE_TIMEOUT_S,
+        return self._read_camera_or_none(self._get_camera_link_info_impl, 'get_camera_link_info')
+
+    def _read_camera_or_none(self, impl, name: str) -> dict | None:
+        """Run a camera read on the camera lane; None with no camera connected.
+
+        Asked before dispatch, so after ``disconnect()`` -- when the lane
+        would refuse -- the read still answers that there is no camera to
+        read. A camera that leaves while the read is queued is answered the
+        same way at the lane.
+        """
+        imaging = self._scope.imaging
+        if not self._scope.camera_connected:
+            return None
+        return imaging._dispatch_camera(
+            impl,
+            name,
+            timeout_s=imaging._CAMERA_WRITE_TIMEOUT_S,
             override=True,
+            satisfied_when_absent=None,
         )
 
     def _get_camera_link_info_impl(self) -> dict | None:
@@ -366,6 +378,10 @@ class DiagnosticsAPI:
         the result; this adds the dispatch described on
         ``ImagingAPI._dispatch_camera``, bounded per cycle. ``progress_cb``
         is called on the camera lane's worker.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected.
         """
         bound_s = num_cycles * (self._GRAB_CYCLE_BOUND_S + max(0.0, inter_cycle_delay_ms) / 1000.0)
         return self._scope.imaging._dispatch_camera(
@@ -594,6 +610,10 @@ class DiagnosticsAPI:
         The probe pops the camera's error queue, so it is a write to the
         camera and refused while another activity holds the scope.
         ``progress_cb`` is called on the camera lane's worker.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected.
         """
         return self._scope.imaging._dispatch_camera(
             self._run_pylon_diagnostic_probe_impl,

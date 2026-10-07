@@ -979,15 +979,18 @@ class Lumascope:
         # Bring-up binds the impls: these writes are the scope's own
         # composition, not external commands, so they stay direct on the
         # calling thread by design and nothing in this method dispatches.
-        for apply_fn in (
-            lambda: self.imaging._set_binning_size_impl(binning_size),
-            lambda: self.imaging._set_frame_size_impl(frame_width, frame_height),
-        ):
-            try:
-                apply_fn()
-            except CameraSettingRejected as ex:
-                # Bring-up continues at the value the camera holds.
-                notifications.report_outcome(ex, solicited=False, category='Camera')
+        # With no camera connected there is nothing to apply them to, and
+        # the camera's absence was reported when it did not come up.
+        if self.camera_connected:
+            for apply_fn in (
+                lambda: self.imaging._set_binning_size_impl(binning_size),
+                lambda: self.imaging._set_frame_size_impl(frame_width, frame_height),
+            ):
+                try:
+                    apply_fn()
+                except CameraSettingRejected as ex:
+                    # Bring-up continues at the value the camera holds.
+                    notifications.report_outcome(ex, solicited=False, category='Camera')
         # Apply the capture pixel format HERE, synchronously, while the start
         # gate is still closed (this runs before the start gate is released, below).
         # Resolving + setting it now -- instead of via the async camera-executor
@@ -1496,7 +1499,7 @@ class Lumascope:
             for name, connected in (
                 (MissingPart.LED_CONTROLLER.name, led),
                 (MissingPart.MOTOR_CONTROLLER.name, motion),
-                ('camera', camera),
+                (MissingPart.CAMERA.name, camera),
             )
             if not connected
         )

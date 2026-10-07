@@ -26,7 +26,7 @@ import threading
 import pytest
 
 from drivers.simulated_camera import SimulatedCamera
-from modules.exceptions import CameraSettingRejected
+from modules.exceptions import CameraSettingRejected, HardwareCommandRefusedError, MissingPart
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.notification_center import Severity
@@ -99,12 +99,15 @@ class TestOnlyAConfirmedRejectionRaises:
         imaging.set_gain_db(7.0)
         imaging.set_exposure_ms(25.0)
 
-    def test_no_camera_is_a_quiet_no_op(self, sim_imaging):
+    def test_no_camera_is_refused_naming_it_not_rejected(self, sim_imaging):
+        """No camera is not a rejection: it is refused, naming the camera."""
         imaging, cam = sim_imaging
         cam.active = False
 
-        imaging.set_gain_db(7.0)
-        imaging.set_exposure_ms(25.0)
+        for write in (lambda: imaging.set_gain_db(7.0), lambda: imaging.set_exposure_ms(25.0)):
+            with pytest.raises(HardwareCommandRefusedError) as exc:
+                write()
+            assert exc.value.missing == MissingPart.CAMERA
 
 
 class TestARefusalIsNotRecordedAsTruth:

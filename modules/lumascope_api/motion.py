@@ -171,8 +171,9 @@ class MoveInFlight:
         """Return once this move's axis has arrived at its target.
 
         Raises:
-            MoveNotCompletedError: The axis did not arrive. ``'stalled'`` or
-                ``'board_lost'``, the motion monitor gave it up;
+            MoveNotCompletedError: The axis did not arrive. ``'stalled'``,
+                ``'board_lost'``, ``'position_unread'`` or
+                ``'status_unread'``, the motion monitor gave it up;
                 ``'faulted'``, something else set it UNKNOWN; ``'timed_out'``,
                 the motion bound ran out (each of these leaves the axis
                 UNKNOWN); ``'stopped'``, a stop the board took while it
@@ -273,6 +274,8 @@ class MotionAPI:
         # warned of: once per move, not once per poll, which is about fifty
         # a second. Only the monitor thread touches it.
         self._unread_warned: dict[str, _Move] = {}
+        # The same, for a failed arrival read.
+        self._status_unread_warned: dict[str, _Move] = {}
         # The axis's current move: the record its MOVING write created,
         # kept after the move ends so a wait on the axis can read the fault
         # it ended with; None after a home starts, so a later wait never
@@ -841,12 +844,21 @@ class MotionAPI:
 
         Use as ``with scope.motion._reference_position_logger(): ... home ...``.
         Emits forced-INFO log lines so the limit-switch state pre/post
-        homing is preserved for diagnostics.
+        homing is preserved for diagnostics. Reads the driver, whose failed
+        read is the switch's -1, so a log line never ends the home it
+        describes.
         """
-        before = self.get_limit_switch_status_all_axes()
+
+        def read() -> dict[str, tuple[int, int]]:
+            return {
+                axis: self._driver.limit_switch_status(axis=axis)
+                for axis in self._scope.capabilities.axes
+            }
+
+        before = read()
         logger.info(f'Limit switch status before homing: {before}', extra={'force_error': True})
         yield
-        after = self.get_limit_switch_status_all_axes()
+        after = read()
         logger.info(f'Limit switch status after homing: {after}', extra={'force_error': True})
 
     @slow_task_budget(_HOMING_SLOW_TASK_S)
@@ -1271,34 +1283,22 @@ class MotionAPI:
             axis: Axis name ("X", "Y", "Z", "T").
 
         Returns:
-            bool: True if at target (always True for T if no turret present).
+            bool: True when the motor board reports the axis at its target,
+            False when it reports the axis short of it.
+
+        Raises:
+            ValueError: ``axis`` is not an axis name.
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'axis_absent'``, no motor controller or no such axis (see
+                ``_refuse_absent``); nothing was sent.
+            HardwareError: the board did not answer the read. A read that
+                failed is not "short of the target", so it is never
+                answered as False.
         """
-        if not self._scope.motor_connected:
-            # Disconnected is an expected degradation, not a fault: the
-            # motion monitor polls this on a timer, so provoking the driver
-            # would trace a HardwareError on every poll after a mid-move USB
-            # yank. Answer False and stay quiet.
-            return False
-
-        # Handle case where we want to know if turret has reached its target, but there is no turret
-        if (axis == 'T') and (not self._driver.has_turret()):
-            return True
-
-        try:
-            status = self._driver.target_status(axis)
-            return status
-        except HardwareError as e:
-            # Typed disconnect/timeout at the moment of unplug (before
-            # motor_connected flips). Expected; log without the traceback.
-            logger.warning(
-                f'[SCOPE API ] get_target_status({axis}): {e}; treating as not at target'
-            )
-            return False
-        except Exception as e:
-            logger.exception(
-                f'[SCOPE API ] get_target_status({axis}) failed; treating as not at target: {e}'
-            )
-            return False
+        if axis not in _VALID_AXIS_NAMES:
+            raise ValueError(f'Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}')
+        self._refuse_absent('get_target_status', axis)
+        return self._driver.target_status(axis)
 
     def get_limit_switch_status(self, axis: str) -> tuple[int, int]:
         """Get the limit switch status for an axis.
@@ -1314,7 +1314,17 @@ class MotionAPI:
         Returns:
             tuple[int, int]: ``(left, right)``, each 1 when that switch is
             engaged, 0 when clear, and -1 when the state could not be read.
+
+        Raises:
+            ValueError: ``axis`` is not an axis name.
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'axis_absent'``, no motor controller or no such axis (see
+                ``_refuse_absent``); a switch the scope does not have is
+                never answered as clear.
         """
+        if axis not in _VALID_AXIS_NAMES:
+            raise ValueError(f'Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}')
+        self._refuse_absent('get_limit_switch_status', axis)
         return self._driver.limit_switch_status(axis=axis)
 
     def get_limit_switch_status_all_axes(self) -> dict:
@@ -1324,7 +1334,12 @@ class MotionAPI:
             dict: Axis name -> the ``(left, right)`` pair described on
             ``get_limit_switch_status``. Covers only the axes the board
             reports, so a scope without a turret has no "T" key.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, no motor
+                controller (see ``_refuse_absent``).
         """
+        self._refuse_absent('get_limit_switch_status_all_axes')
         resp = {}
         for axis in self._scope.capabilities.axes:
             resp[axis] = self.get_limit_switch_status(axis=axis)
@@ -1977,8 +1992,9 @@ class MotionAPI:
 
         Raises:
             MoveNotCompletedError: the fault it ended with (the monitor's
-                own ``'stalled'`` or ``'board_lost'`` object when it gave
-                the axis up, so the person is shown it once; ``'faulted'``
+                own object when it gave the axis up, so the person is shown
+                it once: ``'stalled'``, ``'board_lost'``,
+                ``'position_unread'`` or ``'status_unread'``; ``'faulted'``
                 when something else set it UNKNOWN); ``'timed_out'``, it had
                 not ended when the wait's bound ran out -- the axis is then
                 written UNKNOWN, in the same hold as the check that the axis
@@ -2378,8 +2394,9 @@ class MotionAPI:
 
         Raises:
             MoveNotCompletedError: An axis it waited for ended UNKNOWN (the
-                monitor's own ``'stalled'`` or ``'board_lost'`` object when it
-                gave the axis up, else ``'faulted'``), or was still moving
+                monitor's own object when it gave the axis up: ``'stalled'``,
+                ``'board_lost'``, ``'position_unread'`` or ``'status_unread'``;
+                else ``'faulted'``), or was still moving
                 when ``timeout_s`` ran out (``'still_moving'``; its state is
                 left to its own move).
         """
@@ -2757,13 +2774,20 @@ class MotionAPI:
                         # read below, so the position kept on arrival was read
                         # after the exchange that saw it: where the axis
                         # stopped, not where it was one exchange earlier.
+                        # None while the board has not said: a failed read
+                        # is neither an arrival nor a stall, so the move's
+                        # clock runs on and, at the bound, the move is
+                        # given up as unread.
+                        arrived: bool | None = None
                         try:
                             arrived = self.get_target_status(ax)
                         except Exception as e:
-                            logger.warning(
-                                f'[SCOPE API ] Motion monitor: target_status({ax}) failed: {e}'
-                            )
-                            continue
+                            if self._status_unread_warned.get(ax) is not noted:
+                                self._status_unread_warned[ax] = noted
+                                _api_log.warning(
+                                    f'motion monitor: {ax} arrival read failed ({e}); '
+                                    f'retrying until the motion bound'
+                                )
                         # A STOP sets target = actual, so the board then
                         # reports reached wherever the axis halted: a reached
                         # bit is a stop, not an arrival, when a STOP was taken
@@ -2829,7 +2853,8 @@ class MotionAPI:
                             # it lives HERE, after the arrival check, so an
                             # arriving report always wins over the stall
                             # verdict. An axis the board says arrived but
-                            # whose position it will not report runs the same
+                            # whose position it will not report, or whose
+                            # arrival it will not report, runs the same
                             # clock, and is given up as that, not as a stall.
                             since = self._moving_since.get(ax)
                             if since is None or since[0] is not noted:
@@ -2837,7 +2862,13 @@ class MotionAPI:
                                 self._moving_since[ax] = since
                             if time.monotonic() - since[1] > self._MOTION_SETTLE_TIMEOUT_S:
                                 self._moving_since.pop(ax, None)
-                                reason = 'position_unread' if arrived else 'stalled'
+                                reason = (
+                                    'status_unread'
+                                    if arrived is None
+                                    else 'position_unread'
+                                    if arrived
+                                    else 'stalled'
+                                )
                                 if self._give_axis_up(ax, reason, verdict_for=noted):
                                     continue
                         # No verdict this poll (still moving, a drive in
