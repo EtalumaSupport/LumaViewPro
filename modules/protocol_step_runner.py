@@ -39,7 +39,6 @@ from modules.lumascope_api.illumination import (
     resolve_end_state,
 )
 from modules.notification_center import notifications
-from modules.protocol_state_machine import ProtocolState
 from modules.sequential_io_executor import IOTask, PROTOCOL_ENQUEUED
 
 if TYPE_CHECKING:
@@ -196,14 +195,10 @@ class ProtocolStepRunner:
                     timeout_msg = f'{timeout_msg} {e}'
 
                 p._scan_in_progress.clear()
-                try:
-                    p._set_state(ProtocolState.ERROR)
-                except ValueError:
-                    pass
-                # Last, and outside the state writes above: the funnel darkens
-                # the sample and notifies, and a raise from it must not cost
-                # this site the ERROR state that stops the loop re-entering.
-                p.abort_run_fatal('motion_timeout', 'Protocol Error -- Motion Timeout', timeout_msg)
+                # The ERROR state is written before the funnel darkens the
+                # sample and notifies, so a raise from the funnel cannot cost
+                # this site the state that stops the loop re-entering.
+                p.end_run_fatally('motion_timeout', 'Protocol Error -- Motion Timeout', timeout_msg)
             return
         p._motion_wait_start = None
 

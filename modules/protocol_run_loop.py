@@ -177,9 +177,7 @@ class ProtocolRunLoop:
         # the disconnect below.
         stalled = p._take_camera()
         if stalled is not None:
-            if p._state not in (ProtocolState.COMPLETING, ProtocolState.IDLE):
-                p._set_state(ProtocolState.ERROR)
-            p.abort_run_fatal(stalled.reason, stalled.title, stalled.message)
+            p.end_run_fatally(stalled.reason, stalled.title, stalled.message)
             return stalled
 
         while p._is_run_live() and not p._aborted.is_set():
@@ -209,9 +207,7 @@ class ProtocolRunLoop:
                             'save the protocol, then restart LumaViewPro '
                             'and the protocol.',
                         )
-                        if p._state not in (ProtocolState.COMPLETING, ProtocolState.IDLE):
-                            p._set_state(ProtocolState.ERROR)
-                        p.abort_run_fatal(ending.reason, ending.title, ending.message)
+                        p.end_run_fatally(ending.reason, ending.title, ending.message)
                         return ending
 
                 # Check if we've completed all scans
@@ -337,8 +333,7 @@ class ProtocolRunLoop:
                     _schedule_ui(lambda dt: p._callbacks.scan_iterate_post(), 0)
 
                 p._scan_in_progress.clear()
-                if p._state == ProtocolState.SCANNING:
-                    p._set_state(ProtocolState.RUNNING)
+                p.end_scan()
 
                 # Dark before (and during) the pre-positioning move and the
                 # period wait -- one of the two entries into the idle.
@@ -384,16 +379,7 @@ class ProtocolRunLoop:
                         'the protocol, then restart LumaViewPro and the '
                         'protocol.',
                     )
-                    if p._state not in (
-                        ProtocolState.COMPLETING,
-                        ProtocolState.IDLE,
-                        ProtocolState.ERROR,
-                    ):
-                        try:
-                            p._set_state(ProtocolState.ERROR)
-                        except ValueError:
-                            pass
-                    p.abort_run_fatal(ending.reason, ending.title, ending.message)
+                    p.end_run_fatally(ending.reason, ending.title, ending.message)
                     return ending
 
                 # A move the stage's interlock refused is not transient: the
@@ -410,16 +396,7 @@ class ProtocolRunLoop:
                         f'Protocol Aborted -- {ex.title}',
                         f'The run stopped. {ex}',
                     )
-                    if p._state not in (
-                        ProtocolState.COMPLETING,
-                        ProtocolState.IDLE,
-                        ProtocolState.ERROR,
-                    ):
-                        try:
-                            p._set_state(ProtocolState.ERROR)
-                        except ValueError:
-                            pass
-                    p.abort_run_fatal(ending.reason, ending.title, ending.message)
+                    p.end_run_fatally(ending.reason, ending.title, ending.message)
                     return ending
 
                 # A lost axis position is not transient: nothing in a run
@@ -441,16 +418,7 @@ class ProtocolRunLoop:
                         f'The run stopped: {describe_unknown_positions(lost_axes)}. '
                         'Home the scope before running the protocol again.',
                     )
-                    if p._state not in (
-                        ProtocolState.COMPLETING,
-                        ProtocolState.IDLE,
-                        ProtocolState.ERROR,
-                    ):
-                        try:
-                            p._set_state(ProtocolState.ERROR)
-                        except ValueError:
-                            pass
-                    p.abort_run_fatal(ending.reason, ending.title, ending.message)
+                    p.end_run_fatally(ending.reason, ending.title, ending.message)
                     return ending
 
                 # Transient: log warning, do NOT increment scan_count,
@@ -463,11 +431,7 @@ class ProtocolRunLoop:
                     exc_info=True,
                 )
                 p._scan_in_progress.clear()
-                if p._state == ProtocolState.SCANNING:
-                    try:
-                        p._set_state(ProtocolState.RUNNING)
-                    except ValueError:
-                        pass
+                p.end_scan()
 
                 consecutive_scan_failures += 1
                 if consecutive_scan_failures >= MAX_CONSECUTIVE_SCAN_FAILURES:

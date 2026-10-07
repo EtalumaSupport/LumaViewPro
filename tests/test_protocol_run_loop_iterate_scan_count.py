@@ -67,6 +67,8 @@ def _make_two_scan_parent():
     p._step_executor = mock.MagicMock()
     p._scan_in_progress = mock.MagicMock()
     p._set_state = mock.MagicMock()
+    p.end_scan = mock.MagicMock()
+    p.end_run_fatally = mock.MagicMock()
     p._cleanup = mock.MagicMock()
     p._protocol_state_lock = threading.Lock()
     p._auto_gain_armed_step = -1

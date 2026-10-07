@@ -1864,6 +1864,33 @@ class SequencedCaptureRunner:
         """
         self._image_writer._abort_run_fatal(reason, 'Protocol', title, message)
 
+    def end_scan(self) -> None:
+        """A scan's end: SCANNING back to RUNNING, if the run is still scanning.
+
+        The check and the write share the state lock, as in
+        end_run_fatally: a run another thread has ended meanwhile keeps
+        the state it was given.
+        """
+        with self._protocol_state_lock:
+            if self._state == ProtocolState.SCANNING:
+                self._state = ProtocolState.RUNNING
+
+    def end_run_fatally(self, reason: str, title: str, message: str) -> None:
+        """Put a live run in ERROR, then abort it fatally.
+
+        The one fatal ending of the run loop and the step runner. ERROR is
+        written only from RUNNING or SCANNING, the states the table lets
+        reach it; a run already completing, idle or in ERROR keeps its
+        state. The check and the write share the state lock, so a state
+        another thread writes between them cannot make the write one the
+        table refuses.
+        """
+        with self._protocol_state_lock:
+            if self._state in (ProtocolState.RUNNING, ProtocolState.SCANNING):
+                validate_transition(self._state, ProtocolState.ERROR, self.LOGGER_NAME)
+                self._state = ProtocolState.ERROR
+        self.abort_run_fatal(reason, title, message)
+
     def _is_run_live(self) -> bool:
         """Is a run happening, in any phase? The one predicate.
 
