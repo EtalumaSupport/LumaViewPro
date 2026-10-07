@@ -704,14 +704,12 @@ class Lumascope:
         from modules.lumascope_api.illumination import IlluminationAPI
         from modules.lumascope_api.imaging import ImagingAPI
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
-        from modules.lumascope_api.io import IOAPI
         from modules.lumascope_api.protocols import ProtocolsAPI
         from modules.lumascope_api.runtime_state import RuntimeState
 
         self.illumination = IlluminationAPI(self, self._led_driver)
         self.imaging = ImagingAPI(self, self._camera_driver)
         self.diagnostics = DiagnosticsAPI(self)
-        self.io = IOAPI(self)
         self.protocols = ProtocolsAPI(self)
         self.runtime_state = RuntimeState(self)
 
@@ -1557,14 +1555,12 @@ class Lumascope:
         from modules.lumascope_api.illumination import IlluminationAPI
         from modules.lumascope_api.imaging import ImagingAPI
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
-        from modules.lumascope_api.io import IOAPI
         from modules.lumascope_api.protocols import ProtocolsAPI
         from modules.lumascope_api.runtime_state import RuntimeState
 
         instance.illumination = IlluminationAPI(instance, instance._led_driver)
         instance.imaging = ImagingAPI(instance, None)
         instance.diagnostics = DiagnosticsAPI(instance)
-        instance.io = IOAPI(instance)
         instance.protocols = ProtocolsAPI(instance)
         instance.runtime_state = RuntimeState(instance)
 

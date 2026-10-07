@@ -226,7 +226,7 @@ def test_oracle_catches_the_known_wrong_world_families(scope_surface):
     scope = build_scope(simulate=True)
     try:
         union = set(dir(scope))
-        for sub_api in ('illumination', 'imaging', 'motion', 'diagnostics', 'io'):
+        for sub_api in ('illumination', 'imaging', 'motion', 'diagnostics'):
             union |= set(dir(getattr(scope, sub_api)))
     finally:
         scope.disconnect()

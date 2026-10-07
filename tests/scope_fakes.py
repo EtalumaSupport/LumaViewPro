@@ -13,8 +13,8 @@ reason (see `tests/guards/test_capability_probe_reality.py`).
 does not have raises `AttributeError` instead of inventing a child, and
 calling a method with the wrong signature raises `TypeError`.
 
-Autospec the INSTANCE, never the class. All six sub-APIs
-(`illumination`, `imaging`, `motion`, `diagnostics`, `io`,
+Autospec the INSTANCE, never the class. The sub-APIs
+(`illumination`, `imaging`, `motion`, `diagnostics`, `protocols`,
 `runtime_state`) and the driver slots are assigned in
 `Lumascope.__init__`. A class autospec therefore has none of them, so it
 would reject `scope.illumination.led_on(...)` -- legitimate production

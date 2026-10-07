@@ -14,7 +14,7 @@ and code that calls it is unsupported.
 
 The Lumascope SDK API documented in this file is **subject to breaking changes** in 4.1 / 4.1.5 / 4.2. Specifically:
 
-- 4.1.5 ships the sub-API decomposition (Wave 7): hardware-direct methods on `Lumascope` move to sub-APIs (`scope.motion.*`, `scope.illumination.*`, `scope.imaging.*`, `scope.diagnostics.*`, `scope.capabilities.*`, `scope.io.*`). The `Lumascope` class becomes a thin facade; L2 entry point shifts to `ScopeSession`.
+- 4.1.5 ships the sub-API decomposition (Wave 7): hardware-direct methods on `Lumascope` move to sub-APIs (`scope.motion.*`, `scope.illumination.*`, `scope.imaging.*`, `scope.diagnostics.*`, `scope.capabilities.*`). The `Lumascope` class becomes a thin facade; L2 entry point shifts to `ScopeSession`.
 - 4.2 ships the capability + wire contract changes that may rename or restructure protocol-level surfaces.
 - The REST endpoint convention is **deferred** to a dedicated design session; do not assume current shapes are final.
 
@@ -55,7 +55,7 @@ LumaViewPro controls Etaluma microscopes: LED illumination, XYZ stage + turret m
 │  ├─ scope.motion        ├─ scope.capabilities   │
 │  ├─ scope.illumination  ├─ scope.runtime_state  │
 │  ├─ scope.imaging       ├─ scope.protocols      │
-│  └─ scope.diagnostics   └─ scope.io             │
+│  └─ scope.diagnostics                           │
 └──────────────┬──────────────────────────────────┘
                │
 ┌──────────────▼──────────────────────────────────┐
@@ -102,7 +102,7 @@ If you are writing a new wrapper, the `Raises:` section is the canonical declara
 
 ## Lumascope composition root
 
-The `Lumascope` class is the **hardware-composition-root**. It constructs and holds the eight sub-APIs (`scope.motion`, `scope.illumination`, `scope.imaging`, `scope.diagnostics`, `scope.capabilities`, `scope.runtime_state`, `scope.protocols`, `scope.io`), wires them together, and owns lifecycle (connect / disconnect / emergency shutdown). `scope.protocols` holds the two `Protocol` constructors, documented under Running protocols.
+The `Lumascope` class is the **hardware-composition-root**. It constructs and holds the seven sub-APIs (`scope.motion`, `scope.illumination`, `scope.imaging`, `scope.diagnostics`, `scope.capabilities`, `scope.runtime_state`, `scope.protocols`), wires them together, and owns lifecycle (connect / disconnect / emergency shutdown). `scope.protocols` holds the two `Protocol` constructors, documented under Running protocols.
 
 **When to use directly:** you need fine-grained control beyond ScopeSession, or you're building a custom application. The GUI, ScopeSession, and REST surface all go through this class.
 
@@ -2036,11 +2036,9 @@ Important consequences:
 
 ---
 
-## scope.io
+## Future I/O
 
-**Reserved.** Not populated in LumaViewPro 4.0.x.
-
-The `scope.io` sub-API is named in the locked sub-API decomposition per `docs/PLUGIN_API_DESIGN_2026-05-09.md` §6.6. It will document future I/O surfaces (trigger devices, USB-to-IO trigger boards, external sync) once those surfaces ship; the feature flags that gate them will ride `scope.runtime_state` when they exist.
+Trigger devices, USB-to-IO trigger boards and external sync are not in LumaViewPro 4.0.x; they will get their own sub-API, documented here, when they ship.
 
 ---
 

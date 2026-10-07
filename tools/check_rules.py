@@ -838,7 +838,7 @@ _BROKEN_SCOPE_METHODS = frozenset(
         #
         # New entries get added here when a method moves off Lumascope onto a
         # sub-API. Whitelist: scope.motion.X / scope.imaging.X / scope.illumination.X /
-        # scope.diagnostics.X / scope.capabilities.X / scope.io.X / scope.runtime_state.X.
+        # scope.diagnostics.X / scope.capabilities.X / scope.runtime_state.X.
         'move_absolute',
         'move_relative',
         'start_move_absolute',
@@ -911,7 +911,7 @@ def _check_rule_35d(tree: ast.AST, path: str) -> list[Violation]:
                 f'bare scope.{node.attr}(...) -- the method moved to a '
                 f'sub-API namespace post-Wave-7. Route through '
                 f'scope.motion / scope.imaging / scope.illumination / '
-                f'scope.diagnostics / scope.capabilities / scope.io / '
+                f'scope.diagnostics / scope.capabilities / '
                 f'scope.runtime_state as appropriate. Lumascope no '
                 f'longer exposes a same-named forwarder; MagicMock scopes '
                 f'in tests will silently absorb the access but bench '
