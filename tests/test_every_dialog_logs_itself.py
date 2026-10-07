@@ -75,7 +75,7 @@ def test_a_dialog_nobody_instrumented_still_logs(monkeypatch):
 
     assert dialog.opened, 'the dialog must still open'
     assert recorded, 'a dialog opened with no record -- the bundle cannot say what was shown'
-    kind, _severity, title, body = recorded[0]
+    kind, title, body = recorded[0]
     assert kind == 'dialog'
     assert title == 'Zip Logs', f'the record must name the dialog the user saw: {title!r}'
     assert 'Collecting logs' in body, f'the record must carry what it said: {body!r}'
@@ -89,7 +89,7 @@ def test_a_titleless_dialog_is_still_identifiable(monkeypatch):
 
     Dialog(title='').open()
 
-    assert recorded[0][2] == '_FakeDialog', (
+    assert recorded[0][1] == '_FakeDialog', (
         'a dialog with no title must fall back to its class name, not an empty string'
     )
 
@@ -186,3 +186,24 @@ def test_the_body_summary_survives_a_contentless_dialog():
         children = ()
 
     assert _describe_dialog_body(_Bare()) == '(no text content)'
+
+
+def test_an_opened_dialog_is_recorded_as_a_dialog_with_no_level(monkeypatch, caplog):
+    """A dialog has no severity: a question asks, and a notice's level is its
+    notification's, which the notification center records once. The open's
+    record read 'NOTIFICATION INFO' for every dialog, so a refusal the main
+    log had at WARNING read INFO beside it, and a question read as a notice.
+    """
+    import logging
+    from types import SimpleNamespace
+
+    notification_popup, Dialog = _install_against(monkeypatch)
+    monkeypatch.setattr(notification_popup, 'EventLoop', SimpleNamespace(status='started'))
+
+    with caplog.at_level(logging.INFO, logger='LVP.gui_interactions'):
+        Dialog(title='Confirm Exit', content=_FakeLabel('A recording is in progress.')).open()
+
+    [line] = [r.getMessage() for r in caplog.records if r.name == 'LVP.gui_interactions']
+    assert line.startswith('DIALOG | Confirm Exit | '), line
+    assert 'A recording is in progress.' in line
+    assert 'NOTIFICATION' not in line and 'INFO' not in line, line

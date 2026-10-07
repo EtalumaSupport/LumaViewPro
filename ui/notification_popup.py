@@ -74,7 +74,7 @@ def _install_dialog_open_logging() -> None:
 
     def _open_logged_and_ordered(self, *args, **kwargs):
         title = getattr(self, 'title', '') or type(self).__name__
-        _log_show('dialog', 'INFO', title, _describe_dialog_body(self))
+        _log_show('dialog', title, _describe_dialog_body(self))
         opened = original_open(self, *args, **kwargs)
         if not getattr(self, _NOTICE_MARK, False):
             _raise_open_notices(getattr(self, '_window', None))
@@ -133,7 +133,7 @@ def _make_message_label(message: str) -> Label:
     return label
 
 
-def _log_show(kind: str, severity: str, title: str, message: str):
+def _log_show(kind: str, title: str, message: str):
     """Log a dialog at the moment it is shown, to BOTH the main log (for post-mortem context)
     and the GUI-interactions log (for crash forensics), so a deployed customer log captures the
     full user-visible event. Reached from one place, the patched ``Popup.open``."""
@@ -151,7 +151,7 @@ def _log_show(kind: str, severity: str, title: str, message: str):
         logger.error(line)
     else:
         logger.info(line)
-    gui_logger.notification(severity, title, message, source='popup')
+    gui_logger.dialog(title, message)
 
 
 def _log_response(title: str, response: str):

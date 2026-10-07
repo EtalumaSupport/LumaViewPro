@@ -293,7 +293,8 @@ class TestReselectingThePlateInPlace:
 class TestTheLabwarePanelReportsARefusal:
     """A plate picked while a recording still holds the scope (its drain, when
     the GUI's controls are free again) is refused at the API; the panel shows
-    that once, through the one reporter, and renders the plate in place."""
+    that once, through the one reporter, and renders the plate in place: the
+    stage, and the spinner, which went on naming the refused plate."""
 
     def test_a_refused_pick_is_shown_once_and_the_panel_carries_on(self, monkeypatch):
         import types
@@ -321,6 +322,7 @@ class TestTheLabwarePanelReportsARefusal:
                     set_protocol_labware=lambda protocol, key: protocol_plates.append(key),
                 ),
                 stage=types.SimpleNamespace(full_redraw=lambda: redrawn.append('stage')),
+                settings={'protocol': {'labware': 'A'}},
             ),
         )
         panel = types.SimpleNamespace(
@@ -336,3 +338,6 @@ class TestTheLabwarePanelReportsARefusal:
         assert [n.title for n in shown] == ['Microscope Busy']
         assert protocol_plates == [], 'a plate the scope refused was written into the protocol'
         assert redrawn == ['stage'], 'the panel must still render the plate in place'
+        assert panel.ids['labware_spinner'].text == 'A', (
+            'the spinner names the refused plate while the scope stays on the one in place'
+        )
