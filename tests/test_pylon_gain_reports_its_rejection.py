@@ -70,6 +70,9 @@ def pylon_cam():
     # refusal apart from a camera that vanished mid-write. __new__ skips the
     # Camera.__init__ that seeds it.
     cam._device_removed = False
+    # The camera lane asks is_connected() before a command runs, and that
+    # asks the SDK whether the device was removed.
+    cam.active.IsCameraDeviceRemoved.return_value = False
     return cam
 
 

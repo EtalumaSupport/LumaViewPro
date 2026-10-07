@@ -480,6 +480,18 @@ class ImageSettings(BoxLayout):
         for layer in common_utils.get_layers():
             self.layer_lookup(layer=layer).led_controller_support = present
 
+    def set_camera_controls_support(self):
+        """Disable the camera controls -- each layer's gain, exposure and
+        auto-gain, and the frame size and binning -- when the scope has no
+        camera connected. Display of the API's answer, set where the
+        capabilities are synced.
+        """
+        ctx = _app_ctx.ctx
+        connected = ctx.scope.camera_connected
+        for layer in common_utils.get_layers():
+            self.layer_lookup(layer=layer).camera_connected = connected
+        ctx.motion_settings.ids['microscope_settings_id'].camera_connected = connected
+
     def sync_camera_capability_ranges(self):
         """Resync every per-layer camera control from the live camera caps.
 
@@ -508,6 +520,7 @@ class ImageSettings(BoxLayout):
             self.set_layer_exposure_ranges()
             self.set_layer_gain_ranges()
             self.set_layer_led_controller_support()
+            self.set_camera_controls_support()
             self.set_layer_illumination_ranges()
             self.set_layer_autogain_support()
         finally:

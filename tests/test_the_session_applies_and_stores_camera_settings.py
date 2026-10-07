@@ -20,6 +20,8 @@ from modules.exceptions import (
     CameraSettingRejected,
     CameraSettingUnsupportedError,
     ConfigError,
+    HardwareCommandRefusedError,
+    MissingPart,
     Refusal,
 )
 
@@ -119,16 +121,18 @@ class TestTheFrame:
     def test_a_disconnected_camera_is_never_reached_and_the_reconnect_applies(
         self, session, monkeypatch
     ):
-        # The reconnect window: the camera is gone. That is the absent shape,
-        # not an error -- nothing reaches the driver and nothing is stored --
-        # and once it is back the identical size reaches it.
+        # The reconnect window: the camera is gone. The frame is refused,
+        # naming the camera -- nothing reaches the driver and nothing is
+        # stored -- and once it is back the identical size reaches it.
         session.set_frame_size(1000, 800)
         before = _stored_frame(session)
         driver = session.scope._camera_driver
         requests = _spy(monkeypatch, driver, 'set_frame_size')
         monkeypatch.setattr(driver, 'active', False)
 
-        assert session.set_frame_size(1200, 800) is None
+        with pytest.raises(HardwareCommandRefusedError) as exc:
+            session.set_frame_size(1200, 800)
+        assert exc.value.missing == MissingPart.CAMERA
         assert requests == [], 'the driver must never be reached without a camera'
         assert _stored_frame(session) == before
 

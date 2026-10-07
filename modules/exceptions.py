@@ -1919,7 +1919,7 @@ class MissingPart:
     The refusal's reason and its sentence are the part's, so no raise words
     its own: a controller the model has is not connected, and every other
     part -- a motor, the turret, an LED -- is not on this scope. The motion
-    parts and the LED controller are the class's constants; an LED is named
+    parts, the LED controller and the camera are the class's constants; an LED is named
     when it is refused (``MissingPart.led``), by layer or by channel number,
     as the command named it.
 
@@ -1941,6 +1941,7 @@ class MissingPart:
     Z: ClassVar['MissingPart']
     TURRET: ClassVar['MissingPart']
     LED_CONTROLLER: ClassVar['MissingPart']
+    CAMERA: ClassVar['MissingPart']
 
     @classmethod
     def axis(cls, axis: str) -> 'MissingPart':
@@ -1982,6 +1983,7 @@ MissingPart.TURRET = MissingPart('T', 'axis_absent', 'This microscope has no tur
 MissingPart.LED_CONTROLLER = MissingPart(
     'LED controller', 'not_connected', 'The LED controller is not connected.'
 )
+MissingPart.CAMERA = MissingPart('camera', 'not_connected', 'The camera is not connected.')
 _AXIS_PARTS = {
     'X': MissingPart.X,
     'Y': MissingPart.Y,

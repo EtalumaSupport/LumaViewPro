@@ -341,6 +341,10 @@ class MicroscopeSettings(BoxLayout):
     # Drives the 8-bit binning depth-loss hint row; the row height follows the
     # label's wrapped texture so the multi-line warning is not clipped.
     binning_depth_hint_active = BooleanProperty(False)
+    # Disables the frame size and binning controls on a scope with no camera
+    # connected; set from scope.camera_connected when the camera's
+    # capabilities are synced.
+    camera_connected = BooleanProperty(True)
 
     def _refresh_binning_depth_hint(self):
         """Show the depth-loss hint below the binning control only when binning

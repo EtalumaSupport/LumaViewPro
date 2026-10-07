@@ -792,20 +792,16 @@ class TestRunGrabLifecycleBenchmark:
         assert r['vary_settings'] is False
         assert r['slow_threshold_s'] == 3.0  # default
 
-    def test_inactive_camera_returns_error(self):
-        """When self.camera is None or inactive, the method must surface
-        an error instead of crashing or silently returning empty results."""
+    def test_inactive_camera_is_refused_naming_it(self):
+        """With no camera the benchmark is refused, naming the camera, so the
+        operator hears why it produced no data."""
+        from modules.exceptions import MissingPart
+
         scope = build_scope(simulate=True)
         scope._camera_driver = None
-        r = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=3)
-        assert r['errors'], (
-            'Inactive-camera path must populate errors so the operator '
-            'sees why the benchmark produced no data'
-        )
-        assert any('not active' in e.lower() for e in r['errors'])
-        # No samples means percentile fields stay at defaults.
-        assert r['cycle_p50_s'] == 0.0
-        assert r['slow_cycle_count'] == 0
+        with pytest.raises(HardwareCommandRefusedError) as exc:
+            scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=3)
+        assert exc.value.missing == MissingPart.CAMERA
 
     def test_slow_cycle_detection_with_zero_threshold(self):
         """slow_threshold_s=0.0 forces every cycle to count as slow,

@@ -135,12 +135,14 @@ class TestApplySettingsSyncsAutoGainCheckbox:
     @pytest.mark.parametrize('widget_id', ['gain_slider', 'gain_text', 'exp_slider', 'exp_text'])
     def test_gain_exposure_widgets_follow_the_auto_gain_box_in_kv(self, widget_id):
         """The kv rule is the single owner of the four widgets' enabled
-        state: the run lockout OR the auto-gain box. A Python-side
-        `.disabled` write was clobbered at every run boundary (the rule
-        re-fires on the lockout edge), which left the sliders editable
-        under a live auto-gain after a run."""
+        state: the run lockout OR the auto-gain box OR no camera connected.
+        A Python-side `.disabled` write was clobbered at every run boundary
+        (the rule re-fires on the lockout edge), which left the sliders
+        editable under a live auto-gain after a run."""
         block = _kv_widget_block(widget_id)
-        assert 'disabled: app.run_lockout or auto_gain.active' in block, block
+        assert (
+            'disabled: app.run_lockout or auto_gain.active or not root.camera_connected' in block
+        ), block
 
     def test_no_imperative_disabled_write_for_the_gain_exposure_widgets(self):
         """No Python writer competes with the kv rule."""

@@ -22,6 +22,7 @@ import pytest
 
 from drivers import fx2driver
 from drivers.fx2driver import _ByteStream
+from modules.exceptions import HardwareCommandRefusedError, MissingPart
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
@@ -93,21 +94,25 @@ def test_a_gain_written_after_the_removal_is_not_recorded(session):
 
     _transport(session).unplug()
     assert _wait_until(lambda: not scope.camera_connected, 6.0)
-    scope.imaging.set_gain_db(before + 6.0)
+    with pytest.raises(HardwareCommandRefusedError) as exc:
+        scope.imaging.set_gain_db(before + 6.0)
 
+    assert exc.value.missing == MissingPart.CAMERA
     assert scope.imaging.gain_db_cached == before
 
 
 def test_a_gain_written_before_the_teardown_ends_is_not_recorded(session):
     # Between the camera marking itself removed and its teardown releasing
-    # it, the camera is still active: its gain() must answer refused, since
-    # the API reads any other answer as applied.
+    # it, the camera is still active, but it no longer answers connected:
+    # the camera lane refuses the write before it reaches gain().
     scope = session.scope
     before = scope.imaging.gain_db_cached
     scope._camera_driver._mark_disconnected()
 
-    scope.imaging.set_gain_db(before + 6.0)
+    with pytest.raises(HardwareCommandRefusedError) as exc:
+        scope.imaging.set_gain_db(before + 6.0)
 
+    assert exc.value.missing == MissingPart.CAMERA
     assert scope.imaging.gain_db_cached == before
 
 

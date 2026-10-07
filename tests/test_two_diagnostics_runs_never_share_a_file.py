@@ -80,6 +80,10 @@ class _ProbeCamera:
     def get_sdk_info(self):
         return {'name': 'Basler pylon', 'version': '11.5'}
 
+    def is_connected(self):
+        # The camera lane asks before the probe runs.
+        return True
+
 
 def _scope_with(camera) -> Lumascope:
     scope = Lumascope.__new__(Lumascope)

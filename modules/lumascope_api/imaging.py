@@ -12,6 +12,7 @@ import contextlib
 import dataclasses
 import datetime
 import enum
+import functools
 import logging as _logging
 import threading
 import time
@@ -35,6 +36,8 @@ from modules.exceptions import (
     ExposureAtMinimumNotice,
     FrameHandlerRemovedError,
     FrameListenerNotRegisteredError,
+    HardwareCommandRefusedError,
+    MissingPart,
 )
 from modules.frame_validity import FrameValidity
 from modules.lumascope_api.frame_record import FrameRecord
@@ -42,6 +45,49 @@ from modules.lumascope_api.illumination import live_lit_pairs
 from modules.notification_center import notifications
 from modules.sequential_io_executor import IOTask
 from modules.video_cadence import StallWatch, prologue_stall_threshold_s
+
+
+# What a dispatched camera command does when no camera is connected: it is
+# refused, naming the camera, unless its dispatch names the answer it is
+# satisfied with -- an off whose end state already holds -- or leaves the
+# question to its body, which alone can read what it was asked to do.
+_REFUSED_WHEN_ABSENT = object()
+_DECIDED_IN_BODY = object()
+
+# The camera cache with no camera behind it: at construction, and again when
+# the scope disconnects, so no read describes a camera that has left. Every
+# value is one the matching is_valid_* predicate rejects, except 'binning',
+# whose absent default is also a legal factor (see ImagingAPI.__init__).
+_NO_CAMERA_CACHE = {
+    'active': False,
+    'gain_db': -1.0,
+    'exposure_ms': 0.0,
+    'frame_size': {'width': 0, 'height': 0},
+    'min_frame_size': {'width': 0, 'height': 0},
+    'max_exposure_ms': 0.0,
+    'max_gain_db': 0.0,
+    # The floors are None until a camera declares one, and stay None
+    # when it declares none: a missing floor is not a floor of zero.
+    'min_exposure_ms': None,
+    'min_gain_db': None,
+    'pixel_format': None,
+    'binning': 1,
+}
+
+
+def _camera_not_connected(member: str) -> HardwareCommandRefusedError:
+    """The refusal of ``member`` for want of a camera, raised by whoever asked.
+
+    Built from the asker's own answer, never a second poll: a camera that
+    answered connected on a re-ask would leave the refusal unraised.
+    """
+    part = MissingPart.CAMERA
+    return HardwareCommandRefusedError(part.reason, member, missing=part)
+
+
+def _no_camera_cache() -> dict:
+    """A fresh copy of ``_NO_CAMERA_CACHE``: its frame dicts are not shared."""
+    return {k: dict(v) if isinstance(v, dict) else v for k, v in _NO_CAMERA_CACHE.items()}
 
 
 class AutoGainConvergence(enum.Enum):
@@ -585,21 +631,7 @@ class ImagingAPI:
         # absent default AND a legal factor: never-read and genuinely-1x1
         # are indistinguishable by design -- both honestly answer 1.
         self._camera_cache_lock = threading.Lock()
-        self._camera_cache = {
-            'active': False,
-            'gain_db': -1.0,
-            'exposure_ms': 0.0,
-            'frame_size': {'width': 0, 'height': 0},
-            'min_frame_size': {'width': 0, 'height': 0},
-            'max_exposure_ms': 0.0,
-            'max_gain_db': 0.0,
-            # The floors are None until a camera declares one, and stay None
-            # when it declares none: a missing floor is not a floor of zero.
-            'min_exposure_ms': None,
-            'min_gain_db': None,
-            'pixel_format': None,
-            'binning': 1,
-        }
+        self._camera_cache = _no_camera_cache()
         # Per-key write generation, bumped by every authoritative cache
         # write (_commit_camera_writes). A validated live READ snapshots
         # the generation before touching the driver and commits only if
@@ -793,9 +825,16 @@ class ImagingAPI:
         )
 
     def _invalidate_camera_cache(self) -> None:
-        """Mark camera cache as inactive (e.g. on disconnect)."""
-        with self._camera_cache_lock:
-            self._camera_cache['active'] = False
+        """Return the camera cache to the no-camera state, on disconnect.
+
+        Every key, not only ``'active'``: a cached read that went on
+        describing the departed camera once decided a write -- a frame edit
+        at the old size compared equal to the stale cache, skipped the
+        camera and was stored with no camera behind it. Committed as an
+        authoritative write, so a read in flight cannot re-commit a value of
+        the camera that left.
+        """
+        self._commit_camera_writes(_no_camera_cache())
 
     def _fire_camera_listeners(self, param: str, value: float) -> None:
         """Notify all camera listeners of a setting change."""
@@ -1204,6 +1243,7 @@ class ImagingAPI:
         timeout_s,
         override=False,
         falsifies_recording=False,
+        satisfied_when_absent=_REFUSED_WHEN_ABSENT,
     ):
         """Run one camera command for an external caller, on the right thread.
 
@@ -1216,21 +1256,27 @@ class ImagingAPI:
         The lane's ``call`` decides a refusal and raises it to the caller:
         the lane is closed, or a run or a diagnostic holds the scope and this
         call is not made under its taking, or ``falsifies_recording`` is set
-        and a recording holds the scope.
-
-        Unlike the LED dispatcher there is no connected pre-check here: the
-        camera slot holds None when no camera is present -- there is no Null
-        camera object -- so each `_impl` opens with a live driver guard and
-        answers correctly on whichever thread it runs.
+        and a recording holds the scope. Once admitted, the task asks for the
+        camera before the body runs (``_asking_for_the_camera``), so after
+        ``disconnect()`` the lane's own ``scope_disconnected`` is what the
+        caller hears.
 
         ``override`` admits the task whatever holds the scope, on the key the
         session registered: only for a read that must touch the camera from
         its lane's thread but changes nothing a holder depends on.
+
+        ``satisfied_when_absent`` is what the command answers with no camera
+        connected: an off whose end state already holds, or a read with no
+        camera to describe. Left out, the command is refused naming the
+        camera.
         """
         kwargs = kwargs or {}
         key = self._scope._camera_override_key if override else None
         task = IOTask(
-            action=impl, args=args, kwargs=kwargs, falsifies_recording=falsifies_recording
+            action=self._asking_for_the_camera(impl, name, satisfied_when_absent),
+            args=args,
+            kwargs=kwargs,
+            falsifies_recording=falsifies_recording,
         )
         return self._scope._camera_executor.call(task, name, timeout_s, override=key)
 
@@ -1239,15 +1285,63 @@ class ImagingAPI:
 
         The command is admitted or refused on the calling thread, as
         ``_dispatch_camera`` admits it, so a refusal raises here; its outcome
-        settles ``waiter``, a Future the caller made and marked running.
+        settles ``waiter``, a Future the caller made and marked running. With
+        no camera connected the outcome is the refusal naming the camera.
 
         Raises:
             HardwareCommandRefusedError: the lane is closed, or a run or a
                 diagnostic holds the scope and this call is not made under
                 its taking.
         """
-        task = IOTask(action=impl, args=args)
+        task = IOTask(
+            action=self._asking_for_the_camera(impl, name, _REFUSED_WHEN_ABSENT), args=args
+        )
         self._scope._camera_executor.submit(task, name, waiter=waiter)
+
+    def _asking_for_the_camera(self, impl, member: str, satisfied_when_absent):
+        """``impl``, run only once the camera is asked for, on the lane.
+
+        The camera's one presence question for an outside command, asked
+        after the lane admits it and before the body writes: with no camera
+        connected the command is refused naming it, or answers
+        ``satisfied_when_absent`` when its dispatch names one. Bring-up's
+        direct ``_impl`` calls do not pass through here and ask for
+        themselves. A body handed ``_DECIDED_IN_BODY`` is run as it is.
+        """
+        if satisfied_when_absent is _DECIDED_IN_BODY:
+            return impl
+
+        @functools.wraps(impl)
+        def ask_then_run(*args, **kwargs):
+            if not self._scope.camera_connected:
+                if satisfied_when_absent is _REFUSED_WHEN_ABSENT:
+                    raise _camera_not_connected(member)
+                return satisfied_when_absent
+            return impl(*args, **kwargs)
+
+        return ask_then_run
+
+    def refuse_camera_not_connected(self, member: str) -> None:
+        """Refuse when no camera is connected.
+
+        Asked by every outside camera command on the camera lane before it
+        writes. Offered alone to a caller that must refuse before work of its
+        own starts: Go To Step asks it before moving, and a frame listener
+        before it is registered. Off the lane after ``disconnect()`` it
+        answers as a command on the lane would, ``scope_disconnected``.
+
+        A consult seam, not part of the L2 API surface: an L2 caller's camera
+        command asks it itself.
+
+        Raises:
+            HardwareCommandRefusedError: ``'scope_disconnected'`` after
+                ``disconnect()``; ``'not_connected'``, naming the camera.
+                Nothing was sent.
+        """
+        if self._scope._camera_executor.pending_shutdown:
+            raise HardwareCommandRefusedError('scope_disconnected', member)
+        if not self._scope.camera_connected:
+            raise _camera_not_connected(member)
 
     def _refuse_out_of_range(
         self,
@@ -1299,15 +1393,17 @@ class ImagingAPI:
 
         Returns:
             float | None: The gain in dB now in effect, which differs from the
-                request when the camera snapped it. ``None`` when no camera is
-                active.
+                request when the camera snapped it. ``None`` when the camera
+                was removed during the write.
 
         Raises:
             CameraSettingOutOfRangeError: The gain is outside the range the
                 camera declares; nothing was sent to it.
             CameraSettingRejected: A live driver confirmed it refused the
                 gain. It carries the words its reporter shows; nothing is
-                shown here. Not raised for a camera-absent no-op.
+                shown here.
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected.
         """
         self._refuse_out_of_range(
             'gain_db',
@@ -1341,14 +1437,17 @@ class ImagingAPI:
         Returns:
             float | None: The exposure in milliseconds now in effect, which
                 differs from the request when the camera clamped it to its
-                floor or quantized it. ``None`` when no camera is active.
+                floor or quantized it. ``None`` when the camera was removed
+                during the write.
 
         Raises:
             CameraSettingOutOfRangeError: The exposure is outside the range
                 the camera declares; nothing was sent to it.
             CameraSettingRejected: A live driver confirmed it refused the
                 exposure. It carries the words its reporter shows; nothing is
-                shown here. Not raised for a camera-absent no-op.
+                shown here.
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected.
         """
         self._refuse_out_of_range(
             'exposure_ms',
@@ -1377,11 +1476,16 @@ class ImagingAPI:
         See ``_set_auto_gain_impl`` for the value contract; this adds the
         dispatch described on ``_dispatch_camera`` and the raise below.
 
+        With no camera connected, turning auto-gain off is satisfied: True,
+        as a camera already in manual answers.
+
         Raises:
             CameraSettingRejected: The camera refused the change. Nothing
                 was recorded, and nothing is shown here.
             CameraSettingUnsupportedError: Turning auto-gain on for a camera
                 without it.
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, for turning auto-gain on with no camera connected.
         """
         result = self._dispatch_camera(
             self._set_auto_gain_impl,
@@ -1389,6 +1493,7 @@ class ImagingAPI:
             args=(state, settings),
             kwargs={'resume_after_capture': resume_after_capture},
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+            satisfied_when_absent=_REFUSED_WHEN_ABSENT if state else True,
         )
         if result is False:
             raise _mode_rejection('auto_gain', state, 'auto-gain')
@@ -1476,12 +1581,14 @@ class ImagingAPI:
         dispatch described on ``_dispatch_camera``. A caller leaving
         auto-gain stores ``stored_exposure_ms`` / ``gain_db`` as the manual
         setting; when no arm stands the result's ``state`` is None and
-        nothing was written.
+        nothing was written. With no camera connected no arm can stand, and
+        that is the answer.
         """
         return self._dispatch_camera(
             self._lock_auto_gain_impl,
             'lock_auto_gain',
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+            satisfied_when_absent=AutoGainLock(state=None),
         )
 
     def _lock_auto_gain_impl(self) -> AutoGainLock:
@@ -1649,17 +1756,23 @@ class ImagingAPI:
         adds the dispatch described on ``_dispatch_camera`` and the raise
         below.
 
+        With no camera connected, turning auto-exposure off is satisfied:
+        True, as a camera already in manual answers.
+
         Raises:
             CameraSettingRejected: The camera refused the change; nothing is
                 shown here.
             CameraSettingUnsupportedError: Turning auto-exposure on for a
                 camera without it.
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, for turning auto-exposure on with no camera connected.
         """
         result = self._dispatch_camera(
             self._set_auto_exposure_time_impl,
             'set_auto_exposure_time',
             args=(state,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+            satisfied_when_absent=_REFUSED_WHEN_ABSENT if state else True,
         )
         if result is False:
             raise _mode_rejection('auto_exposure', state, 'auto-exposure')
@@ -1781,9 +1894,8 @@ class ImagingAPI:
         Returns:
             dict | None: The DELIVERED ``{'width', 'height'}`` -- the
                 clamped/snapped geometry actually in effect, which may
-                differ from the request. None when no camera is active
-                (quiet no-op per the missing-hardware contract; a
-                notification fires).
+                differ from the request. None when no camera is active (an
+                outside caller is refused before this runs).
 
         Raises:
             CameraSettingRejected: A live driver rejected the apply. It
@@ -1791,7 +1903,6 @@ class ImagingAPI:
         """
 
         if not self._driver or not self._driver.active:
-            self._notify_camera_absent('frame size')
             return None
         # A frame-size change reallocates buffers; the pipeline must flush, so
         # invalidate unconditionally. Cache the DELIVERED size, not the request:
@@ -1821,12 +1932,12 @@ class ImagingAPI:
         return delivered_size
 
     def _notify_camera_absent(self, op_label: str) -> None:
-        """Fire a deduped notification when a camera-required operation
-        is invoked without an active camera. notification_center collapses
-        repeats by (category, title) over 5s so a chain of failed setter
-        calls during a disconnected window yields one popup, not dozens.
-        Internal-poll callers (scope_display auto-gain readback) and
-        cleanup paths intentionally do NOT route through this.
+        """Fire a deduped notification when the camera was removed during a
+        value write (``_removed_during_write``), past the lane's presence
+        question, which refuses a command with no camera before it runs.
+        notification_center collapses repeats by (category, title) over 5s
+        so a chain of failed writes in the removal window yields one popup,
+        not dozens.
 
         Suppressed in no_hardware mode (cold-start with nothing
         connected) -- the consolidated "No hardware detected" popup
@@ -1870,8 +1981,8 @@ class ImagingAPI:
 
         Returns:
             bool: True when the driver applied the binning. False only
-                when the camera is absent (quiet no-op per the
-                missing-hardware contract; a notification fires).
+                when the camera is absent (an outside caller is refused
+                before this runs).
 
         Raises:
             CameraSettingRejected: A live driver rejected the apply or
@@ -1882,7 +1993,6 @@ class ImagingAPI:
                 FOV / stitch derivation built on the recorded factor.
         """
         if not self._driver or not self._driver.active:
-            self._notify_camera_absent('binning')
             return False
         try:
             # Binning realloc only takes effect when the driver applied it,
@@ -1965,8 +2075,8 @@ class ImagingAPI:
 
         Returns:
             bool: True when the driver applied the format. False only
-                when the camera is absent / inactive (quiet no-op per the
-                missing-hardware contract; a notification fires).
+                when the camera is absent / inactive (an outside caller is
+                refused before this runs).
 
         Raises:
             CameraSettingRejected: A live driver rejected the format
@@ -1977,7 +2087,6 @@ class ImagingAPI:
                 key off the recorded format.
         """
         if not self._driver or not self._driver.active:
-            self._notify_camera_absent('pixel format')
             return False
         try:
             # Format change reallocates geometry only when the driver applied
@@ -2037,7 +2146,6 @@ class ImagingAPI:
                 returned False / raised. Never raises.
         """
         if not self._driver or not self._driver.active:
-            self._notify_camera_absent('conversion gain mode')
             return False
         if not hasattr(self._driver, 'set_conversion_gain_mode'):
             logger.debug(
@@ -2092,7 +2200,6 @@ class ImagingAPI:
                 returned False / raised. Never raises.
         """
         if not self._driver or not self._driver.active:
-            self._notify_camera_absent('line noise reduction')
             return False
         if not hasattr(self._driver, 'set_line_noise_reduction'):
             logger.debug(
@@ -2201,10 +2308,11 @@ class ImagingAPI:
 
         Returns:
             float | None: The black level now in effect, which differs from
-                the request when the camera snapped it. ``None`` when no
-                camera is active.
+                the request when the camera snapped it.
 
         Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected.
             CameraSettingUnsupportedError: This camera offers no black level
                 setting (``capabilities.camera_supports_black_level`` is
                 False). Nothing reached the camera.
@@ -2666,6 +2774,17 @@ class ImagingAPI:
             cached = self._camera_cache[key]
         return cached if is_valid(cached) else absent
 
+    def _grab_sizing_exposure_s(self) -> float:
+        """The exposure in seconds, for sizing a grab's wait and a frame's cost.
+
+        Read live, so a mid-window exposure change sizes the next grab. 0
+        when the camera has never reported one: every wait sized from it
+        has a floor of its own, and with no exposure to scale it is the
+        floor that sizes it.
+        """
+        exposure_ms = self.get_exposure_ms()
+        return exposure_ms / 1000 if exposure_ms is not None else 0.0
+
     def get_live_camera_settings(self) -> dict:
         """Live-confirmed camera settings, omitting any field whose read
         did not just succeed.
@@ -2718,36 +2837,36 @@ class ImagingAPI:
             settings['pixel_format'] = pixel_format
         return settings
 
-    def get_gain_db(self) -> float:
+    def get_gain_db(self) -> float | None:
         """Get the current camera gain.
 
         Returns:
-            float: Gain in dB -- the live reading when it succeeds, else the
-                last-known-good value. -1 when no camera is active or gain
-                has never been read.
+            float | None: Gain in dB -- the live reading when it succeeds,
+                else the last-known-good value. None when no camera is
+                active or gain has never been read.
         """
         return self._validated_camera_read(
             'gain_db',
             lambda driver: driver.get_gain(),
             common_utils.is_valid_gain_db,
             float,
-            -1.0,
+            None,
         )
 
-    def get_exposure_ms(self) -> float:
+    def get_exposure_ms(self) -> float | None:
         """Get the current camera exposure time.
 
         Returns:
-            float: Exposure time in milliseconds -- the live reading when it
-                succeeds, else the last-known-good value. 0 when no camera
-                is active or exposure has never been read.
+            float | None: Exposure time in milliseconds -- the live reading
+                when it succeeds, else the last-known-good value. None when
+                no camera is active or exposure has never been read.
         """
         return self._validated_camera_read(
             'exposure_ms',
             lambda driver: driver.get_exposure_t(),
             common_utils.is_valid_exposure_ms,
             float,
-            0.0,
+            None,
         )
 
     def _get_frame_size(self) -> dict | None:
@@ -2786,27 +2905,27 @@ class ImagingAPI:
             None,
         )
 
-    def get_width(self) -> int:
+    def get_width(self) -> int | None:
         """Get the current frame width setting.
 
         Returns:
-            int: Current width in pixels -- last-known-good when the live
-                read fails. 0 when no camera is active or the size has
-                never been read.
+            int | None: Current width in pixels -- last-known-good when the
+                live read fails. None when no camera is active or the size
+                has never been read.
         """
         frame_size = self._get_frame_size()
-        return int(frame_size['width']) if frame_size else 0
+        return int(frame_size['width']) if frame_size else None
 
-    def get_height(self) -> int:
+    def get_height(self) -> int | None:
         """Get the current frame height setting.
 
         Returns:
-            int: Current height in pixels -- last-known-good when the live
-                read fails. 0 when no camera is active or the size has
-                never been read.
+            int | None: Current height in pixels -- last-known-good when the
+                live read fails. None when no camera is active or the size
+                has never been read.
         """
         frame_size = self._get_frame_size()
-        return int(frame_size['height']) if frame_size else 0
+        return int(frame_size['height']) if frame_size else None
 
     def get_binning_size(self) -> int:
         """Get the current camera binning size.
@@ -2935,7 +3054,7 @@ class ImagingAPI:
             return None
 
         hold_start = time.monotonic()
-        exposure_s = self.get_exposure_ms() / 1000
+        exposure_s = self._grab_sizing_exposure_s()
         grab_timeout_s = max(exposure_s * 3, 1.0)
 
         # The deadline is frozen at entry: the pending frame count and the
@@ -3011,7 +3130,7 @@ class ImagingAPI:
             # exposure fails healthy long-exposure frames and reports the
             # staleness as a drain failure. Plumbing only: the budget
             # above stays frozen.
-            exposure_s = self.get_exposure_ms() / 1000
+            exposure_s = self._grab_sizing_exposure_s()
             grab_timeout_s = max(exposure_s * 3, 1.0)
 
             # Snapshot the invalidation counters BEFORE the drain: any
@@ -3893,8 +4012,8 @@ class ImagingAPI:
         After ``connect()`` the camera is configured but NOT grabbing (the
         camera-lifecycle split); ``Lumascope.initialize`` makes the one-time
         bring-up start. This restarts a feed that was deliberately stopped,
-        and is idempotent on a feed already running. No-op when no camera is
-        attached. See ``_start_streaming_impl``; this adds the dispatch
+        and is idempotent on a feed already running. Refused, naming the camera,
+        when none is connected. See ``_start_streaming_impl``; this adds the dispatch
         described on ``_dispatch_camera``, on the geometry timeout (a stop
         or start of the grab has been measured near 11 s on a Pylon body).
         """
@@ -3920,13 +4039,15 @@ class ImagingAPI:
         """Stop camera streaming, and wait.
 
         After this, ``capture_and_wait()`` fails until streaming resumes;
-        ``get_image()`` still returns the last frame the camera delivered. No-op when no camera is attached. Dispatched as
-        ``start_streaming`` is.
+        ``get_image()`` still returns the last frame the camera delivered.
+        Satisfied with no camera connected: nothing is streaming. Dispatched
+        as ``start_streaming`` is.
         """
         return self._dispatch_camera(
             self._stop_streaming_impl,
             'stop_streaming',
             timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
+            satisfied_when_absent=None,
         )
 
     def _stop_streaming_impl(self) -> None:
@@ -4248,12 +4369,18 @@ class ImagingAPI:
 
         Args:
             snapshot: Return value from ``save_camera_state``.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera: none is connected and the snapshot holds a setting
+                to restore.
         """
         return self._dispatch_camera(
             self._restore_camera_state_impl,
             'restore_camera_state',
             args=(snapshot,),
             timeout_s=3 * self._CAMERA_WRITE_TIMEOUT_S,
+            satisfied_when_absent=_DECIDED_IN_BODY,
         )
 
     def _restore_camera_state_impl(self, snapshot: dict) -> None:
@@ -4285,6 +4412,16 @@ class ImagingAPI:
         # by whatever noticed it -- a run's ending, the stall check.
         if self.camera_removed:
             _api_log.info(f'restore_camera_state tag={tag}: camera removed; nothing restored')
+            return
+        # Decided here rather than at the lane's door, because only the
+        # snapshot says whether there is anything to restore: one taken with
+        # no camera holds no setting and no arm, and restoring it is
+        # satisfied with none connected.
+        if not self._scope.camera_connected:
+            if any(key in snapshot for key in ('gain_db', 'exposure_ms', *_GEOMETRY_ORDER)) or (
+                snapshot.get('auto_gain_arm') is not None
+            ):
+                raise _camera_not_connected('restore_camera_state')
             return
         # An ABSENT field is a legitimate trim (skip quietly); a PRESENT
         # field that fails validation is a caller bug -- the sanctioned
@@ -4454,7 +4591,6 @@ class ImagingAPI:
                 sentence.
         """
         if not self._driver or not self._driver.active:
-            self._notify_camera_absent('gain / exposure')
             return None
         # These arrive as the layer's STORED values, which a smaller camera
         # need not be able to reach. Capping here is what lets the store keep
@@ -5005,7 +5141,7 @@ class ImagingAPI:
         signature is ``cb(image, timestamp, chunks)``; runs on the SDK
         callback thread (Pylon ``PylonImageGrab`` / IDS grab loop /
         simulated acquisition thread). Listeners MUST NOT block -- heavy work belongs
-        on an executor. No-op when no camera is connected.
+        on an executor.
 
         Args:
             cb: Per-frame handler. Signature ``cb(image, timestamp, chunks)``.
@@ -5026,9 +5162,11 @@ class ImagingAPI:
             FrameListenerNotRegisteredError: The camera driver refused the
                 registration, chained from its error. Nothing is left
                 registered, so a later call can retry.
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera; ``'scope_disconnected'`` after ``disconnect()``.
+                Nothing is registered.
         """
-        if not self._driver or not self._driver.active:
-            return
+        self.refuse_camera_not_connected('add_frame_listener')
         if name is None:
             name = getattr(cb, '__qualname__', None) or repr(cb)
         with self._frame_listener_lock:

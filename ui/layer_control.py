@@ -79,6 +79,10 @@ class LayerControl(BoxLayout):
     # its LED board; set from scope.capabilities when the camera's
     # capabilities are synced. AND-ed with the static illumination_support.
     led_controller_support = BooleanProperty(True)
+    # Disables the gain, exposure and auto-gain controls on a scope with no
+    # camera connected; set from scope.camera_connected when the camera's
+    # capabilities are synced.
+    camera_connected = BooleanProperty(True)
     show_camera_controls = BooleanProperty(True)
     # Drives the 8-bit summing depth-loss hint row; the row height follows the
     # label's wrapped texture so the multi-line warning is not clipped.
@@ -1080,14 +1084,17 @@ class LayerControl(BoxLayout):
             # an imperative .disabled write here was erased whenever the run
             # lockout cleared, because that rule re-fires on the edge.
             self.ids['auto_gain'].active = auto_gain_enabled
-            session = ctx.session
-            layer = self.layer
-            submit_reported(
-                lambda: session.apply_layer_camera(layer),
-                None,
-                f'CAMERA_SETTINGS_{layer}',
-                lane=camera_executor,
-            )
+            # With no camera connected its controls are disabled and there is
+            # nothing to apply; bring-up has already said it is missing.
+            if ctx.scope.camera_connected:
+                session = ctx.session
+                layer = self.layer
+                submit_reported(
+                    lambda: session.apply_layer_camera(layer),
+                    None,
+                    f'CAMERA_SETTINGS_{layer}',
+                    lane=camera_executor,
+                )
 
         # update false color to currently selected settings and shader
         # -----------------------------------------------------

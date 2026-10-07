@@ -108,6 +108,10 @@ class ScriptedCameraDriver:
         # A scripted camera is never unplugged; the API asks before writing.
         return False
 
+    def is_connected(self) -> bool:
+        # Connected while active: the camera lane asks before a command runs.
+        return self.active
+
     def __init__(self, scripts: dict, active: bool = True):
         self.active = active
         self.cam_image_handler = None  # tests attach a _StampedFrameHandler
@@ -193,10 +197,10 @@ def _build_imaging(cam) -> ImagingAPI:
 # (getter name, camera-absent default, expected last-known-good after the
 # one good populate round from good_then_failing_driver()).
 CONVERTED_GETTERS = [
-    ('get_gain_db', -1.0, 12.5),
-    ('get_exposure_ms', 0.0, 50.0),
-    ('get_width', 0, 1936),
-    ('get_height', 0, 1216),
+    ('get_gain_db', None, 12.5),
+    ('get_exposure_ms', None, 50.0),
+    ('get_width', None, 1936),
+    ('get_height', None, 1216),
     ('get_binning_size', 1, 2),
 ]
 
@@ -354,13 +358,13 @@ def test_pixel_format_none_read_does_not_clobber_known_mono8():
     assert common_utils.raw_bytes_per_pixel(imaging.pixel_format_cached) == 1
 
 
-def test_get_width_returns_zero_not_typeerror_on_cold_cache_read_failure():
+def test_get_width_returns_none_not_typeerror_on_cold_cache_read_failure():
     # Driver present + active, frame-size read fails, nothing cached yet.
     # The old behavior subscripted the None passthrough -> TypeError.
     imaging = _build_imaging(all_reads_fail_driver())
     assert imaging._driver.active
-    assert imaging.get_width() == 0
-    assert imaging.get_height() == 0
+    assert imaging.get_width() is None
+    assert imaging.get_height() is None
 
 
 def test_get_width_returns_last_known_after_transient_failure():
