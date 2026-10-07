@@ -36,7 +36,12 @@ Four namespaces are defined for 4.x:
 | `rest` | HTTP sub-routers mounted under `/plugins/<name>/` | reserved; raises until REST design lands |
 
 This tutorial covers `post_processing` end-to-end. UI / live / REST
-shapes are documented elsewhere as those surfaces land.
+shapes are documented elsewhere as those surfaces land. One rule of the
+`ui` mount: the host does not lock a mounted widget while a run or a
+diagnostic holds the scope. A plugin greys its own controls from
+`ctx.session.add_run_state_listener` and `ctx.session.controls_locked`,
+as the built-in regions do, so a control that must stay live during a
+run, such as its own Stop, stays live.
 
 ---
 
@@ -305,7 +310,9 @@ startup, that's why.
 At app shutdown `unload_plugins(ctx)` walks the loaded list in
 reverse and calls each plugin's `unregister(ctx)`. Exceptions are
 caught and logged at WARNING; shutdown is not blocked by a plugin's
-teardown failure.
+teardown failure. It runs before the hardware is disconnected: a plugin
+driving the scope stops that work here and waits, bounded, for it to
+put the scope back.
 
 Reverse order matters when plugin B was registered after plugin A
 and depends on resources A exposes -- B comes down first.

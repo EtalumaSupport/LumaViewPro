@@ -1196,17 +1196,12 @@ class LumaViewProApp(TooltipMixin, App):
             if mount_point == 'left_sidebar.accordion':
                 try:
                     plugin_item = builder()
-                    # The accordion itself no longer carries the exclusive-
-                    # activity lock (its bind would swallow the run/stop
-                    # toggles' abort clicks); runtime-mounted items inherit
-                    # the lock explicitly so plugin tabs grey out like the
-                    # built-in regions.
-                    plugin_item.disabled = bool(self.controls_locked)
-                    self.bind(
-                        controls_locked=lambda _app, value, item=plugin_item: setattr(
-                            item, 'disabled', value
-                        )
-                    )
+                    # The item carries no exclusive-activity lock, as the
+                    # accordion carries none: a lock on the whole item would
+                    # grey out a control that must stay live during a run,
+                    # such as the plugin's own Stop. A plugin locks its own
+                    # controls, as the built-in regions do, from the
+                    # session's run-state listeners.
                     motionsettings_accordion.add_widget(plugin_item)
                     logger.info(f'[LVP Main  ] Mounted {plugin_name} at {mount_point}')
                 except Exception as e:
