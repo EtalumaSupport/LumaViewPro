@@ -129,8 +129,9 @@ class TestAProtocolThatChangedDuringTheScanIsLeftAlone:
     def test_a_step_moved_during_the_scan_refuses_the_write_and_says_so_once(self, tmp_path):
         protocol = _two_steps()
 
-        def _move_a_step():
-            # Behind the writers: the protocol has no one-cell position writer.
+        def _move_a_step(_step):
+            # As the scan reaches its second step, behind the writers: the
+            # protocol has no one-cell position writer.
             protocol._config['steps'].at[1, 'X'] = 40.0
 
         with (
@@ -138,7 +139,7 @@ class TestAProtocolThatChangedDuringTheScanIsLeftAlone:
             _focusing_session(tmp_path) as (_session, runner),
         ):
             outcome = runner.run_autofocus_all_steps(
-                protocol, callbacks={'autofocus_in_progress': _move_a_step}
+                protocol, callbacks={'update_step_number': _move_a_step}
             ).wait(timeout_s=WAIT_S)
 
         assert outcome.status == 'completed', outcome
@@ -161,12 +162,10 @@ class TestAProtocolThatChangedDuringTheScanIsLeftAlone:
                 assert have_handle.wait(WAIT_S), 'the start never returned its handle'
                 started[0].stop()
 
-            def _stop():
+            def _stop(_step):
                 threading.Thread(target=_stop_once_held).start()
 
-            run = runner.run_autofocus_all_steps(
-                protocol, callbacks={'autofocus_in_progress': _stop}
-            )
+            run = runner.run_autofocus_all_steps(protocol, callbacks={'update_step_number': _stop})
             started.append(run)
             have_handle.set()
             outcome = run.wait(timeout_s=WAIT_S)

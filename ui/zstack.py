@@ -1,7 +1,6 @@
 # Copyright Etaluma, Inc.
 import logging
 
-from kivy.clock import Clock
 from kivy.properties import BooleanProperty
 
 from kivy.uix.floatlayout import FloatLayout
@@ -150,15 +149,6 @@ class ZStack(FloatLayout):
             'set_recording_title': set_recording_title,
             'set_writing_title': set_writing_title,
             'reset_title': reset_title,
-            'pause_live_ui': lambda: (
-                ctx.scope_display.stop(),
-                Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
-            ),
-            'resume_live_ui': lambda: (
-                ctx.scope_display.start(),
-                Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
-                Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 0.1),
-            ),
         }
 
         def _start():

@@ -150,12 +150,12 @@ class TestProtocolCallbacksFromDict:
         fn = lambda: None
         d = {
             'run_complete': fn,
-            'leds_off': fn,
+            'reset_title': fn,
             'move_position': fn,
         }
         cb = ProtocolCallbacks.from_dict(d)
         assert cb.run_complete is fn
-        assert cb.leds_off is fn
+        assert cb.reset_title is fn
         assert cb.move_position is fn
         # Unset fields stay None
         assert cb.files_complete is None
@@ -163,7 +163,7 @@ class TestProtocolCallbacksFromDict:
     def test_from_dict_empty(self):
         cb = ProtocolCallbacks.from_dict({})
         assert cb.run_complete is None
-        assert cb.leds_off is None
+        assert cb.reset_title is None
 
     def test_from_dict_none(self):
         cb = ProtocolCallbacks.from_dict(None)
@@ -208,10 +208,10 @@ class TestProtocolCallbacksToDict:
 
     def test_to_dict_only_non_none(self):
         fn = lambda: None
-        cb = ProtocolCallbacks(run_complete=fn, leds_off=fn)
+        cb = ProtocolCallbacks(run_complete=fn, reset_title=fn)
         d = cb.to_dict()
         assert 'run_complete' in d
-        assert 'leds_off' in d
+        assert 'reset_title' in d
         # None fields omitted
         assert 'files_complete' not in d
         assert 'move_position' not in d
@@ -245,11 +245,11 @@ class TestProtocolCallbacksToDict:
     def test_roundtrip_dict(self):
         fn_a = lambda: None
         fn_b = lambda: None
-        original = {'run_complete': fn_a, 'leds_off': fn_b}
+        original = {'run_complete': fn_a, 'reset_title': fn_b}
         cb = ProtocolCallbacks.from_dict(original)
         result = cb.to_dict()
         assert result['run_complete'] is fn_a
-        assert result['leds_off'] is fn_b
+        assert result['reset_title'] is fn_b
 
 
 # ===========================================================================

@@ -1144,16 +1144,6 @@ class ProtocolSettings(FloatLayout):
         callbacks = {
             **live_display_callbacks(),
             'move_position': _handle_ui_update_for_axis,
-            # Pause live UI during recording-heavy runs for throughput
-            'pause_live_ui': lambda: (
-                ctx.scope_display.stop(),
-                Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
-            ),
-            'resume_live_ui': lambda: (
-                ctx.scope_display.start(),
-                Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
-                Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 0.1),
-            ),
             'run_scan_pre': self._run_scan_pre_callback,
             'scan_iterate_post': self.draw_protocol_buttons,
             'update_step_number': _update_step_number_callback,
@@ -1198,15 +1188,6 @@ class ProtocolSettings(FloatLayout):
             'scan_iterate_post': self.draw_protocol_buttons,
             'run_complete': self._scan_run_complete,
             # LED observer handles UI sync -- no manual callbacks needed
-            'pause_live_ui': lambda: (
-                ctx.scope_display.stop(),
-                Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
-            ),
-            'resume_live_ui': lambda: (
-                ctx.scope_display.start(),
-                Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
-                Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 0.1),
-            ),
         }
         return self._sequenced_capture_start(
             start_run=ctx.session.create_protocol_runner().run_single_scan,
@@ -1270,15 +1251,6 @@ class ProtocolSettings(FloatLayout):
             'run_complete': self._protocol_run_complete,
             'files_complete': self._protocol_files_complete,
             # LED observer handles UI sync -- no manual callbacks needed
-            'pause_live_ui': lambda: (
-                ctx.scope_display.stop(),
-                Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
-            ),
-            'resume_live_ui': lambda: (
-                ctx.scope_display.start(),
-                Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
-                Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 0.1),
-            ),
         }
         # The run's own copy: the panel's protocol is the person's, and is
         # not the run's to change.

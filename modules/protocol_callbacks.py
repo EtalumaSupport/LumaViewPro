@@ -36,10 +36,6 @@ class ProtocolCallbacks:
     # of its images are not on disk.
     files_complete: Callable | None = None  # (protocol, run_dir, files) -> None
 
-    # --- Autofocus ---
-    autofocus_in_progress: Callable | None = None  # () -> None
-    autofocus_complete: Callable | None = None  # () -> None  (UI notification)
-
     # --- Layer panel ---
     # The run displays each step in the layer panel without writing the
     # user's settings; at run end this puts every layer's widgets back on
@@ -50,10 +46,6 @@ class ProtocolCallbacks:
     move_position: Callable | None = None  # (axis: str) -> None
     go_to_step: Callable | None = None  # (**kwargs) -> None
     update_step_number: Callable | None = None  # (step: int) -> None
-
-    # --- LED state ---
-    leds_off: Callable | None = None  # () -> None
-    led_state: Callable | None = None  # (layer=, enabled=) -> None
 
     # --- Video / title bar ---
     set_recording_title: Callable | None = None  # (elapsed_sec=..., total_sec=...) -> None
@@ -66,8 +58,6 @@ class ProtocolCallbacks:
     # writer's thread, not marshalled to the UI thread: the display does
     # the expensive conversion inline and schedules only the texture write.
     hold_protocol_saved_image: Callable | None = None  # (image, significant_bits) -> None
-    pause_live_ui: Callable | None = None  # () -> None
-    resume_live_ui: Callable | None = None  # () -> None
 
     # --- UI shader / false-color state ---
     # Each protocol step calls layer_control.apply_settings() which sets

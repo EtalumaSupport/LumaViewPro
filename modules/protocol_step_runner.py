@@ -268,9 +268,6 @@ class ProtocolStepRunner:
             wants_af = False
 
         if wants_af and p._af_future is None:
-            if p._callbacks.autofocus_in_progress:
-                _schedule_ui(lambda dt: p._callbacks.autofocus_in_progress(), 0)
-
             af_executor_callbacks = {}
             if p._callbacks.move_position:
                 af_executor_callbacks['move_position'] = p._callbacks.move_position
@@ -408,9 +405,6 @@ class ProtocolStepRunner:
                 logger.warning('[Capture   ] Autofocus returned no position -- keeping current Z')
             elif zstack_focus_anchor is None and p._write_focus_to is not None:
                 p._protocol.modify_step_z_height(step_idx=p._curr_step, z=new_z_pos)
-
-        if p._callbacks.autofocus_complete:
-            _schedule_ui(lambda dt: p._callbacks.autofocus_complete(), 0)
 
         if wants_af:
             p._autofocus_count += 1
