@@ -377,19 +377,32 @@ class ProtocolSettings(FloatLayout):
         The spinner is the protocol's plate, so the two move together: the
         protocol takes the plate only once the scope has, and a refusal --
         a plate change while a recording holds the scope, or a name the
-        catalogue no longer has -- leaves both where they were.
+        catalogue no longer has -- leaves both where they were. The spinner
+        then shows the Session's plate, so it never names one the scope is
+        not on.
         """
         ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] ProtocolSettings.select_labware()')
         spinner = self.ids['labware_spinner']
         spinner.values = ctx.wellplate_loader.get_plate_list()
         gui_logger.select('LABWARE', spinner.text)
+
+        def _show_the_sessions_plate():
+            # The write dispatches this handler again, which re-selects the
+            # plate in place: a no-op at the Session, and a record declared.
+            plate = ctx.settings['protocol']['labware']
+            if spinner.text != plate:
+                gui_logger.note_write_back('LABWARE', plate)
+                spinner.text = plate
+
         # An empty spinner (not yet populated at startup) names no plate, so
         # there is nothing to select; bring-up already put the stored plate
         # in place and it stays there.
         selected = spinner.text
         if selected:
-            run_reported(lambda: self.select_labware_ex(selected), None, 'LABWARE')
+            run_reported(
+                lambda: self.select_labware_ex(selected), _show_the_sessions_plate, 'LABWARE'
+            )
         ctx.stage.full_redraw()
 
     def select_labware_ex(self, selected: str) -> None:
