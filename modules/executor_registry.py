@@ -46,9 +46,7 @@ lens instead of hardcoding executor handle names.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
 
 from lvp_logger import logger
 from modules.protocol_thread import ProtocolThread
@@ -125,7 +123,6 @@ class ExecutorBundle:
 def create_default(
     io_executor: SequentialIOExecutor,
     camera_executor: SequentialIOExecutor,
-    ctx_provider: Callable[[], Any] | None = None,
 ) -> ExecutorBundle:
     """Construct + start the standard LVP executor topology around a scope's lanes.
 
@@ -134,11 +131,6 @@ def create_default(
             started by the scope.
         camera_executor: The scope's CAMERA lane (``scope.camera_lane()``),
             already started by the scope.
-        ctx_provider: The display thread's context provider -- a callable
-            returning the object that carries the ``scope_display`` widget
-            and the ``scope`` handle, or None while the host has neither.
-            The GUI hands its app context in; a headless host has no
-            display and passes nothing.
 
     Returns:
         ExecutorBundle holding the scope's two lanes and every executor and
@@ -149,10 +141,9 @@ def create_default(
     # run's own write batch, on this lane's one ordinary queue.
     file_io_executor = SequentialIOExecutor(name='FILE')
     post_processing_executor = SequentialIOExecutor(name='POSTPROC')
-    # Thread is constructed here but NOT started. The host starts it once
-    # its display widget and this thread are both reachable through the
-    # provider; starting earlier races that wiring and silently no-ops.
-    scope_display_thread = ScopeDisplayThread(ctx_provider=ctx_provider)
+    # Thread is constructed here but NOT started: a host with a display
+    # starts it from its display widget, which it renders through.
+    scope_display_thread = ScopeDisplayThread()
     # Protocol scan-loop driver. Generic callable runner; SCE.run()
     # submits self._run_loop_executor.run_loop and receives a Future.
     protocol_thread = ProtocolThread()

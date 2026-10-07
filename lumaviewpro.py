@@ -1054,7 +1054,6 @@ class LumaViewProApp(TooltipMixin, App):
                 settings_saved_hook=_notify_plugins_of_settings_save,
                 engineering_mode=ENGINEERING_MODE,
                 plugin_health=lambda: app_context.ctx.plugins.health(),
-                display_ctx_provider=lambda: app_context.ctx,
                 sim_camera_stall=sim_camera_stall,
                 sim_file_stall=sim_file_stall,
                 outcome_listener=notification_popup_bridge,

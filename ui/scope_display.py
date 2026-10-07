@@ -378,7 +378,7 @@ class ScopeDisplay(Image):
             self.fps = 30
         thread = getattr(ctx, 'scope_display_thread', None) if ctx else None
         if thread is not None:
-            thread.start(fps=self.fps)
+            thread.start(self, fps=self.fps)
             fps_label = 'uncapped' if self.fps == 0 else f'{self.fps} FPS cap'
             logger.info(f'[LVP Main  ] ScopeDisplay: thread started ({fps_label})')
 

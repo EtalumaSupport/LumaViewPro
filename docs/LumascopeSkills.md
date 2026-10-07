@@ -338,7 +338,7 @@ session = ScopeSession.create(
 )
 ```
 
-`af_ui_update_func` is one callable with two consumers: the autofocus runner's Z readout and the capture engine's. There is one more parameter, `display_ctx_provider`, which exists for the Kivy host's display thread and is not an L2 parameter — leave it unset.
+`af_ui_update_func` is one callable with two consumers: the autofocus runner's Z readout and the capture engine's.
 
 If you hand `create` a scope you built yourself (`scope=...`), that scope is your bring-up: call `session.configure_scope()` and `session.scope.imaging.start_streaming()` yourself. One session per scope: a second `create(scope=...)` over a scope a live session holds raises `RuntimeError`.
 

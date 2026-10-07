@@ -736,7 +736,6 @@ class ScopeSession:
         settings_saved_hook: Callable[[dict], None] | None = None,
         engineering_mode: bool = False,
         plugin_health: 'Callable[[], PluginHealth] | None' = None,
-        display_ctx_provider: Callable[[], Any] | None = None,
         sim_camera_stall: 'SimulatedStall | None' = None,
         sim_file_stall: 'SimulatedStall | None' = None,
         outcome_listener: Callable[[Any], None] | None = None,
@@ -783,9 +782,6 @@ class ScopeSession:
             plugin_health: returns the plugin registry's health when the
                 support report asks (host-only: the GUI's registry; None
                 for a host that loads no plugins).
-            display_ctx_provider: the display thread's context provider
-                (host-only: the GUI's app context; None for a host with
-                no display).
             sim_camera_stall: a stall for the simulated camera's stream, so a
                 simulated scope shows a stream that stops delivering; refused
                 beside ``scope`` and by the scope itself unless it is
@@ -867,7 +863,6 @@ class ScopeSession:
             executor_bundle = create_default(
                 scope.io_lane(),
                 scope.camera_lane(),
-                ctx_provider=display_ctx_provider,
             )
 
             # Service registration (the camera override key) happens in

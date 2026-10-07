@@ -9,6 +9,10 @@
   Before, each took its own, and a session built over a caller's scope gave its file,
   post-processing, worker-pool and diagnostics lanes none, so under a GUI their callbacks ran on
   the worker while the scope's own reached the UI thread.
+- **The display thread is started with what it renders (SDK, breaking)**:
+  `ScopeDisplayThread.start(renderer, fps)` takes the display widget it renders through, and the
+  thread reads no application context. `ScopeSession.create(display_ctx_provider=)` and
+  `create_default`'s `ctx_provider` are removed.
 - **An autofocus sweep that will not stop is a cleanup failure**: when a stopped run's autofocus
   sweep has not unwound 30 s after being told to, the run's `cleanup_failures` names
   `Stop autofocus` and the person is told once in the cleanup summary; the run keeps its own
