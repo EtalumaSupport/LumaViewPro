@@ -973,7 +973,7 @@ Each call carries one `Notification` (`modules.notification_center`):
 |---|---|
 | `kind` | `OutcomeKind`, a string enum: `'refusal'` (declined; nothing broke), `'fault'` (something failed), `'notice'` (information; nothing failed), or `'unclassified'` (a notification posted without declaring its kind; these are being moved to declared kinds) |
 | `title`, `message` | The heading and the sentence, written for the person |
-| `reason` | The outcome's machine-readable code, stable enough to branch on (a refusal's, a fault's or a notice's); empty for one that declares none |
+| `reason` | The outcome's machine-readable code, stable enough to branch on (a refusal's, a fault's or a notice's). Every refusal declares one (`tests/guards/test_every_refusal_states_its_reason.py`); empty for a fault or notice that declares none |
 | `remedy` | A `Remedy` when the outcome has one action that answers it: `session.apply_remedy(n.remedy)` takes it |
 | `solicited` | True when it answers a request a person or caller just made |
 | `fatal` | True for a fault that ends what was running |
