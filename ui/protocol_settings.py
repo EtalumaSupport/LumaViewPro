@@ -594,15 +594,14 @@ class ProtocolSettings(FloatLayout):
         run_reported(lambda: self.new_protocol_ex(protocol), _redraw, 'NEW_PROTOCOL')
 
     def new_protocol_ex(self, protocol):
-        """Adopt *protocol* once the API accepts the objectives it names.
+        """Adopt *protocol*, which the Session built.
 
-        The API owns the rule and raises its own refusal, so there is nothing
-        to decide or announce here: a protocol built from a selection the
-        scope cannot address is simply not adopted. The move to the first
-        step comes last, reached only once the protocol is the panel's.
+        It names only the objective in the light path, which this scope can
+        address; the Session refuses the build while that objective is
+        unknown, so there is nothing to ask here. The move to the first step
+        comes last, reached only once the protocol is the panel's.
         """
         ctx = _app_ctx.ctx
-        ctx.scope.protocols.refuse_unaddressable_objectives(protocol.steps()['Objective'].to_list())
         self._protocol = protocol
         self._show_schedule()
         ctx.update_settings('protocol.filepath', '')

@@ -187,21 +187,6 @@ class TestNewProtocol:
         assert (panel.ids['protocol_filename'].text, panel.ids['capture_root'].text) == ('', '')
         assert panel.moves == [0]
 
-    def test_a_refused_adoption_is_shown_once_and_changes_nothing(self, ctx, shown):
-        ctx.session.new_protocol.return_value = _protocol()
-        ctx.scope.protocols.refuse_unaddressable_objectives.side_effect = _refusal()
-        previous = _protocol()
-        panel = _Panel(previous)
-
-        panel.new_protocol()
-
-        assert [n.title for n in shown] == ['Objective Not Available']
-        assert panel._protocol is previous
-        assert ctx.settings['protocol']['filepath'] == 'plate.tsv'
-        assert panel.ids['protocol_filename'].text == 'plate.tsv'
-        assert panel.ids['capture_root'].text == 'root'
-        assert panel.moves == []
-
     def test_a_refused_build_is_shown_once_and_adopts_nothing(self, ctx, shown):
         ctx.session.new_protocol.side_effect = _refusal()
         previous = _protocol()
@@ -211,7 +196,6 @@ class TestNewProtocol:
 
         assert [n.title for n in shown] == ['Objective Not Available']
         assert panel._protocol is previous
-        assert not ctx.scope.protocols.refuse_unaddressable_objectives.called
 
 
 class TestSave:
