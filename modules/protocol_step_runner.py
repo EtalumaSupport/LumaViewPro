@@ -227,15 +227,6 @@ class ProtocolStepRunner:
             else bool(step.get('Auto_Focus'))
         )
 
-        # AF already pushed the Z UI to best_focus_position; do not
-        # overwrite with the pre-AF step['Z']. AFE.complete() being
-        # True at this point means the most recent AF run finished
-        # with a result that AFE has already scheduled to the UI.
-        if wants_af and p._autofocus_runner.complete():
-            pass
-        elif p._z_ui_update_func is not None:
-            _schedule_ui(lambda dt: p._z_ui_update_func(float(step['Z'])))
-
         # --- Pipeline timing instrumentation ---
         _t_settle = time.monotonic()
         _settle_wait_ms = (_t_settle - p._step_start_time) * 1000
@@ -268,10 +259,6 @@ class ProtocolStepRunner:
             wants_af = False
 
         if wants_af and p._af_future is None:
-            af_executor_callbacks = {}
-            if p._callbacks.move_position:
-                af_executor_callbacks['move_position'] = p._callbacks.move_position
-
             if p._aborted.is_set() or not p._scan_in_progress.is_set():
                 return
 
@@ -281,7 +268,6 @@ class ProtocolStepRunner:
                 results_dir=p._parent_dir,
                 write_batch=p._write_batch,
                 run=p._run_identity,
-                callbacks=af_executor_callbacks,
                 led_color=step['Color'],
                 led_illumination=step['Illumination'],
                 camera_gain=step['Gain'],
@@ -335,8 +321,6 @@ class ProtocolStepRunner:
                 placed_z = float(p._protocol.step(idx=p._curr_step)['Z'])
                 self._move_axis_through_io('Z', placed_z)
                 p._focus_placed_step = p._curr_step
-                if p._callbacks.move_position:
-                    _schedule_ui(lambda dt: p._callbacks.move_position('Z'), 0)
                 # Let the next poll's motion gate settle the stage before the
                 # capture. That poll also re-reads the step row, so the frame
                 # this slice is saved with carries the placed Z.
@@ -602,21 +586,15 @@ class ProtocolStepRunner:
         if sx is not None and sy is not None:
             self._move_axis_through_io('X', sx)
             p._target_x_pos = sx
-            if p._callbacks.move_position:
-                _schedule_ui(lambda dt: p._callbacks.move_position('X'), 0)
 
             self._move_axis_through_io('Y', sy)
             p._target_y_pos = sy
-            if p._callbacks.move_position:
-                _schedule_ui(lambda dt: p._callbacks.move_position('Y'), 0)
 
         # Z does not depend on X/Y: a step whose plate position is unknown
         # still has a focus, and its image records that Z.
         if z is not None:
             self._move_axis_through_io('Z', z)
             p._target_z_pos = z
-            if p._callbacks.move_position:
-                _schedule_ui(lambda dt: p._callbacks.move_position('Z'), 0)
 
     def _move_axis_through_io(self, axis: str, position):
         """Start a single-axis move on the io lane and wait for the command, not the arrival.
@@ -654,8 +632,6 @@ class ProtocolStepRunner:
         # are only of its objective if that objective is in the light path.
         if targets.turret_slot is not None:
             self._move_turret_through_io(targets.turret_slot)
-            if p._callbacks.move_position:
-                _schedule_ui(lambda dt: p._callbacks.move_position('T'), 0)
         self._move_to_stage(targets.x, targets.y, targets.z)
 
         # The host's callback displays the step; it moves nothing.
@@ -701,13 +677,7 @@ class ProtocolStepRunner:
             # waiting could never complete.
             p._scope.motion.move_absolute(axis, 0, overshoot_enabled=True)
 
-            if p._callbacks.move_position:
-                _schedule_ui(lambda dt, a=axis: p._callbacks.move_position(a))
-
             p._scope.motion.move_absolute(axis, z_orig, overshoot_enabled=True)
-
-            if p._callbacks.move_position:
-                _schedule_ui(lambda dt, a=axis: p._callbacks.move_position(a))
 
             elapsed = time.monotonic() - _t_start
             if elapsed > 30:

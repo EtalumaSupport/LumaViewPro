@@ -43,7 +43,6 @@ class ProtocolCallbacks:
     sync_layer_widgets: Callable | None = None  # () -> None
 
     # --- Motion / position ---
-    move_position: Callable | None = None  # (axis: str) -> None
     go_to_step: Callable | None = None  # (**kwargs) -> None
     update_step_number: Callable | None = None  # (step: int) -> None
 

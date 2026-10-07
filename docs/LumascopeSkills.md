@@ -332,13 +332,12 @@ session = ScopeSession.create(
     settings=settings_init.settings,
     source_path='.',                        # refused beside scope=: a session's folder is its scope's
     simulate=False,                         # True builds a simulated scope instead of opening hardware
-    af_ui_update_func=None,                 # (pos) -> None, called as autofocus moves Z; None for headless
     settings_saved_hook=None,               # hook(settings_snapshot: dict) after a successful save_settings
     engineering_mode=False,                 # stored on the session
 )
 ```
 
-`af_ui_update_func` is one callable with two consumers: the autofocus runner's Z readout and the capture engine's.
+A display that follows Z, a run's moves and an autofocus sweep's included, subscribes to `scope.motion.add_position_listener` (below): it is told on every move, the give-up restore included, and every poll, with the polled position, and `scope.motion.get_target_position(axis)` answers where the axis is going. No run or autofocus member takes a display callback.
 
 If you hand `create` a scope you built yourself (`scope=...`), that scope is your bring-up: call `session.configure_scope()` and `session.scope.imaging.start_streaming()` yourself. One session per scope: a second `create(scope=...)` over a scope a live session holds raises `RuntimeError`.
 

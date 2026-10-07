@@ -329,11 +329,6 @@ def _handle_ui_update_for_axis(axis: str, vertical_control: bool = False):
             ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state()
 
 
-def _handle_autofocus_ui(pos: float):
-    ctx = _app_ctx.ctx
-    ctx.motion_settings.ids['verticalcontrol_id'].update_autofocus_gui(pos=pos)
-
-
 def _user_motion_locked(axis: str) -> bool:
     """True while an exclusive activity locks the control surface.
 

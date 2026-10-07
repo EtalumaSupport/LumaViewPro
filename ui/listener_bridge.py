@@ -76,20 +76,28 @@ class UIListenerBridge:
 
     # ------------------ Listener implementations ------------------
 
-    def _on_position_change(self, axis, target, state):
-        """Position listener -- XY motion redraws stage; Z motion updates Z text.
+    def _on_position_change(self, axis, position, state):
+        """Position listener -- XY motion redraws the stage; Z the Z slider and text; T the turret.
 
-        Fires from the IO worker thread (or whichever thread mutated
-        position cache). Marshals to UI via ``schedule_ui``.
+        Fires from the IO worker thread (or whichever thread mutated the
+        position cache), for every move a run, an autofocus or a person
+        makes. ``position`` is the polled position. Marshals to UI via
+        ``schedule_ui``.
         """
         ctx = self._ctx
         if axis in ('X', 'Y'):
             schedule_ui(lambda dt: ctx.motion_settings.update_xy_stage_control_gui(), 0)
             schedule_ui(lambda dt: self._stage.draw_labware(), 0)
-        elif axis == 'Z':
-            z_ctrl = ctx.motion_settings.ids.get('verticalcontrol_id')
-            if z_ctrl:
-                schedule_ui(lambda dt: z_ctrl._update_z_text(target), 0)
+            return
+        z_ctrl = ctx.motion_settings.ids.get('verticalcontrol_id')
+        if not z_ctrl:
+            return
+        if axis == 'Z':
+            schedule_ui(lambda dt: z_ctrl.show_z(position), 0)
+        elif axis == 'T':
+            # Display only: a person's own turret press asks the objective
+            # question where it ends, never on each event of the move.
+            schedule_ui(lambda dt: z_ctrl.show_turret_state(prompt=False), 0)
 
     def _on_led_state_changed(self, channel, enabled, illumination_ma):
         """LED listener -- coalesces rapid stim pulses to one UI update per channel per Kivy frame.

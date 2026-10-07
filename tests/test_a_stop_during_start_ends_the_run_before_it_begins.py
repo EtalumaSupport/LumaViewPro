@@ -49,7 +49,6 @@ def _start_run(executor, tmp_path):
         max_scans=1,
         callbacks={
             'go_to_step': lambda **kw: None,
-            'move_position': lambda axis: None,
         },
     )
     return executor.start(plan)

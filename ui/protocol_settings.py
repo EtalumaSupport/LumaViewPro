@@ -26,7 +26,6 @@ from ui.step_navigation import go_to_step
 from modules.timedelta_formatter import strfdelta
 from modules import gui_logger
 from ui.ui_helpers import (
-    _handle_ui_update_for_axis,
     _update_step_number_callback,
     live_display_callbacks,
     refused_in_this_input,
@@ -1143,7 +1142,6 @@ class ProtocolSettings(FloatLayout):
 
         callbacks = {
             **live_display_callbacks(),
-            'move_position': _handle_ui_update_for_axis,
             'run_scan_pre': self._run_scan_pre_callback,
             'scan_iterate_post': self.draw_protocol_buttons,
             'update_step_number': _update_step_number_callback,
@@ -1316,7 +1314,6 @@ class ProtocolSettings(FloatLayout):
         callbacks.update(
             {
                 **live_display_callbacks(),
-                'move_position': _handle_ui_update_for_axis,
                 # LED observer handles UI sync -- no manual callbacks needed
                 'update_step_number': _update_step_number_callback,
                 'go_to_step': go_to_step,

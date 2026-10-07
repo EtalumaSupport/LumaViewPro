@@ -63,7 +63,6 @@ def _start_run(executor, tmp_path, done):
         callbacks={
             'run_complete': lambda **kw: done.set(),
             'go_to_step': lambda **kw: None,
-            'move_position': lambda axis: None,
         },
     )
     run = executor.start(plan)
@@ -373,7 +372,7 @@ def _start_run_and_let_it_fail(executor, tmp_path):
         autogain_settings=_make_autogain_settings(),
         parent_dir=tmp_path / 'output',
         max_scans=1,
-        callbacks={'go_to_step': lambda **kw: None, 'move_position': lambda axis: None},
+        callbacks={'go_to_step': lambda **kw: None},
     )
     executor.start(plan)
     assert executor.wait_for_run_idle(COMPLETION_TIMEOUT)

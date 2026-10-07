@@ -210,7 +210,6 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
     # The run moves the scope itself; go_to_step only marks each step's start.
     heartbeat = StepHeartbeat(callbacks.get('go_to_step'))
     callbacks['go_to_step'] = heartbeat
-    callbacks.setdefault('move_position', lambda axis: None)
 
     plan = executor.prepare(
         protocol=protocol,

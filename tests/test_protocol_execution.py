@@ -281,7 +281,6 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
     callbacks['run_complete'] = on_complete
     heartbeat = StepHeartbeat(callbacks.get('go_to_step'))
     callbacks['go_to_step'] = heartbeat
-    callbacks.setdefault('move_position', lambda axis: None)
 
     plan = executor.prepare(
         protocol=protocol,
@@ -603,41 +602,6 @@ class TestSingleScanAutoGainAndAutoFocus:
 
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-
-
-class TestAFSliderRaceRegression:
-    """#563: scan_iterate must not overwrite the AF executor's UI write.
-
-    Symptom (pre-fix): for an AF step at Z=5000, AF schedules a UI update to
-    best_focus_position; scan_iterate then schedules a UI update with the
-    pre-AF step['Z']=5000. Both writes land on Kivy's Clock queue and the
-    stale step['Z'] write often wins, so the slider lies to the user even
-    though the motor is at the AF-chosen position.
-    """
-
-    def test_scan_iterate_does_not_overwrite_af_z_ui(self, executor, scope, tmp_path):
-        protocol = _make_single_step_protocol(color='BF', auto_focus=True)
-        pre_af_z = protocol.step(idx=0)['Z']
-
-        af = executor._autofocus_runner
-        af.complete.return_value = True
-        af.in_progress.return_value = False
-        # Per-step Future tracks AF state; mock as done so scan_iterate
-        # skips kick-off and proceeds to consume the AF result.
-        executor._af_future = MagicMock()
-        executor._af_future.done.return_value = True
-        af.best_focus_position.return_value = pre_af_z + 15.0  # AF picked a different Z
-
-        z_ui_calls = []
-        executor._z_ui_update_func = lambda z: z_ui_calls.append(z)
-
-        completed, _ = _run_and_wait(executor, protocol, tmp_path)
-        assert completed
-
-        assert pre_af_z not in z_ui_calls, (
-            f'scan_iterate scheduled z_ui_update_func({pre_af_z}) -- this overwrites '
-            f"the AF executor's UI write to best_focus_position. Bug #563 has regressed."
-        )
 
 
 class TestSingleScanFluorescence:
@@ -1420,7 +1384,6 @@ class TestCancellationMidRun:
         callbacks = {
             'run_complete': on_complete,
             'go_to_step': lambda **kw: None,
-            'move_position': lambda axis: None,
         }
 
         plan = executor.prepare(
@@ -1456,7 +1419,6 @@ class TestCancellationMidRun:
         callbacks = {
             'run_complete': on_complete,
             'go_to_step': lambda **kw: None,
-            'move_position': lambda axis: None,
         }
 
         plan = executor.prepare(
@@ -1547,7 +1509,6 @@ class TestDisconnectedScope:
         callbacks = {
             'run_complete': on_complete,
             'go_to_step': lambda **kw: None,
-            'move_position': lambda axis: None,
         }
 
         with pytest.raises(ProtocolRunRefusedError):
@@ -1726,7 +1687,6 @@ class TestSavingWithNoneParentDir:
         callbacks = {
             'run_complete': on_complete,
             'go_to_step': lambda **kw: None,
-            'move_position': lambda axis: None,
         }
 
         plan = executor.prepare(
@@ -1777,7 +1737,7 @@ class TestMinimalCallbacks:
         def on_complete(**kwargs):
             done.set()
 
-        # Only provide run_complete -- no go_to_step or move_position.
+        # Only provide run_complete -- no go_to_step.
         # This forces _go_to_step to use _default_move (which we've mocked).
         plan = executor.prepare(
             protocol=protocol,
@@ -2423,7 +2383,6 @@ class TestRunReturnValueContract:
     def _prepare_run(self, executor, protocol, tmp_path, callbacks=None):
         cbs = {
             'go_to_step': lambda **kw: None,
-            'move_position': lambda axis: None,
         }
         if callbacks:
             cbs.update(callbacks)

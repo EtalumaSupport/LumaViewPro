@@ -209,7 +209,6 @@ def _run_one_still(executor, tmp_path, config):
         callbacks={
             'run_complete': on_complete,
             'go_to_step': lambda **kw: None,
-            'move_position': lambda axis: None,
         },
     )
     handle = executor.start(plan)

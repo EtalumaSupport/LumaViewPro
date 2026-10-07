@@ -47,6 +47,7 @@ CLASSIFIED = {
     'ui/shader.py::ShaderViewer._update_status_bar': DISPLAYS,
     'ui/stage.py::Stage.draw_labware_io_calculations': DISPLAYS,
     'ui/vertical_control.py::VerticalControl._show_z_target': DISPLAYS,
+    'ui/vertical_control.py::VerticalControl.show_z': DISPLAYS,
 }
 
 

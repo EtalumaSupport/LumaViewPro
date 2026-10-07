@@ -310,7 +310,6 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
     callbacks['run_complete'] = on_complete
     heartbeat = StepHeartbeat(callbacks.get('go_to_step'))
     callbacks['go_to_step'] = heartbeat
-    callbacks.setdefault('move_position', lambda axis: None)
 
     plan = executor.prepare(
         protocol=protocol,
@@ -1484,7 +1483,6 @@ class TestExecuteCancellation:
         callbacks = {
             'run_complete': on_complete,
             'go_to_step': lambda **kw: None,
-            'move_position': lambda axis: None,
         }
 
         plan = executor.prepare(

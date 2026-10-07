@@ -151,12 +151,12 @@ class TestProtocolCallbacksFromDict:
         d = {
             'run_complete': fn,
             'reset_title': fn,
-            'move_position': fn,
+            'go_to_step': fn,
         }
         cb = ProtocolCallbacks.from_dict(d)
         assert cb.run_complete is fn
         assert cb.reset_title is fn
-        assert cb.move_position is fn
+        assert cb.go_to_step is fn
         # Unset fields stay None
         assert cb.files_complete is None
 
@@ -214,7 +214,7 @@ class TestProtocolCallbacksToDict:
         assert 'reset_title' in d
         # None fields omitted
         assert 'files_complete' not in d
-        assert 'move_position' not in d
+        assert 'go_to_step' not in d
 
     def test_to_dict_no_callbacks_set(self):
         cb = ProtocolCallbacks()

@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from modules.sequenced_capture_runner import RunHandle
 from ui.ui_helpers import (
-    _handle_ui_update_for_axis,
     live_display_callbacks,
     move_absolute,
     move_home,
@@ -64,9 +63,6 @@ class VerticalControl(BoxLayout):
         )
 
     def update_gui(self, vertical_control=False):
-        ctx = _app_ctx.ctx
-        if ctx.session.run_in_progress:
-            return
         if not vertical_control:
             # The target is a cache read -- no lane, no serial I/O -- shown on
             # the GUI thread because a move's completion reaches this from
@@ -93,13 +89,6 @@ class VerticalControl(BoxLayout):
         if box.text != new_text:
             box.text = new_text
 
-    def update_autofocus_gui(self, pos=None):
-        if pos is None:
-            return
-
-        self.ids['obj_position'].value = max(0, pos)
-        self._write_z_text(pos)
-
     def update_text_only(self):
         self._write_z_text(self.ids['obj_position'].value)
 
@@ -119,9 +108,20 @@ class VerticalControl(BoxLayout):
         self.ids['obj_position'].value = max(0, pos)
         self._write_z_text(pos)
 
-    def _update_z_text(self, pos):
-        """Update Z text only -- must be called on main thread."""
-        self._write_z_text(pos)
+    def show_z(self, polled):
+        """Show a Z position change: the slider at the API's Z target, the text at ``polled``.
+
+        The listener bridge calls this, on the UI thread, for every Z move,
+        run or not: a step's move, each autofocus sample, the restore when
+        an autofocus gives up. The slider is where Z is going and the text
+        where it is. The slider is left alone while the user holds it, as
+        the text is while the box has focus, so a drag is not overwritten.
+        """
+        slider = self.ids['obj_position']
+        target = _app_ctx.ctx.lumaview.scope.motion.get_target_position('Z')
+        if target is not None and not slider.user_interacting:
+            slider.value = max(0, target)
+        self._write_z_text(polled)
 
     def _z_jog(self, direction: int, coarse: bool, overshoot_enabled: bool = False):
         """Shared Z-axis jog handler.
@@ -336,7 +336,6 @@ class VerticalControl(BoxLayout):
         engineering_mode = ctx.engineering_mode
         callbacks = {
             **live_display_callbacks(),
-            'move_position': _handle_ui_update_for_axis,
             'run_complete': self._autofocus_run_complete,
         }
 

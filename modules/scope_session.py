@@ -204,7 +204,6 @@ class ScopeSession:
         protocol_thread=None,
         autofocus_runner=None,
         autofocus_thread=None,
-        z_ui_update_func=None,
         owns_scope: bool = False,
         scheduler: Scheduler | None = None,
         settings_saved_hook=None,
@@ -363,7 +362,6 @@ class ScopeSession:
         self.protocol_thread = protocol_thread or executor_bundle.protocol_thread
         self.autofocus_runner = autofocus_runner
         self.autofocus_thread = autofocus_thread
-        self.z_ui_update_func = z_ui_update_func
         from modules.sequenced_capture_runner import SequencedCaptureRunner
 
         self.sequenced_capture_runner = SequencedCaptureRunner(
@@ -372,7 +370,6 @@ class ScopeSession:
             file_io_executor=self.file_io_executor,
             autofocus_thread=autofocus_thread,
             autofocus_runner=autofocus_runner,
-            z_ui_update_func=z_ui_update_func,
             activity_claim=self.activity_claim,
             on_run_idle=self.notify_run_state,
         )
@@ -733,7 +730,6 @@ class ScopeSession:
         *,
         simulate: bool = False,
         warn_pre_release: bool = True,
-        af_ui_update_func: Callable[[float], None] | None = None,
         settings_saved_hook: Callable[[dict], None] | None = None,
         engineering_mode: bool = False,
         plugin_health: 'Callable[[], PluginHealth] | None' = None,
@@ -773,9 +769,6 @@ class ScopeSession:
                 pre-release FutureWarning -- the factory's own call and the
                 scope constructor's. A host that ships with the API passes
                 False; a separately shipped caller leaves the default.
-            af_ui_update_func: ``(pos) -> None``; the autofocus runner's
-                ``ui_update_func`` and the capture engine's
-                ``z_ui_update_func`` -- one callable, both consumers.
             settings_saved_hook: called with the snapshot after a
                 successful ``save_settings``.
             engineering_mode: stored on the session as the mode it was
@@ -869,10 +862,7 @@ class ScopeSession:
             # Service registration (the camera override key) happens in
             # __init__ for every session-composed scope -- nothing here.
 
-            autofocus_runner, autofocus_thread = cls._build_autofocus_pair(
-                scope=scope,
-                ui_update_func=af_ui_update_func,
-            )
+            autofocus_runner, autofocus_thread = cls._build_autofocus_pair(scope=scope)
 
             # The ownership fact goes in HERE, before _bring_up can call
             # shutdown on a refusal: a session torn down mid-factory must
@@ -884,7 +874,6 @@ class ScopeSession:
                     executor_bundle=executor_bundle,
                     autofocus_runner=autofocus_runner,
                     autofocus_thread=autofocus_thread,
-                    z_ui_update_func=af_ui_update_func,
                     owns_scope=built_scope,
                     settings_saved_hook=settings_saved_hook,
                     engineering_mode=engineering_mode,
@@ -1066,14 +1055,13 @@ class ScopeSession:
         )
 
     @staticmethod
-    def _build_autofocus_pair(*, scope, ui_update_func=None):
+    def _build_autofocus_pair(*, scope):
         """Real AF runner + started AF thread for a factory-built session,
-        so every host gets the same wiring; ``ui_update_func`` is the
-        host's Z-position renderer, None for a host with no display."""
+        so every host gets the same wiring."""
         from modules.autofocus_runner import AutofocusRunner
         from modules.autofocus_thread import AutofocusThread
 
-        autofocus_runner = AutofocusRunner(scope=scope, ui_update_func=ui_update_func)
+        autofocus_runner = AutofocusRunner(scope=scope)
         autofocus_thread = AutofocusThread(afe=autofocus_runner)
         autofocus_thread.start()
         return autofocus_runner, autofocus_thread

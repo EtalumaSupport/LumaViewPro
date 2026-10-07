@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from modules.sequenced_capture_runner import RunHandle
 from ui.ui_helpers import (
-    _handle_ui_update_for_axis,
     live_display_callbacks,
     reset_title,
     set_last_save_folder,
@@ -140,7 +139,6 @@ class ZStack(FloatLayout):
         enable_image_saving = is_image_saving_enabled()
         callbacks = {
             **live_display_callbacks(),
-            'move_position': _handle_ui_update_for_axis,
             # Each slice redraws the button, which reads the step from the
             # engine: a redraw from any other edge draws the same thing.
             'update_step_number': lambda step_num: self.draw_zstack_button(),

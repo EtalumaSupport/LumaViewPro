@@ -26,7 +26,6 @@ from modules.exceptions import (
     CameraSettingRejected,
     HardwareCommandRefusedError,
 )
-from modules.kivy_utils import schedule_ui as _schedule_ui
 from modules.lumascope_api.illumination import (
     LedTransition,
     LedTransitionCtx,
@@ -71,21 +70,12 @@ def _its_run_has_ended() -> bool:
 
 
 class AutofocusRunner:
-    def __init__(
-        self,
-        scope: lumascope_api.Lumascope,
-        ui_update_func=None,
-    ):
+    def __init__(self, scope: lumascope_api.Lumascope):
         self._scope = scope
-        self.ui_update_func = ui_update_func
 
         # Set by run() before the loop starts; consulted by _iterate
         # each iteration. AutofocusThread owns the actual Event.
         self._abort_event: threading.Event | None = None
-
-        # Guards _callbacks reads/writes -- the AF thread writes in
-        # run(); UI dispatches read via _schedule_ui in _iterate.
-        self._callbacks_lock = threading.Lock()
 
         self._af_in_progress = threading.Event()
 
@@ -164,7 +154,6 @@ class AutofocusRunner:
     def run(
         self,
         objective_id: str,
-        callbacks: dict | None = None,
         save_results_to_file: bool = False,
         run_trigger_source: str | None = None,
         results_dir: pathlib.Path | None = None,
@@ -185,10 +174,6 @@ class AutofocusRunner:
 
         Args:
             objective_id: which objective profile to use.
-            callbacks: optional dict of UI hooks. Recognized keys:
-                'move_position' -- called per Z move on the UI thread.
-                The 'complete' hook from the prior API has been retired;
-                completion is signalled via the AutofocusThread Future.
             save_results_to_file: if True, save the AF results to
                 results_dir at AF end, as one of the run's writes.
             run_trigger_source: free-form string recorded in saved data.
@@ -231,8 +216,6 @@ class AutofocusRunner:
             )
 
         self._reset_state()
-        with self._callbacks_lock:
-            self._callbacks = callbacks if callbacks is not None else {}
         self._abort_event = abort_event
         self._run_trigger_source = run_trigger_source
         self._led_color = led_color
@@ -753,9 +736,6 @@ class AutofocusRunner:
             self._scope.motion.get_current_position('Z'), common_utils.max_decimal_precision('z')
         )
 
-        if self.ui_update_func is not None:
-            _schedule_ui(lambda dt: self.ui_update_func(pos=current_pos), 0)
-
         self._af_data_pass.append(
             {
                 'position': current_pos,
@@ -871,9 +851,6 @@ class AutofocusRunner:
 
             self._move_absolute_position(position=best_focus_position)
 
-            if self.ui_update_func is not None:
-                _schedule_ui(lambda dt: self.ui_update_func(pos=float(best_focus_position)), 0)
-
             # Data save is queued from run()'s finally block so abort,
             # exception, and degenerate-curve exits also produce a CSV
             # + plot in the per-run subdir. AF Characterization is a
@@ -956,17 +933,9 @@ class AutofocusRunner:
         # Started, not waited: _iterate holds the next frame while the
         # scope reports motion.
         self._scope.motion.start_move_absolute('Z', position)
-        with self._callbacks_lock:
-            cb = self._callbacks.get('move_position')
-        if cb is not None:
-            _schedule_ui(lambda dt: cb('Z'))
 
     def _move_relative_position(self, distance):
         self._scope.motion.start_move_relative('Z', distance)
-        with self._callbacks_lock:
-            cb = self._callbacks.get('move_position')
-        if cb is not None:
-            _schedule_ui(lambda dt: cb('Z'))
 
     def in_progress(self) -> bool:
         # Use _af_in_progress, not _is_focusing_event. _is_focusing_event
@@ -1114,8 +1083,6 @@ class AutofocusRunner:
         self._run_trigger_source = None
         self._led_color = None
         self._led_illumination = 0
-        with self._callbacks_lock:
-            self._callbacks = {}
 
     def _await_data_write(self) -> None:
         """Block until the queued characterization save has actually run.

@@ -483,7 +483,6 @@ from ui.stage import Stage
 from ui.tooltip import Tooltip, TooltipMixin
 from ui.ui_helpers import (
     LoggedAccordionItem,
-    _handle_autofocus_ui,
     _handle_ui_update_for_axis,
     draw_shared_run_displays,
     run_reported,
@@ -1050,7 +1049,6 @@ class LumaViewProApp(TooltipMixin, App):
                 source_path=source_path,
                 simulate=simulate_mode,
                 warn_pre_release=False,
-                af_ui_update_func=_handle_autofocus_ui,
                 settings_saved_hook=_notify_plugins_of_settings_save,
                 engineering_mode=ENGINEERING_MODE,
                 plugin_health=lambda: app_context.ctx.plugins.health(),

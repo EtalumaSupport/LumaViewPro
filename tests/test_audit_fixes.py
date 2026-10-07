@@ -12985,7 +12985,6 @@ class TestGreaseRedistributionGateAlwaysReleased:
         from modules.protocol_step_runner import ProtocolStepRunner
 
         runner = self._make_runner()
-        runner._callbacks = MagicMock(move_position=None)
         step = ProtocolStepRunner(runner)
         runner._grease_redistribution_event.clear()
 
@@ -13010,7 +13009,6 @@ class TestGreaseRedistributionGateAlwaysReleased:
         io.protocol_start()
         try:
             runner = _make_capture_runner(scope=sim_scope, io_executor=io)
-            runner._callbacks = MagicMock(move_position=None)
             step = ProtocolStepRunner(runner)
 
             z_start = 500.0

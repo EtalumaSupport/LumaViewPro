@@ -41,7 +41,6 @@ class TestNoHostCopyOfTheBringUp:
 HOST_INJECTIONS = (
     'simulate',
     'warn_pre_release',
-    'af_ui_update_func',
     'settings_saved_hook',
     'engineering_mode',
 )
@@ -70,7 +69,6 @@ class TestCreateTakesTheHostInjections:
         assert not_kw_only == [], 'a host injection is positional; each is named at the call'
 
     def test_each_injection_lands_on_its_consumer(self, tmp_path, fresh_warning_latch):
-        af_ui = MagicMock(name='af_ui')
         hook = MagicMock(name='settings_saved_hook')
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter('always')
@@ -78,7 +76,6 @@ class TestCreateTakesTheHostInjections:
                 settings=complete_settings(live_folder=str(tmp_path)),
                 simulate=True,
                 warn_pre_release=False,
-                af_ui_update_func=af_ui,
                 settings_saved_hook=hook,
                 engineering_mode=True,
             )
@@ -86,10 +83,6 @@ class TestCreateTakesTheHostInjections:
             assert [w.category for w in caught if w.category is FutureWarning] == [], (
                 'warn_pre_release=False gates the factory call AND the constructor call'
             )
-            # One callable, two consumers: the AF runner's Z readout and the
-            # capture engine's.
-            assert session.autofocus_runner.ui_update_func is af_ui
-            assert session.sequenced_capture_runner._z_ui_update_func is af_ui
             assert session._settings_saved_hook is hook
             assert session.engineering_mode is True
             assert session.scope.no_hardware is False, 'simulate=True reached the scope'

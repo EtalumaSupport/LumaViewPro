@@ -441,7 +441,6 @@ class SequencedCaptureRunner:
         autofocus_thread,
         activity_claim: ActivityClaim,
         autofocus_runner: AutofocusRunner | None = None,
-        z_ui_update_func: typing.Callable | None = None,
         on_run_idle: typing.Callable[[], None] | None = None,
     ):
         # Told once a run's cleanup has put the runner back to IDLE. The
@@ -464,7 +463,6 @@ class SequencedCaptureRunner:
         # The run kind of the run in hand; None before the first one.
         self._run_mode: SequencedCaptureRunMode | None = None
         self.autofocus_thread = autofocus_thread
-        self._z_ui_update_func = z_ui_update_func
         self._scan_in_progress = threading.Event()
         # Abort signal. Owned by protocol_thread; SCE holds a reference
         # assigned in start() from protocol_thread.aborted. Tests that

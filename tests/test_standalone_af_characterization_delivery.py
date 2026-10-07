@@ -164,7 +164,6 @@ class TestStandaloneAfDeliversCharacterizationData:
                 max_scans=1,
                 callbacks={
                     'go_to_step': lambda **kw: None,
-                    'move_position': lambda axis: None,
                     'run_complete': lambda **kw: done.set(),
                     'files_complete': lambda **kw: files_done.set(),
                 },

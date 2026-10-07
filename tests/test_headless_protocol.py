@@ -296,7 +296,6 @@ class TestHeadlessProtocolExecution:
 
                 callbacks = {
                     'run_complete': on_complete,
-                    'move_position': lambda axis: None,
                 }
 
                 autogain_settings = {

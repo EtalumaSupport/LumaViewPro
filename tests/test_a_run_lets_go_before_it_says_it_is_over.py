@@ -34,7 +34,6 @@ def _prepare(executor, tmp_path, callbacks, **overrides):
         'max_scans': 1,
         'callbacks': {
             'go_to_step': lambda **kw: None,
-            'move_position': lambda axis: None,
             **callbacks,
         },
     }

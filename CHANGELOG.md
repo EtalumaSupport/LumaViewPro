@@ -2,6 +2,12 @@
 
 ## 4.0.0 (in development)
 
+- **A display follows the motion listener, not the run (SDK, breaking)**: `ScopeSession.create`'s
+  `af_ui_update_func`, `AutofocusRunner`'s `ui_update_func` and `run(callbacks=)`, and the run
+  callbacks' `move_position` are removed. Every move a run or an autofocus makes, the give-up
+  restore included, reaches `scope.motion.add_position_listener` subscribers, which is how
+  LumaViewPro's Z slider, Z box and turret display now follow a run. Before, the slider kept an
+  autofocus's last sample after the stage was restored, and a run's own Z moves never reached it.
 - **One UI dispatcher for the process (SDK, breaking)**: new `ScopeSession.set_ui_dispatcher(dispatcher)`
   sets how every lane, run callback and listener reaches the host's UI thread, once, before a
   session is built. `ScopeSession.create(ui_dispatcher=)`, `Lumascope(ui_dispatcher=)`,

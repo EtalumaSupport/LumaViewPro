@@ -249,7 +249,6 @@ def executor(scope, executors):
 def _prepare(executor, protocol, tmp_path, callbacks=None, sequence_name='refusal_contract'):
     cbs = {
         'go_to_step': lambda **kw: None,
-        'move_position': lambda axis: None,
     }
     if callbacks:
         cbs.update(callbacks)
@@ -576,7 +575,7 @@ class TestTheCompositeChannelFloor:
             autogain_settings=_make_autogain_settings(),
             parent_dir=tmp_path / 'output',
             max_scans=1,
-            callbacks={'go_to_step': lambda **kw: None, 'move_position': lambda axis: None},
+            callbacks={'go_to_step': lambda **kw: None},
         )
 
     @pytest.mark.parametrize(

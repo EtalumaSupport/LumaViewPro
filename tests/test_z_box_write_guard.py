@@ -4,11 +4,14 @@ The box commits its contents on focus loss (`on_focus: if not self.focus:
 root.set_position(self.text)` in lumaviewpro.kv), so a read-back written
 underneath a part-typed entry is not a display artefact -- it is committed
 as a Z move when the user clicks away. Three of the four writers carried a
-focus guard and the autofocus writer did not; these tests pin all four.
+focus guard and the autofocus writer did not; these tests pin every writer.
 """
+
+from types import SimpleNamespace
 
 import pytest
 
+from modules import app_context as _app_ctx
 from ui.vertical_control import VerticalControl
 
 
@@ -23,20 +26,23 @@ class _Box:
 class _Slider:
     def __init__(self, value=0.0):
         self.value = value
+        self.user_interacting = False
 
 
 @pytest.fixture
-def control():
+def control(monkeypatch):
     """A VerticalControl with only the two widgets these writers touch."""
+    motion = SimpleNamespace(get_target_position=lambda axis: 3774.0)
+    ctx = SimpleNamespace(lumaview=SimpleNamespace(scope=SimpleNamespace(motion=motion)))
+    monkeypatch.setattr(_app_ctx, 'ctx', ctx)
     ctrl = VerticalControl.__new__(VerticalControl)
     ctrl.ids = {'z_position_id': _Box(), 'obj_position': _Slider()}
     return ctrl
 
 
 WRITERS = [
-    ('update_autofocus_gui', lambda c, p: c.update_autofocus_gui(p)),
+    ('show_z', lambda c, p: c.show_z(p)),
     ('_update_z_position', lambda c, p: c._update_z_position(p)),
-    ('_update_z_text', lambda c, p: c._update_z_text(p)),
     (
         'update_text_only',
         lambda c, p: (setattr(c.ids['obj_position'], 'value', p), c.update_text_only()),
