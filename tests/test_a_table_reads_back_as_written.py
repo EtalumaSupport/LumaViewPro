@@ -42,8 +42,9 @@ def test_every_cell_is_the_text_written(text):
         ('Name\tX\n"A1\t1\nB1\t2\n', 'not a well-formed table'),
         ('Name\tX\nA1\t1\t2\n', 'row 2 of its table has 3 cells where the header has 2'),
         ('\n\n', 'no header row'),
+        ('Name\tX\tX\nA1\t1\t2\n', "names 'X' more than once"),
     ],
-    ids=['nul', 'unbalanced-quote', 'extra-cell', 'empty'],
+    ids=['nul', 'unbalanced-quote', 'extra-cell', 'empty', 'repeated-column'],
 )
 def test_a_table_no_writer_produces_is_refused(text, words):
     with pytest.raises(ValueError, match=words):

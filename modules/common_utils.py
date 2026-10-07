@@ -648,9 +648,10 @@ def read_table(text: str, *, sep: str) -> tuple[list[str], list[list[str]]]:
     columns by its own rule. Blank lines are skipped.
 
     Raises:
-        ValueError: the text has no header, holds a NUL, has a quote the
-            csv module cannot close, or has a row whose cell count is not
-            the header's. No LumaViewPro writer produces any of them.
+        ValueError: the text has no header, a header naming one column
+            twice, a NUL, a quote the csv module cannot close, or a row
+            whose cell count is not the header's. No LumaViewPro writer
+            produces any of them.
     """
     if '\x00' in text:
         raise ValueError('it holds a NUL character, which no table cell can hold')
@@ -661,6 +662,9 @@ def read_table(text: str, *, sep: str) -> tuple[list[str], list[list[str]]]:
     if not rows:
         raise ValueError('its table has no header row')
     header, body = rows[0], rows[1:]
+    repeated = sorted({column for column in header if header.count(column) > 1})
+    if repeated:
+        raise ValueError(f'its table header names {", ".join(map(repr, repeated))} more than once')
     for number, row in enumerate(body, 2):
         if len(row) != len(header):
             raise ValueError(
