@@ -11,7 +11,7 @@ import copy
 
 import pytest
 
-from drivers.tmcm6110_config import SECTION, Tmcm6110Config
+from drivers.tmcm6110_config import SECTION, Tmcm6110Config, usteps_per_s, usteps_per_s2
 from modules.scope_capabilities import _resolve_lens_focal_length_mm, _resolve_pixel_size_um
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
@@ -77,32 +77,13 @@ def test_the_axis_parameters_are_classics_production_values():
     }
 
 
-def test_ramp_params_reproduce_the_manuals_worked_example():
+def test_the_speed_units_reproduce_the_manuals_worked_example():
     """TMCM-6110 TMCL firmware manual, 6.4: speed 1000 at pulse_div 1 is
     122070.31 microsteps/s; acceleration 1000 at pulse_div 1, ramp_div 1 is
-    119.21 MHz/s, microsteps/s per second. At 1000 microsteps per mm, um and
-    microsteps are the same unit."""
-
-    def edit(section):
-        section['Axis Parameters']['X'].update(
-            {
-                'Microstep Resolution': 0,
-                'Pulse Divisor': 1,
-                'Ramp Divisor': 1,
-                'Max Positioning Speed': 1000,
-                'Max Acceleration': 1000,
-            }
-        )
-        section['Axis Drive']['X'] = {
-            'Full Steps per Motor Revolution': 1000,
-            'Motor Revolutions per Drive Revolution': 1,
-            'mm per Drive Revolution': 1.0,
-        }
-
-    ramp = Tmcm6110Config(_defaults_with(edit)).ramp_params('X')
-    assert ramp['vmax'] == pytest.approx(122070.31, abs=0.01)
-    assert ramp['amax'] == pytest.approx(119.21e6, abs=0.01e6)
-    assert ramp['dmax'] == ramp['amax']
+    119.21 MHz/s, microsteps/s per second. The simulated board times its
+    moves with these."""
+    assert usteps_per_s(1000, 1) == pytest.approx(122070.31, abs=0.01)
+    assert usteps_per_s2(1000, 1, 1) == pytest.approx(119.21e6, abs=0.01e6)
 
 
 def test_the_travel_is_the_measured_far_switch_and_the_margin_sits_inside_it():
@@ -143,15 +124,6 @@ def test_the_index_positions_are_the_bench_ls720s_and_place_each_axis_travel():
         'min': 0.0,
         'max': pytest.approx(12_030 - 200 - 1_000, abs=0.01),
     }
-
-
-def test_ramp_params_are_a_profile_for_every_axis():
-    """The API builds a move profile only from a non-empty ramp."""
-    config = Tmcm6110Config(SHIPPED_MOTOR_DEFAULTS)
-    for axis in ('X', 'Y', 'Z'):
-        ramp = config.ramp_params(axis)
-        assert set(ramp) == {'vmax', 'amax', 'dmax'}
-        assert all(v > 0 for v in ramp.values())
 
 
 def test_optics_and_led_block_come_from_the_models_row():

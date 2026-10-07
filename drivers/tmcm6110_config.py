@@ -308,22 +308,6 @@ class Tmcm6110Config:
 
     # --- What the API asks of every motor driver's config ---
 
-    def ramp_params(self, axis: str) -> dict:
-        """The axis's ramp in um/s and um/s^2: vmax, and amax = dmax.
-
-        The TMC429 ramps are trapezoidal and symmetric.
-        """
-        params = self.axis_parameters(axis)
-        pulse_div = params['Pulse Divisor']
-        um_per_ustep = 1000.0 / self.usteps_per_mm(axis)
-        vmax = usteps_per_s(params['Max Positioning Speed'], pulse_div)
-        amax = usteps_per_s2(params['Max Acceleration'], pulse_div, params['Ramp Divisor'])
-        return {
-            'vmax': vmax * um_per_ustep,
-            'amax': amax * um_per_ustep,
-            'dmax': amax * um_per_ustep,
-        }
-
     def led_block(self) -> None:
         """None: the 6110 carries no LED/filterset block; the model's row does."""
         return None

@@ -229,7 +229,6 @@ def test_the_members_the_api_reads(board):
     assert board.get_microscope_model() == 'LS720'
     assert not hasattr(board, 'exchange_multiline')
     assert board.exchange_command('INFO') is None
-    assert board.motorconfig.ramp_params('X')
     assert board.get_axis_limits('Y') == {'min': 950.0, 'max': pytest.approx(79_740.0)}
 
 
