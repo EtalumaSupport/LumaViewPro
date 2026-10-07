@@ -51,7 +51,6 @@ from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
-from tests.protocol_drives import autofocus_snapshot
 from tests.scope_fakes import configure_turret_like_bringup
 
 COMPLETION_TIMEOUT = 60  # seconds -- a real AF sweep runs in sim time
@@ -169,17 +168,6 @@ class TestStandaloneAfDeliversCharacterizationData:
                     'run_complete': lambda **kw: done.set(),
                     'files_complete': lambda **kw: files_done.set(),
                 },
-                autofocus_snapshot=autofocus_snapshot(
-                    states={
-                        'BF': True,
-                        'PC': False,
-                        'DF': False,
-                        'Red': False,
-                        'Green': False,
-                        'Blue': False,
-                        'Lumi': False,
-                    },
-                ),
             )
             runner.start(plan)
             assert done.wait(timeout=COMPLETION_TIMEOUT), 'AF run did not complete'

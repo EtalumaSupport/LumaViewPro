@@ -7,11 +7,9 @@ and scope objects without any Kivy/GUI dependencies. They can be
 used by LumaViewPro, the REST API, or standalone scripts.
 """
 
-import dataclasses
 import datetime
 import os
 import pathlib
-import threading
 import typing
 
 import psutil
@@ -163,15 +161,21 @@ def get_sequenced_run_settings(settings: dict, *, run_mode: SequencedCaptureRunM
     every install without failing anything -- keep them exactly as the
     writers spell them.
 
-    ``run_mode`` carries the one run kind whose values are not the user's:
-    an autofocus run, at one position or every step, must NOT hold the
+    ``run_mode`` carries the two run kinds whose values are not the user's.
+    An autofocus run, at one position or every step, must NOT hold the
     excitation LED across focus moves (photobleaching the sample) and saves
     nothing, so it never keeps the LED between steps and never makes
-    per-channel folders, whatever the settings say. That guarantee lives here, once, rather than as an
-    omission at each autofocus call site.
+    per-channel folders, whatever the settings say. A composite's merge
+    reads its inputs back as 8-bit, so its image config is the composite
+    one. Both guarantees live here, once, rather than at each call site.
     """
     autofocus_scan = run_mode.is_autofocus
+    if run_mode == SequencedCaptureRunMode.SINGLE_COMPOSITE:
+        image_capture_config = get_composite_image_capture_config_from_settings(settings)
+    else:
+        image_capture_config = get_image_capture_config_from_settings(settings)
     return {
+        'image_capture_config': image_capture_config,
         'keep_led_between_steps': (
             False if autofocus_scan else settings.get('keep_led_between_steps', False)
         ),
@@ -184,52 +188,6 @@ def get_sequenced_run_settings(settings: dict, *, run_mode: SequencedCaptureRunM
         'video_max_fps': settings.get('video', {}).get('max_fps', 0),
         'ag_ae_max_exposure_ms': settings.get('ag_ae_max_exposure_ms', {}),
     }
-
-
-@dataclasses.dataclass(frozen=True)
-class AutofocusSnapshot:
-    """The per-layer autofocus flags a run starts from, coupled to the one
-    callable that puts them back at cleanup.
-
-    Coupled on purpose. States without a restorer is the shape that left
-    a headless run unable to put the session's autofocus flags back: the
-    engine fell back to a process-wide settings store that is unset
-    outside the GUI, and the failure was swallowed into a cleanup
-    warning. With both fields required that shape cannot be built, so
-    no gate at prepare and no fallback at cleanup is needed.
-
-    ``restore`` is called as ``restore(layer=<str>, value=<bool>)``, once
-    per layer in ``states``.
-    """
-
-    states: dict
-    restore: typing.Callable
-
-
-def autofocus_snapshot_from_settings(
-    settings: dict, settings_lock: threading.Lock
-) -> AutofocusSnapshot:
-    """Snapshot every catalogue layer's autofocus flag, with its restorer.
-
-    The read holds the settings lock so the snapshot is one consistent
-    view, and the restorer takes the same lock for its write, so every
-    run path restores locked (the API path had no lock before this).
-    The lock is the session's; the GUI reaches the same object through
-    its context, so a caller passes whichever handle it holds.
-
-    Unguarded on purpose: settings are schema-gated before they are
-    read, so a catalogue layer missing from the dict is corruption. A
-    snapshot that quietly skipped such a layer would also quietly skip
-    its restore; raising here stops the run before it is prepared.
-    """
-    with settings_lock:
-        states = {layer: settings[layer]['autofocus'] for layer in common_utils.get_layers()}
-
-    def restore(*, layer: str, value) -> None:
-        with settings_lock:
-            settings[layer]['autofocus'] = value
-
-    return AutofocusSnapshot(states=states, restore=restore)
 
 
 def get_manual_video_max_duration(settings: dict) -> float:

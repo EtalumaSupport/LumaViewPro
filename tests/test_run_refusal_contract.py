@@ -70,7 +70,7 @@ from modules.autofocus_thread import AutofocusSweep
 from modules.exceptions import ProtocolRunRefusedError, RunCheckFailedError
 from modules.protocol_image_writer import RunWriteBatch
 from modules.protocol_state_machine import ProtocolState
-from tests.protocol_drives import autofocus_snapshot, wait_until_not_running
+from tests.protocol_drives import wait_until_not_running
 from tests.scope_fakes import build_scope, configure_turret_like_bringup, home_sim_scope, swap_lanes
 from modules.image_mode import ImageCaptureConfig
 from modules.protocol import Protocol
@@ -266,7 +266,6 @@ def _prepare(executor, protocol, tmp_path, callbacks=None, sequence_name='refusa
         # The snapshot carries its own restorer, so cleanup never reaches
         # the global settings module that other test files replace with
         # import-order-dependent stand-ins.
-        autofocus_snapshot=autofocus_snapshot(),
     )
 
 
@@ -578,7 +577,6 @@ class TestTheCompositeChannelFloor:
             parent_dir=tmp_path / 'output',
             max_scans=1,
             callbacks={'go_to_step': lambda **kw: None, 'move_position': lambda axis: None},
-            autofocus_snapshot=autofocus_snapshot(),
         )
 
     @pytest.mark.parametrize(
@@ -919,70 +917,7 @@ class TestRefusalNotifyOnceFunnel:
 
 
 # ---------------------------------------------------------------------------
-# 5. A run cannot be prepared without the autofocus snapshot it restores from.
-# ---------------------------------------------------------------------------
-
-
-class TestAutofocusSnapshotIsRequiredToPrepare:
-    """The run's autofocus snapshot is a required prepare() argument.
-
-    A run that starts without one has no record of the per-layer
-    autofocus flags it is about to overwrite, so cleanup cannot put them
-    back. Refusing at the signature keeps that run from ever committing:
-    no directory on the capture disk, no terminal callback, no
-    run-in-progress state to unwind.
-    """
-
-    def test_prepare_without_the_snapshot_raises(self):
-        from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
-
-        runner = bare_capture_runner()
-        # None tells the drive builder not to construct one; the key then
-        # comes out entirely, which is the call shape under test.
-        kwargs = scr_run_kwargs(autofocus_snapshot=None)
-        kwargs.pop('autofocus_snapshot')
-
-        with pytest.raises(TypeError) as excinfo:
-            runner.prepare(**kwargs)
-        assert 'autofocus_snapshot' in str(excinfo.value), (
-            f'the binding error must name the missing argument; got {excinfo.value}'
-        )
-
-    def test_omitting_the_snapshot_performs_no_run_at_all(self, tmp_path):
-        from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
-
-        output_dir = tmp_path / 'output'
-        run_complete = MagicMock()
-        runner = bare_capture_runner()
-        kwargs = scr_run_kwargs(
-            parent_dir=output_dir,
-            disable_saving_artifacts=False,
-            callbacks={'run_complete': run_complete, 'go_to_step': lambda **kw: None},
-            autofocus_snapshot=None,
-        )
-        kwargs.pop('autofocus_snapshot')
-
-        # The signature declines the run; what follows asserts that the
-        # decline left nothing behind -- no directory, no callback, no
-        # run-in-progress state.
-        with pytest.raises(TypeError):
-            runner.prepare(**kwargs)
-
-        assert runner.run_dir() is None, (
-            f'a run that never had a snapshot must claim no run directory; got {runner.run_dir()}'
-        )
-        assert not output_dir.exists() or not list(output_dir.iterdir()), (
-            'a run that never had a snapshot must leave the capture location '
-            f'untouched; found {sorted(p.name for p in output_dir.iterdir())}'
-        )
-        assert run_complete.call_count == 0, (
-            f'no run started, so no terminal callback may fire; got {run_complete.call_args_list}'
-        )
-        assert not runner.run_in_progress()
-
-
-# ---------------------------------------------------------------------------
-# 6. A run that cannot resolve its data root fails at start.
+# 5. A run that cannot resolve its data root fails at start.
 # ---------------------------------------------------------------------------
 
 

@@ -69,7 +69,6 @@ from modules.sequenced_capture_runner import (
     SequencedCaptureRunMode,
 )
 from modules.sequential_io_executor import SequentialIOExecutor
-from tests.protocol_drives import autofocus_snapshot
 from tests.scope_fakes import configure_turret_like_bringup
 
 
@@ -296,7 +295,6 @@ def _run_protocol(executor, protocol, tmp_path):
         parent_dir=tmp_path / 'output',
         max_scans=1,
         callbacks=callbacks,
-        autofocus_snapshot=autofocus_snapshot(),
     )
     executor.start(plan)
 

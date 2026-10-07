@@ -111,6 +111,7 @@ class ProtocolRunner:
                 session.is_protocol_running stays False.
         """
         return self._run(
+            settings=self.session.get_settings_snapshot(),
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
             run_trigger_source=run_trigger_source,
@@ -160,6 +161,7 @@ class ProtocolRunner:
                 session.is_protocol_running stays False.
         """
         return self._run(
+            settings=self.session.get_settings_snapshot(),
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
             run_trigger_source=run_trigger_source,
@@ -219,7 +221,7 @@ class ProtocolRunner:
         input_config = config_helpers.get_composite_capture_config_from_settings(
             settings,
             self.session.objective_helper,
-            position=self.session.get_current_plate_position(),
+            position=self.session.plate_position_on(settings['protocol']['labware']),
         )
         protocol = self.session.scope.protocols.create_protocol(input_config=input_config)
 
@@ -227,6 +229,7 @@ class ProtocolRunner:
             parent_dir = pathlib.Path(settings['live_folder']).resolve() / 'Manual' / 'Composites'
 
         return self._run(
+            settings=settings,
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.SINGLE_COMPOSITE,
             run_trigger_source=run_trigger_source,
@@ -319,7 +322,7 @@ class ProtocolRunner:
             self.session.objective_helper,
             self.session.wellplate_loader,
             layer=layer,
-            position=self.session.get_current_plate_position(),
+            position=self.session.plate_position_on(settings['protocol']['labware']),
             position_name='Autofocus',
             autofocus=True,
             use_zstacking=False,
@@ -345,6 +348,7 @@ class ProtocolRunner:
                 pathlib.Path(settings['live_folder']).resolve() / 'Autofocus Characterization'
             )
         return self._run(
+            settings=settings,
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
             run_trigger_source=run_trigger_source,
@@ -404,6 +408,7 @@ class ProtocolRunner:
         scan = protocol.copy_for_execution()
         scan.modify_autofocus_all_steps(enabled=True)
         return self._run(
+            settings=self.session.get_settings_snapshot(),
             protocol=scan,
             run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
             run_trigger_source=run_trigger_source,
@@ -492,7 +497,7 @@ class ProtocolRunner:
         import modules.config_helpers as config_helpers
 
         settings = self.session.capture_settings_snapshot()
-        position = self.session.get_current_plate_position()
+        position = self.session.plate_position_on(settings['protocol']['labware'])
         input_config = config_helpers.get_standalone_capture_config_from_settings(
             settings,
             self.session.objective_helper,
@@ -514,6 +519,7 @@ class ProtocolRunner:
             parent_dir = pathlib.Path(settings['live_folder']).resolve() / 'Manual' / 'Z-Stacks'
 
         return self._run(
+            settings=settings,
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
             run_trigger_source=run_trigger_source,
@@ -605,6 +611,7 @@ class ProtocolRunner:
 
     def _run(
         self,
+        settings: dict,
         protocol: Protocol,
         run_mode: SequencedCaptureRunMode,
         run_trigger_source: str,
@@ -623,6 +630,10 @@ class ProtocolRunner:
     ) -> RunHandle:
         """Internal: configure and launch the sequenced capture executor.
 
+        ``settings`` is the one copy the member took at its start: every
+        value the run reads from the settings comes from it, so an edit
+        landing while the run is assembled cannot give one run two answers.
+
         Returns:
             The committed run's handle.
 
@@ -632,27 +643,7 @@ class ProtocolRunner:
                 hardware not connected); no state was committed and the
                 user was already notified once.
         """
-        # One copy of the settings, taken under the lock, for every value the
-        # run reads from them: a caller on the worker pool (the GUI's Run, a
-        # REST handler) reaches here while another thread may be writing the
-        # store, and a run reading the live dict could take half an edit. The
-        # autofocus snapshot below is the exception: its restorer writes back
-        # into the live store, so it takes the lock itself.
-        settings = self.session.get_settings_snapshot()
-
         import modules.config_helpers as config_helpers
-
-        # The image mode and formats are the store's, read once here for every
-        # run kind, so a script and the GUI's Run get the same files from the
-        # same settings; session.set_image_mode is how a caller chooses. A
-        # composite's merge reads its inputs back as 8-bit, so its rule is the
-        # composite one.
-        if run_mode == SequencedCaptureRunMode.SINGLE_COMPOSITE:
-            image_capture_config = config_helpers.get_composite_image_capture_config_from_settings(
-                settings
-            )
-        else:
-            image_capture_config = config_helpers.get_image_capture_config_from_settings(settings)
 
         # A run that saves no artifacts and was given no directory writes
         # nowhere, and keeps None: prepare() reads it that way and does not
@@ -662,20 +653,6 @@ class ProtocolRunner:
                 parent_dir = pathlib.Path(settings['live_folder']).resolve() / 'ProtocolData'
         else:
             parent_dir = pathlib.Path(parent_dir)
-
-        # One self-describing record per scan: the per-frame save path runs
-        # thousands of times per session and cannot log its depth at info
-        # level, so a scan's pixel format / on-disk encoding is otherwise
-        # recoverable only by inspecting the output file tags afterward. This
-        # line lets a support bundle state the mode the scan ran in and the
-        # format the camera is delivering -- the mode's own depth is only
-        # what it asked for, and an 8-bit camera delivers 8 in every mode.
-        logger.info(
-            f'[Protocol] scan "{sequence_name}" '
-            f'image_mode={image_capture_config.image_mode} '
-            f'pixel_format={self.session.scope.imaging.pixel_format_cached} '
-            f'save_encoding={image_capture_config.save_encoding}'
-        )
 
         autogain_settings = config_helpers.get_auto_gain_settings(settings)
 
@@ -695,7 +672,6 @@ class ProtocolRunner:
             max_scans=max_scans,
             sequence_name=sequence_name,
             parent_dir=parent_dir,
-            image_capture_config=image_capture_config,
             enable_image_saving=enable_image_saving,
             autogain_settings=autogain_settings,
             callbacks=run_callbacks,
@@ -710,10 +686,25 @@ class ProtocolRunner:
             save_autofocus_data=save_autofocus_data,
             write_focus_to=write_focus_to,
             borrowed_claim=claim.lend() if claim is not None else None,
-            autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
-                self.session.settings, self.session.settings_lock
-            ),
+            # The image mode and formats are the store's, read from the
+            # snapshot for every run kind, so a script and the GUI's Run get
+            # the same files from the same settings; session.set_image_mode
+            # is how a caller chooses.
             **config_helpers.get_sequenced_run_settings(settings, run_mode=run_mode),
+        )
+
+        # One self-describing record per scan: the per-frame save path runs
+        # thousands of times per session and cannot log its depth at info
+        # level, so a scan's pixel format / on-disk encoding is otherwise
+        # recoverable only by inspecting the output file tags afterward. This
+        # line lets a support bundle state the mode the scan ran in and the
+        # format the camera is delivering -- the mode's own depth is only
+        # what it asked for, and an 8-bit camera delivers 8 in every mode.
+        logger.info(
+            f'[Protocol] scan "{sequence_name}" '
+            f'image_mode={plan.image_capture_config.image_mode} '
+            f'pixel_format={self.session.scope.imaging.pixel_format_cached} '
+            f'save_encoding={plan.image_capture_config.save_encoding}'
         )
 
         # Run-state truth is the session claim, committed inside

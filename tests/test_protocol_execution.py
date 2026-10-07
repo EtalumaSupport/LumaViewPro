@@ -46,7 +46,6 @@ from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.protocol import Protocol
 from tests.protocol_drives import (
     StepHeartbeat,
-    autofocus_snapshot,
     held_run_claim,
     wait_for_run_end,
 )
@@ -294,7 +293,6 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         parent_dir=tmp_path / 'output',
         max_scans=run_kwargs.pop('max_scans', 1),
         callbacks=callbacks,
-        autofocus_snapshot=run_kwargs.pop('autofocus_snapshot', autofocus_snapshot()),
         **run_kwargs,
     )
     handle = executor.start(plan)
@@ -1435,7 +1433,6 @@ class TestCancellationMidRun:
             parent_dir=tmp_path / 'output',
             max_scans=100,
             callbacks=callbacks,
-            autofocus_snapshot=autofocus_snapshot(),
         )
         run = executor.start(plan)
 
@@ -1472,7 +1469,6 @@ class TestCancellationMidRun:
             parent_dir=tmp_path / 'output',
             max_scans=1,
             callbacks=callbacks,
-            autofocus_snapshot=autofocus_snapshot(),
         )
         run = executor.start(plan)
 
@@ -1565,7 +1561,6 @@ class TestDisconnectedScope:
                 parent_dir=tmp_path / 'output',
                 max_scans=1,
                 callbacks=callbacks,
-                autofocus_snapshot=autofocus_snapshot(),
             )
 
         # Should NOT have started -- run_complete should NOT fire
@@ -1744,7 +1739,6 @@ class TestSavingWithNoneParentDir:
             parent_dir=None,
             max_scans=1,
             callbacks=callbacks,
-            autofocus_snapshot=autofocus_snapshot(),
         )
         executor.start(plan)
 
@@ -1795,7 +1789,6 @@ class TestMinimalCallbacks:
             parent_dir=tmp_path / 'output',
             max_scans=1,
             callbacks={'run_complete': on_complete},
-            autofocus_snapshot=autofocus_snapshot(),
         )
         executor.start(plan)
 
@@ -1867,7 +1860,6 @@ class TestCleanupConcurrency:
                 'run_complete': lambda **kw: done.set(),
                 'go_to_step': lambda **kw: None,
             },
-            autofocus_snapshot=autofocus_snapshot(),
         )
         run = executor.start(plan)
         # Let protocol start
@@ -2129,7 +2121,6 @@ class TestCameraStateRestoration:
                 'run_complete': lambda **kw: done.set(),
                 'go_to_step': lambda **kw: None,
             },
-            autofocus_snapshot=autofocus_snapshot(),
         )
         run = executor.start(plan)
         time.sleep(0.2)
@@ -2189,7 +2180,6 @@ class TestCleanupCorrectness:
                 'run_complete': lambda **kw: done.set(),
                 'go_to_step': lambda **kw: None,
             },
-            autofocus_snapshot=autofocus_snapshot(),
         )
         run = executor.start(plan)
         time.sleep(0.2)
@@ -2447,7 +2437,6 @@ class TestRunReturnValueContract:
             parent_dir=tmp_path / 'output',
             max_scans=1,
             callbacks=cbs,
-            autofocus_snapshot=autofocus_snapshot(),
         )
 
     def test_refused_run_raises_and_leaves_runner_idle(self, executor, tmp_path):
@@ -2532,82 +2521,4 @@ class TestRunReturnValueContract:
         plan2 = self._prepare_run(executor, protocol, tmp_path)
         assert isinstance(plan2, RunPlan), (
             'A failed-at-start run must not wedge the runner; the next prepare() must succeed'
-        )
-
-
-# ===========================================================================
-# Autofocus states go back where the run found them
-# ===========================================================================
-
-
-class TestAutofocusStatesReturnToTheDictTheyCameFrom:
-    """A run's cleanup restores autofocus through the snapshot it was handed.
-
-    The snapshot carries both halves -- the per-layer values read at
-    prepare and the restorer that writes them back -- so the values land
-    in the caller's own settings dict. A headless process has no
-    module-level settings dict to fall back on; reaching for one restores
-    nothing and reports the failure only as a cleanup-summary line.
-    """
-
-    def _settings(self, **autofocus):
-        import modules.common_utils as common_utils
-
-        settings = {layer: {'autofocus': False} for layer in common_utils.get_layers()}
-        for layer, value in autofocus.items():
-            settings[layer]['autofocus'] = value
-        return settings
-
-    def test_run_restores_into_the_caller_settings_dict(self, executor, tmp_path, monkeypatch):
-        import modules.settings_init as settings_init
-        from modules.config_helpers import autofocus_snapshot_from_settings
-
-        settings = self._settings(BF=True)
-        snapshot = autofocus_snapshot_from_settings(settings, threading.Lock())
-
-        # A module-level settings dict is None in a headless process; a
-        # layer-shaped sentinel catches a restore that reaches for one
-        # anyway, which a None would only turn into a swallowed TypeError.
-        sentinel = self._settings()
-        untouched = {layer: dict(values) for layer, values in sentinel.items()}
-        monkeypatch.setattr(settings_init, 'settings', sentinel)
-
-        # What the run does to the live dict while it owns autofocus.
-        settings['BF']['autofocus'] = False
-
-        protocol = _make_single_step_protocol(color='BF')
-        completed, _ = _run_and_wait(executor, protocol, tmp_path, autofocus_snapshot=snapshot)
-        assert completed, 'Protocol did not complete within timeout'
-
-        assert settings['BF']['autofocus'] is True, (
-            "cleanup must put the pre-run autofocus value back into the caller's "
-            f'settings dict; got {settings["BF"]}'
-        )
-        assert sentinel == untouched, (
-            f'cleanup must not write a module-level settings dict; got {sentinel}'
-        )
-
-    def test_run_restores_exactly_the_snapshot_values(self, executor, tmp_path):
-        import modules.common_utils as common_utils
-        from modules.config_helpers import autofocus_snapshot_from_settings
-
-        layers = common_utils.get_layers()
-        # A mixed pattern: an all-one-value dict cannot tell a real
-        # restore from a blanket overwrite.
-        settings = self._settings(BF=True, Blue=True)
-        expected = {layer: settings[layer]['autofocus'] for layer in layers}
-        snapshot = autofocus_snapshot_from_settings(settings, threading.Lock())
-
-        # Scramble every layer while the run is in flight.
-        for layer in layers:
-            settings[layer]['autofocus'] = not expected[layer]
-
-        protocol = _make_single_step_protocol(color='BF')
-        completed, _ = _run_and_wait(executor, protocol, tmp_path, autofocus_snapshot=snapshot)
-        assert completed, 'Protocol did not complete within timeout'
-
-        restored = {layer: settings[layer]['autofocus'] for layer in layers}
-        assert restored == expected, (
-            f'cleanup must restore exactly the snapshotted values; expected '
-            f'{expected}, got {restored}'
         )

@@ -1562,7 +1562,7 @@ class ScopeSession:
             protocol,
             layer_configs=self.get_layer_configs(),
             stim_configs=self.get_stim_configs(),
-            plate_position=self._plate_position(protocol.labware()),
+            plate_position=self.plate_position_on(protocol.labware()),
             objective_id=objective_id,
             channel_order=self.settings.get('step_channel_order', None),
             before_step=before_step,
@@ -1596,7 +1596,7 @@ class ScopeSession:
             layer=layer,
             layer_configs=self.get_layer_configs(),
             stim_configs=self.get_stim_configs(),
-            plate_position=self._plate_position(protocol.labware()),
+            plate_position=self.plate_position_on(protocol.labware()),
             objective_id=objective_id,
             label=label,
         )
@@ -2950,9 +2950,26 @@ class ScopeSession:
         self.scope.motion.refuse_unknown_positions(
             ('X', 'Y', 'Z'), recording=True, then='try again'
         )
-        return self._plate_position(self.settings.get('protocol', {}).get('labware'))
+        return self.plate_position_on(self.settings.get('protocol', {}).get('labware'))
 
-    def _plate_position(self, labware_id: str) -> dict:
+    def plate_position_on(self, labware_id: str) -> dict:
+        """The stage's position in plate coordinates, on the plate ``labware_id`` names.
+
+        For a caller that states the position on a plate other than the
+        session's live selection: a protocol's own plate, or the plate in a
+        run's settings snapshot. It asks nothing about the axes; the step or
+        run the position goes into is refused there when one is unknown.
+        It is not part of the L2 API surface: a caller states a position
+        through the step and run members that read it.
+
+        Returns:
+            dict: ``'x'`` and ``'y'`` in mm, ``'z'`` in um.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, the model's
+                motor controller is not connected.
+            ConfigError: ``labware_id`` is not a plate the catalogue has.
+        """
         import modules.config_helpers as config_helpers
 
         return config_helpers.get_current_plate_position(

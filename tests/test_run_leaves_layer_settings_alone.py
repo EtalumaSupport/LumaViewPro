@@ -22,8 +22,7 @@ Contract under test:
 - ``LayerControl.set_step_state`` is a pure widget setter: it touches no
   settings.
 - At run end the cleanup schedules ``sync_layer_widgets`` exactly once,
-  outside the autofocus-restore loop and its empty-snapshot gate, and that
-  callback re-syncs every layer's widgets from its stored settings through
+  and that callback re-syncs every layer's widgets from its stored settings through
   the one settings-to-widgets implementation (the startup loop, extracted).
 """
 
@@ -403,10 +402,8 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
                 assert ids[box].visible is False and ids[box].opacity == 0
             assert stand.visibility_calls == 1
 
-    def test_cleanup_schedules_the_sync_once_outside_the_autofocus_restore(self):
-        """The schedule sits outside every loop and outside the
-        empty-snapshot gate: one call per run, whether or not any autofocus
-        state was restored."""
+    def test_cleanup_schedules_the_sync_once(self):
+        """The schedule sits outside every loop: one call per run."""
         fn = find_def('modules/protocol_cleanup.py', 'run_cleanup')
         assert fn is not None
         parents = {}
@@ -424,12 +421,8 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
             while node in parents:
                 node = parents[node]
                 assert not isinstance(node, (ast.For, ast.While)), (
-                    'the sync must be scheduled once, not per restored layer'
+                    'the sync must be scheduled once per run'
                 )
-                if isinstance(node, ast.If):
-                    assert 'autofocus_snapshot.states' not in ast.unparse(node.test), (
-                        'the sync must not be gated on the autofocus snapshot'
-                    )
 
     def test_callbacks_carry_sync_layer_widgets_not_reset_autofocus_btns(self):
         tree = parse_module('modules/protocol_callbacks.py')

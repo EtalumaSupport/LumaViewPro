@@ -71,7 +71,7 @@ from lvp_logger import logger
 import threading
 
 import modules.stack_builder as stack_builder
-from modules.config_helpers import COMPOSITE_MIN_CHANNELS, AutofocusSnapshot
+from modules.config_helpers import COMPOSITE_MIN_CHANNELS
 
 # How often the run loop re-asks whether the camera lane has gone idle
 # before the run takes the camera; a still's grab is tens to hundreds of
@@ -389,7 +389,6 @@ class RunPlan:
     # autofocus scan writes its focus into.
     write_focus_to: Protocol | None
     video_as_frames: bool
-    autofocus_snapshot: AutofocusSnapshot
     keep_led_between_steps: bool
     return_to_position: dict | None
     # None only on a scope never initialized, which the run gate admits only
@@ -994,7 +993,6 @@ class SequencedCaptureRunner:
         image_capture_config: image_mode.ImageCaptureConfig,
         autogain_settings: dict,
         *,
-        autofocus_snapshot: AutofocusSnapshot,
         parent_dir: pathlib.Path | None = None,
         enable_image_saving: bool = True,
         separate_folder_per_channel: bool = False,
@@ -1040,8 +1038,6 @@ class SequencedCaptureRunner:
                 known, a save location that cannot be used, a
                 sequence_name that is a path rather than a name). The user has already been notified once when
                 this raises.
-            TypeError: image_capture_config is not an ImageCaptureConfig
-                -- a programming error at the call site, not a refusal.
         """
         # A foreign exclusive activity (a video recording, a diagnostic) is
         # the durable, user-actionable reason a run cannot start, and
@@ -1119,16 +1115,6 @@ class SequencedCaptureRunner:
                 ),
                 holder='autofocus',
                 holder_trigger=in_flight_sweep.run.trigger,
-            )
-
-        # A wrong-shaped config (e.g. a legacy dict) must fail at this
-        # boundary, not as an AttributeError on the protocol thread after
-        # hardware has already moved to the first step.
-        if not isinstance(image_capture_config, image_mode.ImageCaptureConfig):
-            raise TypeError(
-                'image_capture_config must be an ImageCaptureConfig (build one '
-                'with ImageCaptureConfig.from_image_mode); got '
-                f'{type(image_capture_config).__name__}'
             )
 
         # Ahead of the empty-protocol gate: a composite with no channel set
@@ -1377,10 +1363,6 @@ class SequencedCaptureRunner:
             save_autofocus_data=save_autofocus_data,
             write_focus_to=write_focus_to,
             video_as_frames=video_as_frames,
-            # The states freeze with the plan; the restorer is a function,
-            # which deepcopy leaves as the same object, so it keeps writing
-            # the live session dict at cleanup.
-            autofocus_snapshot=copy.deepcopy(autofocus_snapshot),
             keep_led_between_steps=keep_led_between_steps,
             return_to_position=return_to_position,
             stage_offset=stage_offset,
@@ -1562,7 +1544,6 @@ class SequencedCaptureRunner:
             # snapshots must not leak into that unwind.
             self._original_led_states = None
             self._saved_camera_state = None
-            self._autofocus_snapshot = plan.autofocus_snapshot
             # The autofocus result belongs to the run that produced it, so
             # this run drops the previous one's before it can be mistaken
             # for this run's answer. Placed here, ahead of the failure
@@ -2550,7 +2531,6 @@ class SequencedCaptureRunner:
                 forced_dark=forced_dark,
                 leds_state_at_end=self._run_mode.leds_state_at_end,
                 original_led_states=self._original_led_states,
-                autofocus_snapshot=self._autofocus_snapshot,
                 saved_camera_state=getattr(self, '_saved_camera_state', None),
                 return_to_position=self._return_to_position,
                 scope=self._scope,

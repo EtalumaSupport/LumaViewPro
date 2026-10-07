@@ -29,7 +29,6 @@ from modules.protocol_image_writer import RunWriteBatch
 from modules.protocol_state_machine import ProtocolState
 from modules.run_outcome import PendingRunOutcome
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
-from tests.protocol_drives import autofocus_snapshot
 from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     _make_autogain_settings,
     _make_image_capture_config,
@@ -57,7 +56,6 @@ def _start_a_scan(executor, tmp_path):
         sequence_name='names_the_holder',
         image_capture_config=_make_image_capture_config(),
         autogain_settings=_make_autogain_settings(),
-        autofocus_snapshot=autofocus_snapshot(),
         parent_dir=tmp_path / 'output',
         max_scans=1,
         callbacks={},

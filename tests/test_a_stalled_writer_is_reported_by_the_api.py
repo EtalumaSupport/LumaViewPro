@@ -26,7 +26,6 @@ from modules.protocol_image_writer import RunWriteBatch
 from modules.scope_session import ScopeSession
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import ENQUEUED
-from tests.protocol_drives import autofocus_snapshot
 from tests.scope_fakes import spec_scope
 from tests.settings_fixtures import complete_settings
 
@@ -184,7 +183,6 @@ def test_the_refusal_and_the_report_offer_one_remedy_in_one_set_of_words(
             image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
             autogain_settings={},
             parent_dir=tmp_path,
-            autofocus_snapshot=autofocus_snapshot(),
         )
 
     assert refused.value.remedy == report.remedy

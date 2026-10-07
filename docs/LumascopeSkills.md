@@ -681,7 +681,7 @@ print(result.status, result.reason, result.message)
 pending.stop()
 ```
 
-**Standalone autofocus.** `run_autofocus(layer)` focuses once on one layer at the current stage position, without a protocol. Before a home there is no current position to start from: it raises `AxisStateUnknownError` (from `session.get_current_plate_position()`), as `run_zstack` and `start_composite` do:
+**Standalone autofocus.** `run_autofocus(layer)` focuses once on one layer at the current stage position, without a protocol. Before a home there is no current position to start from: it raises `ProtocolRunRefusedError` with reason `position_unknown`, as every run does, `run_zstack` and `start_composite` included. Each of the three reads the settings once, when it is called, and states the position on that copy's plate:
 
 ```python
 pending = runner.run_autofocus('BF', save_characterization_data=True)

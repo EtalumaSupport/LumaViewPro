@@ -175,14 +175,13 @@ class TestTheFlagAndTheClaimEndTogether:
     """
 
     def test_a_cleanup_that_raises_still_ends_the_run(self, monkeypatch):
-        from tests.protocol_drives import autofocus_snapshot, protocol_step, scan_ready_runner
+        from tests.protocol_drives import protocol_step, scan_ready_runner
 
         runner = scan_ready_runner(
             protocol_step(),
             _original_led_states=None,
             _return_to_position=None,
             _protocol_execution_record=None,
-            _autofocus_snapshot=autofocus_snapshot(states={}),
             _run_dir=None,
         )
         held = runner._activity_claim.try_claim('protocol', run=run_identity('test'))

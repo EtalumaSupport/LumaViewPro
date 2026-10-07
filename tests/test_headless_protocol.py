@@ -75,7 +75,6 @@ import modules.kivy_utils as _kivy_utils
 # test file that imports a ui/ module relies on them still being present.
 # Re-install (idempotent) now that the kivy-free imports are proven.
 from tests.conftest import install_mock_deps
-from tests.protocol_drives import autofocus_snapshot
 from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
 
 install_mock_deps()
@@ -320,7 +319,6 @@ class TestHeadlessProtocolExecution:
                     max_scans=1,
                     callbacks=callbacks,
                     enable_image_saving=False,
-                    autofocus_snapshot=autofocus_snapshot(),
                 )
                 executor.start(plan)
 

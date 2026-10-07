@@ -29,7 +29,6 @@ from modules.protocol_state_machine import (
     validate_transition,
 )
 from modules.protocol_callbacks import ProtocolCallbacks
-from tests.protocol_drives import autofocus_snapshot
 
 
 # ===========================================================================
@@ -182,12 +181,12 @@ class TestProtocolCallbacksFromDict:
 
 
 class TestProtocolCallbacksHasNoAutofocusRestore:
-    """The autofocus restorer rides the snapshot, never a callbacks field.
+    """A run restores no layer's autofocus flag, so the callbacks carry no restorer.
 
-    A callbacks field nothing reads is a trap: the next caller sets it,
-    the cleanup path ignores it, and the layer's autofocus flag silently
-    keeps the run's value. Assert on dataclasses.fields so the trap
-    cannot come back under a different construction site.
+    Nothing in a run reads the flags; a restore at its end could only
+    revert a change the user made during it. A callbacks field for one
+    would bring that back. Assert on dataclasses.fields so it cannot come
+    back under a different construction site.
     """
 
     def test_no_restore_autofocus_state_field(self):
@@ -195,8 +194,8 @@ class TestProtocolCallbacksHasNoAutofocusRestore:
 
         names = {f.name for f in dataclasses.fields(ProtocolCallbacks)}
         assert 'restore_autofocus_state' not in names, (
-            "the autofocus restore belongs to the run's autofocus snapshot; "
-            f'a callbacks field for it has no reader. fields={sorted(names)}'
+            'a run restores no autofocus flag, so the callbacks carry no '
+            f'restorer. fields={sorted(names)}'
         )
 
     def test_construction_with_the_removed_field_is_refused(self):
@@ -298,40 +297,13 @@ class TestScheduleUI:
 # ===========================================================================
 
 
-class TestAutofocusSnapshotIsWholeOrNothing:
-    """The states and the restorer that writes them back travel together.
-
-    States without a restorer are a half-object: cleanup would have the
-    values and no place to put them. Making the pair unconstructible is
-    cheaper than refusing it later, so the type carries no defaults.
-    """
-
-    def test_states_without_a_restorer_cannot_be_built(self):
-        from modules.config_helpers import AutofocusSnapshot
-
-        with pytest.raises(TypeError):
-            AutofocusSnapshot(states={'BF': True})
-
-    def test_both_halves_build(self):
-        from modules.config_helpers import AutofocusSnapshot
-
-        written = []
-        snapshot = AutofocusSnapshot(
-            states={'BF': True},
-            restore=lambda *, layer, value: written.append((layer, value)),
-        )
-        assert snapshot.states == {'BF': True}
-        snapshot.restore(layer='BF', value=True)
-        assert written == [('BF', True)]
-
-
 def test_cleanup_never_reaches_a_settings_module_global():
-    """Cleanup restores through the snapshot it was handed, full stop.
+    """Cleanup touches no settings.
 
     The module-level settings dict is None in every headless process, so
-    a cleanup that falls back to it restores nothing and buries the
-    failure in the cleanup-error summary. The restorer the snapshot
-    carries is the only write path.
+    a cleanup that read it would fail there and bury the failure in the
+    cleanup-error summary; and a cleanup that wrote the session's settings
+    would revert what the user changed while the run went.
     """
     import pathlib as _pathlib
 
@@ -343,10 +315,7 @@ def test_cleanup_never_reaches_a_settings_module_global():
         for i, line in enumerate(source.splitlines(), 1)
         if 'settings[' in line or 'settings_init' in line
     ]
-    assert not offenders, (
-        "protocol_cleanup must restore through the run's autofocus snapshot, "
-        f'not a settings module global; found {offenders}'
-    )
+    assert not offenders, f'protocol_cleanup must touch no settings; found {offenders}'
 
 
 class _FakeExecutor:
@@ -431,7 +400,6 @@ class TestRunCleanup:
             'forced_dark': False,
             'leds_state_at_end': 'off',
             'original_led_states': {},
-            'autofocus_snapshot': autofocus_snapshot(states={}),
             'saved_camera_state': None,
             'return_to_position': None,
             'scope': MagicMock(),

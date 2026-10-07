@@ -54,7 +54,6 @@ from modules.autofocus_runner import AutofocusRunner
 from modules.protocol import Protocol
 from tests.protocol_drives import (
     StepHeartbeat,
-    autofocus_snapshot,
     held_run_claim,
     wait_for_run_end,
 )
@@ -224,7 +223,6 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         max_scans=run_kwargs.pop('max_scans', 1),
         callbacks=callbacks,
         enable_image_saving=run_kwargs.pop('enable_image_saving', False),
-        autofocus_snapshot=autofocus_snapshot(),
         **run_kwargs,
     )
     handle = executor.start(plan)

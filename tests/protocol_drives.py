@@ -13,10 +13,6 @@ Three layers of readiness:
   runner._run_loop_executor.run_loop(runner.run_outcome()) synchronously
   on the test thread (cleanup behavior is covered separately on
   run_cleanup).
-
-autofocus_snapshot() builds the per-layer autofocus states and their
-restorer that prepare() requires, so the 20-odd drive sites carry one
-builder instead of one copy of the layer catalogue each.
 """
 
 from __future__ import annotations
@@ -103,30 +99,6 @@ def wait_for_run_end(done: threading.Event, heartbeat: StepHeartbeat) -> bool:
         if heartbeat.idle_s() > STEP_STALL_S:
             return done.is_set()
     return True
-
-
-def _noop_restore(*, layer, value):
-    """A restorer that accepts the cleanup call and drops the value.
-
-    For drives whose subject is not where the autofocus states land.
-    """
-    return None
-
-
-def autofocus_snapshot(states: dict | None = None, restore=None):
-    """The autofocus snapshot prepare() requires.
-
-    States default to the whole layer catalogue with autofocus off --
-    what a settings dict straight off the shipped template yields -- and
-    the restorer defaults to a no-op, so a drive that does not care where
-    the values land still hands the runner a complete object.
-    """
-    import modules.common_utils as common_utils
-    from modules.config_helpers import AutofocusSnapshot
-
-    if states is None:
-        states = dict.fromkeys(common_utils.get_layers(), False)
-    return AutofocusSnapshot(states=states, restore=restore or _noop_restore)
 
 
 def protocol_step(**overrides):
@@ -221,11 +193,6 @@ def scr_run_kwargs(**overrides):
         'disable_saving_artifacts': True,
     }
     kwargs.update(overrides)
-    # Built only when the caller did not speak for it, so a drive whose
-    # subject IS the absent snapshot can pass None and drop the key
-    # without the builder quietly constructing one behind it.
-    if 'autofocus_snapshot' not in kwargs:
-        kwargs['autofocus_snapshot'] = autofocus_snapshot(states={})
     return kwargs
 
 

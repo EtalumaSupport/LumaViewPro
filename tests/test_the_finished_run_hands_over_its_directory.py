@@ -139,7 +139,7 @@ class TestTheRunnerHandsOverItsOwnDirectory:
         from modules.protocol_image_writer import RunWriteBatch
         from modules.run_outcome import PendingRunOutcome
         from modules.sequenced_capture_runner import RunHandle
-        from tests.protocol_drives import autofocus_snapshot, protocol_step, scan_ready_runner
+        from tests.protocol_drives import protocol_step, scan_ready_runner
 
         run_dir = pathlib.Path('/tmp/this_runs_dir')
         runner = scan_ready_runner(
@@ -148,7 +148,6 @@ class TestTheRunnerHandsOverItsOwnDirectory:
             _original_led_states=None,
             _return_to_position=None,
             _protocol_execution_record=None,
-            _autofocus_snapshot=autofocus_snapshot(states={}),
         )
         # The run start() would have committed, with its writes.
         runner._run_outcome = PendingRunOutcome()

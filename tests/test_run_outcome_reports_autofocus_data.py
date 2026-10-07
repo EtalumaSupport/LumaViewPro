@@ -56,7 +56,6 @@ from modules.run_outcome import PendingRunOutcome, RunEnding, RunOutcome
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
-from tests.protocol_drives import autofocus_snapshot
 from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from tests.scope_fakes import configure_turret_like_bringup
 
@@ -202,17 +201,6 @@ class _AfRig:
                 'run_complete': lambda **kw: done.set(),
                 'files_complete': lambda **kw: files_done.set(),
             },
-            autofocus_snapshot=autofocus_snapshot(
-                states={
-                    'BF': True,
-                    'PC': False,
-                    'DF': False,
-                    'Red': False,
-                    'Green': False,
-                    'Blue': False,
-                    'Lumi': False,
-                },
-            ),
             borrowed_claim=borrowed_claim,
         )
 
