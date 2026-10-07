@@ -604,7 +604,7 @@ class ProtocolSettings(FloatLayout):
         ctx = _app_ctx.ctx
         self._protocol = protocol
         self._show_schedule()
-        ctx.update_settings('protocol.filepath', '')
+        ctx.set_protocol_filepath('')
         self.curr_step = 0
         self.go_to_step(step_idx=0)
 
@@ -669,7 +669,7 @@ class ProtocolSettings(FloatLayout):
 
         if not filepath or not pathlib.Path(filepath).exists():
             logger.info('[LVP Main  ] No saved protocol loaded at startup -- using empty protocol')
-            _app_ctx.ctx.update_settings('protocol.filepath', '')
+            _app_ctx.ctx.set_protocol_filepath('')
         else:
             # The file is still there and something about this scope
             # refused it. Keep the name on screen as well as in settings:
@@ -731,7 +731,7 @@ class ProtocolSettings(FloatLayout):
         self._protocol = protocol
         self._show_schedule()
 
-        _app_ctx.ctx.update_settings('protocol.filepath', filepath)
+        _app_ctx.ctx.set_protocol_filepath(filepath)
         self.ids['protocol_filename'].text = os.path.basename(filepath)
 
         num_steps = self._protocol.num_steps()
@@ -815,7 +815,7 @@ class ProtocolSettings(FloatLayout):
             # Reached only once the file is written: a failed save leaves the
             # panel naming the file it had, which is still the one on disk.
             if update_protocol_filepath:
-                _app_ctx.ctx.update_settings('protocol.filepath', filepath)
+                _app_ctx.ctx.set_protocol_filepath(filepath)
             self.ids['protocol_filename'].text = os.path.basename(filepath)
 
         run_reported(_save, None, 'SAVE_PROTOCOL')

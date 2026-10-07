@@ -29,13 +29,13 @@ s, live = _common.make_session()
 try:
     # --- live_folder ------------------------------------------------------
     newdir = _common.SCRATCH / 'chosen_live'
-    s.update_settings('live_folder', str(newdir))
+    s.set_live_folder(str(newdir))
     _common.ok(
         'live_folder set through Session', s.get_settings_snapshot()['live_folder'] == str(newdir)
     )
     _common.ok('live_folder creates the directory', newdir.exists(), str(newdir))
     try:
-        s.update_settings('live_folder', '/definitely/not/a/real/place/\x00bad')
+        s.set_live_folder('/definitely/not/a/real/place/\x00bad')
         _common.ok(
             'a live_folder that is not a path is refused',
             False,
@@ -43,7 +43,7 @@ try:
         )
     except SettingRefusedError as e:
         _common.ok('a live_folder that is not a path is refused', True, str(e))
-    s.update_settings('live_folder', str(live))
+    s.set_live_folder(str(live))
 
     # --- protocol load / save --------------------------------------------
     print('scope.protocols.load_protocol:', hasattr(s.scope.protocols, 'load_protocol'))

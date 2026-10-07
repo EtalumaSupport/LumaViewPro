@@ -52,6 +52,7 @@ from modules.exceptions import (
     RemedyUnknownError,
     ScopeDisconnectError,
     ScopeModelUnknownError,
+    SettingRefusedError,
     SettingsSaveRefusedError,
 )
 from modules.lumascope_api.illumination import LedLease, LedTransition, LedTransitionCtx
@@ -2022,20 +2023,22 @@ class ScopeSession:
         tear a snapshot being taken concurrently, and takes none of the
         checks below.
 
-        ``live_folder`` is stored as it is at load: a folder given relative
-        to the installation is made absolute, and created.
-
         A setting that has its own member -- the objective, the plate, the
-        image mode, a layer's acquire mode or focus, ... -- is changed only
-        through that member, which checks it against the scope or changes
-        another setting with it; the refusal names the member. A block
-        (``'video'``) is not written whole: each of its settings has a path.
+        image mode, a layer's acquire mode or focus, the live folder, ... --
+        is changed only through that member, which checks it against the
+        scope or changes another setting with it; the refusal names the
+        member. A setting that decides how the next start reaches the scope
+        or the machine -- the REST server and its key, the start mode, the
+        profilers and debugging switches -- is read only from the
+        installation's settings file, so no caller can reconfigure the scope
+        it drives. A block (``'video'``) is not written whole: each of its
+        settings has a path.
 
         Raises:
             SettingRefusedError: ``path`` is owned by a Session member
-                (named), is not a setting, or names a block; or ``value`` is
-                not the setting's kind or is outside its range. Nothing is
-                written.
+                (named), is set only by the installation, is not a setting,
+                or names a block; or ``value`` is not the setting's kind or
+                is outside its range. Nothing is written.
             ConfigError: these settings were never prepared from the
                 template and lack the block the path is in. Nothing is
                 written.
@@ -2043,11 +2046,39 @@ class ScopeSession:
                 ``protocol.duration`` no protocol can run. Nothing is
                 written.
         """
-        value = settings_paths.check_write(
-            self.scope.settings_template, path, value, installation=self.scope.source_path
-        )
+        settings_paths.check_write(self.scope.settings_template, path, value)
         with self.settings_lock:
             self._store_setting(path, value)
+
+    def set_live_folder(self, folder: str) -> None:
+        """Make ``folder`` the live folder, where captures and runs are saved.
+
+        The one writer of ``live_folder``, stored as it is at load: a folder
+        given relative to the installation is made absolute, and created. A
+        folder that cannot be created is still stored; captures into it are
+        refused, naming it, until it is reachable.
+
+        Raises:
+            SettingRefusedError: ``'out_of_range'``, ``folder`` is a string
+                no file system can name (a NUL byte). Nothing is written.
+        """
+        try:
+            stored = settings_init.bring_up_live_folder(logger, folder, self.scope.source_path)
+        except ValueError as e:
+            # pathlib's answer to a string no file system can name (a NUL byte).
+            raise SettingRefusedError(
+                'out_of_range', 'live_folder', f'{folder!r} is not a path'
+            ) from e
+        with self.settings_lock:
+            self._store_setting('live_folder', stored)
+
+    def set_protocol_filepath(self, file_path: str) -> None:
+        """Remember ``file_path`` as the protocol to open at the next start; ``''`` forgets it.
+
+        The one writer of ``protocol.filepath``, which the next start opens.
+        """
+        with self.settings_lock:
+            self._store_setting('protocol.filepath', file_path)
 
     def _store_setting(self, path: str, value: object) -> None:
         """Under ``settings_lock``: put ``value`` at ``path`` in the live settings.

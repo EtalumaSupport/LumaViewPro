@@ -3,8 +3,8 @@
 
 It writes one setting, named by its dotted path, under the lock -- or it
 refuses, naming why, and writes nothing: the path is not a setting, names a
-block, belongs to a Session member, or the value is the wrong kind or out of
-the setting's range. A REST caller, a script and the GUI all reach the same
+block, belongs to a Session member, is set only by the installation, or the
+value is the wrong kind or out of the setting's range. A REST caller, a script and the GUI all reach the same
 checks, because they all reach the same member.
 """
 
@@ -62,7 +62,6 @@ def test_a_leaf_with_no_shipped_value_takes_a_number(session):
         ('video.max_duration_seconds', 0, 'out_of_range'),
         ('tiling_overlap_percent', 75.0, 'out_of_range'),
         ('image_output_format.live', 'BMP', 'out_of_range'),
-        ('live_folder', '/no/such\x00place', 'out_of_range'),
     ],
 )
 def test_a_refused_write_names_why_and_writes_nothing(session, path, value, reason):
@@ -78,6 +77,8 @@ def test_a_refused_write_names_why_and_writes_nothing(session, path, value, reas
     ('path', 'member'),
     [
         ('microscope', 'select_model'),
+        ('live_folder', 'set_live_folder'),
+        ('protocol.filepath', 'set_protocol_filepath'),
         ('objective_id', 'select_objective'),
         ('turret_objectives.1', 'assign_turret_objective'),
         ('protocol.labware', 'select_labware'),
@@ -96,6 +97,51 @@ def test_a_setting_with_a_member_is_refused_naming_it(session, path, member):
     assert refused.value.member == member
     # The name it gives is a member a caller can call.
     assert callable(getattr(ScopeSession, member))
+
+
+@pytest.mark.parametrize(
+    ('path', 'value'),
+    [
+        ('rest_api.enabled', True),
+        ('rest_api.host', '0.0.0.0'),
+        ('rest_api.port', 9000),
+        ('rest_api.api_key', 'k'),
+        ('rest_api.cors_origins', ['*']),
+        ('mode', 'engineering'),
+        ('lvp_lock_port', 1),
+        ('profile_trace_output_dir', '/elsewhere'),
+        ('debug_mode', True),
+        ('cprofile_enabled', True),
+        ('profile_trace_enabled', True),
+        ('tracemalloc_enabled', True),
+        ('memory_profile_enabled', True),
+        ('memory_profile_interval_s', 1),
+        ('fx2_debug_wire_enabled', True),
+    ],
+)
+def test_a_setting_only_the_installation_sets_is_refused(session, path, value):
+    before = session.get_settings_snapshot()
+    with pytest.raises(SettingRefusedError, match="installation's settings file") as refused:
+        session.update_settings(path, value)
+    assert refused.value.reason == 'installation_only'
+    assert refused.value.path == path
+    assert session.get_settings_snapshot() == before
+
+
+def test_a_remembered_protocol_is_stored_and_forgotten(session):
+    session.set_protocol_filepath('/data/plate.tsv')
+    assert session.settings['protocol']['filepath'] == '/data/plate.tsv'
+    session.set_protocol_filepath('')
+    assert session.settings['protocol']['filepath'] == ''
+
+
+def test_a_live_folder_no_file_system_can_name_is_refused(session):
+    before = session.get_settings_snapshot()
+    with pytest.raises(SettingRefusedError) as refused:
+        session.set_live_folder('/no/such\x00place')
+    assert refused.value.reason == 'out_of_range'
+    assert refused.value.path == 'live_folder'
+    assert session.get_settings_snapshot() == before
 
 
 def test_a_protocol_schedule_no_protocol_can_run_is_refused(session):
@@ -145,7 +191,7 @@ def test_a_relative_live_folder_is_stored_absolute_and_created(tmp_path):
         simulate=True,
     )
     try:
-        s.update_settings('live_folder', 'captures/run7')
+        s.set_live_folder('captures/run7')
         stored = s.settings['live_folder']
         assert stored == str((tmp_path / 'captures' / 'run7').resolve())
         assert (tmp_path / 'captures' / 'run7').is_dir()

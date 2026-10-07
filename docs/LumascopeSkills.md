@@ -408,8 +408,10 @@ A sum (`sum_count` > 1) is stored in a uint16 array on every camera, an 8-bit on
 
 ```python
 config = session.get_layer_configs()          # read, in API names
-session.update_settings('live_folder', '/data/run7')  # write one setting, from any thread
+session.update_settings('BF.sum', 3)           # write one setting, from any thread
 session.update_settings('video.max_fps', 30)  # a nested setting, by its dotted path
+session.set_live_folder('/data/run7')          # where captures and runs are saved; relative means the installation's
+session.set_protocol_filepath('/data/plate.tsv')  # the protocol the next start opens; '' forgets it
 snapshot = session.get_settings_snapshot()     # a consistent copy, taken under the lock
 session.get_setting('stage_offset')           # a copy of one setting, by its dotted path; ConfigError when absent
 session.scope.settings_template                # every setting there is, with its shipped value
@@ -441,18 +443,19 @@ that can take the value gets it back.
 
 **`update_settings(path, value)` is the one write.** `path` names one
 setting by its keys joined with dots (`'BF.sum'`, `'zstack.step_size'`,
-`'protocol.filepath'`); the settings that exist, and the kind each holds,
+`'video.max_fps'`); the settings that exist, and the kind each holds,
 are `session.scope.settings_template`. The write is taken under the lock,
 or refused with `SettingRefusedError` (from `modules.exceptions`) and
 nothing is written. Its `reason` says why:
 
 | `reason` | Refused when |
 |---|---|
-| `has_member` | the setting is changed by its own Session member, named in `member`: `microscope` (`select_model`), `objective_id` (`select_objective`), `objective_confirmed` (`confirm_objective`), `turret_objectives` (`assign_turret_objective`), `protocol.labware` (`select_labware`), `image_mode` (`set_image_mode`), `binning` (`set_binning_size`), `frame` (`set_frame_size`), `camera.high_conversion_gain` (`set_high_conversion_gain`), `camera.line_noise_reduction` (`set_line_noise_reduction`), `scale_bar.enabled` (`set_scale_bar`), `motion.acceleration_max_pct` (`set_acceleration_limit`), `bookmark` (`save_bookmark`, `save_all_bookmarks`), a layer's `acquire` (`set_layer_acquire`), `auto_gain` (`set_layer_auto_gain`) and `focus` (`save_focus`) |
+| `has_member` | the setting is changed by its own Session member, named in `member`: `microscope` (`select_model`), `live_folder` (`set_live_folder`), `protocol.filepath` (`set_protocol_filepath`), `objective_id` (`select_objective`), `objective_confirmed` (`confirm_objective`), `turret_objectives` (`assign_turret_objective`), `protocol.labware` (`select_labware`), `image_mode` (`set_image_mode`), `binning` (`set_binning_size`), `frame` (`set_frame_size`), `camera.high_conversion_gain` (`set_high_conversion_gain`), `camera.line_noise_reduction` (`set_line_noise_reduction`), `scale_bar.enabled` (`set_scale_bar`), `motion.acceleration_max_pct` (`set_acceleration_limit`), `bookmark` (`save_bookmark`, `save_all_bookmarks`), a layer's `acquire` (`set_layer_acquire`), `auto_gain` (`set_layer_auto_gain`) and `focus` (`save_focus`) |
+| `installation_only` | the setting is read only from the installation's settings file, so no caller can reconfigure the scope it drives: the `rest_api` block, `mode`, `lvp_lock_port`, `profile_trace_output_dir`, and the debugging switches `debug_mode`, `cprofile_enabled`, `profile_trace_enabled`, `tracemalloc_enabled`, `memory_profile_enabled`, `memory_profile_interval_s` and `fx2_debug_wire_enabled` |
 | `not_a_setting` | no setting has the path |
 | `block` | the path names a block of settings (`'video'`); each is written by its own path |
 | `wrong_kind` | the value is not the kind the setting holds: true/false, a number (int or float), text, or a list. A setting shipped as `null` takes any single value. A numpy scalar is refused: convert it with `float()` or `int()` |
-| `out_of_range` | `video.max_fps` outside 0 to 200 (0 is no cap); `video.max_duration_seconds` outside 1 to 3600; `tiling_overlap_percent` outside 0 to 50; `image_output_format.live` / `.sequenced` not a format the writer takes; a `live_folder` that is not a path (a NUL byte) |
+| `out_of_range` | `video.max_fps` outside 0 to 200 (0 is no cap); `video.max_duration_seconds` outside 1 to 3600; `tiling_overlap_percent` outside 0 to 50; `image_output_format.live` / `.sequenced` not a format the writer takes |
 
 `protocol.period` (minutes) and `protocol.duration` (hours) are the
 schedule a new protocol starts from, held to the protocol's own range
@@ -470,8 +473,10 @@ A settings dict handed straight to `ScopeSession.create` holding an
 acceleration limit outside 1 to 100 is refused with `ConfigError` before
 anything is commanded.
 
-`live_folder` is stored as it is at start-up: a folder given relative to
-the installation is made absolute, and the folder is created.
+`set_live_folder(folder)` stores the live folder as it is at start-up: a
+folder given relative to the installation is made absolute, and the folder
+is created. A folder that is not a path (a NUL byte) is refused with
+`SettingRefusedError` (`out_of_range`) and nothing is written.
 
 Writing into `session.settings` directly skips every check above and the
 lock; it is not a supported write.

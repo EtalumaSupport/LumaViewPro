@@ -63,7 +63,7 @@ import ui.protocol_settings as ps
 import ui.step_navigation as nav
 import ui.ui_helpers as ui_helpers
 from modules.objectives_loader import ObjectiveLoader
-from tests.settings_fixtures import settings_writer
+from tests.settings_fixtures import protocol_filepath_writer, settings_writer
 from modules.exceptions import ProtocolError
 from modules.protocol import Protocol
 
@@ -167,6 +167,7 @@ def env(monkeypatch):
     ctx = SimpleNamespace(
         settings=settings,
         update_settings=settings_writer(settings),
+        set_protocol_filepath=protocol_filepath_writer(settings),
         motion_settings=SimpleNamespace(ids={}),
         scope=SimpleNamespace(
             protocols=SimpleNamespace(refuse_unaddressable_objectives=lambda objectives: None),

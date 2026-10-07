@@ -58,7 +58,7 @@ from modules.exceptions import (
 )
 from modules.protocol import ProtocolFormatError
 from tests.scope_fakes import spec_scope
-from tests.settings_fixtures import settings_writer
+from tests.settings_fixtures import protocol_filepath_writer, settings_writer
 
 
 def _refusal():
@@ -113,6 +113,7 @@ def ctx(monkeypatch):
         stage=MagicMock(),
         settings=settings,
         update_settings=settings_writer(settings),
+        set_protocol_filepath=protocol_filepath_writer(settings),
         image_settings=MagicMock(),
     )
     monkeypatch.setattr(_app_ctx, 'ctx', context)

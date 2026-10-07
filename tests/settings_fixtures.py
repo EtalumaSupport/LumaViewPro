@@ -79,7 +79,7 @@ def settings_writer(settings: dict):
     template = json.loads(_TEMPLATE.read_text(encoding='utf-8'))
 
     def update_settings(path: str, value: object) -> None:
-        value = settings_paths.check_write(template, path, value, installation=str(_REPO_ROOT))
+        settings_paths.check_write(template, path, value)
         *blocks, leaf = path.split('.')
         holder = settings
         for block in blocks:
@@ -87,3 +87,12 @@ def settings_writer(settings: dict):
         holder[leaf] = value
 
     return update_settings
+
+
+def protocol_filepath_writer(settings: dict):
+    """A ``set_protocol_filepath(file_path)`` for a fake context holding ``settings``."""
+
+    def set_protocol_filepath(file_path: str) -> None:
+        settings['protocol']['filepath'] = file_path
+
+    return set_protocol_filepath
