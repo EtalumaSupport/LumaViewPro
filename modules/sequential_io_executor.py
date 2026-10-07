@@ -1,9 +1,9 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 #
 # Executors must be GUI-agnostic. No Kivy imports here.
-# UI callbacks are dispatched via _ui_dispatch(), which defaults to
-# direct invocation. The GUI layer passes Clock.schedule_once as
-# the ui_dispatcher parameter when constructing executors.
+# UI callbacks are dispatched via kivy_utils.schedule_ui(), the process's
+# one UI dispatcher, read at the moment a callback is dispatched; with
+# none set (tests, headless, REST) a callback runs on the worker.
 
 import concurrent.futures
 from concurrent.futures import CancelledError
@@ -15,6 +15,7 @@ import queue
 from collections.abc import Callable, Iterator, Sequence
 from lvp_logger import logger
 from lib import profile_trace
+from modules.kivy_utils import schedule_ui
 from modules.notification_center import notifications
 from modules.activity_claim import ActivityClaim, Taking, acting, current_taking
 from modules.exceptions import HardwareCommandRefusedError, Refusal
@@ -314,7 +315,6 @@ class IOTask:
         # file; the lane refuses such a task while a recording holds.
         self.falsifies_recording = falsifies_recording
         self.priority = priority
-        self._ui_dispatch = None  # Set by executor when task is dispatched
         # When True, _on_task_done skips the generic "Task failed"
         # notification on exception -- the caller's callback (or its
         # surrounding context) is responsible for user-facing
@@ -417,10 +417,7 @@ class IOTask:
             cb_kwargs = self.cb_kwargs
 
         cb_args = self.cb_args
-        if self._ui_dispatch is not None:
-            self._ui_dispatch(_safe_callback, 0)
-        else:
-            _direct_dispatch(_safe_callback, 0)
+        schedule_ui(_safe_callback, 0)
 
     def set_name(self, name):
         self.name = name
@@ -451,21 +448,6 @@ SequentialIOExecutor
     # ... later ...
     executor.shutdown(wait=True)
 """
-
-
-def _direct_dispatch(func: Callable, timeout: float = 0) -> None:
-    """Default UI dispatcher: call function directly (no GUI scheduling).
-
-    Used when no Kivy Clock is available (tests, headless, REST API).
-    Matches Clock.schedule_once(func, timeout) signature.
-    """
-    if callable(func):
-        try:
-            func(0)  # Call with dummy dt=0 (same as Clock passes)
-        except Exception as ex:
-            from modules.notification_center import notifications
-
-            notifications.report_outcome(ex, solicited=False, category='IOTask')
 
 
 class _PriorityFifoQueue:
@@ -511,7 +493,6 @@ class SequentialIOExecutor:
         self,
         max_workers: int = 1,
         name: str | None = None,
-        ui_dispatcher=None,
         protocol_queue_maxsize: int = 0,
         priority_aware: bool = False,
         lane: bool = True,
@@ -597,10 +578,6 @@ class SequentialIOExecutor:
         # queue is the run's, and a lender whose borrowed run is live is not
         # the run.
         self._protocol_taking = None
-
-        # UI dispatcher -- executors don't import GUI frameworks.
-        # GUI layer passes Clock.schedule_once; tests/headless use default.
-        self._ui_dispatch = ui_dispatcher or _direct_dispatch
 
     @property
     def running_task(self):
@@ -755,7 +732,6 @@ class SequentialIOExecutor:
         that waiter has already been handed on as accepted work.
         """
         logger.warning(f'[{self.executor_name}] REFUSED {refusal.member} -- {refusal}')
-        task._ui_dispatch = self._ui_dispatch
         task.protocol = False
         # The waiter is created below, after the report, so whether there
         # will be one is what return_future says.
@@ -1350,8 +1326,6 @@ class SequentialIOExecutor:
                     self._running_task_started_monotonic = None
                     return
 
-                task._ui_dispatch = self._ui_dispatch
-
                 # Asked again as it leaves the queue: a hold can begin while
                 # the task waits, and the holder's restore must not be run
                 # over by work queued before it.
@@ -1454,7 +1428,6 @@ class SequentialIOExecutor:
             logger.warning(
                 f'[{self.executor_name}] REFUSED {refusal.member} while queued -- {refusal}'
             )
-            task._ui_dispatch = self._ui_dispatch
             task.protocol = False
             with self._caller_futures_lock:
                 fut = self.caller_futures.pop(task, None)

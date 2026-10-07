@@ -143,7 +143,7 @@ Each catalogue read -- `scope_models`, `settings_template`, `get_objectives_data
 
 `source_path` is the folder holding `data/`; without one the scope uses the installation's own. The scope reads `data/labware.json`, `data/objectives.json`, `data/scopes.json` and `data/motorconfig_defaults.json` from it once, first, before anything starts, and everything that asks about plates, objectives or models reads the scope's copy: the scope's runtime state, protocol construction and validation, autofocus, the run, the session and the GUI. The model catalogue (`scopes.json`'s `Models`) is `scope.scope_models`, a read-only mapping of model name to its entry. A file that is missing, unreadable or not the shape its reader needs (for `scopes.json`, one with no `Models` section) raises `InstallationFileError` (`modules.exceptions`) naming the file and its folder, and nothing is left running. A simulated scope's `sim_model` that the folder's catalogue does not list raises `ConfigError` before anything starts. The release's layer vocabulary (`scopes.json`'s `LayerOrder`) is the one exception: it is process-wide, read from the installation's own folder the first time any code asks for the layers, and a scope's layers are resolved against it. It is not a `ConfigError`: the installation is at fault, not your settings.
 
-The scope builds and starts its own IO and CAMERA lanes at construction and shuts them in `scope.disconnect()`. `ui_dispatcher=` (`Clock.schedule_once(func, dt)`'s shape) is where the lanes hand a finished command's callback; leave it `None` (the default) and callbacks run on the lane's worker. A GUI host passes its UI marshaller so they reach its UI thread.
+The scope builds and starts its own IO and CAMERA lanes at construction and shuts them in `scope.disconnect()`. A lane hands a finished command's callback to the process's one UI dispatcher (`ScopeSession.set_ui_dispatcher`, below); with none set, the default, callbacks run on the lane's worker.
 
 ### Layer identity
 
@@ -330,21 +330,17 @@ The session comes back **configured** and **running**: `create` builds the scope
 ```python
 session = ScopeSession.create(
     settings=settings_init.settings,
-    source_path='.',
+    source_path='.',                        # refused beside scope=: a session's folder is its scope's
     simulate=False,                         # True builds a simulated scope instead of opening hardware
-    ui_dispatcher=None,                     # host UI marshaling, Clock.schedule_once(func, dt)'s shape;
-                                            # None runs executor callbacks inline on the worker (headless);
-                                            # refused beside scope= -- pass it to Lumascope(...) instead;
-                                            # so is source_path: a session's folder is its scope's
     af_ui_update_func=None,                 # (pos) -> None, called as autofocus moves Z; None for headless
     settings_saved_hook=None,               # hook(settings_snapshot: dict) after a successful save_settings
     engineering_mode=False,                 # stored on the session
 )
 ```
 
-`af_ui_update_func` is one callable with two consumers: the autofocus runner's Z readout and the capture engine's. There is a seventh parameter, `display_ctx_provider`, which exists for the Kivy host's display thread and is not an L2 parameter — leave it unset.
+`af_ui_update_func` is one callable with two consumers: the autofocus runner's Z readout and the capture engine's. There is one more parameter, `display_ctx_provider`, which exists for the Kivy host's display thread and is not an L2 parameter — leave it unset.
 
-If you hand `create` a scope you built yourself (`scope=...`), that scope is your bring-up: call `session.configure_scope()` and `session.scope.imaging.start_streaming()` yourself. Its lanes marshal callbacks through the `ui_dispatcher` you built it with, so `create` refuses a `ui_dispatcher` beside `scope` with `ValueError`. One session per scope: a second `create(scope=...)` over a scope a live session holds raises `RuntimeError`.
+If you hand `create` a scope you built yourself (`scope=...`), that scope is your bring-up: call `session.configure_scope()` and `session.scope.imaging.start_streaming()` yourself. One session per scope: a second `create(scope=...)` over a scope a live session holds raises `RuntimeError`.
 
 ```python
 session = ScopeSession.create(settings=settings_init.settings, scope=my_scope)
@@ -355,6 +351,16 @@ session.scope.imaging.start_streaming()
 `configure_scope()` asks the motor board which model it is before anything else. When the board reports a model the catalogue (`scopes.json` `Models`) knows and it differs from `settings['microscope']`, the reported model is WRITTEN into the settings dict you passed and logged — hardware truth outranks the stored selection, so your dict can come back changed. A reported model outside the catalogue, or none at all (no motor board), leaves the stored model alone. The scope is yours, so the disconnect is yours too: `session.shutdown()` will not touch a scope it did not build.
 
 To hear what bring-up reports (a camera not found, a partial-hardware warning), pass your outcome listener to the factory: `ScopeSession.create(..., outcome_listener=on_outcome)` registers it before the scope is built. See "Outcomes" below.
+
+**The UI dispatcher.** A host with a UI thread tells the process once how to reach it, before it builds a session: `ScopeSession.set_ui_dispatcher(UiDispatcher(schedule=..., thread=...))`, with `UiDispatcher` from `modules.kivy_utils`. `schedule` has `Clock.schedule_once(func, dt)`'s shape, and `thread` is the thread it delivers on. It is one setting for the process, not for a session: every lane's completion callback, every run callback and every state listener the GUI marshals is handed to it at the moment it is delivered, whichever session or scope it belongs to. A host with no UI thread (a script, a REST server) never sets it, and a callback then runs on the thread that delivers it, its raise reported rather than raised; `set_ui_dispatcher(None)` restores that. A run's `wait()` made on `thread`, outside the run's own callbacks, raises `RunWaitOnUiThreadError`.
+
+```python
+from modules.kivy_utils import UiDispatcher
+
+ScopeSession.set_ui_dispatcher(
+    UiDispatcher(schedule=Clock.schedule_once, thread=threading.main_thread())
+)                                           # once, before the first ScopeSession.create
+```
 
 **Settings a factory needs.** A file-sourced dict (the loader above) is validated by name and complete. `configure_scope()` adopts the model the hardware reports into `settings['microscope']` whenever the catalogue knows that model, so the microscope key is an input the bring-up may correct. A hand-built dict must carry `frame` and `binning`, and on a scope with no turret `objective_id` -- `configure_scope()` raises `ConfigError` naming the missing key -- and that `objective_id` must name a shipped objective (`data/objectives.json`), or the raise names the objective. A stored plate (`settings['protocol']['labware']`) the labware catalogue cannot resolve -- a null, a non-string, an empty name, a plate it no longer has -- is replaced by the shipped plate at bring-up and told as part of the load's `stored_setting_replaced` notice (below); every other stored setting is kept. After bring-up, every writer of the selection refuses a plate the catalogue does not have. A turreted scope does not read the stored `objective_id`: its objective is unknown until the turret is homed or moved to a slot, then it is that slot's assignment. `turret_objectives` keys may be JSON strings or ints; the factory normalizes them. A configured session may still owe the objective question (`session.objective_question()`, above); the factories do not ask it. A missing or unusable `labware.json`, `objectives.json`, `scopes.json` or `motorconfig_defaults.json` stops the scope's construction with `InstallationFileError` (see "Initialization").
 

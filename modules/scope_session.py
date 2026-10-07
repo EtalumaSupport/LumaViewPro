@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Any
 import modules.app_context as _app_ctx
 import modules.settings_init as settings_init
 from lvp_logger import logger
-from modules import binning, common_utils, image_mode, path_utils, settings_paths
+from modules import binning, common_utils, image_mode, kivy_utils, path_utils, settings_paths
 from modules.activity_claim import (
     SCOPE_HOLDING_KINDS,
     ActivityClaim,
@@ -57,6 +57,7 @@ from modules.exceptions import (
     SettingRefusedError,
     SettingsSaveRefusedError,
 )
+from modules.kivy_utils import UiDispatcher
 from modules.lumascope_api.illumination import LedLease, LedTransition, LedTransitionCtx
 from modules.manual_capture import ManualCaptureController
 from modules.manual_recording import ManualRecordingController
@@ -703,6 +704,25 @@ class ScopeSession:
     # Factory helpers
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def set_ui_dispatcher(dispatcher: UiDispatcher | None) -> None:
+        """Set how the process hands a callback to its UI thread.
+
+        A process has one UI thread, so this is one setting for the process,
+        not for a session: every lane's completion callback, every run
+        delivery and every listener the GUI marshals reads it at the moment
+        it dispatches, whichever session or scope it belongs to. A GUI host
+        sets it once, before it builds a session; a host with no UI thread
+        (a script, a REST server) never sets it. None (the default) calls
+        each callback directly on the thread that dispatches it, and a
+        callback's raise is reported rather than raised.
+
+        ``dispatcher.thread`` is the thread ``schedule`` delivers on: a
+        run's ``wait()`` on that thread is refused, since what it waits for
+        is delivered there.
+        """
+        kivy_utils._set_ui_dispatcher(dispatcher)
+
     @classmethod
     def create(
         cls,
@@ -712,7 +732,6 @@ class ScopeSession:
         *,
         simulate: bool = False,
         warn_pre_release: bool = True,
-        ui_dispatcher: Callable[[Callable, float], Any] | None = None,
         af_ui_update_func: Callable[[float], None] | None = None,
         settings_saved_hook: Callable[[dict], None] | None = None,
         engineering_mode: bool = False,
@@ -754,11 +773,6 @@ class ScopeSession:
                 pre-release FutureWarning -- the factory's own call and the
                 scope constructor's. A host that ships with the API passes
                 False; a separately shipped caller leaves the default.
-            ui_dispatcher: ``schedule_once(func, dt)``'s shape; the four
-                lanes marshal their callbacks through it. None runs them
-                inline on the worker. Refused beside ``scope``: a scope's
-                lanes marshal through the dispatcher it was built with, so
-                pass it to the ``Lumascope`` instead.
             af_ui_update_func: ``(pos) -> None``; the autofocus runner's
                 ``ui_update_func`` and the capture engine's
                 ``z_ui_update_func`` -- one callable, both consumers.
@@ -812,12 +826,6 @@ class ScopeSession:
                 'ScopeSession.create: sim_file_stall needs a simulated scope -- a real '
                 "scope's file lane writes to a real drive"
             )
-        if scope is not None and ui_dispatcher is not None:
-            raise ValueError(
-                'ScopeSession.create: ui_dispatcher is refused beside a scope -- the '
-                "scope's lanes marshal through the dispatcher it was built with, so "
-                'pass it to Lumascope(ui_dispatcher=...) instead'
-            )
         if warn_pre_release:
             _fire_pre_release_warning()
 
@@ -843,7 +851,6 @@ class ScopeSession:
                     warn_pre_release=warn_pre_release,
                     configured_model=settings.get('microscope'),
                     sim_tier=cls._simulator_tier(settings) if simulate else 'fast',
-                    ui_dispatcher=ui_dispatcher,
                     fx2_debug_wire=settings['fx2_debug_wire_enabled'],
                     source_path=get_source_root(source_path),
                     sim_camera_stall=sim_camera_stall,
@@ -860,7 +867,6 @@ class ScopeSession:
             executor_bundle = create_default(
                 scope.io_lane(),
                 scope.camera_lane(),
-                ui_dispatcher=ui_dispatcher,
                 ctx_provider=display_ctx_provider,
             )
 

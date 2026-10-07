@@ -248,7 +248,7 @@ class Lumascope:
         )
         return motorconfig_defaults
 
-    def _init_minimal(self, simulated: bool, ui_dispatcher=None) -> None:
+    def _init_minimal(self, simulated: bool) -> None:
         """Shared init for state slots both __init__ and create_diagnostic need.
 
         Sets the non-driver state that every Lumascope instance must
@@ -291,8 +291,8 @@ class Lumascope:
         # script's bare scope -- run one at a time per bus, in order, and a
         # run holding the scope can refuse what is not its own. A session
         # composed over this scope asks the lanes its activity claim.
-        self._io_executor = SequentialIOExecutor(name='IO', ui_dispatcher=ui_dispatcher)
-        self._camera_executor = SequentialIOExecutor(name='CAMERA', ui_dispatcher=ui_dispatcher)
+        self._io_executor = SequentialIOExecutor(name='IO')
+        self._camera_executor = SequentialIOExecutor(name='CAMERA')
         self._io_executor.start()
         self._camera_executor.start()
         # The key the camera lane's claim returned to the session, which
@@ -408,7 +408,6 @@ class Lumascope:
         warn_pre_release: bool = True,
         configured_model: str | None = None,
         sim_tier: str = 'fast',
-        ui_dispatcher=None,
         fx2_debug_wire: bool = False,
         *,
         source_path: 'str | os.PathLike | None' = None,
@@ -474,10 +473,6 @@ class Lumascope:
                 tells it nothing and reaches the user as noise on every
                 launch. Defaults True: a new caller that has not thought
                 about it is warned.
-            ui_dispatcher: ``Clock.schedule_once(func, dt)``'s shape. The
-                scope's IO and CAMERA lanes hand a finished command's
-                callback to it, so a GUI host gets its callbacks on its UI
-                thread. None (default) runs them on the lane's worker.
             fx2_debug_wire: Log every byte of each LED command an FX2
                 (Classic) LED board sends, and the illumination cache check
                 in front of it -- a bench diagnostic, off by default. The
@@ -531,7 +526,7 @@ class Lumascope:
         # Shared state-slot init (audit #35) -- transformers, locks,
         # camera cache, objective/turret state, the scope's lanes.
         # Driver construction + sub-API wiring happen below.
-        self._init_minimal(simulated=simulate, ui_dispatcher=ui_dispatcher)
+        self._init_minimal(simulated=simulate)
         # What each part did while connecting, written as the drivers are
         # built below and read back as the bring-up record. A simulated part
         # always comes up: the simulator is what it stands in for.

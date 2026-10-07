@@ -1,9 +1,12 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """UI dispatch utilities for module-layer code.
 
-Module-layer code must not import Kivy. This module provides a
-ui_dispatch function that is set by the GUI layer at startup.
-Non-GUI contexts (tests, headless, REST) get direct invocation.
+Module-layer code must not import Kivy. This module holds the process's
+one UI dispatcher, which a GUI host sets at startup through
+``ScopeSession.set_ui_dispatcher``; every lane, run delivery and listener
+that hands a callback to the UI thread reads it here at the moment it
+dispatches. A process has one UI thread, so one store. With none set
+(tests, headless, REST) a callback is called directly.
 """
 
 import dataclasses
@@ -26,17 +29,17 @@ class UiDispatcher:
             that calls inline on the caller's thread.
     """
 
-    schedule: Callable[[Callable, float], object]
+    schedule: Callable[[Callable[[float], object], float], object]
     thread: threading.Thread | None
 
 
-# Global UI dispatcher -- set by lumaviewpro.py at startup to
+# Global UI dispatcher -- set by the GUI host at startup to
 # Clock.schedule_once on the main thread. Default is direct invocation.
 _ui_dispatcher: UiDispatcher | None = None
 
 
-def set_ui_dispatcher(dispatcher: UiDispatcher | None) -> None:
-    """Set the global UI dispatcher (called once by the GUI layer at startup).
+def _set_ui_dispatcher(dispatcher: UiDispatcher | None) -> None:
+    """Set the global UI dispatcher; ``ScopeSession.set_ui_dispatcher`` is its one caller.
 
     None restores direct invocation.
     """

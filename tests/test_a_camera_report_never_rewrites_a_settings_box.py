@@ -51,7 +51,6 @@ def _bridge_with_an_open_blue_layer():
         scope=scope,
         ctx=ctx,
         stage=MagicMock(),
-        ui_dispatcher=lambda callback, dt: callback(dt),
     )
     bridge.register_all()
     return camera_listeners, boxes

@@ -41,7 +41,6 @@ class TestNoHostCopyOfTheBringUp:
 HOST_INJECTIONS = (
     'simulate',
     'warn_pre_release',
-    'ui_dispatcher',
     'af_ui_update_func',
     'settings_saved_hook',
     'engineering_mode',
@@ -73,7 +72,6 @@ class TestCreateTakesTheHostInjections:
 
     def test_each_injection_lands_on_its_consumer(self, tmp_path, fresh_warning_latch):
         af_ui = MagicMock(name='af_ui')
-        dispatcher = MagicMock(name='ui_dispatcher')
         hook = MagicMock(name='settings_saved_hook')
         provider = MagicMock(name='display_ctx_provider', return_value=None)
         with warnings.catch_warnings(record=True) as caught:
@@ -82,7 +80,6 @@ class TestCreateTakesTheHostInjections:
                 settings=complete_settings(live_folder=str(tmp_path)),
                 simulate=True,
                 warn_pre_release=False,
-                ui_dispatcher=dispatcher,
                 af_ui_update_func=af_ui,
                 settings_saved_hook=hook,
                 engineering_mode=True,
@@ -97,13 +94,6 @@ class TestCreateTakesTheHostInjections:
             assert session.autofocus_runner.ui_update_func is af_ui
             assert session.sequenced_capture_runner._z_ui_update_func is af_ui
             bundle = session.executor_bundle
-            for lane in (
-                bundle.io_executor,
-                bundle.camera_executor,
-                bundle.file_io_executor,
-                bundle.worker_pool,
-            ):
-                assert lane._ui_dispatch is dispatcher, f'{lane.executor_name} marshals elsewhere'
             assert bundle.scope_display_thread._ctx_provider is provider
             assert session._settings_saved_hook is hook
             assert session.engineering_mode is True
@@ -112,15 +102,6 @@ class TestCreateTakesTheHostInjections:
         finally:
             session.shutdown()
             session.scope.disconnect()
-
-    def test_a_dispatcher_beside_a_callers_scope_is_refused(self):
-        # A scope's lanes marshal through the dispatcher the scope was built
-        # with; a second one here would reach only the bundle's lanes, two
-        # stores for one fact.
-        with pytest.raises(ValueError, match='ui_dispatcher'):
-            ScopeSession.create(
-                settings=complete_settings(), scope=spec_scope(), ui_dispatcher=MagicMock()
-            )
 
     def test_create_takes_no_lanes(self):
         # The scope builds its own; a caller's lane would be a second copy.

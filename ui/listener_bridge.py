@@ -18,10 +18,11 @@ import this one.
 Two things earn a class here rather than a set of closures per listener at the
 registration site. The coalescing state (a ``_pending_*`` map per
 listener, so a burst of events costs at most one UI update per frame)
-is one implementation instead of slightly different copies. And
-the scheduler arrives as the ``ui_dispatcher`` argument rather than an
-imported ``Clock``, so a test can drive the handlers synchronously and
-assert what they wrote.
+is one implementation instead of slightly different copies. Each
+handler reaches the UI thread through the process's one UI dispatcher
+(``kivy_utils.schedule_ui``) rather than an imported ``Clock``, so a test,
+which sets none, drives the handlers synchronously and asserts what they
+wrote.
 
 Usage:
 
@@ -30,7 +31,6 @@ Usage:
         scope=lumaview.scope,
         ctx=ctx,
         stage=stage,
-        ui_dispatcher=Clock.schedule_once,
     )
     bridge.register_all()
 """
@@ -39,6 +39,7 @@ from __future__ import annotations
 
 from lvp_logger import logger
 import modules.common_utils as common_utils
+from modules.kivy_utils import schedule_ui
 
 
 class UIListenerBridge:
@@ -51,7 +52,7 @@ class UIListenerBridge:
     swap) doesn't leave the bridge holding stale handles.
     """
 
-    def __init__(self, *, scope, ctx, stage, ui_dispatcher):
+    def __init__(self, *, scope, ctx, stage):
         """Initialize the bridge.
 
         Args:
@@ -63,17 +64,10 @@ class UIListenerBridge:
                 strand the bridge.
             stage: Stage widget -- the position listener calls
                 ``stage.draw_labware()`` on XY motion.
-            ui_dispatcher: Callable matching
-                ``Clock.schedule_once(func, dt)`` -- used to marshal
-                listener callbacks (which fire on the worker thread
-                that caused the change) onto the UI thread. Passed in
-                rather than imported so a test can run the handlers
-                synchronously.
         """
         self._scope = scope
         self._ctx = ctx
         self._stage = stage
-        self._ui_dispatch = ui_dispatcher
 
         # Per-listener coalescing state -- populated lazily on first
         # event for each LED color so the bridge construction stays
@@ -86,16 +80,16 @@ class UIListenerBridge:
         """Position listener -- XY motion redraws stage; Z motion updates Z text.
 
         Fires from the IO worker thread (or whichever thread mutated
-        position cache). Marshals to UI via ``ui_dispatcher``.
+        position cache). Marshals to UI via ``schedule_ui``.
         """
         ctx = self._ctx
         if axis in ('X', 'Y'):
-            self._ui_dispatch(lambda dt: ctx.motion_settings.update_xy_stage_control_gui(), 0)
-            self._ui_dispatch(lambda dt: self._stage.draw_labware(), 0)
+            schedule_ui(lambda dt: ctx.motion_settings.update_xy_stage_control_gui(), 0)
+            schedule_ui(lambda dt: self._stage.draw_labware(), 0)
         elif axis == 'Z':
             z_ctrl = ctx.motion_settings.ids.get('verticalcontrol_id')
             if z_ctrl:
-                self._ui_dispatch(lambda dt: z_ctrl._update_z_text(target), 0)
+                schedule_ui(lambda dt: z_ctrl._update_z_text(target), 0)
 
     def _on_led_state_changed(self, channel, enabled, illumination_ma):
         """LED listener -- coalesces rapid stim pulses to one UI update per channel per Kivy frame.
@@ -110,7 +104,7 @@ class UIListenerBridge:
             self._pending_led_updates.pop(c, None)
             self._write_led_button_from_driver(color=c)
 
-        self._ui_dispatch(_update_led_ui, 0)
+        schedule_ui(_update_led_ui, 0)
 
     def _write_led_button_from_driver(self, color: str) -> None:
         """Write one channel's enable toggle from CURRENT driver truth.
@@ -145,7 +139,7 @@ class UIListenerBridge:
             for color in common_utils.get_layers_with_led():
                 self._write_led_button_from_driver(color=color)
 
-        self._ui_dispatch(_reconcile, 0)
+        schedule_ui(_reconcile, 0)
 
     # ------------------ Lifecycle ------------------
 

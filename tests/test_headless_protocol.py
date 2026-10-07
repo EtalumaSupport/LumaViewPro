@@ -69,6 +69,7 @@ from modules.sequenced_capture_runner import (
 from modules.protocol import Protocol
 from modules.kivy_utils import schedule_ui
 import modules.kivy_utils as _kivy_utils
+from modules.scope_session import ScopeSession
 
 # The purge above poisons the rest of the session: conftest installed the
 # kivy stubs once, before any file was collected, and every later-collected
@@ -143,8 +144,7 @@ class TestHeadlessImports:
 
     def test_schedule_ui_falls_back_to_direct_invocation(self):
         """Without a UI dispatcher, schedule_ui calls the function directly."""
-        # Clear any dispatcher set by previous tests
-        _kivy_utils._ui_dispatcher = None
+        ScopeSession.set_ui_dispatcher(None)
 
         called = []
 
@@ -161,7 +161,7 @@ class TestHeadlessImports:
         def fake_dispatcher(func, timeout):
             calls.append((func, timeout))
 
-        _kivy_utils.set_ui_dispatcher(
+        ScopeSession.set_ui_dispatcher(
             _kivy_utils.UiDispatcher(schedule=fake_dispatcher, thread=None)
         )
         try:
@@ -174,7 +174,7 @@ class TestHeadlessImports:
             assert calls[0][0] is my_func
             assert calls[0][1] == 0.5
         finally:
-            _kivy_utils._ui_dispatcher = None
+            ScopeSession.set_ui_dispatcher(None)
 
 
 class TestHeadlessProtocolExecution:
@@ -253,7 +253,7 @@ class TestHeadlessProtocolExecution:
         """Full protocol run must not cause Kivy to be loaded at any point."""
         with _kivy_purged():
             # Ensure no dispatcher leaked from previous test
-            _kivy_utils._ui_dispatcher = None
+            ScopeSession.set_ui_dispatcher(None)
 
             # The data root is the scope's, given at construction; a runner
             # over a bare scope reads its catalogues and tiling config from it.

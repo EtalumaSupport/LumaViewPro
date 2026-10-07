@@ -21,6 +21,7 @@ import pytest
 from modules import kivy_utils
 from modules.exceptions import RunCleanupFailedError, RunWaitOnUiThreadError
 from modules.protocol import Protocol
+from modules.scope_session import ScopeSession
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
@@ -80,12 +81,11 @@ class _DeferringDispatcher:
 @pytest.fixture
 def deferred():
     dispatcher = _DeferringDispatcher()
-    previous = kivy_utils._ui_dispatcher
-    kivy_utils.set_ui_dispatcher(
+    ScopeSession.set_ui_dispatcher(
         kivy_utils.UiDispatcher(schedule=dispatcher.schedule, thread=dispatcher.thread)
     )
     yield dispatcher
-    kivy_utils.set_ui_dispatcher(previous)
+    ScopeSession.set_ui_dispatcher(None)
     dispatcher.stop()
 
 
