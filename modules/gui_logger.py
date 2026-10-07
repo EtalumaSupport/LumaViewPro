@@ -125,17 +125,12 @@ def one_line(text: object) -> str:
 
 
 def notification(severity: str, title: str, message: str, source: str = '') -> None:
-    """Log every popup / notification the user sees.
+    """Log a notification posted to the user, at its severity.
 
-    Wired from every path that produces visible UI:
-    - ``modules.notification_center.NotificationCenter.notify`` -- every
-      ``notifications.warning/error/critical`` call (which reaches the
-      listener-registered popup bridge in lumaviewpro.py:on_start).
-    - ``ui.notification_popup`` helpers for direct popup calls
-      (``show_notification_popup``, ``show_confirmation_popup``,
-      ``show_confirmation_w_ack_popup``).
-    - Engineering plugin and other modal-prompt entry points, via their
-      use of the canonical ``ui.notification_popup`` helpers.
+    Written by ``modules.notification_center.NotificationCenter.notify``,
+    once per notification, whether or not it is shown; the popup that
+    shows one is recorded separately by ``dialog``. The severity is the
+    notification's, so this is the one GUI record that carries a level.
 
     Pipe character separates fields so log-scrapers can split cleanly
     when titles or messages contain colons.
@@ -145,10 +140,21 @@ def notification(severity: str, title: str, message: str, source: str = '') -> N
     _log.info(f'NOTIFICATION {sev_str} | {one_line(title)} | {one_line(message)}{src_suffix}')
 
 
+def dialog(title: str, body: str) -> None:
+    """Log a dialog as it opens: what was on the screen.
+
+    Written from the one place every dialog opens (``ui.notification_popup``,
+    the patched ``Popup.open``), whoever built it. A dialog has no severity:
+    a question asks, and a notice's level is its notification's, recorded
+    by ``notification``.
+    """
+    _log.info(f'DIALOG | {one_line(title)} | {one_line(body)}')
+
+
 def popup_response(title: str, response: str) -> None:
     """Log the user's response to a modal popup (OK / Cancel / Ack / dismiss).
 
-    Pairs with ``notification`` -- one entry when the popup is shown,
+    Pairs with ``dialog`` -- one entry when the popup is shown,
     one when the user resolves it. Without the response, post-mortem
     can tell what the user saw but not what they did with it.
     """

@@ -807,7 +807,7 @@ class TestThePreMainloopDetector:
         popup_log = captured_logs('LVP.ui.notification_popup')
         gui = captured_logs('LVP.gui_interactions')
 
-        notification_popup._log_show('confirm', 'WARNING', 'Settings', 'nobody can see this')
+        notification_popup._log_show('confirm', 'Settings', 'nobody can see this')
 
         assert len(popup_log) == 1
         assert popup_log[0].levelno == logging.ERROR
@@ -821,12 +821,26 @@ class TestThePreMainloopDetector:
         popup_log = captured_logs('LVP.ui.notification_popup')
         gui = captured_logs('LVP.gui_interactions')
 
-        notification_popup._log_show('confirm', 'WARNING', 'Settings', 'the user can see this')
+        notification_popup._log_show('confirm', 'Settings', 'the user can see this')
 
         assert len(popup_log) == 1
         assert popup_log[0].levelno == logging.INFO
         assert '(pre-mainloop)' not in popup_log[0].getMessage()
         assert gui and '(pre-mainloop)' not in gui[0].getMessage()
+
+
+class TestADialogRecordNamesNoLevel:
+    def test_the_gui_record_of_a_dialog_is_a_dialog_record(self, event_loop_status, captured_logs):
+        """A dialog has no severity: a question asks, and a notice's level is
+        its notification's, which the notification center records once. The
+        dialog's record read 'NOTIFICATION INFO' for every dialog, so a
+        refusal the main log had at WARNING read INFO beside it."""
+        event_loop_status('started')
+        gui = captured_logs('LVP.gui_interactions')
+
+        notification_popup._log_show('dialog', 'Protocol Refused', 'x.tsv was not loaded')
+
+        assert [r.getMessage() for r in gui] == ['DIALOG | Protocol Refused | x.tsv was not loaded']
 
 
 # ---------------------------------------------------------------------------
