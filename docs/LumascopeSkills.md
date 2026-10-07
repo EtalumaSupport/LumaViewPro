@@ -744,7 +744,7 @@ session.apply_remedy(refusal.remedy)   # takes the remedy a refusal named
 session.recover_file_writer()          # the same recovery, called by name
 ```
 
-`session.apply_remedy(remedy)` is the one door from a remedy's name to an action, and returns that action's answer. It takes only the members the Session offers as remedies (today `recover_file_writer`); any other name is refused with `RemedyUnknownError` (reason `remedy_unknown`), before anything runs.
+`session.apply_remedy(remedy)` is the one door from a remedy's name to an action, and returns that action's answer. It takes only the members the Session offers as remedies (today `recover_file_writer`, whose answer is how many of the run's images it gave up on); any other name is refused with `RemedyUnknownError` (reason `remedy_unknown`), before anything runs.
 
 Recovery is deliberate data loss: the finished run's outstanding images are given up on (they were never going to finish), and a partial file from the stuck write may remain on disk. Returns how many images were given up on. It is refused with `FileWriterNotStuckError` (reason `file_writer_not_stuck`) while the writer is still making progress -- those files finish on their own -- and with `HardwareCommandRefusedError` while a run or a diagnostic holds the scope.
 

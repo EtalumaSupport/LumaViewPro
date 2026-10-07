@@ -1089,7 +1089,7 @@ class ScopeSession:
         self.file_io_executor.replace_stuck_worker()
         return abandoned
 
-    def apply_remedy(self, remedy: Remedy) -> object:
+    def apply_remedy(self, remedy: Remedy) -> int:
         """Take the action a refusal named as its remedy, and return its answer.
 
         The one place a remedy's name becomes an action: the GUI's offer and
@@ -1099,10 +1099,17 @@ class ScopeSession:
         listed here are reachable through it. The member still decides
         whether the remedy applies now, and refuses if not.
 
+        Returns:
+            The remedy's own answer. The one remedy offered,
+            ``recover_file_writer``, answers how many of the run's images
+            it gave up on.
+
         Raises:
             RemedyUnknownError: the remedy names a member not offered as one.
         """
-        remedies = {'recover_file_writer': self.recover_file_writer}
+        remedies: dict[str, Callable[[], int]] = {
+            'recover_file_writer': self.recover_file_writer,
+        }
         action = remedies.get(remedy.member)
         if action is None:
             raise RemedyUnknownError(remedy.member, remedies)
