@@ -7,9 +7,12 @@ one reply per command, nothing unsolicited. It holds no per-unit config and
 runs no Etaluma firmware; everything it is told comes from the "TMCM-6110"
 section of the shipped motor defaults (``Tmcm6110Config``).
 
-Positions are microsteps on the board. The API sees micrometres, 0 at the
-reference and positive away from it, through each axis's direction from the
-config.
+Positions are microsteps on the board, 0 at each axis's index (Z's
+switch) and negative away from it. The API sees micrometres in the frame
+the plate transform shares with every model: the board's 0 sits at the
+axis's index position from the config, and its direction says which way
+the API's position grows. X grows away from the plate's column-12 end, as
+on the EL-0940, so X runs down from its index; Y and Z run up from theirs.
 
 The board's own registers are the one store of where each axis is and where
 it is going: the target is read back with ``GAP 0``, never remembered here.
@@ -282,16 +285,10 @@ class Tmcm6110Board:
         except ValueError:
             self.disconnect()
             raise
-        # Each limit sits the margin inside the measured far switch, for
-        # the units the bench did not measure.
-        margin_um = self.motorconfig.travel_margin_um()
         self.axes_config = read_only_axes_config(
             {
                 axis: {
-                    'limits': {
-                        'min': 0.0,
-                        'max': self.motorconfig.travel_limit_um(axis) - margin_um,
-                    },
+                    'limits': self.motorconfig.limits_um(axis),
                     'move_func': partial(self._um2ustep, axis),
                 }
                 for axis in MOTORS
@@ -505,11 +502,19 @@ class Tmcm6110Board:
             raise HardwareError(f'Unsupported axis ({axis})')
         return MOTORS[axis]
 
+    def _index_usteps(self, axis: str) -> int:
+        return self._um2ustep(axis, self.motorconfig.index_position_um(axis))
+
     def _to_board(self, axis: str, usteps: int) -> int:
-        return self.motorconfig.direction(axis) * usteps
+        """An API position in microsteps as the board's position."""
+        return self.motorconfig.direction(axis) * (usteps - self._index_usteps(axis))
+
+    def _from_board(self, axis: str, raw: int) -> int:
+        """The board's position as an API position in microsteps."""
+        return self._index_usteps(axis) + self.motorconfig.direction(axis) * raw
 
     def move(self, axis: str, steps: int) -> None:
-        """Move ``axis`` to ``steps`` microsteps from the reference.
+        """Move ``axis`` to the API position ``steps`` microsteps.
 
         Returns once the board holds the new target.
 
@@ -550,7 +555,7 @@ class Tmcm6110Board:
         except HardwareError as e:
             logger.warning(f'[TMCM-6110 ] GAP {parameter} on {axis} failed: {e}')
             return None
-        return self._to_board(axis, raw)
+        return self._from_board(axis, raw)
 
     def target_pos_steps(self, axis: str) -> int | None:
         return self._read_usteps(axis, AP_TARGET_POSITION)
@@ -612,7 +617,8 @@ class Tmcm6110Board:
         moves; then X to its switch; then Y and X each to their switch, off
         it, back onto it slowly and on to the index pulse, where the
         position is set to 0. Every axis's target is then set to 0, so
-        target and actual agree. Each phase polls the lid and the abort.
+        target and actual agree, and each axis reads its index position
+        in the API. Each phase polls the lid and the abort.
 
         Returns:
             bool: True once every axis is at its reference.

@@ -116,6 +116,29 @@ def test_the_travel_is_the_measured_far_switch_and_the_margin_sits_inside_it():
     assert config.travel_margin_um() == pytest.approx(1_000)
 
 
+def test_the_index_positions_are_the_bench_ls720s_and_place_each_axis_travel():
+    """The bench LS720, 2026-10-06, row 4a: X 117.69 and Y 0.95 mm, from A1
+    and H12 centred by eye; Z's is its switch. The limits are computed from
+    the index position, the far switch and the margin, in one place: X,
+    whose sign is +1, runs down from its index, Y and Z up from theirs."""
+    config = Tmcm6110Config(SHIPPED_MOTOR_DEFAULTS)
+    assert {axis: config.index_position_um(axis) for axis in 'XYZ'} == {
+        'X': pytest.approx(117_690),
+        'Y': pytest.approx(950),
+        'Z': 0.0,
+    }
+    assert {axis: config.direction(axis) for axis in 'XYZ'} == {'X': 1, 'Y': -1, 'Z': -1}
+    assert config.limits_um('X') == {
+        'min': pytest.approx(117_690 - 123_710 + 1_000),
+        'max': pytest.approx(117_690),
+    }
+    assert config.limits_um('Y') == {
+        'min': pytest.approx(950),
+        'max': pytest.approx(950 + 79_790 - 1_000),
+    }
+    assert config.limits_um('Z') == {'min': 0.0, 'max': pytest.approx(12_030 - 1_000)}
+
+
 def test_ramp_params_are_a_profile_for_every_axis():
     """The API builds a move profile only from a non-empty ramp."""
     config = Tmcm6110Config(SHIPPED_MOTOR_DEFAULTS)
@@ -184,6 +207,15 @@ def test_no_section_is_refused():
         ),
         (lambda s: s['Axis Direction'].update({'X': 0}), r'Axis Direction\.X = 0 is not 1 or -1'),
         (lambda s: s['Axis Travel Limit'].pop('Y'), r'Axis Travel Limit\.Y is missing'),
+        (lambda s: s['Index Position'].pop('X'), r'Index Position\.X is missing'),
+        (
+            lambda s: s['Index Position'].update({'Y': '0.95'}),
+            r"Index Position\.Y = '0\.95' is not a number",
+        ),
+        (
+            lambda s: s['Index Position'].update({'X': float('nan')}),
+            r'Index Position\.X = nan is not a number',
+        ),
         (lambda s: s.pop('Homing'), r'Homing is missing'),
         (
             lambda s: s['Homing']['Y']['Index Search'].pop('Back-off Microsteps'),

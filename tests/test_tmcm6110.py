@@ -198,17 +198,22 @@ def test_the_config_is_built_only_once_a_6110_is_found():
     assert not backend.opened[0].is_open
 
 
-def test_the_limits_sit_the_margin_inside_the_measured_far_switches(board):
-    """The section's travel is each far switch as the bench measured it;
-    the limit the API refuses past is the margin inside that, for the
-    units not measured (the bench LS720's Y switch at 79.79 mm sat 0.21 mm
-    inside the 80 mm the unmeasured limit admitted)."""
-    margin_um = board.motorconfig.travel_margin_um()
-    for axis in ('X', 'Y', 'Z'):
-        limits = board.get_axis_limits(axis)
-        assert limits['min'] == 0.0
-        assert limits['max'] == pytest.approx(board.motorconfig.travel_limit_um(axis) - margin_um)
-    assert board.get_axis_limits('Y')['max'] == pytest.approx(78_790)
+def test_the_limits_run_from_each_index_position_to_the_margin_inside_its_far_switch(board):
+    """The section's travel is each far switch as the bench measured it,
+    distance from the index; the limit the API refuses past is the margin
+    inside that, for the units not measured (the bench LS720's Y switch at
+    79.79 mm sat 0.21 mm inside the 80 mm the unmeasured limit admitted).
+    The index position places the travel: X runs down from its index
+    toward the plate's column-12 end, Y and Z up from theirs."""
+    assert board.get_axis_limits('X') == {
+        'min': pytest.approx(117_690 - 122_710),
+        'max': pytest.approx(117_690),
+    }
+    assert board.get_axis_limits('Y') == {
+        'min': pytest.approx(950),
+        'max': pytest.approx(950 + 78_790),
+    }
+    assert board.get_axis_limits('Z') == {'min': 0.0, 'max': pytest.approx(11_030)}
 
 
 # --- The surface every motor driver provides ------------------------------
@@ -225,25 +230,29 @@ def test_the_members_the_api_reads(board):
     assert not hasattr(board, 'exchange_multiline')
     assert board.exchange_command('INFO') is None
     assert board.motorconfig.ramp_params('X')
-    assert board.get_axis_limits('Y') == {'min': 0.0, 'max': pytest.approx(78_790.0)}
+    assert board.get_axis_limits('Y') == {'min': 950.0, 'max': pytest.approx(79_740.0)}
 
 
 # --- Moves, arrival, the lid ----------------------------------------------
 
 
 def test_target_status_is_false_straight_after_mvp(board):
-    board.move_abs_pos('X', 2000)
+    board.move_abs_pos('X', 115_690)
     assert board.target_status('X') is False
     _wait_arrival(board, 'X')
-    assert board.current_pos('X') == pytest.approx(2000)
-    assert board.target_pos('X') == pytest.approx(2000)
+    assert board.current_pos('X') == pytest.approx(115_690)
+    assert board.target_pos('X') == pytest.approx(115_690)
 
 
-def test_positions_are_positive_away_from_the_reference_on_the_board_negative(board, sim):
-    """The API's micrometres are 0 at the reference and positive away; the
-    board counts the other way (direction -1 on every axis)."""
-    board.move_abs_pos('Y', 1000)
+def test_the_board_counts_from_the_index_position_by_each_axis_sign(board, sim):
+    """The board's 0 is the index and its travel negative; the API places
+    that 0 at the axis's index position, X (sign +1) running down from it
+    and Y (sign -1) up: 1 mm from each index is -6400 microsteps."""
+    board.move_abs_pos('X', 117_690 - 1000)
+    board.move_abs_pos('Y', 950 + 1000)
+    _wait_arrival(board, 'X')
     _wait_arrival(board, 'Y')
+    assert sim.position('X') == -6400
     assert sim.position('Y') == -6400
 
 
@@ -326,6 +335,7 @@ def test_a_lid_opened_between_two_phases_of_a_home_is_refused_at_the_next_start(
 
 def test_an_open_lid_refuses_x_and_stops_all_three(board, sim):
     board.move_abs_pos('Z', 5000)
+    x_before = board.current_pos('X')
     sim.lid_open = True
     _sent(sim)
     with pytest.raises(MotionInterlockError) as refused:
@@ -338,7 +348,7 @@ def test_an_open_lid_refuses_x_and_stops_all_three(board, sim):
     assert sorted(c.motor for c in sent if c.command == MST) == [0, 1, 2]
     # The stopped Z stands where it stopped, its target there with it.
     assert board.target_status('Z')
-    assert board.current_pos('X') == 0
+    assert board.current_pos('X') == x_before
 
 
 def test_a_lid_refusal_whose_stop_did_not_settle_still_says_a_stop_was_sent(caplog):
@@ -417,7 +427,8 @@ def test_a_stop_leaves_each_target_at_its_actual_written_with_sap_0(board, sim):
     assert not any(c.command == MVP for c in sent)
     for axis in 'XYZ':
         assert board.target_status(axis)
-    assert 0 < board.current_pos('X') < 60_000
+    # X set out from its index position, down toward 60 mm.
+    assert 60_000 < board.current_pos('X') < 117_690
 
 
 def test_a_stop_works_with_the_lid_open(board, sim):
@@ -465,15 +476,18 @@ def test_the_simulated_switches_sit_at_the_sections_measured_ends(homing_board):
     board = homing_board
     assert board.home()
     for axis in ('X', 'Y', 'Z'):
+        index_um = board.motorconfig.index_position_um(axis)
+        # Away from the index: down on X, up on Y and Z.
+        away = -board.motorconfig.direction(axis)
         far_um = board.motorconfig.travel_limit_um(axis)
-        board.move(axis, board._um2ustep(axis, far_um + 5_000))
+        board.move(axis, board._um2ustep(axis, index_um + away * (far_um + 5_000)))
         _wait_switch(board, axis)
         assert board.limit_switch_status(axis) == (1, 0), axis
-        assert board.current_pos(axis) == pytest.approx(far_um, abs=1), axis
-    board.move('X', board._um2ustep('X', -1_000))
+        assert board.current_pos(axis) == pytest.approx(index_um + away * far_um, abs=1), axis
+    board.move('X', board._um2ustep('X', 117_690 + 1_000))
     _wait_switch(board, 'X')
     assert board.limit_switch_status('X') == (0, 1)
-    assert board.current_pos('X') == pytest.approx(-250, abs=1)
+    assert board.current_pos('X') == pytest.approx(117_690 + 250, abs=1)
 
 
 def test_the_limit_switches_read_left_then_right(board, sim):
@@ -573,7 +587,7 @@ def test_a_silent_board_raises_naming_the_command_and_keeps_the_port(board, sim)
     assert board.current_pos('X') is None
 
     sim.silent = False
-    assert board.current_pos('X') == 0
+    assert board.current_pos('X') == 117_690
     assert board._serial is port
 
 
@@ -812,13 +826,13 @@ def test_a_home_sends_classics_sequence(homing_board, homing_sim):
     ]
 
 
-def test_after_a_home_every_axis_is_at_0_and_arrived(homing_board, homing_sim):
+def test_after_a_home_every_axis_is_at_its_index_position_and_arrived(homing_board, homing_sim):
     homing_board.move_abs_pos('X', 20_000)
     homing_board.move_abs_pos('Z', 2_000)
     homing_board.home()
-    for axis in 'XYZ':
-        assert homing_board.current_pos(axis) == 0
-        assert homing_board.target_pos(axis) == 0
+    for axis, index_um in (('X', 117_690), ('Y', 950), ('Z', 0)):
+        assert homing_board.current_pos(axis) == index_um
+        assert homing_board.target_pos(axis) == index_um
         assert homing_board.target_status(axis)
         # At the reference itself: the index pulse, or Z's switch.
         assert homing_sim.axes[axis].p == pytest.approx(0)
@@ -869,7 +883,7 @@ def test_the_driver_keeps_no_record_of_a_home(homing_board):
 
 
 def test_a_z_home_homes_z_alone(homing_board, homing_sim):
-    homing_board.move_abs_pos('X', 1_000)
+    homing_board.move_abs_pos('X', 116_690)
     _wait_arrival(homing_board, 'X')
     _sent(homing_sim)
     assert homing_board.zhome() is True
@@ -878,7 +892,7 @@ def test_a_z_home_homes_z_alone(homing_board, homing_sim):
     assert writes[-3:] == END_SEARCHES
     assert homing_board.current_pos('Z') == 0
     assert homing_board.target_status('Z')
-    assert homing_board.current_pos('X') == pytest.approx(1_000)
+    assert homing_board.current_pos('X') == pytest.approx(116_690)
 
 
 def test_no_stage_power_refuses_the_home_before_anything_is_sent(homing_board, homing_sim):

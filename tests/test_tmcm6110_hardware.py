@@ -381,9 +381,10 @@ def _drive_to_switch(board, axis, toward_reference):
     motor = MOTORS[axis]
     params = board.motorconfig.axis_parameters(axis)
     speed = params['Max Positioning Speed']
-    sense = -1 if toward_reference else 1
+    # The board's positive direction drives toward the reference, on every axis.
+    sense = 1 if toward_reference else -1
     distance_um = board.motorconfig.travel_limit_um(axis) + PAST_TRAVEL_UM[axis]
-    steps = board._to_board(axis, sense * board._um2ustep(axis, distance_um))
+    steps = sense * board._um2ustep(axis, distance_um)
     started = time.monotonic()
     try:
         with board._lock:
@@ -404,7 +405,7 @@ def _drive_to_switch(board, axis, toward_reference):
             'toward_reference': toward_reference,
             'switches': _switches(board, axis),
             'board_usteps': actual,
-            'api_um': round(board._usteps_to_um(axis, board._to_board(axis, actual)), 2),
+            'api_um': round(board._usteps_to_um(axis, board._from_board(axis, actual)), 2),
             'seconds': round(time.monotonic() - started, 1),
         }
     finally:
@@ -469,7 +470,11 @@ def test_row5_a_home_from_the_far_corner(board):
     The plate must be off the stage."""
     assert board.home()
     for axis, fraction in (('Z', 0.95), ('X', 1.0), ('Y', 1.0)):
-        board.move_abs_pos(axis, board.get_axis_limits(axis)['max'] * fraction)
+        # The far limit is the one away from the index position: X's
+        # minimum, Y's and Z's maximum.
+        index = board.motorconfig.index_position_um(axis)
+        far = max(board.get_axis_limits(axis).values(), key=lambda limit: abs(limit - index))
+        board.move_abs_pos(axis, index + (far - index) * fraction)
         _wait_arrived(board, axis)
     start = {axis: _registers(board, axis) for axis in MOTORS}
     started = time.monotonic()

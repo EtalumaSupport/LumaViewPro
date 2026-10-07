@@ -12,6 +12,7 @@ The board holds no per-unit config, so nothing here is read from the board
 and nothing is merged over the defaults.
 """
 
+import math
 import types
 from collections.abc import Mapping
 from typing import ClassVar
@@ -50,6 +51,14 @@ class Tmcm6110Config:
     it, distance from the index; the travel margin is how far inside that
     switch the limit sits, for the units not measured. Both are per model,
     as the EL-0940's are.
+
+    Each axis's index position is where the API places the board's 0: its
+    registration against the plate, measured on the bench (X and Y; Z's is
+    0, its switch). The direction is the sign from the board's position to
+    the API's, so ``API = index position + direction * board position``.
+    The board's travel runs negative from its 0 on every axis, so X, whose
+    sign is +1, runs down from its index toward the plate's column-12 end,
+    and Y and Z run up from theirs.
 
     The homing phases are checked with the rest: every value a phase
     writes to the board is present and in range at load, never found
@@ -130,6 +139,7 @@ class Tmcm6110Config:
         self._axis_parameters = {}
         self._usteps_per_mm = {}
         self._direction = {}
+        self._index_position_mm = {}
         self._travel_limit_mm = {}
         self._homing = {}
         for axis in AXES:
@@ -160,6 +170,15 @@ class Tmcm6110Config:
             if isinstance(direction, bool) or not isinstance(direction, int) or abs(direction) != 1:
                 raise ValueError(f'{SECTION}.Axis Direction.{axis} = {direction!r} is not 1 or -1')
             self._direction[axis] = direction
+
+            index = self._value('Index Position', axis)
+            if (
+                isinstance(index, bool)
+                or not isinstance(index, (int, float))
+                or not math.isfinite(index)
+            ):
+                raise ValueError(f'{SECTION}.Index Position.{axis} = {index!r} is not a number')
+            self._index_position_mm[axis] = float(index)
 
             self._travel_limit_mm[axis] = self._positive('Axis Travel Limit', axis)
 
@@ -231,9 +250,12 @@ class Tmcm6110Config:
         return self._usteps_per_mm[axis.upper()]
 
     def direction(self, axis: str) -> int:
-        """+1 or -1: the sign that makes the board's position 0 at the
-        reference and positive away from it."""
+        """+1 or -1: the sign from the board's position to the API's."""
         return self._direction[axis.upper()]
+
+    def index_position_um(self, axis: str) -> float:
+        """Where the API places the board's 0 (its index, Z's switch)."""
+        return self._index_position_mm[axis.upper()] * 1000.0
 
     def travel_limit_um(self, axis: str) -> float:
         """The axis's far limit switch, measured as distance from the index."""
@@ -242,6 +264,14 @@ class Tmcm6110Config:
     def travel_margin_um(self) -> float:
         """How far inside each far switch the travel limit sits."""
         return self._travel_margin_mm * 1000.0
+
+    def limits_um(self, axis: str) -> dict[str, float]:
+        """The axis's travel in the API's frame: from its index position to
+        the margin inside its far switch, on the side its direction puts
+        the far switch."""
+        index = self.index_position_um(axis)
+        far = index - self.direction(axis) * (self.travel_limit_um(axis) - self.travel_margin_um())
+        return {'min': min(index, far), 'max': max(index, far)}
 
     def axis_parameters(self, axis: str) -> Mapping:
         """The TMCL axis parameters the axis is initialised with, by name."""

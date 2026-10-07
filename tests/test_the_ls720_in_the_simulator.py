@@ -31,7 +31,9 @@ def scope():
     # mounted and writes the stage offset; a bare scope skipped all three,
     # and a run reads each.
     record_turret_answer(s)
-    bind_settings_like_a_session(s, objective_id='10x Oly', stage_offset={'x': 0.0, 'y': 0.0})
+    # The shipped stage offset, which the bench LS720's index positions
+    # were measured against.
+    bind_settings_like_a_session(s, objective_id='10x Oly', stage_offset={'x': 5500.0, 'y': 4000.0})
     s.imaging.start_streaming()
     yield s
     s.disconnect()
@@ -53,9 +55,37 @@ def test_the_ls720_runs_the_6110_driver_and_starts_unknown(scope):
     assert not scope.motion.has_homed()
 
 
-def test_a_home_makes_every_axis_known_at_0(homed):
+def test_a_home_makes_every_axis_known_at_its_index_position(homed):
     assert homed.motion.has_homed()
-    assert homed.motion.get_current_position() == {'X': 0.0, 'Y': 0.0, 'Z': 0.0}
+    assert homed.motion.get_current_position() == {'X': 117_690.0, 'Y': 950.0, 'Z': 0.0}
+
+
+# Where the bench LS720's board stood with A1 and H12 centred by eye
+# (2026-10-06, row 4a), in microsteps from its index: the API positions
+# then were distances from the index, 6400 microsteps per mm.
+BENCH_BOARD_USTEPS = {
+    'A1': {'X': round(-9_760.0 * 6.4), 'Y': round(-69_203.6 * 6.4)},
+    'H12': {'X': round(-108_860.0 * 6.4), 'Y': round(-6_380.0 * 6.4)},
+}
+# How closely a well was centred by eye on the bench: 0.3 mm.
+BY_EYE_USTEPS = 0.3 * 6400
+
+
+@pytest.mark.parametrize(('well', 'column', 'row'), [('A1', 0, 0), ('H12', 11, 7)])
+def test_a_map_click_on_a_well_drives_the_board_where_the_bench_found_it(homed, well, column, row):
+    """The plate frame is the one every model shares; the LS720's index
+    positions register its board against it, so a click on a well's centre
+    drives the board's registers to where the bench centred that well, X
+    from the column-12 end as on an LS850. Read at the board: a plate
+    position round-trips through any frame."""
+    plate_x, plate_y = homed.runtime_state.get_labware().get_well_position(column, row)
+    homed.motion.move_absolute('X', plate_x, frame='plate')
+    homed.motion.move_absolute('Y', plate_y, frame='plate')
+    board = _board(homed)
+    for axis in ('X', 'Y'):
+        assert board.position(axis) == pytest.approx(
+            BENCH_BOARD_USTEPS[well][axis], abs=BY_EYE_USTEPS
+        ), axis
 
 
 def _at(scope, axis):
@@ -83,7 +113,7 @@ def test_the_lid_refuses_x_and_y_and_lets_z_move(homed):
         assert refused.value.reason == 'lid_open'
     homed.motion.move_absolute('Z', 1_000)
     assert _at(homed, 'Z') == pytest.approx(1_000, abs=0.1)
-    assert _at(homed, 'X') == 0.0
+    assert _at(homed, 'X') == 117_690.0
 
 
 def _ended(handle):
@@ -112,7 +142,8 @@ def test_a_lid_refused_home_ends_a_waited_move_as_a_stop_does(homed):
     with pytest.raises(HardwareCommandRefusedError):
         homed.motion.home('Z')
     assert _ended(x) == 'stopped'
-    assert 0 < _at(homed, 'X') < 100_000
+    # X set out from its index position, down toward 100 mm.
+    assert 100_000 < _at(homed, 'X') < 117_690
 
 
 def test_a_home_with_the_lid_open_is_refused_and_moves_nothing(homed):

@@ -48,8 +48,13 @@
             "Z": 12.03
         },
         "Travel Margin": 1.0,
+        "Index Position": {
+            "X": 117.69,
+            "Y": 0.95,
+            "Z": 0.0
+        },
         "Axis Direction": {
-            "X": -1,
+            "X": 1,
             "Y": -1,
             "Z": -1
         },
