@@ -9,9 +9,13 @@ loggers, never to root, so a script's output never reached the shared bundle
 ``lvp_logger`` now owns the root config: root is the single owner of the bundle
 handlers (so any root logging is captured by default, and the LVP loggers reach
 the bundle by propagating to root instead of holding their own copies of the
-handlers). The console handler is added only in debug and only when
-``sys.stderr`` exists (a packaged windowed build has none, and a StreamHandler
-over a missing stream raises on emit).
+handlers). The console handler is added only in debug and only when the
+process has a stderr (a packaged windowed build has none, and a StreamHandler
+over a missing stream raises on emit). It writes to ``sys.__stderr__``, never
+to ``sys.stderr``: Kivy replaces ``sys.stderr`` with a stream that logs each
+line, so a console made after Kivy loaded logged its own output until the
+recursion limit (the sim-walk harness imports Kivy first; with debug on, every
+one of its tests died in a RecursionError).
 
 Source-level structural lock: the suite mocks ``lvp_logger`` at import
 (conftest installs a MagicMock), so the real module is asserted on by source
@@ -22,6 +26,8 @@ was verified by exercising the real module.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -50,7 +56,35 @@ class TestConsoleGuardedOnStderr:
         # The console echoes the bundle to the terminal only in debug: every
         # logger now propagates to root, so a non-debug console would surface
         # all LVP + framework output as terminal noise. It is also guarded on
-        # sys.stderr -- a packaged windowed build has None, and a StreamHandler
-        # over a missing stream raises on emit.
-        assert 'if debug and sys.stderr is not None:' in _SRC
-        assert 'logging.StreamHandler()' in _SRC
+        # the process's stderr -- a packaged windowed build has None, and a
+        # StreamHandler over a missing stream raises on emit.
+        assert 'if debug and sys.__stderr__ is not None:' in _SRC
+        assert 'logging.StreamHandler(sys.__stderr__)' in _SRC
+
+
+# A process that loads Kivy before lvp_logger, as the sim-walk harness does,
+# with debug on: Kivy has replaced sys.stderr by the time the console is made.
+_KIVY_FIRST = r"""
+import os, sys
+os.environ['KIVY_NO_ARGS'] = '1'
+os.environ['KIVY_NO_CONSOLELOG'] = '1'
+sys.path.insert(0, sys.argv[1])
+import kivy.logger
+import modules.settings_init as settings_init
+settings_init.load_debug_setting = lambda directory: True
+from lvp_logger import logger
+logger.info('a line logged after Kivy loaded')
+print('LOGGED')
+"""
+
+
+def test_a_debug_console_made_after_kivy_loaded_logs_without_looping(tmp_path):
+    script = tmp_path / 'kivy_first.py'
+    script.write_text(_KIVY_FIRST)
+
+    ran = subprocess.run(
+        [sys.executable, str(script), str(ROOT)], capture_output=True, text=True, timeout=120
+    )
+
+    assert 'LOGGED' in ran.stdout, ran.stderr[-2000:]
+    assert 'a line logged after Kivy loaded' in ran.stderr
