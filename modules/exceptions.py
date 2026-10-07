@@ -79,6 +79,30 @@ class RemedyUnknownError(Refusal, ValueError):
         self.member = member
 
 
+class LiveFolderPathRefusedError(Refusal, ValueError):
+    """A wire caller's path was refused: it does not name a place inside the live folder.
+
+    Raised by ``ScopeSession.live_folder_path``. A REST caller names a file
+    or folder by a name under the live folder, the one folder it may reach;
+    a name that is a path of its own, or that climbs out, reaches the rest
+    of the machine.
+
+    Attributes:
+        reason: ``'outside_live_folder'`` -- the name is empty, absolute,
+            carries a drive or a network share, or leads outside the live
+            folder through ``..`` or a link. ``'capture_location_unusable'``
+            -- the live folder itself is missing or not a folder.
+        name: The name that was given.
+    """
+
+    title = 'Path Not Available'
+
+    def __init__(self, reason: str, name: str, message: str):
+        super().__init__(message)
+        self.reason = reason
+        self.name = name
+
+
 class Quiet:
     """An outcome that is recorded and never shown: nothing failed and nothing was declined.
 

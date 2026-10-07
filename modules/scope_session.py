@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Any
 import modules.app_context as _app_ctx
 import modules.settings_init as settings_init
 from lvp_logger import logger
-from modules import binning, common_utils, image_mode, settings_paths
+from modules import binning, common_utils, image_mode, path_utils, settings_paths
 from modules.activity_claim import (
     SCOPE_HOLDING_KINDS,
     ActivityClaim,
@@ -47,6 +47,7 @@ from modules.exceptions import (
     FileWriterNotStuckError,
     HardwareCommandRefusedError,
     HomingFailedError,
+    LiveFolderPathRefusedError,
     ObjectiveUnknownError,
     Remedy,
     RemedyUnknownError,
@@ -2071,6 +2072,48 @@ class ScopeSession:
             ) from e
         with self.settings_lock:
             self._store_setting('live_folder', stored)
+
+    def live_folder_path(self, name: str) -> pathlib.Path:
+        """The absolute path that ``name``, a name under the live folder, names.
+
+        The one door from a wire caller's path argument to the file system:
+        a REST bridge passes every path a caller gives through this, so the
+        caller reaches the live folder and nothing beside it. A Python or GUI
+        caller passes any path straight to the member it calls. The live
+        folder is not created here: one that is missing is an unplugged drive
+        or a stale setting.
+
+        Raises:
+            LiveFolderPathRefusedError: ``'outside_live_folder'``, ``name`` is
+                empty, absolute, carries a drive (``C:x``, ``C:\\x``) or a
+                network share, is no file system's name (a NUL byte), or
+                resolves outside the live folder through
+                ``..`` or a link; ``'capture_location_unusable'``, the live
+                folder is missing or is not a folder.
+        """
+        try:
+            root = path_utils.require_capture_location(self.get_setting('live_folder'))
+        except path_utils.CaptureLocationError as e:
+            raise LiveFolderPathRefusedError('capture_location_unusable', name, str(e)) from e
+        root = root.resolve()
+        # Read as Windows reads it on every host, so a drive, a share or a
+        # rooted name is refused wherever the server runs; its root also
+        # catches a POSIX absolute name.
+        as_windows = pathlib.PureWindowsPath(name)
+        if (
+            not name
+            or '\x00' in name
+            or as_windows.drive
+            or as_windows.root
+            or not path_utils.resolves_inside(root, root / name)
+        ):
+            raise LiveFolderPathRefusedError(
+                'outside_live_folder',
+                name,
+                f'{name!r} does not name a place inside the live folder {root}. Give a '
+                'name relative to the live folder, such as ProtocolData/run1.',
+            )
+        return (root / name).resolve()
 
     def set_protocol_filepath(self, file_path: str) -> None:
         """Remember ``file_path`` as the protocol to open at the next start; ``''`` forgets it.

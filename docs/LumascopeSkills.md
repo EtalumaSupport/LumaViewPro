@@ -412,6 +412,7 @@ session.update_settings('BF.sum', 3)           # write one setting, from any thr
 session.update_settings('video.max_fps', 30)  # a nested setting, by its dotted path
 session.set_live_folder('/data/run7')          # where captures and runs are saved; relative means the installation's
 session.set_protocol_filepath('/data/plate.tsv')  # the protocol the next start opens; '' forgets it
+session.live_folder_path('ProtocolData/run1')  # a wire caller's name -> its absolute path inside the live folder; LiveFolderPathRefusedError when it leaves
 snapshot = session.get_settings_snapshot()     # a consistent copy, taken under the lock
 session.get_setting('stage_offset')           # a copy of one setting, by its dotted path; ConfigError when absent
 session.scope.settings_template                # every setting there is, with its shipped value
@@ -477,6 +478,20 @@ anything is commanded.
 folder given relative to the installation is made absolute, and the folder
 is created. A folder that is not a path (a NUL byte) is refused with
 `SettingRefusedError` (`out_of_range`) and nothing is written.
+
+**A path from a wire caller is a name under the live folder.**
+`session.live_folder_path(name)` answers the absolute path `name` names
+inside the live folder, and is what a REST bridge passes every path a
+caller gives through, so a remote caller reaches the live folder and
+nothing beside it: `live_folder_path('ProtocolData/run1')`. It raises
+`LiveFolderPathRefusedError` (`modules.exceptions`, a refusal and a
+`ValueError`, carrying `name`) with reason `outside_live_folder` when the
+name is empty, absolute, carries a drive (`C:x`, `C:\x`) or a network
+share, or leads outside the live folder through `..` or a link -- in the
+forms either operating system writes, wherever the scope runs -- and with
+reason `capture_location_unusable` when the live folder itself is missing
+or not a folder; it never creates the live folder. A Python caller on the
+scope's own machine passes any path straight to the member it calls.
 
 Writing into `session.settings` directly skips every check above and the
 lock; it is not a supported write.
