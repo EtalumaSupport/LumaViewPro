@@ -630,7 +630,6 @@ class SimulatedMotorBoard:
     def _calc_move_duration(self, axis, start_usteps, target_usteps) -> float:
         """Calculate move duration using TMC5072 trapezoidal ramp parameters.
 
-        Uses the same ramp_params as the position predictor in lumascope_api.
         Returns duration in seconds.
         """
         distance_usteps = abs(target_usteps - start_usteps)

@@ -2,7 +2,7 @@
 """MotionAPI -- sub-API for stage / focus / turret motion.
 
 MotionAPI owns the motion state slots (_pos_cache, _axis_state,
-_arrival_events, _move_profile, _position_listeners, _motion_wake,
+_arrival_events, _position_listeners, _motion_wake,
 _motion_monitor_stop, _motion_monitor_thread, _homing_event,
 _turreting_event) and the bodies of all stage / focus / turret
 methods. Lumascope keeps a small set of one-line method-name
@@ -244,9 +244,6 @@ class MotionAPI:
         self._position_listeners_lock = threading.Lock()
         self._position_listeners: list = []
 
-        # Lock for motion profile dict (built by _init_axes, after driver init).
-        self._move_profile_lock = threading.Lock()
-
         # Boolean operation flags use threading.Event for wait/signal.
         self._homing_event = threading.Event()  # set => homing in progress
         self._turreting_event = threading.Event()  # set => turret move in progress
@@ -289,7 +286,6 @@ class MotionAPI:
         self._pos_cache: dict = {}
         self._axis_state: dict = {}
         self._arrival_events: dict = {}
-        self._move_profile: dict = {}
 
         # The turret slot in the light path: the slot last commanded by a
         # turret command (the turret move, either home) that returned
@@ -351,7 +347,6 @@ class MotionAPI:
         for ev in self._arrival_events.values():
             ev.set()  # Start as "arrived" (not moving)
         self._current_move = dict.fromkeys(present_axes)
-        self._move_profile = dict.fromkeys(present_axes)
 
     def _start_monitor(self) -> None:
         """Spawn the motion monitor thread.
@@ -1263,7 +1258,7 @@ class MotionAPI:
     # ------------------------------------------------------------------
     # Stateful method bodies.
     #
-    # State slots (_pos_cache, _axis_state, _arrival_events, _move_profile,
+    # State slots (_pos_cache, _axis_state, _arrival_events,
     # _position_listeners, _motion_wake, _motion_monitor_*, _homing_event,
     # _turreting_event) live on this surface.
     # ------------------------------------------------------------------
@@ -1645,77 +1640,6 @@ class MotionAPI:
             return None
         return self._read_position_cache(axis)
 
-    def _predicted_position(self, axis: str) -> float | None:
-        """Predict position during a move using the trapezoidal ramp profile.
-
-        Returns None if no motion profile is available (falls back to cache).
-        Supports simple trapezoidal (a1/v1/d1=0) and 6-point ramps.
-        """
-        with self._move_profile_lock:
-            profile = self._move_profile.get(axis)
-            if profile is None:
-                return None
-            start_time = profile['start_time']
-            start_pos = profile['start_pos']
-            target_pos = profile['target_pos']
-            ramp = profile['ramp']
-
-        elapsed = time.monotonic() - start_time
-        distance = abs(target_pos - start_pos)
-        if distance < 0.01:  # trivially short move
-            return target_pos
-        direction = 1.0 if target_pos > start_pos else -1.0
-
-        vmax = ramp['vmax']
-        amax = ramp['amax']
-        dmax = ramp['dmax']
-        if amax <= 0 or dmax <= 0 or vmax <= 0:
-            return None  # invalid ramp params
-
-        # Simple trapezoidal profile (a1/v1/d1 are zero)
-        t_accel = vmax / amax
-        t_decel = vmax / dmax
-        s_accel = 0.5 * amax * t_accel * t_accel
-        s_decel = 0.5 * dmax * t_decel * t_decel
-
-        if distance <= (s_accel + s_decel):
-            # Triangular profile -- never reaches VMAX
-            import math
-
-            t_peak = math.sqrt(2.0 * distance / (amax + amax * amax / dmax))
-            v_peak = amax * t_peak
-            s_accel_tri = 0.5 * amax * t_peak * t_peak
-            t_decel_tri = v_peak / dmax
-            total_time = t_peak + t_decel_tri
-
-            if elapsed >= total_time:
-                return target_pos
-            elif elapsed <= t_peak:
-                s = 0.5 * amax * elapsed * elapsed
-            else:
-                dt = elapsed - t_peak
-                s = s_accel_tri + v_peak * dt - 0.5 * dmax * dt * dt
-        else:
-            # Full trapezoidal profile
-            s_cruise = distance - s_accel - s_decel
-            t_cruise = s_cruise / vmax
-            total_time = t_accel + t_cruise + t_decel
-
-            if elapsed >= total_time:
-                return target_pos
-            elif elapsed <= t_accel:
-                s = 0.5 * amax * elapsed * elapsed
-            elif elapsed <= (t_accel + t_cruise):
-                dt = elapsed - t_accel
-                s = s_accel + vmax * dt
-            else:
-                dt = elapsed - t_accel - t_cruise
-                s = s_accel + s_cruise + vmax * dt - 0.5 * dmax * dt * dt
-
-        # Clamp to [start, target] -- never overshoot in prediction
-        s = max(0.0, min(s, distance))
-        return start_pos + direction * s
-
     def _plate_target_to_stage(self, axis: str, plate_mm: float, ignore_limits: bool) -> float:
         """Check a plate-frame target against what this stage can reach, then convert.
 
@@ -1876,20 +1800,6 @@ class MotionAPI:
 
         self._pre_drive(axis, force=force)
 
-        # Capture start_pos + ramp before driving. start_time is captured
-        # AFTER the driver call returns -- the serial round-trip to write
-        # the hardware target takes ~50 ms, during which the motor has not
-        # begun physical motion yet. If start_time were captured BEFORE the
-        # driver call, _predicted_position's `elapsed` would lead the motor's
-        # real elapsed by the full serial RT latency, and the UI crosshair
-        # would visibly outrun the stage on long moves.
-        with self._pos_cache_lock:
-            start_pos = self._pos_cache.get(axis, 0.0)
-        try:
-            ramp = self._driver.motorconfig.ramp_params(axis)
-        except Exception:
-            ramp = None
-
         leg = self._backlash_leg(axis, position, overshoot_enabled, 'move_absolute')
         stop_generation = self._stop_generation
         try:
@@ -1899,11 +1809,11 @@ class MotionAPI:
         except Exception:
             _api_log.error(f'move_abs {axis}={position:.1f}um FAILED')
             raise
-        self._publish_drive(axis, written, start_pos, float(position), ramp)
-        # No move-init cache write: cache holds CURRENT position, which is
-        # still start_pos until _motion_monitor_loop reads it from hardware
-        # on its first cycle. The target is the move's own (_Move.target),
-        # where get_target_position reads it.
+        self._publish_drive(axis, written, float(position))
+        # No move-init cache write: the cache holds the CURRENT position
+        # until _motion_monitor_loop reads it from hardware on its first
+        # cycle. The target is the move's own (_Move.target), where
+        # get_target_position reads it.
         self._fire_position_listeners(axis)
         _api_log.info(f'move_abs {axis}={position:.1f}um')
         return MoveInFlight(self, axis, move)
@@ -2024,14 +1934,6 @@ class MotionAPI:
         # the gate of its own.
         self._pre_drive(axis)
 
-        # Capture start_pos + ramp before driving. start_time is captured
-        # AFTER the driver call returns -- mirrors move_absolute.
-        # The ~50 ms serial round-trip to write the hardware target precedes
-        # any physical motion; capturing start_time before that would make
-        # _predicted_position's elapsed-since-arm lead the motor's real
-        # elapsed by the full serial RT, and the UI crosshair would visibly
-        # outrun the stage on long moves.
-        #
         # The offset is added to the board's own target: a move still in
         # flight on this axis is added to, so chained jogs accumulate, and
         # after a stop the target is where the stage stopped. This one
@@ -2053,11 +1955,6 @@ class MotionAPI:
         if limits is not None and not (limits['min'] <= target_pos <= limits['max']):
             raise PositionOutOfRangeError(axis, target_pos, limits['min'], limits['max'])
 
-        try:
-            ramp = self._driver.motorconfig.ramp_params(axis)
-        except Exception:
-            ramp = None
-
         leg = self._backlash_leg(axis, target_pos, overshoot_enabled, 'move_relative')
         stop_generation = self._stop_generation
         try:
@@ -2069,11 +1966,11 @@ class MotionAPI:
         except Exception:
             _api_log.error(f'move_rel {axis}={distance:+.1f}um FAILED')
             raise
-        self._publish_drive(axis, written, start_pos, target_pos, ramp)
-        # No move-init cache write: cache holds CURRENT position, which is
-        # still start_pos until _motion_monitor_loop reads it from hardware
-        # on its first cycle. The target is the move's own (_Move.target),
-        # where get_target_position reads it.
+        self._publish_drive(axis, written, target_pos)
+        # No move-init cache write: the cache holds the CURRENT position
+        # until _motion_monitor_loop reads it from hardware on its first
+        # cycle. The target is the move's own (_Move.target), where
+        # get_target_position reads it.
         self._fire_position_listeners(axis)
         _api_log.info(f'move_rel {axis}={distance:+.1f}um')
         return MoveInFlight(self, axis, move)
@@ -2458,10 +2355,6 @@ class MotionAPI:
         if state in (AxisState.MOVING, AxisState.HOMING):
             # Wake the motion monitor to start polling
             self._motion_wake.set()
-        elif state in (AxisState.IDLE, AxisState.UNKNOWN):
-            # Clear motion profile -- predictor falls back to cache
-            with self._move_profile_lock:
-                self._move_profile[axis] = None
 
         self._fire_position_listeners(axis)
         return True
@@ -2584,24 +2477,16 @@ class MotionAPI:
         except Exception as e:
             self._fail_drive(axis, move, e)
 
-    def _publish_drive(
-        self,
-        axis: str,
-        written: bool,
-        start_pos: float,
-        target_pos: float,
-        ramp: dict | None,
-    ) -> None:
-        """Publish a sent drive's target and profile, then arm ``axis``: its verdicts may land.
+    def _publish_drive(self, axis: str, written: bool, target_pos: float) -> None:
+        """Publish a sent drive's target, then arm ``axis``: its verdicts may land.
 
         The target is the move's own (``_Move.target``), so it stays the
-        move's after the move ends. The profile goes first: an armed axis can arrive at once, and an
-        arrival clears the profile, so one written after it would sit on an
-        IDLE axis as the target of a move that has ended. A withheld target
-        is published nowhere -- the stage is where the stop left it -- but
-        the axis is armed all the same, so the monitor judges it there. An
-        axis given up while its drive was sent (a lost board) is left as it
-        is: neither profile nor arming belongs to it.
+        move's after the move ends; it is written in the hold that arms the
+        axis, so no arrival can land before it. A withheld target is
+        published nowhere -- the stage is where the stop left it -- but the
+        axis is armed all the same, so the monitor judges it there. An axis
+        given up while its drive was sent (a lost board) is left as it is:
+        neither target nor arming belongs to it.
         """
         with self._axis_state_lock:
             move = self._current_move.get(axis)
@@ -2609,14 +2494,6 @@ class MotionAPI:
                 return
             if written:
                 move.target = target_pos
-            if ramp and written:
-                with self._move_profile_lock:
-                    self._move_profile[axis] = {
-                        'start_time': time.monotonic(),
-                        'start_pos': start_pos,
-                        'target_pos': target_pos,
-                        'ramp': ramp,
-                    }
             move.armed = True
 
     def _give_axis_up(self, axis: str, reason: str, *, verdict_for: _Move | None = None) -> bool:
@@ -2746,9 +2623,9 @@ class MotionAPI:
                                 stop_generation = self._stop_generation
                         # Read the motor's actual position into the cache so
                         # get_current_position (and the crosshair, through the
-                        # position listener) tracks the motor instead of the
-                        # cached target: the trapezoidal predictor's ramp
-                        # parameters raced the motor 5-10x ahead. On arrival the
+                        # position listener) tracks the motor instead of a
+                        # prediction: a ramp-model predictor ran 5-10x ahead
+                        # of the motor. On arrival the
                         # cache holds this read -- the actual motor position,
                         # which may differ from the commanded target by up to
                         # ~1 microstep (X/Y ~0.078 um, Z ~0.025 um) of

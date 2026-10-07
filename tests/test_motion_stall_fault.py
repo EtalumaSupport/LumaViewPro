@@ -42,7 +42,7 @@ def test_stalled_move_faults_axis_and_notifies(monkeypatch, centre_posts):
 
     # A move's start: MOVING, then armed once its target is written.
     assert motion._begin_move('Z', motion._stop_generation)
-    motion._publish_drive('Z', True, 0.0, 0.0, None)
+    motion._publish_drive('Z', True, 0.0)
 
     assert _wait_until(lambda: not motion.is_moving()), (
         'a stalled axis must leave MOVING at the published bound, not hang forever'
@@ -66,7 +66,7 @@ def test_arriving_move_never_stall_faults(monkeypatch, centre_posts):
     monkeypatch.setattr(motion, 'get_target_status', lambda ax: True)
 
     motion._begin_move('Z', motion._stop_generation)
-    motion._publish_drive('Z', True, 0.0, 0.0, None)
+    motion._publish_drive('Z', True, 0.0)
 
     assert _wait_until(lambda: motion._axis_state['Z'] == AxisState.IDLE), (
         'an arriving move must transition to IDLE'

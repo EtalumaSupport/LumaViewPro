@@ -504,7 +504,6 @@ class TestFrameValidityDuringHoming:
         scope.motion._arrival_events = {ax: threading.Event() for ax in present}
         for ev in scope.motion._arrival_events.values():
             ev.set()
-        scope.motion._move_profile = dict.fromkeys(present)
 
         captured = {}
         original_thome = scope._motion_driver.thome
@@ -666,7 +665,7 @@ class TestLEDChannelDiscovery:
 
 class TestPerAxisDictsFromDriver:
     """Audit B4: per-axis state dicts (_pos_cache, _axis_state,
-    _arrival_events, _move_profile) are sized at __init__ from
+    _arrival_events) are sized at __init__ from
     `motion.detect_present_axes()`, not from a hardcoded 4-axis tuple.
 
     Tests cover:
@@ -690,7 +689,6 @@ class TestPerAxisDictsFromDriver:
         assert set(scope.motion._pos_cache.keys()) == present
         assert set(scope.motion._axis_state.keys()) == present
         assert set(scope.motion._arrival_events.keys()) == present
-        assert set(scope.motion._move_profile.keys()) == present
 
     def test_z_only_scope_dicts_have_only_z(self):
         """Simulate an LS820 / LVC LS720-like Z-only scope."""
@@ -703,12 +701,10 @@ class TestPerAxisDictsFromDriver:
         scope.motion._arrival_events = {ax: threading.Event() for ax in present}
         for ev in scope.motion._arrival_events.values():
             ev.set()
-        scope.motion._move_profile = dict.fromkeys(present)
 
         assert set(scope.motion._pos_cache.keys()) == {'Z'}
         assert set(scope.motion._axis_state.keys()) == {'Z'}
         assert set(scope.motion._arrival_events.keys()) == {'Z'}
-        assert set(scope.motion._move_profile.keys()) == {'Z'}
 
     def test_null_motor_yields_empty_dicts(self):
         """A scope with no motor hardware (NullMotionBoard) should have
@@ -719,12 +715,10 @@ class TestPerAxisDictsFromDriver:
         scope.motion._pos_cache = dict.fromkeys(present, 0.0)
         scope.motion._axis_state = dict.fromkeys(present, AxisState.UNKNOWN)
         scope.motion._arrival_events = {ax: threading.Event() for ax in present}
-        scope.motion._move_profile = dict.fromkeys(present)
 
         assert scope.motion._pos_cache == {}
         assert scope.motion._axis_state == {}
         assert scope.motion._arrival_events == {}
-        assert scope.motion._move_profile == {}
 
     def test_move_with_invalid_axis_name_still_raises(self):
         """Input sanity check still rejects non-axis names. _VALID_AXIS_NAMES

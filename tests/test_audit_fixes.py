@@ -1071,7 +1071,6 @@ class TestAxisState:
         scope.motion._arrival_events = {ax: threading.Event() for ax in present}
         for ev in scope.motion._arrival_events.values():
             ev.set()
-        scope.motion._move_profile = dict.fromkeys(present)
 
         scope.motion.home(axis='T')
         assert scope.motion.get_axis_state('T') == AxisState.IDLE
