@@ -514,6 +514,17 @@ def _typed_layer_settings_row(row: dict) -> dict:
     return typed
 
 
+def _refuse_a_header_row_with_no_value(row: list[str], file_path: object) -> None:
+    """Refuse a protocol header row that holds its name and no value cell.
+
+    A row cut down to its name (a hand edit, a truncated save) reads as a
+    one-cell row, and indexing its value would raise IndexError out of the
+    reader instead of saying which row is wrong.
+    """
+    if len(row) < 2:
+        raise ProtocolFormatError(f"The '{row[0]}' row has no value.", file=file_path)
+
+
 def schedule_from_units(
     key: str,
     value: object,
@@ -2688,6 +2699,7 @@ class Protocol:
 
         if version_row[0] != 'Version':
             raise ProtocolFormatError("Protocol format is missing 'Version' row.", file=file_path)
+        _refuse_a_header_row_with_no_value(version_row, file_path)
 
         try:
             config['version'] = int(version_row[1])
@@ -2718,6 +2730,7 @@ class Protocol:
             period_row = next(csvreader)
             if period_row[0] != 'Period':
                 raise ProtocolFormatError("Missing 'Period' row in protocol file", file=file_path)
+            _refuse_a_header_row_with_no_value(period_row, file_path)
 
             # Period == 0 is a valid single-scan / non-periodic marker
             # (Z-stack, single-shot capture, autofocus characterization);
@@ -2740,6 +2753,7 @@ class Protocol:
             duration = next(csvreader)
             if duration[0] != 'Duration':
                 raise ProtocolFormatError("Missing 'Duration' row in protocol file", file=file_path)
+            _refuse_a_header_row_with_no_value(duration, file_path)
 
             # Duration == 0 mirrors Period == 0 -- valid single-scan
             # marker for Manual Z-Stack / single-shot capture (where the
@@ -2762,6 +2776,7 @@ class Protocol:
             labware = next(csvreader)
             if labware[0] != 'Labware':
                 raise ProtocolFormatError("Invalid 'Labware' row in protocol file", file=file_path)
+            _refuse_a_header_row_with_no_value(labware, file_path)
 
             # Stored in the catalogue's spelling whatever the file carried:
             # a plate renamed since the file was saved is translated here,
