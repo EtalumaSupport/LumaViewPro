@@ -2724,7 +2724,7 @@
 				# spacing: '5dp'
 				color: root.bg_color
 				opacity: 1 if self.visible else 0
-				visible: True if root.illumination_support else False
+				visible: True if root.illumination_support and root.led_controller_support else False
 
 			BoxLayout:
 				orientation: 'horizontal'
@@ -2734,7 +2734,7 @@
 				spacing: '5dp'
 				opacity: 1 if self.visible else 0
 				disabled: False if self.visible else True
-				visible: True if root.illumination_support else False
+				visible: True if root.illumination_support and root.led_controller_support else False
 
 				Label:
 					id: LED_label
@@ -2764,7 +2764,7 @@
 				spacing: '5dp'
 				opacity: 1 if self.visible else 0
 				disabled: False if self.visible else True
-				visible: True if root.illumination_support else False
+				visible: True if root.illumination_support and root.led_controller_support else False
 
 				Label:
 					text: 'Illumination (mA)'
@@ -3057,7 +3057,7 @@
 					Color:
 						rgba: root.bg_color
 					Rectangle:
-						size: self.width, 1 if root.illumination_support else 0
+						size: self.width, 1 if root.illumination_support and root.led_controller_support else 0
 						pos: self.x, self.y+self.height
 				text:'Camera'
 				font_size: '16sp'

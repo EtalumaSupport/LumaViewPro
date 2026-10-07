@@ -54,7 +54,7 @@ from modules.exceptions import (
     ScopeModelUnknownError,
     SettingsSaveRefusedError,
 )
-from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
+from modules.lumascope_api.illumination import LedLease, LedTransition, LedTransitionCtx
 from modules.manual_capture import ManualCaptureController
 from modules.manual_recording import ManualRecordingController
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
@@ -1808,8 +1808,10 @@ class ScopeSession:
             AxisStateUnknownError: an axis the step moves does not know
                 its position. Nothing changes.
             HardwareCommandRefusedError: ``'not_connected'``, this scope's
-                motor controller is not connected; or a run or a diagnostic
-                holds the scope. Nothing changes.
+                motor controller is not connected, or its LED controller is
+                not and the step's preview would light; ``'scope_disconnected'``
+                after ``disconnect()``; or a run or a diagnostic holds the
+                scope. Nothing changes.
             PositionOutOfRangeError: the step lies outside an axis's travel;
                 the axes before it have moved, nothing else changes.
             MoveNotCompletedError: the turret did not reach the step's slot,
@@ -1826,10 +1828,6 @@ class ScopeSession:
                     f'step {step_idx} stimulates {unknown}, not layers; '
                     f'the layers are {common_utils.get_layers()}'
                 )
-        # A motorized scope whose controller is out of reach cannot go to the
-        # step: one that never came up has no axes, so the moves below would
-        # be none and the step a silent no-op.
-        self.scope.motion.refuse_controller_not_connected('go_to_step')
         # Converted here, from the step read above, so the lane moves to the
         # step this call was made for whatever the list holds by then.
         targets = self.scope.protocols.step_targets(protocol, step_idx)
@@ -1850,6 +1848,18 @@ class ScopeSession:
         and Z; none on a manual scope.
         """
         motion = self.scope.motion
+        # A motorized scope whose controller is out of reach cannot go to the
+        # step: one that never came up has no axes, so the moves below would
+        # be none and the step a silent no-op.
+        motion.refuse_controller_not_connected('go_to_step')
+        last = self._last_step_gone_to
+        preview = None
+        if last is None or last[0] is not protocol or last[1] != step_idx:
+            preview = self._step_led_ctx(step)
+            # A preview that would light needs the LED controller, asked
+            # before anything moves; a dark one needs no board.
+            if LedLease.target_leds(LedTransition.MANUAL_STEP, preview):
+                self.scope.illumination.refuse_controller_not_connected('go_to_step')
         # The turret included: a failed turret home leaves T unknown
         # while the stage axes still know theirs.
         motion.refuse_unknown_positions(
@@ -1864,15 +1874,12 @@ class ScopeSession:
             if target is not None
         )
         self._load_step_into_layer(step)
-        last = self._last_step_gone_to
         self._last_step_gone_to = (protocol, step_idx)
-        if last is not None and last[0] is protocol and last[1] == step_idx:
+        if preview is None:
             return moves
         # After the step's moves are started, in the same task: a toggle the
         # person makes while the stage travels lands after the step's preview.
-        self.scope.illumination.apply_transition(
-            LedTransition.MANUAL_STEP, self._step_led_ctx(step)
-        )
+        self.scope.illumination.apply_transition(LedTransition.MANUAL_STEP, preview)
         return moves
 
     def _load_step_into_layer(self, step) -> None:
@@ -3244,14 +3251,15 @@ class ScopeSession:
             # Only while the lane's worker is alive: a submission to a lane
             # with no worker is never serviced, and the wait would run out
             # its bound for nothing -- disconnect() below turns the LEDs
-            # off inline either way. The 2 s bound keeps the calling
-            # thread from blocking on slow serial.
+            # off inline either way. The scope's own off asks presence
+            # first, so with no LED controller it writes nothing. The 2 s
+            # bound keeps the calling thread from blocking on slow serial.
             logger.info('[Session  ] shutdown: leds_off through the io lane')
             try:
                 from modules.sequential_io_executor import IOTask
 
                 fut = self.io_executor.put(
-                    IOTask(action=self.scope.illumination._leds_off_impl),
+                    IOTask(action=self.scope.illumination._leds_off_if_present),
                     return_future=True,
                     override=self._io_override_key,
                 )

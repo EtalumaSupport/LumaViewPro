@@ -1003,9 +1003,9 @@ class TestScopeCapabilities:
         assert caps.has_xy_stage is False
         assert caps.has_turret is False
 
-    def test_null_led_still_reports_six_channels_for_compat(self):
-        """Per B3 compat: NullLEDBoard reports 6 channels so Rule 8
-        silent no-ops work on channels 0-5. Capabilities mirrors that."""
+    def test_a_scope_without_its_led_board_reports_no_channels_or_cap(self):
+        """The null board's stand-in table is not the scope's: a scope that
+        came up without its LED board reports no channels and no cap."""
         from modules.layer_record import UNRESOLVED
         from modules.scope_capabilities import ScopeCapabilities
 
@@ -1016,8 +1016,8 @@ class TestScopeCapabilities:
             layer_identity=UNRESOLVED,
             scope_models={},
         )
-        assert len(caps.led_channels) == 6
-        assert caps.led_channels == (0, 1, 2, 3, 4, 5)
+        assert caps.led_channels is None
+        assert caps.led_max_ma is None
 
     def test_four_channel_led_capabilities(self):
         """An FX2-style 4-channel LED driver propagates through."""

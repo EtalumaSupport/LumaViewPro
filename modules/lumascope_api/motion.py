@@ -481,8 +481,9 @@ class MotionAPI:
         only.
 
         Raises:
-            HardwareCommandRefusedError: ``'not_connected'`` or
-                ``'axis_absent'``, naming the missing part. Nothing was sent.
+            HardwareCommandRefusedError: ``'scope_disconnected'`` after
+                ``disconnect()``; ``'not_connected'`` or ``'axis_absent'``,
+                naming the missing part. Nothing was sent.
         """
         self.refuse_controller_not_connected(member)
         if not self._scope.motor_connected:
@@ -505,10 +506,18 @@ class MotionAPI:
         A consult seam, not part of the L2 API surface: an L2 caller's motion
         command asks it itself.
 
+        After ``disconnect()`` the scope's lanes are shut and it answers as
+        every command does then, ``scope_disconnected``, on every model: a
+        caller asking off the lane (Go To Step, the plate position read)
+        hears what a command on the lane would.
+
         Raises:
-            HardwareCommandRefusedError: ``'not_connected'``, naming the
-                motor controller. Nothing was sent.
+            HardwareCommandRefusedError: ``'scope_disconnected'`` after
+                ``disconnect()``; ``'not_connected'``, naming the motor
+                controller. Nothing was sent.
         """
+        if self._scope._io_executor.pending_shutdown:
+            raise HardwareCommandRefusedError('scope_disconnected', member)
         if self._scope.motion_expected and not self._scope.motor_connected:
             part = MissingPart.MOTOR_CONTROLLER
             raise HardwareCommandRefusedError(part.reason, member, missing=part)
@@ -649,8 +658,6 @@ class MotionAPI:
                 stage may still be moving. Chained from the driver's
                 error. The stop generation has moved regardless.
         """
-        if self._scope._io_executor.pending_shutdown:
-            raise HardwareCommandRefusedError('scope_disconnected', 'stop_motion')
         self._refuse_absent('stop_motion')
         self._stop()
 

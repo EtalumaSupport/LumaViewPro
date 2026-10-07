@@ -124,8 +124,9 @@ class UIListenerBridge:
         if not ctx.ready:
             return
         layer_obj = ctx.image_settings.layer_lookup(layer=color)
+        # None with no LED board installed: nothing is lit.
         state = self._scope.illumination.get_led_state(channel=color)
-        target = 'down' if state.get('enabled', False) else 'normal'
+        target = 'down' if state is not None and state['enabled'] else 'normal'
         if layer_obj.ids['enable_led_btn'].state != target:
             layer_obj.ids['enable_led_btn'].state = target
 

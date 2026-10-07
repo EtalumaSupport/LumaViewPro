@@ -1130,7 +1130,9 @@ class Protocol:
             }
         )
 
-    def validate_steps(self, objective_helper: 'ObjectiveLoader', *, led_max_ma: int) -> list:
+    def validate_steps(
+        self, objective_helper: 'ObjectiveLoader', *, led_max_ma: int | None
+    ) -> list:
         """Validate all step fields and return a list of error strings.
 
         Args:
@@ -1140,6 +1142,9 @@ class Protocol:
                 (``capabilities.led_max_ma``). Asked of the caller, not
                 carried on the protocol: a copy made for a run would not
                 carry it, and the gate would admit a step the LED refuses.
+                None on a scope that came up without its LED board: there
+                is no cap to judge against, and a run on it is refused for
+                the missing LED controller.
 
         Returns an empty list if all steps are valid.
         """
@@ -1184,7 +1189,7 @@ class Protocol:
             illum = step['Illumination']
             if illum < 0:
                 errors.append(f'{label}: Illumination must be 0 or more mA, got {illum}')
-            elif illum > led_max_ma:
+            elif led_max_ma is not None and illum > led_max_ma:
                 errors.append(f'{label}: Illumination must be 0-{led_max_ma} mA, got {illum}')
 
             gain = step['Gain']
@@ -1220,7 +1225,7 @@ class Protocol:
         *,
         objective_helper: 'ObjectiveLoader',
         wellplate_loader: 'labware_loader.WellPlateLoader',
-        led_max_ma: int,
+        led_max_ma: int | None,
     ) -> list:
         """Validate that the protocol's steps are well-formed enough to run.
 
@@ -1233,7 +1238,8 @@ class Protocol:
         Args:
             objective_helper: The scope's objective catalogue.
             wellplate_loader: The scope's labware catalogue.
-            led_max_ma: The scope's LED current cap (``capabilities.led_max_ma``).
+            led_max_ma: The scope's LED current cap (``capabilities.led_max_ma``);
+                None with no LED board (see ``validate_steps``).
 
         Returns:
             List of error strings. Empty list if all checks pass.

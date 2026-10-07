@@ -53,6 +53,7 @@ from modules.exceptions import (
     ConfigError,
     LedBoardUnavailableError,
     LedSafetyOffNotTakenError,
+    MissingPart,
     NoHardwareDetectedNotice,
     PartialHardwareError,
     ScopeDisconnectError,
@@ -843,13 +844,13 @@ class Lumascope:
         """
         self._motion_expected = config.expects_motion
         self._report_bring_up(config)
-        # The safety-off is bound to the impl like every other write here,
-        # never to the public dispatcher: bring-up is the scope configuring
-        # itself, not a command from a caller, so it takes no lane and asks
-        # no claim. With no board connected the impl writes nothing. The write
-        # is bounded by the serial layer's own read and write timeouts;
+        # The safety-off is the scope's own write, never the public
+        # dispatcher: bring-up is the scope configuring itself, not a command
+        # from a caller, so it takes no lane and asks no claim. It asks
+        # presence first, so with no board connected it writes nothing. The
+        # write is bounded by the serial layer's own read and write timeouts;
         # nothing else holds the LED lock at bring-up.
-        self.illumination._leds_off_impl()
+        self.illumination._leds_off_if_present()
         # A saved slot carried over from a turret scope means nothing here.
         if self.capabilities.has_turret:
             self.motion.seed_preferred_turret_slot(config.preferred_turret_slot)
@@ -1289,6 +1290,10 @@ class Lumascope:
             except Exception as ex:
                 failures['LED board'] = ex
         self._led_driver = NullLEDBoard()
+        # The emergency off above leaves the state store as it was; with the
+        # board gone nothing is lit, and the listeners hear it here (a
+        # listener's fault is reported by the listener bus, not raised).
+        self.illumination._forget_led_state()
 
         if not isinstance(self._motion_driver, NullMotionBoard) and hasattr(
             self._motion_driver, 'disconnect'
@@ -1420,6 +1425,16 @@ class Lumascope:
     def are_all_connected(self) -> bool:
         """Check if LED, motion, and camera boards are all connected.
 
+        See ``unconnected_parts``, which this asks.
+
+        Returns:
+            bool: True if all three components are connected.
+        """
+        return not self.unconnected_parts()
+
+    def unconnected_parts(self) -> tuple[str, ...]:
+        """The parts this scope needs that are not connected, by name.
+
         Each term is the one the matching single-board question asks, so
         a run gate and a per-board gate cannot disagree about the same
         hardware. A driver that RAISES propagates: the run gate that asks
@@ -1430,7 +1445,9 @@ class Lumascope:
         manual scope is complete without it.
 
         Returns:
-            bool: True if all three components are connected.
+            Each of ``'LED controller'``, ``'motor controller'`` and
+            ``'camera'`` that is not connected, in that order; empty when
+            all are.
         """
         logger.debug('[SCOPE API ] Performing connection check...')
         led = self.led_connected
@@ -1447,7 +1464,15 @@ class Lumascope:
         if led and motion and camera:
             logger.debug('[SCOPE API ] Connection Check: All components connected')
 
-        return led and motion and camera
+        return tuple(
+            name
+            for name, connected in (
+                (MissingPart.LED_CONTROLLER.name, led),
+                (MissingPart.MOTOR_CONTROLLER.name, motion),
+                ('camera', camera),
+            )
+            if not connected
+        )
 
     @classmethod
     def create_diagnostic(cls, source_path: 'str | os.PathLike | None' = None) -> 'Lumascope':

@@ -63,7 +63,7 @@ def _spy_lane(lane):
 
 
 def _drain_before_lane_shutdown(events):
-    puts = [i for i, e in enumerate(events) if e[0] == 'put' and e[1] == '_leds_off_impl']
+    puts = [i for i, e in enumerate(events) if e[0] == 'put' and e[1] == '_leds_off_if_present']
     shuts = [i for i, e in enumerate(events) if e[0] == 'shutdown']
     return bool(puts) and bool(shuts) and puts[0] < shuts[0]
 
@@ -144,7 +144,7 @@ class TestACallersScopeIsLeftAlone:
         session.shutdown()
         scope.disconnect.assert_not_called()
         scope.motion._stop.assert_not_called()
-        scope.illumination._leds_off_impl.assert_not_called()
+        scope.illumination._leds_off_if_present.assert_not_called()
         # The lanes are the scope's, and the scope is the caller's: they run on.
         session.io_executor.put.assert_not_called()
         session.io_executor.shutdown.assert_not_called()
@@ -190,6 +190,12 @@ class TestDisconnectShutsTheLanesFirst:
         lane.put(IOTask(action=hold))
         assert in_flight.wait(2.0)
         outcome = {}
+        # The board the queued led_on would reach: disconnect() replaces it
+        # and clears the state store, so it is asked directly.
+        board_on = []
+        board = scope._led_driver
+        real_board_on = board.led_on
+        board.led_on = lambda *a, **kw: (board_on.append(a), real_board_on(*a, **kw))[1]
 
         def turn_on():
             try:
@@ -222,5 +228,4 @@ class TestDisconnectShutsTheLanesFirst:
         caller.join(3.0)
 
         assert 'error' in outcome, f'the queued led_on was not cancelled: {outcome}'
-        lit = [c for c, st in scope.illumination.get_led_states().items() if st.get('enabled')]
-        assert lit == [], f'channels lit after disconnect: {lit}'
+        assert board_on == [], f'the board was lit after disconnect: {board_on}'

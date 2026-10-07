@@ -1157,6 +1157,32 @@ class SequencedCaptureRunner:
                 message='Protocol has no steps. Add at least one step before running.',
             )
 
+        # Before the step validation: a scope missing a part is told that
+        # first, not a symptom of it -- with no LED board there is no current
+        # cap to judge a step's illumination against.
+        try:
+            unconnected = self._scope.unconnected_parts()
+        except Exception as ex:
+            raise RunCheckFailedError(
+                reason='hardware_state_unknown',
+                title='Cannot verify hardware state',
+                message=(
+                    f'Could not check hardware connection status: {type(ex).__name__}: {ex}. '
+                    f'Reconnect the scope and try again.'
+                ),
+            ) from ex
+        named = [f'the {part}' for part in unconnected]
+        if named:
+            parts = named[0] if len(named) == 1 else f'{", ".join(named[:-1])} and {named[-1]}'
+            self._refuse(
+                reason='hardware_disconnected',
+                title='Hardware Disconnected',
+                message=(
+                    f'{parts[0].upper()}{parts[1:]} {"is" if len(named) == 1 else "are"} '
+                    'not connected. Check connections and try again.'
+                ),
+            )
+
         # Pre-run validation: the steps are well-formed enough to run
         try:
             validation_errors = protocol.validate_for_run(
@@ -1223,26 +1249,6 @@ class SequencedCaptureRunner:
         # says. The load refuses it on the same rule; a protocol built in
         # memory meets it only here.
         self._scope.protocols.refuse_absent_layers(protocol)
-
-        try:
-            all_connected = self._scope.are_all_connected()
-        except Exception as ex:
-            raise RunCheckFailedError(
-                reason='hardware_state_unknown',
-                title='Cannot verify hardware state',
-                message=(
-                    f'Could not check hardware connection status: {type(ex).__name__}: {ex}. '
-                    f'Reconnect the scope and try again.'
-                ),
-            ) from ex
-        if not all_connected:
-            self._refuse(
-                reason='hardware_disconnected',
-                title='Hardware Disconnected',
-                message=(
-                    'Not all hardware components are connected. Check connections and try again.'
-                ),
-            )
 
         # After the connection gate, so a motorized scope whose board fell
         # off is told it is disconnected rather than that it cannot move;
@@ -2550,11 +2556,17 @@ class SequencedCaptureRunner:
                 # owned the run's LEDs (double cleanup, early return)
                 # must not darken a prior cleanup's restored end-state.
                 try:
-                    self._scope.illumination.force_off()
-                    logger.warning(
-                        f'[{self.LOGGER_NAME}] Cleanup: LED end-state undecided; '
-                        'forced all channels dark before lease release'
-                    )
+                    if self._scope.illumination.force_off():
+                        logger.warning(
+                            f'[{self.LOGGER_NAME}] Cleanup: LED end-state undecided; '
+                            'forced all channels dark before lease release'
+                        )
+                    else:
+                        logger.warning(
+                            f'[{self.LOGGER_NAME}] Cleanup: LED end-state undecided, and '
+                            'the LED controller is not connected, so no channel could be '
+                            'forced dark; a channel the board holds lit stays lit'
+                        )
                 except Exception:
                     logger.error(
                         f'[{self.LOGGER_NAME}] Cleanup: forced LED extinguish failed',

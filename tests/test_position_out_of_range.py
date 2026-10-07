@@ -52,6 +52,8 @@ def api():
     motion._scope = SimpleNamespace(
         motor_connected=True,
         motion_expected=True,
+        # Not disconnected: the lanes are open.
+        _io_executor=SimpleNamespace(pending_shutdown=False),
         capabilities=SimpleNamespace(axes=('X', 'Y', 'Z', 'T')),
     )
 
@@ -192,6 +194,8 @@ def turret():
     motion._scope = SimpleNamespace(
         motor_connected=True,
         motion_expected=True,
+        # Not disconnected: the lanes are open.
+        _io_executor=SimpleNamespace(pending_shutdown=False),
         capabilities=SimpleNamespace(axes=('X', 'Y', 'Z', 'T')),
     )
     # Never equal to a slot under test, so the same-position short-circuit

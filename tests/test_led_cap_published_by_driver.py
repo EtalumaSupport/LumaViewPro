@@ -69,7 +69,8 @@ def _caps_with(led) -> ScopeCapabilities:
 def test_capabilities_reports_the_connected_drivers_cap():
     assert _caps_with(object.__new__(fx2driver.FX2LEDController)).led_max_ma == 840
     assert _caps_with(object.__new__(LEDBoard)).led_max_ma == 1000
-    assert _caps_with(NullLEDBoard()).led_max_ma == 0
+    # No board came up: there is no cap, not a cap of 0 mA.
+    assert _caps_with(NullLEDBoard()).led_max_ma is None
 
 
 def test_a_driver_that_does_not_answer_leaves_no_legal_current():

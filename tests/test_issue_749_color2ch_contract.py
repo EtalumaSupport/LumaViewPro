@@ -111,12 +111,13 @@ class TestSeamBehaviour:
     """The illumination API is the one place a colour becomes a channel."""
 
     def test_led_on_unknown_colour_names_the_colour(self, sim_scope):
-        from modules.exceptions import ConfigError
+        from modules.exceptions import HardwareCommandRefusedError, MissingPart
 
         board = _FourColourRecordingBoard()
         sim_scope._led_driver = board
-        with pytest.raises(ConfigError, match='Lumi'):
+        with pytest.raises(HardwareCommandRefusedError, match='Lumi') as refused:
             sim_scope.illumination.led_on(channel='Lumi', illumination_ma=50)
+        assert refused.value.missing == MissingPart.led('Lumi')
         assert board.commands == [], 'no command may reach the driver'
 
     def test_led_off_unknown_colour_is_noop(self, sim_scope):

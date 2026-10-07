@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from drivers.exceptions import HardwareError
+from drivers.null_ledboard import NullLEDBoard
 from lvp_logger import logger
 
 if TYPE_CHECKING:
@@ -196,17 +197,20 @@ class ScopeCapabilities:
     sensor property); never a hardcoded default."""
 
     # ---- LED ----
-    led_channels: tuple[int, ...]
-    """LED channel indices available -- from `led.available_channels()`.
-    RP2040 = (0,1,2,3,4,5), FX2/LVC = (0,1,2,3). NullLEDBoard also returns
-    the 6-channel set for Rule 8 silent-noop compatibility."""
+    led_channels: tuple[int, ...] | None
+    """LED channel indices the installed board addresses -- from
+    `led.available_channels()`. RP2040 = (0,1,2,3,4,5), FX2/LVC =
+    (0,1,2,3). None when the scope came up without its LED board."""
 
     led_colors: tuple[str, ...]
-    """Color names available -- from `led.available_colors()`."""
+    """Layer names of this model that drive an LED -- from the resolved
+    layer identity, so a scope that came up without its LED board still
+    names its model's LEDs."""
 
-    led_max_ma: int
+    led_max_ma: int | None
     """Maximum LED current per channel, in mA, as published by the connected
-    LED driver (`led.max_ma()`); 0 when no driver answers."""
+    LED driver (`led.max_ma()`); 0 when a driver does not answer; None when
+    the scope came up without its LED board."""
 
     # ---- Camera ----
     camera_model: str | None
@@ -337,8 +341,14 @@ class ScopeCapabilities:
         pixel_size_um = _resolve_pixel_size_um(motorconfig, optics, camera)
         lens_focal_length_mm = _resolve_lens_focal_length_mm(motorconfig, optics)
 
-        # LED
-        led_channels = _probe('led.available_channels', lambda: tuple(led.available_channels()), ())
+        # LED. A scope that came up without its board has no channels and
+        # no current cap, not the null board's stand-in table and 0 mA.
+        led_present = not isinstance(led, NullLEDBoard)
+        led_channels = (
+            _probe('led.available_channels', lambda: tuple(led.available_channels()), ())
+            if led_present
+            else None
+        )
         # Colour NAMES come from the unit's resolved layer identity, not
         # the driver: the driver knows which board channels it can drive,
         # while which layer names exist (and what they drive) is unit
@@ -353,7 +363,7 @@ class ScopeCapabilities:
         # The cap is the driver's to publish; there is no value to assume
         # in its place. A driver that does not answer leaves no legal
         # current above zero.
-        led_max_ma = _probe('led.max_ma', lambda: int(led.max_ma()), 0)
+        led_max_ma = _probe('led.max_ma', lambda: int(led.max_ma()), 0) if led_present else None
 
         # Camera
         camera_model: str | None = None

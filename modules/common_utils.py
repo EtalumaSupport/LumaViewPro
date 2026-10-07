@@ -623,15 +623,17 @@ def resolve_channel_identity(illumination: 'IlluminationAPI', open_layer: str | 
     would otherwise be unnameable. With more than one LED lit, the first in
     the driver's channel order wins.
 
-    get_led_states() returns {} when no LED board is present, so a
-    board-less scope falls through to the layer with no special case.
+    get_led_states() answers None when no LED board is installed: nothing
+    is lit, so a board-less scope falls through to the layer.
 
     Shared by the manual still capture and the manual recording so the two
     outputs can never disagree about what one frame is.
     """
-    for color, state in illumination.get_led_states().items():
-        if state.get('enabled'):
-            return color
+    states = illumination.get_led_states()
+    if states is not None:
+        for color, state in states.items():
+            if state['enabled']:
+                return color
     return open_layer or DEFAULT_LAYER
 
 

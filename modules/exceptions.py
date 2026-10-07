@@ -5,7 +5,6 @@
 For driver-layer hardware exceptions (HardwareError), see drivers/exceptions.py.
 """
 
-import enum
 import pathlib
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -1855,12 +1854,13 @@ class HardwareCommandRefusedError(Refusal, Exception):
     stamps the active objective's scale into each capture, so a change
     mid-run is a command against the run's hardware state.
 
-    A motion command for hardware the scope does not have raises it too,
-    and ``missing`` names the part: ``'not_connected'`` when the model has
-    a motor controller and none is connected, whose remedy is the cable;
-    ``'axis_absent'`` when the scope has no such motor -- a Z-only scope
-    asked for X, a scope with no turret asked for one, a manual scope asked
-    for any motion. Nothing was driven. So does a move whose drive needs a
+    A motion or LED command for hardware the scope does not have raises it
+    too, and ``missing`` names the part: ``'not_connected'`` when the model
+    has a motor controller and none is connected, whose remedy is the cable,
+    or when no LED controller is connected; ``'axis_absent'`` when the
+    scope has no such motor or LED -- a Z-only scope asked for X, a scope
+    with no turret asked for one, a manual scope asked for any motion, an
+    LS560 asked to light Red. Nothing was driven. So does a move whose drive needs a
     position the controller did not report (``'position_unread'``): the
     relative base, or Z for the backlash approach. Nothing was driven and
     the axis keeps its state.
@@ -1912,42 +1912,82 @@ class HardwareCommandRefusedError(Refusal, Exception):
         )
 
 
-class MissingPart(enum.Enum):
+@dataclass(frozen=True)
+class MissingPart:
     """The hardware a refused command needed that the scope does not have.
 
     The refusal's reason and its sentence are the part's, so no raise words
-    its own: the motor controller of a model that has one is not connected,
-    and every other part is not on this scope.
+    its own: a controller the model has is not connected, and every other
+    part -- a motor, the turret, an LED -- is not on this scope. The motion
+    parts and the LED controller are the class's constants; an LED is named
+    when it is refused (``MissingPart.led``), by layer or by channel number,
+    as the command named it.
+
+    Attributes:
+        name: The part, for the log.
+        reason: ``'not_connected'`` for a controller, ``'axis_absent'``
+            otherwise.
+        sentence: What the person at the scope is told.
     """
 
-    MOTOR_CONTROLLER = 'motor controller'
-    MOTORS = 'motors'
-    X = 'X'
-    Y = 'Y'
-    Z = 'Z'
-    TURRET = 'T'
+    name: str
+    reason: str
+    sentence: str
+
+    MOTOR_CONTROLLER: ClassVar['MissingPart']
+    MOTORS: ClassVar['MissingPart']
+    X: ClassVar['MissingPart']
+    Y: ClassVar['MissingPart']
+    Z: ClassVar['MissingPart']
+    TURRET: ClassVar['MissingPart']
+    LED_CONTROLLER: ClassVar['MissingPart']
 
     @classmethod
     def axis(cls, axis: str) -> 'MissingPart':
-        """The part for a motion axis name, ``'X'``, ``'Y'``, ``'Z'`` or ``'T'``."""
-        return cls(axis)
+        """The part for a motion axis name, ``'X'``, ``'Y'``, ``'Z'`` or ``'T'``.
 
-    @property
-    def reason(self) -> str:
-        return 'not_connected' if self is MissingPart.MOTOR_CONTROLLER else 'axis_absent'
+        Raises:
+            ValueError: ``axis`` is not one of them.
+        """
+        try:
+            return _AXIS_PARTS[axis]
+        except KeyError:
+            raise ValueError(f'{axis!r} is not a motion axis') from None
 
-    @property
-    def sentence(self) -> str:
-        if self is MissingPart.MOTOR_CONTROLLER:
-            return (
-                'The motor controller is not connected. Check the USB cable and that '
-                'no other program is holding the port.'
-            )
-        if self is MissingPart.MOTORS:
-            return 'This microscope has no motors.'
-        if self is MissingPart.TURRET:
-            return 'This microscope has no turret.'
-        return f'This microscope has no {self.value} motor.'
+    @classmethod
+    def led(cls, led: 'str | int') -> 'MissingPart':
+        """The part for an LED this scope's model does not have.
+
+        Args:
+            led: The layer name the command gave, or the channel number.
+        """
+        if isinstance(led, str):
+            return cls(f'{led} LED', 'axis_absent', f'This microscope has no {led} LED.')
+        return cls(
+            f'LED channel {led}', 'axis_absent', f'This microscope has no LED on channel {led}.'
+        )
+
+
+MissingPart.MOTOR_CONTROLLER = MissingPart(
+    'motor controller',
+    'not_connected',
+    'The motor controller is not connected. Check the USB cable and that '
+    'no other program is holding the port.',
+)
+MissingPart.MOTORS = MissingPart('motors', 'axis_absent', 'This microscope has no motors.')
+MissingPart.X = MissingPart('X', 'axis_absent', 'This microscope has no X motor.')
+MissingPart.Y = MissingPart('Y', 'axis_absent', 'This microscope has no Y motor.')
+MissingPart.Z = MissingPart('Z', 'axis_absent', 'This microscope has no Z motor.')
+MissingPart.TURRET = MissingPart('T', 'axis_absent', 'This microscope has no turret.')
+MissingPart.LED_CONTROLLER = MissingPart(
+    'LED controller', 'not_connected', 'The LED controller is not connected.'
+)
+_AXIS_PARTS = {
+    'X': MissingPart.X,
+    'Y': MissingPart.Y,
+    'Z': MissingPart.Z,
+    'T': MissingPart.TURRET,
+}
 
 
 _MISSING_PART_REASONS = frozenset({'not_connected', 'axis_absent'})

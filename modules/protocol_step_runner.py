@@ -807,7 +807,9 @@ class ProtocolStepRunner:
         board reports the channel on; the short settle after covers the board's
         on-to-stable lag before the grab. A same-color step that kept its channel
         lit is left untouched (the diff self-skips), so consecutive z-slices do
-        not blink off->on.
+        not blink off->on. With no LED controller connected the light is
+        refused (``not_connected``) and the refusal ends the run as a
+        disconnect, before the step's frame is grabbed.
         """
         p = self._p
         if p._aborted.is_set():
@@ -815,19 +817,11 @@ class ProtocolStepRunner:
             # abort path is turning the LEDs off, and a stray on here flashes
             # the sample at cancel time.
             return
-        if not p._scope.led_connected:
-            # A disconnected LED board makes every step grab a dark frame; say so
-            # at the capture point so a black-frame run is diagnosable.
-            logger.warning(
-                '[Capture   ] LED controller not available; step channel not illuminated.'
-            )
-            return
         channel = p._scope.illumination.color2ch(step['Color'])
         if channel is None and step['Color'] in common_utils.get_layers_with_led():
-            # The board is connected (checked above) and the layer is one
-            # that drives an LED, so an unresolvable name here means this
-            # unit's identity has no such layer: the step will capture
-            # dark, deterministically, every scan. Say so per step -- a
+            # The layer is one that drives an LED, so an unresolvable name
+            # here means this unit's identity has no such layer: the step
+            # will capture dark, deterministically, every scan. Say so per step -- a
             # run in progress gets logs, not popups -- rather than let
             # the frames come back dark with no named cause.
             logger.error(

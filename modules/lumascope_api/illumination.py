@@ -18,9 +18,11 @@ import typing
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from drivers.null_ledboard import NullLEDBoard
 from lib import profile_trace
 from lvp_logger import logger
-from modules.exceptions import ConfigError
+from modules import common_utils
+from modules.exceptions import ConfigError, HardwareCommandRefusedError, MissingPart
 from modules.sequential_io_executor import IOTask
 
 if TYPE_CHECKING:
@@ -447,52 +449,115 @@ class IlluminationAPI:
     listener registry. Stateful bodies live here post-Phase 3d.
     """
 
-    # Marker returned by _resolve_channel for an off-request naming a colour
-    # this scope cannot drive: the request is complete without a command.
-    _OFF_NOOP = object()
+    def _on_channel(self, channel: int | str, member: str) -> int:
+        """The board channel an on-command lights, or the refusal that says why not.
 
-    def _resolve_channel(self, channel, *, missing_off_ok: bool):
-        """Map a colour-name channel argument to a numeric channel.
-
-        The single seam where a colour string becomes a channel number.
-        Drivers return None for a colour the scope cannot drive; this is
-        where that None becomes behavior: on-paths raise a named error (the
-        COLOUR reaches the user, never a sentinel channel number), off-paths
-        (``missing_off_ok=True``) return ``_OFF_NOOP`` -- a channel the
-        scope does not have is definitionally off, and the caller must
-        no-op BEFORE any numeric range check. Numeric input (including a
-        literal None) passes through untouched so the range checks keep
-        rejecting it.
+        The one order every on-command asks in: a channel at all, then the
+        board, then the model. A name that is no layer of this release is a
+        ``ConfigError``, and a number outside the installed board's table a
+        ``ValueError``, whatever is connected. Then a scope with no LED
+        controller connected refuses (``not_connected``). Then an LED this
+        model does not have is ``axis_absent``, named as the command named
+        it: a layer of the model that drives no LED (Lumi), a layer the
+        model lacks (an LS560's Red), or a number no layer of the model
+        drives (an LS560's 2). A model this release does not know (identity
+        unresolved) has no layers to judge a number by, so its numbers are
+        the board's.
 
         Raises:
-            ConfigError: On-path request for a colour this scope has no LED
-                channel for. Typed so async task-failure popups show the
-                named colour rather than a generic body.
+            ConfigError: a name that is no layer, or a layer whose LED the
+                attached board cannot address.
+            ValueError: a number outside the board's channel table.
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'axis_absent'``, naming the missing part.
         """
-        if not isinstance(channel, str):
-            return channel
-        mapped = self.color2ch(color=channel)
-        if mapped is not None:
+        identity = self._scope.layer_identity
+        if isinstance(channel, str):
+            if channel not in common_utils.get_layers():
+                available = tuple(r.key_name for r in identity.layers if r.led_channel)
+                raise ConfigError(
+                    f"This scope has no '{channel}' LED channel; available: {available}"
+                )
+            self.refuse_controller_not_connected(member)
+            mapped = self.color2ch(color=channel)
+            if mapped is None:
+                part = MissingPart.led(channel)
+                raise HardwareCommandRefusedError(part.reason, member, missing=part)
             # The fusion of identity and drivability: identity says what
             # the layer IS, the driver says what the board can DRIVE. A
             # layer whose record names a channel the attached board lacks
             # must fail by name here -- driving it anyway would light
             # whatever occupies that address on this board.
-            drivable = tuple(self._driver.available_channels()) if self._driver else ()
-            if mapped in drivable:
-                return mapped
-            if missing_off_ok:
-                _api_log.debug(f"led_off no-op: board cannot drive '{channel}' (ch {mapped})")
-                return self._OFF_NOOP
-            raise ConfigError(
-                f"The attached LED board cannot drive the '{channel}' layer "
-                f'(channel {mapped}; board channels: {drivable}).'
-            )
-        if missing_off_ok:
-            _api_log.debug(f"led_off no-op: scope has no '{channel}' LED channel")
-            return self._OFF_NOOP
-        available = tuple(r.key_name for r in self._scope.layer_identity.layers if r.led_channel)
-        raise ConfigError(f"This scope has no '{channel}' LED channel; available: {available}")
+            drivable = tuple(self._driver.available_channels())
+            if mapped not in drivable:
+                raise ConfigError(
+                    f"The attached LED board cannot drive the '{channel}' layer "
+                    f'(channel {mapped}; board channels: {drivable}).'
+                )
+            return mapped
+        valid_channels = self._driver.available_channels()
+        if channel not in valid_channels:
+            raise ValueError(f'LED channel must be one of {valid_channels}, got {channel}')
+        self.refuse_controller_not_connected(member)
+        if identity.source != 'unresolved' and self.ch2color(channel) is None:
+            part = MissingPart.led(channel)
+            raise HardwareCommandRefusedError(part.reason, member, missing=part)
+        return channel
+
+    def _off_channel(self, channel: int | str) -> int | None:
+        """The board channel an off-command darkens; None when it names no LED.
+
+        A name the model has no LED for -- not a layer, a layer the model
+        lacks, a layer that drives no LED -- is definitionally dark, so the
+        off is complete with no command. A number outside the board's table
+        is a ``ValueError``, as for an on.
+        """
+        if isinstance(channel, str):
+            mapped = self.color2ch(color=channel)
+            if mapped is None or mapped not in self._driver.available_channels():
+                _api_log.debug(f"led_off no-op: scope has no '{channel}' LED")
+                return None
+            return mapped
+        valid_channels = self._driver.available_channels()
+        if channel not in valid_channels:
+            raise ValueError(f'LED channel must be one of {valid_channels}, got {channel}')
+        return channel
+
+    def refuse_controller_not_connected(self, member: str) -> None:
+        """Refuse when no LED controller is connected.
+
+        The LED's presence question, asked by every command on the io lane
+        before it writes: none came up at bring-up, its cable was pulled,
+        or the scope was disconnected (then the lane itself refuses first,
+        ``scope_disconnected``). Offered alone to a caller that must refuse
+        before work of its own starts -- Go To Step asks it before moving
+        when the step's preview would light.
+
+        A consult seam, not part of the L2 API surface: an L2 caller's LED
+        command asks it itself.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the LED
+                controller. Nothing was sent.
+        """
+        if not self._scope.led_connected:
+            part = MissingPart.LED_CONTROLLER
+            raise HardwareCommandRefusedError(part.reason, member, missing=part)
+
+    def _has_board(self) -> bool:
+        """Whether an LED board is installed: not the null board.
+
+        The null board stands in when none came up at bring-up and after
+        ``disconnect()``; with it the state reads have no board to describe
+        and answer None. A board whose cable was pulled stays installed
+        until the scope is disconnected.
+        """
+        return not isinstance(self._driver, NullLEDBoard)
+
+    def _believed_lit(self, color: str) -> bool:
+        """Whether the state store holds ``color`` lit -- the cache, not the board."""
+        with self._led_state_lock:
+            return color in self._led_state
 
     def __init__(self, scope: Lumascope, driver: LEDBoardProtocol) -> None:
         self._scope = scope
@@ -581,21 +646,18 @@ class IlluminationAPI:
                 the active holder.
 
         Returns:
-            The commanded current in mA; None when no board is attached or
-            another lease holds the LEDs, so nothing was commanded.
+            The commanded current in mA; None when another lease holds the
+            LEDs, so nothing was commanded.
 
         Raises:
             ValueError: If channel or illumination_ma is out of range.
-            ConfigError: If a colour name this scope cannot drive is given.
+            ConfigError: If a name that is no layer is given (see
+                ``_on_channel``).
+            HardwareCommandRefusedError: ``'not_connected'`` with no LED
+                controller connected; ``'axis_absent'`` for an LED this
+                model does not have. Nothing was sent.
         """
-        if not self._driver:
-            return None
-
-        channel = self._resolve_channel(channel, missing_off_ok=False)
-
-        valid_channels = self._driver.available_channels()
-        if channel not in valid_channels:
-            raise ValueError(f'LED channel must be one of {valid_channels}, got {channel}')
+        channel = self._on_channel(channel, 'led_on')
         led_max_ma = self._scope.capabilities.led_max_ma
         if (
             not isinstance(illumination_ma, (int, float))
@@ -606,15 +668,16 @@ class IlluminationAPI:
         commanded_ma = self._driver.commanded_ma(illumination_ma)
 
         # Skip redundant command if channel is already on at the same current
-        color_name = self.state_ch2color(channel)
+        color_name = self._driver.ch2color(channel)
         if color_name:
-            current_ma = self.get_led_state(color_name)['illumination_ma']
+            with self._led_state_lock:
+                cached_entry = self._led_state.get(color_name)
+            current_ma = None if cached_entry is None else cached_entry['illumination_ma']
             # _led_state cache-equality trace for the slider > ~150 mA
             # silent-fail bench investigation. Gated by the scope's
             # fx2_debug_wire, the same flag the FX2 LED driver traces with.
             if self._scope._fx2_debug_wire:
-                cached_entry = self._led_state.get(color_name)
-                is_enabled = self.get_led_state(color_name)['enabled']
+                is_enabled = cached_entry is not None
                 try:
                     delta = (
                         None
@@ -636,11 +699,7 @@ class IlluminationAPI:
                     is_enabled,
                     cached_entry,
                 )
-            if (
-                current_ma is not None
-                and abs(commanded_ma - float(current_ma)) < 0.01
-                and self.get_led_state(color_name)['enabled']
-            ):
+            if current_ma is not None and abs(commanded_ma - float(current_ma)) < 0.01:
                 return commanded_ma
 
         # While a run holds the LEDs, a write by anyone but the active lease
@@ -666,7 +725,6 @@ class IlluminationAPI:
 
         # Update the API-level state cache and which lease lit the channel.
         # Unconditional -- a write with no lease (a UI click) is recorded too.
-        color_name = self.state_ch2color(channel)
         if color_name:
             with self._led_state_lock:
                 self._led_state[color_name] = {
@@ -686,28 +744,29 @@ class IlluminationAPI:
                 a caller holding no lease. Refused while a different lease is
                 the active holder.
 
+        An off whose end state already holds is satisfied with no write and
+        no log: a channel the API holds dark, an LED the model does not
+        have, any off with no LED controller and nothing believed lit. Only
+        an off of a channel believed lit asks for the controller.
+
         Raises:
             ValueError: If channel is out of range.
+            HardwareCommandRefusedError: ``'not_connected'``, a channel
+                believed lit and no LED controller connected to darken it.
         """
-        if not self._driver:
+        channel = self._off_channel(channel)
+        if channel is None:
             return
-
-        channel = self._resolve_channel(channel, missing_off_ok=True)
-        if channel is self._OFF_NOOP:
-            return
-
-        valid_channels = self._driver.available_channels()
-        if channel not in valid_channels:
-            raise ValueError(f'LED channel must be one of {valid_channels}, got {channel}')
 
         # Skip if channel is already off. Reads from the API-level
         # _led_state cache, which is correct for both LEDBoard and FX2.
         # Prior behavior delegated to the driver's get_led_state, which
         # for FX2 always returned False -- making led_off a complete
         # no-op.
-        color_name = self.state_ch2color(channel)
-        if color_name and not self.get_led_state(color_name)['enabled']:
+        color_name = self._driver.ch2color(channel)
+        if color_name and not self._believed_lit(color_name):
             return
+        self.refuse_controller_not_connected('led_off')
 
         # Refused for the same reason as led_on (see above): an off from the
         # live UI while a run holds the channel is the shape behind the
@@ -735,16 +794,42 @@ class IlluminationAPI:
     def _leds_off_impl(self) -> None:
         """Turn off all LEDs (nuclear -- ignores any held lease).
 
-        Writes nothing when no LED board is connected: there is nothing to
-        darken, and a write to a board unplugged since bring-up only fails.
-        The check is here, not left to ``_dispatch_led``, because bring-up
-        and shutdown call this without the dispatcher; it reads
-        ``led_connected`` rather than the driver's truthiness because with
-        no board the composition root installs a NullLEDBoard, which is
-        truthy.
+        With an LED controller connected the board's all-off is written
+        whatever the API believes lit. Without one, it is satisfied when
+        nothing is believed lit.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, a channel
+                believed lit and no LED controller connected to darken it.
         """
         if not self._scope.led_connected:
+            with self._led_state_lock:
+                lit = bool(self._led_state)
+            if lit:
+                self.refuse_controller_not_connected('leds_off')
             return
+        self._write_leds_off()
+
+    def _leds_off_if_present(self) -> bool:
+        """The scope's own all-off: bring-up, shutdown and the safety off.
+
+        Asks presence first and writes nothing when no LED controller is
+        connected: there is nothing to darken, and a write to a board
+        unplugged since bring-up only fails. Reads ``led_connected`` rather
+        than the driver's truthiness because with no board the composition
+        root installs a NullLEDBoard, which is truthy.
+
+        Returns:
+            True when the all-off was written; False when no LED controller
+            was connected to write it to.
+        """
+        if not self._scope.led_connected:
+            return False
+        self._write_leds_off()
+        return True
+
+    def _write_leds_off(self) -> None:
+        """Write the board's all-off and record every channel dark."""
         with self._led_lock:
             self._driver.leds_off()
         self._notify_if_led_command_failed()
@@ -774,20 +859,11 @@ class IlluminationAPI:
 
         The lane's ``call`` decides a refusal and raises it to the caller:
         the lane is closed, or a run or a diagnostic holds the scope and this
-        call is not made under its taking.
+        call is not made under its taking. The body asks for the LED
+        controller on the lane (``refuse_controller_not_connected``), so a
+        lane refusal is never hidden behind the presence question.
         """
         kwargs = kwargs or {}
-        # The board check has to live here, not be left to the body. Most
-        # `_impl`s open with `if not self._driver: return`, which never fires:
-        # the composition root installs a NullLEDBoard rather than None when
-        # no board is present, and that object is truthy. So the body would
-        # run, the Null driver would swallow the command, and the state cache
-        # would go on to record the channel as lit -- the API reporting an LED
-        # on with no board attached. `led_connected` is the check that
-        # distinguishes a Null board from a real one.
-        if not self._scope.led_connected:
-            logger.warning('[SCOPE API ] LED controller not available.')
-            return None
         return self._scope._io_executor.call(
             IOTask(action=impl, args=args, kwargs=kwargs), name, _LED_WRITE_TIMEOUT_S
         )
@@ -854,7 +930,7 @@ class IlluminationAPI:
         the notification stack, state cache, and listener bus may already
         be torn down. Don't call from normal code paths; use `leds_off`
         instead. Writes nothing when no LED board is connected, for the
-        reason ``_leds_off_impl`` gives.
+        reason ``_leds_off_if_present`` gives.
         """
         if not self._scope.led_connected:
             return
@@ -914,7 +990,7 @@ class IlluminationAPI:
             )
 
     # --- State ---
-    def get_led_state(self, channel: str) -> dict:
+    def get_led_state(self, channel: str) -> dict | None:
         """Get the on/off state and illumination for an LED channel.
 
         Reads from the API-level _led_state cache.
@@ -923,18 +999,19 @@ class IlluminationAPI:
             channel: Channel name (e.g. "Blue", "Green", "Red", "BF").
 
         Returns:
-            {'enabled': bool, 'illumination_ma': float | None}.
-            illumination_ma is None when off / no LED board.
+            {'enabled': bool, 'illumination_ma': float | None};
+            illumination_ma is None when off. None when no LED board is
+            installed (none came up, or after ``disconnect()``).
         """
-        if not self._driver:
-            return {'enabled': False, 'illumination_ma': None}
+        if not self._has_board():
+            return None
         with self._led_state_lock:
             entry = self._led_state.get(channel)
             if entry is None:
                 return {'enabled': False, 'illumination_ma': None}
             return {'enabled': True, 'illumination_ma': entry['illumination_ma']}
 
-    def get_led_states(self) -> dict:
+    def get_led_states(self) -> dict | None:
         """Get state and illumination for all LED channels.
 
         Returns states for ALL channels the driver supports (not just
@@ -943,10 +1020,11 @@ class IlluminationAPI:
         Returns:
             Mapping of color -> {'enabled': bool, 'illumination_ma': float | None}
             for every channel the driver supports. illumination_ma is None
-            when the channel is off. Empty if no LED board is connected.
+            when the channel is off. None when no LED board is installed
+            (none came up, or after ``disconnect()``).
         """
-        if not self._driver:
-            return {}
+        if not self._has_board():
+            return None
         all_colors = self._driver.available_colors()
         with self._led_state_lock:
             return {
@@ -962,16 +1040,19 @@ class IlluminationAPI:
             }
 
     # --- Save / restore ---
-    def save_led_state(self, tag: str) -> dict:
+    def save_led_state(self, tag: str) -> dict | None:
         """Snapshot the current LED state for later restoration.
 
         Args:
             tag: Descriptive name for the snapshot (for logging).
 
         Returns:
-            Snapshot suitable for passing to ``restore_led_state``.
+            Snapshot suitable for passing to ``restore_led_state``; None
+            when no LED board is installed, so there is no state to keep.
         """
         states = self.get_led_states()
+        if states is None:
+            return None
         snapshot = {'tag': tag, 'states': states}
         _api_log.info(
             f'save_led_state tag={tag}: {[c for c, s in states.items() if s.get("enabled")]}'
@@ -1009,14 +1090,18 @@ class IlluminationAPI:
         # Turn off only channels that should NOT be on after restore, so a
         # channel already lit at its target is left untouched (no off-then-on
         # blink).
-        for color in list(self.get_led_states()):
-            if color not in target_on and self.get_led_state(color)['enabled']:
-                self._led_off_impl(channel=color)
+        with self._led_state_lock:
+            lit_colors = list(self._led_state)
+        for color in lit_colors:
+            if color not in target_on:
+                ch = self._driver.color2ch(color)
+                if ch is not None:
+                    self._led_off_impl(channel=ch)
 
         # Re-assert the target channels; led_on self-skips channels already at
         # their target mA, so this does not blink an already-correct channel.
         for color, illumination_ma in target_on.items():
-            ch = self.state_color2ch(color)
+            ch = self._driver.color2ch(color)
             if ch is not None:
                 self._led_on_impl(channel=ch, illumination_ma=illumination_ma)
 
@@ -1025,22 +1110,43 @@ class IlluminationAPI:
 
         Channels lit by another lease or by an unleased write are left
         alone.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, the lease lit
+                a channel and no LED controller is connected to darken it;
+                the channel stays believed lit.
         """
-        if not self._driver:
-            return
         with self._led_state_lock:
             channels_to_off = [color for color, by in self._lit_by.items() if by is lease]
+        if not channels_to_off:
+            return
+        self.refuse_controller_not_connected('LedLease.release')
+        with self._led_state_lock:
             for color in channels_to_off:
                 self._lit_by.pop(color, None)
                 self._led_state.pop(color, None)
         for color in channels_to_off:
-            ch = self.state_color2ch(color)
+            ch = self._driver.color2ch(color)
             if ch is not None:
                 with self._led_lock:
                     self._driver.led_off(ch)
                 self._scope.imaging.frame_validity.invalidate('led')
                 _api_log.info(f'led_off ch={ch} (release of the {lease.purpose!r} lease)')
                 self._fire_led_listeners(color, False, 0.0)
+
+    def _forget_led_state(self) -> None:
+        """Hold nothing lit: ``disconnect()`` darkened the board and removed it.
+
+        The emergency off ``disconnect()`` writes leaves the state store as
+        it was, so the store is cleared here once the board is gone, and
+        the listeners are told each channel that was lit went dark.
+        """
+        with self._led_state_lock:
+            lit = list(self._led_state)
+            self._led_state.clear()
+            self._lit_by.clear()
+        for color in lit:
+            self._fire_led_listeners(color, False, 0.0)
 
     # --- Ownership lease ---
     def _holder_is_stranded(self, lease: LedLease) -> str | None:
@@ -1263,7 +1369,7 @@ class IlluminationAPI:
         with self._led_state_lock:
             lit_colors = list(self._led_state)
         for color in lit_colors:
-            ch = self.state_color2ch(color)
+            ch = self._driver.color2ch(color)
             if ch is not None and ch not in target_channels:
                 self._led_off_impl(channel=ch, _lease=lease)
         for ch, illumination_ma in target:
@@ -1296,7 +1402,7 @@ class IlluminationAPI:
             block=transition in _CONFIRM_ON_TRANSITIONS,
         )
 
-    def force_off(self) -> None:
+    def force_off(self) -> bool:
         """Turn off all LEDs unconditionally, bypassing any held lease.
 
         Internal lease-bypassing safety off for the writer path -- not
@@ -1306,12 +1412,19 @@ class IlluminationAPI:
         callers: an idempotent off must never be refused because another
         subsystem holds the lease. When a lease is held this logs loudly so
         the bypass is visible in post-mortem; the lease itself is left
-        intact, so its holder still releases normally.
+        intact, so its holder still releases normally. With no LED
+        controller connected it writes nothing and is not refused (the
+        scope's own off asks presence first).
+
+        Returns:
+            True when the all-off was written; False when no LED controller
+            was connected to write it to, so whatever the board holds lit
+            stays lit.
         """
         held = self.led_lease_purpose
         if held is not None:
             _api_log.warning('force_off bypassing the held %r LED lease', held)
-        self._leds_off_impl()
+        return self._leds_off_if_present()
 
     # --- Enable / disable ---
     # --- Wait ---
@@ -1342,7 +1455,7 @@ class IlluminationAPI:
         Answers from the unit's resolved layer identity by stable
         `key_name`. None means the layer is unknown to this unit's
         identity OR drives no LED (luminescence): on-paths turn that
-        into a named error at `_resolve_channel`, off-paths no-op.
+        into a named refusal at `_on_channel`, off-paths no-op.
         """
         record = self._scope.layer_identity.find(color)
         if record is None or not record.led_channel:
@@ -1353,9 +1466,9 @@ class IlluminationAPI:
         """The DRIVER's name for *channel* -- state bookkeeping only,
         not part of the L2 API surface. Identity questions use
         `ch2color`; this exists so state records and extinguish paths
-        follow the board's own table.
+        follow the board's own table. None when no LED board is installed.
         """
-        if not self._driver:
+        if not self._has_board():
             return None
         return self._driver.ch2color(channel)
 
@@ -1364,9 +1477,10 @@ class IlluminationAPI:
         not part of the L2 API surface. Restore snapshots are keyed by
         the names the state store recorded at light time; replaying them
         through the driver's table guarantees a lit channel can always
-        be re-addressed, whatever the current identity says.
+        be re-addressed, whatever the current identity says. None when no
+        LED board is installed.
         """
-        if not self._driver:
+        if not self._has_board():
             return None
         return self._driver.color2ch(color)
 

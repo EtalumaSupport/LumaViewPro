@@ -368,6 +368,8 @@ class TestGetCurrentPlatePosition:
 
         scope.motion = MotionAPI.__new__(MotionAPI)
         scope.motion._scope = scope
+        # Not disconnected: the lanes are open.
+        scope._io_executor.pending_shutdown = False
         with pytest.raises(HardwareCommandRefusedError) as refused:
             config_helpers.get_current_plate_position(
                 scope,
@@ -474,17 +476,22 @@ class TestLumascopeLedAPI:
         color = scope.illumination.ch2color(1)
         assert scope.illumination.get_led_state(color)['illumination_ma'] == 75.0
 
-    def test_led_on_skips_when_no_led(self):
-        # Nothing is queued AND nothing is recorded as lit. The second half
-        # is the one with teeth: the body's own `if not self._driver` guard
-        # cannot catch a Null board (it is truthy), so without the dispatch
-        # guard the command would no-op at the driver while the state cache
-        # went on claiming the channel was on.
+    def test_led_on_without_a_board_is_refused(self):
+        # Refused on the lane, AND nothing is recorded as lit: a Null board
+        # is truthy, so a body that only asked the driver's truthiness would
+        # no-op at the driver while the state cache went on claiming the
+        # channel was on.
+        from modules.exceptions import HardwareCommandRefusedError, MissingPart
+
         scope, io_ex, _ = _make_real_scope_with_recording_executors(led=False)
-        scope.illumination.led_on(0, 50)
-        assert io_ex.submitted == []
-        lit = [c for c, s in scope.illumination.get_led_states().items() if s.get('enabled')]
-        assert lit == []
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            scope.illumination.led_on(0, 50)
+        assert (refused.value.reason, refused.value.missing) == (
+            'not_connected',
+            MissingPart.LED_CONTROLLER,
+        )
+        assert len(io_ex.submitted) == 1
+        assert scope.illumination._led_state == {}
 
     def test_led_off_blocks_until_the_write_lands(self):
         scope, io_ex, _ = _make_real_scope_with_recording_executors()
@@ -499,11 +506,16 @@ class TestLumascopeLedAPI:
         [lambda ill: ill.led_off(0), lambda ill: ill.leds_off()],
         ids=['led_off', 'leds_off'],
     )
-    def test_led_off_and_leds_off_skip_when_no_led(self, turn_off):
-        # No LED controller: nothing is queued and nothing reaches a board.
+    def test_led_off_and_leds_off_are_satisfied_when_no_led(self, turn_off):
+        # No LED controller and nothing believed lit: the off is satisfied
+        # on the lane, with nothing raised and nothing written.
         scope, io_ex, _ = _make_real_scope_with_recording_executors(led=False)
+        writes = []
+        scope._led_driver.led_off = lambda *a: writes.append(('led_off', *a))
+        scope._led_driver.leds_off = lambda: writes.append(('leds_off',))
         turn_off(scope.illumination)
-        assert io_ex.submitted == []
+        assert len(io_ex.submitted) == 1
+        assert writes == []
 
     def test_unregistered_io_executor_runs_the_body_directly(self):
         """With no executor registered there is nothing to submit to, so the

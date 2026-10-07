@@ -888,10 +888,9 @@ class ProtocolImageWriter:
         # it previously waited for a slot -- accepted.
         if aborting:
             step_color = step.get('Color', '')
-            # led_connected term: color2ch also returns None
-            # when no LED board is present at all -- a
-            # board-less run's failures are not a missing
-            # channel and must keep the camera wording.
+            # led_connected term: with the LED controller gone
+            # the failures are the disconnect's, not a missing
+            # channel, and keep the camera wording.
             undrivable = (
                 step_color in common_utils.get_layers_with_led()
                 and self._scope.led_connected

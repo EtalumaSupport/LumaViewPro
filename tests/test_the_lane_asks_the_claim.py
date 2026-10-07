@@ -419,13 +419,13 @@ class TestTheShutdownOverride:
         session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         illumination = session.scope.illumination
         threads = []
-        real = illumination._leds_off_impl
+        real = illumination._leds_off_if_present
 
         def _spy(*args, **kwargs):
             threads.append(threading.current_thread().name)
             return real(*args, **kwargs)
 
-        monkeypatch.setattr(illumination, '_leds_off_impl', _spy)
+        monkeypatch.setattr(illumination, '_leds_off_if_present', _spy)
         held = session.activity_claim.try_claim('diagnostic')
         try:
             session.shutdown()

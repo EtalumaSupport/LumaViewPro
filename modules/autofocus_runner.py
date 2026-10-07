@@ -24,6 +24,7 @@ from modules.exceptions import (
     AutofocusFailedError,
     AutofocusZNotRestoredError,
     CameraSettingRejected,
+    HardwareCommandRefusedError,
 )
 from modules.kivy_utils import schedule_ui as _schedule_ui
 from modules.lumascope_api.illumination import (
@@ -406,9 +407,11 @@ class AutofocusRunner:
                 logger.debug('[AF] precision restore in error path failed', exc_info=True)
             self._is_focusing_event.clear()
             self._is_complete_event.clear()
-            if isinstance(ex, AutofocusFailedError):
+            if isinstance(ex, (AutofocusFailedError, HardwareCommandRefusedError)):
                 # A refusal the sweep decided, already logged with its
-                # numbers, is reported as itself.
+                # numbers, is reported as itself; so is a command the
+                # hardware refused -- the light that could not go on names
+                # the missing LED controller, not an unexpected error.
                 failed = ex
             else:
                 params_repr = repr(getattr(self, '_params', None))[:500]

@@ -74,6 +74,11 @@ class LayerControl(BoxLayout):
     # Hides the focus and autofocus rows on a scope with no Z axis; set from
     # scope.capabilities.has_focus when the scope's features are applied.
     focus_support = BooleanProperty(True)
+    # Orthogonal runtime gate (like camera_autogain_support): hides the LED
+    # toggle and the illumination current on a scope that came up without
+    # its LED board; set from scope.capabilities when the camera's
+    # capabilities are synced. AND-ed with the static illumination_support.
+    led_controller_support = BooleanProperty(True)
     show_camera_controls = BooleanProperty(True)
     # Drives the 8-bit summing depth-loss hint row; the row height follows the
     # label's wrapped texture so the multi-line warning is not clipped.
@@ -1014,7 +1019,9 @@ class LayerControl(BoxLayout):
                     for layer in common_utils.get_layers():
                         if layer == self.layer:
                             continue
-                        if illumination_api.get_led_state(channel=layer)['enabled']:
+                        # None with no LED board installed: nothing is lit.
+                        state = illumination_api.get_led_state(channel=layer)
+                        if state is not None and state['enabled']:
                             submit_reported(
                                 lambda lit=layer: illumination_api.led_off(lit),
                                 None,

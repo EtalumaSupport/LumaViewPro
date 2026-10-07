@@ -95,8 +95,8 @@ class _FakeMotion:
 class _FakeIllumination:
     """Commanded LED state, the shape get_led_states() returns.
 
-    Empty dict models a scope with no LED board, which is what the real
-    accessor returns in that case.
+    None models a scope with no LED board installed, which is what the
+    real accessor returns in that case.
     """
 
     def __init__(self, lit=None, board=True):
@@ -105,7 +105,7 @@ class _FakeIllumination:
 
     def get_led_states(self):
         if not self._board:
-            return {}
+            return None
         return {
             color: {'enabled': color == self._lit, 'illumination_ma': None, 'owner': ''}
             for color in ('Blue', 'Green', 'Red', 'BF', 'PC', 'DF')
@@ -826,7 +826,7 @@ class TestChannelIdentity:
         assert list(captured['df']['Color']) == ['BF', 'BF']
 
     def test_no_led_board_falls_back_to_the_open_layer(self, tmp_path, monkeypatch):
-        # get_led_states() is empty with no board, so the open layer stands.
+        # get_led_states() is None with no board, so the open layer stands.
         captured = _capture_hyperstack_df(monkeypatch)
         scope = _FakeScope(board=False)
         controller, scope, clock = make_controller(tmp_path, scope=scope, hyperstack=True)

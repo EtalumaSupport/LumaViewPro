@@ -792,6 +792,9 @@ def test_disconnect_tears_down_temp_logging_schedule():
     scope = imaging._scope
     scope.motion = SimpleNamespace(_disconnect=lambda: None)
     scope._led_driver = SimpleNamespace(disconnect=lambda: None)
+    scope.illumination = SimpleNamespace(
+        _leds_off_emergency=lambda: None, _forget_led_state=lambda: None
+    )
     # A motor board with nothing connected: teardown has nothing to stop.
     scope._motion_driver = SimpleNamespace(disconnect=lambda: None, is_connected=lambda: False)
     scope.diagnostics = SimpleNamespace(get_camera_temperatures_degc=lambda: None)

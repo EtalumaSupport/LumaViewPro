@@ -100,7 +100,7 @@ def test_a_blank_x_never_reaches_the_travel_check():
 def test_a_disconnected_scope_is_told_it_is_disconnected_first(
     executor, scope, tmp_path, monkeypatch
 ):
-    monkeypatch.setattr(scope, 'are_all_connected', lambda: False)
+    monkeypatch.setattr(scope, 'unconnected_parts', lambda: ('camera',))
     protocol = _make_multi_step_protocol([{'name': 'too_high', 'z': _past_z(scope)}])
     assert _refusal(executor, protocol, tmp_path).reason == 'hardware_disconnected'
 

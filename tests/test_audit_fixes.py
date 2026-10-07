@@ -1578,7 +1578,7 @@ class TestRule14_A4_PreRunValidationNotify:
 
 
 class TestRule14_A5_AreAllConnectedExceptionNotify:
-    """A5: are_all_connected() exception branch must notify (Rule 14)."""
+    """A5: the connection check's exception branch must notify (Rule 14)."""
 
     def test_are_all_connected_exception_branch_notifies(self, centre_posts):
         """A raising connectivity check aborts the run with a typed fault that shows as an error.
@@ -1590,7 +1590,7 @@ class TestRule14_A5_AreAllConnectedExceptionNotify:
         from modules.notification_center import notifications
 
         runner = _bare_capture_runner()
-        runner._scope.are_all_connected.side_effect = RuntimeError('usb tree gone')
+        runner._scope.unconnected_parts.side_effect = RuntimeError('usb tree gone')
         with pytest.raises(RunCheckFailedError) as raised:
             runner.prepare(**_scr_run_kwargs())
         assert not _posted(centre_posts, Severity.ERROR), (
@@ -9940,8 +9940,8 @@ class TestLedSentinelReturnsAreNone:
     type is now uniform across the LED query surface."""
 
     def test_get_led_ma_returns_none_when_driver_absent(self):
-        """A diagnostic-mode instance with a NullLEDBoard driver path
-        exercises the not-self._driver branch -- returns None, not -1."""
+        """With the NullLEDBoard installed there is no board to describe:
+        the read answers None, never -1 or a made-up off state."""
         from drivers.null_ledboard import NullLEDBoard
 
         scope = build_scope(simulate=True, register_atexit=False)
@@ -9949,7 +9949,7 @@ class TestLedSentinelReturnsAreNone:
             scope._led_driver = NullLEDBoard()
             # IlluminationAPI._driver re-resolves through _scope._led_driver
             # each call, so the hot-swap propagates.
-            assert scope.illumination.get_led_state('Blue')['illumination_ma'] is None
+            assert scope.illumination.get_led_state('Blue') is None
         finally:
             scope.disconnect()
 
@@ -10747,8 +10747,8 @@ class TestShutdownLedsOffRoutedThroughIoExecutor:
             'so the LED serial bus is not contended by a parallel '
             'writer during shutdown drain.'
         )
-        assert 'IOTask(action=self.scope.illumination._leds_off_impl)' in block, (
-            'IOTask must wrap the private _leds_off_impl so '
+        assert 'IOTask(action=self.scope.illumination._leds_off_if_present)' in block, (
+            "IOTask must wrap the scope's own all-off, _leds_off_if_present, so "
             'the io lane serializes it with other LED writes.'
         )
         assert 'fut.result(timeout=2.0)' in block, (

@@ -777,7 +777,7 @@ class TestRefusalNotifyOnceFunnel:
             return protocol
 
         def hardware_disconnected(mp):
-            mp.setattr(scope, 'are_all_connected', lambda: False)
+            mp.setattr(scope, 'unconnected_parts', lambda: ('camera',))
             return _make_single_step_protocol()
 
         def position_unknown(mp):
