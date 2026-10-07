@@ -665,7 +665,7 @@ print(result.status, result.reason, result.message)
 pending.stop()
 ```
 
-**Standalone autofocus.** `run_autofocus(layer)` focuses once on one layer at the current stage position, without a protocol:
+**Standalone autofocus.** `run_autofocus(layer)` focuses once on one layer at the current stage position, without a protocol. Before a home there is no current position to start from: it raises `AxisStateUnknownError` (from `session.get_current_plate_position()`), as `run_zstack` and `start_composite` do:
 
 ```python
 pending = runner.run_autofocus('BF', save_characterization_data=True)
@@ -757,7 +757,7 @@ lock = session.set_layer_auto_gain('BF', False)
 lock.state, session.settings['BF']['gain_db'], session.settings['BF']['exposure_ms']
 ```
 
-**Creating a protocol.** `session.new_protocol(tiling='1x1', use_zstacking=False, period=None, duration=None)` does what the GUI's New does: one step per layer whose `acquire` is set, at every well of the session's labware, with the current objective, tiled and z-stacked as asked. `period` and `duration` are `datetime.timedelta`s; one left out (None) is the stored default's (`settings['protocol']`), and one scan is `timedelta(0)`. The GUI passes the schedule on screen. When no layer is set to acquire it raises `ProtocolRunRefusedError` with reason `no_acquiring_layer`, and a `tiling` this installation does not offer raises it with reason `tiling_unknown`; each is logged and notified once and builds nothing; a labware with no wells gives an empty protocol to fill with `add_step`. `session.create_empty_protocol()` is the no-step protocol that needs no objective.
+**Creating a protocol.** `session.new_protocol(tiling='1x1', use_zstacking=False, period=None, duration=None)` does what the GUI's New does: one step per layer whose `acquire` is set, at every well of the session's labware, with the current objective, tiled and z-stacked as asked. `period` and `duration` are `datetime.timedelta`s; one left out (None) is the stored default's (`settings['protocol']`), and one scan is `timedelta(0)`. The GUI passes the schedule on screen. When no layer is set to acquire it raises `ProtocolRunRefusedError` with reason `no_acquiring_layer`, and a `tiling` this installation does not offer raises it with reason `tiling_unknown`; each is logged and notified once and builds nothing; a labware with no wells gives an empty protocol to fill with `add_step`. When a layer set to acquire has no saved focus its steps take the current Z, so with Z's position unknown (before a home) it raises `AxisStateUnknownError` naming Z, reported once, and builds nothing; with every acquiring layer focused it builds before a home too. `session.create_empty_protocol()` is the no-step protocol that needs no objective.
 
 **A protocol's schedule.** `protocol.period()` and `protocol.duration()` are the protocol's own, and the run runs them. `protocol.modify_time_params(period=..., duration=...)` sets both: a period is None or `timedelta(0)` (one scan) or at least one second, and a duration is None, `timedelta(0)` or more. Anything else -- a sub-second or negative period, a negative duration, a value that is not a `timedelta` -- raises `ProtocolScheduleRefusedError` (from `modules.protocol`; a `ProtocolFormatError`, a refusal) naming the value and the rule, and the protocol keeps the schedule it had; nothing is raised to one second. A protocol built with one, or a file carrying one, is refused the same way, the file by name. Post-processing a finished run reads its saved protocol without judging the schedule, which it never uses, so a run saved by a release that allowed a shorter period can still be stitched or projected. `schedule_from_units('period', minutes)` and `schedule_from_units('duration', hours)` convert the units the file and the settings hold, refusing what is not a runnable number.
 
@@ -1106,7 +1106,9 @@ session.capture_settings_snapshot()      # settings snapshot with objective_id s
                                          # for composing a capture or run; not for saving
 session.get_current_plate_position()     # current XY in plate coords; ConfigError when the stored plate is not in
                                          # the catalogue; HardwareCommandRefusedError('not_connected') when this
-                                         # model has a motor controller and none is connected
+                                         # model has a motor controller and none is connected;
+                                         # AxisStateUnknownError when an axis does not know its position
+                                         # (before a home) -- never a converted number nobody read
 session.get_auto_gain_settings()         # auto-gain config
 session.get_stim_configs()               # stim settings per layer
 session.get_enabled_stim_configs()       # only the enabled ones
@@ -1126,8 +1128,12 @@ config = session.get_sequenced_capture_config(tiling='2x2', use_zstacking=True)
 
 A layer whose focus was never saved (`get_layer_configs()[layer]['focus']`
 is `None`) is imaged at the stage's Z when the config was built: the
-config carries it as `current_z`, read from `get_current_plate_position()`.
-A layer with a saved focus keeps it.
+config carries it as `current_z`, Z's position from `scope.motion.axis_positions()`,
+or `None` while Z does not know it (before a home); a scope with no Z motor
+carries the plate position's Z. A layer with a saved focus keeps it.
+`new_protocol` refuses the unknown Z; a config passed to
+`scope.protocols.create_protocol` with an unfocused acquiring layer and no
+`current_z` raises `ConfigError`.
 
 The GUI builds the same configuration through the same builder, supplying
 those two from its own controls, so a scripted run and a run started from the

@@ -15,7 +15,7 @@ import time
 import traceback
 import harness
 
-s, live = harness.make_session('p8')
+s, live = harness.make_session('p8', home=True)
 try:
     from modules import config_helpers
 

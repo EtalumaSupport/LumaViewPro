@@ -28,6 +28,7 @@ from modules.lumascope_api import Lumascope
 from modules.notification_center import Severity, notifications
 from modules.path_utils import get_source_root
 from modules.scope_session import ScopeSession
+from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -89,6 +90,8 @@ def test_a_protocol_is_built_and_validated_against_the_scopes_catalogues(tmp_pat
         complete_settings(live_folder=str(tmp_path)), source_path=root, simulate=True
     )
     try:
+        # The plate position is read only once the scope knows it.
+        home_sim_scope(session.scope)
         config = config_helpers.get_sequenced_capture_config_from_settings(
             session.settings,
             objective_helper=session.objective_helper,

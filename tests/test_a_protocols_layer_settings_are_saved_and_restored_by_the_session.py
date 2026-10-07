@@ -20,6 +20,7 @@ import pytest
 
 from modules.exceptions import ProtocolNotSavedError
 from modules.protocol import ProtocolFormatError
+from tests.scope_fakes import home_sim_scope
 from tests.test_labware_name_resolution import _STEP_HEADER, _STEP_ROW, _protocol_file
 from tests.test_loading_a_protocol_puts_the_scope_on_its_plate import (  # noqa: F401 -- pytest fixture
     session,
@@ -83,6 +84,12 @@ def _only_bf_acquiring(session):
 
 
 class TestSaveThenRestore:
+    @pytest.fixture(autouse=True)
+    def _homed(self, session):
+        # New images an unfocused layer at the current Z, which needs a Z
+        # the scope knows.
+        home_sim_scope(session.scope)
+
     def test_a_saved_protocol_restores_its_steps_schedule_and_layer_settings(
         self, session, tmp_path
     ):

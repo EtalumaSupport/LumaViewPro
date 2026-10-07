@@ -1156,14 +1156,20 @@ class ScopeSession:
 
         The GUI builds the same config through the same builder, supplying
         these two from its widgets.
+
+        Its ``current_z`` is Z's position, or None while Z has none, so a
+        config never carries a number nobody read; ``new_protocol`` refuses
+        that before a step would be saved at it. A scope with no Z motor
+        takes the plate read's answer.
         """
         import modules.config_helpers as config_helpers
 
+        z = self.scope.motion.axis_positions().get('Z')
         return config_helpers.get_sequenced_capture_config_from_settings(
             self.capture_settings_snapshot(),
             objective_helper=self.objective_helper,
             wellplate_loader=self.wellplate_loader,
-            current_z=self.get_current_plate_position()['z'],
+            current_z=z.position if z is not None else self.get_current_plate_position()['z'],
             tiling=tiling,
             use_zstacking=use_zstacking,
         )
@@ -1477,13 +1483,25 @@ class ScopeSession:
                 the light path is unknown; a z-stack with no extent).
             ProtocolScheduleRefusedError: ``period`` or ``duration`` is one no
                 protocol can run.
+            AxisStateUnknownError: an acquiring layer has no saved focus, so
+                its steps would save the current Z, and Z does not know its
+                position. Reported once.
         """
+        from modules.protocol import Protocol
+
         config = self.get_sequenced_capture_config(tiling=tiling, use_zstacking=use_zstacking)
         if period is not None:
             config['period'] = period
         if duration is not None:
             config['duration'] = duration
-        self.scope.protocols.refuse_no_acquiring_layer(config['layer_configs'])
+        layer_configs = config['layer_configs']
+        self.scope.protocols.refuse_no_acquiring_layer(layer_configs)
+        if any(
+            Protocol.layer_acquires(cfg) and cfg['focus'] is None for cfg in layer_configs.values()
+        ):
+            self.scope.motion.refuse_unknown_positions(
+                ('Z',), recording=True, then='make a new protocol'
+            )
         return self.scope.protocols.create_protocol(input_config=config)
 
     def create_empty_protocol(self) -> 'Protocol':
@@ -2781,6 +2799,24 @@ class ScopeSession:
             raise ValueError(f'turret slot must be a whole number 1-4, got {position!r}')
 
     def get_current_plate_position(self) -> dict:
+        """The stage's position in plate coordinates, on the session's labware.
+
+        Returns:
+            dict: ``'x'`` and ``'y'`` in mm, ``'z'`` in um.
+
+        Raises:
+            AxisStateUnknownError: an axis the scope has does not know its
+                position (before a home, after a lost reference), so there
+                is no position to convert. Reported once.
+            HardwareCommandRefusedError: ``'not_connected'``, the model's
+                motor controller is not connected.
+        """
+        # The cable before the reference: with the controller gone every
+        # axis is unknown, and the remedy is the cable, not a home.
+        self.scope.motion.refuse_controller_not_connected('get_current_plate_position')
+        self.scope.motion.refuse_unknown_positions(
+            ('X', 'Y', 'Z'), recording=True, then='try again'
+        )
         return self._plate_position(self.settings.get('protocol', {}).get('labware'))
 
     def _plate_position(self, labware_id: str) -> dict:

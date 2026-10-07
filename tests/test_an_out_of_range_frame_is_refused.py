@@ -18,6 +18,7 @@ import dataclasses
 import pytest
 
 from modules.exceptions import CameraSettingOutOfRangeError
+from tests.scope_fakes import home_sim_scope
 
 
 @pytest.fixture
@@ -168,6 +169,8 @@ class TestBringUpStoresTheDeliveredFrame:
         for saved in ('1x1', '3x3'):
             s = self._create(tmp_path, (3840, 2160), binning=saved, BF={'acquire': 'image'})
             try:
+                # The unfocused BF steps take the current Z, which needs a home.
+                home_sim_scope(s.scope)
                 assert s.scope.imaging.get_binning_size() == 1
                 protocol = s.scope.protocols.create_protocol(
                     input_config=s.get_sequenced_capture_config(tiling='3x3')
