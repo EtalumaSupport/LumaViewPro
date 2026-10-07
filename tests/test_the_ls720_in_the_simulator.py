@@ -7,8 +7,12 @@ sequence, moves on all three axes, refuses X and Y with the lid open while
 Z still moves, and runs a protocol with tiling and a Z-stack.
 """
 
+import threading
+import time
+
 import pytest
 
+from drivers.exceptions import HardwareError
 from drivers.tmcm6110 import Tmcm6110Board
 from modules.exceptions import (
     HardwareCommandRefusedError,
@@ -154,6 +158,37 @@ def test_a_home_with_the_lid_open_is_refused_and_moves_nothing(homed):
     assert refused.value.reason == 'lid_open'
     assert _at(homed, 'Z') == pytest.approx(1_000, abs=0.1)
     assert homed.motion.has_homed()
+
+
+def test_a_position_the_board_does_not_report_is_unread_not_none(homed):
+    """A board that stays silent leaves the position unread: a relative
+    move is refused before anything drives, and the read raises, as on an
+    EL-0940. A None position reached the move's arithmetic as a TypeError."""
+    _board(homed).silent = True
+    try:
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            homed.motion.move_relative('X', -100)
+        assert refused.value.reason == 'position_unread'
+        with pytest.raises(HardwareError, match='no reply from the TMCM-6110'):
+            homed.motion.get_actual_position('X')
+    finally:
+        _board(homed).silent = False
+
+
+def test_the_motion_monitor_outlives_a_silence_during_a_move(homed):
+    """The monitor reads the actual position of a moving axis; a board that
+    misses those reads for a while is an unread position, which the monitor
+    handles, and a later move still arrives. A None position killed the
+    monitor thread, and every later move waited out its time limit."""
+    homed.motion.start_move_absolute('X', 60_000)
+    time.sleep(0.05)
+    _board(homed).silent = True
+    time.sleep(1.5)
+    _board(homed).silent = False
+    assert any(t.name == 'motion-monitor' and t.is_alive() for t in threading.enumerate())
+    homed.motion.home()
+    homed.motion.move_absolute('Y', 20_000)
+    assert _at(homed, 'Y') == pytest.approx(20_000, abs=0.2)
 
 
 def test_a_run_whose_lid_read_fails_is_not_checked_not_refused(homed, executor, tmp_path):

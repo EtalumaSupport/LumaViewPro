@@ -537,29 +537,42 @@ class Tmcm6110Board:
         self._motor(axis)
         self.move(axis, self.axes_config[axis]['move_func'](pos))
 
-    def _read_usteps(self, axis: str, parameter: int) -> int | None:
-        try:
-            raw = self._exchange(GAP, parameter, self._motor(axis))
-        except HardwareError as e:
-            logger.warning(f'[TMCM-6110 ] GAP {parameter} on {axis} failed: {e}')
-            return None
-        return self._from_board(axis, raw)
+    def _read_usteps(self, axis: str, parameter: int) -> int:
+        return self._from_board(axis, self._exchange(GAP, parameter, self._motor(axis)))
 
-    def target_pos_steps(self, axis: str) -> int | None:
+    def target_pos_steps(self, axis: str) -> int:
+        """The board's target in API microsteps.
+
+        Raises:
+            HardwareError: the board did not report the position.
+        """
         return self._read_usteps(axis, AP_TARGET_POSITION)
 
-    def current_pos_steps(self, axis: str) -> int | None:
+    def current_pos_steps(self, axis: str) -> int:
+        """The actual position in API microsteps.
+
+        Raises:
+            HardwareError: the board did not report the position.
+        """
         return self._read_usteps(axis, AP_ACTUAL_POSITION)
 
-    def _usteps_to_um(self, axis: str, usteps: int | None) -> float | None:
-        return None if usteps is None else self._ustep2um(axis, usteps)
+    def _usteps_to_um(self, axis: str, usteps: int) -> float:
+        return self._ustep2um(axis, usteps)
 
-    def target_pos(self, axis: str) -> float | None:
-        """The board's target in micrometres, or None if it could not be read."""
+    def target_pos(self, axis: str) -> float:
+        """The board's target in micrometres.
+
+        Raises:
+            HardwareError: the board did not report the position.
+        """
         return self._usteps_to_um(axis, self.target_pos_steps(axis))
 
-    def current_pos(self, axis: str) -> float | None:
-        """The actual position in micrometres, or None if it could not be read."""
+    def current_pos(self, axis: str) -> float:
+        """The actual position in micrometres.
+
+        Raises:
+            HardwareError: the board did not report the position.
+        """
         return self._usteps_to_um(axis, self.current_pos_steps(axis))
 
     def target_status(self, axis: str) -> bool:

@@ -571,7 +571,11 @@ def test_a_silent_board_raises_naming_the_command_and_keeps_the_port(board, sim)
     with pytest.raises(HardwareError, match=r'GAP 3, motor 0.*no reply'):
         board.target_status('X')
     assert board.is_connected() and board._serial is port
-    assert board.current_pos('X') is None
+    with pytest.raises(HardwareError, match=r'GAP 1, motor 0.*no reply'):
+        board.current_pos('X')
+    with pytest.raises(HardwareError, match=r'GAP 0, motor 0.*no reply'):
+        board.target_pos('X')
+    assert board._serial is port
 
     sim.silent = False
     assert board.current_pos('X') == 117_690
