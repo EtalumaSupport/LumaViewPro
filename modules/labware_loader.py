@@ -1,5 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import copy
 import logging
 import pathlib
 
@@ -155,8 +156,10 @@ class WellPlateLoader(LabwareLoader):
         return True
 
     def get_plate(self, plate_key: object) -> labware.WellPlate:
+        # The caller's own copy of the row: a changed plate would otherwise
+        # change the catalogue every later reader gets.
         return labware.WellPlate(
-            config=self.labware['Wellplate'][self.resolve_plate_key(plate_key)]
+            config=copy.deepcopy(self.labware['Wellplate'][self.resolve_plate_key(plate_key)])
         )
 
 

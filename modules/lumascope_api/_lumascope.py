@@ -1,9 +1,9 @@
 #!/usr/bin/python3
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import copy
 import dataclasses
 import sys
-import types
 import warnings
 
 from lvp_logger import logger
@@ -233,9 +233,7 @@ class Lumascope:
         self.objective_helper = objectives_loader.ObjectiveLoader(source_path=source_path)
         # Kept so a refusal of one of its rows names the file it came from.
         self._scope_models_path = resolve_data_file('scopes.json', source_path=source_path)
-        self.scope_models = types.MappingProxyType(
-            layer_record.load_scope_models(self._scope_models_path)
-        )
+        self._scope_models = layer_record.load_scope_models(self._scope_models_path)
         # The release's layer vocabulary is process-wide, not this folder's,
         # but the identity resolved after the lanes start needs it: asked
         # here, a broken one refuses before anything is started.
@@ -245,7 +243,7 @@ class Lumascope:
         )
         # What every setting is: the shipped template, which the Session's
         # settings writer checks a path and a value's kind against.
-        self.settings_template = read_installation_file(
+        self._settings_template = read_installation_file(
             resolve_data_file('settings.json', source_path=source_path)
         )
         return motorconfig_defaults
@@ -363,7 +361,7 @@ class Lumascope:
             InstallationFileError: the row breaks the rule or names a board
                 the simulator has no stand-in for, naming the catalogue.
         """
-        entry = self.scope_models[model]
+        entry = self._scope_models[model]
         led_board = entry.get('LEDBoard')
         motor_board = entry.get('MotorBoard')
         if led_board not in _SIMULATED_LED_BOARDS:
@@ -514,7 +512,7 @@ class Lumascope:
 
             default_model = settings.get('microscope', 'LS850T') if settings else 'LS850T'
             model = sim_model or configured_model or default_model
-            sim_axes = model_axes(self.scope_models, model)
+            sim_axes = model_axes(self._scope_models, model)
             sim_led_board, sim_motor_board = self._simulated_boards(model, sim_axes)
             if sim_camera_stall is not None and sim_led_board == 'FX2':
                 raise ValueError(
@@ -527,7 +525,7 @@ class Lumascope:
             # on every start. The probe still runs: a board it finds corrects
             # a wrongly selected model.
             motor_absence_expected = not entry_expects_motion(
-                self.scope_models.get(configured_model)
+                self._scope_models.get(configured_model)
             )
 
         # Shared state-slot init (audit #35) -- transformers, locks,
@@ -694,7 +692,7 @@ class Lumascope:
             led=self._led_driver,
             camera=self._camera_driver,
             layer_identity=self.layer_identity,
-            scope_models=self.scope_models,
+            scope_models=self._scope_models,
         )
 
         # ----- Sub-API wiring -----
@@ -798,7 +796,7 @@ class Lumascope:
             board_config_read_ok=read_ok,
             motor_model=motor_model,
             configured_model=self._configured_model,
-            models=self.scope_models,
+            models=self._scope_models,
             catalogue=release_catalogue(),
             override_model=override_model,
         )
@@ -1124,6 +1122,23 @@ class Lumascope:
     # All camera/imaging methods + state slots + change-listener registry
     # live on ImagingAPI; forwarders have been retired. Callers use
     # scope.imaging.
+
+    @property
+    def scope_models(self) -> dict:
+        """The model catalogue (scopes.json's ``Models``), as the caller's own copy.
+
+        A copy because the scope reads its own: a caller that changed what
+        it was given would otherwise change every later reader's catalogue.
+        """
+        return copy.deepcopy(self._scope_models)
+
+    @property
+    def settings_template(self) -> dict:
+        """The shipped settings template: which settings exist, and their shipped values.
+
+        The caller's own copy, for the reason ``scope_models`` gives.
+        """
+        return copy.deepcopy(self._settings_template)
 
     @property
     def motor_connected(self) -> bool:
@@ -1544,7 +1559,7 @@ class Lumascope:
             led=instance._led_driver,
             camera=None,
             layer_identity=instance.layer_identity,
-            scope_models=instance.scope_models,
+            scope_models=instance._scope_models,
         )
 
         # Sub-API wiring -- diagnostic instances are first-class enough

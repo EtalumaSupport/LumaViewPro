@@ -106,8 +106,10 @@ def test_a_real_scope_takes_its_models_from_its_folder(tmp_path, monkeypatch):
 def test_the_models_cannot_be_changed_through_the_scope(tmp_path):
     scope = build_scope(simulate=True, sim_model='LS850T', warn_pre_release=False)
 
-    with pytest.raises(TypeError):
-        scope.scope_models['LS999'] = {}
+    handed_out = scope.scope_models
+    handed_out['LS999'] = {}
+
+    assert 'LS999' not in scope.scope_models
 
 
 def test_a_model_the_folder_does_not_list_is_refused_before_a_lane_starts(tmp_path):
