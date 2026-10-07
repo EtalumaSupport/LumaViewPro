@@ -2,16 +2,42 @@
 
 import csv
 import datetime
-import io
 import os
 import pathlib
 
 import numpy as np
 import pandas as pd
 
-from modules.common_utils import PostFunction, recover_step_label, to_int
+from modules.common_utils import PostFunction, read_table, recover_step_label, to_int
+from modules.protocol import _bool_cell, _float_cell, _int_cell
 
 from lvp_logger import logger
+
+
+# The record's number and True/False columns, each with the cell reader for
+# its type; Z-Slice is read by to_int, which keeps a blank as -1.
+_RECORD_CELLS = {
+    'Scan Count': _int_cell,
+    'X': _float_cell,
+    'Y': _float_cell,
+    'Z': _float_cell,
+    'Tile Group ID': _int_cell,
+    'Custom Step': _bool_cell,
+    **dict.fromkeys(PostFunction.list_values(), _bool_cell),
+}
+
+
+def _read_record_cell(read, column: str, position: int, cell: str) -> object:
+    """One record cell read as its column's type.
+
+    Raises:
+        ValueError: the cell is not of its column's type; the words name the
+            image row and the column.
+    """
+    try:
+        return read(cell)
+    except ValueError as e:
+        raise ValueError(f'image row {position + 1} has {column} {cell!r}, which {e}') from None
 
 
 class ProtocolPostRecord:
@@ -308,7 +334,7 @@ class ProtocolPostRecord:
         self._outfile_fp.flush()
 
     @classmethod
-    def from_file(cls, file_path: pathlib.Path):
+    def from_file(cls, file_path: pathlib.Path) -> 'ProtocolPostRecord':
         with open(file_path) as fp:
             csvreader = csv.reader(fp, delimiter='\t')
             header = next(csvreader)
@@ -332,21 +358,22 @@ class ProtocolPostRecord:
                 if tmp[0] == 'Images':
                     break
 
-            table_lines = []
-            for line in fp:
-                table_lines.append(line)
-
-            table_str = ''.join(table_lines)
-            # Pin the text-identity columns to str at read time: pandas type
-            # inference otherwise turns a numeric-looking name or label
-            # ('0600') into a float ('600.0') that corrupts derived output
-            # filenames.
-            df = pd.read_csv(
-                io.StringIO(table_str),
-                sep='\t',
-                lineterminator='\n',
-                dtype={'Name': str, 'Label': str, 'Well': str, 'Tile': str},
-            ).fillna('')
+            columns, rows = read_table(''.join(fp), sep='\t')
+            df = pd.DataFrame(rows, columns=columns, dtype=object)
+            # Each number and True/False column is read by the protocol's
+            # cell reader for its type, and every other column stays the text
+            # written, so a name or label of 'NA' or '0600' reads back as
+            # written. A blank stays blank: a Z projection records no Z.
+            for column, read in _RECORD_CELLS.items():
+                if column in df.columns:
+                    df[column] = pd.Series(
+                        [
+                            '' if cell == '' else _read_record_cell(read, column, position, cell)
+                            for position, cell in enumerate(df[column])
+                        ],
+                        index=df.index,
+                        dtype=object,
+                    ).infer_objects()
 
             if len(df) == 0:
                 # A record with no data rows is a legitimate state (a prior

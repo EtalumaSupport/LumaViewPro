@@ -15,6 +15,8 @@ import pytest
 
 from modules.common_utils import read_table
 from modules.protocol import Protocol, ProtocolFormatError
+from modules.protocol_post_record import ProtocolPostRecord
+from tests.test_post_processing_stays_inside_its_folder import _project, _run_folder
 from tests.test_protocol_roundtrip import TILING_CONFIGS, _build_protocol, _make_step
 
 NA_WORDS = ['NA', 'None', 'nan', 'null', 'NaN', 'NULL', 'N/A', '#N/A', '']
@@ -74,3 +76,29 @@ def test_a_protocol_whose_step_cell_no_writer_produces_is_refused_naming_it(
         Protocol.from_file(path, TILING_CONFIGS, runnable=runnable)
 
     assert refused.value.file == path
+
+
+def test_a_post_processing_record_reads_back_its_text_and_types(tmp_path):
+    folder = _run_folder(tmp_path, well='NA')
+    assert _project(folder)['status']
+
+    records = ProtocolPostRecord.from_file(folder / ProtocolPostRecord.DEFAULT_FILENAME).records()
+
+    assert records['Well'].tolist() == ['NA']
+    assert records['X'].dtype.kind == 'f'
+    assert records['Custom Step'].dtype == bool
+
+
+def test_a_damaged_post_record_is_moved_aside_without_replacing_an_earlier_one(tmp_path):
+    folder = _run_folder(tmp_path)
+    assert _project(folder)['status']
+    record = folder / ProtocolPostRecord.DEFAULT_FILENAME
+    damaged = record.read_text().replace('\tA1\t', '\tA\x001\t')
+    record.write_text(damaged)
+    earlier = folder / f'{record.name}.unreadable'
+    earlier.write_text('an earlier damaged record')
+
+    assert _project(folder)['status']
+
+    assert earlier.read_text() == 'an earlier damaged record'
+    assert (folder / f'{record.name}.unreadable_001').read_text() == damaged

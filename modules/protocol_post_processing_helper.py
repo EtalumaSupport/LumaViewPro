@@ -319,9 +319,8 @@ class ProtocolPostProcessingHelper:
                 # append mode, and current-format rows under its old header
                 # would misalign every column on the next load.
                 record_loc = protocol_tsvs['protocol_post_record']
-                preserved_loc = record_loc.with_name(record_loc.name + '.unreadable')
                 try:
-                    os.replace(record_loc, preserved_loc)
+                    preserved_loc = path_utils.move_aside(record_loc, '.unreadable')
                 except OSError as move_error:
                     msg = (
                         f'The post-processing record {record_loc.name} could not be '

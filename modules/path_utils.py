@@ -106,6 +106,31 @@ def allocate_directory(desired: pathlib.Path) -> pathlib.Path:
     )
 
 
+def move_aside(path: pathlib.Path, suffix: str) -> pathlib.Path:
+    """Rename ``path`` to its name plus ``suffix``, or the next free numbered name.
+
+    A name already taken is never replaced, so every copy moved aside before
+    is kept.
+
+    Returns:
+        Where the file now is.
+
+    Raises:
+        OSError: the rename failed, or the name and its first
+            MAX_COLLISION_SUFFIX numbered variants all exist.
+    """
+    candidates = [path.with_name(path.name + suffix)] + [
+        path.with_name(f'{path.name}{suffix}_{i:03d}') for i in range(1, MAX_COLLISION_SUFFIX + 1)
+    ]
+    for candidate in candidates:
+        if not candidate.exists():
+            os.replace(path, candidate)
+            return candidate
+    raise FileExistsError(
+        f'{path.name}{suffix} and its first {MAX_COLLISION_SUFFIX} numbered variants all exist'
+    )
+
+
 def capture_location_problem(parent_dir: pathlib.Path) -> str | None:
     """Say why ``parent_dir`` could not hold a new output directory, or None.
 
