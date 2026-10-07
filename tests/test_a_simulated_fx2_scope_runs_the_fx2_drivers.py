@@ -99,6 +99,22 @@ def test_a_frame_is_black_with_nothing_lit_and_shows_the_field_with_bf_lit(sessi
     assert lit.mean() > 20
 
 
+def test_a_delivered_frame_carries_the_specimen_the_way_up_it_was_rendered(session, monkeypatch):
+    # Through the production driver and parser: each specimen row carries its
+    # index, so the delivered frame's rows count up as the specimen's do. A
+    # frame the sensor read upside down counts down.
+    scope = session.scope
+    device = _device(session)
+
+    def numbered_rows(w, h):
+        return np.repeat((np.arange(h) % 251).astype(np.uint8)[:, None], w, axis=1)
+
+    monkeypatch.setattr(device, '_pixels', numbered_rows)
+    frame = _fresh_frame(scope)
+    steps = np.diff(frame[:, 0].astype(np.int16)) % 251
+    assert (steps == 1).all(), steps[:8]
+
+
 def test_840_ma_reaches_the_peripheral_as_0xfe(session):
     session.scope._led_driver.led_on(3, 840)
     try:

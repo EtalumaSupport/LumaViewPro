@@ -35,11 +35,14 @@ from drivers.fx2driver import (
     I2C_SENSOR,
     ISO_NUM_PACKETS,
     ISO_TRANSACTION_SIZE,
+    MIRROR_COLUMN,
+    MIRROR_ROW,
     PID_APP,
     PID_BOOT,
     REG_COL_SIZE,
     REG_EXPOSURE,
     REG_GLOBAL_GAIN,
+    REG_READ_MODE2,
     REG_RESET,
     REG_ROW_SIZE,
     VR_ANCHOR_DLD,
@@ -99,6 +102,7 @@ _POWER_ON = {
     REG_COL_SIZE: 0x0A1F,
     REG_EXPOSURE: 0x0797,
     REG_GLOBAL_GAIN: 0x0008,
+    REG_READ_MODE2: 0x0040,
 }
 
 
@@ -143,6 +147,18 @@ class _Mt9p031:
     def gain(self) -> float:
         """The linear gain the register encodes."""
         return _register_to_gain_db(self.registers[REG_GLOBAL_GAIN])[0]
+
+    def read_out(self, pixels: np.ndarray) -> np.ndarray:
+        """``pixels``, held in numerical row and column order, in the order the sensor reads them out.
+
+        Mirror_Row and Mirror_Column (RR R0x020) each reverse their axis.
+        """
+        mode = self.registers[REG_READ_MODE2]
+        if mode & MIRROR_ROW:
+            pixels = pixels[::-1]
+        if mode & MIRROR_COLUMN:
+            pixels = pixels[:, ::-1]
+        return pixels
 
 
 class _LedPeripheral:
@@ -332,11 +348,20 @@ class SimulatedFX2Device:
         length for its window, the shape the parser counts as shifted. The
         columns a row carries beyond the window trail it, as on the wire; the
         simulator renders the specimen only in the window and leaves them 0.
+
+        The FX2 scopes' optics put the specimen on the sensor with its rows,
+        in numerical order, the reverse of the order every camera delivers
+        them in, and the rows and columns are read out as Read Mode 2 orders
+        them: with the driver's Mirror_Row the frame carries the specimen as
+        every simulated camera delivers it, and the extra columns trail the
+        window unless Mirror_Column moves them ahead of it.
         """
         w, h = self.sensor.window()
         layout = frame_layout(w, h)
+        on_sensor = np.zeros((h + 2, layout.stride - 1), dtype=np.uint8)
+        on_sensor[:, :w] = self._pixels(w, h + 2)[::-1]
         rows = np.zeros((h + 2, layout.stride), dtype=np.uint8)
-        rows[:, layout.column : layout.column + w] = self._pixels(w, h + 2)
+        rows[:, : layout.stride - 1] = self.sensor.read_out(on_sensor)
         # The skip is one byte longer than a row. What that byte carries is
         # unmeasured; the parser never reads it.
         first = rows[0].tobytes() + bytes(layout.skip - layout.stride)

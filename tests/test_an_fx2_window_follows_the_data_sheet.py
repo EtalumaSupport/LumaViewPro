@@ -1,8 +1,8 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """An FX2's window is placed and read out as the MT9P031 documents give.
 
-The driver leaves Mirror_Column off, so a target reads as it does on the
-LS850 and as LumaView Classic set the sensor. Without the mirror the register
+The driver sets Mirror_Row and leaves Mirror_Column off, so a target reads as
+it does on the LS850. Without the column mirror the register
 reference requires Column_Start in the form 4n, and the columns read out in
 numerical order from Column_Start, so the columns beyond the window trail it.
 Row_Start is LumaView Classic's. And the simulated FX2 sends sensor data in
@@ -167,3 +167,41 @@ def test_the_simulated_frame_carries_sensor_rows_where_the_parser_stores_none(si
         for r in range(80)
     ]
     assert all(row[layout.stride - 1] == 0 for row in stored), 'each row ends in the 0 sync byte'
+
+
+@pytest.mark.parametrize(
+    'mode, order',
+    [
+        (0x0040, (slice(None, None, 1), slice(None, None, 1))),
+        (0x4040, (slice(None, None, 1), slice(None, None, -1))),
+        (0x8040, (slice(None, None, -1), slice(None, None, 1))),
+        (0xC040, (slice(None, None, -1), slice(None, None, -1))),
+    ],
+)
+def test_the_simulated_sensor_reads_out_in_the_order_read_mode_2_sets(sim, mode, order):
+    # RR R0x020: Mirror_Row (bit 15) and Mirror_Column (bit 14) each reverse
+    # their axis of the active image.
+    import numpy as np
+
+    sensor = sim.device.sensor
+    sensor.write(bytes([fx2driver.REG_READ_MODE2, mode >> 8, mode & 0xFF]))
+    pixels = np.arange(12, dtype=np.uint8).reshape(3, 4)
+    assert (sensor.read_out(pixels) == pixels[order]).all()
+
+
+def test_the_simulated_frame_carries_the_specimen_upright_at_the_drivers_read_mode(
+    sim, camera, monkeypatch
+):
+    # The simulated FX2's optics put the specimen on the sensor upside down,
+    # as the FX2 scopes' do; the driver's Mirror_Row delivers it the way up
+    # every simulated camera delivers it. Each specimen row carries its index.
+    import numpy as np
+
+    device = sim.device
+    w, h = device.sensor.window()
+    pattern = np.repeat((np.arange(h + 2) % 251).astype(np.uint8)[:, None], w, axis=1)
+    monkeypatch.setattr(device, '_pixels', lambda w, h: pattern)
+    layout = fx2driver.frame_layout(w, h)
+    body = np.frombuffer(device.frame(), dtype=np.uint8)
+    rows = body[layout.skip : layout.needed].reshape(h, layout.stride)
+    assert (rows[:, :w] == pattern[1 : h + 1]).all()
