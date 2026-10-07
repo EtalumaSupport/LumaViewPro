@@ -58,8 +58,9 @@ class Tmcm6110Config:
     upward: a move back down meets the switch a few micrometres above the 0
     its search sets (1.04 um and 9.39 um on two bench LS720s), so a 0 at
     the switch itself could not be reached. Some Z actuators shipped
-    without an index pulse, so Z cannot home to one. The direction is the sign from the board's position to
-    the API's, so ``API = index position + direction * board position``.
+    without an index pulse, so Z cannot home to one. The direction is the
+    sign from the board's position to the API's, so
+    ``API = index position + direction * board position``.
     The board's travel runs negative from its 0 on every axis, so X, whose
     sign is +1, runs down from its index toward the plate's column-12 end,
     and Y and Z run up from theirs.
@@ -262,7 +263,8 @@ class Tmcm6110Config:
         return self._direction[axis.upper()]
 
     def index_position_um(self, axis: str) -> float:
-        """Where the API places the board's 0 (its index, Z's switch)."""
+        """Where the API places the board's 0: X and Y's index, Z's switch
+        backed off."""
         return self._index_position_mm[axis.upper()] * 1000.0
 
     def travel_limit_um(self, axis: str) -> float:

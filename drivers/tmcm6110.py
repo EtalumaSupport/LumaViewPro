@@ -8,10 +8,10 @@ runs no Etaluma firmware; everything it is told comes from the "TMCM-6110"
 section of the shipped motor defaults (``Tmcm6110Config``).
 
 Positions are microsteps on the board, 0 at each axis's index (Z's: its
-switch, backed off upward) and negative away from it. The API sees micrometres in the frame
-the plate transform shares with every model: the board's 0 sits at the
-axis's index position from the config, and its direction says which way
-the API's position grows. X grows away from the plate's column-12 end, as
+switch, backed off upward) and negative away from it. The API sees
+micrometres in the frame the plate transform shares with every model: the
+board's 0 sits at the axis's index position from the config, and its
+direction says which way the API's position grows. X grows away from the plate's column-12 end, as
 on the EL-0940, so X runs down from its index; Y and Z run up from theirs.
 
 The board's own registers are the one store of where each axis is and where
@@ -614,9 +614,9 @@ class Tmcm6110Board:
         """Home all three axes with LumaView Classic's sequence.
 
         Z first, to its switch and back up off it to its 0, so the
-        objective is down before X or Y moves; then X to its switch; then Y and X each to their switch, off
-        it, back onto it slowly and on to the index pulse, where the
-        position is set to 0. Every axis's target is then set to 0, so
+        objective is down before X or Y moves; then X to its switch; then
+        Y and X each to their switch, off it, back onto it slowly and on to
+        the index pulse, where the position is set to 0. Every axis's target is then set to 0, so
         target and actual agree, and each axis reads its index position
         in the API. Each phase polls the lid and the abort.
 
