@@ -1009,15 +1009,13 @@ class SimulatedMotorBoard:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
 
         Returns:
-            bool: True when current == target; False on read failure
-                (does not raise, unlike production).
+            bool: True when current == target.
+
+        Raises:
+            HardwareError: No response from the motor board, as the board's
+                driver raises it.
         """
-        try:
-            data = int(self.exchange_command(f'STATUS_R{axis}'))
-            bits = format(data, 'b').zfill(32)
-            return bits[22] == '1'
-        except Exception:
-            return False
+        return format(self.reference_status(axis), 'b').zfill(32)[22] == '1'
 
     def reference_status(self, axis: str) -> int:
         """Read the raw STATUS register for an axis.
@@ -1026,13 +1024,18 @@ class SimulatedMotorBoard:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
 
         Returns:
-            int: 32-bit register value, or 0 on read failure (does not
-                raise, unlike production).
+            int: 32-bit register value as returned by the firmware.
+
+        Raises:
+            HardwareError: No response from the motor board, as the board's
+                driver raises it.
         """
-        try:
-            return int(self.exchange_command(f'STATUS_R{axis}'))
-        except Exception:
-            return 0
+        response = self.exchange_command(f'STATUS_R{axis}')
+        if response is None:
+            raise HardwareError(
+                f'STATUS_R{axis}: no response from motor board (timeout or disconnect)'
+            )
+        return int(response)
 
     def limit_switch_status(self, axis: str) -> tuple[int, int]:
         """Read the left + right limit switch state for an axis.

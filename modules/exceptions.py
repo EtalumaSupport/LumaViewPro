@@ -2248,7 +2248,8 @@ class MoveNotCompletedError(Exception):
             ``'faulted'`` -- something else set the axis UNKNOWN during
             the wait (a disconnect, a home). ``'position_unread'`` -- the
             board reported the axis arrived but not where, within the
-            motion bound. ``'timed_out'`` -- the wait's
+            motion bound. ``'status_unread'`` -- the board did not report
+            whether the axis arrived, within the motion bound. ``'timed_out'`` -- the wait's
             bound ran out before the axis arrived. Each of those leaves
             the axis UNKNOWN. ``'stopped'`` -- a stop the board took while
             it moved halted it; the axis is where the stop left it, which
@@ -2283,6 +2284,10 @@ class MoveNotCompletedError(Exception):
             'it stopped, but the motor board did not report where. The {axis} '
             'position is now unknown -- home the scope before moving it again.'
         ),
+        'status_unread': (
+            'the motor board did not report whether it arrived. The {axis} '
+            'position is now unknown -- home the scope before moving it again.'
+        ),
         'timed_out': (
             'it did not arrive within the motion time limit. The {axis} position '
             'is now unknown -- home the scope before moving it again.'
@@ -2296,6 +2301,7 @@ class MoveNotCompletedError(Exception):
         'stalled': 'Motor Axis Stalled',
         'board_lost': 'Motor Board Disconnected',
         'position_unread': 'Motor Position Unknown',
+        'status_unread': 'Motor Position Unknown',
     }
 
     def __init__(self, axis: str, reason: str):

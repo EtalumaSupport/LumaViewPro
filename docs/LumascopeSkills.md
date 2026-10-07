@@ -1247,9 +1247,10 @@ scope.motion.start_move_relative('Z', 100).wait()
 # A move that does not complete raises MoveNotCompletedError, one object with
 # .axis, .reason and .title, and the axis is UNKNOWN afterwards (except
 # 'stopped' and 'superseded'): 'driver_failed' (the board did not take the command; chained
-# from the driver's error), 'stalled' / 'board_lost' / 'position_unread' (the
-# motion monitor gave the axis up -- the last when the board said it arrived but
-# never said where; a waited move raises the very object the monitor reported),
+# from the driver's error), 'stalled' / 'board_lost' / 'position_unread' /
+# 'status_unread' (the motion monitor gave the axis up -- 'position_unread' when
+# the board said it arrived but never said where, 'status_unread' when it never
+# said whether it arrived; a waited move raises the very object the monitor reported),
 # 'timed_out' (the wait's bound ran out), 'faulted' (set UNKNOWN by something
 # else during the wait), 'stopped' (stop_motion landed on it), 'superseded'
 # (another move or a home took the axis before it arrived; the axis keeps
@@ -1263,7 +1264,9 @@ step = scope.motion.jog_step('Z', coarse=True)
 scope.motion.move_relative('Z', -step)
 
 # Status
-scope.motion.get_target_status('Z')              # True if target reached
+scope.motion.get_target_status('Z')              # True if target reached, False if short of it;
+                                                 # HardwareCommandRefusedError 'not_connected' / 'axis_absent'
+                                                 # for hardware the scope lacks, HardwareError on a failed read
 scope.motion.is_moving()                         # any axis moving?
 scope.motion.wait_until_finished_moving()        # block until the axes moving now stop; raises MoveNotCompletedError
                                                  # if one ended UNKNOWN, or 'still_moving' if the wait ran out
@@ -1272,8 +1275,11 @@ scope.motion.position_is_known('Z')              # False until homed: an absolut
 # Limit switches -- why a move stopped short. Reaching a limit is reported,
 # not raised, so a move that ran out of travel and one that arrived look the
 # same until you ask.
-scope.motion.get_limit_switch_status('X')        # (left, right); 1 engaged, 0 clear, -1 unreadable
-scope.motion.get_limit_switch_status_all_axes()  # dict of axis -> that pair, for the axes the board has
+scope.motion.get_limit_switch_status('X')        # (left, right); 1 engaged, 0 clear, -1 unreadable;
+                                                 # HardwareCommandRefusedError 'not_connected' / 'axis_absent'
+                                                 # for a switch the scope lacks -- never (0, 0)
+scope.motion.get_limit_switch_status_all_axes()  # dict of axis -> that pair, for the axes the board has;
+                                                 # 'not_connected' with no motor controller
 
 # Turret
 scope.capabilities.has_turret                    # turret presence probe
