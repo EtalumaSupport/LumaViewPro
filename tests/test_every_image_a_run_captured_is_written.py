@@ -103,7 +103,6 @@ class TestAShortRunWhileTheFileWorkerWaits:
                 outcome = runner.run_single_scan(
                     protocol=_protocol([_step('C2', 0, x=20.0, gain=1.0)]),
                     parent_dir=str(run_parent),
-                    image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 )
                 result = outcome.wait(timeout_s=WAIT_S)
                 assert result is not None and result.status == 'completed', result
@@ -156,7 +155,6 @@ class TestAnErrorAbort:
                     [_step('B3', 0, x=20.0, gain=1.0), _step('B1', 1, x=60.0, gain=1.0)]
                 ),
                 parent_dir=str(run_parent),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 callbacks=callbacks.as_dict(),
             )
             result = outcome.wait(timeout_s=WAIT_S)
@@ -209,7 +207,6 @@ class TestAnErrorAbort:
                     [_step('B3', 0, x=20.0, gain=1.0), _step('B1', 1, x=60.0, gain=1.0)]
                 ),
                 parent_dir=str(run_parent),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 callbacks=callbacks.as_dict(),
             )
             result = outcome.wait(timeout_s=WAIT_S)
@@ -237,7 +234,6 @@ class TestBackToBackRuns:
                 outcome = runner.run_single_scan(
                     protocol=_protocol([_step(f'C{index}', 0, x=20.0, gain=1.0)]),
                     parent_dir=str(run_parent),
-                    image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                     callbacks=callbacks.as_dict(),
                 )
                 assert outcome.wait(timeout_s=WAIT_S) is not None
@@ -278,7 +274,6 @@ class TestANewRunWhileTheLastRunsFilesWrite:
             outcome = runner.run_single_scan(
                 protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(run_parent),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 callbacks=callbacks.as_dict(),
             )
             assert outcome.wait(timeout_s=WAIT_S) is not None
@@ -297,7 +292,6 @@ class TestANewRunWhileTheLastRunsFilesWrite:
                 runner.run_single_scan(
                     protocol=_protocol([_step('C2', 0, x=20.0, gain=1.0)]),
                     parent_dir=str(run_parent),
-                    image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 )
             assert refused.value.reason == 'files_writing'
 
@@ -307,7 +301,6 @@ class TestANewRunWhileTheLastRunsFilesWrite:
             second = runner.run_single_scan(
                 protocol=_protocol([_step('C3', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(run_parent),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
             )
             assert second.wait(timeout_s=WAIT_S).status == 'completed'
 
@@ -349,7 +342,6 @@ class TestTheRunsWritesCloseBeforeItEnds:
             outcome = runner.run_single_scan(
                 protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(tmp_path / 'runs'),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
             )
             assert outcome.wait(timeout_s=WAIT_S) is not None
             assert engine.wait_for_run_idle(WAIT_S)
@@ -380,7 +372,6 @@ class TestACleanupThatRaises:
             runner.run_single_scan(
                 protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(run_parent),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 callbacks=callbacks.as_dict(),
             )
             assert callbacks.files_done.wait(WAIT_S), 'files_complete never came'
@@ -390,7 +381,6 @@ class TestACleanupThatRaises:
             second = runner.run_single_scan(
                 protocol=_protocol([_step('C2', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(run_parent),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
             )
             assert second.wait(timeout_s=WAIT_S).status == 'completed'
 
@@ -426,7 +416,6 @@ class TestAStartThatFails:
             outcome = runner.run_single_scan(
                 protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(tmp_path / 'runs'),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 callbacks=callbacks.as_dict(),
             )
             result = outcome.wait(timeout_s=WAIT_S)
@@ -470,7 +459,6 @@ class TestARunAfterAnErrorAbort:
                     [_step('A1', 0, x=20.0, gain=1.0), _step('A2', 1, x=60.0, gain=1.0)]
                 ),
                 parent_dir=str(run_parent / 'first'),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 callbacks=first_files.as_dict(),
             )
             assert first.wait(timeout_s=WAIT_S).status == 'failed'
@@ -489,7 +477,6 @@ class TestARunAfterAnErrorAbort:
                     ]
                 ),
                 parent_dir=str(run_parent / 'second'),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 callbacks=second_files.as_dict(),
             )
             assert started.acquire(timeout=WAIT_S), "the second run's first write never started"
@@ -526,7 +513,6 @@ class TestAWriteWhoseFailureReportRaises:
             outcome = runner.run_single_scan(
                 protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(run_parent),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 callbacks=callbacks.as_dict(),
             )
             assert outcome.wait(timeout_s=WAIT_S) is not None

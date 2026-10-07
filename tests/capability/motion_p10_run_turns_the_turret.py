@@ -160,7 +160,6 @@ def main():
             outcome = runner.run_single_scan(
                 protocol=protocol,
                 parent_dir=str(run_parent),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 callbacks={'files_complete': lambda **kw: files_written.set()},
             )
             result = outcome.wait(timeout_s=RUN_TIMEOUT_S)

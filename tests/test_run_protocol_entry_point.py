@@ -14,12 +14,10 @@ import pytest
 
 from tests.test_run_zstack_entry_point import _prepared, _runner
 
-_CONFIG = MagicMock(image_mode='8bit', capture_depth=8, save_encoding='8bit')
-
 
 def _run(runner, member, **kwargs):
     protocol = MagicMock()
-    getattr(runner, member)(protocol, image_capture_config=_CONFIG, **kwargs)
+    getattr(runner, member)(protocol, **kwargs)
     return protocol
 
 

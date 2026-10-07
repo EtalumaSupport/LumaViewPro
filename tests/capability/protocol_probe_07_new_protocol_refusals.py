@@ -40,7 +40,6 @@ try:
         out = runner.run_single_scan(
             p,
             sequence_name='empty',
-            image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
         )
         print('NO RAISE:', out.wait(timeout_s=60))
     except Exception as e:

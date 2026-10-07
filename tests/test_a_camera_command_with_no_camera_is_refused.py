@@ -312,7 +312,6 @@ def test_with_no_camera_a_run_an_autofocus_and_a_recording_are_refused_at_the_st
             protocol=_protocol(),
             sequence_name='s',
             parent_dir=str(tmp_path),
-            image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
         )
     assert run.value.reason == 'hardware_disconnected'
     with pytest.raises(ProtocolRunRefusedError):
@@ -398,7 +397,6 @@ def test_a_camera_removed_mid_run_ends_the_run_hardware_disconnected(
         protocol=_build_real_protocol([first, second]),
         sequence_name='removed',
         parent_dir=str(tmp_path),
-        image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
     )
 
     assert _wait(run) == ('failed', 'hardware_disconnected')

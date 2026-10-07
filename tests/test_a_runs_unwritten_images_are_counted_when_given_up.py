@@ -49,7 +49,6 @@ def _finish_one_run(runner, run_parent, name, callbacks=None):
     outcome = runner.run_single_scan(
         protocol=_protocol([_step(name, 0, x=20.0, gain=1.0)]),
         parent_dir=str(run_parent),
-        image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
         callbacks=callbacks,
     )
     result = outcome.wait(timeout_s=WAIT_S)
@@ -160,7 +159,6 @@ class TestShuttingDownWithImagesStillWriting:
             runner.run_single_scan(
                 protocol=_protocol([_step(f'C{i}', i, x=20.0, gain=1.0) for i in range(4)]),
                 parent_dir=str(tmp_path / 'runs'),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
             )
             assert started.acquire(timeout=WAIT_S)
             batch = runner.sequenced_capture_runner.write_batch()

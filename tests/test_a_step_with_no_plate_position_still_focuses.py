@@ -54,7 +54,6 @@ def _run_and_wait_for_files(session, tmp_path, protocol):
         protocol=protocol,
         sequence_name='zonly',
         parent_dir=str(tmp_path),
-        image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
         callbacks={
             'run_complete': lambda **kw: None,
             'files_complete': lambda **kw: files_written.set(),

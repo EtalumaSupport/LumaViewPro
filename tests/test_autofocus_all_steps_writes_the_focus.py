@@ -258,7 +258,6 @@ class TestARunThatWritesNoFocusSaysNone:
             outcome = runner.run_single_scan(
                 protocol=_two_steps(),
                 parent_dir=str(tmp_path / 'runs'),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
             ).wait(timeout_s=WAIT_S)
 
         assert outcome.focus_written is None, outcome

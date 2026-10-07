@@ -386,7 +386,6 @@ class TestHeadlessRefusalDoesNotHang:
                 protocol=_make_single_step_protocol(),
                 sequence_name='refusal_headless_first',
                 parent_dir=str(tmp_path),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 callbacks={
                     'run_complete': lambda **kw: done.set(),
                     'files_complete': lambda **kw: None,
@@ -410,7 +409,6 @@ class TestHeadlessRefusalDoesNotHang:
                     protocol=_build_real_protocol([]),
                     sequence_name='refusal_headless_refused',
                     parent_dir=str(tmp_path),
-                    image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 )
             assert excinfo.value.reason == 'empty_protocol'
             assert not session.is_protocol_running, (
@@ -423,7 +421,6 @@ class TestHeadlessRefusalDoesNotHang:
                 protocol=_make_single_step_protocol(),
                 sequence_name='refusal_headless_second',
                 parent_dir=str(tmp_path),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 callbacks={
                     'run_complete': lambda **kw: done2.set(),
                     'files_complete': lambda **kw: None,

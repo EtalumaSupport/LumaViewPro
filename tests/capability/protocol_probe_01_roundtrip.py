@@ -49,7 +49,6 @@ try:
     outcome = runner.run_single_scan(
         reloaded,
         sequence_name='probe_roundtrip',
-        image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
     )
     settled = outcome.wait(timeout_s=240)
     print('status          :', getattr(settled, 'status', None))

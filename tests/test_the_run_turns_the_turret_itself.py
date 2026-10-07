@@ -37,7 +37,6 @@ def test_a_headless_run_visits_each_steps_slot(tmp_path, monkeypatch):
         outcome = runner.run_single_scan(
             protocol=_two_objective_protocol(),
             parent_dir=str(tmp_path / 'runs'),
-            image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
             callbacks={'go_to_step': lambda **kw: displayed.append(kw['include_move'])},
         )
         result = outcome.wait(timeout_s=60.0)

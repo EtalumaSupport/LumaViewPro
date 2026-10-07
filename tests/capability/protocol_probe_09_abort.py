@@ -35,7 +35,6 @@ try:
     earlier = runner.run_single_scan(
         p,
         sequence_name='earlier',
-        image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
     )
     print('earlier:', earlier.wait(timeout_s=120).status)
     deadline = time.time() + 90
@@ -47,7 +46,6 @@ try:
     out = runner.run_protocol(
         p,
         sequence_name='abortme',
-        image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
     )
     time.sleep(3)
     print('is_protocol_running:', session.is_protocol_running, '| out.is_live:', out.is_live)

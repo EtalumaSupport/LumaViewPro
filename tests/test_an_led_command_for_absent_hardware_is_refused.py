@@ -235,7 +235,6 @@ def test_a_run_without_the_led_board_is_refused_for_the_led_controller(
             protocol=_protocol(),
             sequence_name='s',
             parent_dir=str(tmp_path),
-            image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
         )
 
     assert exc.value.reason == 'hardware_disconnected'
@@ -288,7 +287,6 @@ def test_a_board_pulled_mid_run_ends_the_run_at_its_next_led_write(
         protocol=_build_real_protocol([first, second]),
         sequence_name='pulled',
         parent_dir=str(tmp_path),
-        image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
     )
 
     assert _wait(run) == ('failed', 'hardware_disconnected')

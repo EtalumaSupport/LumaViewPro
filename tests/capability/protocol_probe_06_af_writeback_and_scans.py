@@ -59,7 +59,6 @@ try:
     out = runner.run_protocol(
         protocol,
         sequence_name='multi',
-        image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
     )
     print('remaining_scans at start:', out.remaining_scans)
     print('protocol_interval       :', out.interval)

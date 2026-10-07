@@ -125,18 +125,14 @@ def main():
     #   # labware and objective catalogues.
     #   protocol = scope.protocols.create_protocol(input_config=config)
     #
-    #   # The image capture config is REQUIRED: it states the run's image
-    #   # mode (bit depth + on-disk encoding) explicitly -- there is no
-    #   # silent default. Modes: '8bit', '12bit_scientific', '12bit_scaled',
-    #   # '12bit_false_color_rgb'.
-    #   capture_config = runner.build_image_capture_config(image_mode="8bit")
+    #   # The run captures in the session's image mode
+    #   # (session.set_image_mode(...) chooses it).
     #
     #   # Run a single scan (captures all positions/channels once)
     #   pending = runner.run_single_scan(
     #       protocol=protocol,
     #       sequence_name="my_scan",
     #       parent_dir=pathlib.Path("./output"),
-    #       image_capture_config=capture_config,
     #   )
     #
     #   # Monitor progress through the run's handle
@@ -154,7 +150,6 @@ def main():
     #   pending = runner.run_protocol(
     #       protocol=protocol,
     #       sequence_name="my_protocol",
-    #       image_capture_config=capture_config,
     #   )
     #
     #   # To stop it, through its handle; wait says when it has ended:

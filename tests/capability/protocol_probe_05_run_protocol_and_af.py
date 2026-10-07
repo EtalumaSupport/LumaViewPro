@@ -49,7 +49,6 @@ try:
     outcome = runner.run_protocol(
         protocol,
         sequence_name='probe_full_protocol',
-        image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
     )
     settled = outcome.wait(timeout_s=300)
     print('status:', settled.status, settled.reason)

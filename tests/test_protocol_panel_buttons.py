@@ -139,7 +139,6 @@ def app_ctx(engine, session, held, tmp_path, monkeypatch):
     pool.put.side_effect = _put
     monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
     for name, value in (
-        ('get_image_capture_config_from_ui', lambda: {}),
         ('is_image_saving_enabled', lambda: True),
         ('live_display_callbacks', lambda: {}),
     ):

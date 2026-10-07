@@ -119,7 +119,6 @@ def test_a_save_after_the_next_turret_move_keeps_its_own_objective(tmp_path, mon
         outcome = runner.run_single_scan(
             protocol=_two_objective_protocol(),
             parent_dir=str(run_parent),
-            image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
             callbacks={'files_complete': lambda **kw: files_written.set()},
         )
         result = outcome.wait(timeout_s=60.0)

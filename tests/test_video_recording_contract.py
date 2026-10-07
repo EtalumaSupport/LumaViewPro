@@ -699,7 +699,6 @@ class TestSessionActivityClaim:
                 protocol=_make_single_step_protocol(),
                 sequence_name='refused_while_recording',
                 parent_dir=str(tmp_path),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
             )
         recording.release()
 

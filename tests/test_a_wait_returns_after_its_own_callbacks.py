@@ -33,9 +33,6 @@ def _scan(runner, parent, callbacks, *, save=True, sequence_name=None):
         enable_image_saving=save,
         protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
         parent_dir=str(parent),
-        image_capture_config=runner.build_image_capture_config(
-            image_mode='8bit', sequenced_format='TIFF'
-        ),
         callbacks=callbacks,
         **kwargs,
     )

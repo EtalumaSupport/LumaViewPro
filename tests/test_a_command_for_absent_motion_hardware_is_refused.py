@@ -298,7 +298,6 @@ def test_a_time_lapse_returns_to_its_first_step_on_the_axes_it_has(
         protocol=_protocol(n_scans=3),
         sequence_name='timelapse',
         parent_dir=str(tmp_path),
-        image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
     )
 
     assert _wait(run) == ('completed', 'completed')
@@ -315,7 +314,6 @@ def test_a_single_scan_and_a_composite_on_a_manual_scope_complete(make_session, 
         protocol=_protocol(),
         sequence_name='scan',
         parent_dir=str(tmp_path),
-        image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
     )
     assert _wait(run) == ('completed', 'completed')
     assert runner.run_composite(parent_dir=str(tmp_path)).status == 'completed'
@@ -369,7 +367,6 @@ def test_an_unhomed_scope_asked_to_run_is_told_to_home(make_session, tmp_path):
             protocol=_build_real_protocol([far]),
             sequence_name='s',
             parent_dir=str(tmp_path),
-            image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
         )
 
     assert exc.value.reason == 'position_unknown'
@@ -386,7 +383,6 @@ def test_an_unhomed_z_only_scope_with_an_xy_protocol_is_told_it_has_no_xy(make_s
             protocol=_build_real_protocol([a, b]),
             sequence_name='s',
             parent_dir=str(tmp_path),
-            image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
         )
 
     assert exc.value.reason == 'positions_unreachable'

@@ -141,7 +141,6 @@ class TestClaimRefusalLeavesNoState:
                 protocol=_make_single_step_protocol(),
                 sequence_name='pre_refusal_scan',
                 parent_dir=str(tmp_path),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 callbacks={
                     'run_complete': lambda **kw: first_done.set(),
                     'files_complete': lambda **kw: None,
@@ -178,7 +177,6 @@ class TestClaimRefusalLeavesNoState:
                     protocol=_make_single_step_protocol(),
                     sequence_name='claim_refused_scan',
                     parent_dir=str(tmp_path),
-                    image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 )
             assert excinfo.value.reason == 'exclusive_activity_running'
             # The refusal says busy-with-what: the holder's KIND rides
@@ -202,7 +200,6 @@ class TestClaimRefusalLeavesNoState:
                 protocol=_make_single_step_protocol(),
                 sequence_name='post_refusal_scan',
                 parent_dir=str(tmp_path),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 callbacks={
                     'run_complete': lambda **kw: done.set(),
                     'files_complete': lambda **kw: None,
@@ -250,7 +247,6 @@ class TestTheHolderIsTheLiveRun:
                 protocol=_make_single_step_protocol(),
                 sequence_name='holder_scan',
                 parent_dir=str(tmp_path),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 callbacks={'run_scan_pre': _observe, 'files_complete': lambda **kw: None},
             )
             assert run.wait(timeout_s=COMPLETION_TIMEOUT) is not None

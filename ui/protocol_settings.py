@@ -14,7 +14,6 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules.config_ui_getters import (
     get_active_layer_config,
-    get_image_capture_config_from_ui,
     get_zstack_params,
     is_image_saving_enabled,
 )
@@ -1365,7 +1364,6 @@ class ProtocolSettings(FloatLayout):
         )
 
         sequence_name = self.ids['protocol_filename'].text
-        image_capture_config = get_image_capture_config_from_ui()
         enable_image_saving = is_image_saving_enabled()
         engineering_mode = ctx.engineering_mode
 
@@ -1373,7 +1371,6 @@ class ProtocolSettings(FloatLayout):
             started = start_run(
                 protocol,
                 sequence_name=sequence_name,
-                image_capture_config=image_capture_config,
                 enable_image_saving=enable_image_saving,
                 callbacks=callbacks,
                 run_trigger_source=run_trigger_source,

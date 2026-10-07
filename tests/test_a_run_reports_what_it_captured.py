@@ -29,7 +29,6 @@ def _run(runner, run_parent, steps, callbacks=None):
     pending = runner.run_single_scan(
         protocol=_protocol(steps),
         parent_dir=str(run_parent),
-        image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
         callbacks=callbacks or {},
     )
     outcome = pending.wait(timeout_s=WAIT_S)
@@ -201,7 +200,6 @@ class TestARunWithFailedCapturesEndsIncomplete:
             pending = runner.run_single_scan(
                 protocol=_protocol(_two_steps()),
                 parent_dir=str(tmp_path / 'runs'),
-                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 enable_image_saving=False,
             )
             outcome = pending.wait(timeout_s=WAIT_S)

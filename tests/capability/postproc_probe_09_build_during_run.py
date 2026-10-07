@@ -81,17 +81,12 @@ def _refuse_video_layers(session):
 
 
 def _run(session, runner, protocol, parent, name):
-    import modules.config_helpers as config_helpers
-
     parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
     pending = runner.run_single_scan(
         protocol=protocol,
         sequence_name=name,
         parent_dir=str(parent),
-        image_capture_config=config_helpers.get_image_capture_config_from_settings(
-            session.settings
-        ),
         enable_image_saving=True,
     )
     outcome = pending.wait(timeout_s=3600)

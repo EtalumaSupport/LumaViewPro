@@ -47,7 +47,6 @@ from modules.sequenced_capture_runner import (
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.protocol_drives import autofocus_snapshot
 from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
-from tests.settings_fixtures import complete_settings
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -488,7 +487,6 @@ RUN_PIPELINE_MODULES = [
 
 FORBIDDEN_CONFIG_SOURCES = {
     'get_image_capture_config_from_settings',
-    'get_image_capture_config_from_ui',
 }
 
 
@@ -522,27 +520,3 @@ def test_sequenced_capture_runner_has_no_8bit_fallback():
         'sequenced_capture_runner must not fall back to SAVE_ENCODING_8BIT; '
         'the run config is the only encoding source'
     )
-
-
-# ---------------------------------------------------------------------------
-# 6. No silent headless default: a config-less run is refused loudly
-# ---------------------------------------------------------------------------
-
-
-class TestNoSilentHeadlessDefault:
-    """A headless run with no image_capture_config raises ConfigError naming
-    image_mode BEFORE any executor starts or hardware moves. The old default
-    silently resolved to 8-bit, quietly downgrading scripts that captured
-    full depth on earlier releases."""
-
-    def test_configless_run_raises_before_anything_starts(self, tmp_path):
-        from modules.scope_session import ScopeSession
-
-        session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
-        try:
-            runner = session.create_protocol_runner()
-            with pytest.raises(ConfigError, match='image_mode'):
-                runner.run_protocol(_build_protocol(), parent_dir=str(tmp_path))
-            assert not session.is_protocol_running, 'a refused config-less run must not be running'
-        finally:
-            session.shutdown()
