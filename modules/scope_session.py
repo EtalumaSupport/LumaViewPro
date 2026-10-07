@@ -133,6 +133,26 @@ def _scheduler_callback_error(exc: BaseException) -> None:
     notifications.report_outcome(exc, solicited=False, category='Scheduler')
 
 
+def _tell_stored_replacements(pending: list[tuple[str, object, object]]) -> None:
+    """Tell, as one notice, the stored settings a load replaced, and empty ``pending``.
+
+    One notice per load: the notification centre shows one notice of a kind
+    at a time and drops a repeat within its window, so a second notice from
+    the same load would hide the first's values. Emptied as it is told, so
+    each way out of a bring-up can tell it and the load is told once.
+    """
+    if not pending:
+        return
+    from modules.exceptions import StoredSettingReplacedNotice
+    from modules.notification_center import notifications
+
+    told = list(pending)
+    pending.clear()
+    notifications.report_outcome(
+        StoredSettingReplacedNotice(told), solicited=False, category='Settings'
+    )
+
+
 @dataclasses.dataclass(frozen=True)
 class ObjectiveQuestion:
     """The objective is unknowable; this is what to ask the user.
@@ -805,10 +825,14 @@ class ScopeSession:
 
         if outcome_listener is not None:
             notifications.add_listener(outcome_listener, min_severity=Severity.DEBUG)
-        # What the settings preparation replaced, told now that someone can
-        # hear it: the preparation runs before any host has a listener.
-        for replaced in settings_init.take_stored_replacements():
-            notifications.report_outcome(replaced, solicited=False, category='Settings')
+        # What the settings preparation replaced, taken now so a second
+        # create (the GUI's fallback on the template) never tells this load's;
+        # told once, with what bring-up replaced, however this ends.
+        replaced = [
+            replacement
+            for notice in settings_init.take_stored_replacements()
+            for replacement in notice.replacements
+        ]
         try:
             built_scope = False
             if scope is None:
@@ -875,17 +899,19 @@ class ScopeSession:
             if outcome_listener is not None:
                 session._outcome_listeners.append(outcome_listener)
             if built_scope:
-                cls._bring_up(session)
+                cls._bring_up(session, replaced)
             if sim_file_stall is not None:
                 session._hold_the_file_lane(sim_file_stall)
-            return session
         except BaseException:
+            _tell_stored_replacements(replaced)
             # Give the listener back: a host that composes again after this
             # raise (the GUI's fallback to the shipped defaults) would
             # otherwise hear every outcome twice.
             if outcome_listener is not None:
                 notifications.remove_listener(outcome_listener)
             raise
+        _tell_stored_replacements(replaced)
+        return session
 
     def _hold_the_file_lane(self, stall: 'SimulatedStall') -> None:
         """At ``stall.after_s``, hold the file lane's worker for ``stall.for_s``.
@@ -1013,15 +1039,18 @@ class ScopeSession:
             notifications.report_outcome(e, solicited=False, category='Hardware')
 
     @classmethod
-    def _bring_up(cls, session: 'ScopeSession') -> None:
+    def _bring_up(cls, session: 'ScopeSession', replaced: list) -> None:
         """Configure the scope a factory built; ``initialize`` releases the
         camera start gate last, after the capture pixel format. A raise
         anywhere in here leaves the caller with no session object to tear
         down, so this tears down what the factory started before it lets
-        the raise out."""
+        the raise out. What the bring-up replaces is added to ``replaced``,
+        the load's list, for the factory to tell once."""
         try:
-            session.configure_scope()
+            session._configure_scope(replaced)
         except BaseException:
+            # Before the teardown, which takes back the listeners that hear it.
+            _tell_stored_replacements(replaced)
             cls._report_teardown_failure(session.shutdown)
             raise
         session._stop_acquiring_absent_layers()
@@ -2264,6 +2293,30 @@ class ScopeSession:
             'this scope has no XY stage'
         )
 
+    def _replace_an_unresolvable_stored_plate(self) -> list[tuple[str, object, object]]:
+        """Replace a stored plate the catalogue cannot resolve with the shipped one.
+
+        A null, a non-string, an empty name or a plate the catalogue no
+        longer has. The catalogue is first available here, at bring-up, so
+        the name is judged here rather than with the load's other stored
+        values. Refusing it instead brought the GUI up on the shipped
+        template, dropping every other stored setting for one plate name.
+
+        Returns:
+            ``[('protocol.labware', stored, shipped)]`` when replaced, else ``[]``.
+        """
+        block = self.settings.get('protocol')
+        stored = block.get('labware') if isinstance(block, dict) else None
+        if self.wellplate_loader.is_known_plate(stored):
+            return []
+        shipped = self.scope.settings_template['protocol']['labware']
+        self.select_labware(shipped)
+        logger.info(
+            f'[Session  ] stored plate {stored!r} replaced by {shipped!r}: '
+            'the catalogue has no such plate'
+        )
+        return [('protocol.labware', stored, shipped)]
+
     def configure_scope(self) -> None:
         """Configure the scope from this session's settings -- the bring-up.
 
@@ -2273,8 +2326,9 @@ class ScopeSession:
         the stored selection; a model outside the catalogue, or no motor
         board to ask, leaves the stored one), normalize the turret slot
         keys a caller-supplied dict may still carry as JSON strings,
-        resolve the model's catalogue entry, refuse a stored plate the
-        catalogue does not have, build the init config and run
+        resolve the model's catalogue entry, replace a stored plate the
+        catalogue cannot resolve with the shipped one (told once, as a
+        ``StoredSettingReplacedNotice``), build the init config and run
         ``Lumascope.initialize`` -- which refuses a stored objective the
         catalogue does not have on a scope with no turret; on a turreted
         scope the objective stays unknown until the turret is in a known
@@ -2297,7 +2351,14 @@ class ScopeSession:
                 camera geometry and acceleration under whatever holds it,
                 and its writes run inline, where no lane refuses them.
         """
-        import modules.config_helpers as config_helpers
+        replaced: list[tuple[str, object, object]] = []
+        try:
+            self._configure_scope(replaced)
+        finally:
+            _tell_stored_replacements(replaced)
+
+    def _configure_scope(self, replaced: list[tuple[str, object, object]]) -> None:
+        """``configure_scope``'s steps, adding what they replace to ``replaced``."""
         from modules.scope_init_config import ScopeInitConfig
 
         holder = self.activity_claim.holder
@@ -2333,9 +2394,8 @@ class ScopeSession:
         settings_init._normalize_turret_slot_keys(self.settings)
         self._put_a_stageless_scope_on_center_plate()
         scope_config = scope_models.get(self.settings.get('microscope'))
-        # Refuses a stored plate the catalogue does not have, before anything
-        # is commanded: every well position would be computed on it.
-        config_helpers.get_selected_labware_from_settings(self.settings, self.wellplate_loader)
+        # Before anything is commanded: every well position is computed on it.
+        replaced.extend(self._replace_an_unresolvable_stored_plate())
         config = ScopeInitConfig.from_settings(
             self.settings,
             scope_config=scope_config,

@@ -894,7 +894,6 @@ def _twin_answerer_names():
 # member and the forwarder deleted, the remedy below applied as written.
 _TWIN_ANSWERER_PIN = {
     'get_layer_configs': 1,
-    'get_selected_labware_from_settings': 1,
 }
 
 # Empty, and empty is the achieved state: nothing under modules/ or

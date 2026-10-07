@@ -1119,9 +1119,9 @@ def get_selected_labware_from_settings(
             does not have; for the latter the message names it and the
             plates available. No other plate is substituted: a different plate's geometry puts
             every well position in the wrong place while the protocol reads
-            as if it ran normally. Bring-up configures the scope through
-            this call, so an unusable stored plate is refused there, before
-            anything else reads it.
+            as if it ran normally. Bring-up (``ScopeSession.configure_scope``)
+            replaces a stored plate the catalogue cannot resolve; this
+            reader still refuses one in settings no bring-up has read.
     """
     labware_id = wellplate_loader.resolve_plate_key(settings.get('protocol', {}).get('labware'))
     return labware_id, wellplate_loader.get_plate(plate_key=labware_id)

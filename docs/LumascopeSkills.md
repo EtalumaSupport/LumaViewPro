@@ -354,7 +354,7 @@ session.scope.imaging.start_streaming()
 
 To hear what bring-up reports (a camera not found, a partial-hardware warning), pass your outcome listener to the factory: `ScopeSession.create(..., outcome_listener=on_outcome)` registers it before the scope is built. See "Outcomes" below.
 
-**Settings a factory needs.** A file-sourced dict (the loader above) is validated by name and complete. `configure_scope()` adopts the model the hardware reports into `settings['microscope']` whenever the catalogue knows that model, so the microscope key is an input the bring-up may correct. A hand-built dict must carry `frame` and `binning`, and on a scope with no turret `objective_id` -- `configure_scope()` raises `ConfigError` naming the missing key -- and that `objective_id` must name a shipped objective (`data/objectives.json`), or the raise names the objective. The stored plate (`settings['protocol']['labware']`) must be one the labware catalogue has, or `configure_scope()` raises `ConfigError` naming it and the plates available; no other plate is substituted, since a different plate's geometry would put every well position in the wrong place. A turreted scope does not read the stored `objective_id`: its objective is unknown until the turret is homed or moved to a slot, then it is that slot's assignment. `turret_objectives` keys may be JSON strings or ints; the factory normalizes them. A configured session may still owe the objective question (`session.objective_question()`, above); the factories do not ask it. A missing or unusable `labware.json`, `objectives.json`, `scopes.json` or `motorconfig_defaults.json` stops the scope's construction with `InstallationFileError` (see "Initialization").
+**Settings a factory needs.** A file-sourced dict (the loader above) is validated by name and complete. `configure_scope()` adopts the model the hardware reports into `settings['microscope']` whenever the catalogue knows that model, so the microscope key is an input the bring-up may correct. A hand-built dict must carry `frame` and `binning`, and on a scope with no turret `objective_id` -- `configure_scope()` raises `ConfigError` naming the missing key -- and that `objective_id` must name a shipped objective (`data/objectives.json`), or the raise names the objective. A stored plate (`settings['protocol']['labware']`) the labware catalogue cannot resolve -- a null, a non-string, an empty name, a plate it no longer has -- is replaced by the shipped plate at bring-up and told as part of the load's `stored_setting_replaced` notice (below); every other stored setting is kept. After bring-up, every writer of the selection refuses a plate the catalogue does not have. A turreted scope does not read the stored `objective_id`: its objective is unknown until the turret is homed or moved to a slot, then it is that slot's assignment. `turret_objectives` keys may be JSON strings or ints; the factory normalizes them. A configured session may still owe the objective question (`session.objective_question()`, above); the factories do not ask it. A missing or unusable `labware.json`, `objectives.json`, `scopes.json` or `motorconfig_defaults.json` stops the scope's construction with `InstallationFileError` (see "Initialization").
 
 For **simulated** (no hardware needed, development / CI):
 
@@ -465,11 +465,12 @@ and nothing is written. A `current.json` written before the range was
 enforced can hold one.
 
 At start-up, a stored value the writer would refuse -- the wrong kind, or
-outside a range above, a protocol schedule, or a `motion.acceleration_max_pct`
-outside 1 to 100 -- is replaced for that key alone by the shipped value, and
-the session reports one notice `stored_setting_replaced` as it is created,
-naming each replaced setting, its saved value and the one now in its place
-(`replacements`: a list of `(path, saved, used)`).
+outside a range above, a protocol schedule, a `motion.acceleration_max_pct`
+outside 1 to 100, or a plate the catalogue cannot resolve -- is replaced for
+that key alone by the shipped value, and the session reports one notice
+`stored_setting_replaced` once the scope is brought up (or once its bring-up
+fails), naming each replaced setting, its saved value and the one now in its
+place (`replacements`: a list of `(path, saved, used)`).
 A settings dict handed straight to `ScopeSession.create` holding an
 acceleration limit outside 1 to 100 is refused with `ConfigError` before
 anything is commanded.

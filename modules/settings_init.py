@@ -594,7 +594,7 @@ def prepare_settings(
         added = _deep_merge_defaults(prepared, template, logger=logger)
         if added:
             logger.info(f'[Settings ] Merged {len(added)} missing keys from settings.json: {added}')
-        # Imported here: settings_paths imports this module.
+        # Imported here: settings_paths' own imports reach this module (lvp_logger).
         from modules.settings_paths import replace_refused_stored_values
 
         replaced = replace_refused_stored_values(prepared, template)
