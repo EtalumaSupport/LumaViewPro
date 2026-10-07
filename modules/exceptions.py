@@ -2578,7 +2578,7 @@ class FrameDepthError(Exception):
 
 # Where a support report or a logs zip is sent. The one copy: the saved
 # report's words and the failed report's words both name it.
-SUPPORT_ADDRESS = 'techsupport@etaluma.com'
+SUPPORT_ADDRESS = 'support@etaluma.com'
 
 
 class SupportReportNotSavedError(Exception):
