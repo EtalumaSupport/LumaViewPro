@@ -591,7 +591,6 @@ class LumaViewProApp(TooltipMixin, App):
             scope=lumaview.scope,
             ctx=ctx,
             stage=ctx.stage,
-            ui_dispatcher=Clock.schedule_once,
         )
         ctx.ui_listener_bridge.register_all()
 
@@ -1022,18 +1021,18 @@ class LumaViewProApp(TooltipMixin, App):
                 logger.debug(f'[LVP Main  ] Window.bind({_evt}) failed: {_e}')
         Window.bind(focus=self._on_window_focus)
 
-        # Clock.schedule_once is the UI dispatcher: the executor lanes
-        # post callbacks to the Kivy main thread without importing
-        # Kivy themselves.
+        # Clock.schedule_once is the process's one UI dispatcher: the
+        # executor lanes, a run's deliveries and the listener bridge post
+        # callbacks to the Kivy main thread through it without importing
+        # Kivy themselves. The Clock delivers on the main thread, the one
+        # Kivy runs on.
         from kivy.clock import Clock
 
-        _ui = Clock.schedule_once
+        from modules.kivy_utils import UiDispatcher
 
-        # Also set the global dispatcher for kivy_utils.schedule_ui(). The
-        # Clock delivers on the main thread, the one Kivy runs on.
-        from modules.kivy_utils import UiDispatcher, set_ui_dispatcher
-
-        set_ui_dispatcher(UiDispatcher(schedule=_ui, thread=threading.main_thread()))
+        ScopeSession.set_ui_dispatcher(
+            UiDispatcher(schedule=Clock.schedule_once, thread=threading.main_thread())
+        )
 
         # The Session composes the instrument -- the scope (the camera
         # registry picks by priority, Pylon -> IDS -> FX2, reading the
@@ -1051,12 +1050,10 @@ class LumaViewProApp(TooltipMixin, App):
                 source_path=source_path,
                 simulate=simulate_mode,
                 warn_pre_release=False,
-                ui_dispatcher=_ui,
                 af_ui_update_func=_handle_autofocus_ui,
                 settings_saved_hook=_notify_plugins_of_settings_save,
                 engineering_mode=ENGINEERING_MODE,
                 plugin_health=lambda: app_context.ctx.plugins.health(),
-                display_ctx_provider=lambda: app_context.ctx,
                 sim_camera_stall=sim_camera_stall,
                 sim_file_stall=sim_file_stall,
                 outcome_listener=notification_popup_bridge,

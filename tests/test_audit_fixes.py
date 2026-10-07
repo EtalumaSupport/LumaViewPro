@@ -1512,7 +1512,6 @@ class TestG3_AutofocusFailureNotification:
 # ---------------------------------------------------------------------------
 
 from tests.protocol_drives import (
-    autofocus_snapshot as _autofocus_snapshot,
     bare_capture_runner as _bare_capture_runner,
     scr_run_kwargs as _scr_run_kwargs,
 )
@@ -1742,7 +1741,6 @@ def _run_cleanup_kwargs(**overrides):
         'forced_dark': False,
         'leds_state_at_end': 'off',
         'original_led_states': {},
-        'autofocus_snapshot': _autofocus_snapshot(states={}),
         'saved_camera_state': {},
         'return_to_position': None,
         'scope': MagicMock(),
@@ -1793,7 +1791,6 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
             callbacks=ProtocolCallbacks(
                 restore_layer_shader=_raiser('shader'),
             ),
-            autofocus_snapshot=_autofocus_snapshot(states={'BF': True}, restore=_raiser('af')),
             saved_camera_state={'tag': 'protocol'},
             return_to_position={'x': 1.0, 'y': 2.0, 'z': 3.0},
             default_move_fn=_raiser('move'),
@@ -1803,14 +1800,13 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
 
         assert captured, 'failing cleanup steps must surface a summary notification'
         body = captured[0][2]
-        assert '6 cleanup step(s) failed' in body, (
-            f'all six induced failures must be collected; got: {body}'
+        assert '5 cleanup step(s) failed' in body, (
+            f'all five induced failures must be collected; got: {body}'
         )
         for step in (
             'Cancel scheduled events',
             'Restore LED states',
             'Restore layer shader',
-            'Restore autofocus states',
             'Restore camera gain/exposure',
             'Return to position',
         ):
@@ -11196,7 +11192,7 @@ class TestBfAfForFluorescenceSnapshottedAtRunStart:
             settings, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL
         )
         runner = _bare_capture_runner()
-        runner.start(runner.prepare(**_scr_run_kwargs(), **run_settings))
+        runner.start(runner.prepare(**{**_scr_run_kwargs(), **run_settings}))
         assert runner._bf_af_for_fluorescence is True, (
             'the run must carry protocol.bf_af_for_fluorescence for per-tick reads'
         )

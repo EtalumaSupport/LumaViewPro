@@ -33,7 +33,7 @@ AutofocusRunner it drives are available, and lives on the session.
 Until LVP-A-10 every entry point open-coded ~45 lines of construct +
 start + register, with the failure mode that adding (e.g.) a new REST
 shell silently forgot one executor and surfaced as a deep deferred
-RuntimeError. ``create_default(io, camera, ui_dispatcher)`` returns a
+RuntimeError. ``create_default(io, camera)`` returns a
 single ``ExecutorBundle`` that holds every executor with the aliases
 already wired and ``start()`` already called. Callers unpack the bundle
 into their context object.
@@ -46,9 +46,7 @@ lens instead of hardcoding executor handle names.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
 
 from lvp_logger import logger
 from modules.protocol_thread import ProtocolThread
@@ -125,8 +123,6 @@ class ExecutorBundle:
 def create_default(
     io_executor: SequentialIOExecutor,
     camera_executor: SequentialIOExecutor,
-    ui_dispatcher: Callable[[Callable, float], Any] | None,
-    ctx_provider: Callable[[], Any] | None = None,
 ) -> ExecutorBundle:
     """Construct + start the standard LVP executor topology around a scope's lanes.
 
@@ -135,15 +131,6 @@ def create_default(
             started by the scope.
         camera_executor: The scope's CAMERA lane (``scope.camera_lane()``),
             already started by the scope.
-        ui_dispatcher: Callable matching ``Clock.schedule_once(func, dt)``
-            so executors can hand callbacks back to the GUI thread without
-            importing Kivy (executors stay GUI-agnostic). Headless callers
-            pass None and callbacks run inline on the worker.
-        ctx_provider: The display thread's context provider -- a callable
-            returning the object that carries the ``scope_display`` widget
-            and the ``scope`` handle, or None while the host has neither.
-            The GUI hands its app context in; a headless host has no
-            display and passes nothing.
 
     Returns:
         ExecutorBundle holding the scope's two lanes and every executor and
@@ -152,28 +139,23 @@ def create_default(
     """
     # No run mode and no bound: a run's writes are counted and paced by the
     # run's own write batch, on this lane's one ordinary queue.
-    file_io_executor = SequentialIOExecutor(name='FILE', ui_dispatcher=ui_dispatcher)
-    post_processing_executor = SequentialIOExecutor(name='POSTPROC', ui_dispatcher=ui_dispatcher)
-    # Thread is constructed here but NOT started. The host starts it once
-    # its display widget and this thread are both reachable through the
-    # provider; starting earlier races that wiring and silently no-ops.
-    scope_display_thread = ScopeDisplayThread(ctx_provider=ctx_provider)
+    file_io_executor = SequentialIOExecutor(name='FILE')
+    post_processing_executor = SequentialIOExecutor(name='POSTPROC')
+    # Thread is constructed here but NOT started: a host with a display
+    # starts it from its display widget, which it renders through.
+    scope_display_thread = ScopeDisplayThread()
     # Protocol scan-loop driver. Generic callable runner; SCE.run()
     # submits self._run_loop_executor.run_loop and receives a Future.
     protocol_thread = ProtocolThread()
     # Not a lane: no device sits behind it. A Stop's inline cleanup and the
     # GUI's jobs run here and wait on the device lanes through the blocking
     # public members, which a lane worker is forbidden to do.
-    worker_pool = SequentialIOExecutor(
-        name='WORKER_POOL', ui_dispatcher=ui_dispatcher, priority_aware=True, lane=False
-    )
+    worker_pool = SequentialIOExecutor(name='WORKER_POOL', priority_aware=True, lane=False)
     # Not a lane either, for a diagnostic that runs for minutes across both
     # device lanes (the support report). On the worker pool it would hold
     # the one worker, and a Stop would wait behind it; its own worker keeps
     # the pool free, and a second request queues behind the first.
-    diagnostics_executor = SequentialIOExecutor(
-        name='DIAGNOSTICS', ui_dispatcher=ui_dispatcher, lane=False
-    )
+    diagnostics_executor = SequentialIOExecutor(name='DIAGNOSTICS', lane=False)
 
     bundle = ExecutorBundle(
         io_executor=io_executor,

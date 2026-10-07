@@ -3,15 +3,16 @@
 
 A lane runs a task's callback once the task is done and its waiter answered,
 and a headless host runs a scheduled UI callback in place: in both, no
-caller is left for the raise to reach. The lane logged it, its default
-dispatcher at DEBUG, below the default log level; now each is reported.
+caller is left for the raise to reach. The lane logged it at DEBUG, below
+the default log level; now each is reported.
 """
 
 import pytest
 
 from modules import kivy_utils
 from modules.notification_center import notifications
-from modules.sequential_io_executor import IOTask, SequentialIOExecutor, _direct_dispatch
+from modules.scope_session import ScopeSession
+from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 
 class _CallbackError(RuntimeError):
@@ -43,20 +44,9 @@ def test_a_task_callback_that_raises_is_reported(reported):
     assert kw['solicited'] is False
 
 
-def test_the_default_dispatcher_reports_what_it_runs(reported):
-    _direct_dispatch(lambda dt: _raising())
-
-    [(ex, _kw)] = reported
-    assert isinstance(ex, _CallbackError)
-
-
 def test_a_headless_scheduled_callback_is_reported(reported):
-    previous = kivy_utils._ui_dispatcher
-    kivy_utils.set_ui_dispatcher(None)
-    try:
-        kivy_utils.schedule_ui(lambda dt: _raising())
-    finally:
-        kivy_utils.set_ui_dispatcher(previous)
+    ScopeSession.set_ui_dispatcher(None)
+    kivy_utils.schedule_ui(lambda dt: _raising())
 
     [(ex, _kw)] = reported
     assert isinstance(ex, _CallbackError)

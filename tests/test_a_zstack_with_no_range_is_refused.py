@@ -206,7 +206,7 @@ class TestTheHeadlessCallerGetsIt:
         session.settings = settings
         session.capture_settings_snapshot.return_value = session.settings
         session.scope = sim_scope
-        session.get_current_plate_position.return_value = dict(_POSITION)
+        session.plate_position_on.return_value = dict(_POSITION)
         session.objective_helper.get_objective_info.return_value = {'magnification': 10}
         session.wellplate_loader.get_plate_list.return_value = ['96 well microplate']
         runner = ProtocolRunner(session)

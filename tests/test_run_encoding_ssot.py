@@ -45,7 +45,6 @@ from modules.sequenced_capture_runner import (
     SequencedCaptureRunner,
 )
 from modules.sequential_io_executor import SequentialIOExecutor
-from tests.protocol_drives import autofocus_snapshot
 from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
 
 
@@ -212,7 +211,6 @@ def _run_one_still(executor, tmp_path, config):
             'go_to_step': lambda **kw: None,
             'move_position': lambda axis: None,
         },
-        autofocus_snapshot=autofocus_snapshot(),
     )
     handle = executor.start(plan)
     assert done.wait(timeout=COMPLETION_TIMEOUT), 'run did not complete'

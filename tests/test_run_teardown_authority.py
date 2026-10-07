@@ -32,7 +32,6 @@ import pytest
 
 from modules.exceptions import ProtocolRunRefusedError, RunAlreadyEndedError
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
-from tests.protocol_drives import autofocus_snapshot
 from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     COMPLETION_TIMEOUT,
     _make_autogain_settings,
@@ -66,7 +65,6 @@ def _start_run(executor, tmp_path, done):
             'go_to_step': lambda **kw: None,
             'move_position': lambda axis: None,
         },
-        autofocus_snapshot=autofocus_snapshot(),
     )
     run = executor.start(plan)
 
@@ -376,7 +374,6 @@ def _start_run_and_let_it_fail(executor, tmp_path):
         parent_dir=tmp_path / 'output',
         max_scans=1,
         callbacks={'go_to_step': lambda **kw: None, 'move_position': lambda axis: None},
-        autofocus_snapshot=autofocus_snapshot(),
     )
     executor.start(plan)
     assert executor.wait_for_run_idle(COMPLETION_TIMEOUT)

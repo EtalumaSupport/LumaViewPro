@@ -36,7 +36,6 @@ from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from tests.protocol_drives import (
     StepHeartbeat,
-    autofocus_snapshot,
     wait_for_run_end,
 )
 from tests.scope_fakes import configure_turret_like_bringup
@@ -323,7 +322,6 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         parent_dir=tmp_path / 'output',
         max_scans=run_kwargs.pop('max_scans', 1),
         callbacks=callbacks,
-        autofocus_snapshot=autofocus_snapshot(),
         **run_kwargs,
     )
     handle = executor.start(plan)
@@ -1499,7 +1497,6 @@ class TestExecuteCancellation:
             parent_dir=tmp_path / 'output',
             max_scans=1,
             callbacks=callbacks,
-            autofocus_snapshot=autofocus_snapshot(),
         )
         executor.start(plan)
 
@@ -1938,7 +1935,6 @@ class TestExecutorEdgeCases:
                 parent_dir=tmp_path / 'output',
                 max_scans=1,
                 callbacks={'run_complete': lambda **kw: done.set()},
-                autofocus_snapshot=autofocus_snapshot(),
             )
         assert not done.is_set(), 'run_complete must not fire for a refused run'
         assert not real_executor.run_in_progress(), (

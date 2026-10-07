@@ -667,12 +667,12 @@ def reset_acquire_ui():
 
 
 def reset_stim_ui():
+    # Display only: a loaded protocol's stimulation was turned off by the
+    # Session (``ScopeSession.apply_layer_settings``), which writes it.
     ctx = _app_ctx.ctx
     for layer in common_utils.get_layers():
         layer_obj = ctx.image_settings.layer_lookup(layer=layer)
         if 'stim_config' in ctx.settings[layer] and ctx.settings[layer]['stim_config'] is not None:
-            with ctx.settings_lock:
-                ctx.settings[layer]['stim_config']['enabled'] = False
             layer_obj._initializing = True
             try:
                 layer_obj.ids['stim_disable_btn'].active = True

@@ -159,4 +159,9 @@ class ObjectiveLoader:
         return list(self._objectives.keys())
 
     def get_objectives_dataframe(self) -> pd.DataFrame:
-        return self._objectives_df
+        """The objectives table, as the caller's own copy.
+
+        A changed table would otherwise change the catalogue every later
+        reader gets.
+        """
+        return self._objectives_df.copy(deep=True)

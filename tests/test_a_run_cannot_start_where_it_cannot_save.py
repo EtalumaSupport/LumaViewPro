@@ -35,7 +35,6 @@ import pytest
 from modules import path_utils
 from modules.exceptions import ProtocolRunRefusedError
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
-from tests.protocol_drives import autofocus_snapshot
 from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     _make_autogain_settings,
     _make_image_capture_config,
@@ -63,7 +62,6 @@ def _prepare(executor, tmp_path, parent_dir, **overrides):
         'sequence_name': 'capture_location',
         'image_capture_config': _make_image_capture_config(),
         'autogain_settings': _make_autogain_settings(),
-        'autofocus_snapshot': autofocus_snapshot(),
         'parent_dir': parent_dir,
         'max_scans': 1,
         'callbacks': {},

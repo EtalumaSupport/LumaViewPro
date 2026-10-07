@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Any
 import modules.app_context as _app_ctx
 import modules.settings_init as settings_init
 from lvp_logger import logger
-from modules import binning, common_utils, image_mode, path_utils, settings_paths
+from modules import binning, common_utils, image_mode, kivy_utils, path_utils, settings_paths
 from modules.activity_claim import (
     SCOPE_HOLDING_KINDS,
     ActivityClaim,
@@ -58,6 +58,7 @@ from modules.exceptions import (
     SettingRefusedError,
     SettingsSaveRefusedError,
 )
+from modules.kivy_utils import UiDispatcher
 from modules.lumascope_api.illumination import LedLease, LedTransition, LedTransitionCtx
 from modules.manual_capture import ManualCaptureController
 from modules.manual_recording import ManualRecordingController
@@ -132,6 +133,26 @@ def _scheduler_callback_error(exc: BaseException) -> None:
     from modules.notification_center import notifications
 
     notifications.report_outcome(exc, solicited=False, category='Scheduler')
+
+
+def _tell_stored_replacements(pending: list[tuple[str, object, object]]) -> None:
+    """Tell, as one notice, the stored settings a load replaced, and empty ``pending``.
+
+    One notice per load: the notification centre shows one notice of a kind
+    at a time and drops a repeat within its window, so a second notice from
+    the same load would hide the first's values. Emptied as it is told, so
+    each way out of a bring-up can tell it and the load is told once.
+    """
+    if not pending:
+        return
+    from modules.exceptions import StoredSettingReplacedNotice
+    from modules.notification_center import notifications
+
+    told = list(pending)
+    pending.clear()
+    notifications.report_outcome(
+        StoredSettingReplacedNotice(told), solicited=False, category='Settings'
+    )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -684,6 +705,25 @@ class ScopeSession:
     # Factory helpers
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def set_ui_dispatcher(dispatcher: UiDispatcher | None) -> None:
+        """Set how the process hands a callback to its UI thread.
+
+        A process has one UI thread, so this is one setting for the process,
+        not for a session: every lane's completion callback, every run
+        delivery and every listener the GUI marshals reads it at the moment
+        it dispatches, whichever session or scope it belongs to. A GUI host
+        sets it once, before it builds a session; a host with no UI thread
+        (a script, a REST server) never sets it. None (the default) calls
+        each callback directly on the thread that dispatches it, and a
+        callback's raise is reported rather than raised.
+
+        ``dispatcher.thread`` is the thread ``schedule`` delivers on: a
+        run's ``wait()`` on that thread is refused, since what it waits for
+        is delivered there.
+        """
+        kivy_utils._set_ui_dispatcher(dispatcher)
+
     @classmethod
     def create(
         cls,
@@ -693,12 +733,10 @@ class ScopeSession:
         *,
         simulate: bool = False,
         warn_pre_release: bool = True,
-        ui_dispatcher: Callable[[Callable, float], Any] | None = None,
         af_ui_update_func: Callable[[float], None] | None = None,
         settings_saved_hook: Callable[[dict], None] | None = None,
         engineering_mode: bool = False,
         plugin_health: 'Callable[[], PluginHealth] | None' = None,
-        display_ctx_provider: Callable[[], Any] | None = None,
         sim_camera_stall: 'SimulatedStall | None' = None,
         sim_file_stall: 'SimulatedStall | None' = None,
         outcome_listener: Callable[[Any], None] | None = None,
@@ -735,11 +773,6 @@ class ScopeSession:
                 pre-release FutureWarning -- the factory's own call and the
                 scope constructor's. A host that ships with the API passes
                 False; a separately shipped caller leaves the default.
-            ui_dispatcher: ``schedule_once(func, dt)``'s shape; the four
-                lanes marshal their callbacks through it. None runs them
-                inline on the worker. Refused beside ``scope``: a scope's
-                lanes marshal through the dispatcher it was built with, so
-                pass it to the ``Lumascope`` instead.
             af_ui_update_func: ``(pos) -> None``; the autofocus runner's
                 ``ui_update_func`` and the capture engine's
                 ``z_ui_update_func`` -- one callable, both consumers.
@@ -750,9 +783,6 @@ class ScopeSession:
             plugin_health: returns the plugin registry's health when the
                 support report asks (host-only: the GUI's registry; None
                 for a host that loads no plugins).
-            display_ctx_provider: the display thread's context provider
-                (host-only: the GUI's app context; None for a host with
-                no display).
             sim_camera_stall: a stall for the simulated camera's stream, so a
                 simulated scope shows a stream that stops delivering; refused
                 beside ``scope`` and by the scope itself unless it is
@@ -793,12 +823,6 @@ class ScopeSession:
                 'ScopeSession.create: sim_file_stall needs a simulated scope -- a real '
                 "scope's file lane writes to a real drive"
             )
-        if scope is not None and ui_dispatcher is not None:
-            raise ValueError(
-                'ScopeSession.create: ui_dispatcher is refused beside a scope -- the '
-                "scope's lanes marshal through the dispatcher it was built with, so "
-                'pass it to Lumascope(ui_dispatcher=...) instead'
-            )
         if warn_pre_release:
             _fire_pre_release_warning()
 
@@ -806,10 +830,14 @@ class ScopeSession:
 
         if outcome_listener is not None:
             notifications.add_listener(outcome_listener, min_severity=Severity.DEBUG)
-        # What the settings preparation replaced, told now that someone can
-        # hear it: the preparation runs before any host has a listener.
-        for replaced in settings_init.take_stored_replacements():
-            notifications.report_outcome(replaced, solicited=False, category='Settings')
+        # What the settings preparation replaced, taken now so a second
+        # create (the GUI's fallback on the template) never tells this load's;
+        # told once, with what bring-up replaced, however this ends.
+        replaced = [
+            replacement
+            for notice in settings_init.take_stored_replacements()
+            for replacement in notice.replacements
+        ]
         try:
             built_scope = False
             if scope is None:
@@ -820,7 +848,6 @@ class ScopeSession:
                     warn_pre_release=warn_pre_release,
                     configured_model=settings.get('microscope'),
                     sim_tier=cls._simulator_tier(settings) if simulate else 'fast',
-                    ui_dispatcher=ui_dispatcher,
                     fx2_debug_wire=settings['fx2_debug_wire_enabled'],
                     source_path=get_source_root(source_path),
                     sim_camera_stall=sim_camera_stall,
@@ -837,8 +864,6 @@ class ScopeSession:
             executor_bundle = create_default(
                 scope.io_lane(),
                 scope.camera_lane(),
-                ui_dispatcher=ui_dispatcher,
-                ctx_provider=display_ctx_provider,
             )
 
             # Service registration (the camera override key) happens in
@@ -876,17 +901,19 @@ class ScopeSession:
             if outcome_listener is not None:
                 session._outcome_listeners.append(outcome_listener)
             if built_scope:
-                cls._bring_up(session)
+                cls._bring_up(session, replaced)
             if sim_file_stall is not None:
                 session._hold_the_file_lane(sim_file_stall)
-            return session
         except BaseException:
+            _tell_stored_replacements(replaced)
             # Give the listener back: a host that composes again after this
             # raise (the GUI's fallback to the shipped defaults) would
             # otherwise hear every outcome twice.
             if outcome_listener is not None:
                 notifications.remove_listener(outcome_listener)
             raise
+        _tell_stored_replacements(replaced)
+        return session
 
     def _hold_the_file_lane(self, stall: 'SimulatedStall') -> None:
         """At ``stall.after_s``, hold the file lane's worker for ``stall.for_s``.
@@ -1014,15 +1041,18 @@ class ScopeSession:
             notifications.report_outcome(e, solicited=False, category='Hardware')
 
     @classmethod
-    def _bring_up(cls, session: 'ScopeSession') -> None:
+    def _bring_up(cls, session: 'ScopeSession', replaced: list) -> None:
         """Configure the scope a factory built; ``initialize`` releases the
         camera start gate last, after the capture pixel format. A raise
         anywhere in here leaves the caller with no session object to tear
         down, so this tears down what the factory started before it lets
-        the raise out."""
+        the raise out. What the bring-up replaces is added to ``replaced``,
+        the load's list, for the factory to tell once."""
         try:
-            session.configure_scope()
+            session._configure_scope(replaced)
         except BaseException:
+            # Before the teardown, which takes back the listeners that hear it.
+            _tell_stored_replacements(replaced)
             cls._report_teardown_failure(session.shutdown)
             raise
         session._stop_acquiring_absent_layers()
@@ -1090,7 +1120,7 @@ class ScopeSession:
         self.file_io_executor.replace_stuck_worker()
         return abandoned
 
-    def apply_remedy(self, remedy: Remedy) -> object:
+    def apply_remedy(self, remedy: Remedy) -> int:
         """Take the action a refusal named as its remedy, and return its answer.
 
         The one place a remedy's name becomes an action: the GUI's offer and
@@ -1100,10 +1130,17 @@ class ScopeSession:
         listed here are reachable through it. The member still decides
         whether the remedy applies now, and refuses if not.
 
+        Returns:
+            The remedy's own answer. The one remedy offered,
+            ``recover_file_writer``, answers how many of the run's images
+            it gave up on.
+
         Raises:
             RemedyUnknownError: the remedy names a member not offered as one.
         """
-        remedies = {'recover_file_writer': self.recover_file_writer}
+        remedies: dict[str, Callable[[], int]] = {
+            'recover_file_writer': self.recover_file_writer,
+        }
         action = remedies.get(remedy.member)
         if action is None:
             raise RemedyUnknownError(remedy.member, remedies)
@@ -1563,7 +1600,7 @@ class ScopeSession:
             protocol,
             layer_configs=self.get_layer_configs(),
             stim_configs=self.get_stim_configs(),
-            plate_position=self._plate_position(protocol.labware()),
+            plate_position=self.plate_position_on(protocol.labware()),
             objective_id=objective_id,
             channel_order=self.settings.get('step_channel_order', None),
             before_step=before_step,
@@ -1597,7 +1634,7 @@ class ScopeSession:
             layer=layer,
             layer_configs=self.get_layer_configs(),
             stim_configs=self.get_stim_configs(),
-            plate_position=self._plate_position(protocol.labware()),
+            plate_position=self.plate_position_on(protocol.labware()),
             objective_id=objective_id,
             label=label,
         )
@@ -2140,11 +2177,34 @@ class ScopeSession:
         with self.settings_lock:
             self._store_setting('protocol.filepath', file_path)
 
+    def open_protocol(self, file_path: 'str | os.PathLike') -> 'Protocol':
+        """Load the protocol at ``file_path`` with its Layer Settings, and remember it.
+
+        The GUI's Load: ``load_protocol``, then ``apply_layer_settings``, then
+        ``set_protocol_filepath``, so the next start opens it. The path is
+        written last, once the scope is on the protocol's plate and the layer
+        controls hold its settings: a refused file leaves the remembered path
+        where it was.
+
+        It is not part of the L2 API surface, like the remembered path it
+        writes.
+
+        Raises:
+            ProtocolNotLoadedError, ProtocolFormatError,
+            ProtocolRunRefusedError, ConfigError,
+            HardwareCommandRefusedError: As ``load_protocol`` and
+                ``apply_layer_settings`` raise them; no path is remembered.
+        """
+        protocol = self.load_protocol(file_path)
+        self.apply_layer_settings(protocol)
+        self.set_protocol_filepath(os.fspath(file_path))
+        return protocol
+
     def open_remembered_protocol(self) -> 'Protocol | None':
         """Load the protocol the last start left behind, with its Layer Settings.
 
-        The start-up half of ``set_protocol_filepath``: ``load_protocol``, then
-        ``apply_layer_settings``. A path is forgotten only when there is no
+        The start-up half of ``set_protocol_filepath``: ``open_protocol`` on the
+        remembered path. A path is forgotten only when there is no
         file left to remember, or the file cannot be read. A refusal keeps it:
         the file is real and was chosen, and what is wrong (the turret's
         glass, the plate, a layer, the file's contents) can be put right and
@@ -2176,12 +2236,10 @@ class ScopeSession:
             self.set_protocol_filepath('')
             return None
         try:
-            protocol = self.load_protocol(file_path)
+            return self.open_protocol(file_path)
         except ProtocolNotLoadedError:
             self.set_protocol_filepath('')
             raise
-        self.apply_layer_settings(protocol)
-        return protocol
 
     def _store_setting(self, path: str, value: object) -> None:
         """Under ``settings_lock``: put ``value`` at ``path`` in the live settings.
@@ -2258,6 +2316,30 @@ class ScopeSession:
             'this scope has no XY stage'
         )
 
+    def _replace_an_unresolvable_stored_plate(self) -> list[tuple[str, object, object]]:
+        """Replace a stored plate the catalogue cannot resolve with the shipped one.
+
+        A null, a non-string, an empty name or a plate the catalogue no
+        longer has. The catalogue is first available here, at bring-up, so
+        the name is judged here rather than with the load's other stored
+        values. Refusing it instead brought the GUI up on the shipped
+        template, dropping every other stored setting for one plate name.
+
+        Returns:
+            ``[('protocol.labware', stored, shipped)]`` when replaced, else ``[]``.
+        """
+        block = self.settings.get('protocol')
+        stored = block.get('labware') if isinstance(block, dict) else None
+        if self.wellplate_loader.is_known_plate(stored):
+            return []
+        shipped = self.scope.settings_template['protocol']['labware']
+        self.select_labware(shipped)
+        logger.info(
+            f'[Session  ] stored plate {stored!r} replaced by {shipped!r}: '
+            'the catalogue has no such plate'
+        )
+        return [('protocol.labware', stored, shipped)]
+
     def configure_scope(self) -> None:
         """Configure the scope from this session's settings -- the bring-up.
 
@@ -2267,8 +2349,9 @@ class ScopeSession:
         the stored selection; a model outside the catalogue, or no motor
         board to ask, leaves the stored one), normalize the turret slot
         keys a caller-supplied dict may still carry as JSON strings,
-        resolve the model's catalogue entry, refuse a stored plate the
-        catalogue does not have, build the init config and run
+        resolve the model's catalogue entry, replace a stored plate the
+        catalogue cannot resolve with the shipped one (told once, as a
+        ``StoredSettingReplacedNotice``), build the init config and run
         ``Lumascope.initialize`` -- which refuses a stored objective the
         catalogue does not have on a scope with no turret; on a turreted
         scope the objective stays unknown until the turret is in a known
@@ -2291,7 +2374,14 @@ class ScopeSession:
                 camera geometry and acceleration under whatever holds it,
                 and its writes run inline, where no lane refuses them.
         """
-        import modules.config_helpers as config_helpers
+        replaced: list[tuple[str, object, object]] = []
+        try:
+            self._configure_scope(replaced)
+        finally:
+            _tell_stored_replacements(replaced)
+
+    def _configure_scope(self, replaced: list[tuple[str, object, object]]) -> None:
+        """``configure_scope``'s steps, adding what they replace to ``replaced``."""
         from modules.scope_init_config import ScopeInitConfig
 
         holder = self.activity_claim.holder
@@ -2327,9 +2417,8 @@ class ScopeSession:
         settings_init._normalize_turret_slot_keys(self.settings)
         self._put_a_stageless_scope_on_center_plate()
         scope_config = scope_models.get(self.settings.get('microscope'))
-        # Refuses a stored plate the catalogue does not have, before anything
-        # is commanded: every well position would be computed on it.
-        config_helpers.get_selected_labware_from_settings(self.settings, self.wellplate_loader)
+        # Before anything is commanded: every well position is computed on it.
+        replaced.extend(self._replace_an_unresolvable_stored_plate())
         config = ScopeInitConfig.from_settings(
             self.settings,
             scope_config=scope_config,
@@ -2951,9 +3040,26 @@ class ScopeSession:
         self.scope.motion.refuse_unknown_positions(
             ('X', 'Y', 'Z'), recording=True, then='try again'
         )
-        return self._plate_position(self.settings.get('protocol', {}).get('labware'))
+        return self.plate_position_on(self.settings.get('protocol', {}).get('labware'))
 
-    def _plate_position(self, labware_id: str) -> dict:
+    def plate_position_on(self, labware_id: str) -> dict:
+        """The stage's position in plate coordinates, on the plate ``labware_id`` names.
+
+        For a caller that states the position on a plate other than the
+        session's live selection: a protocol's own plate, or the plate in a
+        run's settings snapshot. It asks nothing about the axes; the step or
+        run the position goes into is refused there when one is unknown.
+        It is not part of the L2 API surface: a caller states a position
+        through the step and run members that read it.
+
+        Returns:
+            dict: ``'x'`` and ``'y'`` in mm, ``'z'`` in um.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, the model's
+                motor controller is not connected.
+            ConfigError: ``labware_id`` is not a plate the catalogue has.
+        """
         import modules.config_helpers as config_helpers
 
         return config_helpers.get_current_plate_position(

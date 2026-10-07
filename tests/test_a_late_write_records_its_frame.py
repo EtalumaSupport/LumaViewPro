@@ -32,7 +32,12 @@ from modules.image_utils import read_postproc_input_metadata
 from modules.protocol import Protocol
 from tests.frame_records import plate
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
-from tests.test_manual_capture_member import _capture, _open_session, _settings
+from tests.test_manual_capture_member import (
+    _capture,
+    _open_session,
+    _settings,
+    over_the_first_well,
+)
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -239,11 +244,11 @@ class TestAManualStillRecordsItsFrame:
 
     def test_the_lit_current_and_the_well_reach_the_file(self, tmp_path):
         with _open_session(_settings(tmp_path)) as session:
+            well = over_the_first_well(session)
             session.scope.illumination.led_on('BF', 40.0)
-            well = session.scope.runtime_state.get_well_label()
             (path,) = _capture(session)
 
         metadata = read_postproc_input_metadata(path)
         assert metadata.get('illumination_ma') == 40.0, metadata.get('illumination_ma')
-        assert well and metadata.get('well_label') == well, (well, metadata.get('well_label'))
+        assert metadata.get('well_label') == well, (well, metadata.get('well_label'))
         assert metadata.get('frames_summed') == 1

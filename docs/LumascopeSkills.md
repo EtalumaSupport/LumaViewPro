@@ -14,7 +14,7 @@ and code that calls it is unsupported.
 
 The Lumascope SDK API documented in this file is **subject to breaking changes** in 4.1 / 4.1.5 / 4.2. Specifically:
 
-- 4.1.5 ships the sub-API decomposition (Wave 7): hardware-direct methods on `Lumascope` move to sub-APIs (`scope.motion.*`, `scope.illumination.*`, `scope.imaging.*`, `scope.diagnostics.*`, `scope.capabilities.*`, `scope.io.*`). The `Lumascope` class becomes a thin facade; L2 entry point shifts to `ScopeSession`.
+- 4.1.5 ships the sub-API decomposition (Wave 7): hardware-direct methods on `Lumascope` move to sub-APIs (`scope.motion.*`, `scope.illumination.*`, `scope.imaging.*`, `scope.diagnostics.*`, `scope.capabilities.*`). The `Lumascope` class becomes a thin facade; L2 entry point shifts to `ScopeSession`.
 - 4.2 ships the capability + wire contract changes that may rename or restructure protocol-level surfaces.
 - The REST endpoint convention is **deferred** to a dedicated design session; do not assume current shapes are final.
 
@@ -55,7 +55,7 @@ LumaViewPro controls Etaluma microscopes: LED illumination, XYZ stage + turret m
 │  ├─ scope.motion        ├─ scope.capabilities   │
 │  ├─ scope.illumination  ├─ scope.runtime_state  │
 │  ├─ scope.imaging       ├─ scope.protocols      │
-│  └─ scope.diagnostics   └─ scope.io             │
+│  └─ scope.diagnostics                           │
 └──────────────┬──────────────────────────────────┘
                │
 ┌──────────────▼──────────────────────────────────┐
@@ -102,7 +102,7 @@ If you are writing a new wrapper, the `Raises:` section is the canonical declara
 
 ## Lumascope composition root
 
-The `Lumascope` class is the **hardware-composition-root**. It constructs and holds the eight sub-APIs (`scope.motion`, `scope.illumination`, `scope.imaging`, `scope.diagnostics`, `scope.capabilities`, `scope.runtime_state`, `scope.protocols`, `scope.io`), wires them together, and owns lifecycle (connect / disconnect / emergency shutdown). `scope.protocols` holds the two `Protocol` constructors, documented under Running protocols.
+The `Lumascope` class is the **hardware-composition-root**. It constructs and holds the seven sub-APIs (`scope.motion`, `scope.illumination`, `scope.imaging`, `scope.diagnostics`, `scope.capabilities`, `scope.runtime_state`, `scope.protocols`), wires them together, and owns lifecycle (connect / disconnect / emergency shutdown). `scope.protocols` holds the two `Protocol` constructors, documented under Running protocols.
 
 **When to use directly:** you need fine-grained control beyond ScopeSession, or you're building a custom application. The GUI, ScopeSession, and REST surface all go through this class.
 
@@ -139,9 +139,11 @@ scope.wellplate_loader.resolve_plate_key(name)      # the catalogue's spelling; 
 scope.wellplate_loader.get_plate(plate_key=name)    # a WellPlate built from the catalogue entry
 ```
 
+Each catalogue read -- `scope_models`, `settings_template`, `get_objectives_dataframe()`, `get_plate()` -- hands out the caller's own copy: changing what you were given changes nothing the scope or any other reader sees.
+
 `source_path` is the folder holding `data/`; without one the scope uses the installation's own. The scope reads `data/labware.json`, `data/objectives.json`, `data/scopes.json` and `data/motorconfig_defaults.json` from it once, first, before anything starts, and everything that asks about plates, objectives or models reads the scope's copy: the scope's runtime state, protocol construction and validation, autofocus, the run, the session and the GUI. The model catalogue (`scopes.json`'s `Models`) is `scope.scope_models`, a read-only mapping of model name to its entry. A file that is missing, unreadable or not the shape its reader needs (for `scopes.json`, one with no `Models` section) raises `InstallationFileError` (`modules.exceptions`) naming the file and its folder, and nothing is left running. A simulated scope's `sim_model` that the folder's catalogue does not list raises `ConfigError` before anything starts. The release's layer vocabulary (`scopes.json`'s `LayerOrder`) is the one exception: it is process-wide, read from the installation's own folder the first time any code asks for the layers, and a scope's layers are resolved against it. It is not a `ConfigError`: the installation is at fault, not your settings.
 
-The scope builds and starts its own IO and CAMERA lanes at construction and shuts them in `scope.disconnect()`. `ui_dispatcher=` (`Clock.schedule_once(func, dt)`'s shape) is where the lanes hand a finished command's callback; leave it `None` (the default) and callbacks run on the lane's worker. A GUI host passes its UI marshaller so they reach its UI thread.
+The scope builds and starts its own IO and CAMERA lanes at construction and shuts them in `scope.disconnect()`. A lane hands a finished command's callback to the process's one UI dispatcher (`ScopeSession.set_ui_dispatcher`, below); with none set, the default, callbacks run on the lane's worker.
 
 ### Layer identity
 
@@ -265,7 +267,7 @@ scope.motion.is_current_turret_position_objective_set()        # False when the 
 # Labware + stage offset -- the plate-coordinate inputs
 scope.runtime_state.get_labware()                      # the plate the settings select, from the catalogue
 scope.runtime_state.get_stage_offset()                 # {'x': ..., 'y': ...} in um, a copy
-scope.runtime_state.get_well_label()                   # 'A1' for the current stage XY; '' when the labware has no wells
+scope.runtime_state.get_well_label()                   # 'A1' for the current stage XY; '' when the labware has no wells or XY is off its wells
 
 # Stage µm → plate mm using the selected labware + stage offset
 # (the bound form of CoordinateTransformer.stage_to_plate; raises
@@ -328,21 +330,17 @@ The session comes back **configured** and **running**: `create` builds the scope
 ```python
 session = ScopeSession.create(
     settings=settings_init.settings,
-    source_path='.',
+    source_path='.',                        # refused beside scope=: a session's folder is its scope's
     simulate=False,                         # True builds a simulated scope instead of opening hardware
-    ui_dispatcher=None,                     # host UI marshaling, Clock.schedule_once(func, dt)'s shape;
-                                            # None runs executor callbacks inline on the worker (headless);
-                                            # refused beside scope= -- pass it to Lumascope(...) instead;
-                                            # so is source_path: a session's folder is its scope's
     af_ui_update_func=None,                 # (pos) -> None, called as autofocus moves Z; None for headless
     settings_saved_hook=None,               # hook(settings_snapshot: dict) after a successful save_settings
     engineering_mode=False,                 # stored on the session
 )
 ```
 
-`af_ui_update_func` is one callable with two consumers: the autofocus runner's Z readout and the capture engine's. There is a seventh parameter, `display_ctx_provider`, which exists for the Kivy host's display thread and is not an L2 parameter — leave it unset.
+`af_ui_update_func` is one callable with two consumers: the autofocus runner's Z readout and the capture engine's.
 
-If you hand `create` a scope you built yourself (`scope=...`), that scope is your bring-up: call `session.configure_scope()` and `session.scope.imaging.start_streaming()` yourself. Its lanes marshal callbacks through the `ui_dispatcher` you built it with, so `create` refuses a `ui_dispatcher` beside `scope` with `ValueError`. One session per scope: a second `create(scope=...)` over a scope a live session holds raises `RuntimeError`.
+If you hand `create` a scope you built yourself (`scope=...`), that scope is your bring-up: call `session.configure_scope()` and `session.scope.imaging.start_streaming()` yourself. One session per scope: a second `create(scope=...)` over a scope a live session holds raises `RuntimeError`.
 
 ```python
 session = ScopeSession.create(settings=settings_init.settings, scope=my_scope)
@@ -354,7 +352,17 @@ session.scope.imaging.start_streaming()
 
 To hear what bring-up reports (a camera not found, a partial-hardware warning), pass your outcome listener to the factory: `ScopeSession.create(..., outcome_listener=on_outcome)` registers it before the scope is built. See "Outcomes" below.
 
-**Settings a factory needs.** A file-sourced dict (the loader above) is validated by name and complete. `configure_scope()` adopts the model the hardware reports into `settings['microscope']` whenever the catalogue knows that model, so the microscope key is an input the bring-up may correct. A hand-built dict must carry `frame` and `binning`, and on a scope with no turret `objective_id` -- `configure_scope()` raises `ConfigError` naming the missing key -- and that `objective_id` must name a shipped objective (`data/objectives.json`), or the raise names the objective. The stored plate (`settings['protocol']['labware']`) must be one the labware catalogue has, or `configure_scope()` raises `ConfigError` naming it and the plates available; no other plate is substituted, since a different plate's geometry would put every well position in the wrong place. A turreted scope does not read the stored `objective_id`: its objective is unknown until the turret is homed or moved to a slot, then it is that slot's assignment. `turret_objectives` keys may be JSON strings or ints; the factory normalizes them. A configured session may still owe the objective question (`session.objective_question()`, above); the factories do not ask it. A missing or unusable `labware.json`, `objectives.json`, `scopes.json` or `motorconfig_defaults.json` stops the scope's construction with `InstallationFileError` (see "Initialization").
+**The UI dispatcher.** A host with a UI thread tells the process once how to reach it, before it builds a session: `ScopeSession.set_ui_dispatcher(UiDispatcher(schedule=..., thread=...))`, with `UiDispatcher` from `modules.kivy_utils`. `schedule` has `Clock.schedule_once(func, dt)`'s shape, and `thread` is the thread it delivers on. It is one setting for the process, not for a session: every lane's completion callback, every run callback and every state listener the GUI marshals is handed to it at the moment it is delivered, whichever session or scope it belongs to. A host with no UI thread (a script, a REST server) never sets it, and a callback then runs on the thread that delivers it, its raise reported rather than raised; `set_ui_dispatcher(None)` restores that. A run's `wait()` made on `thread`, outside the run's own callbacks, raises `RunWaitOnUiThreadError`.
+
+```python
+from modules.kivy_utils import UiDispatcher
+
+ScopeSession.set_ui_dispatcher(
+    UiDispatcher(schedule=Clock.schedule_once, thread=threading.main_thread())
+)                                           # once, before the first ScopeSession.create
+```
+
+**Settings a factory needs.** A file-sourced dict (the loader above) is validated by name and complete. `configure_scope()` adopts the model the hardware reports into `settings['microscope']` whenever the catalogue knows that model, so the microscope key is an input the bring-up may correct. A hand-built dict must carry `frame` and `binning`, and on a scope with no turret `objective_id` -- `configure_scope()` raises `ConfigError` naming the missing key -- and that `objective_id` must name a shipped objective (`data/objectives.json`), or the raise names the objective. A stored plate (`settings['protocol']['labware']`) the labware catalogue cannot resolve -- a null, a non-string, an empty name, a plate it no longer has -- is replaced by the shipped plate at bring-up and told as part of the load's `stored_setting_replaced` notice (below); every other stored setting is kept. After bring-up, every writer of the selection refuses a plate the catalogue does not have. A turreted scope does not read the stored `objective_id`: its objective is unknown until the turret is homed or moved to a slot, then it is that slot's assignment. `turret_objectives` keys may be JSON strings or ints; the factory normalizes them. A configured session may still owe the objective question (`session.objective_question()`, above); the factories do not ask it. A missing or unusable `labware.json`, `objectives.json`, `scopes.json` or `motorconfig_defaults.json` stops the scope's construction with `InstallationFileError` (see "Initialization").
 
 For **simulated** (no hardware needed, development / CI):
 
@@ -465,11 +473,12 @@ and nothing is written. A `current.json` written before the range was
 enforced can hold one.
 
 At start-up, a stored value the writer would refuse -- the wrong kind, or
-outside a range above, a protocol schedule, or a `motion.acceleration_max_pct`
-outside 1 to 100 -- is replaced for that key alone by the shipped value, and
-the session reports one notice `stored_setting_replaced` as it is created,
-naming each replaced setting, its saved value and the one now in its place
-(`replacements`: a list of `(path, saved, used)`).
+outside a range above, a protocol schedule, a `motion.acceleration_max_pct`
+outside 1 to 100, or a plate the catalogue cannot resolve -- is replaced for
+that key alone by the shipped value, and the session reports one notice
+`stored_setting_replaced` once the scope is brought up (or once its bring-up
+fails), naming each replaced setting, its saved value and the one now in its
+place (`replacements`: a list of `(path, saved, used)`).
 A settings dict handed straight to `ScopeSession.create` holding an
 acceleration limit outside 1 to 100 is refused with `ConfigError` before
 anything is commanded.
@@ -681,7 +690,7 @@ print(result.status, result.reason, result.message)
 pending.stop()
 ```
 
-**Standalone autofocus.** `run_autofocus(layer)` focuses once on one layer at the current stage position, without a protocol. Before a home there is no current position to start from: it raises `AxisStateUnknownError` (from `session.get_current_plate_position()`), as `run_zstack` and `start_composite` do:
+**Standalone autofocus.** `run_autofocus(layer)` focuses once on one layer at the current stage position, without a protocol. Before a home there is no current position to start from: it raises `ProtocolRunRefusedError` with reason `position_unknown`, as every run does, `run_zstack` and `start_composite` included. Each of the three reads the settings once, when it is called, and states the position on that copy's plate:
 
 ```python
 pending = runner.run_autofocus('BF', save_characterization_data=True)
@@ -744,7 +753,7 @@ session.apply_remedy(refusal.remedy)   # takes the remedy a refusal named
 session.recover_file_writer()          # the same recovery, called by name
 ```
 
-`session.apply_remedy(remedy)` is the one door from a remedy's name to an action, and returns that action's answer. It takes only the members the Session offers as remedies (today `recover_file_writer`); any other name is refused with `RemedyUnknownError` (reason `remedy_unknown`), before anything runs.
+`session.apply_remedy(remedy)` is the one door from a remedy's name to an action, and returns that action's answer. It takes only the members the Session offers as remedies (today `recover_file_writer`, whose answer is how many of the run's images it gave up on); any other name is refused with `RemedyUnknownError` (reason `remedy_unknown`), before anything runs.
 
 Recovery is deliberate data loss: the finished run's outstanding images are given up on (they were never going to finish), and a partial file from the stuck write may remain on disk. Returns how many images were given up on. It is refused with `FileWriterNotStuckError` (reason `file_writer_not_stuck`) while the writer is still making progress -- those files finish on their own -- and with `HardwareCommandRefusedError` while a run or a diagnostic holds the scope.
 
@@ -2054,11 +2063,9 @@ Important consequences:
 
 ---
 
-## scope.io
+## Future I/O
 
-**Reserved.** Not populated in LumaViewPro 4.0.x.
-
-The `scope.io` sub-API is named in the locked sub-API decomposition per `docs/PLUGIN_API_DESIGN_2026-05-09.md` §6.6. It will document future I/O surfaces (trigger devices, USB-to-IO trigger boards, external sync) once those surfaces ship; the feature flags that gate them will ride `scope.runtime_state` when they exist.
+Trigger devices, USB-to-IO trigger boards and external sync are not in LumaViewPro 4.0.x; they will get their own sub-API, documented here, when they ship.
 
 ---
 

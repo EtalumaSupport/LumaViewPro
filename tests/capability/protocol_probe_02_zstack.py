@@ -101,15 +101,11 @@ try:
         max_scans=1,
         sequence_name='zstack',
         parent_dir=_pl.Path(settings['live_folder']).resolve() / 'Manual' / 'Z-Stacks',
-        image_capture_config=config_helpers.get_image_capture_config_from_settings(settings),
         enable_image_saving=True,  # is_image_saving_enabled() -- GUI checkbox
         autogain_settings=config_helpers.get_auto_gain_settings(settings),
         callbacks={'ui': 'x10 GUI callbacks'},
         return_to_position=session.get_current_plate_position(),
         engineering_mode=session.engineering_mode,
-        autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
-            settings, session.settings_lock
-        ),
         **config_helpers.get_sequenced_run_settings(
             settings, run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK
         ),

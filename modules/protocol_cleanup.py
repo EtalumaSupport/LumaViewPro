@@ -2,7 +2,8 @@
 
 """Protocol cleanup / shutdown logic.
 
-Restores LED, autofocus, camera state and fires completion callbacks.
+Unwinds an in-flight autofocus, restores LED and camera state, and fires
+completion callbacks.
 Extracted from ``sequenced_capture_runner.py`` during the
 protocol-decomposition refactor.
 """
@@ -31,7 +32,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from modules.autofocus_thread import AutofocusThread
-    from modules.config_helpers import AutofocusSnapshot
     from modules.lumascope_api import Lumascope
     from modules.protocol import Protocol
     from modules.protocol_callbacks import ProtocolCallbacks
@@ -226,7 +226,6 @@ def run_cleanup(
     # Saved original states
     leds_state_at_end: str,
     original_led_states: dict,
-    autofocus_snapshot: AutofocusSnapshot,
     saved_camera_state: dict,
     return_to_position: dict | None,
     # Dependencies
@@ -418,28 +417,9 @@ def run_cleanup(
     except Exception as ex:
         cleanup_errors.append(('Restore layer shader', f'{type(ex).__name__}: {ex}'))
 
-    # --- Restore autofocus states ---
-    # Empty states (the common case when no AF was active for this scan)
-    # skip the restore with one debug line. Iterating an absent snapshot
-    # once fired ERROR every scan, burying real failure signal under
-    # thousands of spurious lines; the snapshot is required now, so only
-    # the empty case remains. The restorer rides the snapshot: the run
-    # writes back to the same dict it was read from, whichever process
-    # owns it.
-    if not autofocus_snapshot.states:
-        logger.debug('[PROTOCOL] No autofocus states to restore')
-    else:
-        try:
-            for layer, layer_data in autofocus_snapshot.states.items():
-                autofocus_snapshot.restore(layer=layer, value=layer_data)
-        except Exception as ex:
-            cleanup_errors.append(('Restore autofocus states', f'{type(ex).__name__}: {ex}'))
-
     # --- Put the layer panel back on the settings ---
     # The run displayed each step in the panel without writing the user's
-    # settings; the panel now shows the settings again. Once per run,
-    # outside the restore above: it does not depend on any autofocus state
-    # having been snapshotted.
+    # settings; the panel now shows the settings again. Once per run.
     try:
         if callbacks.sync_layer_widgets:
             _schedule_cleanup_ui(

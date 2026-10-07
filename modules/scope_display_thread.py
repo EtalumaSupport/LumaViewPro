@@ -10,7 +10,7 @@ calls the widget's _render_one_frame(...) per iteration; sleeps via
 _stop_event.wait(timeout=...) for responsive shutdown.
 
 Public API:
-  start(fps)            -- spawn thread, begin rendering
+  start(renderer, fps)  -- spawn thread, begin rendering through renderer
   stop(timeout)         -- signal stop, join with bound timeout
   pause() / resume()    -- loop continues but skips work; no Thread
                            teardown, no generation bump
@@ -42,7 +42,7 @@ logger = logging.getLogger('LVP.modules.scope_display_thread')
 STATUS_OK = 0
 STATUS_EMPTY = 1  # no new frame in buffer
 STATUS_DUPLICATE = 2  # same camera timestamp as last frame
-STATUS_NOT_READY = 3  # ctx is None / scope disconnected / similar
+STATUS_NOT_READY = 3  # scope disconnected / similar
 
 
 # Idle back-off floor for the pacing wait. The loop's only pacing input is the
@@ -62,28 +62,18 @@ IDLE_BACKOFF_SECONDS = 0.005
 class ScopeDisplayThread:
     """Owns the live-display refresh loop.
 
-    Construction takes:
-      widget:        the ScopeDisplay widget. The thread calls
-                     widget._render_one_frame(...) per iteration; the
-                     widget owns the actual rendering state (texture,
-                     frame interval history). Thread owns only the
-                     loop, pacing, and the volatile publish state.
-      ctx_provider:  callable() -> ctx (so we don't capture a stale
-                     ref at construction). The thread looks up ctx
-                     at each iteration; if ctx is None the loop
-                     short-sleeps and retries.
+    The renderer it is started with (the ScopeDisplay widget) is called
+    as renderer._render_one_frame(...) per iteration; the renderer owns
+    the actual rendering state (texture, frame interval history), and
+    answers STATUS_NOT_READY while it has nothing to render from. The
+    thread owns only the loop, pacing, and the volatile publish state,
+    and reads no application context.
     """
 
-    def __init__(
-        self,
-        *,
-        ctx_provider: Callable[[], Any] | None = None,
-    ):
-        # The widget (ScopeDisplay) is created by Kivy after this
-        # registry runs. The thread looks it up each iteration via
-        # ctx_provider().scope_display so we don't have to thread
-        # through a setter at app-build time.
-        self._ctx_provider = ctx_provider or (lambda: None)
+    def __init__(self):
+        # The widget is created by Kivy after the session builds this
+        # thread, so it arrives with start(), the thread's one starter.
+        self._renderer: Any = None
 
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -121,7 +111,9 @@ class ScopeDisplayThread:
 
     # ---- lifecycle ----
 
-    def start(self, fps: int = 30) -> None:
+    def start(self, renderer: Any, fps: int = 30) -> None:
+        """Render through *renderer* at up to *fps* (0 uncapped)."""
+        self._renderer = renderer
         if self._thread is not None and self._thread.is_alive():
             logger.debug(
                 'scope_display_thread already running; set_fps + resume instead of re-start'
@@ -237,14 +229,7 @@ class ScopeDisplayThread:
                 self._intentional_wait_s += time.monotonic() - pause_wait_start
                 continue
 
-            # ctx / widget not ready (early boot, between disconnect /
-            # reconnect). Short sleep + retry; respect stop signal.
-            ctx = self._ctx_provider()
-            widget = getattr(ctx, 'scope_display', None) if ctx else None
-            if ctx is None or widget is None or getattr(ctx, 'scope', None) is None:
-                if self._stop_event.wait(timeout=0.1):
-                    return
-                continue
+            widget = self._renderer
 
             # Snapshot config under lock; release before doing work.
             with self._config_lock:

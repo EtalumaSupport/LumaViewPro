@@ -13,17 +13,20 @@ import traceback
 
 import harness
 from harness import check, figure, report
+from modules.kivy_utils import UiDispatcher
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import IOTask
 from tests.settings_fixtures import complete_settings
 
 
 def _session(dispatcher):
+    ScopeSession.set_ui_dispatcher(
+        None if dispatcher is None else UiDispatcher(schedule=dispatcher, thread=None)
+    )
     live = harness.live_dir('stack_p03')
     return ScopeSession.create(
         complete_settings(live_folder=str(live), microscope='LS850T'),
         simulate=True,
-        ui_dispatcher=dispatcher,
     )
 
 
@@ -96,6 +99,7 @@ def main():
             check('probe completed without an unexpected raise', False)
         finally:
             session.shutdown()
+            ScopeSession.set_ui_dispatcher(None)
     check('S4 ran', True)
     harness.assert_no_ui()
     sys.exit(report())

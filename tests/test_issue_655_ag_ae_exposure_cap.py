@@ -227,7 +227,7 @@ def test_run_carries_the_per_install_cap_from_settings():
         settings, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL
     )
     runner = bare_capture_runner()
-    runner.start(runner.prepare(**scr_run_kwargs(), **run_settings))
+    runner.start(runner.prepare(**{**scr_run_kwargs(), **run_settings}))
     assert runner._ag_ae_max_exposure_ms == {'fluorescence': 123.0}, (
         'the run must carry the per-install AG/AE override map. (#655)'
     )

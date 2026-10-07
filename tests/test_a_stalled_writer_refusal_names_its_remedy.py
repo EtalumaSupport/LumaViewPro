@@ -20,7 +20,6 @@ from modules.protocol_image_writer import RunWriteBatch
 from modules.scope_session import ScopeSession
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import ENQUEUED
-from tests.protocol_drives import autofocus_snapshot
 from tests.scope_fakes import spec_scope
 
 
@@ -59,7 +58,6 @@ def _refused_start(session, tmp_path) -> ProtocolRunRefusedError:
             image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
             autogain_settings={},
             parent_dir=tmp_path,
-            autofocus_snapshot=autofocus_snapshot(),
         )
     return refused.value
 

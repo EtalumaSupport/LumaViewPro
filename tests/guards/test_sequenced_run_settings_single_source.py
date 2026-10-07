@@ -27,10 +27,18 @@ import re
 import pytest
 
 import modules.config_helpers as config_helpers
+from modules.image_mode import (
+    IMAGE_MODE_8BIT,
+    IMAGE_MODE_12BIT_SCIENTIFIC,
+    OUTPUT_FORMAT_HYPERSTACK,
+    OUTPUT_FORMAT_OME_TIFF,
+    ImageCaptureConfig,
+)
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.ast_seams import REPO_ROOT
 
 _OWNED_PARAMS = (
+    'image_capture_config',
     'keep_led_between_steps',
     'video_as_frames',
     'separate_folder_per_channel',
@@ -85,6 +93,7 @@ def test_helper_passes_settings_values_through():
         run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
     )
     assert out == {
+        'image_capture_config': ImageCaptureConfig.from_image_mode(IMAGE_MODE_8BIT),
         'keep_led_between_steps': True,
         'video_as_frames': True,
         'separate_folder_per_channel': True,
@@ -103,6 +112,7 @@ def test_helper_defaults_missing_keys_to_the_shipped_defaults():
     assert config_helpers.get_sequenced_run_settings(
         {}, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL
     ) == {
+        'image_capture_config': ImageCaptureConfig.from_image_mode(IMAGE_MODE_8BIT),
         'keep_led_between_steps': False,
         'video_as_frames': False,
         'separate_folder_per_channel': False,
@@ -165,16 +175,33 @@ def test_autofocus_scan_plan_carries_the_forced_values(run_mode):
         run_mode=run_mode,
     )
     runner = bare_capture_runner()
-    plan = runner.prepare(
-        **scr_run_kwargs(run_mode=run_mode, max_scans=1),
-        **run_settings,
-    )
+    plan = runner.prepare(**{**scr_run_kwargs(run_mode=run_mode, max_scans=1), **run_settings})
     assert plan.keep_led_between_steps is False, (
         'the AF-scan plan must carry keep_led_between_steps=False'
     )
     assert plan.separate_folder_per_channel is False, (
         'the AF-scan plan must carry separate_folder_per_channel=False'
     )
+
+
+def test_a_composite_captures_8_bit_in_a_format_its_merge_reads():
+    """The composite's image rule is the helper's, like the autofocus
+    overrides: its merge reads its inputs back as 8-bit, from a TIFF or an
+    OME-TIFF, whatever the user's image mode and sequenced format."""
+    settings = {
+        'image_mode': IMAGE_MODE_12BIT_SCIENTIFIC,
+        'image_output_format': {'live': 'TIFF', 'sequenced': OUTPUT_FORMAT_HYPERSTACK},
+    }
+    composite = config_helpers.get_sequenced_run_settings(
+        settings, run_mode=SequencedCaptureRunMode.SINGLE_COMPOSITE
+    )['image_capture_config']
+    scan = config_helpers.get_sequenced_run_settings(
+        settings, run_mode=SequencedCaptureRunMode.SINGLE_SCAN
+    )['image_capture_config']
+    assert composite.image_mode == IMAGE_MODE_8BIT
+    assert composite.output_format_sequenced == OUTPUT_FORMAT_OME_TIFF
+    assert scan.image_mode == IMAGE_MODE_12BIT_SCIENTIFIC
+    assert scan.output_format_sequenced == OUTPUT_FORMAT_HYPERSTACK
 
 
 def test_every_acquisition_run_call_is_classified():

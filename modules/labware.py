@@ -1,7 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-import numpy as np
-
 
 class LabWare:
     """A class that stores and computes actions for objective labware"""
@@ -91,8 +89,14 @@ class WellPlate(LabWare):
         are empty, and well UI decorations do not apply."""
         return self.config['rows'] * self.config['columns'] > 0
 
-    # Get index of closest well based on plate position (x, y) in mm
-    def get_well_index(self, x, y):
+    def get_well_index(self, x: float, y: float) -> tuple[int, int] | None:
+        """The (column, row) of the well centre nearest plate position (x, y) in mm.
+
+        None when that centre is outside the grid: the position is more
+        than half a pitch beyond the outer well centres, off the plate's
+        wells. No shipped plate states a well size, so within the grid a
+        position names its nearest well whether or not it is inside it.
+        """
         if not self.has_wells():
             # Clipping to [0, -1] would fabricate index -1 for EVERY input
             # (rendered as label '@0' and a bogus well ring at plate
@@ -109,16 +113,20 @@ class WellPlate(LabWare):
 
         i = round(i)
         j = round(j)
-        i = np.clip(i, 0, self.config['columns'] - 1)
-        j = np.clip(j, 0, self.config['rows'] - 1)
+        if not (0 <= i < self.config['columns'] and 0 <= j < self.config['rows']):
+            return None
         return i, j
 
-    def get_well_label(self, x, y):
+    def get_well_label(self, x: float, y: float) -> str:
         if not self.has_wells():
             # Empty, not a fabricated token: filename builders and metadata
             # writers omit an empty well rather than stamping a fake one.
             return ''
-        well_x, well_y = self.get_well_index(x=x, y=y)
+        index = self.get_well_index(x=x, y=y)
+        if index is None:
+            # Off the grid: no well, the same empty value as a plate with none.
+            return ''
+        well_x, well_y = index
 
         # Handling for labware with more than 26 rows
         letter = ''

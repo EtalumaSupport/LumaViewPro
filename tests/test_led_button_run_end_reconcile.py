@@ -131,7 +131,6 @@ def _build_env(monkeypatch, files_draining=False, run_in_progress=False):
         scope=scope,
         ctx=ctx,
         stage=MagicMock(),
-        ui_dispatcher=lambda callback, dt: callback(dt),
     )
 
     monkeypatch.setattr(_app_ctx, 'ctx', ctx)

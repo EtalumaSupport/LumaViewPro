@@ -16,7 +16,6 @@ from tests.test_run_refusal_contract import (  # noqa: F401 -- fixtures
     _make_autogain_settings,
     _make_image_capture_config,
     _make_single_step_protocol,
-    autofocus_snapshot,
     executor,
     executors,
     scope,
@@ -38,7 +37,6 @@ def _prepare(executor, tmp_path, callbacks, **overrides):
             'move_position': lambda axis: None,
             **callbacks,
         },
-        'autofocus_snapshot': autofocus_snapshot(),
     }
     return executor.prepare(**{**plan_args, **overrides})
 

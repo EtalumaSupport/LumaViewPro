@@ -139,7 +139,7 @@ class TestNothingReselectsARunningScope:
         from tests.ast_seams import writers_of_settings_keys
 
         assert writers_of_settings_keys({'microscope'}) == {
-            ('modules/scope_session.py', 'ScopeSession.configure_scope'),
+            ('modules/scope_session.py', 'ScopeSession._configure_scope'),
             ('modules/scope_session.py', 'ScopeSession.select_model'),
         }
 

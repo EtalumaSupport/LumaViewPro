@@ -62,7 +62,7 @@ class TestSpecScopeRejectsTheWrongWorld:
         exactly the inversion the instance autospec avoids.
         """
         scope = spec_scope()
-        for sub_api in ('illumination', 'imaging', 'motion', 'diagnostics', 'io'):
+        for sub_api in ('illumination', 'imaging', 'motion', 'diagnostics'):
             assert hasattr(scope, sub_api), f'{sub_api} missing from the double'
         scope.illumination.led_on(channel=0, illumination_ma=100)
         scope.illumination.led_on.assert_called_once_with(channel=0, illumination_ma=100)

@@ -64,6 +64,21 @@ def still_session(tmp_path):
         yield session, tmp_path
 
 
+def over_the_first_well(session) -> str:
+    """Move the stage over the plate's first well and return its label.
+
+    A homed stage is off the plate's wells, and a position off them names
+    no well, so a test about the well a file records puts the stage over one.
+    """
+    scope = session.scope
+    x_mm, y_mm = scope.runtime_state.get_labware().get_well_position(0, 0)
+    for axis, plate_mm in (('X', x_mm), ('Y', y_mm)):
+        scope.motion.move_absolute(axis, scope.runtime_state.plate_to_stage_axis(axis, plate_mm))
+    label = scope.runtime_state.get_well_label()
+    assert label, 'the stage was moved over a well'
+    return label
+
+
 def _capture(session, **kwargs):
     kwargs.setdefault('layer', None)
     kwargs.setdefault('false_color_on', False)
@@ -97,6 +112,7 @@ def _wait_until_queued(session, depth):
 class TestWhereTheFileLands:
     def test_no_drawer_and_no_led_is_brightfield_in_manual(self, still_session):
         session, tmp_path = still_session
+        well = over_the_first_well(session)
 
         paths = _capture(session)
 
@@ -104,7 +120,7 @@ class TestWhereTheFileLands:
         path = paths[0]
         assert isinstance(path, pathlib.Path)
         assert path.parent == tmp_path / 'Manual'
-        assert path.name == f'live_{session.scope.runtime_state.get_well_label()}_BF_000001.tiff'
+        assert path.name == f'live_{well}_BF_000001.tiff'
         assert path.is_file()
 
     def test_a_lost_position_saves_the_image_without_a_well_and_says_so_once(

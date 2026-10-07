@@ -283,7 +283,7 @@ class TestNoLaneWorkerWaitsOnALane:
         from tests.scope_fakes import build_scope
 
         scope = build_scope(simulate=True, warn_pre_release=False)
-        bundle = create_default(scope.io_lane(), scope.camera_lane(), None)
+        bundle = create_default(scope.io_lane(), scope.camera_lane())
         try:
             fut = bundle.worker_pool.put(
                 IOTask(

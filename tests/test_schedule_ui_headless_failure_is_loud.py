@@ -32,16 +32,14 @@ import pytest
 from lvp_logger import logger
 
 from modules import kivy_utils
+from modules.scope_session import ScopeSession
 
 
 @pytest.fixture(autouse=True)
 def _headless_dispatcher():
-    """Force the no-GUI branch and restore whatever was there before."""
-    previous = kivy_utils._ui_dispatcher
-    kivy_utils.set_ui_dispatcher(None)
+    """Force the no-GUI branch, the one a test process runs on."""
+    ScopeSession.set_ui_dispatcher(None)
     logger.reset_mock()
-    yield
-    kivy_utils.set_ui_dispatcher(previous)
 
 
 def _boom(_dt):

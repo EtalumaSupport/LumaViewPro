@@ -136,7 +136,7 @@ def test_a_failed_bring_up_keeps_its_fault_and_reports_the_disconnect(monkeypatc
     _disconnect_then_fail(monkeypatch)
     reported = _record_reports(monkeypatch)
     configure_error = RuntimeError('configure')
-    monkeypatch.setattr(ScopeSession, 'configure_scope', MagicMock(side_effect=configure_error))
+    monkeypatch.setattr(ScopeSession, '_configure_scope', MagicMock(side_effect=configure_error))
 
     with pytest.raises(RuntimeError) as excinfo:
         ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)

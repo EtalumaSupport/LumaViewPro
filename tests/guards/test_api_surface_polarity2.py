@@ -42,7 +42,6 @@ SUBS = [
     'imaging',
     'diagnostics',
     'protocols',
-    'io',
     'runtime_state',
     'capabilities',
 ]

@@ -35,7 +35,6 @@ _SUB_APIS = (
     'imaging',
     'diagnostics',
     'capabilities',
-    'io',
     'protocols',
     'runtime_state',
 )

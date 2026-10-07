@@ -23,7 +23,6 @@ import pytest
 
 from modules import sequenced_capture_runner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
-from tests.protocol_drives import autofocus_snapshot
 from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     COMPLETION_TIMEOUT,
     _make_autogain_settings,
@@ -52,7 +51,6 @@ def _start_run(executor, tmp_path):
             'go_to_step': lambda **kw: None,
             'move_position': lambda axis: None,
         },
-        autofocus_snapshot=autofocus_snapshot(),
     )
     return executor.start(plan)
 

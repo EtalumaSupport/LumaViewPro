@@ -27,6 +27,7 @@ import pytest
 
 from lvp_logger import logger
 from modules import kivy_utils, protocol_cleanup
+from modules.scope_session import ScopeSession
 
 
 def _sent():
@@ -44,13 +45,12 @@ def immediate_gui_dispatcher():
     schedule_ui has caught and logged for a while, so a headless-only
     test would pass against the very bug this file exists for.
     """
-    previous = kivy_utils._ui_dispatcher
-    kivy_utils.set_ui_dispatcher(
+    ScopeSession.set_ui_dispatcher(
         kivy_utils.UiDispatcher(schedule=lambda func, timeout: func(timeout), thread=None)
     )
     logger.reset_mock()
     yield
-    kivy_utils.set_ui_dispatcher(previous)
+    ScopeSession.set_ui_dispatcher(None)
 
 
 def _boom(_dt):
