@@ -89,7 +89,7 @@ def test_base_load_folder_threads_capture_root_into_kwargs():
             and ('kwargs' in unparsed or 'setdefault' in unparsed)
         ):
             assign_idx = i
-        if 'self._generate_filename' in unparsed:
+        if 'self._planned_output' in unparsed or 'self._generate_filename' in unparsed:
             call_idx = i
             break
     assert assign_idx >= 0, 'capture_root must be assigned into kwargs in load_folder.'

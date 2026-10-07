@@ -1050,8 +1050,9 @@ class PostProcessingRefusedError(Refusal, CaptureError):
 
     Nothing broke: the folder holds no images, no groups this operation can
     combine, only derived outputs, only groups whose outputs would share a
-    name, source images in a format the operation cannot re-read, or
-    protocol data that could not be loaded; or the cell-count method it was
+    name, source images in a format the operation cannot re-read, protocol
+    data that could not be loaded, or outputs the folder's protocol would
+    name outside the folder; or the cell-count method it was
     given cannot be used. The message says which, in words written for the
     person, and what to do.
 

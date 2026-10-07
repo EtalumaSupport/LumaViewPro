@@ -58,7 +58,6 @@ def _locked(*_args):
 # Each folder the loader cannot process, past the first check: what it
 # stubs, and the words of the refusal the caller raises.
 _FOLDERS = {
-    'record_not_loaded': ({'record': None}, 'Protocol Execution Record not loaded'),
     'record_empty': ({'record': _record(0)}, 'Protocol Execution Record has no records'),
     'post_record_stuck': (
         {'record': _record(1), 'post_record': _unreadable, 'replace': _locked},
@@ -78,13 +77,11 @@ def test_every_folder_it_cannot_process_logs_no_error(folder, tmp_path, caplog, 
         'protocol_execution_record': tmp_path / 'protocol_record.tsv',
         'protocol_post_record': tmp_path / 'post_record.tsv',
         'protocol_root_dir': tmp_path,
+        'execution_record': stubs['record'],
     }
     helper = helper_module.ProtocolPostProcessingHelper
     monkeypatch.setattr(helper, '_find_protocol_tsvs', lambda self, path: found)
     monkeypatch.setattr(helper_module.Protocol, 'from_file', lambda **kw: MagicMock())
-    monkeypatch.setattr(
-        helper_module.ProtocolExecutionRecord, 'from_file', lambda **kw: stubs['record']
-    )
     monkeypatch.setattr(
         helper_module.ProtocolPostRecord,
         'from_file',

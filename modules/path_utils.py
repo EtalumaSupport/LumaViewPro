@@ -44,6 +44,16 @@ def require_capture_location(live_folder: str | pathlib.Path) -> pathlib.Path:
     return folder
 
 
+def resolves_inside(root: str | pathlib.Path, path: str | pathlib.Path) -> bool:
+    """Whether ``path`` is ``root`` or under it, once every link and ``..`` in both is followed.
+
+    A name built from data -- a record's protocol path, an output named from
+    a protocol's steps -- can climb out of the folder it is joined to; the
+    text alone cannot tell, so both sides are resolved first.
+    """
+    return pathlib.Path(path).resolve().is_relative_to(pathlib.Path(root).resolve())
+
+
 def allocate_directory(desired: pathlib.Path) -> pathlib.Path:
     """Reserve a new directory at ``desired``, or the next free name after it.
 
