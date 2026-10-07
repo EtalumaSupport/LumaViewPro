@@ -12,8 +12,8 @@ Now every cell is read by its column's reader where the frame is taken, and
 a cell of the wrong type refuses the load in one message naming the file,
 the step and the column. The in-place writers read their values the same
 way, since a pandas frame does not hold its own schema. Post-processing,
-which reads a finished run's record and never runs it, keeps its cells as
-read.
+which reads a finished run's record and never runs it, keeps a blank cell
+blank and refuses any other cell its column cannot hold.
 """
 
 import ast
@@ -201,12 +201,25 @@ def test_no_step_frame_write_sits_outside_the_typed_writers():
     assert writing == typed_writers
 
 
-def test_post_processing_reads_a_runs_record_with_its_cells_as_read(tmp_path):
+def test_post_processing_refuses_a_runs_record_with_a_cell_its_column_cannot_hold(tmp_path):
     path = _with_cell(_saved(tmp_path, TWO_STEPS), 0, 'Auto_Focus', 'maybe')
+
+    with pytest.raises(ProtocolFormatError) as refused:
+        _load(path, runnable=False)
+
+    words = str(refused.value)
+    assert str(path) in words
+    assert 'step 1' in words
+    assert 'Auto_Focus' in words
+
+
+def test_post_processing_keeps_a_runs_blank_cell_blank_and_types_the_rest(tmp_path):
+    path = _with_cell(_saved(tmp_path, TWO_STEPS), 0, 'Z-Slice', '')
 
     protocol = _load(path, runnable=False)
 
-    assert protocol.steps()['Auto_Focus'].tolist() == ['maybe', 'False']
+    assert protocol.steps()['Z-Slice'].tolist() == [-1, 0]
+    assert protocol.steps()['Auto_Focus'].tolist() == [True, False]
     assert protocol.step(idx=0)['X'] == 10.0
 
 
