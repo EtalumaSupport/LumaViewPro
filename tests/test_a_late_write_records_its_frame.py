@@ -11,18 +11,18 @@ stage had moved on to, and the write's own clock. The run still reported
 The record is now taken with the frame and carried to the write, so these
 tests hold every write back until the run has moved on, and read the files.
 
-The well is named from the step's position on the plate the protocol is
-written for -- the plate the run moved against -- not the plate the scope
-happens to have selected: a 6-well protocol run on a scope set to a 96-well
-plate names 6-well wells. And it is not the step's Well field, which is empty
-on an inserted step and keeps its old value when a step is moved.
+The well is named from the position the file records, on the plate the
+protocol is written for -- the plate the run moved against -- not the plate
+the scope happens to have selected: a 6-well protocol run on a scope set to a
+96-well plate names 6-well wells. It is not the step's Well field, which is
+empty on an inserted step and keeps its old value when a step is moved, nor
+the step's planned X/Y, which a scope with no XY stage never reaches.
 """
 
 import datetime
 import pathlib
 import threading
 import time
-from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -30,6 +30,7 @@ import pytest
 import modules.protocol_image_writer as protocol_image_writer
 from modules.image_utils import read_postproc_input_metadata
 from modules.protocol import Protocol
+from modules.recording_frames import FrameFact
 from tests.frame_records import plate
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 from tests.test_manual_capture_member import (
@@ -94,14 +95,18 @@ def _protocol(steps):
     )
 
 
-def _run_with_every_write_held(tmp_path, monkeypatch, steps, on_capture=None):
-    """Run ``steps`` headless with each save held on the file writer.
+def _run_with_every_write_held(tmp_path, monkeypatch, steps, on_capture=None, microscope=None):
+    """Run ``steps`` headless with each save held on the file writer, on
+    ``microscope`` when named, else the settings' own model.
 
     Returns ``{step name: (metadata read back, when its write started)}``.
     """
     run_parent = tmp_path / 'runs'
     write_started = {}
-    with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
+    settings = headless_settings(tmp_path)
+    if microscope is not None:
+        settings['microscope'] = microscope
+    with open_composite_session(settings) as (_session, runner):
         real_save = protocol_image_writer.save_image
 
         def _held(scope, **kwargs):
@@ -218,24 +223,33 @@ class TestALateWriteRecordsItsFrame:
         )
 
 
-class TestAStepWithNoPlatePositionNamesNoWell:
-    """A step with no plate position has no well to name. Once it has been
-    through the protocol's table its missing X/Y are NaN, not None; either way
-    the file names no well -- and the write does not fail over it."""
+class TestAFileNamesTheWellAtThePositionItRecords:
+    """The well is read from the frame's position, the one the file records,
+    so a file cannot name a well while stating no position."""
 
-    @pytest.mark.parametrize('missing', [None, float('nan')])
-    def test_no_well_and_no_failure(self, missing):
-        writer = SimpleNamespace(_labware=plate('6 well microplate'))
-        step = {'X': missing, 'Y': missing}
+    def test_an_unknown_position_names_no_well(self):
+        fact = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=5000.0, moving=False, channel='BF')
 
-        assert protocol_image_writer.ProtocolImageWriter._well_label(writer, step) is None
+        assert fact.well_label(plate('6 well microplate')) is None
 
-    def test_a_placed_step_names_the_well_it_lies_in(self):
-        writer = SimpleNamespace(_labware=plate('6 well microplate'))
+    def test_a_known_position_names_the_well_it_lies_in(self):
+        fact = FrameFact(plate_x_mm=60.0, plate_y_mm=20.0, z_um=5000.0, moving=False, channel='BF')
 
-        well = protocol_image_writer.ProtocolImageWriter._well_label(writer, {'X': 60.0, 'Y': 20.0})
+        assert fact.well_label(plate('6 well microplate')) == 'A2'
 
-        assert well == 'A2'
+    def test_a_run_on_a_scope_with_no_xy_stage_names_no_well(self, tmp_path, monkeypatch):
+        """An LS820 has no X or Y, so it never reaches the well a step plans:
+        its file states no position, and names no well either."""
+        files = _run_with_every_write_held(
+            tmp_path, monkeypatch, [_step('B3', 0, x=20.0, gain=1.0)], microscope='LS820'
+        )
+
+        metadata, _ = files['B3']
+        assert metadata.get('plate_pos_mm') is None, metadata.get('plate_pos_mm')
+        assert not metadata.get('well_label'), (
+            f'the file states no position but names well {metadata.get("well_label")!r}, '
+            "the well under the step's planned X/Y"
+        )
 
 
 class TestAManualStillRecordsItsFrame:

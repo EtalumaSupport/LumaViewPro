@@ -27,8 +27,9 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
+from modules.lumascope_api._constants import AxisPosition, AxisState
 from tests.ast_seams import parse_module
-from tests.frame_records import frame_record
+from tests.frame_records import frame_record, plate
 from tests.scope_fakes import spec_scope
 
 LAYER = 'Lumi'
@@ -44,12 +45,19 @@ def capture_ctx(tmp_path):
     on the calling thread, as it does for a scope with no executors.
     """
     scope = spec_scope()
-    scope.runtime_state.get_well_label.return_value = 'A1'
     # The objective the frame is taken with, read at capture.
     scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
     scope.illumination.get_led_states.return_value = {}
-    # No axis knows its position, so the files state none.
-    scope.motion.axis_positions.return_value = {}
+    # The stage is over A1 of a 96-well plate: the file's well is named from
+    # the position it records.
+    a1 = plate('96 well microplate')
+    scope.runtime_state.get_labware.return_value = a1
+    a1_x_mm, a1_y_mm = a1.get_well_position(0, 0)
+    scope.runtime_state.plate_transform.return_value = lambda sx, sy: (a1_x_mm, a1_y_mm)
+    scope.motion.axis_positions.return_value = {
+        'X': AxisPosition(AxisState.IDLE, 1000.0),
+        'Y': AxisPosition(AxisState.IDLE, 2000.0),
+    }
     scope.imaging._capture_and_wait_impl.return_value = np.zeros((4, 4), dtype=np.uint8)
     scope.imaging.capture_frame_depth.return_value = 8
     scope.imaging.last_capture_info = {'frame_record': frame_record()}

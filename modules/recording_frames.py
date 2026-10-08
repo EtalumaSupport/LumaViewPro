@@ -24,6 +24,7 @@ import modules.image_utils as image_utils
 from modules.lumascope_api._constants import AxisState
 
 if TYPE_CHECKING:
+    from modules.labware import WellPlate
     from modules.lumascope_api import Lumascope
 
 # --- Frame filename contract ------------------------------------------------
@@ -218,6 +219,19 @@ class FrameFact(NamedTuple):
     z_um: float | None
     moving: bool
     channel: str
+
+    def well_label(self, labware: 'WellPlate') -> str | None:
+        """The well this frame's position lies in on ``labware``, the plate
+        the position is stated on.
+
+        None where X or Y is unknown, so a file names no well it cannot say
+        it was over -- not the well a step planned, which a scope with no XY
+        stage never reaches. ``''`` off the plate's wells, or on a plate
+        with none.
+        """
+        if self.plate_x_mm is None or self.plate_y_mm is None:
+            return None
+        return labware.get_well_label(x=self.plate_x_mm, y=self.plate_y_mm)
 
 
 def frame_fact(

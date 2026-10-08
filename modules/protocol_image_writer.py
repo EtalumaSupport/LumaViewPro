@@ -12,7 +12,6 @@ from __future__ import annotations
 import datetime
 import functools
 import logging
-import math
 import pathlib
 import threading
 import time
@@ -1001,20 +1000,6 @@ class ProtocolImageWriter:
         )
         return False
 
-    def _well_label(self, step) -> str | None:
-        """The well a step's position lies in, on the plate the run moves against.
-
-        Named from the position, not the step's Well column: that column is
-        empty on an inserted step and keeps its old value when a step is
-        moved. None for a step with no plate position -- stored as None, or
-        as NaN once the step has been through the protocol's table, where a
-        missing float cannot be None.
-        """
-        x, y = step['X'], step['Y']
-        if x is None or y is None or math.isnan(x) or math.isnan(y):
-            return None
-        return self._labware.get_well_label(x=x, y=y)
-
     def _capture_evidence(self, image, full_scale: int) -> str:
         """One-line provenance for a captured frame: brightness statistics
         plus the frame's exposure / gain and capture-hold timing.
@@ -1645,7 +1630,12 @@ class ProtocolImageWriter:
                     objective_id=captured_image.objective_id,
                     frame_record=captured_image.record,
                     labware=self._labware,
-                    well_label=self._well_label(step),
+                    # The well at the position the file records, on the
+                    # plate the run moves against: not the step's Well
+                    # column, which is empty on an inserted step and stale
+                    # on a moved one, nor its planned X/Y, which a scope
+                    # with no XY stage never reaches.
+                    well_label=captured_image.position.well_label(self._labware),
                 )
             except Exception:
                 self._record_dropped_capture(

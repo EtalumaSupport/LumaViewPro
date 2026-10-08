@@ -183,31 +183,6 @@ class ManualCaptureController:
         # brightfield -- the rule a manual recording uses too.
         channel = common_utils.resolve_channel_identity(scope.illumination, request.layer)
 
-        well_label = scope.runtime_state.get_well_label()
-        if well_label is None and scope.capabilities.has_xy_stage:
-            # The image is real; only where it was taken is not known. It is
-            # saved, and says so once, here -- the save takes this label, so
-            # this is the one place it is known to be missing. A scope with no
-            # XY stage has no well to know, and homing would not give it one.
-            from modules.notification_center import notifications
-
-            notifications.report_outcome(
-                CapturePositionNotRecordedNotice(), solicited=False, category='Capture'
-            )
-        # A zero-well plate or an unknown position has no label; no leading
-        # underscore for it.
-        append = f'{well_label}_{channel}' if well_label else channel
-        # The writer's own renderer, so a manual still and a protocol step
-        # spell the turret slot the same way; an unknown slot adds nothing.
-        append = common_utils.build_step_name(
-            common_utils.StepNameComponents(
-                custom_prefix=append,
-                turret_position=(
-                    scope.motion.get_turret_slot() if request.engineering_mode else None
-                ),
-            )
-        )
-
         # The live folder is asked of the location owner, and only the levels
         # inside it are created here.
         try:
@@ -259,6 +234,32 @@ class ManualCaptureController:
             scope,
             channel_tiebreak=request.layer,
             to_plate=scope.runtime_state.plate_transform(),
+        )
+
+        # The well at the position the file records, read beside the grab.
+        well_label = fact.well_label(labware)
+        if well_label is None and scope.capabilities.has_xy_stage:
+            # The image is real; only where it was taken is not known. It is
+            # saved, and says so once, here -- the save takes this label, so
+            # this is the one place it is known to be missing. A scope with no
+            # XY stage has no well to know, and homing would not give it one.
+            from modules.notification_center import notifications
+
+            notifications.report_outcome(
+                CapturePositionNotRecordedNotice(), solicited=False, category='Capture'
+            )
+        # A zero-well plate or an unknown position has no label; no leading
+        # underscore for it.
+        append = f'{well_label}_{channel}' if well_label else channel
+        # The writer's own renderer, so a manual still and a protocol step
+        # spell the turret slot the same way; an unknown slot adds nothing.
+        append = common_utils.build_step_name(
+            common_utils.StepNameComponents(
+                custom_prefix=append,
+                turret_position=(
+                    scope.motion.get_turret_slot() if request.engineering_mode else None
+                ),
+            )
         )
 
         raw_path = save_image(
