@@ -1,15 +1,19 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A simulated scope's motor board comes in two tiers, and the settings pick.
+"""A simulated scope's boards come in three tiers, and the settings pick.
 
 What is pinned here: the firmware tier builds the production driver against
 the real firmware and reports the catalogue's axes for every model; a model
 with no axes has no motor board; an emulator that does not come up raises
 instead of becoming a manual scope; the setting is refused when it names no
-tier and resolves to the fast tier only where no runtime is built.
+tier and resolves to the fast tier only where no runtime is built. The
+realistic tier is the firmware tier with the motors moving at the bench-fitted
+ramp, so a home takes long enough to press Home again during it; the shipped
+template runs it, and the firmware tier the tests run stays instant.
 """
 
 import pathlib
 import sys
+import time
 
 import pytest
 import serial
@@ -76,7 +80,7 @@ def test_the_fast_tier_is_the_default_and_the_python_stand_in():
         scope.disconnect()
 
 
-def test_a_tier_that_is_not_one_of_the_two_is_refused():
+def test_a_tier_that_is_not_one_of_the_three_is_refused():
     with pytest.raises(ValueError, match='sim_tier'):
         _scope(sim_tier='fastest', sim_model='LS850T')
 
@@ -137,11 +141,11 @@ def test_an_led_emulator_that_does_not_come_up_raises_naming_the_driver(monkeypa
 
 
 class TestTheSessionReadsTheTier:
-    def test_the_template_ships_the_firmware_tier(self):
+    def test_the_template_ships_the_realistic_tier(self):
         import json
 
         template = json.loads(pathlib.Path('data/settings.json').read_text())
-        assert template['simulator_tier'] == 'firmware'
+        assert template['simulator_tier'] == 'realistic'
 
     def test_a_setting_that_names_no_tier_is_refused(self):
         with pytest.raises(ConfigError, match="simulator_tier 'turbo'"):
@@ -163,13 +167,14 @@ class TestTheSessionReadsTheTier:
         finally:
             session.shutdown()
 
-    def test_a_platform_with_no_runtime_runs_the_fast_tier_and_says_so(self, monkeypatch):
+    @pytest.mark.parametrize('asked', ['firmware', 'realistic'])
+    def test_a_platform_with_no_runtime_runs_the_fast_tier_and_says_so(self, monkeypatch, asked):
         import modules.scope_session as scope_session_module
 
         # The suite's lvp_logger is a mock; its calls are the record.
         scope_session_module.logger.warning.reset_mock()
         monkeypatch.setattr(sys, 'platform', 'win32')
-        tier = ScopeSession._simulator_tier(complete_settings(simulator_tier='firmware'))
+        tier = ScopeSession._simulator_tier(complete_settings(simulator_tier=asked))
         assert tier == 'fast'
         said = [str(c.args[0]) for c in scope_session_module.logger.warning.call_args_list]
         assert any('no MicroPython runtime' in s for s in said), said
@@ -205,3 +210,27 @@ class TestTheSessionReadsTheTier:
             assert led.last_command_error is None
         finally:
             session.shutdown()
+
+
+class TestTheRealisticTierTakesTheStagesTime:
+    """A home on the firmware tier is over before a person can press again;
+    on the realistic tier it takes seconds, as on the stage."""
+
+    def _home_s(self, tier: str) -> float:
+        session = ScopeSession.create(
+            complete_settings(simulator_tier=tier, microscope='LS850'), simulate=True
+        )
+        try:
+            started = time.monotonic()
+            session.scope.motion.home()
+            return time.monotonic() - started
+        finally:
+            session.shutdown()
+
+    def test_the_firmware_tier_homes_at_once(self):
+        assert self._home_s('firmware') < 1.0
+
+    # One realistic home of an LS850, about 5 s.
+    @pytest.mark.slow
+    def test_the_realistic_tier_homes_for_longer_than_the_home_buttons_debounce(self):
+        assert self._home_s('realistic') > 2.0

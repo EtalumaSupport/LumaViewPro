@@ -968,10 +968,10 @@ class ScopeSession:
         tier = settings['simulator_tier']
         if tier not in SIMULATOR_TIERS:
             raise ConfigError(f'simulator_tier {tier!r} is not one of {SIMULATOR_TIERS}')
-        missing = runtime_missing(DEFAULT_DIALECT) if tier == 'firmware' else None
+        missing = runtime_missing(DEFAULT_DIALECT) if tier != 'fast' else None
         if missing is not None:
             logger.warning(
-                '[Session  ] simulator_tier is firmware, but there is no MicroPython runtime '
+                f'[Session  ] simulator_tier is {tier}, but there is no MicroPython runtime '
                 f'here ({missing}): running the fast tier'
             )
             return 'fast'

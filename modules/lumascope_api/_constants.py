@@ -22,11 +22,14 @@ from modules.exceptions import AccelerationLimitRefusedError
 # use `scope.capabilities.axes` for "what does this scope have?".
 _VALID_AXIS_NAMES = ('X', 'Y', 'Z', 'T')
 
-# The two simulated motor boards a simulated scope can be built on: a
-# Python stand-in with no timing, and the production driver against the
-# real firmware in a MicroPython process. The session validates the
-# setting against this tuple and the constructor dispatches on it.
-SIMULATOR_TIERS = ('fast', 'firmware')
+# The simulated boards a simulated scope can be built on: a Python
+# stand-in with no timing; the production driver against the real firmware
+# in a MicroPython process, its motors moving at once; and the same
+# firmware with its motors moving at the ramp fitted to the bench, so a
+# move or a home takes the time it takes on the stage. The session
+# validates the setting against this tuple and the constructor dispatches
+# on it.
+SIMULATOR_TIERS = ('fast', 'firmware', 'realistic')
 
 # Absolute position bounds in um -- generous outer limits. Per-axis
 # travel limits are enforced by the motor board itself.

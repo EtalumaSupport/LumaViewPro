@@ -118,6 +118,13 @@ IDSCamera = _register_ids_camera(sys.platform)
 _SIMULATED_LED_BOARDS = ('EL-0940', 'FX2')
 _SIMULATED_MOTOR_BOARDS = ('EL-0940', 'TMCM-6110')
 
+
+def _wire_timing(sim_tier: str) -> str:
+    """How the firmware emulator's motors move on a firmware-backed tier: at
+    the bench-fitted ramp on the realistic tier, at once on the firmware tier."""
+    return 'realistic' if sim_tier == 'realistic' else 'instant'
+
+
 # PRE-RELEASE 4-mechanism warning bundle: this is the runtime
 # FutureWarning piece. The other three are the README banner, the
 # LumascopeSkills.md preface, and the CHANGELOG note. All four
@@ -364,7 +371,7 @@ class Lumascope:
             return board
         from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
 
-        backend = SimWireBackend(MotorBoardSpec(model, axes))
+        backend = SimWireBackend(MotorBoardSpec(model, axes, timing=_wire_timing(sim_tier)))
         board = motor_registry.create(
             'rp2040', backend=backend, motorconfig_defaults=motorconfig_defaults
         )
@@ -413,7 +420,8 @@ class Lumascope:
         The firmware tier builds the production driver by name against the
         emulator, so an emulator that does not come up raises instead of
         becoming a stand-in. The tier is the one the motor board was just
-        built on, which refused any tier that is not one of the two.
+        built on, which refused any tier that is not one of
+        ``SIMULATOR_TIERS``.
         """
         if sim_tier == 'fast':
             board = led_registry.create('auto', simulate=True)
@@ -421,7 +429,7 @@ class Lumascope:
             return board
         from drivers.sim_wire.backend import LedBoardSpec, SimWireBackend
 
-        backend = SimWireBackend(None, led=LedBoardSpec(model))
+        backend = SimWireBackend(None, led=LedBoardSpec(model, timing=_wire_timing(sim_tier)))
         board = led_registry.create('rp2040', backend=backend)
         logger.info(f'[SCOPE API ] Using the LED FIRMWARE in simulation (model={model})')
         return board
@@ -490,6 +498,9 @@ class Lumascope:
                 behind an emulated serial port, so every line of the
                 driver runs; it costs the driver's real connect (about a
                 second) and needs a runtime built for this platform.
+                ``'realistic'`` is the firmware tier with its motors moving
+                at the ramp fitted to the bench, so a move or a home takes
+                the time it takes on the stage.
                 Ignored when simulate is False.
             warn_pre_release: Whether this construction should fire the
                 PRE-RELEASE FutureWarning. The warning tells a caller its
