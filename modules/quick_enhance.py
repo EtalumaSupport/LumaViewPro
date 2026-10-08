@@ -32,10 +32,6 @@ QUANTITATIVE_USE_WARNING = (
     'Use raw images for quantitative analysis. '
     'For AI-assisted, validated quantitative enhancement workflows, use LumaQuant Pro.'
 )
-# Quick Enhance reads more than the project's own capture format, so this is a
-# superset of the TIFF suffixes rather than an independent list -- the two must
-# not be able to disagree about what counts as a TIFF.
-SUPPORTED_SUFFIXES = image_utils.TIFF_SUFFIXES | frozenset({'.png', '.jpg', '.jpeg', '.bmp'})
 MAX_IMAGE_PIXELS = 100_000_000
 
 
@@ -463,7 +459,7 @@ class QuickEnhancer:
             path
             for path in folder.iterdir()
             if path.is_file()
-            and path.suffix.lower() in SUPPORTED_SUFFIXES
+            and image_utils.is_image(path)
             and '_enhanced' not in path.stem.lower()
         )
         created = []

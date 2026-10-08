@@ -378,12 +378,6 @@ def results_axes(table: pd.DataFrame) -> tuple[list[str], list[str]]:
 
 
 class PostProcessing:
-    # A superset of the TIFF suffixes, not an independent list, so this cannot
-    # drift out of agreement with what the rest of the project calls a TIFF.
-    SUPPORTED_IMAGE_TYPES = tuple(
-        sorted(image_utils.TIFF_SUFFIXES | {'.jpg', '.jpeg', '.png', '.bmp'})
-    )
-
     def __init__(self):
         self._cell_count = CellCount()
 
@@ -461,7 +455,7 @@ class PostProcessing:
             'area_unit',
             'total_object_intensity',
         ]
-        filenames = [f for f in os.listdir(path) if f.endswith(self.SUPPORTED_IMAGE_TYPES)]
+        filenames = [f for f in os.listdir(path) if image_utils.is_image(f)]
         results = []
         not_counted = []
 

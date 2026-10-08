@@ -89,6 +89,17 @@ def test_the_count_scale_is_the_override_else_the_images_own(
     assert cell_count_scale(method, image_pixel_size_um) == expected
 
 
+def test_a_folder_count_counts_an_image_whose_suffix_is_upper_case(tmp_path):
+    """The folder filter compared suffixes as written, so IMG.TIF was skipped
+    and results.csv read as if the folder held one image."""
+    _png(tmp_path / 'lower.png')
+    _png(tmp_path / 'UPPER.PNG')
+
+    PostProcessing().apply_cell_count_to_folder(tmp_path, default_cell_count_method())
+
+    assert set(_results(tmp_path)) == {'lower.png', 'UPPER.PNG'}
+
+
 def test_a_folder_count_measures_each_image_at_its_own_scale(tmp_path):
     _capture(tmp_path / 'scaled.tiff', pixel_size_um=0.5)
     _png(tmp_path / 'unscaled.png')

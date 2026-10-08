@@ -13,9 +13,13 @@ from kivy.uix.button import Button
 
 from ui.hover_behavior import HoverBehavior
 import modules.app_context as _app_ctx
-from modules import gui_logger
+from modules import gui_logger, image_utils
 
 logger = logging.getLogger('LVP.ui.file_dialogs')
+
+# Every picker of an image offers the images the readers take, from their one
+# list, so no picker can offer less than the work it feeds accepts.
+_IMAGE_FILETYPES = [('Images', ' '.join(sorted(image_utils.IMAGE_SUFFIXES)))]
 
 
 # Folder-picker contexts that hand work to the file IO executor for
@@ -508,10 +512,8 @@ class FileChooseBTN(HoverBehavior, Button):
         filetypes_tk = None
         if self.context == 'load_protocol':
             filetypes_tk = [('TSV', '.tsv')]
-        elif self.context == 'load_cell_count_input_image':
-            filetypes_tk = [('TIFF', '.tif .tiff')]
-        elif self.context == 'load_quick_enhance_input_image':
-            filetypes_tk = [('Images', '.tif .tiff .png .jpg .jpeg .bmp')]
+        elif self.context in ('load_cell_count_input_image', 'load_quick_enhance_input_image'):
+            filetypes_tk = _IMAGE_FILETYPES
         elif self.context == 'load_cell_count_method':
             filetypes_tk = [('JSON', '.json')]
         elif self.context == 'load_graphing_data':
@@ -584,7 +586,7 @@ class FileOrFolderChooseBTN(HoverBehavior, Button):
             return
 
         initial_dir = str(pathlib.Path(_app_ctx.ctx.settings['live_folder']))
-        filetypes = [('Images', '.tif .tiff .png .jpg .jpeg .bmp')]
+        filetypes = _IMAGE_FILETYPES
         _run_native_dialog_async(
             self,
             lambda: _platform_native_choose_file_or_folder(initial_dir, filetypes),

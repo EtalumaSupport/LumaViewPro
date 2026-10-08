@@ -241,3 +241,53 @@ class TestTiffSuffixSingleSource:
             'TIFF classification must go through image_utils.is_tiff / '
             'TIFF_SUFFIXES; hand-rolled suffix checks found at: ' + ', '.join(offenders)
         )
+
+
+class TestImageSuffixSingleSource:
+    """Image-ness has ONE production answer: ``is_image`` / ``IMAGE_SUFFIXES``.
+
+    Five copies of the list once stood in production: two in modules (one
+    compared case-sensitively, so a folder count skipped ``IMG.TIF`` without
+    saying so) and three in file pickers (one offered TIFF alone, so a PNG
+    the count accepts could not be picked). Outside image_utils, a literal
+    list, tuple or set naming two or more image suffixes, or a string made
+    only of suffixes naming two or more (a picker's filter), is a second
+    answer. One suffix (a save dialog's single output type) is not a list.
+    """
+
+    _SUFFIXES: ClassVar[frozenset[str]] = image_utils.IMAGE_SUFFIXES
+
+    @classmethod
+    def _names_several(cls, node) -> bool:
+        if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+            values = {elt.value for elt in node.elts if isinstance(elt, ast.Constant)}
+            return len(values & cls._SUFFIXES) >= 2
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            tokens = node.value.split()
+            return (
+                len(tokens) >= 2
+                and all(t.startswith('.') for t in tokens)
+                and len(set(tokens) & cls._SUFFIXES) >= 2
+            )
+        return False
+
+    def test_no_second_image_suffix_authority_in_production_source(self):
+        root, files = TestTiffSuffixSingleSource._production_files()
+        canonical = root / 'modules' / 'image_utils.py'
+        offenders = [
+            f'{path.relative_to(root)}:{node.lineno}'
+            for path in files
+            if path != canonical
+            for node in ast.walk(ast.parse(path.read_text(encoding='utf-8')))
+            if self._names_several(node)
+        ]
+        assert offenders == [], (
+            'Image classification and pickers must go through image_utils.is_image / '
+            'IMAGE_SUFFIXES; a second list found at: ' + ', '.join(offenders)
+        )
+
+    def test_is_image_is_case_blind(self, tmp_path):
+        assert image_utils.is_image(tmp_path / 'IMG.TIF') is True
+        assert image_utils.is_image(tmp_path / 'a.PNG') is True
+        assert image_utils.is_image(tmp_path / 'a.ome.tiff') is True
+        assert image_utils.is_image(tmp_path / 'a.tsv') is False

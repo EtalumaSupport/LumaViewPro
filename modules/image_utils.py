@@ -31,6 +31,11 @@ if TYPE_CHECKING:
 
 TIFF_SUFFIXES = frozenset({'.tif', '.tiff'})
 
+# Every image load_pixels reads: a TIFF through tifffile, the rest through
+# cv2.imread. A superset of TIFF_SUFFIXES, so the two cannot disagree about
+# what a TIFF is.
+IMAGE_SUFFIXES = TIFF_SUFFIXES | frozenset({'.png', '.jpg', '.jpeg', '.bmp'})
+
 # The OME UnitsLength token for micrometres is the MICRO SIGN form; the
 # ASCII 'um' shorthand is schema-invalid and a strict OME parser refuses
 # the whole file (Bio-Formats' lenient parsing long hid this). Escaped so
@@ -51,6 +56,16 @@ def is_tiff(path: pathlib.Path | str) -> bool:
     it twice.
     """
     return pathlib.Path(path).suffix.lower() in TIFF_SUFFIXES
+
+
+def is_image(path: pathlib.Path | str) -> bool:
+    """True when this path names an image the project can read (``IMAGE_SUFFIXES``).
+
+    The single answer to "is this an image", for every folder scan and every
+    file picker. Case-blind, as ``is_tiff`` is: a folder count that compared
+    suffixes as written skipped ``IMG.TIF`` without saying so.
+    """
+    return pathlib.Path(path).suffix.lower() in IMAGE_SUFFIXES
 
 
 def find_tiff_files(
