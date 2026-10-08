@@ -156,6 +156,26 @@
         do_rotation: False
         do_translation: True
 
+    # Says a home holds the scope, over the middle of the live view; empty
+    # and invisible otherwise. A Label takes no touches, so it blocks nothing.
+    Label:
+        id: homing_banner_id
+        text: app.homing_text
+        opacity: 1 if app.homing_text else 0
+        font_size: '28sp'
+        bold: True
+        padding: '32dp', '20dp'
+        size_hint: None, None
+        size: self.texture_size
+        center: root.center
+        canvas.before:
+            Color:
+                rgba: 0.08, 0.08, 0.08, 0.85
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [dp(12)]
+
 	MotionSettings:
         id: motionsettings_id
         size_hint: None, None

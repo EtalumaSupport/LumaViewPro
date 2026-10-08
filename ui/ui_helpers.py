@@ -658,6 +658,18 @@ def draw_shared_run_displays() -> None:
     ctx.ui_listener_bridge.reconcile_led_buttons()
 
 
+def homing_banner_text(session) -> str:
+    """The words the middle of the window shows; empty while no home holds the scope.
+
+    The Session's own sentence for the hold, so the banner and the close
+    confirm say the same thing. A home only: a run shows its own progress,
+    and a banner over the live view would hide the images it captures.
+    """
+    if session.exclusive_activity != 'home':
+        return ''
+    return session.run_lockout_named or ''
+
+
 # ============================================================================
 # UI State Helpers
 # ============================================================================

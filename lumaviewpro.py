@@ -484,6 +484,7 @@ from ui.ui_helpers import (
     LoggedAccordionItem,
     _handle_ui_update_for_axis,
     draw_shared_run_displays,
+    homing_banner_text,
     run_reported,
     run_unasked,
 )
@@ -518,6 +519,9 @@ class LumaViewProApp(TooltipMixin, App):
     # that control started.
     run_lockout = BooleanProperty(False)
     controls_locked = BooleanProperty(False)
+    # The words the middle of the window shows while a home holds the
+    # scope; empty otherwise. Written on the same edge as the two above.
+    homing_text = StringProperty('')
 
     # The in-flight drain-close poller, or None when no close is running.
     # Declared here so the close handler can read it before any close has
@@ -526,12 +530,13 @@ class LumaViewProApp(TooltipMixin, App):
     _drain_close_watch = None
 
     def publish_run_state(self, dt: float = 0) -> None:
-        """Write the two kv mirrors from the session derivations.
+        """Write the kv mirrors from the session derivations.
 
-        One closure writes both, in fail-safe order: Kivy dispatches
-        bindings synchronously inside each setattr, so a handler
+        One closure writes the two locks, in fail-safe order: Kivy
+        dispatches bindings synchronously inside each setattr, so a handler
         observing a torn pair must see OVER-locked, never under-locked --
-        the tightening property writes first on lock, last on unlock.
+        the tightening property writes first on lock, last on unlock. The
+        homing banner's words are written after them; nothing locks on them.
         """
         session = ctx.session
         run_lockout = session.run_lockout
@@ -542,6 +547,7 @@ class LumaViewProApp(TooltipMixin, App):
         else:
             self.run_lockout = run_lockout
             self.controls_locked = False
+        self.homing_text = homing_banner_text(session)
         self._draw_run_controls()
         # The objective question is withheld while an activity holds the
         # scope; this edge is the one that fires when the hold ends, so the
