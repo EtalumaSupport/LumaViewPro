@@ -7,11 +7,12 @@ run is compared against.
 """
 
 import os
-import resource
 import sys
 import threading
 import time
 import traceback
+
+import psutil
 
 import harness
 from harness import HARDWARE, check, figure, hardware_session, report
@@ -36,9 +37,13 @@ def body(session):
     time.sleep(1.0)
     with lock:
         n['frames'] = 0
+    proc = psutil.Process()
+    max_rss = 0
     t0 = os.times()
     w0 = time.perf_counter()
-    time.sleep(SECONDS)
+    while time.perf_counter() - w0 < SECONDS:
+        time.sleep(1.0)
+        max_rss = max(max_rss, proc.memory_info().rss)
     t1 = os.times()
     w1 = time.perf_counter()
     with lock:
@@ -48,10 +53,8 @@ def body(session):
     figure('S6.headless.seconds', round(w1 - w0, 1))
     figure('S6.headless.delivered_fps', round(frames / (w1 - w0), 1))
     figure('S6.headless.process_cpu_percent', round(100.0 * cpu / (w1 - w0), 1))
-    figure(
-        'S6.headless.max_rss_mb', round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6)
-    )
-    figure('S6.headless.load_avg_1m', round(os.getloadavg()[0], 1))
+    figure('S6.headless.max_rss_mb', round(max_rss / 1e6))
+    figure('S6.headless.load_avg_1m', round(psutil.getloadavg()[0], 1))
     figure('S6.headless.frame', im.frame_size_cached)
     check('S6 headless ran', True)
 
