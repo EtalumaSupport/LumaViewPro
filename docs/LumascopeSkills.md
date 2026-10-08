@@ -1216,6 +1216,12 @@ scope.motion.home(axis='T')                      # turret only (parks Z at 0, ho
 # from the driver's error when there is one). A stop_motion that lands
 # after home() is called but before the board starts homing ends the home
 # 'stopped' with .axes empty: nothing moved, every axis keeps its state.
+# One home at a time: a home asked while another is in flight -- by any
+# caller, on any axis -- raises HardwareCommandRefusedError reason
+# 'home_in_flight' when it is asked, and nothing is queued.
+future = scope.motion.start_home(axis='ALL')     # same home, not waited: refused or started
+                                                 # before it returns; the Future settles
+                                                 # with what home() returns or raises
 scope.motion.has_homed()                         # True if the stage/focus axes know where they are
 scope.motion.position_is_known('T')              # turret-specific
 scope.motion.axes_without_position()             # {axis: 'unknown' | 'homing'}; {} when all known

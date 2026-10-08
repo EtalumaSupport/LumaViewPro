@@ -164,10 +164,16 @@ class TestLumascopeHome:
         base = scope.motion._MOTION_WAIT_BASE_S
         settle = scope.motion._MOTION_SETTLE_TIMEOUT_S
 
-        def record(impl, name, timeout_s, **_kwargs):
-            timeouts[len(timeouts)] = timeout_s
-            return True
+        dispatch = scope.motion._dispatch_motion
 
+        def record(impl, name, timeout_s, **kwargs):
+            timeouts[len(timeouts)] = timeout_s
+            return dispatch(impl, name, timeout_s=timeout_s, **kwargs)
+
+        # The bodies do nothing; the dispatch is real, so each home ends on
+        # the lane as one does, and the next is not refused as in flight.
+        for body in ('_zhome_impl', '_home_turret_impl', '_home_impl'):
+            setattr(scope.motion, body, lambda: None)
         scope.motion._dispatch_motion = record
         scope.motion.home(axis='Z')
         scope.motion.home(axis='T')

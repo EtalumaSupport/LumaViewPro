@@ -3,7 +3,7 @@
 
 MotionAPI owns the motion state slots (_pos_cache, _axis_state,
 _arrival_events, _position_listeners, _motion_wake,
-_motion_monitor_stop, _motion_monitor_thread, _homing_event,
+_motion_monitor_stop, _motion_monitor_thread, _home_in_flight,
 _turreting_event) and the bodies of all stage / focus / turret
 methods. Lumascope keeps a small set of one-line method-name
 forwarders (home, move_absolute, etc.) for
@@ -27,6 +27,7 @@ method list and docs/WAVE7_PHASE_2_PLAN.md for the multi-commit plan.
 
 from __future__ import annotations
 
+import concurrent.futures
 import contextlib
 import logging as _logging
 import threading
@@ -246,8 +247,11 @@ class MotionAPI:
         self._position_listeners_lock = threading.Lock()
         self._position_listeners: list = []
 
-        # Boolean operation flags use threading.Event for wait/signal.
-        self._homing_event = threading.Event()  # set => homing in progress
+        # Held from the moment a home is asked until its lane body ends, so a
+        # home asked meanwhile is refused when it is asked, rather than
+        # queued behind the first and run in full after it. Released on the
+        # lane, which a plain Lock allows.
+        self._home_in_flight = threading.Lock()
         self._turreting_event = threading.Event()  # set => turret move in progress
 
         # Motion monitor thread handle -- populated by _start_monitor().
@@ -933,7 +937,6 @@ class MotionAPI:
             self._scope.imaging.frame_validity.invalidate('xy_move')
         if 'T' in present_axes:
             self._scope.imaging.frame_validity.invalidate('turret')
-        self._is_homing = True
         try:
             with self._reference_position_logger():
                 self._end_home_stopped_before_driven(
@@ -979,7 +982,6 @@ class MotionAPI:
                 'ALL', self._home_ending(stop_generation, 'error'), present_axes
             ) from e
         finally:
-            self._is_homing = False
             _api_log.info('home DONE')
 
     @contextlib.contextmanager
@@ -1432,28 +1434,11 @@ class MotionAPI:
     # Stateful method bodies.
     #
     # State slots (_pos_cache, _axis_state, _arrival_events,
-    # _position_listeners, _motion_wake, _motion_monitor_*, _homing_event,
+    # _position_listeners, _motion_wake, _motion_monitor_*, _home_in_flight,
     # _turreting_event) live on this surface.
     # ------------------------------------------------------------------
 
     # --- CR-2: Thread-safe properties for shared state ---
-
-    @property
-    def _is_homing(self) -> bool:
-        """True while the microscope is homing.
-
-        Returns:
-            bool: True if a homing operation is in progress.
-        """
-        return self._homing_event.is_set()
-
-    @_is_homing.setter
-    def _is_homing(self, value: bool) -> None:
-        """Set the homing-in-progress flag."""
-        if value:
-            self._homing_event.set()
-        else:
-            self._homing_event.clear()
 
     @property
     def _is_turreting(self) -> bool:
@@ -2376,22 +2361,94 @@ class MotionAPI:
                 a reference: the driver answered False or raised, or a
                 homed axis's position could not be read. The axes it
                 names are UNKNOWN.
+            HardwareCommandRefusedError: ``'home_in_flight'``, while a home
+                asked earlier, by any caller, has not ended.
         """
+        impl, settle_windows = self._home_body(axis)
+        body, release_if_unrun = self._claim_home(impl)
+        try:
+            self._dispatch_motion(
+                body,
+                'home',
+                timeout_s=self._MOTION_WAIT_BASE_S + settle_windows * self._MOTION_SETTLE_TIMEOUT_S,
+                falsifies_recording=self._home_moves_turret(impl),
+            )
+        except concurrent.futures.TimeoutError:
+            # The home is still queued or running, and its body releases the
+            # claim when it ends; until then it is in flight.
+            raise
+        except BaseException:
+            release_if_unrun()
+            raise
+
+    def start_home(self, axis: str = 'ALL') -> concurrent.futures.Future[None]:
+        """Start the home ``home`` runs, without waiting for it; returns its Future.
+
+        For a caller that must not block for the length of a home -- a
+        button. The home is asked, and refused or put on the io lane, before
+        this returns, so a second home asked while this one is in flight is
+        refused at once rather than queued behind it. The Future settles
+        with what ``home`` would have returned or raised.
+
+        Raises:
+            ValueError: on an unknown axis.
+            HardwareCommandRefusedError: ``'home_in_flight'``, while a home
+                asked earlier has not ended; or the lane refused the home,
+                as ``home`` is refused.
+        """
+        impl, _ = self._home_body(axis)
+        body, release_if_unrun = self._claim_home(impl)
+        future: concurrent.futures.Future[None] = concurrent.futures.Future()
+        # Marked running before anyone else holds it, so only the lane
+        # settles it and a caller's cancel() cannot release the claim.
+        future.set_running_or_notify_cancel()
+        try:
+            self._scope._io_executor.submit(
+                IOTask(action=body, falsifies_recording=self._home_moves_turret(impl)),
+                'home',
+                waiter=future,
+            )
+        except BaseException:
+            release_if_unrun()
+            raise
+        future.add_done_callback(lambda _settled: release_if_unrun())
+        return future
+
+    def _home_body(self, axis: str) -> tuple[Callable[[], None], int]:
+        """The home body for ``axis`` and how many settle windows bound its wait."""
         a = axis.upper()
         if a == 'Z':
-            impl, settle_windows = self._zhome_impl, 1
-        elif a == 'T':
-            impl, settle_windows = self._home_turret_impl, 3
-        elif a == 'ALL':
-            impl, settle_windows = self._home_impl, 1
-        else:
-            raise ValueError(f"Unknown home axis {axis!r}: expected 'Z', 'T', or 'ALL'")
-        self._dispatch_motion(
-            impl,
-            'home',
-            timeout_s=self._MOTION_WAIT_BASE_S + settle_windows * self._MOTION_SETTLE_TIMEOUT_S,
-            falsifies_recording=self._home_moves_turret(impl),
-        )
+            return self._zhome_impl, 1
+        if a == 'T':
+            return self._home_turret_impl, 3
+        if a == 'ALL':
+            return self._home_impl, 1
+        raise ValueError(f"Unknown home axis {axis!r}: expected 'Z', 'T', or 'ALL'")
+
+    def _claim_home(self, impl) -> tuple[Callable[[], None], Callable[[], None]]:
+        """Take the one home in flight for ``impl``, or refuse this one.
+
+        Returns the lane body, which runs ``impl`` and releases the claim when
+        it ends, and the release for a body the lane never ran: refused at
+        admission, refused while queued, or dropped. A body that started
+        releases its own, so the second is a no-op then.
+        """
+        if not self._home_in_flight.acquire(blocking=False):
+            raise HardwareCommandRefusedError('home_in_flight', 'home')
+        started = threading.Event()
+
+        def body() -> None:
+            started.set()
+            try:
+                impl()
+            finally:
+                self._home_in_flight.release()
+
+        def release_if_unrun() -> None:
+            if not started.is_set():
+                self._home_in_flight.release()
+
+        return body, release_if_unrun
 
     def move_turret(self, position: int, restore_z: bool = True) -> None:
         """Move the turret to a position, and wait for it. See ``_move_turret_impl``.

@@ -2050,6 +2050,8 @@ _HOLDER_NOUNS = {'protocol': 'A run', 'diagnostic': 'A diagnostic', 'recording':
 def _command_refused_sentence(reason: str, holder: str | None) -> str:
     if reason == 'capture_in_flight':
         return 'A capture is still being saved. Try again in a moment.'
+    if reason == 'home_in_flight':
+        return 'The microscope is already homing. Wait for the home to finish.'
     if reason == 'activity_ended':
         return 'The activity that sent this command has ended, so the command was not sent.'
     if reason == 'scope_disconnected':

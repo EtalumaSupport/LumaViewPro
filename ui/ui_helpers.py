@@ -510,20 +510,28 @@ def _redraw_gesture_axes(axes: tuple[str, ...]) -> None:
 def move_home(axis: str):
     """Home an axis from a Home button, without blocking the UI thread.
 
-    The home runs on the io lane; blocking the UI thread for the length
-    of a home would freeze the window.
+    The API starts the home and answers at once: a home asked while one is
+    in flight is refused then, and shown, rather than queued behind it. The
+    home's outcome is reported, and the axis redrawn, when it settles.
     """
     if _user_motion_locked(axis):
         return
     ctx = _app_ctx.ctx
     axis = axis.upper()
-    set_title_event_text('Homing, please wait...')
-    submit_reported(
-        lambda: ctx.scope.motion.home(axis),
-        lambda: move_home_cb(axis),
-        f'HOME_{axis}',
-        lane=ctx.io_executor,
-    )
+
+    def start() -> None:
+        ctx.scope.motion.start_home(axis).add_done_callback(
+            lambda done: _schedule_ui(lambda _dt: _home_settled(done, axis))
+        )
+        # Only a home that started says so; the settle clears it.
+        set_title_event_text('Homing, please wait...')
+
+    run_reported(start, None, f'HOME_{axis}')
+
+
+def _home_settled(done, axis: str) -> None:
+    """Read the settled home on the Kivy thread: its failure to the reporter, then the redraw."""
+    run_reported(done.result, lambda: move_home_cb(axis), f'HOME_{axis}')
 
 
 def startup_home(axis: str) -> None:
