@@ -7,6 +7,8 @@ extracted from lumaviewpro.py.
 import logging
 
 from kivy.clock import Clock
+from kivy.metrics import dp
+from kivy.properties import NumericProperty
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
@@ -18,6 +20,10 @@ logger = logging.getLogger('LVP.ui.main_display')
 
 
 class MainDisplay(CompositeCapture):  # i.e. global lumaview
+    # The status line's height, along the bottom of the window: the live view,
+    # the panels and the camera buttons all sit on top of it.
+    status_line_height = NumericProperty(dp(22))
+
     def __init__(self, scope, **kwargs):
         # The scope is the session's, handed in. It goes on the widget
         # BEFORE the widget's own init builds the kv tree, because every
@@ -138,11 +144,14 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         session's scheduler); this poll purely reflects that state into
         the display.
         """
-        from ui.ui_helpers import set_title_event_text
+        from ui.ui_helpers import fixed_number, set_title_event_text
 
         controller = _app_ctx.ctx.session.manual_recording
         if controller.is_recording:
-            set_title_event_text(f'Recording Manual Video: {controller.elapsed_s:.1f}s')
+            # Padded so a new digit does not jump the title; the title's own
+            # font still draws each digit a little differently wide.
+            elapsed = fixed_number(controller.elapsed_s, whole_digits=4, decimals=1)
+            set_title_event_text(f'Recording Manual Video: {elapsed}s')
             return
         # Selection closed (Stop, duration cap, or budget full); the
         # recording announced that edge itself, so this tick only keeps the
@@ -150,7 +159,8 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         self.draw_record_button()
         if controller.is_draining:
             set_title_event_text(
-                f'Writing Manual Video: {controller.pending_writes} frames remaining'
+                f'Writing Manual Video: '
+                f'{fixed_number(controller.pending_writes, whole_digits=5, decimals=0)} frames remaining'
             )
 
     def _on_recording_complete(self):
@@ -183,7 +193,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         if not self.scope.imaging.active_cached:
             return
         self.ids['viewer_id'].scale = 1
-        self.ids['viewer_id'].pos = (0, 0)
+        self.ids['viewer_id'].pos = (0, self.status_line_height)
 
     def one2one_image(self):
         gui_logger.button('ONE_TO_ONE_IMAGE')
@@ -191,10 +201,13 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         if not self.scope.imaging.active_cached:
             return
         scope = _app_ctx.ctx.scope
-        w = self.width
-        h = self.height
+        # The viewer's own size: the status line below it takes a line of the window.
+        w, h = self.ids['viewer_id'].size
         scale_hor = float(scope.imaging.get_width()) / float(w)
         scale_ver = float(scope.imaging.get_height()) / float(h)
         scale = max(scale_hor, scale_ver)
         self.ids['viewer_id'].scale = scale
-        self.ids['viewer_id'].pos = (int((w - scale * w) / 2), int((h - scale * h) / 2))
+        self.ids['viewer_id'].pos = (
+            int((w - scale * w) / 2),
+            self.status_line_height + int((h - scale * h) / 2),
+        )

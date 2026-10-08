@@ -2,6 +2,14 @@
 
 ## 4.0.0 (in development)
 
+- **The live readouts are on a status line along the bottom of the window (GUI)**: Capture,
+  Display, the engineering Camera MB/s and the cursor's Pixel and Plate position moved out of the
+  window title onto a line below the live view. Each number is padded to its largest value in a
+  font whose digits are one width, so the line holds still as the values change; it re-centres
+  only when the cursor's part appears or vanishes as the cursor crosses the image. Before, the
+  title slid sideways several times a second, because the operating system draws it in a font
+  whose digits differ in width. The title is now the product name, its version and any event
+  text (homing, recording); the recording timer is padded too.
 - **The capture rate is the camera's, and its MB/s the link's (SDK; metrics log)**: new
   `ImagingAPI.get_delivered_rate()` answers a `DeliveredRate` -- the frames the camera delivered
   over the last second and the bytes they took on the link -- counted where every driver stores a

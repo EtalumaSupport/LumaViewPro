@@ -221,9 +221,9 @@ class MotionSettings(BoxLayout):
 
         # move position of motion control
         if self.ids['toggle_motionsettings'].state == 'normal':
-            self.pos = -self.settings_width + self.tab_width, 0
+            self.x = -self.settings_width + self.tab_width
         else:
-            self.pos = 0, 0
+            self.x = 0
 
         # if scope_display.play == True:
         #     scope_display.start()
@@ -234,9 +234,9 @@ class MotionSettings(BoxLayout):
     def check_settings(self, *args):
         logger.info('[LVP Main  ] MotionSettings.check_settings()')
         if self.ids['toggle_motionsettings'].state == 'normal':
-            self.pos = -self.settings_width + self.tab_width, 0
+            self.x = -self.settings_width + self.tab_width
         else:
-            self.pos = 0, 0
+            self.x = 0
 
 
 # ============================================================================

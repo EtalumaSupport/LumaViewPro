@@ -552,13 +552,35 @@ def startup_home(axis: str) -> None:
 # Single-owner title bar:
 # - shader.py::_update_status_bar is the ONLY caller of Window.set_title().
 # - Other callers set the event-suffix via set_title_event_text() -- the next
-#   status-bar tick (~5 Hz) composes the final title with FPS + MB/s + suffix.
-# - This eliminates: (a) the FPS getting clobbered by event messages,
-#   (b) the LumaViewPro / Lumaview Pro spelling oscillation between tickers,
-#   (c) the ordering race where event messages briefly hide live FPS.
+#   status tick composes the title from the product name and the suffix; the
+#   live readouts are on the status line, not the title.
+# - This eliminates the LumaViewPro / Lumaview Pro spelling oscillation
+#   between tickers.
 # Canonical product spelling is `LumaViewPro` (matches the repo name).
 
 _title_event_text = None
+
+# A status-line readout is padded to the width of its largest value, so it
+# holds still as its value changes: the status line is drawn in Roboto, whose
+# digits, figure space and minus sign are all one width (a hyphen is not).
+# The window title is not used for readouts; the operating system draws it in
+# its own font, whose digits differ in width on macOS.
+FIGURE_SPACE = '\N{FIGURE SPACE}'
+MINUS = '\N{MINUS SIGN}'
+
+
+def fixed_number(value: float, *, whole_digits: int, decimals: int, signed: bool = False) -> str:
+    """A status-line readout padded to the width of its largest value.
+
+    ``whole_digits`` and ``decimals`` are the largest value's; ``signed``
+    keeps a slot for a minus sign. A value larger than its width is shown
+    whole, never cut.
+    """
+    width = whole_digits + (1 + decimals if decimals else 0) + (1 if signed else 0)
+    digits = f'{abs(value):.{decimals}f}'
+    sign = MINUS if signed and value < 0 and float(digits) != 0 else ''
+    text = sign + digits
+    return FIGURE_SPACE * max(0, width - len(text)) + text
 
 
 def get_title_event_text():
@@ -566,7 +588,7 @@ def get_title_event_text():
 
 
 def set_title_event_text(text):
-    """Set the suffix shown after the FPS/MB/s portion of the window title.
+    """Set the suffix shown after the product name in the window title.
     Pass None or '' to clear. Safe to call from any thread (single attribute
     write on a module-level CPython str/None -- atomic under GIL)."""
     global _title_event_text

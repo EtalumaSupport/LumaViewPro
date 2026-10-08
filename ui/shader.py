@@ -11,7 +11,7 @@ from kivy.uix.scatter import Scatter
 
 import modules.app_context as _app_ctx
 import modules.config_ui_getters as config_ui_getters
-from ui.ui_helpers import run_unasked
+from ui.ui_helpers import fixed_number, run_unasked
 
 logger = logging.getLogger('LVP.ui.shader')
 
@@ -66,10 +66,35 @@ uniform vec4       color;
 
 
 def frame_rate_title(capture_fps: float, display_fps: float, *, engineering: bool) -> str:
-    """The window title's frame-rate part: tenths in engineering mode, whole
-    numbers otherwise."""
-    digits = 1 if engineering else 0
-    return f'Capture: {capture_fps:.{digits}f} | Display: {display_fps:.{digits}f} FPS'
+    """The status line's frame-rate part: tenths in engineering mode, whole
+    numbers otherwise, each at the width of 99 so the line holds still."""
+    decimals = 1 if engineering else 0
+    capture = fixed_number(capture_fps, whole_digits=2, decimals=decimals)
+    display = fixed_number(display_fps, whole_digits=2, decimals=decimals)
+    return f'Capture: {capture} | Display: {display} FPS'
+
+
+def cursor_title(pixel: tuple[int, int] | None, plate: tuple[float, float] | None) -> str:
+    """The status line's cursor part: empty off the image.
+
+    ``pixel`` is the sensor pixel under the cursor, None off the image;
+    ``plate`` its plate position in mm, None when it is not known (no XY
+    stage, objective or pixel size to convert with), when only the pixel shows.
+    """
+    if pixel is None:
+        return ''
+    px, py = pixel
+    text = (
+        f' | Pixel: ({fixed_number(px, whole_digits=4, decimals=0)}, '
+        f'{fixed_number(py, whole_digits=4, decimals=0)})'
+    )
+    if plate is not None:
+        sx, sy = plate
+        text += (
+            f' | Plate: ({fixed_number(sx, whole_digits=3, decimals=2, signed=True)}, '
+            f'{fixed_number(sy, whole_digits=3, decimals=2, signed=True)}) mm'
+        )
+    return text
 
 
 # ============================================================================
@@ -80,6 +105,8 @@ def frame_rate_title(capture_fps: float, display_fps: float, *, engineering: boo
 class ShaderViewer(Scatter):
     black = ObjectProperty(0.0)
     white = ObjectProperty(1.0)
+    # The live readouts, shown by the status line below the view.
+    status_text = StringProperty('')
 
     fs = StringProperty("""
 void main (void) {
@@ -276,13 +303,14 @@ void main (void) {
             self._mouse_over_image = False
 
     def _update_status_bar(self, dt):
-        """Periodic status bar update (10 Hz). SOLE owner of Window.set_title().
+        """Periodic status update (10 Hz). SOLE owner of Window.set_title().
 
-        Composes: 'LumaViewPro {ver} -- Capture: X | Display: Y FPS [ | Camera: Z MB/s ]
-        [ | Pixel: (px, py) | Plate: (sx, sy) mm ]
-        [ -- {event_text} ]'. Other call sites push their event text into
-        ui_helpers.set_title_event_text() instead of writing the title directly,
-        which prevents FPS clobbering and product-name spelling oscillation.
+        The status line (``status_text``) composes 'Capture: X | Display: Y FPS
+        [ | Camera: Z MB/s ] [ | Pixel: (px, py) [ | Plate: (sx, sy) mm ] ]';
+        the title is 'LumaViewPro {ver} [ -- {event_text} ]'. Other call sites
+        push their event text into ui_helpers.set_title_event_text() instead of
+        writing the title directly, which prevents product-name spelling
+        oscillation.
         """
         ctx = _app_ctx.ctx
         if ctx is None:
@@ -294,19 +322,21 @@ void main (void) {
         scope_display = self.ids.get('scope_display_id')
         if scope_display:
             delivered = ctx.scope.imaging.get_delivered_rate()
-            title = f'LumaViewPro {ctx.version} -- ' + frame_rate_title(
+            status = frame_rate_title(
                 delivered.frames_per_s,
                 scope_display.display_fps(),
                 engineering=ctx.session.engineering_mode,
             )
             if ctx.session.engineering_mode:
-                title += f' | Camera: {delivered.megabytes_per_s:.1f} MB/s'
+                mbps = fixed_number(delivered.megabytes_per_s, whole_digits=3, decimals=1)
+                status += f' | Camera: {mbps} MB/s'
 
             # Cursor XY readouts -- pixel + plate coords when mouse
             # hovers the live view. Restored after d423d3c's
             # single-owner pattern dropped them. (#638)
+            pixel = plate = None
             if self._mouse_over_image:
-                title += f'   |   Pixel: ({self._mouse_pixel_x}, {self._mouse_pixel_y})'
+                pixel = (self._mouse_pixel_x, self._mouse_pixel_y)
                 from modules.config_ui_getters import get_selected_labware
 
                 # The plate (um) readout converts a cursor offset into a
@@ -334,17 +364,18 @@ void main (void) {
                         dy_um = (self._mouse_pixel_y - frame_h / 2) * pixel_size_um
                         pos = ctx.lumaview.scope.motion.get_current_position(axis=None)
                         _, labware = get_selected_labware()
-                        px, py = ctx.coordinate_transformer.stage_to_plate(
+                        plate = ctx.coordinate_transformer.stage_to_plate(
                             labware=labware,
                             stage_offset=ctx.settings['stage_offset'],
                             sx=pos['X'] + dx_um,
                             sy=pos['Y'] - dy_um,
                         )
-                        title += f'   |   Plate: ({px:.2f}, {py:.2f}) mm'
+            self.status_text = status + cursor_title(pixel, plate)
 
+            title = f'LumaViewPro {ctx.version}'
             event_text = get_title_event_text()
             if event_text:
-                title += f'   --   {event_text}'
+                title += f' -- {event_text}'
             Window.set_title(title)
 
     def current_false_color(self) -> str:

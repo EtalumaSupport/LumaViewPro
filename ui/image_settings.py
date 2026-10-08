@@ -612,14 +612,14 @@ class ImageSettings(BoxLayout):
 
         # move position of settings and stop histogram if main settings are collapsed
         if self.ids['toggle_imagesettings'].state == 'normal':
-            self.pos = lumaview.width - self.tab_width, 0
+            self.x = lumaview.width - self.tab_width
 
             for layer in common_utils.get_layers():
                 layer_obj = ctx.image_settings.layer_lookup(layer=layer)
                 Clock.unschedule(layer_obj.ids['histo_id'].histogram)
                 logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
         else:
-            self.pos = lumaview.width - self.settings_width, 0
+            self.x = lumaview.width - self.settings_width
 
         # if scope_display.play == True:
         #     scope_display.start()
@@ -735,9 +735,9 @@ class ImageSettings(BoxLayout):
         logger.info('[LVP Main  ] ImageSettings.check_settings()')
         lumaview = _app_ctx.ctx.lumaview
         if self.ids['toggle_imagesettings'].state == 'normal':
-            self.pos = lumaview.width - self.tab_width, 0
+            self.x = lumaview.width - self.tab_width
         else:
-            self.pos = lumaview.width - self.settings_width, 0
+            self.x = lumaview.width - self.settings_width
 
 
 def set_histogram_layer(active_layer):

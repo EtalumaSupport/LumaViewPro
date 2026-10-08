@@ -185,12 +185,33 @@
     # Primary Display of Camera Results
     ShaderViewer:
         id: viewer_id
-        pos: 0, 0
+        pos: 0, root.status_line_height
         size_hint: None, None
-        size: root.width, root.height
+        size: root.width, root.height - root.status_line_height
         auto_bring_to_front: False
         do_rotation: False
         do_translation: True
+
+    # The status line: the live readouts, along the bottom below the live
+    # view and the panels, so it covers no image. Roboto, the default font, draws
+    # every digit and the figure space at one width, so a readout padded to
+    # its largest value holds still as its value changes.
+    Label:
+        id: status_line_id
+        text: viewer_id.status_text
+        size_hint: None, None
+        size: root.width, root.status_line_height
+        pos: 0, 0
+        font_size: '13sp'
+        halign: 'center'
+        valign: 'middle'
+        text_size: self.size
+        canvas.before:
+            Color:
+                rgba: 0.13, 0.13, 0.13, 1
+            Rectangle:
+                pos: self.pos
+                size: self.size
 
     # Says a home holds the scope, over the middle of the window; hidden
     # otherwise. pos_hint, not center: the layout re-centres it whenever its
@@ -205,17 +226,17 @@
 	MotionSettings:
         id: motionsettings_id
         size_hint: None, None
-        size: self.settings_width, root.height
+        size: self.settings_width, root.height - root.status_line_height
         # Open by default -- per Eric 2026-04-17. Toggle button state
         # starts 'down' to match (kept in sync via motion_settings.py).
-        pos: 0, 0
+        pos: 0, root.status_line_height
 
     ImageSettings:
         id: imagesettings_id
         size_hint: None, None
-        size: self.settings_width, root.height
+        size: self.settings_width, root.height - root.status_line_height
         # Open by default -- see MotionSettings note above.
-        pos: root.width-self.settings_width, 0
+        pos: root.width-self.settings_width, root.status_line_height
 
 
     # Camera Controls
@@ -224,7 +245,7 @@
         orientation: 'horizontal'
         padding: '5dp'
         spacing: '5dp'
-        pos: (root.width - 9*dp(40))/2, 0
+        pos: (root.width - 9*dp(40))/2, root.status_line_height
 
 		Button:
 			id: open_last_save_folder
