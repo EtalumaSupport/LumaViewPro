@@ -324,9 +324,6 @@ def _handle_ui_update_for_axis(axis: str, vertical_control: bool = False):
         ctx.motion_settings.ids['verticalcontrol_id'].update_gui(vertical_control=vertical_control)
     elif axis in ('X', 'Y', 'XY'):
         ctx.motion_settings.update_xy_stage_control_gui()
-    elif axis == 'T':
-        # A run's turret move: show the slot and objective the API reports.
-        ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state(prompt=False)
     elif axis == 'ALL':
         # A full home moves every axis the scope has, the turret included.
         ctx.motion_settings.ids['verticalcontrol_id'].update_gui(vertical_control=vertical_control)

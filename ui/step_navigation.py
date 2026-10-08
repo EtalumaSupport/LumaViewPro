@@ -5,7 +5,7 @@ Protocol step navigation logic extracted from lumaviewpro.py.
 These functions show a protocol step on the panel and the layer widgets
 once the Session has gone to it. They are GUI-coupled (Kivy widgets,
 Clock) and live in ui/; protocol execution reaches them only through the
-injected go_to_step callback, so the protocol layer never imports this
+panel's step_started handler, so the protocol layer never imports this
 module directly.
 """
 
