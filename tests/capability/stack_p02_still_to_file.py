@@ -46,7 +46,7 @@ def body(session):
 
 def main():
     if HARDWARE:
-        with hardware_session() as session:
+        with hardware_session() as (session, _runner):
             body(session)
         sys.exit(report())
     from tests.scope_fakes import TEST_TURRET_OBJECTIVES

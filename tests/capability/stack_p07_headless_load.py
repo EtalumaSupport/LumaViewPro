@@ -58,7 +58,7 @@ def body(session):
 
 def main():
     if HARDWARE:
-        with hardware_session() as session:
+        with hardware_session() as (session, _runner):
             body(session)
         sys.exit(report())
     session = harness.new_session(microscope='LS850T')

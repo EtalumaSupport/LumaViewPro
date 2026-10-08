@@ -124,8 +124,11 @@ def body(session, runner, live):
 def main():
     live = probe_dir('stack_p06')
     if HARDWARE:
-        with hardware_session() as session:
-            runner = session.create_protocol_runner()
+        with hardware_session() as (session, runner):
+            # The installation's layers may acquire nothing; this run captures
+            # BF and Blue as stills, on the session's settings in memory only.
+            for layer in ('BF', 'Blue'):
+                session.set_layer_acquire(layer, 'image')
             body(session, runner, live)
         sys.exit(report())
     with headless_session(live, acquiring=('BF', 'Blue')) as (session, runner):

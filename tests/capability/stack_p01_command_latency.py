@@ -140,7 +140,8 @@ def body(session):
 
 def main():
     if HARDWARE:
-        with hardware_session() as session:
+        profile_trace.enable(output_dir=str(harness.live_dir('stack_p01') / 'profile'))
+        with hardware_session() as (session, _runner):
             body(session)
         sys.exit(report())
     session, _live = harness.make_session(
