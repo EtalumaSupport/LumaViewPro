@@ -580,8 +580,15 @@ class SerialBoard:
         pass
 
     def is_connected(self) -> bool:
-        with self._lock:
-            return self.driver is not None
+        """Whether the port is open, answered without the serial lock.
+
+        An exchange holds the lock until the board answers, and the motor
+        board answers HOME only when the home ends, so a question that
+        waited on the lock waited out the whole home -- the window froze
+        while the status bar asked it. The read is one reference, which
+        cannot tear, so the lock guarded nothing here.
+        """
+        return self.driver is not None
 
     def is_responsive(self) -> bool:
         """Whether the board answers, not merely whether its port opened.
