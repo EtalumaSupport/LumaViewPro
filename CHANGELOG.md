@@ -2,6 +2,8 @@
 
 ## 4.0.0 (in development)
 
+- **A home no longer logs "Slow task" when it succeeds**: since a home began holding the scope,
+  the lane judged every home against a single move's 5 s instead of the home's own 120 s.
 - **The live readouts are on a status line along the bottom of the window (GUI)**: Capture,
   Display, the engineering Camera MB/s and the cursor's Pixel and Plate position moved out of the
   window title onto a line below the live view. Each number is padded to its largest value in a

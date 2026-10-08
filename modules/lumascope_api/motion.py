@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import contextlib
+import functools
 import logging as _logging
 import threading
 import time
@@ -2494,6 +2495,9 @@ class MotionAPI:
             if held is not None:
                 held.release()
 
+        # The lane names a task by its action and reads the cost it declared
+        # (``@slow_task_budget``) from it, so the body carries both from the home.
+        @functools.wraps(impl)
         def body() -> None:
             started.set()
             try:
@@ -2505,8 +2509,6 @@ class MotionAPI:
             if not started.is_set():
                 release()
 
-        # The lane names a task by its action, so its log lines name the home.
-        body.__name__ = body.__qualname__ = impl.__name__
         return body, release_if_unrun, held if held is not None else current
 
     @api
