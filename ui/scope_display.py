@@ -46,7 +46,6 @@ from modules.contrast_stretcher import ContrastStretcher
 from modules import gui_logger
 import modules.image_mode as image_mode
 import modules.autofocus_functions as autofocus_functions
-import modules.common_utils as common_utils
 import modules.config_ui_getters as config_ui_getters
 import modules.image_utils as image_utils
 import modules.app_context as _app_ctx
@@ -65,7 +64,7 @@ VALIDITY_DOT_MARGIN = 20  # Margin from image edge to dot center (px)
 # Median-relative (not mean) so the few spikes themselves don't move the
 # baseline; the floor stops a tiny median (fast steady stream) from firing on
 # normal jitter. A sustained-slow stream raises the median to match, so this
-# fires only on TRANSIENT stutters, not a uniformly slow rate (capture_fps owns
+# fires only on TRANSIENT stutters, not a uniformly slow rate (display_fps owns
 # that). Unconditional WARN -- it must reach a normal bench bundle whether or
 # not debug_mode/[PERF] is on, and it self-limits to genuine spikes.
 FRAME_SPIKE_RATIO = 2.0  # interval must exceed this x the recent median
@@ -88,7 +87,7 @@ FRAME_SPIKE_MIN_SAMPLES = 30  # need this many before a median is meaningful
 FRAME_SPIKE_RESTART_SAMPLES = 3
 FRAME_SPIKE_MEDIAN_REFRESH_S = 0.5  # recompute the cached median at most this often
 # Min gap between SLOW FRAME logs. The median baseline takes ~a window to catch
-# up to a sustained rate drop (which capture_fps, not this, owns), so without
+# up to a sustained rate drop (which display_fps, not this, owns), so without
 # this a fast->slow transition would log every frame until it does. This caps
 # that burst while still surfacing distinct transient stutters seconds apart.
 FRAME_SPIKE_LOG_MIN_GAP_S = 2.0
@@ -156,26 +155,18 @@ class ScopeDisplay(Image):
         # placeholder, which a sim walk waits out before its first step.
         self.frames_shown = 0
 
-        # FPS tracking -- capture thread (frames grabbed from camera)
-        self._capture_fps_count = 0
-        self._capture_fps_last_time = time.monotonic()
-        self._capture_fps_value = 0.0
+        # When each live frame was drawn over the last second, appended on the
+        # main thread by _count_display_fps and read by display_fps from any
+        # thread. The rate is counted from it when asked, so a display that
+        # stops drawing reads 0 rather than the last rate it drew at.
+        from collections import deque
 
-        # Display FPS tracking -- main thread (frames actually rendered on screen)
-        self._display_fps_count = 0
-        self._display_fps_last_time = time.monotonic()
-        self._display_fps_value = 0.0
-
-        # Camera data rate (MB/s) -- computed from capture FPS and frame size
-        self._camera_mbps = 0.0
-        self._last_frame_nbytes = 0
+        self._display_draw_times = deque()
 
         # Frame-interval rolling histogram for P50/P95/P99. Sized to ~60 s
         # at typical 15-30 fps. Worker thread appends; metrics-log thread
         # reads via `frame_interval_percentiles_ms()`. deque.append is
         # atomic in CPython so no lock needed for occasional snapshot reads.
-        from collections import deque
-
         self._frame_interval_history = deque(maxlen=2000)
         self._last_frame_pull_time = None
 
@@ -536,7 +527,7 @@ class ScopeDisplay(Image):
         previous OK frame is the gap the user actually perceives. Fires when that
         interval exceeds both FRAME_SPIKE_RATIO x the recent-window median AND
         FRAME_SPIKE_FLOOR_MS -- transient stutters, not a uniformly slow stream
-        (whose median rises to match; capture_fps owns that). The floor is a
+        (whose median rises to match; display_fps owns that). The floor is a
         stutter a viewer could see, not the display quantum. Unconditional WARN
         so it reaches a normal bench bundle whether or not debug_mode/[PERF] is
         on; the floor+ratio+rate-limit gate keeps it to genuine spikes.
@@ -815,28 +806,6 @@ class ScopeDisplay(Image):
         self._last_frame_ts = frame_ts
         t_grab_end = time.monotonic()
 
-        # Capture FPS tracking + camera data rate
-        # Use raw camera frame size (before 12->8 bit conversion) so the
-        # displayed data rate reflects actual camera throughput, not the
-        # post-conversion display throughput.
-        self._capture_fps_count += 1
-        fs = ctx.scope.imaging.frame_size_cached
-        pixel_format = ctx.scope.imaging.pixel_format_cached
-        bpp = common_utils.raw_bytes_per_pixel(pixel_format, ctx.scope.capabilities.is_color_native)
-        self._last_frame_nbytes = fs.get('width', 0) * fs.get('height', 0) * bpp
-        now = time.monotonic()
-        elapsed = now - self._capture_fps_last_time
-        if elapsed >= 1.0:
-            self._capture_fps_value = self._capture_fps_count / elapsed
-            # EMA smoothing (alpha=0.3) -- without this the title bar bounces noisily
-            # because each 1-second window gets a fresh hard-assigned value
-            # (85 / 120 / 95 / 110 / 88 MB/s during a steady capture). EMA
-            # converges to the real average over 3-4 seconds.
-            new_mbps = (self._capture_fps_value * self._last_frame_nbytes) / (1024 * 1024)
-            self._camera_mbps = 0.3 * new_mbps + 0.7 * self._camera_mbps
-            self._capture_fps_count = 0
-            self._capture_fps_last_time = now
-
         t_eng_stats = 0
         # Display-path compute for THIS frame; set by whichever render branch runs
         # (mono downscale, or the bullseye transform when its rate cap lets it
@@ -924,7 +893,7 @@ class ScopeDisplay(Image):
             g = generation
             self._schedule_blit(
                 lambda b=image_bytes, s=image_shape, ts=t_blit_scheduled, gen=g: (
-                    self.create_and_set_texture(b, s, ts, gen)
+                    self.create_and_set_texture(b, s, ts, gen, live=True)
                 )
             )
             # Publish for thread.add_frame_listener fan-out
@@ -948,7 +917,7 @@ class ScopeDisplay(Image):
                         max_proc = max(self._perf_process_times) * 1000
                         kivy_fps = Clock.get_fps()
                         kivy_rfps = Clock.get_rfps()
-                        display_fps = self._display_fps_value
+                        display_fps = self.display_fps()
                         avg_blit_delay = (
                             sum(self._perf_blit_delays) / max(1, len(self._perf_blit_delays)) * 1
                             if self._perf_blit_delays
@@ -957,7 +926,7 @@ class ScopeDisplay(Image):
                         max_blit_delay = (
                             max(self._perf_blit_delays) if self._perf_blit_delays else 0
                         )
-                        capture_fps = self._capture_fps_value
+                        capture_fps = ctx.scope.imaging.get_delivered_rate().frames_per_s
                         logger.debug(
                             f'[PERF] capture={capture_fps:.1f} display={display_fps:.1f} '
                             f'kivy={kivy_fps:.0f}/{kivy_rfps:.0f} FPS | '
@@ -1127,7 +1096,10 @@ class ScopeDisplay(Image):
         thread = getattr(ctx, 'scope_display_thread', None) if ctx else None
         return thread.generation if thread is not None else 0
 
-    def create_and_set_texture(self, image_bytes, shape, scheduled_time=0, generation=0):
+    def create_and_set_texture(self, image_bytes, shape, scheduled_time=0, generation=0, *, live):
+        """Put a frame on the screen. ``live`` says whether it is a live-view
+        frame, which the display rate counts, or a held one (a saved protocol
+        image), which it does not."""
         if generation != self._current_generation():
             return  # Stale callback from previous start/stop cycle
         if scheduled_time and self._debug_perf_enabled(_app_ctx.ctx):
@@ -1151,7 +1123,8 @@ class ScopeDisplay(Image):
         self.texture = self._mono_texture
         self.frames_shown += 1
         self.canvas.ask_update()
-        self._count_display_fps()
+        if live:
+            self._count_display_fps()
         # _schedule_next retired; ScopeDisplayThread loop owns pacing.
 
     def hold_protocol_saved_image(self, image, significant_bits):
@@ -1195,7 +1168,9 @@ class ScopeDisplay(Image):
         if thread is not None:
             thread.bump_protocol_hold(self._PROTOCOL_HOLD_MS / 1000.0)
         _Clock.schedule_once(
-            lambda dt, b=data, s=shape, g=gen: self.create_and_set_texture(b, s, generation=g),
+            lambda dt, b=data, s=shape, g=gen: self.create_and_set_texture(
+                b, s, generation=g, live=False
+            ),
             0,
         )
 
@@ -1223,20 +1198,19 @@ class ScopeDisplay(Image):
         self.canvas.ask_update()
 
     def _count_display_fps(self):
-        """Track actual rendered frame rate (called on main thread after blit).
-
-        Capped at capture FPS -- display cannot render more frames than
-        the camera produces, any excess is measurement window jitter.
-        """
-        self._display_fps_count += 1
+        """Record a live frame drawn (called on the main thread after its blit)."""
         now = time.monotonic()
-        elapsed = now - self._display_fps_last_time
-        if elapsed >= 1.0:
-            raw_display_fps = self._display_fps_count / elapsed
-            self._display_fps_value = (
-                min(raw_display_fps, self._capture_fps_value)
-                if self._capture_fps_value > 0
-                else raw_display_fps
-            )
-            self._display_fps_count = 0
-            self._display_fps_last_time = now
+        draws = self._display_draw_times
+        draws.append(now)
+        while draws and draws[0] < now - 1.0:
+            draws.popleft()
+
+    def display_fps(self) -> float:
+        """The live frames drawn in the last second, counted when asked.
+
+        Read from any thread: the window is copied before it is counted,
+        because the main thread appends to it while it is read. A display
+        paused or stalled has nothing in the window and reads 0.
+        """
+        since = time.monotonic() - 1.0
+        return float(sum(1 for t in list(self._display_draw_times) if t >= since))

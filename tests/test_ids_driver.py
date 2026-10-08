@@ -376,6 +376,10 @@ class _FakeBuffer:
     def Size(self):
         return 2
 
+    def DeliveredDataSize(self):
+        # The bytes this buffer carried on the link; the store counts them.
+        return 3
+
     def __repr__(self):
         return f'<FakeBuffer {self.tag}>'
 
@@ -1725,11 +1729,14 @@ class TestPipelineLifecycle:
         h = _ids_handler(ds)
         stored = []
         h._unpack = lambda buf: (buf.tag, 12)
-        h._store_frame = lambda img, ts, *, significant_bits: stored.append((img, significant_bits))
+        h._store_frame = lambda img, ts, *, significant_bits, wire_bytes: stored.append(
+            (img, significant_bits, wire_bytes)
+        )
         h.start()
         self._wait_until(lambda: stored)
         h.stop()
-        assert stored == [('b0', 12)]
+        # The wire bytes are the buffer's own delivered size, not the array's.
+        assert stored == [('b0', 12, 3)]
         assert ds.requeued.count(b0) == 1  # re-queued once, by the worker
         # stop() unblocked the parked poll. The count is >= 1, not == 1: stop() is
         # designed for multiple KillWait+join rounds (_STOP_JOIN_CEILING_S), so the
@@ -1762,7 +1769,7 @@ class TestPipelineLifecycle:
             return buf.tag, 12
 
         h._unpack = slow_unpack
-        h._store_frame = lambda img, ts, *, significant_bits: stored.append(img)
+        h._store_frame = lambda img, ts, *, significant_bits, wire_bytes: stored.append(img)
         h.start()
         time.sleep(0.3)  # all three drain while the worker is held on b0
         release.set()
@@ -1791,7 +1798,7 @@ class TestPipelineLifecycle:
             return buf.tag, 12
 
         h._unpack = flaky_unpack
-        h._store_frame = lambda img, ts, *, significant_bits: stored.append(img)
+        h._store_frame = lambda img, ts, *, significant_bits, wire_bytes: stored.append(img)
         h.start()
         self._wait_until(lambda: 'good' in stored)
         h.stop()

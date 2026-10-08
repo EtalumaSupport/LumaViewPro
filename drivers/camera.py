@@ -108,6 +108,9 @@ class ImageHandlerBase:
         # step, a VM resume), and a settle count measured against a timestamp
         # that jumped forward never completes.
         self._frames_delivered = 0
+        # The bytes those frames took on the link, counted beside them so the
+        # wire rate is measured over the same frames as the frame rate.
+        self._bytes_delivered = 0
         self.last_img_seq = None
         self._failed_grabs = 0
         # The camera's window, pushed here by the camera (set_frame_size, a
@@ -147,6 +150,16 @@ class ImageHandlerBase:
         """
         with self._frame_lock:
             return self._frames_delivered
+
+    @property
+    def delivered_counts(self) -> tuple[int, int]:
+        """``(frames, wire bytes)`` this handler has stored since construction.
+
+        Read together under the lock, so a rate taken from two readings
+        counts the bytes of exactly the frames it counts.
+        """
+        with self._frame_lock:
+            return self._frames_delivered, self._bytes_delivered
 
     def _detached(self) -> bool:
         """True when the buffered frame's device is no longer attached.
@@ -256,7 +269,15 @@ class ImageHandlerBase:
         with self._frame_lock, contextlib.suppress(ValueError):
             self._frame_callbacks.remove(cb)
 
-    def _store_frame(self, image, timestamp, chunks: dict | None = None, *, significant_bits: int):
+    def _store_frame(
+        self,
+        image,
+        timestamp,
+        chunks: dict | None = None,
+        *,
+        significant_bits: int,
+        wire_bytes: int,
+    ):
         """Called by subclass when a new frame is successfully grabbed.
 
         Args:
@@ -272,6 +293,13 @@ class ImageHandlerBase:
                 that deliver true container-depth frames), so the depth and the
                 pixels stay together and a later format switch cannot make the
                 buffered frame's depth read wrong.
+            wire_bytes: the bytes THIS frame took on the link -- REQUIRED, so
+                the wire rate cannot be left uncounted for a driver. The
+                transport's own figure for the frame (the grab result's
+                payload, the buffer's filled size, the bytes the stream
+                carried), never the host array's size: a packed format is
+                smaller on the link than in memory, and the link carries the
+                whole acquired window before any crop below.
 
         The frame is cropped to the camera's window here, the one place every
         driver's frames are stored; a frame of another size than the window
@@ -300,6 +328,7 @@ class ImageHandlerBase:
             self.last_img_significant_bits = significant_bits
             self.last_chunks = chunks
             self._frames_delivered += 1
+            self._bytes_delivered += wire_bytes
             self.last_img_seq = self._frames_delivered
             cbs = list(self._frame_callbacks)
         self._failed_grabs = 0
@@ -1208,9 +1237,9 @@ class Camera(ABC):
         """Read the frame rate the camera reports its current settings
         allow, live, in frames per second.
 
-        The camera's own figure, not a measurement: the delivered rate is
-        measured from frame arrivals. The default describes a camera that
-        reports none.
+        The camera's own figure, not a measurement: what was delivered is
+        counted from the frames stored (``delivered_counts``). The default
+        describes a camera that reports none.
 
         Returns:
             float | None: Frames per second; None when the camera reports
@@ -1296,6 +1325,16 @@ class Camera(ABC):
         """
         handler = self.cam_image_handler
         return handler.frames_delivered if handler is not None else 0
+
+    @property
+    def delivered_counts(self) -> tuple[int, int]:
+        """``(frames, wire bytes)`` this camera has delivered since the handler was built.
+
+        The imaging API's delivered and wire rates are the change in these
+        between two readings. ``(0, 0)`` before a handler exists.
+        """
+        handler = self.cam_image_handler
+        return handler.delivered_counts if handler is not None else (0, 0)
 
     def grab(self) -> tuple:
         """Grab the most recent frame from the image handler.

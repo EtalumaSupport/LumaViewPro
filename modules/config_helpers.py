@@ -470,8 +470,8 @@ def log_environment_once():
     )
 
 
-def log_system_metrics(settings: dict) -> None:
-    """Log CPU, RAM, and disk metrics."""
+def log_system_metrics(settings: dict, *, scope: 'Lumascope') -> None:
+    """Log CPU, RAM, and disk metrics, and the scope's camera delivery."""
     path = settings.get('live_folder', '.')
     # Resolve relative paths and handle missing directories gracefully.
     # On installed apps, live_folder may still be './capture' before
@@ -698,31 +698,26 @@ def log_system_metrics(settings: dict) -> None:
         )
 
     # --- Buffer-churn signals from the live capture path ---
-    # capture_fps x frame_nbytes = MB/sec the camera produces. Each frame
-    # currently allocates ~3 fresh OS-level buffers (camera copy, 12->8 LUT,
-    # tobytes()). The standby-cache growth in [PDH METRICS] should track
-    # this product roughly.
-    try:
-        from modules import app_context as _app_ctx
+    # What the camera delivered over the last second and the bytes it put on
+    # the link, from the imaging API in every host. Each frame currently
+    # allocates ~3 fresh OS-level buffers (camera copy, 12->8 LUT, tobytes()).
+    # The standby-cache growth in [PDH METRICS] should track the data rate
+    # roughly. The display's rate is the GUI's, logged only where one exists.
+    delivered = scope.imaging.get_delivered_rate()
+    wire_frame_bytes = (
+        delivered.bytes_per_s / delivered.frames_per_s if delivered.frames_per_s else 0.0
+    )
+    from modules import app_context as _app_ctx
 
-        sd = _app_ctx.ctx.scope_display if _app_ctx.ctx is not None else None
-    except Exception:
-        sd = None
+    sd = _app_ctx.ctx.scope_display if _app_ctx.ctx is not None else None
+    display_field = f'display_fps={sd.display_fps():.1f} | ' if sd is not None else ''
+    metrics_logger.info(
+        f'[BUFFER METRICS] capture_fps={delivered.frames_per_s:.1f} | '
+        f'{display_field}'
+        f'camera_data_rate={delivered.megabytes_per_s:.1f} MB/s | '
+        f'frame_size={wire_frame_bytes / 1000:.0f} KB',
+    )
     if sd is not None:
-        try:
-            capture_fps = float(getattr(sd, '_capture_fps_value', 0.0) or 0.0)
-            display_fps = float(getattr(sd, '_display_fps_value', 0.0) or 0.0)
-            camera_mbps = float(getattr(sd, '_camera_mbps', 0.0) or 0.0)
-            frame_nbytes = int(getattr(sd, '_last_frame_nbytes', 0) or 0)
-            metrics_logger.info(
-                f'[BUFFER METRICS] capture_fps={capture_fps:.1f} | '
-                f'display_fps={display_fps:.1f} | '
-                f'camera_data_rate={camera_mbps:.1f} MB/s | '
-                f'frame_size={frame_nbytes / 1024:.0f} KB',
-            )
-        except Exception as e:
-            logger.debug(f'[BUFFER METRICS] unavailable: {e}')
-
         # Frame-interval percentiles -- consumer-stall detection.
         # Spikes in p99/max correlate with main-thread congestion
         # or worker-thread blocks; tracking these surfaces UI lock

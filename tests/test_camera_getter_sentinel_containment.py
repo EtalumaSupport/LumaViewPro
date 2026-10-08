@@ -38,7 +38,6 @@ import pytest
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate, unpositioned
 from modules.protocol_image_writer import RunWriteBatch
-import modules.common_utils as common_utils
 from drivers.camera import Camera
 from modules import layer_record
 from modules.binning import binning_size_int_to_str
@@ -287,6 +286,10 @@ EXCLUDED = {
         'live read with no cache by design: a failed read raises HardwareError, '
         'None means no camera or none reported'
     ),
+    'get_delivered_rate': (
+        'a measurement of frame arrivals, no SDK value read; reads 0 when nothing '
+        'was delivered in the last window, never a last-known-good'
+    ),
 }
 # significant_bits / last_significant_bits are properties (not reachable by
 # the zero-arg get_* introspection below); their depth contract is covered by
@@ -348,14 +351,12 @@ def test_binning_spinner_not_debinned_by_transient_read_failure():
 def test_pixel_format_none_read_does_not_clobber_known_mono8():
     # After a populate that knows 'Mono8', a repopulate whose format read
     # returns the None sentinel must keep the known format. The old behavior
-    # cached None, and raw_bytes_per_pixel classified the camera as
-    # 2 bytes/pixel (the not-Mono8 branch).
+    # cached None, and every reader of the format then saw no format at all.
     driver = steady_good_driver({'get_pixel_format': ['Mono8', None]})
     imaging = _build_imaging(driver)
     assert imaging.pixel_format_cached == 'Mono8'
     imaging._populate_camera_cache()
     assert imaging.pixel_format_cached == 'Mono8'
-    assert common_utils.raw_bytes_per_pixel(imaging.pixel_format_cached) == 1
 
 
 def test_get_width_returns_none_not_typeerror_on_cold_cache_read_failure():
@@ -891,29 +892,3 @@ def test_restore_camera_state_empty_snapshot_is_noop(monkeypatch):
     imaging.restore_camera_state({})
 
     assert calls == []
-
-
-# --- raw_bytes_per_pixel loud-input ------------------------------------------------
-
-
-def test_raw_bytes_per_pixel_unknown_input_warns_once_per_distinct_value(monkeypatch):
-    # A sentinel pixel format reaching the data-rate math means a consumer
-    # bypassed the getter containment: classify as the 2-byte container but
-    # say so -- exactly one WARNING per distinct bad value, not per call.
-    # _RAW_BPP_WARNED is module state; reset it so test order cannot mask
-    # the warning.
-    monkeypatch.setattr(common_utils, '_RAW_BPP_WARNED', set())
-    warnings = []
-    monkeypatch.setattr(common_utils, 'logger', _recording_logger(warnings))
-
-    assert common_utils.raw_bytes_per_pixel(None) == 2
-    assert common_utils.raw_bytes_per_pixel(None) == 2
-    hits = [w for w in warnings if 'raw_bytes_per_pixel' in w]
-    assert len(hits) == 1, (
-        f'two calls with the same unknown input must warn exactly once; got {hits}'
-    )
-
-    # Valid strings behave as before, silently.
-    assert common_utils.raw_bytes_per_pixel('Mono8') == 1
-    assert common_utils.raw_bytes_per_pixel('Mono12') == 2
-    assert len([w for w in warnings if 'raw_bytes_per_pixel' in w]) == 1

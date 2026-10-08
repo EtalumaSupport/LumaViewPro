@@ -2,6 +2,18 @@
 
 ## 4.0.0 (in development)
 
+- **The capture rate is the camera's, and its MB/s the link's (SDK; metrics log)**: new
+  `ImagingAPI.get_delivered_rate()` answers a `DeliveredRate` -- the frames the camera delivered
+  over the last second and the bytes they took on the link -- counted where every driver stores a
+  frame, in every host. The title's "Capture", "Camera: MB/s" and `[BUFFER METRICS]` read it.
+  Before, "Capture" was the rate the live display pulled frames, so it could not read above the
+  display's fps cap (29.5 fps against a camera delivering 42.4), it held its last value while the
+  live view was paused, and a session with no GUI never logged it; MB/s was that rate times the
+  frame's size in host memory (2 bytes a pixel for every format but Mono8, after the host's
+  crop), not the bytes on the link, and is now in decimal megabytes. "Display" is the live frames
+  drawn in the last second and reads 0 while the display draws nothing; a saved protocol image
+  held on the screen is no longer counted as one. `[BUFFER METRICS] frame_size` is the bytes a
+  frame takes on the link; `display_fps` is logged only where there is a display.
 - **The session hosts the plugins (SDK and plugin API, breaking; plugin API level 5)**: a host
   asks its session for plugins with `ScopeSession.load_plugins()` and releases them with
   `unload_plugins()`; `shutdown()` unloads any still loaded. Each plugin's `register`,

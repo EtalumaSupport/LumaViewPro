@@ -293,14 +293,14 @@ void main (void) {
 
         scope_display = self.ids.get('scope_display_id')
         if scope_display:
-            capture_fps = scope_display._capture_fps_value
-            display_fps = scope_display._display_fps_value
+            delivered = ctx.scope.imaging.get_delivered_rate()
             title = f'LumaViewPro {ctx.version} -- ' + frame_rate_title(
-                capture_fps, display_fps, engineering=ctx.session.engineering_mode
+                delivered.frames_per_s,
+                scope_display.display_fps(),
+                engineering=ctx.session.engineering_mode,
             )
             if ctx.session.engineering_mode:
-                mbps = scope_display._camera_mbps
-                title += f' | Camera: {mbps:.1f} MB/s'
+                title += f' | Camera: {delivered.megabytes_per_s:.1f} MB/s'
 
             # Cursor XY readouts -- pixel + plate coords when mouse
             # hovers the live view. Restored after d423d3c's

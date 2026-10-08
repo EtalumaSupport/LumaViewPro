@@ -35,7 +35,11 @@ def detached_camera():
 
     handler, parent = bare_image_handler()
     handler._store_frame(
-        np.zeros((4, 4), dtype=np.uint16), timestamp=1.0, chunks=None, significant_bits=12
+        np.zeros((4, 4), dtype=np.uint16),
+        timestamp=1.0,
+        chunks=None,
+        significant_bits=12,
+        wire_bytes=0,
     )
     parent.cam_image_handler = handler
     # bare_pylon_camera stubs _mark_disconnected; the real one is what the
@@ -65,7 +69,11 @@ class TestDetachedDeviceReportsNoFrame:
 
         base = ImageHandlerBase()
         base._store_frame(
-            np.zeros((2, 2), dtype=np.uint8), timestamp=1.0, chunks=None, significant_bits=8
+            np.zeros((2, 2), dtype=np.uint8),
+            timestamp=1.0,
+            chunks=None,
+            significant_bits=8,
+            wire_bytes=0,
         )
         assert len(ImageHandlerBase.NO_FRAME) == len(base.get_last_image())
         assert ImageHandlerBase.NO_FRAME[0] is False

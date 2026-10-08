@@ -24,7 +24,11 @@ from tests.camera_fakes import bare_image_handler
 
 def _store_one(handler, chunks=None):
     handler._store_frame(
-        np.zeros((4, 4), dtype=np.uint16), timestamp=1.0, chunks=chunks, significant_bits=12
+        np.zeros((4, 4), dtype=np.uint16),
+        timestamp=1.0,
+        chunks=chunks,
+        significant_bits=12,
+        wire_bytes=0,
     )
 
 

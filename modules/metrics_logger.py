@@ -109,7 +109,7 @@ class MetricsLogger:
         Safe to call on demand from a status endpoint.
         """
         try:
-            config_helpers.log_system_metrics(self._settings)
+            config_helpers.log_system_metrics(self._settings, scope=self._scope)
         except Exception as e:
             logger.warning(f'[MetricsLogger] tick_system_metrics failed: {type(e).__name__}: {e}')
 

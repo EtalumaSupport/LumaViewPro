@@ -115,6 +115,22 @@ def test_a_delivered_frame_carries_the_specimen_the_way_up_it_was_rendered(sessi
     assert (steps == 1).all(), steps[:8]
 
 
+def test_a_stored_frame_counts_the_bytes_it_took_on_the_link(session):
+    # The link carries the whole layout -- the rows the parser skips included --
+    # and the delimiter before it; the stored array is only the window.
+    camera = session.scope._camera_driver
+    _fresh_frame(session.scope)
+    frames_0, bytes_0 = camera.delivered_counts
+    _fresh_frame(session.scope)
+    frames_1, bytes_1 = camera.delivered_counts
+    assert frames_1 > frames_0
+    wire = (
+        len(fx2driver.FRAME_DELIM)
+        + fx2driver.frame_layout(camera._width, camera._height).frame_bytes
+    )
+    assert (bytes_1 - bytes_0) == (frames_1 - frames_0) * wire
+
+
 def test_840_ma_reaches_the_peripheral_as_0xfe(session):
     session.scope._led_driver.led_on(3, 840)
     try:

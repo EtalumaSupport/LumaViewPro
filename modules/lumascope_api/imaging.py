@@ -192,6 +192,31 @@ def stored_exposure_after_lock(exposure_ms: float, floor_ms: float | None) -> fl
     return max(exposure_ms, floor_ms) if floor_ms is not None else exposure_ms
 
 
+@api_fields('bytes_per_s', 'frames_per_s')
+@dataclasses.dataclass(frozen=True)
+class DeliveredRate:
+    """What the camera delivered to the host over the last second.
+
+    ``frames_per_s`` counts the frames stored, whatever any display does with
+    them. ``bytes_per_s`` is the bytes those same frames took on the link --
+    the payload the camera sent, not the transport's protocol overhead -- so
+    ``bytes_per_s / frames_per_s`` is the bytes one frame takes on the link.
+    Both are 0 when nothing was delivered in the last window: no camera, a
+    camera not streaming, or no recent window measured.
+    """
+
+    frames_per_s: float
+    bytes_per_s: float
+
+    @property
+    def megabytes_per_s(self) -> float:
+        """``bytes_per_s`` in decimal megabytes, the unit links are rated in."""
+        return self.bytes_per_s / 1_000_000
+
+
+NOT_DELIVERING = DeliveredRate(frames_per_s=0.0, bytes_per_s=0.0)
+
+
 @api_fields('applied', 'capped', 'stored')
 @dataclasses.dataclass(frozen=True)
 class AppliedCameraSetting:
@@ -616,6 +641,12 @@ class ImagingAPI:
         self._stream_watch: StallWatch | None = None
         self._stream_watch_bound_s: float | None = None
         self._stream_stall_reported = False
+        # The delivered rate (_sample_delivery), written only on the
+        # scheduler's thread: the last (frames, wire bytes, time) reading, and
+        # the published (rate, time) pair, replaced whole so a reader on any
+        # thread sees one window's rate.
+        self._delivery_reading: tuple[int, int, float] | None = None
+        self._delivered_rate: tuple[DeliveredRate, float] | None = None
 
         # Camera temp logging scheduler handle.
         self._camera_temp_event = None
@@ -2303,7 +2334,7 @@ class ImagingAPI:
         The camera's own figure: Basler's resulting acquisition frame rate,
         IDS's AcquisitionFrameRate maximum, the simulator's pacing rate. The
         FX2 reports none. It is what the camera says it can do, not what
-        reaches the host; the delivered rate is measured from frame arrivals.
+        reaches the host; what reaches the host is ``get_delivered_rate``.
 
         Not cached: a failed read has no last-known-good to answer with.
 
@@ -5115,8 +5146,66 @@ class ImagingAPI:
         if handle is not None:
             self._stream_check_scheduler.unschedule(handle)
 
+    @api
+    def get_delivered_rate(self) -> DeliveredRate:
+        """Read the rate the camera delivered frames, and their bytes on the link.
+
+        Measured over the last second from the frames every driver stores,
+        in every host, so it is the camera's rate whether a display is
+        drawing, paused or absent. A window older than two checks -- the
+        camera stopped streaming, was disconnected, or the check stopped --
+        reads 0, never the last rate seen.
+
+        Returns:
+            DeliveredRate: Frames and link bytes per second; ``NOT_DELIVERING``
+                (both 0) when nothing was delivered in the last window.
+        """
+        published = self._delivered_rate
+        if published is None:
+            return NOT_DELIVERING
+        rate, measured_at = published
+        if time.monotonic() - measured_at > 2 * self._STREAM_CHECK_INTERVAL_S:
+            return NOT_DELIVERING
+        return rate
+
+    def _sample_delivery(self, streaming: bool) -> None:
+        """Take the delivered rate over the window since the last reading."""
+        driver = self._driver
+        if not streaming or driver is None:
+            # Nothing is delivered by design; the next window starts from the
+            # stream's next reading.
+            self._delivery_reading = None
+            self._delivered_rate = None
+            return
+        now = time.monotonic()
+        frames, wire_bytes = driver.delivered_counts
+        previous = self._delivery_reading
+        if (
+            previous is not None
+            and frames >= previous[0]
+            and now - previous[2] < self._STREAM_CHECK_INTERVAL_S / 2
+        ):
+            # The scheduler ran this check again straight after the last one;
+            # the window is measured from the earlier reading, over a full tick.
+            return
+        self._delivery_reading = (frames, wire_bytes, now)
+        if previous is None or frames < previous[0]:
+            # The first reading, or a rebuilt handler (a reconnect, a driver
+            # swap) whose count started again from 0: no window yet.
+            return
+        interval_s = now - previous[2]
+        self._delivered_rate = (
+            DeliveredRate(
+                frames_per_s=(frames - previous[0]) / interval_s,
+                bytes_per_s=(wire_bytes - previous[1]) / interval_s,
+            ),
+            now,
+        )
+
     def _check_stream(self, _dt: float = 0) -> None:
-        if not (self._scope.camera_connected and self.is_streaming()):
+        streaming = self._scope.camera_connected and self.is_streaming()
+        self._sample_delivery(streaming)
+        if not streaming:
             # A camera that is not streaming delivers nothing by design; the
             # watch starts again from the stream's next frame.
             self._stream_watch = None

@@ -31,6 +31,7 @@ class TestFuturesMetricsFormat:
         from collections import defaultdict
 
         from modules import app_context, config_helpers
+        from tests.scope_fakes import scope_delivering_nothing
 
         class _RecordingLogger:
             def __init__(self):
@@ -45,6 +46,7 @@ class TestFuturesMetricsFormat:
 
         class _FakeCtx:
             io_executor = _FakeExec()
+            scope_display = None
 
         rec = _RecordingLogger()
         monkeypatch.setattr(config_helpers, 'metrics_logger', rec)
@@ -60,7 +62,9 @@ class TestFuturesMetricsFormat:
             lambda **k: defaultdict(float),
         )
 
-        config_helpers.log_system_metrics({'live_folder': str(tmp_path)})
+        config_helpers.log_system_metrics(
+            {'live_folder': str(tmp_path)}, scope=scope_delivering_nothing()
+        )
 
         futures_lines = [m for m in rec.messages if '[FUTURES METRICS]' in m]
         assert futures_lines, 'no [FUTURES METRICS] line emitted'

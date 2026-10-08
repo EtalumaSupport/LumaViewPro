@@ -31,6 +31,7 @@ from types import SimpleNamespace
 import pytest
 
 from modules import app_context, common_utils, config_helpers
+from tests.scope_fakes import scope_delivering_nothing
 
 
 @pytest.fixture
@@ -59,7 +60,9 @@ def _drive_log_system_metrics(monkeypatch, settings, metrics, on_call=None):
     """
     rec = _RecordingLogger()
     monkeypatch.setattr(config_helpers, 'metrics_logger', rec)
-    monkeypatch.setattr(app_context, 'ctx', MagicMock())
+    ctx = MagicMock()
+    ctx.scope_display.display_fps.return_value = 0.0
+    monkeypatch.setattr(app_context, 'ctx', ctx)
     monkeypatch.setattr(config_helpers.common_utils, 'check_disk_space', lambda **k: 1.0e5)
 
     def _stub(**kwargs):
@@ -68,7 +71,7 @@ def _drive_log_system_metrics(monkeypatch, settings, metrics, on_call=None):
         return metrics
 
     monkeypatch.setattr(config_helpers.common_utils, 'system_metrics', _stub)
-    config_helpers.log_system_metrics(settings)
+    config_helpers.log_system_metrics(settings, scope=scope_delivering_nothing())
     return rec
 
 

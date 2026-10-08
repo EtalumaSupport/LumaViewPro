@@ -4601,7 +4601,13 @@ class _PylonImageGrabWorker:
         # switch cannot make this buffered frame downconvert at the wrong depth,
         # because the depth came from the frame, not the camera's current state.
         significant_bits = pylon.BitDepth(grabResult.GetPixelType())
-        self._base._store_frame(img, ts, chunks=chunks, significant_bits=significant_bits)
+        self._base._store_frame(
+            img,
+            ts,
+            chunks=chunks,
+            significant_bits=significant_bits,
+            wire_bytes=grabResult.GetPayloadSize(),
+        )
         # Read back the ordinal the store just assigned, so the queued copy
         # and the buffered one describe the same frame by the same number.
         seq = self._base.last_img_seq

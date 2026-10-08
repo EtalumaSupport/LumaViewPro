@@ -21,7 +21,7 @@ from tests.settings_fixtures import complete_settings
 import modules.config_helpers as config_helpers
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import SequentialIOExecutor
-from tests.scope_fakes import build_scope, swap_lanes
+from tests.scope_fakes import build_scope, scope_delivering_nothing, swap_lanes
 from tests.protocol_drives import run_identity
 
 
@@ -451,7 +451,7 @@ class TestLogSystemMetrics:
             }
             mock_disk.return_value = 100000  # plenty of space
             mock_extra.return_value = None
-            config_helpers.log_system_metrics(settings)
+            config_helpers.log_system_metrics(settings, scope=scope_delivering_nothing())
             import pathlib
 
             expected_path = str(pathlib.Path('/tmp').resolve())

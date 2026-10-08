@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING, ClassVar, Protocol
 import numpy as np
 import psutil
 
-from lvp_logger import logger
 from modules.exceptions import ConfigError
 from modules.video_cadence import effective_recording_fps
 
@@ -495,47 +494,6 @@ def is_valid_binning_size(value) -> bool:
     least 1x1 on real hardware.
     """
     return isinstance(value, numbers.Real) and value >= 1
-
-
-# Distinct non-format inputs raw_bytes_per_pixel has already warned about;
-# the caller cadence is per-stats-tick, so an unknown format warns once per
-# distinct value instead of flooding the log every second.
-_RAW_BPP_WARNED: set[str] = set()
-
-
-def raw_bytes_per_pixel(pixel_format: str, is_color_native: bool = False) -> int:
-    """Bytes per pixel of the RAW camera buffer (for data-rate readouts).
-
-    Mono8 is one byte; every other Mono format (Mono10 / Mono12 / Mono16 and
-    the packed variants such as Mono10g40IDS) is delivered in a uint16
-    container, so two bytes. Color-native cameras (none in the shipping fleet)
-    carry three channels.
-
-    A non-string input (the pixel-format cache before any format was ever
-    read) is warned about and treated as a 2-byte container: the camera value
-    getters answer last-known-good, so a sentinel reaching this math means a
-    consumer bypassed that containment -- loud, not silently classified.
-
-    Args:
-        pixel_format: SDK pixel-format name (e.g. 'Mono8', 'Mono12', 'Mono16').
-        is_color_native: Whether the camera delivers 3-channel color frames.
-
-    Returns:
-        Bytes occupied by one pixel of the raw camera frame.
-    """
-    if not is_valid_pixel_format(pixel_format):
-        marker = repr(pixel_format)
-        if marker not in _RAW_BPP_WARNED:
-            _RAW_BPP_WARNED.add(marker)
-            logger.warning(
-                f'raw_bytes_per_pixel: no pixel format known ({marker}); '
-                f'assuming a 2-byte container for the data-rate readout'
-            )
-        bytes_per_channel = 2
-    else:
-        bytes_per_channel = 1 if pixel_format == 'Mono8' else 2
-    channels = 3 if is_color_native else 1
-    return bytes_per_channel * channels
 
 
 def get_layers() -> list[str]:

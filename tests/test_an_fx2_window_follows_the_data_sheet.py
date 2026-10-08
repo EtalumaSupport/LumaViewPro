@@ -119,7 +119,7 @@ def test_the_stored_pixels_are_the_first_w_a_row_carries():
     cam.stream_stats = fx2driver.StreamStats()
     stored = []
     cam.cam_image_handler = SimpleNamespace(
-        _store_frame=lambda image, ts, significant_bits: stored.append(image)
+        _store_frame=lambda image, ts, significant_bits, wire_bytes: stored.append(image)
     )
     loop = threading.Thread(target=cam._grab_loop, daemon=True)
     loop.start()

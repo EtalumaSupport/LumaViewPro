@@ -3788,7 +3788,12 @@ class ImageHandler(ImageHandlerBase):
                 array, significant_bits = self._unpack(buffer)
                 # Stamp the frame with the depth it was captured under so depth
                 # and pixels stay paired across a later format switch.
-                self._store_frame(array, datetime.datetime.now(), significant_bits=significant_bits)
+                self._store_frame(
+                    array,
+                    datetime.datetime.now(),
+                    significant_bits=significant_bits,
+                    wire_bytes=buffer.DeliveredDataSize(),
+                )
                 with self._frame_gen_cond:
                     self._frame_generation += 1
                     self._frame_gen_cond.notify_all()

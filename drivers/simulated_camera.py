@@ -76,8 +76,10 @@ class _SimImageHandler(ImageHandlerBase):
         super().__init__()
         self._stored = threading.Condition()
 
-    def _store_frame(self, image, timestamp, chunks=None, *, significant_bits):
-        super()._store_frame(image, timestamp, chunks, significant_bits=significant_bits)
+    def _store_frame(self, image, timestamp, chunks=None, *, significant_bits, wire_bytes):
+        super()._store_frame(
+            image, timestamp, chunks, significant_bits=significant_bits, wire_bytes=wire_bytes
+        )
         with self._stored:
             self._stored.notify_all()
 
@@ -476,7 +478,12 @@ class SimulatedCamera(Camera):
             # the frame being made and the host having it.
             if self._grab_delay > 0:
                 time.sleep(self._grab_delay)
-            handler._store_frame(image, datetime.datetime.now(), significant_bits=bits)
+            # The simulated link is USB3 carrying the format unpacked, as a
+            # Basler USB3 camera carries Mono12: the generated array is the
+            # acquired window in its wire container.
+            handler._store_frame(
+                image, datetime.datetime.now(), significant_bits=bits, wire_bytes=image.nbytes
+            )
             # Honor the configured exposure as the inter-frame interval,
             # bounded below by the delivery ceiling.
             next_due = max(next_due + interval_s, time.monotonic())

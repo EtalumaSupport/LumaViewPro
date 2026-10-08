@@ -1645,9 +1645,22 @@ scope.imaging.set_black_level(value=4.0)           # value in effect; probe
 # Frame rate: the camera's own figure for what its current settings allow
 # (Basler: the resulting acquisition frame rate; IDS: AcquisitionFrameRate's
 # maximum; the simulator: its pacing). The rate frames actually reach the
-# host at is measured from their arrivals, not read here.
+# host at is get_delivered_rate, below.
 scope.imaging.get_resulting_frame_rate()           # fps; None when no camera or none reported (FX2);
                                                    #   raises HardwareError when the read fails (no cache)
+
+# Delivered rate: what the camera delivered to the host over the last
+# second, counted from the frames every driver stores, in every host -- the
+# same whether a display is drawing, paused or absent. bytes_per_s is those
+# frames' payload on the link (the camera's own per-frame figure: Basler's
+# grab-result payload, IDS's delivered data size, the FX2's frame bytes),
+# not the transport's protocol overhead, so a packed pixel format reads
+# smaller than its frames take in memory.
+rate = scope.imaging.get_delivered_rate()          # DeliveredRate
+rate.frames_per_s                                  # frames per second
+rate.bytes_per_s                                   # link payload bytes per second
+                                                   #   both 0 when nothing was delivered in the
+                                                   #   last window (no camera, not streaming)
 
 # Frame size (getters answer last-known-good on a transient read
 # failure; None only when no camera is active or never read)
@@ -2640,6 +2653,7 @@ Reached through `session.scope.imaging`.
 - `get_binning_size`
 - `get_black_level`
 - `get_black_level_range`
+- `get_delivered_rate`
 - `get_exposure_ms`
 - `get_gain_db`
 - `get_image`
@@ -2940,6 +2954,13 @@ Reached through `RunOutcome.captures`.
 - `captured`
 - `failed`
 - `missing`
+
+### DeliveredRate
+
+Reached through returned by `scope.imaging.get_delivered_rate`.
+
+- `bytes_per_s`
+- `frames_per_s`
 
 ### FailedCapture
 

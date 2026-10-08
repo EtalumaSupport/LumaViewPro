@@ -403,3 +403,15 @@ def answer_auto_gain_like_the_api(imaging, *, has_auto_gain: bool = True) -> Non
 
     imaging._camera_has_auto_gain = lambda: has_auto_gain
     imaging.applied_auto_gain_for = ImagingAPI.applied_auto_gain_for.__get__(imaging)
+
+
+def scope_delivering_nothing():
+    """A scope whose camera delivers nothing, for a caller that only reads
+    ``scope.imaging.get_delivered_rate()`` (the metrics line)."""
+    import types
+
+    from modules.lumascope_api.imaging import NOT_DELIVERING
+
+    return types.SimpleNamespace(
+        imaging=types.SimpleNamespace(get_delivered_rate=lambda: NOT_DELIVERING)
+    )

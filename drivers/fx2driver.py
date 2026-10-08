@@ -2284,8 +2284,13 @@ class FX2Camera(Camera):
                     # The FX2 sensor is 8-bit only, so the delivered array's
                     # container width IS its payload depth; stamp it from the
                     # frame so depth and pixels stay paired.
+                    # On the link the frame is its whole layout, the rows
+                    # the parser skips included, plus the delimiter before it.
                     self.cam_image_handler._store_frame(
-                        image, datetime.now(), significant_bits=image.dtype.itemsize * 8
+                        image,
+                        datetime.now(),
+                        significant_bits=image.dtype.itemsize * 8,
+                        wire_bytes=len(FRAME_DELIM) + len(frame_data),
                     )
                     stats.record_good_frame()
                     last_stored = time.monotonic()

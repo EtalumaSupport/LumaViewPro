@@ -37,7 +37,7 @@ class TestImageHandlerBaseCouplesDepth:
 
         h = ImageHandlerBase()
         img = np.zeros((4, 4), dtype=np.uint16)
-        h._store_frame(img, timestamp=1.0, chunks=None, significant_bits=12)
+        h._store_frame(img, timestamp=1.0, chunks=None, significant_bits=12, wire_bytes=0)
         result, _out_img, _out_ts, sig, _seq = h.get_last_image()
         assert result is True
         assert sig == 12
@@ -49,7 +49,9 @@ class TestImageHandlerBaseCouplesDepth:
         # buffered frame must still report 12 (its own depth), not be re-derived
         # from whatever the camera reports now.
         h = ImageHandlerBase()
-        h._store_frame(np.zeros((4, 4), dtype=np.uint16), timestamp=1.0, significant_bits=12)
+        h._store_frame(
+            np.zeros((4, 4), dtype=np.uint16), timestamp=1.0, significant_bits=12, wire_bytes=0
+        )
         # (no new frame stored under the new format)
         _, _, _, sig, _seq = h.get_last_image()
         assert sig == 12
