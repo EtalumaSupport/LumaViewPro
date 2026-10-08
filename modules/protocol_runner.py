@@ -35,7 +35,7 @@ from modules.sequenced_capture_runner import (
 )
 
 from lvp_logger import logger
-from modules.api_surface import api
+from modules.api_surface import FilePath, api
 
 
 class ProtocolRunner:
@@ -78,7 +78,7 @@ class ProtocolRunner:
         self,
         protocol: Protocol,
         sequence_name: str = 'scan',
-        parent_dir: pathlib.Path | str | None = None,
+        parent_dir: FilePath | None = None,
         enable_image_saving: bool = True,
         events: RunEvents | None = None,
         return_to_position: dict | None = None,
@@ -131,7 +131,7 @@ class ProtocolRunner:
         self,
         protocol: Protocol,
         sequence_name: str = 'protocol',
-        parent_dir: pathlib.Path | str | None = None,
+        parent_dir: FilePath | None = None,
         enable_image_saving: bool = True,
         events: RunEvents | None = None,
         run_trigger_source: str = 'api_protocol',
@@ -180,7 +180,7 @@ class ProtocolRunner:
     def start_composite(
         self,
         sequence_name: str = 'composite',
-        parent_dir: pathlib.Path | str | None = None,
+        parent_dir: FilePath | None = None,
         events: RunEvents | None = None,
         run_trigger_source: str = 'api_composite',
         engineering_mode: bool | None = None,
@@ -252,7 +252,7 @@ class ProtocolRunner:
         layer: str,
         save_characterization_data: bool = False,
         sequence_name: str = 'autofocus',
-        parent_dir: pathlib.Path | str | None = None,
+        parent_dir: FilePath | None = None,
         events: RunEvents | None = None,
         claim: HeldClaim | None = None,
         run_trigger_source: str = 'api_autofocus',
@@ -432,7 +432,7 @@ class ProtocolRunner:
         self,
         layer: str,
         sequence_name: str = 'zstack',
-        parent_dir: pathlib.Path | str | None = None,
+        parent_dir: FilePath | None = None,
         events: RunEvents | None = None,
         return_to_start: bool = True,
         run_trigger_source: str = 'api_zstack',
@@ -543,7 +543,7 @@ class ProtocolRunner:
     def run_composite(
         self,
         sequence_name: str = 'composite',
-        parent_dir: pathlib.Path | str | None = None,
+        parent_dir: FilePath | None = None,
         events: RunEvents | None = None,
         merge_timeout_s: float = 900.0,
         engineering_mode: bool | None = None,
@@ -625,7 +625,7 @@ class ProtocolRunner:
         run_trigger_source: str,
         max_scans: int | None,
         sequence_name: str,
-        parent_dir: pathlib.Path | str | None = None,
+        parent_dir: FilePath | None = None,
         enable_image_saving: bool = True,
         events: RunEvents | None = None,
         return_to_position: dict | None = None,

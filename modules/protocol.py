@@ -33,7 +33,7 @@ import modules.labware_loader as labware_loader
 from modules.tiling_config import TilingConfig
 from modules.zstack_config import ZStackConfig
 from modules.coord_transformations import CoordinateTransformer
-from modules.api_surface import api, api_fields
+from modules.api_surface import FilePath, api, api_fields
 
 if TYPE_CHECKING:
     import modules.labware as labware_module
@@ -943,7 +943,7 @@ class Protocol:
         return new
 
     @api
-    def to_file(self, file_path: pathlib.Path | str, layer_settings: dict | None = None) -> None:
+    def to_file(self, file_path: FilePath, layer_settings: dict | None = None) -> None:
         """Write the protocol to a TSV file, whole or not at all.
 
         The file is written beside the target and replaces it only once it is

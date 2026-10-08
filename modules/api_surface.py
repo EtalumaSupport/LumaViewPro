@@ -14,9 +14,13 @@ hosting a session, returning a function, or held back by policy -- so a
 wire client skips it while an in-process client (Python, MATLAB calling
 Python) uses it like any other.
 
+A parameter that takes a file-system path is annotated ``FilePath``, so a
+wire client can tell a path from a string.
+
 No project imports: every module that declares API imports this one.
 """
 
+import os
 from collections.abc import Callable
 
 # The attribute the mark is recorded under, on the function itself: a
@@ -30,6 +34,10 @@ FIELDS_ATTRIBUTE = '_lvp_api_fields'
 
 API = 'api'
 IN_PROCESS = 'in_process'
+
+# A ``type`` statement, not an assignment: an assignment's alias evaluates to
+# its union and loses the name a wire client and the guard read.
+type FilePath = str | os.PathLike[str]
 
 
 def _function_of(member: object) -> object:

@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING
 from lvp_logger import logger
 from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
 from modules.sequential_io_executor import IOTask
-from modules.api_surface import api
+from modules.api_surface import FilePath, api
 
 if TYPE_CHECKING:
     import numpy as np
@@ -69,7 +69,7 @@ class PostProcessingAPI:
     @api
     def stitch(
         self,
-        folder: str | pathlib.Path,
+        folder: FilePath,
         *,
         mode: str = 'quality',
         on_progress: ProgressCallback | None = None,
@@ -101,7 +101,7 @@ class PostProcessingAPI:
     @api
     def zproject(
         self,
-        folder: str | pathlib.Path,
+        folder: FilePath,
         *,
         method: str,
         on_progress: ProgressCallback | None = None,
@@ -132,7 +132,7 @@ class PostProcessingAPI:
     @api
     def composite(
         self,
-        folder: str | pathlib.Path,
+        folder: FilePath,
         *,
         on_progress: ProgressCallback | None = None,
     ) -> dict:
@@ -160,7 +160,7 @@ class PostProcessingAPI:
     @api
     def video(
         self,
-        folder: str | pathlib.Path,
+        folder: FilePath,
         *,
         frames_per_sec: float | str | None = None,
         timestamp_overlay: bool = False,
@@ -190,7 +190,7 @@ class PostProcessingAPI:
     @api
     def enhance(
         self,
-        target: str | pathlib.Path,
+        target: FilePath,
         *,
         on_progress: ProgressCallback | None = None,
         on_derived_image: Callable[[np.ndarray, int], None] | None = None,
@@ -213,7 +213,7 @@ class PostProcessingAPI:
     @api
     def count_cells(
         self,
-        folder: str | pathlib.Path,
+        folder: FilePath,
         *,
         method: dict,
         on_progress: ProgressCallback | None = None,

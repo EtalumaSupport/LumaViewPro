@@ -67,7 +67,7 @@ from modules.plugins import PLUGIN_API_LEVEL
 from modules.run_outcome import RunEnding
 from modules.scheduler import Scheduler, ThreadingTimerScheduler
 from modules.sequential_io_executor import IOTask, slow_task_budget
-from modules.api_surface import api, api_fields
+from modules.api_surface import FilePath, api, api_fields
 
 # How long a diagnostic's end waits for a run it lent its claim to. The
 # window of one autofocus inside a characterization. Per
@@ -1266,7 +1266,7 @@ class ScopeSession:
         )
 
     @api
-    def load_protocol(self, file_path: 'str | os.PathLike') -> 'Protocol':
+    def load_protocol(self, file_path: FilePath) -> 'Protocol':
         """Load the protocol at ``file_path`` and put the scope on its plate.
 
         A protocol's positions are stated against the plate it names, so it
@@ -1367,7 +1367,7 @@ class ScopeSession:
                     stim['enabled'] = row['Stim_Enabled']
 
     @api
-    def save_protocol(self, protocol: 'Protocol', file_path: 'str | os.PathLike') -> pathlib.Path:
+    def save_protocol(self, protocol: 'Protocol', file_path: FilePath) -> pathlib.Path:
         """Write a protocol to a file, with this session's Layer Settings.
 
         ``.tsv`` is added to a name that does not end in it. The block holds
@@ -2272,7 +2272,7 @@ class ScopeSession:
             self._store_setting('protocol.filepath', file_path)
 
     @api(in_process=True)
-    def open_protocol(self, file_path: 'str | os.PathLike') -> 'Protocol':
+    def open_protocol(self, file_path: FilePath) -> 'Protocol':
         """Load the protocol at ``file_path`` with its Layer Settings, and remember it.
 
         The GUI's Load: ``load_protocol``, then ``apply_layer_settings``, then
@@ -2589,7 +2589,7 @@ class ScopeSession:
         self,
         *,
         include_bandwidth_test: bool = False,
-        output_dir: str | pathlib.Path | None = None,
+        output_dir: FilePath | None = None,
         on_progress: Callable[[int, str], None] | None = None,
     ) -> 'SupportReportSaved':
         """Make the full Tech Support Report: the boards, the motors, the camera and the files.
@@ -2631,7 +2631,7 @@ class ScopeSession:
     def make_logs_zip(
         self,
         *,
-        output_dir: str | pathlib.Path | None = None,
+        output_dir: FilePath | None = None,
         on_progress: Callable[[int, str], None] | None = None,
     ) -> 'SupportReportSaved':
         """Zip the logs, the data folder, the recent protocols and the video receipts.

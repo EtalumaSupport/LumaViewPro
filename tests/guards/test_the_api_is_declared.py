@@ -21,6 +21,10 @@ guard holds four things over every class defined under ``modules/``:
 4. **Closed.** Every project class an annotation names is an enum, an
    exception, or a class with marked members or fields, so nothing published
    hands out or asks for an object whose own members are not API.
+5. **Paths declared.** A parameter of a member on the wire (marked, not
+   in-process) that takes a file-system path is annotated exactly
+   ``FilePath`` or ``FilePath | None``, so a wire client can tell a path
+   from a string and pass it through ``ScopeSession.live_folder_path``.
 
 Annotations are read as strings and resolved by class name over the loaded
 classes, never through ``typing.get_type_hints``, which raises on the
@@ -321,4 +325,31 @@ def test_the_walk_is_not_vacuous(marked: dict[str, str], indexed: dict[str, str]
     assert marked.keys() >= NOT_VACUOUS, f'marks not found: {sorted(NOT_VACUOUS - marked.keys())}'
     assert indexed.keys() >= NOT_VACUOUS, (
         f'index entries not found: {sorted(NOT_VACUOUS - indexed.keys())}'
+    )
+
+
+# A parameter naming one of these takes a file-system path.
+_PATH_NAMES = {'Path', 'PathLike', 'FilePath'}
+_DECLARED_PATH = {'FilePath', 'FilePath | None'}
+# A wire path parameter whose absence would mean the walk lost its way.
+KNOWN_WIRE_PATH = 'ScopeSession.load_protocol parameter file_path'
+
+
+def test_every_wire_path_is_declared(universe: dict[str, type], marked: dict[str, str]) -> None:
+    seen, undeclared = set(), []
+    for name in sorted(n for n, tag in marked.items() if tag == 'api'):
+        cname, member = name.split('.', 1)
+        for edge, text in _edges(universe[cname], member):
+            if not edge.startswith('parameter ') or text is None:
+                continue
+            if not _named(text)[1] & _PATH_NAMES:
+                continue
+            seen.add(f'{name} {edge}')
+            if text not in _DECLARED_PATH:
+                undeclared.append(f'{name} {edge}: {text}')
+    assert KNOWN_WIRE_PATH in seen, f'the walk did not reach {KNOWN_WIRE_PATH}'
+    assert not undeclared, (
+        'A path parameter on the wire must be annotated FilePath or FilePath | None '
+        '(modules.api_surface), so a wire client knows which arguments are paths:\n  '
+        + '\n  '.join(undeclared)
     )

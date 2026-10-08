@@ -2,6 +2,10 @@
 
 ## 4.0.0 (in development)
 
+- **Every path parameter is declared `FilePath` (SDK)**: new `modules.api_surface.FilePath`
+  (`str | os.PathLike[str]`) annotates every API parameter that takes a file-system path, so a
+  wire bridge can tell from the signature which arguments to pass through
+  `ScopeSession.live_folder_path`. Each accepts what it did before and any `os.PathLike`.
 - **A run tells its caller through typed run events (SDK, breaking)**: every run member and
   `prepare()` take `events=RunEvents(...)` (`modules.run_events`) in place of
   `callbacks=`; `ProtocolCallbacks` is removed. The events are `scan_started`, `scan_ended`,

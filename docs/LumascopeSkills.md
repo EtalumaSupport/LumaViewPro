@@ -461,6 +461,9 @@ forms either operating system writes, wherever the scope runs -- and with
 reason `capture_location_unusable` when the live folder itself is missing
 or not a folder; it never creates the live folder. A Python caller on the
 scope's own machine passes any path straight to the member it calls.
+Every parameter that takes a path is annotated `FilePath`
+(`modules.api_surface`, a `str` or `os.PathLike`), so a bridge can tell
+which arguments to pass through `live_folder_path` from the signature.
 
 Writing into the settings dict you passed to `create` directly skips every check above and the
 lock; it is not a supported write.
