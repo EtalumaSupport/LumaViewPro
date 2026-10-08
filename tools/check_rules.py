@@ -97,23 +97,25 @@ from pathlib import Path
 # repo` values in each repo's pyproject.toml. The split preserves each
 # repo's pre-unification behavior exactly: the kv/cv2 families never ran
 # in Firmware, the doc-status family never ran in LumaViewPro.
-_REPO_CHECK_MAP: dict[str, dict[str, bool]] = {
+_REPO_CHECK_MAP: dict[str, dict[str, bool | str]] = {
     'lumaviewpro': {
         'kv_ascii': True,
         'cv2_channel': True,
         'doc_status': False,
         'rule_37': True,
+        'sibling': 'Firmware',
     },
     'etaluma-firmware': {
         'kv_ascii': False,
         'cv2_channel': False,
         'doc_status': True,
         'rule_37': False,
+        'sibling': 'LumaViewPro',
     },
 }
 
 
-def _repo_config() -> dict[str, bool]:
+def _repo_config() -> dict[str, bool | str]:
     """Resolve the current repo's check families, failing LOUD on doubt.
 
     The key comes from `[tool.etaluma] repo` in the pyproject.toml at the
@@ -1426,6 +1428,38 @@ def _check_build_untracked(paths: list[str]) -> list[Violation]:
     ]
 
 
+_CHECKER_PATH = 'tools/check_rules.py'
+
+
+def _sibling_checker(sibling_dir: str) -> Path | None:
+    """The other repo's copy of this checker, when its checkout sits beside this one.
+
+    The two repos share this checker by copy, and the copies drifted
+    twice. The sibling's WORKING copy is the witness, not a fetched tip:
+    Firmware commits land in the one shared checkout, and the LVP main
+    checkout is only ever pulled, so each is where the other repo keeps
+    its copy current, and the fix for a block is a copy or a pull there.
+    """
+    top = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
+    sibling = Path(top).parent / sibling_dir / _CHECKER_PATH
+    return sibling if sibling.is_file() else None
+
+
+def _check_sibling_copy(staged: str, sibling: Path | None) -> list[Violation]:
+    if sibling is None or staged == sibling.read_text(encoding='utf-8'):
+        return []
+    return [
+        Violation(
+            _CHECKER_PATH,
+            1,
+            1,
+            'sibling_copy',
+            f'differs from {sibling}; the checker is one file in both repos: copy the '
+            'staged file there, or pull that checkout, before committing',
+        )
+    ]
+
+
 def _staged_doc_files() -> list[str]:
     docs = _staged_files('.md')
     return [p for p in docs if _is_rule_45_doc(p) or _is_daily_log(p) or _is_handover(p)]
@@ -1500,7 +1534,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.staged:
         merging = _merge_in_progress()
-        violations.extend(_check_build_untracked(_staged_paths_entering()))
+        entering = _staged_paths_entering()
+        violations.extend(_check_build_untracked(entering))
+        if _CHECKER_PATH in entering:
+            violations.extend(
+                _check_sibling_copy(
+                    _read_staged_content(_CHECKER_PATH), _sibling_checker(config['sibling'])
+                )
+            )
         for p in _staged_files('.py'):
             try:
                 content = _read_staged_content(p)
