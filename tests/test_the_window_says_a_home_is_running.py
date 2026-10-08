@@ -3,9 +3,9 @@
 
 A home greys every control, but the only word of it was a suffix in the
 window title, so a person saw a greyed window and no reason. A banner over
-the live view now carries the Session's own sentence for the hold while a
-home holds the scope, and nothing at any other time: a run shows its own
-progress, and a banner over the live view would hide what it captures.
+the middle of the window -- "System Homing..." beside a turning arc -- is
+shown while a home holds the scope, and at no other time: a run shows its
+own progress, and a banner over the live view would hide what it captures.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ def session(tmp_path):
 
 
 def test_the_banner_names_a_home_while_it_holds_the_scope(session, monkeypatch):
-    from ui.ui_helpers import homing_banner_text
+    from ui.ui_helpers import homing_banner_shown
 
     entered, release = threading.Event(), threading.Event()
     real = session.scope._motion_driver.home
@@ -47,28 +47,28 @@ def test_the_banner_names_a_home_while_it_holds_the_scope(session, monkeypatch):
         return real(*args, **kwargs)
 
     monkeypatch.setattr(session.scope._motion_driver, 'home', held)
-    assert homing_banner_text(session) == ''
+    assert homing_banner_shown(session) is False
 
     home = session.scope.motion.start_home('ALL')
     try:
         assert entered.wait(HOME_S)
-        assert homing_banner_text(session) == 'A home is in progress.'
+        assert homing_banner_shown(session) is True
     finally:
         release.set()
         home.exception(timeout=HOME_S)
-    assert homing_banner_text(session) == ''
+    assert homing_banner_shown(session) is False
 
 
 @pytest.mark.parametrize('kind', ['protocol', 'diagnostic', 'recording'])
 def test_no_other_holder_shows_it(session, kind):
     from tests.protocol_drives import run_identity
-    from ui.ui_helpers import homing_banner_text
+    from ui.ui_helpers import homing_banner_shown
 
     held = session.activity_claim.try_claim(
         kind, run=run_identity() if kind == 'protocol' else None
     )
     try:
-        assert homing_banner_text(session) == ''
+        assert homing_banner_shown(session) is False
     finally:
         held.release()
 
@@ -80,6 +80,6 @@ def test_the_run_state_publisher_writes_the_banner():
         ast.unparse(node.value)
         for node in ast.walk(publish)
         if isinstance(node, ast.Assign)
-        and any(isinstance(t, ast.Attribute) and t.attr == 'homing_text' for t in node.targets)
+        and any(isinstance(t, ast.Attribute) and t.attr == 'homing' for t in node.targets)
     ]
-    assert writes == ['homing_banner_text(session)'], writes
+    assert writes == ['homing_banner_shown(session)'], writes

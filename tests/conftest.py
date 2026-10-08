@@ -181,6 +181,7 @@ def _install_kivy_uix_stubs():
     it.
     """
     for name in (
+        'kivy.animation',
         'kivy.core',
         'kivy.core.text',
         'kivy.core.window',

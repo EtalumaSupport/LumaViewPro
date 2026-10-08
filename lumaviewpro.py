@@ -484,10 +484,13 @@ from ui.ui_helpers import (
     LoggedAccordionItem,
     _handle_ui_update_for_axis,
     draw_shared_run_displays,
-    homing_banner_text,
+    homing_banner_shown,
     run_reported,
     run_unasked,
 )
+
+# Imported for kv: <MainDisplay> builds a HomingBanner by name.
+from ui.homing_banner import HomingBanner
 from ui.vertical_control import VerticalControl
 from ui.zstack import ZStack
 
@@ -519,9 +522,9 @@ class LumaViewProApp(TooltipMixin, App):
     # that control started.
     run_lockout = BooleanProperty(False)
     controls_locked = BooleanProperty(False)
-    # The words the middle of the window shows while a home holds the
-    # scope; empty otherwise. Written on the same edge as the two above.
-    homing_text = StringProperty('')
+    # Whether the middle of the window shows the homing banner. Written on
+    # the same edge as the two above.
+    homing = BooleanProperty(False)
 
     # The in-flight drain-close poller, or None when no close is running.
     # Declared here so the close handler can read it before any close has
@@ -536,7 +539,7 @@ class LumaViewProApp(TooltipMixin, App):
         dispatches bindings synchronously inside each setattr, so a handler
         observing a torn pair must see OVER-locked, never under-locked --
         the tightening property writes first on lock, last on unlock. The
-        homing banner's words are written after them; nothing locks on them.
+        homing banner is written after them; nothing locks on it.
         """
         session = ctx.session
         run_lockout = session.run_lockout
@@ -547,7 +550,7 @@ class LumaViewProApp(TooltipMixin, App):
         else:
             self.run_lockout = run_lockout
             self.controls_locked = False
-        self.homing_text = homing_banner_text(session)
+        self.homing = homing_banner_shown(session)
         self._draw_run_controls()
         # The objective question is withheld while an activity holds the
         # scope; this edge is the one that fires when the hold ends, so the

@@ -141,6 +141,42 @@
             points: [self.right - dp(20), self.center_y + dp(3), self.right - dp(10), self.center_y + dp(3), self.right - dp(15), self.center_y - dp(3)]
 
 # -----------------------
+# HOMING BANNER
+# -----------------------
+# A turning arc beside the words, on a dark rounded backing. Neither a
+# Label nor a BoxLayout takes touches, so the banner blocks nothing.
+<HomingBanner>:
+    orientation: 'horizontal'
+    size_hint: None, None
+    size: self.minimum_width, dp(84)
+    padding: dp(28), dp(18)
+    spacing: dp(18)
+    canvas.before:
+        Color:
+            rgba: 0.08, 0.08, 0.08, 0.85
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(12)]
+    Widget:
+        size_hint: None, None
+        size: dp(36), dp(36)
+        pos_hint: {'center_y': 0.5}
+        canvas:
+            Color:
+                rgba: 0.18, 0.66, 0.85, 1
+            Line:
+                width: dp(3)
+                circle: (self.center_x, self.center_y, dp(15), root.angle, root.angle + 270)
+    Label:
+        text: 'System Homing...'
+        font_size: '28sp'
+        bold: True
+        size_hint: None, None
+        size: self.texture_size
+        pos_hint: {'center_y': 0.5}
+
+# -----------------------
 # MAIN DISPLAY
 # -----------------------
 <MainDisplay>:
@@ -156,25 +192,15 @@
         do_rotation: False
         do_translation: True
 
-    # Says a home holds the scope, over the middle of the live view; empty
-    # and invisible otherwise. A Label takes no touches, so it blocks nothing.
-    Label:
+    # Says a home holds the scope, over the middle of the window; hidden
+    # otherwise. pos_hint, not center: the layout re-centres it whenever its
+    # size changes, where a bound center is applied once, before the label
+    # has measured its text, and the box then grows from that left edge.
+    HomingBanner:
         id: homing_banner_id
-        text: app.homing_text
-        opacity: 1 if app.homing_text else 0
-        font_size: '28sp'
-        bold: True
-        padding: '32dp', '20dp'
-        size_hint: None, None
-        size: self.texture_size
-        center: root.center
-        canvas.before:
-            Color:
-                rgba: 0.08, 0.08, 0.08, 0.85
-            RoundedRectangle:
-                pos: self.pos
-                size: self.size
-                radius: [dp(12)]
+        active: app.homing
+        opacity: 1 if self.active else 0
+        pos_hint: {'center_x': 0.5, 'center_y': 0.5}
 
 	MotionSettings:
         id: motionsettings_id
