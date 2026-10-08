@@ -147,3 +147,19 @@ class TestAHomeTheLaneRefusesHoldsNothing:
         assert refused.reason == 'exclusive_activity_running'
 
         assert _from_another_thread(call) is None
+
+
+class TestTheLaneNamesTheHome:
+    """The lane names a task by its action in its log lines (a slow task, a
+    refusal); the claimed body keeps the name of the home it runs."""
+
+    @pytest.mark.parametrize('axis', ['ALL', 'Z', 'T'])
+    def test_the_body_carries_its_homes_name(self, axis):
+        s = build_scope(simulate=True, sim_model='LS850T', source_path='.', register_atexit=False)
+        try:
+            impl, _ = s.motion._home_body(axis)
+            body, release_if_unrun = s.motion._claim_home(impl)
+            release_if_unrun()
+            assert body.__name__ == impl.__name__
+        finally:
+            s.disconnect()

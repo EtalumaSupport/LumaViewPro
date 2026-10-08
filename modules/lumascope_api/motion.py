@@ -2448,6 +2448,8 @@ class MotionAPI:
             if not started.is_set():
                 self._home_in_flight.release()
 
+        # The lane names a task by its action, so its log lines name the home.
+        body.__name__ = body.__qualname__ = impl.__name__
         return body, release_if_unrun
 
     def move_turret(self, position: int, restore_z: bool = True) -> None:
