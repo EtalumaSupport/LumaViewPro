@@ -96,9 +96,6 @@ def app_ctx(runner, engine, tmp_path, monkeypatch):
         worker_pool=pool,
         sequenced_capture_runner=engine,
         ui_listener_bridge=MagicMock(),
-        # The starter hands the context's live flag to the run; production's
-        # context always carries it.
-        engineering_mode=False,
     )
     yield _app_ctx.ctx
     _app_ctx.ctx = saved
@@ -136,7 +133,7 @@ def test_the_button_hands_the_press_to_the_engine_and_decides_nothing(app_ctx, r
     kwargs = runner.start_composite.call_args.kwargs
     assert 'parent_dir' not in kwargs, 'the button composed a folder the API already owns'
     assert kwargs['run_trigger_source'] == 'composite'
-    assert kwargs['engineering_mode'] is False
+    assert 'engineering_mode' not in kwargs, "the mode is the session's; the button states none"
     assert not app_ctx.sequenced_capture_runner._reset.called, 'a start is not a stop'
 
 

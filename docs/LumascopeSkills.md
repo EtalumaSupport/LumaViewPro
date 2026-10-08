@@ -301,8 +301,8 @@ session = ScopeSession.create(
     settings=settings_init.settings,
     source_path='.',                        # refused beside scope=: a session's folder is its scope's
     simulate=False,                         # True builds a simulated scope instead of opening hardware
-    settings_saved_hook=None,               # hook(settings_snapshot: dict) after a successful save_settings
-    engineering_mode=False,                 # stored on the session
+    engineering_mode=False,                 # the session's mode to begin with; a plugin may turn it on
+    no_engineering=False,                   # True: the engineering plugin leaves engineering mode off
 )
 ```
 
@@ -699,7 +699,7 @@ Unlike `run_autofocus`, the slices are the product: the run saves its images (un
 
 `return_to_start` is on by default: a stack ends at whichever end of its range it finished on, which is not where the operator was looking, so the stage goes back to the position the stack was centred on. Pass `return_to_start=False` to leave it where the stack ended.
 
-`run_single_scan()` runs one scan; `run_protocol()` runs the full multi-scan protocol. LumaViewPro's own Scan and Run buttons start their runs through these two calls. Both take an optional `run_trigger_source`, the provenance recorded on the run and named in a refusal's `holder_trigger` (default `'api_scan'` / `'api_protocol'`; the buttons pass `'scan'` / `'protocol'`), and an optional `engineering_mode`, whether the run stamps the turret position into its filenames (None, the default, reads the mode the session was built in). A run reads its image mode (`set_image_mode`) and output formats from the settings when it starts. Both raise `ProtocolRunRefusedError` (`modules.exceptions`) when the run is refused before any state is committed -- already running, files still writing, empty protocol, a validation failure, hardware not connected, an axis whose position is unknown (`position_unknown`: the scope is not homed, or a home is still running -- the message names each axis), the stage's lid open (`lid_open`: every run moves X and Y, which the open lid refuses), a `sequence_name` that is a path rather than a name (`sequence_name_invalid`: it holds `/` or `\`, a drive, or is `..`; the name is the protocol file the run saves inside its folder, and a blank one is `unsaved_protocol`), or a live owner holding the illumination. Its `str()` is the sentence written for a person, and an L2 caller branches on its `reason` / `title` / `message` attributes (they map cleanly to a REST status code or a UI message). A run that could not be checked at all -- validating the protocol, or reading whether the hardware is connected, or reading the stage's interlocks, crashed instead of answering -- is not a refusal: it raises `RunCheckFailedError` (`modules.exceptions`, reason `validation_crashed` or `hardware_state_unknown`), a fault with the crash chained as `__cause__`. Neither commits anything, so neither needs unwinding. What a run tells its caller as it goes is its run events, below.
+`run_single_scan()` runs one scan; `run_protocol()` runs the full multi-scan protocol. LumaViewPro's own Scan and Run buttons start their runs through these two calls. Both take an optional `run_trigger_source`, the provenance recorded on the run and named in a refusal's `holder_trigger` (default `'api_scan'` / `'api_protocol'`; the buttons pass `'scan'` / `'protocol'`). Whether a run stamps the turret position into its filenames is the session's `engineering_mode` when the run starts. A run reads its image mode (`set_image_mode`) and output formats from the settings when it starts. Both raise `ProtocolRunRefusedError` (`modules.exceptions`) when the run is refused before any state is committed -- already running, files still writing, empty protocol, a validation failure, hardware not connected, an axis whose position is unknown (`position_unknown`: the scope is not homed, or a home is still running -- the message names each axis), the stage's lid open (`lid_open`: every run moves X and Y, which the open lid refuses), a `sequence_name` that is a path rather than a name (`sequence_name_invalid`: it holds `/` or `\`, a drive, or is `..`; the name is the protocol file the run saves inside its folder, and a blank one is `unsaved_protocol`), or a live owner holding the illumination. Its `str()` is the sentence written for a person, and an L2 caller branches on its `reason` / `title` / `message` attributes (they map cleanly to a REST status code or a UI message). A run that could not be checked at all -- validating the protocol, or reading whether the hardware is connected, or reading the stage's interlocks, crashed instead of answering -- is not a refusal: it raises `RunCheckFailedError` (`modules.exceptions`, reason `validation_crashed` or `hardware_state_unknown`), a fault with the crash chained as `__cause__`. Neither commits anything, so neither needs unwinding. What a run tells its caller as it goes is its run events, below.
 
 **Run events.** Every run member -- `run_single_scan`, `run_protocol`, `run_autofocus`, `run_autofocus_all_steps`, `run_zstack`, `run_composite` and `start_composite` -- takes an optional `events=RunEvents(...)` (`modules.run_events`), a frozen record with one optional handler per event; a misspelt handler name fails where the record is built. Each event carries its values by value, so a handler never reads the run's own state, which a next run may already own. The engine names no host and no widget: what LumaViewPro's GUI does with an event (draw the step, hold a saved frame on screen, put the layer panel back) is its own handler, and a script or REST server subscribes to the same events.
 
@@ -1073,7 +1073,7 @@ saved.path      # the ZIP
 saved.title     # 'Support Report Saved' or 'Logs Zip Saved'
 saved.message   # the folder it is in, and the address to send it to
 
-health = session.plugin_health()   # modules.plugins.PluginHealth, or None when no plugins load here
+health = session.plugin_health()   # modules.plugins.PluginHealth, or None before load_plugins()
 health.namespaces                  # each namespace's NamespaceHealth: loaded, last_runtime_errors
 health.not_loaded                  # PluginNotLoaded(name, version, reason) for each that did not load
 
@@ -1089,9 +1089,38 @@ cancellable.
 Both ZIPs carry `bring_up.json` (the session's `bring_up_record()`, each
 part with `cause_words` beside its `cause`) and `plugins.json` (each plugin
 namespace's health, and `not_loaded`: the plugins that did not load and
-why). A session gets plugin health only from a host that loads plugins and
-passes `ScopeSession.create(..., plugin_health=registry.health)`; any other
-writes `{"plugins": null, "why": "no plugin registry on this host"}`.
+why). A session whose host never called `load_plugins()` writes
+`{"plugins": null, "why": "no plugin registry on this host"}`.
+
+#### Plugins
+
+```python
+session.load_plugins()     # the installed plugins (entry points 'lvp.plugins'), then the built-ins
+session.unload_plugins()   # each plugin's unregister, last loaded first; shutdown() does it too
+```
+
+A session has plugins only when its host asks: `load_plugins()`, once,
+after `create`. A script or a test that never calls it has none, whatever
+is installed on the machine. Each plugin's `register` is handed the session
+as its `ctx`; a plugin that does not load is reported and the rest load. An
+installed plugin claiming a built-in's name keeps it, and the built-in is
+the one reported as not loaded. A subscriber's `on_settings_changed` is
+handed the session and is told at each `save_settings` what changed since
+it last heard, the first time since the plugins loaded.
+
+A post-processing plugin that opts in (`auto_run_on_protocol_complete`) is
+handed the folder of every Full Protocol run, whoever started it, once the
+run's images are written and its hyperstack build has ended. It runs on the
+post-processing lane, isolated from the run: `wait_for_files` does not wait
+for it, and the scope takes the next run while it works. On that lane it may
+call the post-processing members; a blocking call to a camera, motion or
+file member raises. A run whose images are not all written hands its folder
+to no processor.
+
+`unload_plugins()` is for a host whose close must stop plugin work before
+anything else, as the GUI's does before it stops runs and saves settings;
+`shutdown()` calls it first for every other host, and a second call does
+nothing.
 
 #### Plugin API level
 
@@ -1111,6 +1140,7 @@ still states the major version.
 | level 2 | `imaging.get_black_level_range()`: the range `set_black_level` accepts for the current pixel format. |
 | level 3 | With no LED board: `led_on` and a lighting transition raise `not_connected`, the LED state reads (`get_led_state`, `get_led_states`, `save_led_state`) answer `None`, and `capabilities.led_max_ma` / `led_channels` are `None`; `led_on` for an LED the model lacks raises `axis_absent`. |
 | level 4 | With no camera: every camera command raises `not_connected` (`MissingPart.CAMERA`) but an off whose end state holds; `get_gain_db`, `get_exposure_ms`, `get_width` and `get_height` answer `None`; after `disconnect()` the camera cache holds the no-camera values and `get_camera_temperatures_degc` / `get_camera_link_info` answer `None`. |
+| level 5 | A plugin's `register`, `unregister` and `on_settings_changed` are handed the session (see "Plugins"); `on_settings_changed` is told changes made since load; engineering mode is `session.engineering_mode`, which the plugin turns on itself, and every run and still reads it (the runs' and the still's `engineering_mode` argument is gone); auto-run fires for every Full Protocol starter, on the post-processing lane, after the hyperstack build. |
 
 ### Configuration queries
 
@@ -2121,7 +2151,7 @@ Plugin platform spec and live-processing tutorial both live alongside LumaViewPr
 
 - **Design**: `docs/PLUGIN_API_DESIGN_2026-05-09.md` — the locked platform spec (PluginSpec, namespaces, registry contracts, loading sequence).
 - **Plugin tutorial**: `docs/PluginTutorial.md` — the plugin shape and lifecycle, worked for `ctx.plugins.post_processing`.
-- **Namespaces (4.x)**: `ctx.plugins.ui`, `ctx.plugins.post_processing`, `ctx.plugins.live_processing`, `ctx.plugins.rest`.
+- **Namespaces (4.x)**: `ctx.plugins.ui`, `ctx.plugins.post_processing`, `ctx.plugins.live_processing`, `ctx.plugins.rest`. A plugin's `ctx` is the session hosting it (see "Plugins").
 
 A worked plugin example ships in `etaluma-engineering/`; see its `pyproject.toml` `entry_points` for how a plugin declares itself.
 
@@ -2443,6 +2473,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `held_by_other`
 - `is_protocol_running`
 - `live_folder_path` (in-process)
+- `load_plugins` (in-process)
 - `load_protocol`
 - `load_user_settings` (in-process)
 - `make_logs_zip`
@@ -2502,6 +2533,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `start_go_to_step`
 - `start_metrics` (in-process)
 - `stop_metrics` (in-process)
+- `unload_plugins` (in-process)
 - `update_settings`
 - `update_step`
 

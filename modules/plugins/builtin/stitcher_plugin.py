@@ -45,9 +45,8 @@ __version__ = '0.1.0'
 logger = logging.getLogger('lvp_logger')
 
 
-# Module-level spec so load_plugins() can discover it via the
-# entry_points path AND so register_builtins() can find it by attribute
-# without re-instantiating. The platform requires_lvp_version gate
+# Module-level spec, read the same way whether the module is found as a
+# built-in or through an entry point, without re-instantiating. The platform requires_lvp_version gate
 # locks Stitcher canary to 4.0.0+ where ctx.plugins exists.
 spec = PluginSpec(
     name='stitcher',
@@ -125,14 +124,12 @@ def _stitcher_processor(
 def register(ctx: Any) -> None:
     """Register the stitcher processor with ctx.plugins.post_processing.
 
-    Called from modules.plugins.builtin.register_builtins (in-tree
-    path) and also usable directly from a load_plugins entry_points
-    discovery (so an external package could ship its own version
-    later by claiming the same plugin name and winning the load
-    order).
+    ``ctx`` is the session. Registered by the session's plugin load as a
+    built-in, after the installed plugins, so an external package could
+    ship its own version later by claiming the same plugin name.
     """
     ctx.plugins.post_processing.register(
-        spec, functools.partial(_stitcher_processor, ctx.session.post_processing)
+        spec, functools.partial(_stitcher_processor, ctx.post_processing)
     )
     logger.info(
         f'[Plugins ] {spec.name} v{spec.version} registered with '
@@ -142,8 +139,7 @@ def register(ctx: Any) -> None:
 
 def unregister(ctx: Any) -> None:
     """No-op for this built-in -- the registry has no remove method,
-    and the built-in is tied to the host's lifetime. Defined so
-    load_plugins's partial-failure cleanup path can call it without
-    AttributeError if the spec moves to entry_points discovery later.
+    and the built-in is tied to the session's lifetime. Defined so the
+    load's partial-failure cleanup path can call it like any plugin's.
     """
     return

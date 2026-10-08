@@ -145,7 +145,6 @@ def app_ctx(engine, session, held, tmp_path, monkeypatch):
         settings_lock=MagicMock(),
         worker_pool=pool,
         sequenced_capture_runner=engine,
-        engineering_mode=False,
     )
     yield _app_ctx.ctx
     _app_ctx.ctx = saved
@@ -178,7 +177,6 @@ def test_a_press_starts_its_run_through_the_apis_runner(
     app_ctx, engine, session, press, member_name, trigger
 ):
     """Run and Scan are the calls a script makes, with what only the panel knows."""
-    app_ctx.engineering_mode = True  # flipped by a plugin after the session was built
     panel = _Panel()
     handle = _handle(engine)
     engine.start.return_value = handle
@@ -189,7 +187,7 @@ def test_a_press_starts_its_run_through_the_apis_runner(
     member.assert_called_once()
     kwargs = member.call_args.kwargs
     assert kwargs['run_trigger_source'] == trigger
-    assert kwargs['engineering_mode'] is True, 'the live mode, not the as-built one'
+    assert 'engineering_mode' not in kwargs, "the mode is the session's; the panel states none"
     assert kwargs['sequence_name'] == 'plate', 'the file name is read on the GUI thread'
     assert member.call_args.args[0] is panel._protocol.copy_for_execution.return_value, (
         "the run gets the copy taken at the click; the panel's protocol is the person's"

@@ -37,7 +37,6 @@ def button_ctx(monkeypatch):
     from ui import composite_capture
 
     ctx = MagicMock()
-    ctx.engineering_mode = True
     ctx.scope_display.use_bullseye = True
     ctx.scope_display.use_crosshairs = False
     original = _app_ctx.ctx
@@ -140,7 +139,6 @@ def test_the_button_hands_the_member_what_the_user_sees(button_ctx):
         'false_color_on': False,
         'bullseye': True,
         'crosshairs': False,
-        'engineering_mode': True,
     }
 
 

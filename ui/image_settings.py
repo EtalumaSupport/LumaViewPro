@@ -380,7 +380,7 @@ class ImageSettings(BoxLayout):
         self.enable_image_stats_if_needed()
 
     def enable_image_stats_if_needed(self):
-        if _app_ctx.ctx.engineering_mode:
+        if _app_ctx.ctx.session.engineering_mode:
             for layer in common_utils.get_layers():
                 layer_obj = self.layer_lookup(layer=layer)
                 layer_obj.ids['image_stats_mean_id'].height = '30dp'

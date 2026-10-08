@@ -98,6 +98,7 @@ def pressed(monkeypatch, held):
     session.create_protocol_runner.return_value = member
     # Nothing holds the scope; a MagicMock's own answer would be truthy.
     session.held_by_other.return_value = False
+    session.engineering_mode = True
     monkeypatch.setattr(
         _app_ctx,
         'ctx',
@@ -105,7 +106,6 @@ def pressed(monkeypatch, held):
             session=session,
             sequenced_capture_runner=engine,
             image_settings=MagicMock(),
-            engineering_mode=True,
             worker_pool=pool,
         ),
     )
@@ -127,7 +127,6 @@ def test_the_button_states_only_what_the_gui_knows(pressed):
     kwargs = pressed.member.run_autofocus.call_args.kwargs
     assert kwargs['layer'] == 'Green'
     assert kwargs['run_trigger_source'] == 'autofocus', 'the attended trigger'
-    assert kwargs['engineering_mode'] is True
     assert kwargs['save_characterization_data'] is True, (
         'in engineering mode the sweep saves its characterization data'
     )
@@ -137,7 +136,6 @@ def test_the_button_states_only_what_the_gui_knows(pressed):
         'save_characterization_data',
         'events',
         'run_trigger_source',
-        'engineering_mode',
     }
 
 

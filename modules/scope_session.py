@@ -28,7 +28,6 @@ import typing
 from collections.abc import Callable, Iterable, Iterator
 from typing import TYPE_CHECKING
 
-import modules.app_context as _app_ctx
 import modules.settings_init as settings_init
 from lvp_logger import logger
 from modules import binning, common_utils, image_mode, kivy_utils, path_utils, settings_paths
@@ -63,7 +62,7 @@ from modules.lumascope_api.illumination import LedLease, LedTransition, LedTrans
 from modules.manual_capture import ManualCaptureController
 from modules.manual_recording import ManualRecordingController
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
-from modules.plugins import PLUGIN_API_LEVEL
+from modules.plugins import PLUGIN_API_LEVEL, PluginRegistry
 from modules.run_outcome import RunEnding
 from modules.scheduler import Scheduler, ThreadingTimerScheduler
 from modules.sequential_io_executor import IOTask, slow_task_budget
@@ -221,9 +220,8 @@ class ScopeSession:
         autofocus_thread=None,
         owns_scope: bool = False,
         scheduler: Scheduler | None = None,
-        settings_saved_hook=None,
         engineering_mode: bool = False,
-        plugin_health: 'Callable[[], PluginHealth] | None' = None,
+        no_engineering: bool = False,
     ):
         self.settings = settings
         # The lock lives with the dict it guards. Every host hands the same
@@ -232,14 +230,11 @@ class ScopeSession:
         # Readers on other threads take a snapshot; writers use
         # update_settings.
         self.settings_lock = threading.Lock()
-        # Fired after a successful save, with the snapshot that was
-        # written. The GUI passes its plugin notifier; a headless host
-        # passes nothing, because there is no plugin registry to notify.
-        self._settings_saved_hook = settings_saved_hook
-        # The plugins' health, read when asked (the support report). The GUI
-        # passes its registry's; a headless host has no registry and passes
-        # nothing.
-        self._plugin_health = plugin_health
+        # The plugins this session hosts, or None until its host asks for
+        # them (load_plugins): a session nobody asked plugins for has none,
+        # whatever is installed, so a script or a test is not changed by the
+        # machine it runs on.
+        self.plugins: PluginRegistry | None = None
         self.scope = scope
         # One scheduler per session, owned here and shared by every
         # periodic consumer -- metrics, camera-temp logging, and the
@@ -270,12 +265,13 @@ class ScopeSession:
         # Stateless: several instances are not several stores, so the
         # session keeps its own for the plate<->stage conversions it serves.
         self.coordinate_transformer = coord_transformations.CoordinateTransformer()
-        # The mode this session was built in, never written afterwards. The
-        # GUI's live flag lives on its own context and is flipped by a
-        # plugin after the session exists, so a GUI run passes that flag
-        # itself; this is the store a headless run reads, the only one such
-        # a process has.
+        # The one store for engineering mode. Set from what the host was
+        # built in; the engineering plugin turns it on when it loads, unless
+        # no_engineering, the host's word, which that plugin honours, that it
+        # must not. Every reader --
+        # a run, a still, the metrics cadence, the GUI -- reads it here.
         self.engineering_mode = engineering_mode
+        self.no_engineering = no_engineering
         # The session stops the bundle it holds at shutdown(), whoever built
         # it: a caller that hands one to the constructor hands it over. The
         # IO and CAMERA lanes the bundle holds are the scope's, and stop
@@ -363,7 +359,7 @@ class ScopeSession:
         self.manual_capture = ManualCaptureController(
             scope=scope,
             settings_snapshot=self.get_settings_snapshot,
-            engineering_mode=self.engineering_mode,
+            engineering_mode=lambda: self.engineering_mode,
         )
 
         # The run engine and its autofocus pair are SESSION-composed:
@@ -387,6 +383,7 @@ class ScopeSession:
             autofocus_runner=autofocus_runner,
             activity_claim=self.activity_claim,
             on_run_idle=self.notify_run_state,
+            on_protocol_files_written=self._run_protocol_complete_processors,
         )
         self._protocol_runner = None
 
@@ -768,9 +765,8 @@ class ScopeSession:
         *,
         simulate: bool = False,
         warn_pre_release: bool = True,
-        settings_saved_hook: Callable[[dict], None] | None = None,
         engineering_mode: bool = False,
-        plugin_health: 'Callable[[], PluginHealth] | None' = None,
+        no_engineering: bool = False,
         sim_camera_stall: 'SimulatedStall | None' = None,
         sim_file_stall: 'SimulatedStall | None' = None,
         outcome_listener: Callable[['Notification'], None] | None = None,
@@ -807,13 +803,10 @@ class ScopeSession:
                 pre-release FutureWarning -- the factory's own call and the
                 scope constructor's. A host that ships with the API passes
                 False; a separately shipped caller leaves the default.
-            settings_saved_hook: called with the snapshot after a
-                successful ``save_settings``.
-            engineering_mode: stored on the session as the mode it was
-                built in.
-            plugin_health: returns the plugin registry's health when the
-                support report asks (host-only: the GUI's registry; None
-                for a host that loads no plugins).
+            engineering_mode: the session's engineering mode to begin with;
+                a plugin may turn it on when the host loads plugins.
+            no_engineering: the host's word, which the engineering plugin
+                honours, that it must not turn engineering mode on.
             sim_camera_stall: a stall for the simulated camera's stream, so a
                 simulated scope shows a stream that stops delivering; refused
                 beside ``scope`` and by the scope itself unless it is
@@ -913,9 +906,8 @@ class ScopeSession:
                     autofocus_runner=autofocus_runner,
                     autofocus_thread=autofocus_thread,
                     owns_scope=built_scope,
-                    settings_saved_hook=settings_saved_hook,
                     engineering_mode=engineering_mode,
-                    plugin_health=plugin_health,
+                    no_engineering=no_engineering,
                 )
             except BaseException:
                 # No session exists to tear down -- a scope another session holds
@@ -2664,9 +2656,75 @@ class ScopeSession:
     def plugin_health(self) -> 'PluginHealth | None':
         """The loaded plugins, the ones that did not load, and their runtime errors.
 
-        None on a host with no plugin registry: only the GUI loads plugins.
+        None on a session whose host never asked for plugins (``load_plugins``).
         """
-        return None if self._plugin_health is None else self._plugin_health()
+        return None if self.plugins is None else self.plugins.health()
+
+    @api(in_process=True)
+    def load_plugins(self) -> None:
+        """Load the installed plugins and the built-ins into this session.
+
+        The host's one call to have plugins; a session it is never made on
+        has none. Each plugin's ``register`` is handed this session as its
+        ctx. A plugin that does not load is reported and the rest load;
+        nothing here raises for a plugin. Call it once, after ``create``.
+
+        Raises:
+            RuntimeError: this session already loaded its plugins.
+        """
+        if self.plugins is not None:
+            raise RuntimeError('ScopeSession.load_plugins: this session already loaded its plugins')
+        version, _build_timestamp = path_utils.read_version()
+        self.plugins = PluginRegistry()
+        self.plugins.load(self, version)
+
+    @api(in_process=True)
+    def unload_plugins(self) -> None:
+        """Call each loaded plugin's ``unregister``, last loaded first.
+
+        A host whose close has to stop plugin work before anything else --
+        the GUI's, before it stops runs and saves settings -- calls this
+        first; ``shutdown`` calls it as its first step for every other host.
+        A second call, and a call on a session with no plugins, does
+        nothing. A plugin's own failure is logged and the rest unload.
+        """
+        if self.plugins is not None:
+            self.plugins.unload(self)
+
+    def _run_protocol_complete_processors(
+        self, run_dir: pathlib.Path, files: str, trigger_source: str, protocol_name: str
+    ) -> None:
+        """Hand a finished Full Protocol's folder to the opted-in processors.
+
+        The run engine calls this once per Full Protocol, on the run's own
+        post-run thread, after its images are written and its hyperstack
+        build has ended. The processors run on the post-processing lane,
+        isolated from the run, and this thread waits for them, so their
+        lane task is never left with nobody to read its outcome.
+        """
+        if self.plugins is None:
+            return
+        run_dir_str = str(run_dir)
+        manifest = {
+            'protocol_name': protocol_name,
+            'run_dir': run_dir_str,
+            'trigger_source': trigger_source,
+        }
+        try:
+            self.post_processing.lane.call(
+                IOTask(
+                    action=self.plugins.run_protocol_complete_processors,
+                    args=(run_dir_str, manifest, run_dir_str, files),
+                ),
+                'plugins.run_protocol_complete_processors',
+                None,
+            )
+        except Exception as refused:
+            # The lane refused the task (closed at shutdown); the processors
+            # report their own failures inside it.
+            from modules.notification_center import notifications
+
+            notifications.report_outcome(refused, solicited=False, category='Plugins')
 
     @api
     @property
@@ -2781,11 +2839,8 @@ class ScopeSession:
         if dt > 0.1:
             logger.warning(f'[Session  ] save_settings took {dt * 1000:.0f}ms')
 
-        if self._settings_saved_hook is not None:
-            try:
-                self._settings_saved_hook(settings_snapshot)
-            except Exception:
-                logger.exception('[Session  ] save_settings: saved-hook failed')
+        if self.plugins is not None:
+            self.plugins.settings_saved(self, settings_snapshot)
 
     @api
     def capture_settings_snapshot(self) -> dict:
@@ -3568,17 +3623,15 @@ class ScopeSession:
         # takes the sub-minute bench cadence; otherwise nothing is passed and
         # the logger's own hourly default applies.
         #
-        # The engineering flag is read off the app context, not
-        # settings['mode']: the engineering plugin can flip it during plugin
-        # load, so the settings file and the live flag disagree on exactly the
-        # machines that care. Plugin load completes before metrics start, and
-        # an unset context (headless, REST, tests) reads as False -- production
-        # cadence, which is the safe direction.
+        # The engineering flag is the session's, not settings['mode']: the
+        # engineering plugin can turn it on when plugins load, so the settings
+        # file and the flag disagree on exactly the machines that care. A host
+        # loads its plugins before it starts metrics.
         start_kwargs = {}
         interval_s = self.settings.get('profiling', {}).get('metrics_interval_s')
         if interval_s is not None:
             start_kwargs['system_metrics_interval_s'] = float(interval_s)
-        elif getattr(_app_ctx.ctx, 'engineering_mode', False):
+        elif self.engineering_mode:
             start_kwargs['system_metrics_interval_s'] = ENGINEERING_METRICS_INTERVAL_S
         self.metrics_logger.start(self._scheduler, **start_kwargs)
         self._metrics_started = True
@@ -3625,6 +3678,9 @@ class ScopeSession:
         if self._shut_down:
             logger.info('[Session  ] shutdown() called again -- nothing to do')
             return
+        # Plugins first, while everything they hold still runs: an
+        # unregister may stop its own run and wait for it.
+        self.unload_plugins()
         self.stop_metrics()
         # Settle any run's merge outcome FIRST. The executor teardown below
         # does not wait for the file lanes to drain, so a merge still

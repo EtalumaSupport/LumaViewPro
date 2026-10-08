@@ -19,7 +19,9 @@ Plugin authors implement:
     def unregister(ctx): ...                    # optional
     def on_settings_changed(ctx, settings): ... # optional, fires per spec.subscribes_to
 
-The host discovers plugins via entry_points group 'lvp.plugins'.
+``ctx`` is the ScopeSession hosting the plugin. A host asks its session
+for plugins (``session.load_plugins()``); the session discovers them via
+entry_points group 'lvp.plugins'.
 """
 
 from __future__ import annotations
@@ -48,7 +50,7 @@ ENTRY_POINT_GROUP = 'lvp.plugins'
 # fail mid-use. A host change the plugin must follow raises the value
 # here, in the same commit, to the plugin version that follows it.
 MINIMUM_PLUGIN_VERSIONS = {
-    'etaluma_engineering': '1.0.38',
+    'etaluma_engineering': '1.0.48',
 }
 
 # What this LumaViewPro does that a plugin may rely on, within its major
@@ -59,7 +61,7 @@ MINIMUM_PLUGIN_VERSIONS = {
 # reads it at its own entry through session.plugin_api_level and refuses
 # below what it needs; a host older than the level has no such member,
 # which the plugin reads as 0.
-PLUGIN_API_LEVEL = 4
+PLUGIN_API_LEVEL = 5
 
 # Mount points are locked to the set the host knows how to attach.
 # Additional names are added when a real consumer needs them, paired
@@ -107,10 +109,11 @@ class PluginSpec:
     when one of those keys changes. Empty tuple = hook never fires.
 
     auto_run_on_protocol_complete (post_processing namespace only):
-    when True, the host invokes the registered processor automatically
-    after every protocol run finishes writing files to disk. Defaults
-    to False so registration is metadata-only; plugins opt in
-    explicitly. See run_protocol_complete_processors().
+    when True, the session invokes the registered processor
+    automatically after every Full Protocol run, whoever started it,
+    once its files are on disk and its hyperstack build has ended.
+    Defaults to False so registration is metadata-only; plugins opt in
+    explicitly. See PluginRegistry.run_protocol_complete_processors().
     """
 
     name: str
@@ -287,8 +290,9 @@ class PostProcessingRegistry(_BaseNamespace):
     register(spec, processor):
         processor: callable
             processor(input_dir, manifest, output_dir) -> ProcessorResult
-        Invoked from run_protocol_complete_processors() at the end of
-        every protocol run when spec.auto_run_on_protocol_complete=True.
+        Invoked from PluginRegistry.run_protocol_complete_processors() at
+        the end of every Full Protocol run when
+        spec.auto_run_on_protocol_complete=True.
         Ad-hoc invocation: callers fetch via .get(name) and call directly.
     """
 
@@ -335,9 +339,9 @@ class LiveProcessingRegistry(_BaseNamespace):
     unregister-by-plugin-name can resolve to the original handler that
     ImagingAPI was given.
 
-    Host wires the live Lumascope via bind_scope() before plugin
-    discovery; load_plugins() does this automatically. Register() on
-    an unbound registry raises so the failure is loud.
+    The registry's load() wires the session's Lumascope via bind_scope()
+    before plugin discovery. Register() on an unbound registry raises so
+    the failure is loud.
 
     Plugin authors call:
         ctx.plugins.live_processing.register(spec, handler)
@@ -360,15 +364,15 @@ class LiveProcessingRegistry(_BaseNamespace):
         self._scope: Any = None
 
     def bind_scope(self, scope: Any) -> None:
-        """Wire the live Lumascope. Called by load_plugins() at startup."""
+        """Wire the live Lumascope. Called by PluginRegistry.load()."""
         self._scope = scope
 
     def register(self, spec: PluginSpec, frame_handler: Callable) -> None:
         if self._scope is None:
             raise PluginRegistrationError(
                 'ctx.plugins.live_processing not yet bound to a scope. '
-                'The host must call bind_scope(scope) before plugin '
-                'discovery; this is normally done inside load_plugins().'
+                'bind_scope(scope) must be called before plugin '
+                'discovery; PluginRegistry.load() does it.'
             )
         with self._lock:
             self._assert_unique(spec)
@@ -480,11 +484,10 @@ class PluginRegistry:
     """Single ctx.plugins entry point exposing the four namespaces.
 
     Lifecycle:
-        - Constructed empty when AppContext is created.
-        - Populated by load_plugins(ctx) at app startup after the
-          widget tree + AppContext are initialized.
-        - Drained by unload_plugins(ctx) at app shutdown, reverse
-          order, exceptions swallowed past WARNING.
+        - Built by the session when its host asks for plugins
+          (``ScopeSession.load_plugins``), which then calls load().
+        - Drained by unload(), in reverse order, when the host asks
+          (``ScopeSession.unload_plugins``) or the session shuts down.
     """
 
     def __init__(self) -> None:
@@ -495,6 +498,10 @@ class PluginRegistry:
         self._loaded_plugins: list[tuple[str, Any]] = []  # (name, module)
         self._loaded_lock = threading.Lock()
         self._not_loaded: list[PluginNotLoaded] = []
+        # The settings as subscribers last heard them: taken at load, so a
+        # change made before the first save is told at that save. Written
+        # by load() and settings_saved(), on the host's thread.
+        self._settings_baseline: dict | None = None
 
     def _track(self, name: str, module: Any) -> None:
         with self._loaded_lock:
@@ -630,7 +637,7 @@ class PluginRegistry:
         subscribes_to prefix-matches any of the changed keys.
 
         Args:
-            ctx: AppContext passed to each plugin's on_settings_changed.
+            ctx: The session, passed to each plugin's on_settings_changed.
             settings: Full settings dict at the moment of notification
                 (post-save snapshot).
             changed_keys: Iterable of dot-path keys that changed in this
@@ -670,6 +677,188 @@ class PluginRegistry:
                 handler(ctx, settings)
             except Exception as exc:
                 self.record_runtime_error(name, 'on_settings_changed', exc)
+
+    def load(self, host: Any, host_version: str) -> None:
+        """Discover the installed plugins, then the built-ins, and register each.
+
+        Entry points (group 'lvp.plugins') go first and the built-ins after
+        them, so an installed package claiming a built-in's name keeps it and
+        the built-in is the one reported as not loaded. Each plugin's
+        register(host) is wrapped; a plugin that does not load, for any
+        reason, is recorded and reported and the rest still load. The
+        settings subscribers will be told about are taken here.
+
+        Args:
+            host: The session hosting the plugins, handed to each plugin as
+                its ctx.
+            host_version: This LumaViewPro's version, checked against each
+                plugin's requires_lvp_version.
+        """
+        from modules.plugins.builtin import BUILTIN_PLUGINS
+
+        self.live_processing.bind_scope(host.scope)
+        self._settings_baseline = copy.deepcopy(host.get_settings_snapshot())
+        discovered = list(importlib.metadata.entry_points(group=ENTRY_POINT_GROUP))
+        count = 0
+        for ep in discovered:
+            ep_name = getattr(ep, 'name', '<unknown>')
+            try:
+                module = ep.load()
+            except Exception as e:
+                self.record_load_failure(
+                    ep_name, '', f'it could not be imported ({type(e).__name__}: {e})', e
+                )
+                continue
+            count += self._load_one(module, ep_name, host, host_version)
+        for module in BUILTIN_PLUGINS:
+            count += self._load_one(module, module.__name__, host, host_version)
+        logger.info(f'[Plugins ] discovery complete -- {count} loaded')
+
+    def _load_one(self, module: Any, found_as: str, host: Any, host_version: str) -> int:
+        """Register one plugin module with *host*; 1 if it loaded, 0 if not."""
+        spec = _extract_spec(module)
+        if spec is None:
+            self.record_load_failure(
+                found_as, '', 'it has no module-level PluginSpec, so it is not a LumaViewPro plugin'
+            )
+            return 0
+
+        minimum = MINIMUM_PLUGIN_VERSIONS.get(spec.name)
+        if minimum is not None:
+            have = _parse_semver(spec.version)
+            if have is None:
+                self.record_load_failure(
+                    spec.name,
+                    spec.version,
+                    f"its version '{spec.version}' cannot be read, and this "
+                    f'LumaViewPro needs {minimum} or later',
+                )
+                return 0
+            if have < _parse_semver(minimum):
+                self.record_load_failure(
+                    spec.name,
+                    spec.version,
+                    f'version {spec.version} is older than the {minimum} this LumaViewPro needs',
+                )
+                return 0
+
+        if not is_version_compatible(spec.requires_lvp_version, host_version):
+            self.record_load_failure(
+                spec.name,
+                spec.version,
+                f'version {spec.version} needs LumaViewPro {spec.requires_lvp_version}, '
+                f'and this is {host_version}',
+            )
+            return 0
+
+        register_fn = getattr(module, 'register', None)
+        if not callable(register_fn):
+            self.record_load_failure(spec.name, spec.version, 'it has no register(ctx) function')
+            return 0
+
+        try:
+            register_fn(host)
+        except Exception as e:
+            self.record_load_failure(
+                spec.name, spec.version, f'its register() raised {type(e).__name__}: {e}', e
+            )
+            # Give the plugin a chance to clean up partial state.
+            unregister_fn = getattr(module, 'unregister', None)
+            if callable(unregister_fn):
+                try:
+                    unregister_fn(host)
+                except Exception:
+                    logger.warning(
+                        f'[Plugins ] {spec.name}: unregister after failed register also failed',
+                        exc_info=True,
+                    )
+            return 0
+
+        self._track(spec.name, module)
+        logger.info(f'[Plugins ] {spec.name} v{spec.version} loaded')
+        return 1
+
+    def unload(self, host: Any) -> None:
+        """Call unregister(host) on every loaded plugin, last loaded first.
+
+        The list is emptied first, so a second call unregisters nothing.
+        A plugin's unregister failure is logged at WARNING and the rest are
+        still unloaded: unloading is part of a close, which must finish.
+        """
+        for name, module in reversed(self._drain()):
+            unregister_fn = getattr(module, 'unregister', None)
+            if not callable(unregister_fn):
+                continue
+            try:
+                unregister_fn(host)
+                logger.info(f'[Plugins ] {name}: unregister complete')
+            except Exception:
+                logger.warning(f'[Plugins ] {name}: unregister failed', exc_info=True)
+
+    def settings_saved(self, host: Any, settings: dict) -> None:
+        """Tell the subscribers what changed since they last heard; *settings* was just saved.
+
+        Diffs against the settings taken at load or at the last save, so a
+        change made before the first save is told at it. Each subscriber's
+        failure is recorded and reported by notify_settings_changed and
+        never reaches the save.
+        """
+        changed_keys = _diff_settings_keys(self._settings_baseline, settings)
+        self._settings_baseline = copy.deepcopy(settings)
+        if changed_keys:
+            self.notify_settings_changed(host, settings, changed_keys)
+
+    def run_protocol_complete_processors(
+        self,
+        input_dir: str,
+        manifest: dict,
+        output_dir: str,
+        files: str,
+    ) -> None:
+        """Invoke every post_processing plugin that opted in via
+        PluginSpec.auto_run_on_protocol_complete=True.
+
+        Called once per Full Protocol run, after all its output files are
+        written and its hyperstack build has ended. ``files`` is the run's
+        write outcome; on ``'incomplete'`` -- some images are not on disk
+        -- nothing runs, since a plugin reading the folder as whole would
+        build from a partial one. Only a loaded plugin's processor runs: one
+        unloaded since, or whose register failed after it registered the
+        processor, is not handed the folder. Each plugin's processor runs in
+        turn; a processor that raises, returns something other than a
+        ProcessorResult, or returns one that reports failure is recorded
+        and reported, and does not block the others. A success is logged at
+        INFO. Never raises.
+        """
+        if files != 'written':
+            logger.warning(
+                f"[Plugins ] Post-processing auto-run skipped for {input_dir}: the run's "
+                f'images were not all written ({files})'
+            )
+            return
+        with self._loaded_lock:
+            loaded = {name for name, _module in self._loaded_plugins}
+        for spec, processor in self.post_processing.handlers():
+            if not spec.auto_run_on_protocol_complete or spec.name not in loaded:
+                continue
+            try:
+                result = processor(input_dir, manifest, output_dir)
+            except Exception as e:
+                self.record_runtime_error(spec.name, 'auto_run_on_protocol_complete', e)
+                continue
+            if not isinstance(result, ProcessorResult):
+                self.record_runtime_error(
+                    spec.name,
+                    'auto_run_on_protocol_complete',
+                    detail=f'its processor returned {type(result).__name__}, not a ProcessorResult',
+                )
+                continue
+            if result.success:
+                logger.info(f'[Plugins ] {spec.name} auto-run succeeded: {result.message}')
+            else:
+                self.record_runtime_error(
+                    spec.name, 'auto_run_on_protocol_complete', detail=result.message
+                )
 
     def _find_namespace(self, plugin_name: str) -> _BaseNamespace | None:
         for ns in (
@@ -747,33 +936,6 @@ def _flatten_dict_keys(d: dict, prefix: str = '') -> set[str]:
     return out
 
 
-def fire_settings_save_hooks(ctx: Any, new_settings: dict) -> None:
-    """Diff new_settings against the ctx-cached baseline + fire plugins.
-
-    Called from MicroscopeSettings.save_settings after the JSON write
-    succeeds. The baseline lives at ctx._last_saved_settings_snapshot
-    (deepcopied so subsequent in-memory mutations don't poison the
-    diff). The first call after startup caches without firing, so
-    plugins don't get spurious notifications for the boot-time state.
-
-    The hook is fire-and-forget: any plugin exception is caught inside
-    PluginRegistry.notify_settings_changed and never propagates back
-    into the save path. If the plugins infrastructure isn't wired
-    (e.g. headless test harness without ctx.plugins), the function is
-    a no-op.
-    """
-    if ctx is None or not hasattr(ctx, 'plugins'):
-        return
-    old = getattr(ctx, '_last_saved_settings_snapshot', None)
-    if old is None:
-        ctx._last_saved_settings_snapshot = copy.deepcopy(new_settings)
-        return
-    changed_keys = _diff_settings_keys(old, new_settings)
-    if changed_keys:
-        ctx.plugins.notify_settings_changed(ctx, new_settings, changed_keys)
-    ctx._last_saved_settings_snapshot = copy.deepcopy(new_settings)
-
-
 # ---------------------------------------------------------------------------
 # Version compatibility
 # ---------------------------------------------------------------------------
@@ -838,185 +1000,3 @@ def _extract_spec(module: Any) -> PluginSpec | None:
     if isinstance(spec, PluginSpec):
         return spec
     return None
-
-
-def load_plugins(ctx: Any) -> None:
-    """Discover and load plugins via entry_points group 'lvp.plugins'.
-
-    Called once at app startup after AppContext is initialized and the
-    widget tree exists. Each plugin's register(ctx) is wrapped in
-    try/except; a plugin that does not load, for any reason, is
-    recorded and reported but does not abort the app. The plugin module
-    is tracked so unload_plugins can call its unregister(ctx) at shutdown.
-    """
-    if ctx is None or not hasattr(ctx, 'plugins'):
-        logger.error('[Plugins ] load_plugins called without ctx.plugins')
-        return
-
-    # Wire the live_processing registry's scope reference before any
-    # plugin's register(ctx) can call ctx.plugins.live_processing.register.
-    # ctx.scope is expected to be the live Lumascope by this point
-    # (LumaViewProApp.build sets it before this call).
-    ctx.plugins.live_processing.bind_scope(getattr(ctx, 'scope', None))
-
-    host_version = getattr(ctx, 'version', '') or ''
-    try:
-        discovered = importlib.metadata.entry_points(group=ENTRY_POINT_GROUP)
-    except TypeError:
-        # Older importlib.metadata returns a dict.
-        discovered = importlib.metadata.entry_points().get(ENTRY_POINT_GROUP, [])
-
-    count = 0
-    for ep in discovered:
-        ep_name = getattr(ep, 'name', '<unknown>')
-        try:
-            module = ep.load()
-        except Exception as e:
-            ctx.plugins.record_load_failure(
-                ep_name, '', f'it could not be imported ({type(e).__name__}: {e})', e
-            )
-            continue
-
-        spec = _extract_spec(module)
-        if spec is None:
-            ctx.plugins.record_load_failure(
-                ep_name, '', 'it has no module-level PluginSpec, so it is not a LumaViewPro plugin'
-            )
-            continue
-
-        minimum = MINIMUM_PLUGIN_VERSIONS.get(spec.name)
-        if minimum is not None:
-            have = _parse_semver(spec.version)
-            if have is None:
-                ctx.plugins.record_load_failure(
-                    spec.name,
-                    spec.version,
-                    f"its version '{spec.version}' cannot be read, and this "
-                    f'LumaViewPro needs {minimum} or later',
-                )
-                continue
-            if have < _parse_semver(minimum):
-                ctx.plugins.record_load_failure(
-                    spec.name,
-                    spec.version,
-                    f'version {spec.version} is older than the {minimum} this LumaViewPro needs',
-                )
-                continue
-
-        if not is_version_compatible(spec.requires_lvp_version, host_version):
-            ctx.plugins.record_load_failure(
-                spec.name,
-                spec.version,
-                f'version {spec.version} needs LumaViewPro {spec.requires_lvp_version}, '
-                f'and this is {host_version}',
-            )
-            continue
-
-        register_fn = getattr(module, 'register', None)
-        if not callable(register_fn):
-            ctx.plugins.record_load_failure(
-                spec.name, spec.version, 'it has no register(ctx) function'
-            )
-            continue
-
-        try:
-            register_fn(ctx)
-        except Exception as e:
-            ctx.plugins.record_load_failure(
-                spec.name, spec.version, f'its register() raised {type(e).__name__}: {e}', e
-            )
-            # Give the plugin a chance to clean up partial state.
-            unregister_fn = getattr(module, 'unregister', None)
-            if callable(unregister_fn):
-                try:
-                    unregister_fn(ctx)
-                except Exception:
-                    logger.warning(
-                        f'[Plugins ] {spec.name}: unregister after failed register also failed',
-                        exc_info=True,
-                    )
-            continue
-
-        ctx.plugins._track(spec.name, module)
-        count += 1
-        logger.info(f'[Plugins ] {spec.name} v{spec.version} loaded')
-
-    logger.info(f'[Plugins ] discovery complete -- {count} loaded')
-
-
-def unload_plugins(ctx: Any) -> None:
-    """Call unregister(ctx) on every loaded plugin in reverse order.
-
-    Called from LumaViewProApp.on_stop. Exceptions are caught and
-    logged at WARNING; shutdown is not blocked by a plugin's
-    unregister failure.
-    """
-    if ctx is None or not hasattr(ctx, 'plugins'):
-        return
-    for name, module in reversed(ctx.plugins._drain()):
-        unregister_fn = getattr(module, 'unregister', None)
-        if not callable(unregister_fn):
-            continue
-        try:
-            unregister_fn(ctx)
-            logger.info(f'[Plugins ] {name}: unregister complete')
-        except Exception:
-            logger.warning(
-                f'[Plugins ] {name}: unregister failed',
-                exc_info=True,
-            )
-
-
-def run_protocol_complete_processors(
-    ctx: Any,
-    input_dir: str,
-    manifest: dict,
-    output_dir: str,
-    files: str,
-) -> None:
-    """Invoke every post_processing plugin that opted in via
-    PluginSpec.auto_run_on_protocol_complete=True.
-
-    Called once per protocol run after all output files are written
-    to disk. ``files`` is the run's write outcome; on ``'incomplete'`` --
-    some images are not on disk -- nothing runs, since a plugin
-    reading the folder as whole would build from a partial one. Each plugin's processor runs in turn; a
-    processor that raises, returns something other than a
-    ProcessorResult, or returns one that reports failure is recorded and
-    reported, and does not block others or the rest of the completion
-    handler. A success is logged at INFO.
-
-    Today this is invoked from the UI-side protocol-completion
-    handler. When REST-triggered protocol runs land, the dispatcher
-    moves down to the orchestration layer so all trigger sources
-    benefit uniformly.
-    """
-    if ctx is None or not hasattr(ctx, 'plugins'):
-        return
-    if files != 'written':
-        logger.warning(
-            f"[Plugins ] Post-processing auto-run skipped for {input_dir}: the run's "
-            f'images were not all written ({files})'
-        )
-        return
-    for spec, processor in ctx.plugins.post_processing.handlers():
-        if not spec.auto_run_on_protocol_complete:
-            continue
-        try:
-            result = processor(input_dir, manifest, output_dir)
-        except Exception as e:
-            ctx.plugins.record_runtime_error(spec.name, 'auto_run_on_protocol_complete', e)
-            continue
-        if not isinstance(result, ProcessorResult):
-            ctx.plugins.record_runtime_error(
-                spec.name,
-                'auto_run_on_protocol_complete',
-                detail=f'its processor returned {type(result).__name__}, not a ProcessorResult',
-            )
-            continue
-        if result.success:
-            logger.info(f'[Plugins ] {spec.name} auto-run succeeded: {result.message}')
-        else:
-            ctx.plugins.record_runtime_error(
-                spec.name, 'auto_run_on_protocol_complete', detail=result.message
-            )

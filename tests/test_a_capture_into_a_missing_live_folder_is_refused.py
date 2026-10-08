@@ -48,7 +48,7 @@ def test_a_manual_still_into_a_missing_folder_is_refused_before_the_grab(capture
     )
     settings[LAYER].update({'exposure_ms': 100, 'sum': 1, 'illumination_ma': 0})
     capture = ManualCaptureController(
-        scope=capture_ctx.scope, settings_snapshot=lambda: settings, engineering_mode=False
+        scope=capture_ctx.scope, settings_snapshot=lambda: settings, engineering_mode=lambda: False
     )
 
     future = capture.capture(layer=LAYER, false_color_on=False, bullseye=False, crosshairs=False)

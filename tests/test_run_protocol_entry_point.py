@@ -35,11 +35,11 @@ class TestTheCallerNamesItsRun:
         assert _prepared(runner)['run_trigger_source'] == api_trigger
         assert _prepared(runner)['engineering_mode'] is True
 
-    def test_the_panel_gets_its_own_trigger_and_its_live_mode(self, member, api_trigger):
+    def test_the_panel_gets_its_own_trigger_and_the_sessions_mode(self, member, api_trigger):
         runner = _runner()
-        runner.session.engineering_mode = True
+        runner.session.engineering_mode = False
 
-        _run(runner, member, run_trigger_source='protocol', engineering_mode=False)
+        _run(runner, member, run_trigger_source='protocol')
 
         assert _prepared(runner)['run_trigger_source'] == 'protocol'
         assert _prepared(runner)['engineering_mode'] is False

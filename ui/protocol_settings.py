@@ -1152,14 +1152,12 @@ class ProtocolSettings(FloatLayout):
             video_progress=show_video_progress,
             run_ended=_ended,
         )
-        engineering_mode = ctx.engineering_mode
 
         def _start():
             self._runs_started_here[trigger_source] = member.run_autofocus_all_steps(
                 protocol,
                 events=events,
                 run_trigger_source=trigger_source,
-                engineering_mode=engineering_mode,
             )
 
         return _start
@@ -1181,35 +1179,6 @@ class ProtocolSettings(FloatLayout):
             protocol=self._protocol.copy_for_execution(),
             scan_started=lambda *_scan: self._run_scan_pre_callback(),
             scan_ended=lambda *_scan: self.draw_protocol_buttons(),
-        )
-
-    def _dispatch_post_processing_auto_run(self, ctx, protocol, run_dir, files):
-        """Fire post_processing plugins opted into
-        PluginSpec.auto_run_on_protocol_complete=True. UI-trigger only
-        today; REST-triggered runs gain this when the dispatch moves
-        down to the orchestration layer.
-        """
-        from modules.plugins import run_protocol_complete_processors
-
-        # The finished run hands its directory over in the event. Read
-        # back off the runner it would be whatever run holds the scope
-        # NOW: this dispatch can reach the user's next run, because the
-        # file-drain wait re-enables the z-stack, composite and autofocus
-        # starters while it is still pending.
-        if run_dir is None:
-            return
-        run_dir_str = str(run_dir)
-        manifest = {
-            'protocol_name': getattr(protocol, 'name', ''),
-            'run_dir': run_dir_str,
-            'trigger_source': 'ui_protocol_button',
-        }
-        run_protocol_complete_processors(
-            ctx,
-            input_dir=run_dir_str,
-            manifest=manifest,
-            output_dir=run_dir_str,
-            files=files,
         )
 
     def run_protocol_from_ui(self):
@@ -1236,9 +1205,6 @@ class ProtocolSettings(FloatLayout):
             run_trigger_source='protocol',
             protocol=protocol,
             scan_started=_scan_started,
-            files_written=lambda run_dir, files: self._dispatch_post_processing_auto_run(
-                _app_ctx.ctx, protocol, run_dir, files
-            ),
         )
 
     def reset_autofocus_ui(self, **kwargs):
@@ -1266,7 +1232,6 @@ class ProtocolSettings(FloatLayout):
         *,
         scan_started: typing.Callable[..., object],
         scan_ended: typing.Callable[..., object] | None = None,
-        files_written: typing.Callable[..., object] | None = None,
     ) -> typing.Callable[[], None]:
         """Read a Scan or Protocol run's inputs from the panel; return the call that starts it.
 
@@ -1279,8 +1244,6 @@ class ProtocolSettings(FloatLayout):
         """
         logger.info('[LVP Main  ] ProtocolSettings._sequenced_capture_start()')
 
-        ctx = _app_ctx.ctx
-
         def _ended(*ended):
             self.reset_autofocus_ui()
             restore_display_after_run()
@@ -1292,12 +1255,10 @@ class ProtocolSettings(FloatLayout):
             step_started=lambda step_idx: go_to_step(protocol, step_idx, include_move=False),
             video_progress=show_video_progress,
             run_ended=_ended,
-            files_written=files_written,
         )
 
         sequence_name = self.ids['protocol_filename'].text
         enable_image_saving = is_image_saving_enabled()
-        engineering_mode = ctx.engineering_mode
 
         def _start():
             started = start_run(
@@ -1306,7 +1267,6 @@ class ProtocolSettings(FloatLayout):
                 enable_image_saving=enable_image_saving,
                 events=events,
                 run_trigger_source=run_trigger_source,
-                engineering_mode=engineering_mode,
             )
             self._runs_started_here[run_trigger_source] = started
             # A start() that failed during setup unwound as a failed run: its

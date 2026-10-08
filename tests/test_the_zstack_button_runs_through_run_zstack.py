@@ -95,7 +95,6 @@ def clicked(monkeypatch):
             session=session,
             sequenced_capture_runner=engine,
             image_settings=MagicMock(),
-            engineering_mode=True,
             scope_display=SimpleNamespace(start=lambda: None, stop=lambda: None),
             motion_settings=MagicMock(),
             worker_pool=pool,
@@ -123,14 +122,12 @@ def test_the_button_states_only_what_the_gui_knows(clicked):
     kwargs = clicked.runner.run_zstack.call_args.kwargs
     assert kwargs['layer'] == 'Green'
     assert kwargs['run_trigger_source'] == 'zstack'
-    assert kwargs['engineering_mode'] is True
     assert kwargs['enable_image_saving'] is False
     # Nothing else about the run is the button's to say.
     assert set(kwargs) == {
         'layer',
         'events',
         'run_trigger_source',
-        'engineering_mode',
         'enable_image_saving',
     }
 
@@ -250,17 +247,18 @@ def test_a_missing_layer_is_named_in_words():
 
 
 class TestTheMemberCarriesWhatTheGuiStates:
-    """The three things only a running GUI knows reach the engine as stated;
-    a caller that states none of them gets today's headless run."""
+    """What only a running GUI knows reaches the engine as stated; a caller
+    that states none of it gets today's headless run. Engineering mode is
+    not among them: it is the session's."""
 
     def test_they_reach_prepare(self):
         from tests.test_run_zstack_entry_point import _prepared, _runner
 
         runner = _runner()
+        runner.session.engineering_mode = True
         runner.run_zstack(
             layer='BF',
             run_trigger_source='zstack',
-            engineering_mode=True,
             enable_image_saving=False,
         )
 

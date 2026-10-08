@@ -126,12 +126,13 @@ class TestTheButtonRunsThroughThisMember:
         runner.run_autofocus(layer='BF', run_trigger_source='autofocus')
         assert _prepared(runner)['run_trigger_source'] == 'autofocus'
 
-    def test_the_callers_engineering_flag_reaches_the_boundary(self):
+    def test_the_sessions_engineering_mode_reaches_the_boundary(self):
         runner = _runner()
-        runner.run_autofocus(layer='BF', engineering_mode=True)
+        runner.session.engineering_mode = True
+        runner.run_autofocus(layer='BF')
         assert _prepared(runner)['engineering_mode'] is True
 
-    def test_without_a_flag_the_session_decides(self):
+    def test_outside_engineering_mode_the_boundary_is_told_so(self):
         runner = _runner()
         runner.session.engineering_mode = False
         runner.run_autofocus(layer='BF')

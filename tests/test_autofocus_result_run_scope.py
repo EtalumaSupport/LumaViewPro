@@ -246,6 +246,7 @@ def _outcome(z):
 class _Session:
     def __init__(self):
         self.saved = []
+        self.engineering_mode = False
 
     def save_layer_focus(self, layer, z_um):
         self.saved.append((layer, z_um))
@@ -267,7 +268,6 @@ def gui(monkeypatch):
         scope=spec_scope(),
         session=_Session(),
         image_settings=MagicMock(),
-        engineering_mode=False,
     )
     ctx.image_settings.layer_lookup.return_value = layer_obj
     # The stage is mid-restore and reads something else entirely -- the

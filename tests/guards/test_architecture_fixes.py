@@ -769,7 +769,7 @@ _MODULES_CONTEXT_READ_PIN = {
     'modules/derived_output_encoding.py': 3,
     'modules/executor_registry.py': 0,
     'modules/metrics_logger.py': 0,
-    'modules/scope_session.py': 1,
+    'modules/scope_session.py': 0,
 }
 
 

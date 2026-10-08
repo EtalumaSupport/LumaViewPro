@@ -83,7 +83,6 @@ class ProtocolRunner:
         events: RunEvents | None = None,
         return_to_position: dict | None = None,
         run_trigger_source: str = 'api_scan',
-        engineering_mode: bool | None = None,
     ) -> RunHandle:
         """Run a single scan through the protocol steps.
 
@@ -98,10 +97,6 @@ class ProtocolRunner:
             run_trigger_source: Provenance recorded on the run and named
                 in refusals, so the protocol panel's button records its own
                 token rather than the API's.
-            engineering_mode: Whether the run stamps the turret position
-                into its filenames. A GUI caller passes its live flag, which
-                a plugin may have flipped after the session was built; None
-                reads the mode the session was built in.
 
         Returns:
             The committed run's handle. wait(timeout_s=...) on it for the
@@ -123,7 +118,6 @@ class ProtocolRunner:
             enable_image_saving=enable_image_saving,
             events=events,
             return_to_position=return_to_position,
-            engineering_mode=engineering_mode,
         )
 
     @api
@@ -135,7 +129,6 @@ class ProtocolRunner:
         enable_image_saving: bool = True,
         events: RunEvents | None = None,
         run_trigger_source: str = 'api_protocol',
-        engineering_mode: bool | None = None,
     ) -> RunHandle:
         """Run a full protocol (multiple scans over time).
 
@@ -149,10 +142,6 @@ class ProtocolRunner:
             run_trigger_source: Provenance recorded on the run and named
                 in refusals, so the protocol panel's button records its own
                 token rather than the API's.
-            engineering_mode: Whether the run stamps the turret position
-                into its filenames. A GUI caller passes its live flag, which
-                a plugin may have flipped after the session was built; None
-                reads the mode the session was built in.
 
         Returns:
             The committed run's handle. wait(timeout_s=...) on it for the
@@ -173,7 +162,6 @@ class ProtocolRunner:
             parent_dir=parent_dir,
             enable_image_saving=enable_image_saving,
             events=events,
-            engineering_mode=engineering_mode,
         )
 
     @api
@@ -183,7 +171,6 @@ class ProtocolRunner:
         parent_dir: FilePath | None = None,
         events: RunEvents | None = None,
         run_trigger_source: str = 'api_composite',
-        engineering_mode: bool | None = None,
     ) -> RunHandle:
         """Assemble a composite run and launch it, returning once committed.
 
@@ -204,10 +191,6 @@ class ProtocolRunner:
             run_trigger_source: Provenance recorded on the run and named
                 in refusals, so a GUI click records its own token rather
                 than the API's.
-            engineering_mode: Whether the run stamps the turret position
-                into its filenames. A GUI caller passes its live flag, which
-                a plugin may have flipped after the session was built; None
-                reads the mode the session was built in.
 
         Returns:
             The committed run's handle, to wait on or to ignore;
@@ -243,7 +226,6 @@ class ProtocolRunner:
             enable_image_saving=True,
             events=events,
             composite_thresholds_percent=config_helpers.get_composite_blend_thresholds(settings),
-            engineering_mode=engineering_mode,
         )
 
     @api
@@ -256,7 +238,6 @@ class ProtocolRunner:
         events: RunEvents | None = None,
         claim: HeldClaim | None = None,
         run_trigger_source: str = 'api_autofocus',
-        engineering_mode: bool | None = None,
     ) -> RunHandle:
         """Autofocus once on *layer*, at the current stage position.
 
@@ -305,9 +286,6 @@ class ProtocolRunner:
                 named in refusals. The Autofocus button passes its own; a
                 script keeps the default. Either way the run is attended
                 -- its failures are shown -- unless it runs under *claim*.
-            engineering_mode: Whether the run follows engineering-mode
-                behaviour. None takes the session's; the GUI passes its live
-                flag, which its plugin can change after the session exists.
 
         Returns:
             The committed run's handle, to wait on or to ignore;
@@ -365,7 +343,6 @@ class ProtocolRunner:
             disable_saving_artifacts=True,
             save_autofocus_data=save_characterization_data,
             claim=claim,
-            engineering_mode=engineering_mode,
         )
 
     @api
@@ -374,7 +351,6 @@ class ProtocolRunner:
         protocol: Protocol,
         events: RunEvents | None = None,
         run_trigger_source: str = 'api_autofocus_scan',
-        engineering_mode: bool | None = None,
     ) -> RunHandle:
         """Autofocus at every step of *protocol*, and write the focus into it.
 
@@ -398,9 +374,6 @@ class ProtocolRunner:
             events: The run's event handlers (``RunEvents``); None for none.
             run_trigger_source: Who asked for the run. The GUI's button
                 passes its own; a script keeps the default.
-            engineering_mode: Whether the run follows engineering-mode
-                behaviour. None takes the session's; the GUI passes its live
-                flag, which its plugin can change after the session exists.
 
         Returns:
             The committed run's handle, to wait on or to ignore;
@@ -423,7 +396,6 @@ class ProtocolRunner:
             enable_image_saving=False,
             events=events,
             disable_saving_artifacts=True,
-            engineering_mode=engineering_mode,
             write_focus_to=protocol,
         )
 
@@ -436,7 +408,6 @@ class ProtocolRunner:
         events: RunEvents | None = None,
         return_to_start: bool = True,
         run_trigger_source: str = 'api_zstack',
-        engineering_mode: bool | None = None,
         enable_image_saving: bool = True,
     ) -> RunHandle:
         """Capture a z-stack on *layer*, around the current stage position.
@@ -480,10 +451,6 @@ class ProtocolRunner:
             run_trigger_source: Provenance recorded on the run and named
                 in refusals, so a GUI click records its own token rather
                 than the API's.
-            engineering_mode: Whether the run stamps the turret position
-                into its filenames. A GUI caller passes its live flag, which
-                a plugin may have flipped after the session was built; None
-                reads the mode the session was built in.
             enable_image_saving: Whether the slices are written. On by
                 default; the engineering panel's "disable image saving"
                 switch is the one caller that turns it off, to exercise the
@@ -536,7 +503,6 @@ class ProtocolRunner:
             enable_image_saving=enable_image_saving,
             events=events,
             return_to_position=position if return_to_start else None,
-            engineering_mode=engineering_mode,
         )
 
     @api
@@ -546,7 +512,6 @@ class ProtocolRunner:
         parent_dir: FilePath | None = None,
         events: RunEvents | None = None,
         merge_timeout_s: float = 900.0,
-        engineering_mode: bool | None = None,
     ) -> RunOutcome:
         """Capture one frame per acquiring channel and merge them.
 
@@ -577,9 +542,6 @@ class ProtocolRunner:
             merge_timeout_s: Upper bound on the whole capture-and-merge
                 wait. Covers the run itself, so it is longer than the
                 merge's own internal drain bound.
-            engineering_mode: Whether the run stamps the turret position
-                into its filenames; None reads the mode the session was
-                built in.
 
         Returns:
             The run's RunOutcome: ``merged`` True, ``artifact_path`` the
@@ -599,7 +561,6 @@ class ProtocolRunner:
             sequence_name=sequence_name,
             parent_dir=parent_dir,
             events=events,
-            engineering_mode=engineering_mode,
         )
         settled = outcome.wait(timeout_s=merge_timeout_s)
         if settled is None:
@@ -630,7 +591,6 @@ class ProtocolRunner:
         events: RunEvents | None = None,
         return_to_position: dict | None = None,
         composite_thresholds_percent: dict | None = None,
-        engineering_mode: bool | None = None,
         disable_saving_artifacts: bool = False,
         save_autofocus_data: bool = False,
         claim: HeldClaim | None = None,
@@ -664,12 +624,6 @@ class ProtocolRunner:
 
         autogain_settings = config_helpers.get_auto_gain_settings(settings)
 
-        # The session's as-built mode is the default; only a caller holding
-        # a LIVE flag (the GUI, whose plugin flips it after the session
-        # exists) has a reason to say otherwise.
-        if engineering_mode is None:
-            engineering_mode = self.session.engineering_mode
-
         plan = self._executor.prepare(
             protocol=protocol,
             run_mode=run_mode,
@@ -682,7 +636,7 @@ class ProtocolRunner:
             events=events,
             return_to_position=return_to_position,
             composite_thresholds_percent=composite_thresholds_percent,
-            engineering_mode=engineering_mode,
+            engineering_mode=self.session.engineering_mode,
             # Forwarded with the boundary's own names and its own defaults,
             # so this helper and the prepare it wraps stay one-to-one. No
             # existing caller passes either; both were reachable only from

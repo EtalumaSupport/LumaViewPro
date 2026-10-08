@@ -455,7 +455,15 @@ class SequencedCaptureRunner:
         activity_claim: ActivityClaim,
         autofocus_runner: AutofocusRunner | None = None,
         on_run_idle: typing.Callable[[], None] | None = None,
+        on_protocol_files_written: typing.Callable[[pathlib.Path, str, str, str], None]
+        | None = None,
     ):
+        # Handed (run_dir, files outcome, trigger source, protocol name) once per Full
+        # Protocol, after its images are written and its hyperstack build has
+        # ended: the session's hand-off to the post-processing plugins. Runs
+        # on a post-run thread of its own, which the run's handle does not
+        # wait for.
+        self._on_protocol_files_written = on_protocol_files_written
         # Told once a run's cleanup has put the runner back to IDLE. The
         # claim releases just before IDLE, so a listener woken by the claim
         # alone can still read the run as live; this is the edge after
@@ -2431,15 +2439,45 @@ class SequencedCaptureRunner:
 
         return self._spawn_post_run_step(name='composite-merge', build_fn=_merge)
 
+    def _start_protocol_files_handoff(self, build: threading.Thread | None) -> None:
+        """Hand a Full Protocol's folder on once its images and its build are done.
+
+        Only a Full Protocol that made a folder is handed on, whoever started
+        it. The step waits on this run's own batch and build, captured here
+        by value, since a successor run may own the runner's fields by then.
+        Not tracked by the run handle: what is done with the folder is
+        isolated from the run, so ``wait_for_files`` does not wait for it.
+        """
+        handoff = self._on_protocol_files_written
+        run_dir = self._run_dir
+        if (
+            handoff is None
+            or run_dir is None
+            or self._run_mode is not SequencedCaptureRunMode.FULL_PROTOCOL
+        ):
+            return
+        write_batch = self._write_batch
+        trigger_source = self._run_identity.trigger
+        protocol_name = self._sequence_name
+
+        def _handoff() -> None:
+            write_batch.wait_complete(None)
+            if build is not None:
+                build.join()
+            handoff(run_dir, write_batch.outcome, trigger_source, protocol_name)
+
+        self._spawn_post_run_step(name='protocol-files-handoff', build_fn=_handoff)
+
     def _spawn_post_run_step(self, *, name: str, build_fn) -> threading.Thread:
         """Run a post-run build on a daemon thread.
 
-        The one owner of the thread both post-run steps need -- the per-well
-        stack build and the composite merge -- so one place is responsible
-        for the daemon flag and the thread name a stall report prints. Each
-        build begins by waiting for its run's images to land, inside its own
-        outcome handling, so a wait that expires or finds images not written
-        is reported in that build's words.
+        The one owner of the thread every post-run step needs -- the per-well
+        stack build, the composite merge and the protocol's hand-off to the
+        post-processing plugins -- so one place is responsible for the daemon
+        flag and the thread name a stall report prints. Each step begins by
+        waiting for its run's images to land, inside its own outcome
+        handling, so a wait that expires or finds images not written is
+        reported in that step's words.
         """
         thread = threading.Thread(target=build_fn, name=name, daemon=True)
         thread.start()
@@ -2601,6 +2639,7 @@ class SequencedCaptureRunner:
                 record_cleanup_failures=run._pending.record_cleanup_failures,
             )
             run._hyperstack_build = self._start_hyperstack_build()
+            self._start_protocol_files_handoff(run._hyperstack_build)
         finally:
             if not led_end_state_applied and getattr(self, '_led_lease', None) is not None:
                 # The run's LED end-state was never decided (the RUN_END

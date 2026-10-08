@@ -334,7 +334,7 @@ class VerticalControl(BoxLayout):
 
         member = ctx.session.create_protocol_runner()
         layer = common_utils.get_opened_layer(ctx.image_settings)
-        engineering_mode = ctx.engineering_mode
+        engineering_mode = ctx.session.engineering_mode
         events = RunEvents(
             frame_captured=show_captured_frame,
             run_ended=lambda outcome, *_ended: self._autofocus_run_ended(layer, outcome),
@@ -346,7 +346,6 @@ class VerticalControl(BoxLayout):
                 save_characterization_data=engineering_mode,
                 events=events,
                 run_trigger_source='autofocus',
-                engineering_mode=engineering_mode,
             )
 
         self._submit_autofocus_request(_start)

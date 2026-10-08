@@ -10,6 +10,7 @@
 | Plugin platform -- auto-run on protocol complete | **shipped (LVP `312d755`)** | `4.0.0-beta` | New `PluginSpec.auto_run_on_protocol_complete: bool = False` field + `PostProcessingRegistry.handlers()` iterator + `run_protocol_complete_processors()` dispatcher + UI hook in `_dispatch_post_processing_auto_run()` (called from both completion paths). Per-plugin exceptions caught + logged + recorded via `record_runtime_error`. UI-trigger only today; REST-trigger expansion deferred until orchestration-layer relocation. Default False -- stitcher canary opted out so behavior at startup is identical. |
 | Post-processing canary (Stitcher) | **shipped (LVP `c83e3ec` cherry-pick onto `4.0.0-beta`)** | `4.0.0-beta` | Stitcher canary as worked example for the intern tutorial. Cherry-picked onto beta 2026-05-17 evening via `4.0.0-plugin-consolidated`. Canary stays at `auto_run_on_protocol_complete=False` so it remains a registration validator, not a workhorse that would stitch every protocol unexpectedly. |
 | Plugin tutorial doc | **shipped (LVP `c2dd87f` cherry-pick onto `4.0.0-beta`)** | `4.0.0-beta` | `docs/PluginTutorial.md` (413 lines) -- hello-world post-processor tutorial. Cherry-picked onto beta 2026-05-17 evening. Docs update for the new `auto_run_on_protocol_complete` field deferred to Eric (2026-05-18+). |
+| Plugin host in the session | **shipped (plugin API level 5)** | `dev/4.0.0` | The session owns the registry (`ScopeSession.load_plugins()` / `unload_plugins()`, `session.plugins`); a plugin's `ctx` is the session, not the GUI's AppContext. Auto-run fires for every Full Protocol starter, on the post-processing lane, after the hyperstack build; the settings baseline is taken at load. Engineering mode is `session.engineering_mode`. Supersedes the AppContext host in Phase A and the UI-side dispatch of the auto-run row. |
 | Wave 7 Phase 1 -- sub-API namespace setup (delegating facades) | **accepted (LVP `009f1fe`)** | merged to `4.0.0-beta` | Subagent draft accepted 2026-05-14. Sub-APIs ship as delegating facades; method bodies stay on `_lumascope.py` and relocate during Phase 2-7 caller migrations. Eric green-lit the inversion to lock the namespace + freeze the API shape now without taking the 6000-line body-relocation risk. **Namespace LOCKED for 4.x**: `scope.motion / .illumination / .imaging / .diagnostics / .capabilities / .io`. |
 | Wave 7 Phase 2a -- motion migration inventory + plan doc | **done (Firmware `e0e3e61`)** | `3.0-firmware` | `docs/WAVE7_PHASE_2_PLAN.md` -- 40-method classification (22 stateless / 18 stateful), 152 caller sites, 5-commit migration sequence (2b-2f), risk/rollback. |
 | Wave 7 Phase 2b -- relocate stateless motion methods | **done (LVP `7c41cd4`)** | merged to `4.0.0-beta` | 22 driver-delegating methods relocated from `_lumascope.py` to `motion.py` 2026-05-14 evening. Three deviations documented in the commit body: `safe_turret_mover` renamed to `safe_turret_move`; `get_target_pos` rename deferred (later retired in LVP `689daad` as dead code); `_driver` made a @property re-resolving `self._scope._motion_driver` (survives `disconnect()` driver swap). |
@@ -519,6 +520,13 @@ Host loading flow (replaces today's ad-hoc try/except in
    `unregister(ctx)` for each registered plugin in reverse-registration
    order. Wrapped in try/except; failure logs `WARNING`, does not block
    shutdown.
+
+**Amendment (plugin API level 5)**: the host is the session. A host
+calls `session.load_plugins()` after `ScopeSession.create`, and `ctx`
+in every hook above is that session; the AppContext no longer holds a
+registry. Steps 1-3 run inside `load_plugins()`, the built-ins after
+the installed plugins; step 4 is `session.unload_plugins()`, which
+`shutdown()` also runs first.
 
 ### 4.4 PluginSpec object
 

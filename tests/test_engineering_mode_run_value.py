@@ -11,9 +11,9 @@ its own token, so one file carried the turret position twice in two spellings
 (``A1_Blue_Turret2_T2.tiff``), the second of which no filename reader
 recognises.
 
-Now the caller states the mode once. The session records the mode it was
-built in, the run plan freezes it, and the writer takes it as a required
-constructor argument. Only the writer's canonical ``Turret<n>`` token remains.
+Now the mode is stated once. The session holds it, the run plan freezes it
+at the run's start, and the writer takes it as a required constructor
+argument. Only the writer's canonical ``Turret<n>`` token remains.
 """
 
 import ast
@@ -69,17 +69,17 @@ class TestTheSessionRecordsTheMode:
             assert 'Turret' not in name, f'{name} carries a turret token outside engineering mode'
 
 
-class TestTheGuiRouteCarriesTheLiveFlag:
-    def test_the_composite_starter_forwards_a_mode_the_session_did_not_record(self, tmp_path):
-        """The GUI's flag is flipped by a plugin after the session exists, so
-        the GUI composite hands the LIVE value to the run rather than trusting
-        the session's as-built one."""
+class TestAModeTurnedOnAfterTheSessionIsBuiltIsTheRuns:
+    def test_a_composite_runs_in_the_mode_the_session_holds_when_it_starts(self, tmp_path):
+        """A plugin turns the session's mode on after the session exists; the
+        run reads the session's flag when it starts, not the mode it was
+        built in."""
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
+            session.engineering_mode = True
             outcome = runner.start_composite(
                 sequence_name='gui',
                 parent_dir=str(tmp_path),
                 run_trigger_source='composite',
-                engineering_mode=True,
             )
             settled = outcome.wait(timeout_s=120)
             assert settled is not None and settled.merged, 'the run never settled'

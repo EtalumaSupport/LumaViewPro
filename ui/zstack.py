@@ -134,7 +134,6 @@ class ZStack(FloatLayout):
 
         runner = ctx.session.create_protocol_runner()
         layer = common_utils.get_opened_layer(ctx.image_settings)
-        engineering_mode = ctx.engineering_mode
         enable_image_saving = is_image_saving_enabled()
         events = RunEvents(
             frame_captured=show_captured_frame,
@@ -150,7 +149,6 @@ class ZStack(FloatLayout):
                 layer=layer,
                 events=events,
                 run_trigger_source='zstack',
-                engineering_mode=engineering_mode,
                 enable_image_saving=enable_image_saving,
             )
             self._zstack_run = started

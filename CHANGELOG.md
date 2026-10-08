@@ -2,6 +2,26 @@
 
 ## 4.0.0 (in development)
 
+- **The session hosts the plugins (SDK and plugin API, breaking; plugin API level 5)**: a host
+  asks its session for plugins with `ScopeSession.load_plugins()` and releases them with
+  `unload_plugins()`; `shutdown()` unloads any still loaded. Each plugin's `register`,
+  `unregister` and `on_settings_changed` are handed the session, and the session's
+  `plugin_health()` answers from its own registry. `ScopeSession.create`'s `settings_saved_hook`
+  and `plugin_health` are removed, and `create` gains `no_engineering`. A post-processing plugin
+  that opts into `auto_run_on_protocol_complete` now runs after every Full Protocol, whoever
+  started it -- REST, a script, a plugin -- on the post-processing lane, once the run's images
+  are written and its hyperstack build has ended; before, only the GUI's Run button ran it, on
+  the GUI thread, inside the run's own delivery. A subscriber is told settings changed since the
+  plugins loaded; before, a change made before the first save was never told. The processor's
+  manifest names the run's own `trigger_source` and its protocol file (`protocol_name`); before,
+  every manifest said `'ui_protocol_button'` and an empty protocol name. A built-in plugin
+  that fails to register is reported like any plugin; before, it was logged and dropped.
+  The engineering plugin's minimum is 1.0.48.
+- **Engineering mode is the session's (SDK, breaking)**: `session.engineering_mode` is the one
+  flag; every run and still reads it when it starts, and the engineering plugin turns it on there.
+  The `engineering_mode` argument of `ProtocolRunner`'s run members and of
+  `manual_capture.capture` is removed. Before, the plugin turned on a GUI-only flag, so the GUI's
+  runs stamped the turret position and the same session's script or plugin runs did not.
 - **Every path parameter is declared `FilePath` (SDK)**: new `modules.api_surface.FilePath`
   (`str | os.PathLike[str]`) annotates every API parameter that takes a file-system path, so a
   wire bridge can tell from the signature which arguments to pass through

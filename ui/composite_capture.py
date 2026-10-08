@@ -66,14 +66,12 @@ class CompositeCapture(FloatLayout):
         )
         bullseye = ctx.scope_display.use_bullseye
         crosshairs = ctx.scope_display.use_crosshairs
-        engineering_mode = ctx.engineering_mode
         run_reported(
             lambda: ctx.session.manual_capture.capture(
                 layer=layer,
                 false_color_on=false_color_on,
                 bullseye=bullseye,
                 crosshairs=crosshairs,
-                engineering_mode=engineering_mode,
             ).add_done_callback(lambda done: Clock.schedule_once(lambda _dt: _still_settled(done))),
             None,
             'LIVE_CAPTURE',
@@ -114,7 +112,6 @@ class CompositeCapture(FloatLayout):
             )
             return
 
-        engineering_mode = ctx.engineering_mode
         events = RunEvents(frame_captured=show_captured_frame)
 
         def _start():
@@ -122,7 +119,6 @@ class CompositeCapture(FloatLayout):
                 sequence_name='composite',
                 events=events,
                 run_trigger_source='composite',
-                engineering_mode=engineering_mode,
             )
             self._composite_run = started
             # Only reachable once the run is committed, so the saved

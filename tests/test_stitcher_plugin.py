@@ -7,8 +7,9 @@ Covers the Phase A plugin contract:
     - the processor callable produces a ProcessorResult on real input
     - empty / invalid input is rejected with success=False and a
       message instead of raising
-    - register_builtins(ctx) wires the canary plus survives a missing
-      ctx without crashing
+    - a session's plugin load registers the canary as a built-in, after
+      the installed plugins, and reports it as not loaded when an
+      installed plugin already has its name
 
 These tests do NOT replace the existing tests/test_stitcher.py
 coverage of Stitcher._simple_position_stitcher -- those exercise the
@@ -24,7 +25,9 @@ import types
 import pytest
 
 from modules.plugins import PluginSpec, ProcessorResult
-from modules.plugins.builtin import register_builtins, stitcher_plugin
+from unittest.mock import patch
+
+from modules.plugins.builtin import stitcher_plugin
 from tests.plugin_test_harness import harness_ctx  # noqa: F401
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
@@ -86,8 +89,8 @@ def test_register_twice_raises(harness_ctx):
 
 
 def test_unregister_is_noop(harness_ctx):
-    # Phase A registry has no remove path; unregister is defined so
-    # load_plugins's partial-failure cleanup can call it safely.
+    # Phase A registry has no remove path; unregister is defined so the
+    # load's partial-failure cleanup can call it safely.
     stitcher_plugin.register(harness_ctx)
     stitcher_plugin.unregister(harness_ctx)  # should not raise
     assert 'stitcher' in harness_ctx.plugins.post_processing.names()
@@ -118,7 +121,7 @@ def test_processor_returns_processor_result_on_missing_folder(
 
     lane = SequentialIOExecutor(name='POSTPROC_TEST')
     lane.start()
-    harness_ctx.session.post_processing = PostProcessingAPI(
+    harness_ctx.post_processing = PostProcessingAPI(
         lane=lane,
         tiling_configs_path=lambda: REPO / 'data' / 'tiling.json',
         has_turret=lambda: False,
@@ -145,7 +148,7 @@ def test_processor_catches_exceptions_and_returns_failure(harness_ctx):
     # If the stitch raises, the shim must turn that into a
     # ProcessorResult(success=False, ...) so the host's notification
     # path stays uniform across plugins.
-    harness_ctx.session.post_processing.stitch.side_effect = RuntimeError('boom')
+    harness_ctx.post_processing.stitch.side_effect = RuntimeError('boom')
     stitcher_plugin.register(harness_ctx)
     processor = harness_ctx.plugins.post_processing.get('stitcher')
 
@@ -212,30 +215,32 @@ def test_processor_real_stitch_via_test_fixtures(harness_ctx, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# register_builtins(ctx)
+# The canary as a built-in of the session's plugin load
 # ---------------------------------------------------------------------------
 
 
-def test_register_builtins_wires_stitcher(harness_ctx):
-    register_builtins(harness_ctx)
+def _load(harness_ctx, *entry_points):
+    with patch('importlib.metadata.entry_points', return_value=list(entry_points)):
+        harness_ctx.plugins.load(harness_ctx, '4.0.0')
+
+
+def test_the_load_registers_the_stitcher_as_a_built_in(harness_ctx):
+    _load(harness_ctx)
     assert 'stitcher' in harness_ctx.plugins.post_processing.names()
 
 
-def test_register_builtins_survives_none_ctx():
-    # No exception expected: log + return.
-    register_builtins(None)
+def test_an_installed_plugin_with_its_name_keeps_it(harness_ctx):
+    # An installed package claiming 'stitcher' loads first; the built-in is
+    # the one reported as not loaded, and the app carries on.
+    installed = types.ModuleType('installed_stitcher')
+    installed.spec = stitcher_plugin.spec
+    installed_processor = object()
+    installed.register = lambda ctx: ctx.plugins.post_processing.register(
+        installed.spec, installed_processor
+    )
+    entry_point = types.SimpleNamespace(name='stitcher', load=lambda: installed)
 
+    _load(harness_ctx, entry_point)
 
-def test_register_builtins_survives_ctx_without_plugins():
-    register_builtins(types.SimpleNamespace())
-
-
-def test_register_builtins_logs_warning_on_collision(harness_ctx, caplog):
-    # Register once directly to simulate a third-party plugin claiming
-    # the 'stitcher' name first. register_builtins should log a warning
-    # and continue, NOT abort the app.
-    stitcher_plugin.register(harness_ctx)
-    with caplog.at_level('WARNING'):
-        register_builtins(harness_ctx)
-    # First registration's processor is still the one in the registry.
-    assert 'stitcher' in harness_ctx.plugins.post_processing.names()
+    assert harness_ctx.plugins.post_processing.get('stitcher') is installed_processor
+    assert [p.name for p in harness_ctx.plugins.not_loaded()] == ['stitcher']

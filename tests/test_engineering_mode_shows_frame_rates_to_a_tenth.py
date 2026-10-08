@@ -33,4 +33,4 @@ def test_the_title_passes_the_engineering_mode_it_runs_in():
     ]
     assert len(calls) == 1
     engineering = next(kw.value for kw in calls[0].keywords if kw.arg == 'engineering')
-    assert ast.unparse(engineering) == 'ctx.engineering_mode'
+    assert ast.unparse(engineering) == 'ctx.session.engineering_mode'

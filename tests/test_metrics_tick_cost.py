@@ -158,18 +158,6 @@ class TestHandleMetricsLine:
 _SCHEDULER = SimpleNamespace(shutdown=lambda: None)
 
 
-class _EngineeringCtx:
-    """Only what the cadence branch reads.
-
-    A MagicMock cannot stand in here: scope construction reads other
-    attributes off the context (objectives_loader wants source_path)
-    and a MagicMock resolves those to bogus paths.
-    """
-
-    def __init__(self, engineering_mode):
-        self.engineering_mode = engineering_mode
-
-
 def _make_session(**kwargs):
     from modules.scope_session import ScopeSession
     from tests.scope_fakes import spec_scope
@@ -193,35 +181,30 @@ class TestCadence:
 
         assert DEFAULT_SYSTEM_METRICS_INTERVAL_S == 3600.0
 
-    def test_no_override_outside_engineering_mode_uses_the_default(self, monkeypatch):
-        # ctx pinned explicitly: it is a process global, and a ctx left behind
-        # by another test would otherwise decide this assertion.
+    def test_no_override_outside_engineering_mode_uses_the_default(self):
         session = _make_session()
-        monkeypatch.setattr(app_context, 'ctx', None)
         session.start_metrics()
         session.metrics_logger.start.assert_called_once_with(_SCHEDULER)
 
-    def test_engineering_mode_keeps_sixty_seconds(self, monkeypatch):
-        # Build the scope before installing the ctx -- construction reads
-        # other attributes off it.
-        session = _make_session()
-        monkeypatch.setattr(app_context, 'ctx', _EngineeringCtx(True))
+    def test_engineering_mode_keeps_sixty_seconds(self):
+        # The session's own flag, the one a plugin turns on when it loads.
+        session = _make_session(engineering_mode=True)
         session.start_metrics()
         session.metrics_logger.start.assert_called_once_with(
             _SCHEDULER, system_metrics_interval_s=60.0
         )
 
-    def test_engineering_mode_false_uses_the_default(self, monkeypatch):
-        session = _make_session()
-        monkeypatch.setattr(app_context, 'ctx', _EngineeringCtx(False))
+    def test_engineering_mode_false_uses_the_default(self):
+        session = _make_session(engineering_mode=False)
         session.start_metrics()
         session.metrics_logger.start.assert_called_once_with(_SCHEDULER)
 
-    def test_explicit_override_beats_engineering_mode(self, monkeypatch):
+    def test_explicit_override_beats_engineering_mode(self):
         # A bench operator naming an interval is honoured even on a machine
         # engineering mode would otherwise pin to 60 s.
-        session = _make_session(settings={'profiling': {'metrics_interval_s': 42}})
-        monkeypatch.setattr(app_context, 'ctx', _EngineeringCtx(True))
+        session = _make_session(
+            settings={'profiling': {'metrics_interval_s': 42}}, engineering_mode=True
+        )
         session.start_metrics()
         session.metrics_logger.start.assert_called_once_with(
             _SCHEDULER, system_metrics_interval_s=42.0

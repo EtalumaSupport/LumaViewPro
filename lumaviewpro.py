@@ -173,7 +173,6 @@ if __name__ == '__main__':
     import modules.lvp_lock as lvp_lock
     import modules.profiling_utils as profiling_utils
     from modules.app_context import AppContext
-    from modules.plugins import fire_settings_save_hooks
     from modules.scope_session import ScopeSession
 
     global profiling_helper
@@ -498,17 +497,6 @@ from ui.zstack import ZStack
 _CURRENT_JSON_FLUSH_INTERVAL_S = 300
 
 
-def _notify_plugins_of_settings_save(settings_snapshot: dict) -> None:
-    """Tell plugins the settings were just written to disk.
-
-    The session does the saving and knows nothing about the plugin
-    registry, which is a GUI-side service. Passing this down as a
-    callback keeps it that way: a headless session is simply handed no
-    hook, rather than reaching up for a registry that is not there.
-    """
-    fire_settings_save_hooks(app_context.ctx, settings_snapshot)
-
-
 class LumaViewProApp(TooltipMixin, App):
     """Main application class -- build, start, stop, tooltips."""
 
@@ -664,7 +652,7 @@ class LumaViewProApp(TooltipMixin, App):
                     active_layer = curr_color
             # Engineering mode wants the drawer the user has open, which is
             # NOT active_layer once the override above has fired.
-            if ctx.engineering_mode and ctx.image_settings is not None:
+            if ctx.session.engineering_mode and ctx.image_settings is not None:
                 open_layer = opened_layer
             ctx.scope_display_thread.update_layer_config(
                 active_layer,
@@ -1049,9 +1037,8 @@ class LumaViewProApp(TooltipMixin, App):
                 source_path=source_path,
                 simulate=simulate_mode,
                 warn_pre_release=False,
-                settings_saved_hook=_notify_plugins_of_settings_save,
                 engineering_mode=ENGINEERING_MODE,
-                plugin_health=lambda: app_context.ctx.plugins.health(),
+                no_engineering=no_engineering,
                 sim_camera_stall=sim_camera_stall,
                 sim_file_stall=sim_file_stall,
                 outcome_listener=notification_popup_bridge,
@@ -1112,8 +1099,6 @@ class LumaViewProApp(TooltipMixin, App):
             stage=stage,
             cell_count_content=cell_count_content,
             graphing_controls=graphing_controls,
-            engineering_mode=ENGINEERING_MODE,
-            no_engineering=no_engineering,
             show_tooltips=show_tooltips,
             live_histo_setting=live_histo_setting,
             last_save_folder=last_save_folder,
@@ -1141,22 +1126,10 @@ class LumaViewProApp(TooltipMixin, App):
         # Creates and manages Tooltips
         self.init_tooltips(lumaview)
 
-        # Discover plugins via entry_points group 'lvp.plugins'.
-        # Engineering plugin (etaluma-engineering, dev/bench-only) loads
-        # here; customer installs find nothing in the group.
-        from modules.plugins import load_plugins
-
-        load_plugins(ctx)
-
-        # Register in-tree built-in plugins (Stitcher canary, plus
-        # CompositeGeneration / ZProjector / VideoBuilder once they
-        # retire into the namespace). Runs AFTER load_plugins so an
-        # external package claiming the same name wins -- the built-in
-        # registration then logs WARNING and continues, leaving the
-        # legacy UI button paths still wired to the same Stitcher class.
-        from modules.plugins.builtin import register_builtins
-
-        register_builtins(ctx)
+        # The session's plugins: the installed ones (the engineering plugin,
+        # dev/bench-only; customer installs find nothing in the group), then
+        # the built-ins. Each is handed the session.
+        ctx.session.load_plugins()
 
         # A plugin exception reaching the Kivy event loop must not take
         # down the host: plugins are separately versioned (and may not be
@@ -1172,12 +1145,12 @@ class LumaViewProApp(TooltipMixin, App):
             def handle_exception(self, inst):
                 plugin_name = None
                 try:
-                    plugin_name = ctx.plugins.attribute_exception(sys.exc_info()[2])
+                    plugin_name = ctx.session.plugins.attribute_exception(sys.exc_info()[2])
                 except Exception as e:
                     logger.debug(f'[Plugins ] crash attribution failed: {e}')
                 if plugin_name is None:
                     return ExceptionManager.RAISE
-                ctx.plugins.record_runtime_error(plugin_name, 'ui_event', inst)
+                ctx.session.plugins.record_runtime_error(plugin_name, 'ui_event', inst)
                 return ExceptionManager.PASS
 
         ExceptionManager.add_handler(_PluginCrashGuard())
@@ -1187,7 +1160,7 @@ class LumaViewProApp(TooltipMixin, App):
         # invoked here; builder() returns the Kivy widget which is
         # added to the named mount point.
         motionsettings_accordion = ctx.motion_settings.ids['motionsettings_accordion_id']
-        for plugin_name, mount_point, builder in ctx.plugins.ui.mounts():
+        for plugin_name, mount_point, builder in ctx.session.plugins.ui.mounts():
             if mount_point == 'left_sidebar.accordion':
                 try:
                     plugin_item = builder()
@@ -1200,14 +1173,14 @@ class LumaViewProApp(TooltipMixin, App):
                     motionsettings_accordion.add_widget(plugin_item)
                     logger.info(f'[LVP Main  ] Mounted {plugin_name} at {mount_point}')
                 except Exception as e:
-                    ctx.plugins.record_runtime_error(plugin_name, 'mount', e)
+                    ctx.session.plugins.record_runtime_error(plugin_name, 'mount', e)
 
         # Enable engineering-only log files (autofocus.log, api.log).
-        # Read from ctx since the engineering plugin's register(ctx)
-        # may have flipped ctx.engineering_mode during load_plugins.
+        # Read from the session since the engineering plugin may have turned
+        # its engineering mode on when it loaded.
         from lvp_logger import enable_engineering_logs
 
-        enable_engineering_logs(ctx.engineering_mode)
+        enable_engineering_logs(ctx.session.engineering_mode)
 
         # NotificationCenter -> UI popup bridge was registered at the
         # top of build(), BEFORE the session factory / Lumascope() /
@@ -1436,15 +1409,12 @@ class LumaViewProApp(TooltipMixin, App):
         except Exception as e:  # grain: ignore NAKED_EXCEPT
             logger.warning(f'[LVP Main  ] Failed to suppress notifications on shutdown: {e}')
 
-        # Plugins released first: their listener subscriptions and file handles
-        # need to drop before hardware tear-down so shutdown ordering matches
-        # registration ordering.
-        try:
-            from modules.plugins import unload_plugins
-
-            unload_plugins(ctx)
-        except Exception as e:  # grain: ignore NAKED_EXCEPT
-            logger.warning(f'[LVP Main  ] Plugin unload during shutdown raised: {e}')
+        # Plugins released first, before the runs are stopped and the settings
+        # saved: an unregister may stop its own run and wait for it, and their
+        # listener subscriptions and file handles need to drop before hardware
+        # tear-down. A plugin's own failure is logged inside, and the rest
+        # still unload.
+        ctx.session.unload_plugins()
 
         # Unschedule all recurring interval callbacks to prevent orphaned events
         try:

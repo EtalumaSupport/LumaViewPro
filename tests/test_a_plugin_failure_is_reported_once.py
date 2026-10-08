@@ -23,12 +23,7 @@ import modules.notification_center as notification_center
 import modules.plugins as plugins
 from modules.exceptions import PluginFailedError, PluginNotLoadedError
 from modules.notification_center import NotificationCenter, Severity
-from modules.plugins import (
-    PluginSpec,
-    ProcessorResult,
-    load_plugins,
-    run_protocol_complete_processors,
-)
+from modules.plugins import PluginSpec, ProcessorResult
 from tests.ast_seams import REPO_ROOT, find_def
 from tests.plugin_test_harness import harness_ctx  # noqa: F401 -- pytest fixture
 
@@ -91,7 +86,7 @@ def _module(name, *, requires='>=4.0.0', register=None, spec=True, **spec_kw):
 
 def _load(ctx, *eps):
     with patch('importlib.metadata.entry_points', return_value=list(eps)):
-        load_plugins(ctx)
+        ctx.plugins.load(ctx, '4.0.0')
 
 
 def _assert_one_report(shown, caplog, kind, title, *, cause=None):
@@ -136,7 +131,6 @@ def test_a_package_that_is_not_a_plugin_is_reported(harness_ctx, shown, outcome_
 
 
 def test_a_plugin_for_another_version_is_reported(harness_ctx, shown, outcome_records):
-    harness_ctx.version = '4.0.0'
     mod = _module('too_new', requires='>=5.0.0', register=lambda ctx: None)
     _load(harness_ctx, _EntryPoint('too_new', mod))
 
@@ -244,7 +238,7 @@ def test_a_plugin_in_no_namespace_is_still_reported(harness_ctx, shown, outcome_
 
 
 def _run_complete(ctx, tmp_path):
-    run_protocol_complete_processors(ctx, str(tmp_path), {}, str(tmp_path), 'written')
+    ctx.plugins.run_protocol_complete_processors(str(tmp_path), {}, str(tmp_path), 'written')
 
 
 def test_a_post_run_processor_that_raises_is_reported(
@@ -312,17 +306,18 @@ class _ExceptionManager:
     PASS = 'pass'
 
 
-def _crash_guard(ctx):
+def _crash_guard(session):
     """The REAL handle_exception body, compiled out of lumaviewpro.py.
 
     The guard is a class nested in build(), and lumaviewpro.py is not
     importable under the harness, so its FunctionDef is compiled with only
-    the module names it closes over supplied.
+    the module names it closes over supplied: the GUI's context, which
+    reaches the plugins through its session.
     """
     node = find_def('lumaviewpro.py', 'handle_exception', class_name='_PluginCrashGuard')
     assert node is not None, 'lumaviewpro.py: _PluginCrashGuard.handle_exception is gone'
     namespace = {
-        'ctx': ctx,
+        'ctx': types.SimpleNamespace(session=session),
         'sys': sys,
         'ExceptionManager': _ExceptionManager,
         'logger': logging.getLogger('lvp_logger'),

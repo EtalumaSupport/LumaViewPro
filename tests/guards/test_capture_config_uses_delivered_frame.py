@@ -41,7 +41,7 @@ def _patch_ctx(monkeypatch, *, typed: str, settings: dict):
     """An app context whose frame fields hold an unapplied typed value."""
     ctx = MagicMock()
     ctx.settings = settings
-    ctx.engineering_mode = False
+    ctx.session.engineering_mode = False
 
     protocol_settings = MagicMock()
     protocol_settings.ids = {

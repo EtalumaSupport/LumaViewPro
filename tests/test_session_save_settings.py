@@ -101,13 +101,20 @@ def test_running_on_the_template_declines_even_when_forced(session, tmp_path, mo
     assert (tmp_path / 'data' / 'current.json').read_text() == before
 
 
-def test_the_saved_hook_receives_what_was_written(session):
-    """The host's plugin notifier is a callback, so a headless session has none."""
-    seen = []
-    session._settings_saved_hook = seen.append
+def test_the_plugins_receive_what_was_written(session, monkeypatch):
+    """A session's plugins are told what was written; a session without plugins tells no one."""
+    session.save_settings(force=True)  # no plugins: nothing to tell, nothing raised
 
+    from modules.plugins import PluginRegistry
+
+    seen = []
+    session.plugins = PluginRegistry()
+    monkeypatch.setattr(
+        session.plugins, 'settings_saved', lambda host, settings: seen.append((host, settings))
+    )
     session.settings['live_folder'] = '/data/hooked'
     session.save_settings(force=True)
 
     assert len(seen) == 1
-    assert seen[0]['live_folder'] == '/data/hooked'
+    assert seen[0][0] is session
+    assert seen[0][1]['live_folder'] == '/data/hooked'

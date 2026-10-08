@@ -46,8 +46,9 @@ class ManualCaptureController:
         scope: The Lumascope instance.
         settings_snapshot: Returns a private copy of the session's settings;
             one is taken per capture, when the capture is asked for.
-        engineering_mode: The session's as-built mode, used when a caller
-            does not pass the live flag.
+        engineering_mode: Reads the session's engineering mode, once per
+            capture, when the capture is asked for: a plugin may turn it on
+            after the controller is built.
     """
 
     def __init__(
@@ -55,7 +56,7 @@ class ManualCaptureController:
         *,
         scope: Any,
         settings_snapshot: Callable[[], dict],
-        engineering_mode: bool,
+        engineering_mode: Callable[[], bool],
     ):
         self._scope = scope
         self._settings_snapshot = settings_snapshot
@@ -79,7 +80,6 @@ class ManualCaptureController:
         false_color_on: bool,
         bullseye: bool = False,
         crosshairs: bool = False,
-        engineering_mode: bool | None = None,
     ) -> 'concurrent.futures.Future[list[pathlib.Path]]':
         """Capture one still and save it; returns at once.
 
@@ -92,9 +92,8 @@ class ManualCaptureController:
             crosshairs: Also save a copy with the centre crosshairs. With
                 either overlay, one extra file is written, from the same
                 frame, beside the unmarked one.
-            engineering_mode: Whether the name carries the turret slot. None
-                takes the session's as-built mode; a host whose plugin flips
-                the mode at run time passes its live flag.
+
+        In the session's engineering mode the name carries the turret slot.
 
         Returns:
             A Future of the paths written, the unmarked file first. The
@@ -135,9 +134,7 @@ class ManualCaptureController:
                 false_color_on=false_color_on,
                 bullseye=bullseye,
                 crosshairs=crosshairs,
-                engineering_mode=(
-                    self._engineering_mode if engineering_mode is None else engineering_mode
-                ),
+                engineering_mode=self._engineering_mode(),
             )
             future: concurrent.futures.Future = concurrent.futures.Future()
             # Marked running before anyone else holds it, so only the lane

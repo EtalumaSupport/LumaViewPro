@@ -323,8 +323,7 @@ class Lumascope:
         #
         # _state_lock + _cam_lock + ImagingAPI's
         # own caches live on self.imaging. _last_turret_position lives
-        # on self.motion. engineering_mode lives on the app context
-        # (ctx.engineering_mode).
+        # on self.motion. engineering_mode lives on the session.
 
         # The scope's two lanes, built and started here and shut by
         # disconnect(). Every LED, motion and camera command goes through

@@ -343,7 +343,7 @@ class ScopeDisplay(Image):
         """
         self._validity_group.clear()
         ctx = _app_ctx.ctx
-        if not ctx.engineering_mode:
+        if not ctx.session.engineering_mode:
             return
 
         center_x, center_y, img_w, img_h = self._get_displayed_image_bounds()
@@ -842,7 +842,7 @@ class ScopeDisplay(Image):
         # (mono downscale, or the bullseye transform when its rate cap lets it
         # render). Stays 0 when a rate cap skips the render -- there was no work.
         proc_ms = 0.0
-        if ctx.engineering_mode:
+        if ctx.session.engineering_mode:
             # Frame validity indicator: update every frame (lightweight canvas op)
             fv_valid = ctx.scope.imaging.frame_is_valid
             Clock.schedule_once(lambda dt, v=fv_valid: self._update_validity_dot(v), 0)

@@ -1,8 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-from modules.plugins import PluginRegistry
 
 # Module-level singleton -- set by LumaViewProApp.build() after construction.
 # Extracted modules import this module and access `app_context.ctx` to avoid
@@ -88,14 +87,11 @@ class AppContext:
     # stale at every reconnect; the session owns the metrics lifecycle.
     ui_listener_bridge: object = None  # the GUI's subscriber to scope state events
 
-    # Plugin platform: registry + entry-points discovery
-    plugins: PluginRegistry = field(default_factory=PluginRegistry)
+    # No plugins and no engineering flag: both are the session's
+    # (ctx.session.plugins, ctx.session.engineering_mode), so every host
+    # sees the plugins and the mode the GUI sees.
 
     # State
-    engineering_mode: bool = False
-    no_engineering: bool = (
-        False  # --no-engineering CLI flag; suppresses engineering plugin auto-enable
-    )
     show_tooltips: bool = False
     live_histo_setting: bool = False
     last_save_folder: str = None

@@ -79,9 +79,8 @@ def test_a_report_with_no_scope_says_why_it_has_no_record(tmp_path):
 def test_a_plugin_that_did_not_load_is_in_the_zip(tmp_path):
     registry = PluginRegistry()
     registry.record_load_failure('broken', '1.0', 'it needs numpy2')
-    session = ScopeSession.create(
-        complete_settings(live_folder=str(tmp_path)), simulate=True, plugin_health=registry.health
-    )
+    session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+    session.plugins = registry
     try:
         saved = session.make_logs_zip(output_dir=tmp_path / 'out')
     finally:

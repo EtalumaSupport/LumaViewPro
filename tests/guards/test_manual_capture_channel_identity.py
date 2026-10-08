@@ -67,7 +67,7 @@ def _run_manual_capture(tmp_path, scope, *, layer, false_color_on, separate_fold
     for name in ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi'):
         settings[name].update({'exposure_ms': 10, 'sum': 1, 'illumination_ma': 0})
     capture = ManualCaptureController(
-        scope=scope, settings_snapshot=lambda: settings, engineering_mode=False
+        scope=scope, settings_snapshot=lambda: settings, engineering_mode=lambda: False
     )
     reported = capture.capture(layer=layer, false_color_on=false_color_on).result(timeout=30)
 

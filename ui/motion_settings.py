@@ -68,7 +68,7 @@ class MotionSettings(BoxLayout):
         self.enable_ui_features_for_engineering_mode()
 
     def enable_ui_features_for_engineering_mode(self):
-        ENGINEERING_MODE = _app_ctx.ctx.engineering_mode
+        ENGINEERING_MODE = _app_ctx.ctx.session.engineering_mode
         if ENGINEERING_MODE:
             # for layer in common_utils.get_layers():
             ps = _app_ctx.ctx.motion_settings.ids['protocol_settings_id']

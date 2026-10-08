@@ -114,7 +114,7 @@ def _run_manual_capture(tmp_path, scope, *, false_color_active, use_crosshairs):
     )
     settings[LAYER].update({'exposure_ms': 10, 'sum': 1, 'illumination_ma': 100})
     capture = ManualCaptureController(
-        scope=scope, settings_snapshot=lambda: settings, engineering_mode=False
+        scope=scope, settings_snapshot=lambda: settings, engineering_mode=lambda: False
     )
     capture.capture(
         layer=LAYER, false_color_on=false_color_active, crosshairs=use_crosshairs

@@ -203,15 +203,15 @@ class TestALateAutofocusSave:
 
 class TestNothingBuildsFromAFolderMissingImages:
     def test_the_post_processing_auto_run_does_not_run(self):
-        from modules.plugins import run_protocol_complete_processors
+        from modules.plugins import PluginRegistry
 
         processor = MagicMock()
         spec = MagicMock(auto_run_on_protocol_complete=True)
-        ctx = MagicMock()
-        ctx.plugins.post_processing.handlers.return_value = [(spec, processor)]
+        registry = PluginRegistry()
+        registry.post_processing.handlers = MagicMock(return_value=[(spec, processor)])
 
-        run_protocol_complete_processors(
-            ctx, input_dir='run', manifest={}, output_dir='run', files='incomplete'
+        registry.run_protocol_complete_processors(
+            input_dir='run', manifest={}, output_dir='run', files='incomplete'
         )
 
         processor.assert_not_called()

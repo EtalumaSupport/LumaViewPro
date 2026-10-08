@@ -88,7 +88,9 @@ def _run_capture(ctx, sum_count=1):
     )
     settings[LAYER].update({'exposure_ms': 100, 'sum': sum_count, 'illumination_ma': 0})
     capture = ManualCaptureController(
-        scope=ctx.scope, settings_snapshot=lambda: settings, engineering_mode=ctx.engineering_mode
+        scope=ctx.scope,
+        settings_snapshot=lambda: settings,
+        engineering_mode=lambda: ctx.engineering_mode,
     )
 
     def _saved(scope, array, *, file_root, append, **kwargs):
