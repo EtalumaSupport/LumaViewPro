@@ -25,10 +25,11 @@ _VALID_AXIS_NAMES = ('X', 'Y', 'Z', 'T')
 # The simulated boards a simulated scope can be built on: a Python
 # stand-in with no timing; the production driver against the real firmware
 # in a MicroPython process, its motors moving at once; and the same
-# firmware with its motors moving at the ramp fitted to the bench, so a
-# move or a home takes the time it takes on the stage. The session
-# validates the setting against this tuple and the constructor dispatches
-# on it.
+# firmware with its motors moving at the ramp fitted to bench moves, so a
+# move or a home takes seconds rather than none. A home starts with the
+# axes mid-travel, so it is shorter than a stage's (an LS850's 5 s against
+# under 20 s). The session validates the setting against this tuple and
+# the constructor dispatches on it.
 SIMULATOR_TIERS = ('fast', 'firmware', 'realistic')
 
 # Absolute position bounds in um -- generous outer limits. Per-axis

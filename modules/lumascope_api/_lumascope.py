@@ -499,8 +499,9 @@ class Lumascope:
                 driver runs; it costs the driver's real connect (about a
                 second) and needs a runtime built for this platform.
                 ``'realistic'`` is the firmware tier with its motors moving
-                at the ramp fitted to the bench, so a move or a home takes
-                the time it takes on the stage.
+                at the ramp fitted to bench moves, so a move or a home takes
+                seconds rather than none; a home starts mid-travel, so it is
+                shorter than a stage's.
                 Ignored when simulate is False.
             warn_pre_release: Whether this construction should fire the
                 PRE-RELEASE FutureWarning. The warning tells a caller its
