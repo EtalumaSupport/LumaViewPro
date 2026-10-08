@@ -9,6 +9,11 @@
   (was `run_complete`; it carries the settled outcome, a composite's merge included) and
   `files_written` (was `files_complete`). A misspelt handler fails where the record is built;
   before, an unknown callback key was silently dropped and never called.
+- **A layer's focus is saved from a Z the caller holds (SDK)**: new
+  `ScopeSession.save_layer_focus(layer, z_um)` stores `z_um` as the layer's focus, refused with
+  nothing written for a layer the scope does not have (`ConfigError`), a scope with no Z axis
+  (`ProtocolRunRefusedError`, `positions_unreachable`), and a Z that is NaN, infinite or outside
+  Z's travel (`PositionOutOfRangeError`).
 - **A display follows the motion listener, not the run (SDK, breaking)**: `ScopeSession.create`'s
   `af_ui_update_func`, `AutofocusRunner`'s `ui_update_func` and `run(callbacks=)`, and the run
   callbacks' `move_position` are removed. Every move a run or an autofocus makes, the give-up

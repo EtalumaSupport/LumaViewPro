@@ -413,7 +413,7 @@ class ProtocolsAPI:
         Raises:
             ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
                 has no Z axis. Logged and notified once.
-            PositionOutOfRangeError: ``z_um`` is not a finite number, or lies
+            PositionOutOfRangeError: ``z_um`` is NaN or infinite, or lies
                 outside Z's travel.
         """
         self._refuse_no_focus_axis(then)

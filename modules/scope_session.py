@@ -1671,7 +1671,7 @@ class ScopeSession:
             ConfigError: this scope has no ``layer``. Nothing is written.
             ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
                 has no Z axis. Nothing is written.
-            PositionOutOfRangeError: ``z_um`` is not a finite number, or lies
+            PositionOutOfRangeError: ``z_um`` is NaN or infinite, or lies
                 outside Z's travel. Nothing is written.
         """
         self._refuse_layer_not_on_scope(layer, then='take a focus')
