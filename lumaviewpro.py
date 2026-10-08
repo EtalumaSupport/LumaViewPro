@@ -1254,14 +1254,14 @@ class LumaViewProApp(TooltipMixin, App):
             True to prevent window close (popup shown); False to allow close.
         """
         lockout = ctx.session.run_lockout_named
-        protocol_running = lockout is not None
+        scope_held = lockout is not None
         # Crash-forensics: log the close request to BOTH the main log
         # (so post-mortem can correlate against the shutdown sequence)
         # and the GUI interactions log (so the gui-log timeline names
         # the trigger). Without this line, an X-button / Alt-F4 close
         # produces a silent shutdown -- the gap that prompted this hook.
-        logger.info(f'[LVP Main  ] on_request_close fired; protocol_running={protocol_running}')
-        gui_logger.window_event('close-requested', f'protocol_running={protocol_running}')
+        logger.info(f'[LVP Main  ] on_request_close fired; scope_held={scope_held}')
+        gui_logger.window_event('close-requested', f'scope_held={scope_held}')
 
         if self._drain_close_watch is not None:
             # A close is already draining. This is a SECOND close request --
@@ -1272,7 +1272,7 @@ class LumaViewProApp(TooltipMixin, App):
             logger.info('[LVP Main  ] close already in progress; ignoring the request')
             return True  # Prevent window from closing
 
-        if protocol_running:
+        if scope_held:
             Clock.schedule_once(
                 lambda dt: show_confirmation_popup(
                     title='Confirm Exit',

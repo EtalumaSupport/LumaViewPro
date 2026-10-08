@@ -1267,7 +1267,7 @@ class ImagingAPI:
         and nothing logged.
 
         The lane's ``call`` decides a refusal and raises it to the caller:
-        the lane is closed, or a run or a diagnostic holds the scope and this
+        the lane is closed, or a run, a diagnostic or a home holds the scope and this
         call is not made under its taking, or ``falsifies_recording`` is set
         and a recording holds the scope. Once admitted, the task asks for the
         camera before the body runs (``_asking_for_the_camera``), so after
@@ -1302,8 +1302,8 @@ class ImagingAPI:
         no camera connected the outcome is the refusal naming the camera.
 
         Raises:
-            HardwareCommandRefusedError: the lane is closed, or a run or a
-                diagnostic holds the scope and this call is not made under
+            HardwareCommandRefusedError: the lane is closed, or a run, a
+                diagnostic or a home holds the scope and this call is not made under
                 its taking.
         """
         task = IOTask(

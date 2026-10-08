@@ -6,13 +6,15 @@ import threading
 from collections.abc import Iterator
 from dataclasses import dataclass
 from modules.api_surface import api
+from modules.exceptions import the_activity_named
 
 # The activity kinds that hold the WHOLE scope: a run and a diagnostic both
-# drive every axis, the LEDs and the camera, so while one holds the claim a
-# lane runs only work made under its taking, the controls lock and the
-# objective cannot change under it. A recording is not here -- focusing,
-# moving, LED, gain and exposure stay open to anyone during one.
-SCOPE_HOLDING_KINDS = frozenset({'protocol', 'diagnostic'})
+# drive every axis, the LEDs and the camera, and a home leaves every axis
+# unknown until it ends, so while one holds the claim a lane runs only work
+# made under its taking, the controls lock and the objective cannot change
+# under it. A recording is not here -- focusing, moving, LED, gain and
+# exposure stay open to anyone during one.
+SCOPE_HOLDING_KINDS = frozenset({'protocol', 'diagnostic', 'home'})
 
 _acting = threading.local()
 
@@ -107,15 +109,13 @@ def the_holder_named(holder: ActivityHolder | None) -> str:
     """Name what holds the scope, to open a refusal sentence.
 
     A run by its kind ('The Z-stack run'), another activity by its kind ('A
-    diagnostic activity') -- an activity the user cannot name is one they
-    cannot go and stop. 'Another exclusive activity' only when the holder
-    released between the failed take and this read.
+    diagnostic', 'A home') -- an activity the user cannot name is one they
+    cannot go and stop. 'Another activity' only when the holder released
+    between the failed take and this read.
     """
-    if holder is None:
-        return 'Another exclusive activity'
-    if holder.run is not None:
+    if holder is not None and holder.run is not None:
         return the_run_named(holder.run, sentence_start=True)
-    return f'A {holder.kind} activity'
+    return the_activity_named(holder.kind if holder is not None else None)
 
 
 class HeldClaim:
@@ -371,7 +371,7 @@ class ActivityClaim:
     ) -> ActivityHolder | None:
         """The holder that refuses work made under ``taking``, or None.
 
-        While a run or a diagnostic holds the scope, only work under its
+        While a run, a diagnostic or a home holds the scope, only work under its
         taking -- the HeldClaim, or a borrowing of it that has not ended --
         is the holder's. Anything else is refused, and the holder is named
         so the refusal can say who has the scope.

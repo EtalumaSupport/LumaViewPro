@@ -22,6 +22,16 @@
   The `engineering_mode` argument of `ProtocolRunner`'s run members and of
   `manual_capture.capture` is removed. Before, the plugin turned on a GUI-only flag, so the GUI's
   runs stamped the turret position and the same session's script or plugin runs did not.
+- **A home holds the scope until it ends (SDK, behaviour change)**: while a home runs, every
+  other request -- a move, an LED (`leds_off` included), a camera setting, a run, a recording, a
+  diagnostic -- is refused at once naming the home (`HardwareCommandRefusedError`
+  `exclusive_activity_running`, `holder='home'`; a run's `ProtocolRunRefusedError`, which was
+  `position_unknown`), and `run_lockout` / `controls_locked` read True, so LumaViewPro greys its
+  controls. Before, a move asked during a home was accepted and ran when the home ended, up to
+  90 s later. `exclusive_activity` can read `'home'`. A home asked during a live recording is
+  refused naming the recording, a Z home included. The guard is the Session's: a `Lumascope`
+  built without a `ScopeSession` no longer refuses a second home. A diagnostic is now named "A
+  diagnostic is in progress." (was "A diagnostic activity").
 - **Every path parameter is declared `FilePath` (SDK)**: new `modules.api_surface.FilePath`
   (`str | os.PathLike[str]`) annotates every API parameter that takes a file-system path, so a
   wire bridge can tell from the signature which arguments to pass through

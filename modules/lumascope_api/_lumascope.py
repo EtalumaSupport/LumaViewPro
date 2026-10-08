@@ -69,6 +69,7 @@ from modules.lumascope_api.bring_up import (
 )
 from modules.path_utils import get_source_root, read_installation_file, resolve_data_file
 from modules.scope_capabilities import ScopeCapabilities
+from modules.activity_claim import ActivityClaim
 from modules.sequential_io_executor import SequentialIOExecutor
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -337,9 +338,13 @@ class Lumascope:
         self._camera_executor.start()
         # The key the camera lane's claim returned to the session, which
         # hands it here: the camera temperature read carries it, so the
-        # temperature log keeps running while a run or a diagnostic holds
+        # temperature log keeps running while a run, a diagnostic or a home holds
         # the scope. None until a session asks the claim.
         self._camera_override_key = None
+        # The session's activity claim, which a home takes so the scope is the
+        # home's until it ends. None on a scope no session composes: nothing
+        # else there can hold the scope, so its homes take no claim.
+        self._activity_claim: ActivityClaim | None = None
 
     @staticmethod
     def _build_simulated_motor_board(
@@ -1175,10 +1180,20 @@ class Lumascope:
         """Take the key the camera lane's claim returned to the session.
 
         The camera temperature read carries it, so the temperature log keeps
-        running while a run or a diagnostic holds the scope. Composition
+        running while a run, a diagnostic or a home holds the scope. Composition
         wiring for the session, not part of the L2 API surface.
         """
         self._camera_override_key = key
+
+    def set_activity_claim(self, claim: ActivityClaim) -> None:
+        """Take the session's activity claim, which every home takes.
+
+        Composition wiring for the session, given after its lanes asked the
+        same claim, so a second session over this scope is refused there
+        before it could point the homes at its own. Not part of the L2 API
+        surface.
+        """
+        self._activity_claim = claim
 
     # --- LED command API ---
     # All LED methods + change-listener registry live on IlluminationAPI;

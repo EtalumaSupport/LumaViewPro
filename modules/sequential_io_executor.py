@@ -629,7 +629,7 @@ class SequentialIOExecutor:
     def ask_claim(self, claim: ActivityClaim) -> object:
         """Make this lane ask ``claim`` before it runs work; returns the override key.
 
-        While a run or a diagnostic holds the scope, a task that was not
+        While a run, a diagnostic or a home holds the scope, a task that was not
         made under the holder's taking is refused -- at submit and again
         when the worker takes it off the queue -- with
         ``HardwareCommandRefusedError``, whoever made it and however; while

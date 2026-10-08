@@ -4,11 +4,12 @@
 The Home button queued the whole home on the io lane, so a second press
 waited behind the first and then ran a second full home: 70 s, then 38 s
 more on an LS720, with a run started meanwhile refused "still homing". Two
-API callers asking ``home()`` at once did the same. The API now holds one
-home in flight, from the moment it is asked until its body ends: another
-home, by any caller, on any axis, is refused ``'home_in_flight'`` at once
-and nothing is queued. ``start_home`` asks the same home without waiting,
-so the button's second press reaches the API while the first is in flight.
+API callers asking ``home()`` at once did the same. A home now holds the
+session's activity claim from the moment it is asked until its body ends:
+another home, by any caller, on any axis, is refused ``'home_in_flight'``
+at once and nothing is queued. ``start_home`` asks the same home without
+waiting, so the button's second press reaches the API while the first is
+in flight. The guard is the Session's, so the scope is built through one.
 """
 
 from __future__ import annotations
@@ -18,19 +19,31 @@ import threading
 import pytest
 
 from modules.exceptions import HardwareCommandRefusedError, HomingFailedError
-from tests.scope_fakes import bind_settings_like_a_session, build_scope, record_turret_answer
+from tests.scope_fakes import build_scope, record_turret_answer
+from tests.settings_fixtures import complete_settings
 
 HOME_S = 60.0
 
 
 @pytest.fixture(params=['LS720', 'LS850', 'LS850T'])
-def scope(request):
+def scope(request, tmp_path):
+    from modules.scope_session import ScopeSession
+
     # Not homed first: the home under test is the scope's first.
-    s = build_scope(simulate=True, sim_model=request.param, source_path='.', register_atexit=False)
-    record_turret_answer(s)
-    bind_settings_like_a_session(s, objective_id='10x Oly', stage_offset={'x': 5500.0, 'y': 4000.0})
-    yield s
-    s.disconnect()
+    session = ScopeSession.create(
+        complete_settings(
+            microscope=request.param,
+            live_folder=str(tmp_path),
+            objective_id='10x Oly',
+            stage_offset={'x': 5500.0, 'y': 4000.0},
+        ),
+        simulate=True,
+        warn_pre_release=False,
+    )
+    try:
+        yield record_turret_answer(session.scope)
+    finally:
+        session.shutdown()
 
 
 class _HeldHome:
@@ -158,7 +171,7 @@ class TestTheLaneNamesTheHome:
         s = build_scope(simulate=True, sim_model='LS850T', source_path='.', register_atexit=False)
         try:
             impl, _ = s.motion._home_body(axis)
-            body, release_if_unrun = s.motion._claim_home(impl)
+            body, release_if_unrun, _taking = s.motion._claim_home(impl)
             release_if_unrun()
             assert body.__name__ == impl.__name__
         finally:

@@ -7,7 +7,8 @@ pixel format or turret change from REST, a script or the GUI landed in the
 middle of one and the file went on claiming the start values. Those writes
 now carry a mark the lane refuses while a recording holds -- at submit and
 again when a queued one reaches the worker -- and everything else (X/Y/Z,
-a single-axis home, LED, gain, exposure) stays open to anyone.
+LED, gain, exposure) stays open to anyone. A home of any axis is refused:
+it holds the whole scope, as a run does, and a recording already holds it.
 """
 
 import copy
@@ -146,7 +147,6 @@ _FALSIFIERS = [
 _OPEN = [
     ('move_absolute Z', lambda sc: sc.motion.move_absolute('Z', 100.0)),
     ('move_relative X', lambda sc: sc.motion.move_relative('X', 10.0)),
-    ('home Z', lambda sc: sc.motion.home('Z')),
     ('set_gain_db', lambda sc: sc.imaging.set_gain_db(2.0)),
     ('set_exposure_ms', lambda sc: sc.imaging.set_exposure_ms(20.0)),
 ]
@@ -178,10 +178,14 @@ class TestTheMembers:
     def test_an_open_write_is_admitted(self, sim_session, recording, call):
         call(sim_session.scope)
 
-    def test_a_whole_scope_home_without_a_turret_is_admitted(self, sim_session, recording):
+    @pytest.mark.parametrize('axis', ['Z', 'ALL'])
+    def test_a_home_that_moves_no_turret_is_refused_naming_the_recording(
+        self, sim_session, recording, axis
+    ):
         scope = sim_session.scope
         motion = scope.motion
         no_turret = dataclasses.replace(scope.capabilities, has_turret=False)
+        impl = '_zhome_impl' if axis == 'Z' else '_home_impl'
         calls = []
 
         def _home_body():
@@ -189,10 +193,13 @@ class TestTheMembers:
 
         with (
             patch.object(scope, 'capabilities', no_turret),
-            patch.object(motion, '_home_impl', _home_body),
+            patch.object(motion, impl, _home_body),
+            pytest.raises(HardwareCommandRefusedError) as refused,
         ):
-            motion.home('ALL')
-        assert calls == [1]
+            motion.home(axis)
+        assert refused.value.holder == 'recording'
+        assert str(refused.value) == 'A recording is using the microscope. Try again when it ends.'
+        assert calls == []
 
 
 class TestTheSessionStores:
@@ -224,7 +231,7 @@ class TestTheSessionConfiguration:
     """The objective and the plate are the Session's two copies each; a held
     scope refuses a change before either copy moves."""
 
-    @pytest.mark.parametrize('kind', ['protocol', 'diagnostic', 'recording'])
+    @pytest.mark.parametrize('kind', ['protocol', 'diagnostic', 'recording', 'home'])
     def test_a_labware_change_is_refused_under_any_holder(self, sim_session, kind):
         loader = sim_session.wellplate_loader
         current = sim_session.settings['protocol']['labware']
@@ -277,7 +284,7 @@ class TestReselectingThePlateInPlace:
     and the toggle is live under every hold; that re-selection changes
     nothing and must not raise out of the GUI's handler."""
 
-    @pytest.mark.parametrize('kind', ['protocol', 'diagnostic', 'recording'])
+    @pytest.mark.parametrize('kind', ['protocol', 'diagnostic', 'recording', 'home'])
     def test_the_plate_in_place_is_admitted_under_any_holder(self, sim_session, kind):
         current = sim_session.settings['protocol']['labware']
         held = sim_session.activity_claim.try_claim(

@@ -1881,13 +1881,13 @@ class HardwareCommandRefusedError(Refusal, Exception):
     Raised to whoever made the command -- a public hardware member (LED,
     camera and motion commands), a raw task on a lane, the Session's
     objective writers -- and never dropped: a command refused without a
-    raise reaches no hardware and reports success. While a run or a
-    diagnostic holds the scope, a lane refuses any task not made under
+    raise reaches no hardware and reports success. While a run, a
+    diagnostic or a home holds the scope, a lane refuses any task not made under
     the holder's taking with this; so do the run's own executor fences,
     which cannot say who closed them.
 
     The Session's objective writers (select, slot assign and slot clear)
-    raise it too while a run or a diagnostic holds the scope: the run
+    raise it too while a run, a diagnostic or a home holds the scope: the run
     stamps the active objective's scale into each capture, so a change
     mid-run is a command against the run's hardware state.
 
@@ -2046,7 +2046,22 @@ _AXIS_PARTS = {
 _MISSING_PART_REASONS = frozenset({'not_connected', 'axis_absent'})
 
 
-_HOLDER_NOUNS = {'protocol': 'A run', 'diagnostic': 'A diagnostic', 'recording': 'A recording'}
+_HOLDER_NOUNS = {
+    'protocol': 'A run',
+    'diagnostic': 'A diagnostic',
+    'recording': 'A recording',
+    'home': 'A home',
+}
+
+
+def the_activity_named(kind: str | None) -> str:
+    """Name an activity holding the scope by its kind, to open a sentence.
+
+    The one table every refusal and lockout sentence reads, so a kind is
+    worded the same wherever it is named. 'Another activity' when the kind
+    is unknown -- a holder that released before it could be read.
+    """
+    return _HOLDER_NOUNS.get(kind, 'Another activity')
 
 
 def _command_refused_sentence(reason: str, holder: str | None) -> str:
@@ -2067,15 +2082,14 @@ def _command_refused_sentence(reason: str, holder: str | None) -> str:
         return "The microscope's lid is open. Close it to move or home the stage."
     if reason == 'stage_unpowered':
         return "The stage has no power. Check the stage's power supply, then home."
-    who = _HOLDER_NOUNS.get(holder, 'Another activity')
-    return f'{who} is using the microscope. Try again when it ends.'
+    return f'{the_activity_named(holder)} is using the microscope. Try again when it ends.'
 
 
 class DiagnosticRefusedError(Refusal, Exception):
     """A diagnostic could not take the scope: another activity holds it.
 
-    Raised by ``ScopeSession.diagnostic_claim()`` when a run, a recording
-    or another diagnostic already holds the session's activity claim. A
+    Raised by ``ScopeSession.diagnostic_claim()`` when a run, a recording, a
+    home or another diagnostic already holds the session's activity claim. A
     diagnostic drives the hardware directly (homes, LED modes, forced
     grabs), so it runs only on a scope nothing else is using, and a caller
     told why can wait for the holder or stop it. Nothing was committed.

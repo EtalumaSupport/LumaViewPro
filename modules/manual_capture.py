@@ -115,8 +115,8 @@ class ManualCaptureController:
                 is named, created or captured.
             HardwareCommandRefusedError: reason ``'capture_in_flight'``,
                 while an earlier still has not finished;
-                ``'exclusive_activity_running'``, while a run or a
-                diagnostic holds the scope and this call is not made under
+                ``'exclusive_activity_running'``, while a run, a
+                diagnostic or a home holds the scope and this call is not made under
                 its taking; ``'scope_disconnected'``, when the camera lane
                 is closed.
         """

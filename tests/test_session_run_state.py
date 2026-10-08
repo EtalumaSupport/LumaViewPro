@@ -282,8 +282,14 @@ class TestTheLockoutNamesWhatHoldsTheScope:
     def test_a_diagnostic_is_named_as_one(self):
         session = _make_session()
         assert session.activity_claim.try_claim('diagnostic')
-        assert session.run_lockout_named == 'A diagnostic activity is in progress.'
+        assert session.run_lockout_named == 'A diagnostic is in progress.'
         assert session.run_lockout is True
+
+    def test_a_home_is_named_as_one(self):
+        session = _make_session()
+        assert session.activity_claim.try_claim('home')
+        assert session.run_lockout_named == 'A home is in progress.'
+        assert session.controls_locked is True
 
     def test_a_recording_is_not_a_lockout(self):
         session = _make_session()

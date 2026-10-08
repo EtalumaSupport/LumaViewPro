@@ -860,7 +860,7 @@ class IlluminationAPI:
         nothing logged.
 
         The lane's ``call`` decides a refusal and raises it to the caller:
-        the lane is closed, or a run or a diagnostic holds the scope and this
+        the lane is closed, or a run, a diagnostic or a home holds the scope and this
         call is not made under its taking. The body asks for the LED
         controller on the lane (``refuse_controller_not_connected``), so a
         lane refusal is never hidden behind the presence question.

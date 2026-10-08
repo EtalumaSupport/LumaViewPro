@@ -320,8 +320,8 @@ class ScopeSession:
         # refusal gate and the recording engine's start), which take
         # this handle by injection.
         self.activity_claim = ActivityClaim(on_transition=self.notify_run_state)
-        # The device lanes ask the claim before running work, so while a run
-        # or a diagnostic holds the scope only its own work reaches the
+        # The device lanes ask the claim before running work, so while a run,
+        # a diagnostic or a home holds the scope only its own work reaches the
         # hardware, whoever submits. The IO key is kept for the one named
         # override on that lane, shutdown's LED drain; the camera key goes to
         # the scope for its temperature read, so the lanes ask before the
@@ -424,12 +424,13 @@ class ScopeSession:
     def _register_scope_services(self, scope) -> None:
         """Register the session's services on a scope (the one bring-up).
 
-        The camera override key lives on the scope but belongs to the
-        session's composition. Construction comes through here so no scope
-        the session drives can be left un-serviced -- the bring-up steps are
-        spelled out exactly once.
+        The camera override key and the activity claim its homes take live
+        on the scope but belong to the session's composition. Construction
+        comes through here so no scope the session drives can be left
+        un-serviced -- the bring-up steps are spelled out exactly once.
         """
         scope.set_camera_override_key(self._camera_override_key)
+        scope.set_activity_claim(self.activity_claim)
 
     @api
     @contextlib.contextmanager
@@ -455,8 +456,8 @@ class ScopeSession:
             The held claim.
 
         Raises:
-            DiagnosticRefusedError: A run, a recording or another
-                diagnostic holds the scope. Nothing was taken.
+            DiagnosticRefusedError: A run, a recording, a home or
+                another diagnostic holds the scope. Nothing was taken.
             RuntimeError: At the block's end, a run under this claim was
                 still live after the wait; the claim stays held.
         """
@@ -532,7 +533,7 @@ class ScopeSession:
     @property
     def exclusive_activity(self) -> 'str | None':
         """The current exclusive-activity owner: None, 'protocol',
-        'recording', or 'diagnostic'."""
+        'recording', 'diagnostic' or 'home'."""
         return self.activity_claim.owner
 
     @api
@@ -616,8 +617,8 @@ class ScopeSession:
     @api
     @property
     def run_lockout(self) -> bool:
-        """True while a run, a diagnostic, or a run's post-run file drain
-        owns the scope.
+        """True while a run, a diagnostic, a home, or a run's post-run file
+        drain owns the scope.
 
         The drain term encodes a deliberate asymmetry: a finished
         protocol frees its claim while its files drain, but the control
@@ -631,8 +632,8 @@ class ScopeSession:
         """What locks the controls, as a sentence a person reads; None while nothing does.
 
         The run by its kind, a diagnostic as one (a characterization and the
-        support report share its claim), or a finished run's files still
-        writing. The one rule ``run_lockout`` reads.
+        support report share its claim), a home, or a finished run's files
+        still writing. The one rule ``run_lockout`` reads.
         """
         holder = self.activity_claim.holder
         if holder is not None and holder.kind in SCOPE_HOLDING_KINDS:
@@ -1118,8 +1119,9 @@ class ScopeSession:
             How many of the run's images were given up on.
 
         Raises:
-            HardwareCommandRefusedError: a run or a diagnostic holds the
-                scope. The outstanding writes are that run's own captures.
+            HardwareCommandRefusedError: a run, a diagnostic or a home holds the
+                scope: the writer is recovered only while the scope is
+                held by nothing, so no live run's captures are given up on.
             FileWriterNotStuckError: no write has stopped making progress;
                 the writer will finish on its own, and recovering would
                 lose images for nothing.
@@ -1474,7 +1476,7 @@ class ScopeSession:
                 ``enabled`` is not a bool, or ``enabled`` is True and this
                 scope does not have ``layer``; nothing is changed. Turning
                 auto-gain off is always admitted.
-            The lock's refusal, when a run or a diagnostic holds the scope;
+            The lock's refusal, when a run, a diagnostic or a home holds the scope;
                 nothing is stored.
         """
         if layer not in common_utils.get_layers():
@@ -1516,7 +1518,7 @@ class ScopeSession:
 
         Raises:
             ConfigError: this scope has no ``layer``; nothing is applied.
-            HardwareCommandRefusedError: a run or a diagnostic holds the
+            HardwareCommandRefusedError: a run, a diagnostic or a home holds the
                 scope (an autofocus is a run), or ``'not_connected'``, naming
                 the camera, with none connected; nothing is applied.
             CameraSettingRejected: the camera refused a setting; the others
@@ -1964,7 +1966,7 @@ class ScopeSession:
                 motor controller or camera is not connected, or its LED
                 controller is not and the step's preview would light;
                 ``'scope_disconnected'``
-                after ``disconnect()``; or a run or a diagnostic holds the
+                after ``disconnect()``; or a run, a diagnostic or a home holds the
                 scope. Nothing changes.
             PositionOutOfRangeError: the step lies outside an axis's travel;
                 the axes before it have moved, nothing else changes.

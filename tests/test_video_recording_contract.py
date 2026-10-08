@@ -537,9 +537,10 @@ class TestExclusivity:
         ('kind', 'run', 'named'),
         [
             ('protocol', run_identity('api_zstack', 'Z-stack'), 'The Z-stack run'),
-            ('diagnostic', None, 'A diagnostic activity'),
+            ('diagnostic', None, 'A diagnostic'),
+            ('home', None, 'A home'),
         ],
-        ids=['run', 'diagnostic'],
+        ids=['run', 'diagnostic', 'home'],
     )
     def test_the_refusal_names_what_holds_the_scope(self, tmp_path, kind, run, named):
         """One phrasing with every other holder refusal: a run by its kind,

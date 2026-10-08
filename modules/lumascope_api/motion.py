@@ -3,11 +3,10 @@
 
 MotionAPI owns the motion state slots (_pos_cache, _axis_state,
 _arrival_events, _position_listeners, _motion_wake,
-_motion_monitor_stop, _motion_monitor_thread, _home_in_flight,
-_turreting_event) and the bodies of all stage / focus / turret
-methods. Lumascope keeps a small set of one-line method-name
-forwarders (home, move_absolute, etc.) for
-production callers; those retire as production migrates.
+_motion_monitor_stop, _motion_monitor_thread, _turreting_event) and
+the bodies of all stage / focus / turret methods. Lumascope keeps a
+small set of one-line method-name forwarders (home, move_absolute, etc.)
+for production callers; those retire as production migrates.
 
 Constructor signature:
     MotionAPI(scope, driver) -- scope is the Lumascope back-ref;
@@ -49,6 +48,7 @@ from modules.exceptions import (
     PositionOutOfRangeError,
 )
 from modules.notification_center import notifications
+from modules.activity_claim import Taking, acting, current_taking
 from modules.sequential_io_executor import IOTask, slow_task_budget
 
 # Declared costs, module-level because the @slow_task_budget decorators run at
@@ -252,11 +252,6 @@ class MotionAPI:
         self._position_listeners_lock = threading.Lock()
         self._position_listeners: list = []
 
-        # Held from the moment a home is asked until its lane body ends, so a
-        # home asked meanwhile is refused when it is asked, rather than
-        # queued behind the first and run in full after it. Released on the
-        # lane, which a plain Lock allows.
-        self._home_in_flight = threading.Lock()
         self._turreting_event = threading.Event()  # set => turret move in progress
 
         # Motion monitor thread handle -- populated by _start_monitor().
@@ -1451,8 +1446,8 @@ class MotionAPI:
     # Stateful method bodies.
     #
     # State slots (_pos_cache, _axis_state, _arrival_events,
-    # _position_listeners, _motion_wake, _motion_monitor_*, _home_in_flight,
-    # _turreting_event) live on this surface.
+    # _position_listeners, _motion_wake, _motion_monitor_*, _turreting_event)
+    # live on this surface.
     # ------------------------------------------------------------------
 
     # --- CR-2: Thread-safe properties for shared state ---
@@ -2222,7 +2217,7 @@ class MotionAPI:
         nothing logged.
 
         The lane's ``call`` decides a refusal and raises it to the caller:
-        the lane is closed, or a run or a diagnostic holds the scope and this
+        the lane is closed, or a run, a diagnostic or a home holds the scope and this
         call is not made under its taking, or ``falsifies_recording`` is set
         and a recording holds the scope.
 
@@ -2383,26 +2378,32 @@ class MotionAPI:
             ValueError: on an unknown axis.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller, or no Z or turret to
-                home (see ``_refuse_absent``); or the lane refused the home: a
-                run or a diagnostic holds the scope, or a recording does
-                and this home moves the turret (``'T'``, or ``'ALL'`` on a
-                scope with one).
+                home (see ``_refuse_absent``); or ``'exclusive_activity_running'``,
+                a run, a diagnostic or a recording holds the scope.
             HomingFailedError: the home was driven and did not establish
                 a reference: the driver answered False or raised, or a
                 homed axis's position could not be read. The axes it
                 names are UNKNOWN.
             HardwareCommandRefusedError: ``'home_in_flight'``, while a home
                 asked earlier, by any caller, has not ended.
+
+        While it runs, the home holds the session's activity claim as a run
+        does: every other request to the scope is refused, naming the home,
+        and the controls lock until it ends. Asked by an activity that
+        already holds the scope (the support report's diagnostic), it runs
+        as that activity's work and takes no claim of its own.
         """
         impl, settle_windows = self._home_body(axis)
-        body, release_if_unrun = self._claim_home(impl)
+        body, release_if_unrun, taking = self._claim_home(impl)
         try:
-            self._dispatch_motion(
-                body,
-                'home',
-                timeout_s=self._MOTION_WAIT_BASE_S + settle_windows * self._MOTION_SETTLE_TIMEOUT_S,
-                falsifies_recording=self._home_moves_turret(impl),
-            )
+            with acting(taking):
+                self._dispatch_motion(
+                    body,
+                    'home',
+                    timeout_s=self._MOTION_WAIT_BASE_S
+                    + settle_windows * self._MOTION_SETTLE_TIMEOUT_S,
+                    falsifies_recording=self._home_moves_turret(impl),
+                )
         except concurrent.futures.TimeoutError:
             # The home is still queued or running, and its body releases the
             # claim when it ends; until then it is in flight.
@@ -2424,21 +2425,22 @@ class MotionAPI:
         Raises:
             ValueError: on an unknown axis.
             HardwareCommandRefusedError: ``'home_in_flight'``, while a home
-                asked earlier has not ended; or the lane refused the home,
-                as ``home`` is refused.
+                asked earlier has not ended; or the home was refused as
+                ``home`` is refused.
         """
         impl, _ = self._home_body(axis)
-        body, release_if_unrun = self._claim_home(impl)
+        body, release_if_unrun, taking = self._claim_home(impl)
         future: concurrent.futures.Future[None] = concurrent.futures.Future()
         # Marked running before anyone else holds it, so only the lane
         # settles it and a caller's cancel() cannot release the claim.
         future.set_running_or_notify_cancel()
         try:
-            self._scope._io_executor.submit(
-                IOTask(action=body, falsifies_recording=self._home_moves_turret(impl)),
-                'home',
-                waiter=future,
-            )
+            with acting(taking):
+                self._scope._io_executor.submit(
+                    IOTask(action=body, falsifies_recording=self._home_moves_turret(impl)),
+                    'home',
+                    waiter=future,
+                )
         except BaseException:
             release_if_unrun()
             raise
@@ -2456,32 +2458,56 @@ class MotionAPI:
             return self._home_impl, 1
         raise ValueError(f"Unknown home axis {axis!r}: expected 'Z', 'T', or 'ALL'")
 
-    def _claim_home(self, impl) -> tuple[Callable[[], None], Callable[[], None]]:
-        """Take the one home in flight for ``impl``, or refuse this one.
+    def _claim_home(self, impl) -> tuple[Callable[[], None], Callable[[], None], Taking | None]:
+        """Take the scope for a home of ``impl``, or refuse this one.
 
         Returns the lane body, which runs ``impl`` and releases the claim when
-        it ends, and the release for a body the lane never ran: refused at
-        admission, refused while queued, or dropped. A body that started
-        releases its own, so the second is a no-op then.
+        it ends; the release for a body the lane never ran: refused at
+        admission, refused while queued, or dropped (a body that started
+        releases its own, so the second is a no-op then); and the taking the
+        home is submitted under, so the lane runs it while the claim holds.
+
+        Asked under a live taking, the home is that activity's work: it is
+        submitted under that taking and takes nothing. On a scope no session
+        composes there is no claim, and the home takes nothing either.
+
+        Raises:
+            HardwareCommandRefusedError: ``'home_in_flight'`` while another
+                home holds the scope; ``'exclusive_activity_running'``,
+                naming the holder, while anything else does.
         """
-        if not self._home_in_flight.acquire(blocking=False):
-            raise HardwareCommandRefusedError('home_in_flight', 'home')
+        current = current_taking()
+        claim = self._scope._activity_claim
+        held = None
+        if claim is not None and (current is None or not current.holds):
+            held = claim.try_claim('home')
+            if held is None:
+                holder = claim.holder
+                if holder is not None and holder.kind == 'home':
+                    raise HardwareCommandRefusedError('home_in_flight', 'home')
+                raise HardwareCommandRefusedError(
+                    'exclusive_activity_running', 'home', holder.kind if holder else None
+                )
         started = threading.Event()
+
+        def release() -> None:
+            if held is not None:
+                held.release()
 
         def body() -> None:
             started.set()
             try:
                 impl()
             finally:
-                self._home_in_flight.release()
+                release()
 
         def release_if_unrun() -> None:
             if not started.is_set():
-                self._home_in_flight.release()
+                release()
 
         # The lane names a task by its action, so its log lines name the home.
         body.__name__ = body.__qualname__ = impl.__name__
-        return body, release_if_unrun
+        return body, release_if_unrun, held if held is not None else current
 
     @api
     def move_turret(self, position: int, restore_z: bool = True) -> None:

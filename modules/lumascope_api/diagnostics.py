@@ -102,8 +102,8 @@ def _refuse_motor_verb(command: str) -> None:
 class DiagnosticsAPI:
     """Diagnostics sub-API. Forwards to Lumascope composition root.
 
-    Every member that transmits runs on its device's lane, so while a run or
-    a diagnostic holds the scope it is refused to anyone not acting under
+    Every member that transmits runs on its device's lane, so while a run, a
+    diagnostic or a home holds the scope it is refused to anyone not acting under
     the holder's taking. The one exception is the camera temperature read,
     which the lane admits whatever holds: it changes nothing a holder
     depends on, and the temperature log keeps running through a run. The
@@ -821,7 +821,7 @@ class DiagnosticsAPI:
         Raises:
             ValueError: A motor command that moves, stops or repositions a
                 motor; the motion API carries those.
-            HardwareCommandRefusedError: a run or a diagnostic holds the
+            HardwareCommandRefusedError: a run, a diagnostic or a home holds the
                 scope and this call is not made under its taking; the
                 command is not sent. An exchange that fails once sent is
                 still answered with ``'Error: <msg>'``.
@@ -894,7 +894,7 @@ class DiagnosticsAPI:
         Raises:
             ValueError: A motor command that moves, stops or repositions a
                 motor; the motion API carries those.
-            HardwareCommandRefusedError: a run or a diagnostic holds the
+            HardwareCommandRefusedError: a run, a diagnostic or a home holds the
                 scope and this call is not made under its taking; the
                 command is not sent. An exchange that fails once sent is
                 still answered with ``'Error: <msg>'``.
