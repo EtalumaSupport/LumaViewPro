@@ -10,6 +10,8 @@ from modules import labware_loader
 from modules.exceptions import SettingsFileNotReplacedError, StoredSettingReplacedNotice
 from modules.path_utils import read_installation_file
 
+# A setting's value: what one leaf of the settings file holds.
+type SettingValue = str | int | float | bool | list | dict | None
 
 settings = None
 

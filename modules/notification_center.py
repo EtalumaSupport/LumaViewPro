@@ -48,6 +48,7 @@ from modules.exceptions import (
     ScopeDisconnectError,
     SupportReportNotSavedError,
 )
+from modules.api_surface import api_fields
 
 logger = logging.getLogger('LVP.notifications')
 # The reporter's own record -- what happened, with the traceback when it is
@@ -149,6 +150,23 @@ def _next_outcome_id() -> int:
     return next(_outcome_ids)
 
 
+@api_fields(
+    'severity',
+    'category',
+    'title',
+    'message',
+    'timestamp',
+    'source',
+    'fatal',
+    'solicited',
+    'operation_key',
+    'remedy',
+    'kind',
+    'outcome_id',
+    'reason',
+    'shown',
+    'wall_time',
+)
 @dataclass(frozen=True)
 class Notification:
     """Immutable notification payload delivered to listeners.

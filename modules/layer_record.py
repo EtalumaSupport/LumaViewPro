@@ -29,8 +29,10 @@ from dataclasses import dataclass
 from lvp_logger import logger
 from modules.exceptions import ConfigError, InstallationFileError
 from modules.path_utils import read_installation_file, resolve_data_file
+from modules.api_surface import api, api_fields
 
 
+@api_fields('display_name', 'excitation_nm', 'id', 'key_name', 'led_channel')
 @dataclass(frozen=True)
 class LayerRecord:
     """Identity of one layer on one unit.
@@ -65,6 +67,7 @@ class LayerRecord:
     excitation_nm: float | None
 
 
+@api_fields('filterset', 'layers', 'model', 'source')
 @dataclass(frozen=True)
 class LayerIdentity:
     """The resolved per-unit identity snapshot.
@@ -89,6 +92,7 @@ class LayerIdentity:
     source: str
     model: str | None
 
+    @api
     def find(self, key_name: str) -> LayerRecord | None:
         """Return the layer whose stable key name matches, else None.
 

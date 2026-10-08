@@ -66,10 +66,8 @@ DOC = REPO_ROOT / 'docs' / 'LumascopeSkills.md'
 # (`caps = scope.capabilities` opens the scope.capabilities section) and then
 # uses for 22 copyable forms. Without it those lines -- the whole structure
 # report, which is also the REST /capabilities payload -- would sit outside
-# the guard. `fv = scope.imaging.frame_validity` opens its section the same
-# way, and the frame-validity block is where a published call form last went
-# stale, so the same treatment applies.
-_CALL_FORM = re.compile(r'\b(scope|session|caps|fv)((?:\.[A-Za-z_][A-Za-z0-9_]*)+)')
+# the guard.
+_CALL_FORM = re.compile(r'\b(scope|session|caps)((?:\.[A-Za-z_][A-Za-z0-9_]*)+)')
 
 # Fence languages whose contents are checked. The empty string is an
 # unlabelled ``` block; the reference uses those for python too, and they
@@ -190,7 +188,6 @@ def live_objects(tmp_path_factory):
         'scope': scope,
         'session': session,
         'caps': scope.capabilities,
-        'fv': scope.imaging.frame_validity,
     }
     session.shutdown()
 
@@ -207,6 +204,28 @@ def _walk_chain(root, chain):
             return None, depth
         obj = getattr(obj, attr)
     return obj, None
+
+
+def _first_unmarked_step(root, receiver, chain):
+    """The first ``Class.member`` the chain reaches that is not marked, or None."""
+    from modules.api_surface import fields_of, mark_of
+
+    obj = root
+    for attr in chain:
+        owner = next((k for k in type(obj).__mro__ if attr in vars(k)), None)
+        if owner is None and attr in getattr(obj, '__dict__', {}):
+            owner = type(obj)
+        if owner is None or not owner.__module__.startswith('modules'):
+            return None
+        marked = mark_of(vars(owner).get(attr)) or any(
+            attr in fields_of(k) for k in type(obj).__mro__
+        )
+        if not marked:
+            return f'{owner.__name__}.{attr}'
+        if not hasattr(obj, attr):
+            return None
+        obj = getattr(obj, attr)
+    return None
 
 
 def _first_missing_attr(root, receiver, chain):
@@ -236,6 +255,26 @@ class TestLumascopeSkillsCallFormsResolve:
             'satisfy a doc line.\n' + '\n'.join(sorted(set(failures)))
         )
 
+    def test_every_fenced_call_form_is_api(self, live_objects, doc_text):
+        """Each step of a copyable call form is a marked member.
+
+        Resolving is not enough: an unmarked member resolves too, and a reader
+        who copies it builds on something that can change in any release and
+        that no wire carries. A step on an object no project class defines --
+        a dict, a number, a library type -- ends the walk: what it holds is
+        not ours to mark.
+        """
+        unmarked = []
+        for receiver, chain, lineno in _fenced_call_forms(doc_text):
+            step = _first_unmarked_step(live_objects[receiver], receiver, chain)
+            if step:
+                unmarked.append(f'  {DOC}:{lineno}  {receiver}.{".".join(chain)}  -> {step}')
+        assert not unmarked, (
+            'LumascopeSkills.md teaches call forms through members that are not API '
+            '(no @api, not in @api_fields). Rewrite the line to the marked door, or '
+            'drop it.\n' + '\n'.join(sorted(set(unmarked)))
+        )
+
     def test_guard_actually_reaches_the_reference(self, doc_text):
         """The extractor is wired to real content, not silently finding nothing.
 
@@ -245,19 +284,18 @@ class TestLumascopeSkillsCallFormsResolve:
         the doc got smaller.
         """
         receivers = {r for r, _, _ in _fenced_call_forms(doc_text)}
-        assert receivers == {'scope', 'session', 'caps', 'fv'}, (
+        assert receivers == {'scope', 'session', 'caps'}, (
             f'expected call forms for every documented receiver, saw {receivers or "none"} -- '
             'the fence tracker or the call-form pattern has regressed'
         )
 
 
-# The receivers polarity 2 adds on top of the aliases. An L2 script names these
-# two classes before any alias exists -- `ScopeSession.create(...)` is the first
-# call a consumer makes and `Lumascope(...)` the second -- so they carry the
-# arguments most likely to be copied and the least likely to be re-read. Being
-# classes rather than instances, they are invisible to the alias-rooted
-# attribute check, which is why nothing guarded them until now.
-_CONSTRUCTOR_RECEIVERS = ('Lumascope', 'ScopeSession')
+# The receiver polarity 2 adds on top of the aliases. An L2 script names this
+# class before any alias exists -- `ScopeSession.create(...)` is the first call
+# a consumer makes -- so it carries the arguments most likely to be copied and
+# the least likely to be re-read. Being a class rather than an instance, it is
+# invisible to the alias-rooted attribute check.
+_CONSTRUCTOR_RECEIVERS = ('ScopeSession',)
 
 # Stands in for an argument value. bind() checks arity and parameter names; it
 # never looks at what is passed, and a doc example's values are illustrative.
@@ -266,11 +304,10 @@ _SENTINEL = object()
 
 @pytest.fixture(scope='module')
 def bind_roots(live_objects):
-    """Every receiver polarity 2 resolves against: the aliases plus the classes."""
-    from modules.lumascope_api import Lumascope
+    """Every receiver polarity 2 resolves against: the aliases plus the class."""
     from modules.scope_session import ScopeSession
 
-    return {**live_objects, 'Lumascope': Lumascope, 'ScopeSession': ScopeSession}
+    return {**live_objects, 'ScopeSession': ScopeSession}
 
 
 class TestLumascopeSkillsCallFormsBind:
@@ -326,7 +363,7 @@ class TestLumascopeSkillsCallFormsBind:
         choice rather than a contract.
         """
         receivers = {r for r, _, _, _, _ in _documented_calls(doc_text)}
-        expected = {'scope', 'session', 'fv', *_CONSTRUCTOR_RECEIVERS}
+        expected = {'scope', 'session', *_CONSTRUCTOR_RECEIVERS}
         assert expected <= receivers, (
             f'no documented calls found for {sorted(expected - receivers)} -- the fence '
             'tracker, the block parser or the call extractor has regressed'

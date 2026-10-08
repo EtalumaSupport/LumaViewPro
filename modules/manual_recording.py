@@ -79,6 +79,7 @@ from modules.video_recording import (
 )
 from modules.scheduler import Scheduler
 from modules.video_writer import VideoWriter
+from modules.api_surface import api
 
 # The channel LumaViewPro comes up on. A recording that can name no other
 # channel was taken on this one, so identity always has a real value and
@@ -179,21 +180,25 @@ class ManualRecordingController:
     # Status surface (GUI polls these; all None-safe)
     # ------------------------------------------------------------------
 
+    @api
     @property
     def is_recording(self) -> bool:
         """True while cadence selection is open."""
         return self._engine is not None and self._engine.is_recording
 
+    @api
     @property
     def is_draining(self) -> bool:
         """True while queued frames are still being written."""
         return self._engine is not None and self._engine.is_draining
 
+    @api
     @property
     def pending_writes(self) -> int:
         """Frames enqueued but not yet on disk."""
         return self._engine.pending_writes if self._engine is not None else 0
 
+    @api
     @property
     def is_busy(self) -> bool:
         """True until the recording, its drain, AND the finish complete.
@@ -203,6 +208,7 @@ class ManualRecordingController:
         """
         return self.is_recording or self.is_draining or self._finishing
 
+    @api
     @property
     def elapsed_s(self) -> float:
         """Seconds since the recording started; 0.0 when idle."""
@@ -210,6 +216,7 @@ class ManualRecordingController:
             return 0.0
         return self._clock() - self._start_ts
 
+    @api
     @property
     def save_folder(self) -> Path | None:
         """The active (or last) recording's output folder."""
@@ -219,6 +226,7 @@ class ManualRecordingController:
     # Lifecycle
     # ------------------------------------------------------------------
 
+    @api
     def start(
         self,
         *,
@@ -577,6 +585,7 @@ class ManualRecordingController:
         self._finish_thread = None
         self._finishing = False
 
+    @api
     def stop(self, reason: str = 'user_stop') -> None:
         """Close selection; the drain and finish continue on their own.
 
@@ -597,6 +606,7 @@ class ManualRecordingController:
             logger.warning(f'[ManualRecord] remove_frame_listener failed: {e}')
         engine.stop(reason)
 
+    @api
     @property
     def end_reason(self) -> str | None:
         """Why the most recent recording ended, or None before any has.
@@ -663,6 +673,7 @@ class ManualRecordingController:
             RecordingStoppedError(reason), solicited=False, category='Recording'
         )
 
+    @api
     def discard_pending(self) -> None:
         """Drop the unwritten backlog loudly (the app-close discard path)."""
         if self._engine is not None:

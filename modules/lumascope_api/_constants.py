@@ -16,6 +16,7 @@ import numbers
 from typing import NamedTuple
 
 from modules.exceptions import AccelerationLimitRefusedError
+from modules.api_surface import api_fields
 
 # Structural axis-name vocabulary used only for input sanity checks
 # ("did the caller pass a real axis letter?"). NOT a capability query --
@@ -96,6 +97,7 @@ class AxisState:
     HOMING = 'homing'  # Homing sequence in progress
 
 
+@api_fields('position', 'state')
 class AxisPosition(NamedTuple):
     """One axis's state and its position, read together.
 

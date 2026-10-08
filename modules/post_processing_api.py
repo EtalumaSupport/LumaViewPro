@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING
 from lvp_logger import logger
 from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
 from modules.sequential_io_executor import IOTask
+from modules.api_surface import api
 
 if TYPE_CHECKING:
     import numpy as np
@@ -65,6 +66,7 @@ class PostProcessingAPI:
         self._has_turret = has_turret
         self._settings_snapshot = settings_snapshot
 
+    @api
     def stitch(
         self,
         folder: str | pathlib.Path,
@@ -96,6 +98,7 @@ class PostProcessingAPI:
             stitching_mode=mode,
         )
 
+    @api
     def zproject(
         self,
         folder: str | pathlib.Path,
@@ -126,6 +129,7 @@ class PostProcessingAPI:
             method=method,
         )
 
+    @api
     def composite(
         self,
         folder: str | pathlib.Path,
@@ -153,6 +157,7 @@ class PostProcessingAPI:
             brightness_thresholds_percent=config_helpers.get_composite_blend_thresholds(settings),
         )
 
+    @api
     def video(
         self,
         folder: str | pathlib.Path,
@@ -182,6 +187,7 @@ class PostProcessingAPI:
             enable_timestamp_overlay=timestamp_overlay,
         )
 
+    @api
     def enhance(
         self,
         target: str | pathlib.Path,
@@ -204,6 +210,7 @@ class PostProcessingAPI:
             self._enhance, 'enhance', pathlib.Path(target), on_progress, on_derived_image
         )
 
+    @api
     def count_cells(
         self,
         folder: str | pathlib.Path,

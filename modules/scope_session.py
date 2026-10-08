@@ -26,7 +26,7 @@ import threading
 import time
 import typing
 from collections.abc import Callable, Iterable, Iterator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import modules.app_context as _app_ctx
 import modules.settings_init as settings_init
@@ -67,6 +67,7 @@ from modules.plugins import PLUGIN_API_LEVEL
 from modules.run_outcome import RunEnding
 from modules.scheduler import Scheduler, ThreadingTimerScheduler
 from modules.sequential_io_executor import IOTask, slow_task_budget
+from modules.api_surface import api, api_fields
 
 # How long a diagnostic's end waits for a run it lent its claim to. The
 # window of one autofocus inside a characterization. Per
@@ -104,9 +105,11 @@ if TYPE_CHECKING:
 
     from drivers.simulated_camera import SimulatedStall
     from modules.labware_loader import WellPlateLoader
+    from modules.lumascope_api import Lumascope
     from modules.lumascope_api.bring_up import BringUpRecord
     from modules.lumascope_api.imaging import AutoGainLock
     from modules.lumascope_api.motion import MoveInFlight
+    from modules.notification_center import Notification
     from modules.objectives_loader import ObjectiveLoader
     from modules.protocol import Protocol, ProtocolSizeAdvisory
     from modules.lumascope_api.protocols import StepTargets
@@ -114,6 +117,8 @@ if TYPE_CHECKING:
     from modules.protocol_runner import ProtocolRunner
     from modules.sequential_io_executor import SequentialIOExecutor
     from modules.plugins import PluginHealth
+    from modules.post_processing_api import PostProcessingAPI
+    from modules.settings_init import SettingValue
     from modules.tech_support_report import SupportReportSaved
 
 
@@ -155,6 +160,7 @@ def _tell_stored_replacements(pending: list[tuple[str, object, object]]) -> None
     )
 
 
+@api_fields('choices', 'proposed', 'turret_position')
 @dataclasses.dataclass(frozen=True)
 class ObjectiveQuestion:
     """The objective is unknowable; this is what to ask the user.
@@ -180,6 +186,7 @@ class ObjectiveQuestion:
     choices: tuple[str, ...]
 
 
+@api_fields('z', 'step_idx')
 @dataclasses.dataclass(frozen=True)
 class SavedFocus:
     """What ``ScopeSession.save_focus`` wrote.
@@ -193,8 +200,16 @@ class SavedFocus:
     step_idx: int | None
 
 
+@api_fields('engineering_mode', 'manual_capture', 'manual_recording', 'post_processing', 'scope')
 class ScopeSession:
     """Owns the shared, GUI-independent state for one microscope session."""
+
+    # What the session holds, set during construction.
+    engineering_mode: bool
+    manual_capture: ManualCaptureController
+    manual_recording: ManualRecordingController
+    post_processing: 'PostProcessingAPI'
+    scope: 'Lumascope'
 
     def __init__(
         self,
@@ -393,6 +408,7 @@ class ScopeSession:
         """
         return self.scope.camera_lane()
 
+    @api
     @property
     def source_path(self) -> str:
         """The data folder this session runs on: its scope's, never a copy."""
@@ -418,6 +434,7 @@ class ScopeSession:
         """
         scope.set_camera_override_key(self._camera_override_key)
 
+    @api
     @contextlib.contextmanager
     def diagnostic_claim(self) -> Iterator[HeldClaim]:
         """Hold the scope for a diagnostic for the length of a ``with`` block.
@@ -471,6 +488,7 @@ class ScopeSession:
                 )
             held.release()
 
+    @api
     @property
     def is_protocol_running(self) -> bool:
         """True while a protocol-class run holds the scope.
@@ -483,6 +501,7 @@ class ScopeSession:
         """
         return self.activity_claim.run_holder is not None
 
+    @api
     @property
     def run_in_progress(self) -> bool:
         """True while the engine's run is in any phase, its teardown included.
@@ -493,6 +512,7 @@ class ScopeSession:
         """
         return self.sequenced_capture_runner.run_in_progress()
 
+    @api
     def held_by_other(self, run: 'RunHandle | None') -> bool:
         """Whether the scope is held by anything but *run*, a run start() returned.
 
@@ -511,12 +531,14 @@ class ScopeSession:
     # thread, including inside a transition listener.
     # ------------------------------------------------------------------
 
+    @api
     @property
     def exclusive_activity(self) -> 'str | None':
         """The current exclusive-activity owner: None, 'protocol',
         'recording', or 'diagnostic'."""
         return self.activity_claim.owner
 
+    @api
     @property
     def close_drain_pending(self) -> bool:
         """True while a close would cut video short: a recording live, draining or finishing, or a run's video step writing.
@@ -532,6 +554,7 @@ class ScopeSession:
         """
         return self.manual_recording.is_busy or self.sequenced_capture_runner.video_drain_busy
 
+    @api
     @property
     def close_drain_frames(self) -> int:
         """How many video frames a close would wait for, across both drains.
@@ -545,6 +568,7 @@ class ScopeSession:
             + self.sequenced_capture_runner.video_pending_writes
         )
 
+    @api
     def discard_close_drain(self) -> None:
         """Drop every video frame still queued in either drain, loudly.
 
@@ -554,6 +578,7 @@ class ScopeSession:
         self.manual_recording.discard_pending()
         self.sequenced_capture_runner.discard_video_pending()
 
+    @api
     @property
     def protocol_files_draining(self) -> bool:
         """True from the end of a run until its last file is written.
@@ -564,6 +589,7 @@ class ScopeSession:
         batch = self.sequenced_capture_runner.write_batch()
         return batch is not None and batch.draining
 
+    @api
     @property
     def protocol_files_pending(self) -> int:
         """How many of a finished run's file writes are still to finish, the
@@ -571,6 +597,7 @@ class ScopeSession:
         batch = self.sequenced_capture_runner.write_batch()
         return batch.pending if batch is not None and batch.draining else 0
 
+    @api
     @property
     def protocol_files_stalled(self) -> bool:
         """True while a run's files are draining and the write in flight has
@@ -583,11 +610,13 @@ class ScopeSession:
             WRITE_STALL_FATAL_S
         )
 
+    @api
     @property
     def protocol_files_stuck_write(self) -> str:
         """The write in flight on the file lane, named for a stall report."""
         return self.file_io_executor.describe_running_task()
 
+    @api
     @property
     def run_lockout(self) -> bool:
         """True while a run, a diagnostic, or a run's post-run file drain
@@ -599,6 +628,7 @@ class ScopeSession:
         """
         return self.run_lockout_named is not None
 
+    @api
     @property
     def run_lockout_named(self) -> str | None:
         """What locks the controls, as a sentence a person reads; None while nothing does.
@@ -614,6 +644,7 @@ class ScopeSession:
             return "A protocol's files are still being written."
         return None
 
+    @api
     @property
     def recording_active(self) -> bool:
         """True while a manual recording is LIVE; its drain reads False, with
@@ -624,6 +655,7 @@ class ScopeSession:
         """
         return self.manual_recording.is_recording
 
+    @api
     @property
     def controls_locked(self) -> bool:
         """True while the full control surface locks: any run lockout,
@@ -631,6 +663,7 @@ class ScopeSession:
         controls while its claim still refuses new runs)."""
         return self.run_lockout or self.recording_active
 
+    @api
     @property
     def motion_enabled(self) -> bool:
         """True when user stage motion is allowed: the scope actually has
@@ -644,7 +677,8 @@ class ScopeSession:
         motion available on a scope that has no stage."""
         return self.scope.capabilities.has_xy_stage and not self.run_lockout
 
-    def add_run_state_listener(self, listener) -> None:
+    @api
+    def add_run_state_listener(self, listener: Callable[[], None]) -> None:
         """Register a run-state transition listener and level-sync it.
 
         The immediate call is the level republish: transitions are
@@ -670,7 +704,8 @@ class ScopeSession:
             except Exception as ex:
                 notifications.report_outcome(ex, solicited=False, category='Run State')
 
-    def add_outcome_listener(self, listener: Callable[[Any], None]) -> None:
+    @api
+    def add_outcome_listener(self, listener: Callable[['Notification'], None]) -> None:
         """Hear every outcome the scope reports from now on.
 
         ``listener(notification)`` is called once per delivery, on the thread
@@ -691,7 +726,8 @@ class ScopeSession:
         notifications.add_listener(listener, min_severity=Severity.DEBUG)
         self._outcome_listeners.append(listener)
 
-    def remove_outcome_listener(self, listener: Callable[[Any], None]) -> None:
+    @api
+    def remove_outcome_listener(self, listener: Callable[['Notification'], None]) -> None:
         """Stop ``listener`` hearing outcomes; a listener never added is a no-op."""
         from modules.notification_center import notifications
 
@@ -702,6 +738,7 @@ class ScopeSession:
     # Factory helpers
     # ------------------------------------------------------------------
 
+    @api(in_process=True)
     @staticmethod
     def set_ui_dispatcher(dispatcher: UiDispatcher | None) -> None:
         """Set how the process hands a callback to its UI thread.
@@ -721,12 +758,13 @@ class ScopeSession:
         """
         kivy_utils._set_ui_dispatcher(dispatcher)
 
+    @api(in_process=True)
     @classmethod
     def create(
         cls,
         settings: dict,
         source_path: str | None = None,
-        scope: object | None = None,
+        scope: 'Lumascope | None' = None,
         *,
         simulate: bool = False,
         warn_pre_release: bool = True,
@@ -735,7 +773,7 @@ class ScopeSession:
         plugin_health: 'Callable[[], PluginHealth] | None' = None,
         sim_camera_stall: 'SimulatedStall | None' = None,
         sim_file_stall: 'SimulatedStall | None' = None,
-        outcome_listener: Callable[[Any], None] | None = None,
+        outcome_listener: Callable[['Notification'], None] | None = None,
     ) -> 'ScopeSession':
         """Create a session, constructing defaults for any missing components.
 
@@ -966,6 +1004,7 @@ class ScopeSession:
             return 'fast'
         return tier
 
+    @api(in_process=True)
     @staticmethod
     def load_user_settings(source_path: str) -> dict:
         """The user's configuration, as the GUI would configure a scope from it.
@@ -1070,6 +1109,7 @@ class ScopeSession:
     # Convenience wrappers (delegate to config_helpers / scope_commands)
     # ------------------------------------------------------------------
 
+    @api
     def recover_file_writer(self) -> int:
         """Give up on a finished run's unwritten images and unlock a stuck writer.
 
@@ -1108,6 +1148,7 @@ class ScopeSession:
         self.file_io_executor.replace_stuck_worker()
         return abandoned
 
+    @api
     def apply_remedy(self, remedy: Remedy) -> int:
         """Take the action a refusal named as its remedy, and return its answer.
 
@@ -1134,6 +1175,7 @@ class ScopeSession:
             raise RemedyUnknownError(remedy.member, remedies)
         return action()
 
+    @api
     def get_layer_configs(self, specific_layers: list | None = None) -> dict:
         import modules.config_helpers as config_helpers
 
@@ -1156,6 +1198,7 @@ class ScopeSession:
         for entry in layer_entries:
             entry['autofocus'] = False
 
+    @api
     def saved_focus(self, layer: str) -> float:
         """The Z saved as ``layer``'s focus.
 
@@ -1170,21 +1213,25 @@ class ScopeSession:
             raise FocusNotSavedError(layer)
         return focus
 
+    @api
     def get_stim_configs(self) -> dict:
         import modules.config_helpers as config_helpers
 
         return config_helpers.get_stim_configs(self.settings)
 
+    @api
     def get_enabled_stim_configs(self) -> dict:
         import modules.config_helpers as config_helpers
 
         return config_helpers.get_enabled_stim_configs(self.settings)
 
+    @api
     def get_auto_gain_settings(self) -> dict:
         import modules.config_helpers as config_helpers
 
         return config_helpers.get_auto_gain_settings(self.settings)
 
+    @api
     def get_sequenced_capture_config(
         self,
         *,
@@ -1218,6 +1265,7 @@ class ScopeSession:
             use_zstacking=use_zstacking,
         )
 
+    @api
     def load_protocol(self, file_path: 'str | os.PathLike') -> 'Protocol':
         """Load the protocol at ``file_path`` and put the scope on its plate.
 
@@ -1269,6 +1317,7 @@ class ScopeSession:
                 )
                 self.settings[name]['acquire'] = None
 
+    @api
     def apply_layer_settings(self, protocol: 'Protocol') -> None:
         """Put a protocol's Layer Settings into this session's layer controls.
 
@@ -1317,6 +1366,7 @@ class ScopeSession:
                 if row['Stim_Enabled'] is not None and isinstance(stim, dict):
                     stim['enabled'] = row['Stim_Enabled']
 
+    @api
     def save_protocol(self, protocol: 'Protocol', file_path: 'str | os.PathLike') -> pathlib.Path:
         """Write a protocol to a file, with this session's Layer Settings.
 
@@ -1374,6 +1424,7 @@ class ScopeSession:
             f'so {layer} cannot {then}'
         )
 
+    @api
     def set_layer_acquire(self, layer: str, mode: 'str | None') -> None:
         """Set what a layer captures: ``'image'``, ``'video'``, or None (nothing).
 
@@ -1407,6 +1458,7 @@ class ScopeSession:
         if mode is not None and stim is not None:
             stim['enabled'] = False
 
+    @api
     def set_layer_auto_gain(self, layer: str, enabled: bool) -> 'AutoGainLock | None':
         """Turn a layer's auto-gain on or off, as the GUI's Auto Gain/Exp box does.
 
@@ -1454,6 +1506,7 @@ class ScopeSession:
             stored['auto_gain'] = enabled
         return lock
 
+    @api
     def apply_layer_camera(self, layer: str) -> dict | None:
         """Put ``layer``'s stored exposure, gain and auto-gain on the camera, and wait.
 
@@ -1501,6 +1554,7 @@ class ScopeSession:
             auto_gain_settings=auto_gain_settings,
         )
 
+    @api
     def new_protocol(
         self,
         *,
@@ -1548,6 +1602,7 @@ class ScopeSession:
             )
         return self.scope.protocols.create_protocol(input_config=config)
 
+    @api
     def create_empty_protocol(self) -> 'Protocol':
         """A protocol with no steps, on this session's labware and timing.
 
@@ -1564,6 +1619,7 @@ class ScopeSession:
             )
         )
 
+    @api
     def add_step(
         self,
         protocol: 'Protocol',
@@ -1595,6 +1651,7 @@ class ScopeSession:
             after_step=after_step,
         )
 
+    @api
     def update_step(
         self,
         protocol: 'Protocol',
@@ -1627,6 +1684,7 @@ class ScopeSession:
             label=label,
         )
 
+    @api
     def save_focus(
         self, protocol: 'Protocol', layer: str, *, step_idx: int | None = None
     ) -> SavedFocus:
@@ -1658,6 +1716,7 @@ class ScopeSession:
         logger.info(f'[Session  ] Focus saved: {layer} Z={z}, and as the Z of step {step_idx}')
         return SavedFocus(z=z, step_idx=step_idx)
 
+    @api
     def save_layer_focus(self, layer: str, z_um: float) -> None:
         """Store ``z_um`` as ``layer``'s focus, the Z every new step of the layer is born at.
 
@@ -1690,6 +1749,7 @@ class ScopeSession:
             self._store_setting(f'{layer}.focus', z)
         return z
 
+    @api
     def save_bookmark(self, axes: 'Iterable[str]') -> dict:
         """Save where the stage is on ``axes`` as the bookmark, as the bookmark buttons do.
 
@@ -1716,6 +1776,7 @@ class ScopeSession:
         logger.info(f'[Session  ] Bookmark saved: {saved}')
         return saved
 
+    @api
     def save_all_bookmarks(self) -> float:
         """Save the live Z as the Z bookmark and as the focus of every layer this scope has.
 
@@ -1735,6 +1796,7 @@ class ScopeSession:
         logger.info(f'[Session  ] Bookmarks saved: Z={z}, and as the focus of {layers}')
         return z
 
+    @api
     def apply_focus_to_layer_steps(self, protocol: 'Protocol', layer: str) -> int:
         """Save the live Z as ``layer``'s focus and as the Z of its every step.
 
@@ -1753,6 +1815,7 @@ class ScopeSession:
         logger.info(f'[Session  ] Focus applied: {layer} Z={z} to {updated} step(s)')
         return updated
 
+    @api
     def delete_step(self, protocol: 'Protocol', step_idx: int) -> None:
         """Remove step ``step_idx`` from ``protocol``, as the Delete button does.
 
@@ -1762,6 +1825,7 @@ class ScopeSession:
         """
         self.scope.protocols.delete_step(protocol, step_idx)
 
+    @api
     def rename_step(self, protocol: 'Protocol', step_idx: int, name: str) -> str:
         """Give step ``step_idx`` of ``protocol`` the label ``name``; returns its new name.
 
@@ -1772,6 +1836,7 @@ class ScopeSession:
         """
         return self.scope.protocols.rename_step(protocol, step_idx, name)
 
+    @api
     def set_protocol_labware(self, protocol: 'Protocol', plate_key: str) -> str:
         """Put ``protocol`` on the plate ``plate_key``; returns the key it took.
 
@@ -1784,6 +1849,7 @@ class ScopeSession:
         """
         return self.scope.protocols.set_labware(protocol, plate_key)
 
+    @api
     def apply_tiling(self, protocol: 'Protocol', tiling: str) -> None:
         """Expand every step of ``protocol`` into the tile grid ``tiling``, as Apply does.
 
@@ -1809,6 +1875,7 @@ class ScopeSession:
             overlap_percent=self.settings['tiling_overlap_percent'],
         )
 
+    @api
     def apply_zstacking(
         self,
         protocol: 'Protocol',
@@ -1833,6 +1900,7 @@ class ScopeSession:
             protocol, range_um=range_um, step_size_um=step_size_um, z_reference=z_reference
         )
 
+    @api
     def go_to_step(self, protocol: 'Protocol', step_idx: int) -> None:
         """Go to step ``step_idx`` of ``protocol``; return once the camera holds the step's layer and the stage has arrived.
 
@@ -1863,6 +1931,7 @@ class ScopeSession:
             for move in moves:
                 move.wait()
 
+    @api
     def start_go_to_step(self, protocol: 'Protocol', step_idx: int) -> 'tuple[MoveInFlight, ...]':
         """Start going to step ``step_idx`` of ``protocol``, as a click on a step does.
 
@@ -2037,6 +2106,7 @@ class ScopeSession:
             preview_on=self.settings['protocol_led_on'],
         )
 
+    @api
     def protocol_size_advisory(self, protocol: 'Protocol') -> 'ProtocolSizeAdvisory | None':
         """Ask a protocol whether it is large enough to warn the user about.
 
@@ -2060,6 +2130,7 @@ class ScopeSession:
             global_max_fps=run_settings['video_max_fps'],
         )
 
+    @api
     def get_settings_snapshot(self) -> dict:
         """A deep copy of the settings dict, taken under the lock.
 
@@ -2070,7 +2141,8 @@ class ScopeSession:
         with self.settings_lock:
             return copy.deepcopy(self.settings)
 
-    def get_setting(self, path: str) -> Any:
+    @api
+    def get_setting(self, path: str) -> 'SettingValue':
         """A copy of one setting, named by its dotted path: ``'stage_offset'``, ``'scale_bar.enabled'``.
 
         Taken under the lock, so it is never a value part-way through a
@@ -2088,7 +2160,8 @@ class ScopeSession:
                 value = value[segment]
             return copy.deepcopy(value)
 
-    def update_settings(self, path: str, value: object) -> None:
+    @api
+    def update_settings(self, path: str, value: 'SettingValue') -> None:
         """Write one setting, named by its dotted path: ``'video.max_fps'``, ``'BF.sum'``.
 
         The one write to the live settings for any caller, on any thread.
@@ -2123,6 +2196,7 @@ class ScopeSession:
         with self.settings_lock:
             self._store_setting(path, value)
 
+    @api(in_process=True)
     def set_live_folder(self, folder: str) -> None:
         """Make ``folder`` the live folder, where captures and runs are saved.
 
@@ -2145,6 +2219,7 @@ class ScopeSession:
         with self.settings_lock:
             self._store_setting('live_folder', stored)
 
+    @api(in_process=True)
     def live_folder_path(self, name: str) -> pathlib.Path:
         """The absolute path that ``name``, a name under the live folder, names.
 
@@ -2187,6 +2262,7 @@ class ScopeSession:
             )
         return (root / name).resolve()
 
+    @api(in_process=True)
     def set_protocol_filepath(self, file_path: str) -> None:
         """Remember ``file_path`` as the protocol to open at the next start; ``''`` forgets it.
 
@@ -2195,6 +2271,7 @@ class ScopeSession:
         with self.settings_lock:
             self._store_setting('protocol.filepath', file_path)
 
+    @api(in_process=True)
     def open_protocol(self, file_path: 'str | os.PathLike') -> 'Protocol':
         """Load the protocol at ``file_path`` with its Layer Settings, and remember it.
 
@@ -2218,6 +2295,7 @@ class ScopeSession:
         self.set_protocol_filepath(os.fspath(file_path))
         return protocol
 
+    @api(in_process=True)
     def open_remembered_protocol(self) -> 'Protocol | None':
         """Load the protocol the last start left behind, with its Layer Settings.
 
@@ -2276,6 +2354,7 @@ class ScopeSession:
             holder = holder[block]
         holder[leaf] = value
 
+    @api
     def select_model(self, model: str) -> None:
         """Save the operator's scope model for the next start.
 
@@ -2301,6 +2380,7 @@ class ScopeSession:
             self._store_setting('microscope', model)
         logger.info(f'[Session  ] scope model {model!r} saved; it applies at the next start')
 
+    @api
     @property
     def model_at_next_start(self) -> str | None:
         """The saved model when it is not the one running, else None.
@@ -2485,6 +2565,7 @@ class ScopeSession:
             return
         self.apply_layer_camera(layer)
 
+    @api
     def bring_up_record(self) -> 'BringUpRecord':
         """What bring-up found, substituted and set aside, for a client that asks later.
 
@@ -2502,6 +2583,7 @@ class ScopeSession:
         set_aside = None if rejected is None else SettingsSetAside(*rejected)
         return dataclasses.replace(self.scope.bring_up_record(), settings_set_aside=set_aside)
 
+    @api
     @slow_task_budget(SUPPORT_REPORT_SLOW_TASK_S)
     def make_support_report(
         self,
@@ -2545,6 +2627,7 @@ class ScopeSession:
             'support report',
         )
 
+    @api
     def make_logs_zip(
         self,
         *,
@@ -2577,6 +2660,7 @@ class ScopeSession:
             'logs zip',
         )
 
+    @api
     def plugin_health(self) -> 'PluginHealth | None':
         """The loaded plugins, the ones that did not load, and their runtime errors.
 
@@ -2584,6 +2668,7 @@ class ScopeSession:
         """
         return None if self._plugin_health is None else self._plugin_health()
 
+    @api
     @property
     def plugin_api_level(self) -> int:
         """What this LumaViewPro does that a plugin may rely on.
@@ -2593,6 +2678,7 @@ class ScopeSession:
         """
         return PLUGIN_API_LEVEL
 
+    @api
     def settings_are_provisional(self) -> bool:
         """Is the app running on defaults nobody has agreed to keep?
 
@@ -2604,6 +2690,7 @@ class ScopeSession:
         """
         return settings_init.settings_are_provisional()
 
+    @api
     def retire_rejected_settings(self) -> 'str | None':
         """Resolve the provisional-settings state: retire the rejected file.
 
@@ -2615,6 +2702,7 @@ class ScopeSession:
         """
         return settings_init.retire_rejected_current_json()
 
+    @api(in_process=True)
     def save_settings(self, file: str = './data/current.json', *, force: bool = False) -> None:
         """Write the settings dict to disk as JSON.
 
@@ -2699,6 +2787,7 @@ class ScopeSession:
             except Exception:
                 logger.exception('[Session  ] save_settings: saved-hook failed')
 
+    @api
     def capture_settings_snapshot(self) -> dict:
         """A settings snapshot for composing a capture or a run.
 
@@ -2763,6 +2852,7 @@ class ScopeSession:
             self.scope.scope_models, self.scope.layer_identity.model
         )
 
+    @api
     def objective_question(self) -> 'ObjectiveQuestion | None':
         """Does the objective need confirming? The question, or None.
 
@@ -2842,6 +2932,7 @@ class ScopeSession:
             proposed = DEFAULT_PROPOSED_OBJECTIVE_ID
         return ObjectiveQuestion(turret_position=position, proposed=proposed, choices=choices)
 
+    @api
     def confirm_objective(self, objective_id: str, turret_position: 'int | None' = None) -> bool:
         """Answer the objective question: this objective is in the light path.
 
@@ -2873,6 +2964,7 @@ class ScopeSession:
         )
         return changed
 
+    @api
     def select_objective(self, objective_id: str) -> bool:
         """Make ``objective_id`` the active objective. Returns whether it changed.
 
@@ -2913,6 +3005,7 @@ class ScopeSession:
     # The labware
     # ------------------------------------------------------------------
 
+    @api
     def select_labware(self, labware_name: str) -> bool:
         """Make ``labware_name`` the current plate. Returns whether it changed.
 
@@ -2956,6 +3049,7 @@ class ScopeSession:
         logger.info(f'[Session  ] Labware set to {labware_name!r}')
         return True
 
+    @api
     def assign_turret_objective(self, position: int, objective_id: str) -> None:
         """Bind ``objective_id`` to turret slot ``position``.
 
@@ -2977,6 +3071,7 @@ class ScopeSession:
         with self.settings_lock:
             self.settings['turret_objectives'][position] = objective_id
 
+    @api
     def clear_turret_objective(self, position: int) -> None:
         """Leave turret slot ``position`` unassigned.
 
@@ -3001,6 +3096,7 @@ class ScopeSession:
             f'{self.scope.runtime_state.get_current_objective_id()!r}'
         )
 
+    @api
     def clear_current_turret_objective(self) -> None:
         """Leave the turret slot in the light path unassigned.
 
@@ -3039,6 +3135,7 @@ class ScopeSession:
         if not isinstance(position, int) or isinstance(position, bool) or not 1 <= position <= 4:
             raise ValueError(f'turret slot must be a whole number 1-4, got {position!r}')
 
+    @api
     def get_current_plate_position(self) -> dict:
         """The stage's position in plate coordinates, on the session's labware.
 
@@ -3092,6 +3189,7 @@ class ScopeSession:
     # The camera's capture settings: applied, then stored
     # ------------------------------------------------------------------
 
+    @api
     def set_scale_bar(self, enabled: bool) -> None:
         """Draw the scale bar on captured images, or stop, and store it.
 
@@ -3101,6 +3199,7 @@ class ScopeSession:
         with self.settings_lock:
             self._store_setting('scale_bar.enabled', enabled)
 
+    @api
     def set_acceleration_limit(self, val_pct: int) -> None:
         """Set the motors' acceleration limit, as a percent of the firmware's maximum, and store it.
 
@@ -3118,6 +3217,7 @@ class ScopeSession:
         with self.settings_lock:
             self._store_setting('motion.acceleration_max_pct', val_pct)
 
+    @api
     def set_high_conversion_gain(self, enabled: bool) -> bool:
         """Turn the camera's high conversion gain on or off, then store it.
 
@@ -3141,6 +3241,7 @@ class ScopeSession:
             self._store_setting('camera.high_conversion_gain', enabled)
         return True
 
+    @api
     def set_line_noise_reduction(self, enabled: bool) -> bool:
         """Turn the camera's line-noise filter on or off, then store it.
 
@@ -3162,6 +3263,7 @@ class ScopeSession:
             self._store_setting('camera.line_noise_reduction', enabled)
         return True
 
+    @api
     def set_image_mode(self, mode: str) -> bool:
         """Capture in ``mode``: apply the camera format it needs, then store it.
 
@@ -3192,6 +3294,7 @@ class ScopeSession:
             self.settings['image_mode'] = mode
         return True
 
+    @api
     def set_binning_size(self, size: int) -> 'dict | None':
         """Bin the camera by ``size``, keep the framed region, and store both.
 
@@ -3240,6 +3343,7 @@ class ScopeSession:
             self.settings['frame']['height'] = int(held['height'])
         return self._apply_frame(native, self._target_frame(native, size))
 
+    @api
     def set_frame_size(self, width: int, height: int) -> 'dict | None':
         """Frame the camera at ``width`` x ``height`` at the stored binning, and store it.
 
@@ -3269,6 +3373,7 @@ class ScopeSession:
         )
         return self._apply_frame(native, target)
 
+    @api
     def get_binning_size(self) -> int:
         """The binning factor in force: the one the camera took and the store holds.
 
@@ -3280,6 +3385,7 @@ class ScopeSession:
 
         return config_helpers.get_binning_from_settings(self.settings)
 
+    @api
     def frame_at_binning(self, size: int) -> dict:
         """The frame ``set_binning_size(size)`` will ask the camera for; nothing is applied.
 
@@ -3414,6 +3520,7 @@ class ScopeSession:
     # Protocol runner
     # ------------------------------------------------------------------
 
+    @api
     def create_protocol_runner(self) -> 'ProtocolRunner':
         """The session's one ProtocolRunner (memoized).
 
@@ -3434,6 +3541,7 @@ class ScopeSession:
     # Lifecycle
     # ------------------------------------------------------------------
 
+    @api(in_process=True)
     def start_metrics(self) -> None:
         """Start the session's periodic metrics logging.
 
@@ -3475,6 +3583,7 @@ class ScopeSession:
         self.metrics_logger.start(self._scheduler, **start_kwargs)
         self._metrics_started = True
 
+    @api(in_process=True)
     def stop_metrics(self) -> None:
         """Stop the session's periodic metrics logging. Idempotent.
 
@@ -3487,6 +3596,7 @@ class ScopeSession:
         self._metrics_started = False
         self.metrics_logger.stop()
 
+    @api(in_process=True)
     def shutdown(self) -> None:
         """Tear down everything this session constructed.
 
@@ -3610,12 +3720,13 @@ class ScopeSession:
             self.remove_outcome_listener(listener)
         self._shut_down = True
 
+    @api(in_process=True)
     def start_application_session(
         self,
         *,
         disable_homing: bool = False,
-        home_fn: typing.Callable | None = None,
-        turret_fn: typing.Callable | None = None,
+        home_fn: Callable[[str], object] | None = None,
+        turret_fn: Callable[[int], object] | None = None,
     ) -> None:
         """Queue the standard startup home + turret-positioning sequence.
 

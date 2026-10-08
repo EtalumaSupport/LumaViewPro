@@ -35,6 +35,7 @@ from collections.abc import Callable, Iterable
 
 from modules.exceptions import PluginFailedError, PluginNotLoadedError
 from modules.notification_center import notifications
+from modules.api_surface import api_fields
 
 logger = logging.getLogger('lvp_logger')
 
@@ -123,6 +124,7 @@ class PluginSpec:
     auto_run_on_protocol_complete: bool = False
 
 
+@api_fields('name', 'version', 'namespace')
 @dataclass(frozen=True)
 class PluginStatus:
     """A loaded plugin, for health reports."""
@@ -132,6 +134,7 @@ class PluginStatus:
     namespace: str
 
 
+@api_fields('name', 'version', 'reason')
 @dataclass(frozen=True)
 class PluginNotLoaded:
     """A plugin that did not load, and why.
@@ -145,6 +148,7 @@ class PluginNotLoaded:
     reason: str
 
 
+@api_fields('plugin_name', 'namespace', 'hook', 'exc_type', 'message')
 @dataclass(frozen=True)
 class PluginRuntimeError:
     """A runtime error caught from a plugin handler.
@@ -163,6 +167,7 @@ class PluginRuntimeError:
     message: str
 
 
+@api_fields('namespace', 'loaded', 'last_runtime_errors')
 @dataclass(frozen=True)
 class NamespaceHealth:
     """Per-namespace snapshot for tech-support + diagnostic probes."""
@@ -172,6 +177,7 @@ class NamespaceHealth:
     last_runtime_errors: tuple[PluginRuntimeError, ...]
 
 
+@api_fields('namespaces', 'not_loaded')
 @dataclass(frozen=True)
 class PluginHealth:
     """Every namespace's health and the plugins that did not load, for tech-support reports."""

@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Any
 from drivers.exceptions import HardwareError
 from drivers.null_ledboard import NullLEDBoard
 from lvp_logger import logger
+from modules.api_surface import api_fields
 
 if TYPE_CHECKING:
     from drivers.protocols import LEDBoardProtocol, MotorBoardProtocol
@@ -152,6 +153,33 @@ def _resolve_lens_focal_length_mm(motorconfig, optics: dict) -> float | None:
     return None
 
 
+@api_fields(
+    'axes',
+    'camera_analog_gain_max_db',
+    'camera_binning_sizes',
+    'camera_max_frame_size',
+    'camera_model',
+    'camera_pixel_formats',
+    'camera_reports_temperature',
+    'camera_serial_number',
+    'camera_supports_auto_exposure',
+    'camera_supports_auto_gain',
+    'camera_supports_black_level',
+    'camera_supports_conversion_gain_mode',
+    'camera_supports_line_noise_reduction',
+    'camera_timestamp_tick_hz',
+    'has_firmware_stim',
+    'has_focus',
+    'has_turret',
+    'has_xy_stage',
+    'is_color_native',
+    'led_channels',
+    'led_max_ma',
+    'lens_focal_length_mm',
+    'model',
+    'native_bit_depth',
+    'pixel_size_um',
+)
 @dataclass(frozen=True)
 class ScopeCapabilities:
     """Immutable snapshot of what a scope has.

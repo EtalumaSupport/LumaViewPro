@@ -27,6 +27,7 @@ from modules.exceptions import (
 from modules.image_save import save_image
 from modules.lumascope_api.imaging import capture_failure_cause
 from modules.recording_frames import frame_fact
+from modules.api_surface import api
 
 logger = logging.getLogger('LVP.modules.manual_capture')
 
@@ -64,11 +65,13 @@ class ManualCaptureController:
         # grab. Released on the lane, which a plain Lock allows.
         self._in_flight = threading.Lock()
 
+    @api
     @property
     def in_flight(self) -> bool:
         """True from a capture call until its camera-lane body has ended."""
         return self._in_flight.locked()
 
+    @api
     def capture(
         self,
         *,

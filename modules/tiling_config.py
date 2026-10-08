@@ -10,6 +10,7 @@ from lvp_logger import logger
 
 import modules.common_utils as common_utils
 from modules.exceptions import ConfigError
+from modules.api_surface import api
 
 if TYPE_CHECKING:
     from modules.scope_capabilities import ScopeCapabilities
@@ -86,6 +87,7 @@ class TilingConfig:
                         f'got {type(entry[field]).__name__} in {filepath}'
                     )
 
+    @api
     def available_configs(self) -> list[str]:
         return list(self._available_configs['data'].keys())
 
@@ -144,6 +146,7 @@ class TilingConfig:
 
         return self.get_label_from_mxn_size(m=m, n=n)
 
+    @api
     def default_config(self) -> str:
         return self._available_configs['metadata']['default']
 

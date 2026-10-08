@@ -35,6 +35,7 @@ from modules.sequenced_capture_runner import (
 )
 
 from lvp_logger import logger
+from modules.api_surface import api
 
 
 class ProtocolRunner:
@@ -72,6 +73,7 @@ class ProtocolRunner:
     # Run methods
     # ------------------------------------------------------------------
 
+    @api
     def run_single_scan(
         self,
         protocol: Protocol,
@@ -124,6 +126,7 @@ class ProtocolRunner:
             engineering_mode=engineering_mode,
         )
 
+    @api
     def run_protocol(
         self,
         protocol: Protocol,
@@ -173,6 +176,7 @@ class ProtocolRunner:
             engineering_mode=engineering_mode,
         )
 
+    @api
     def start_composite(
         self,
         sequence_name: str = 'composite',
@@ -242,6 +246,7 @@ class ProtocolRunner:
             engineering_mode=engineering_mode,
         )
 
+    @api
     def run_autofocus(
         self,
         layer: str,
@@ -363,6 +368,7 @@ class ProtocolRunner:
             engineering_mode=engineering_mode,
         )
 
+    @api
     def run_autofocus_all_steps(
         self,
         protocol: Protocol,
@@ -421,6 +427,7 @@ class ProtocolRunner:
             write_focus_to=protocol,
         )
 
+    @api
     def run_zstack(
         self,
         layer: str,
@@ -532,6 +539,7 @@ class ProtocolRunner:
             engineering_mode=engineering_mode,
         )
 
+    @api
     def run_composite(
         self,
         sequence_name: str = 'composite',

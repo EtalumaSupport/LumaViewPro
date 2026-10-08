@@ -1,5 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+from modules.api_surface import api, api_fields
+
 
 class LabWare:
     """A class that stores and computes actions for objective labware"""
@@ -18,8 +20,11 @@ class Slide(LabWare):
         self.covered = True
 
 
+@api_fields('config')
 class WellPlate(LabWare):
     """A class that stores and computes actions for wellplate labware"""
+
+    config: dict
 
     def __init__(self, config: dict, *arg):
         super().__init__()
@@ -71,7 +76,8 @@ class WellPlate(LabWare):
         return tmp
 
     # Get center position of well on plate in mm given its index (i, j)
-    def get_well_position(self, i, j):
+    @api
+    def get_well_position(self, i: int, j: int) -> tuple[float, float]:
 
         dx = self.config['spacing']['x']  # distance b/w wells x-dir
         ox = self.config['offset']['x']  # offset to first well x-dir
@@ -83,12 +89,14 @@ class WellPlate(LabWare):
 
         return x, y
 
+    @api
     def has_wells(self) -> bool:
         """True when the plate defines at least one well. A zero-well plate
         (the Blank labware) has no well grid: no well index exists, labels
         are empty, and well UI decorations do not apply."""
         return self.config['rows'] * self.config['columns'] > 0
 
+    @api
     def get_well_index(self, x: float, y: float) -> tuple[int, int] | None:
         """The (column, row) of the well centre nearest plate position (x, y) in mm.
 
@@ -137,7 +145,8 @@ class WellPlate(LabWare):
         letter += chr(ord('A') + well_y)
         return f'{letter}{well_x + 1}'
 
-    def get_dimensions(self):
+    @api
+    def get_dimensions(self) -> dict:
         return self.config['dimensions']
 
 

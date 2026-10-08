@@ -33,6 +33,7 @@ import modules.labware_loader as labware_loader
 from modules.tiling_config import TilingConfig
 from modules.zstack_config import ZStackConfig
 from modules.coord_transformations import CoordinateTransformer
+from modules.api_surface import api, api_fields
 
 if TYPE_CHECKING:
     import modules.labware as labware_module
@@ -554,6 +555,7 @@ def schedule_from_units(
     return schedule
 
 
+@api_fields('message', 'num_steps', 'projected_mb')
 @dataclasses.dataclass(frozen=True)
 class ProtocolSizeAdvisory:
     """A protocol big enough that the user should be told before running it.
@@ -568,8 +570,9 @@ class ProtocolSizeAdvisory:
     message: str
 
 
+@api_fields('CURRENT_VERSION', 'PROTOCOL_FILE_HEADER')
 class Protocol:
-    PROTOCOL_FILE_HEADER = 'LumaViewPro Protocol'
+    PROTOCOL_FILE_HEADER: ClassVar[str] = 'LumaViewPro Protocol'
     COLUMNS: ClassVar[dict] = {
         1: [
             'Name',
@@ -720,7 +723,7 @@ class Protocol:
     # ('Treatment_10x' -> 'Treatment') and dropped renames of well-anchored
     # steps entirely.
     COLUMNS[8] = COLUMNS[7] + ['Label']
-    CURRENT_VERSION = 8
+    CURRENT_VERSION: ClassVar[int] = 8
     CURRENT_COLUMNS = COLUMNS[CURRENT_VERSION]
 
     # Header columns for the v6 'Layer Settings' block. Order is the
@@ -801,15 +804,19 @@ class Protocol:
 
         return z_height_map
 
+    @api
     def period(self) -> datetime.timedelta:
         return self._config['period']
 
+    @api
     def duration(self) -> datetime.timedelta:
         return self._config['duration']
 
+    @api
     def labware(self) -> str:
         return self._config['labware_id']
 
+    @api
     def tiling(self) -> str | None:
         """The tile grid this protocol's steps carry.
 
@@ -842,10 +849,12 @@ class Protocol:
             )
         return label
 
+    @api
     def capture_root(self) -> str:
         """The capture root as it was typed or loaded."""
         return self._config.get('capture_root', '')
 
+    @api
     def capture_prefix(self) -> str:
         """The capture root as the prefix of a saved file's name.
 
@@ -855,6 +864,7 @@ class Protocol:
         """
         return self.sanitize_step_name(self.capture_root() or '')
 
+    @api
     def layer_settings(self) -> dict:
         """Return per-layer settings keyed by layer name, each cell typed.
 
@@ -932,6 +942,7 @@ class Protocol:
         new._runnable = self._runnable
         return new
 
+    @api
     def to_file(self, file_path: pathlib.Path | str, layer_settings: dict | None = None) -> None:
         """Write the protocol to a TSV file, whole or not at all.
 
@@ -1049,6 +1060,7 @@ class Protocol:
                 raise ProtocolNotSavedError(file=file_path, cause=e) from e
             raise
 
+    @api
     def optimize_step_ordering(self) -> None:
         steps = self._config['steps']
 
@@ -1166,6 +1178,7 @@ class Protocol:
             }
         )
 
+    @api
     def validate_steps(
         self, objective_helper: 'ObjectiveLoader', *, led_max_ma: int | None
     ) -> list:
@@ -1325,6 +1338,7 @@ class Protocol:
 
         return errors
 
+    @api
     def num_steps(self) -> int:
         if self._num_steps_cache is None:
             self._num_steps_cache = len(self._config['steps'])
@@ -1348,6 +1362,7 @@ class Protocol:
             return
         raise StepNotFoundError(idx, num_steps)
 
+    @api
     @property
     def step_list_revision(self) -> int:
         return self._step_list_revision
@@ -1454,6 +1469,7 @@ class Protocol:
         except ValueError as e:
             raise StepEditRefusedError(f'a step {column} of {value!r} {e}') from None
 
+    @api
     def steps(self) -> pd.DataFrame:
         """A copy of the steps frame.
 
@@ -1463,6 +1479,7 @@ class Protocol:
         """
         return self._config['steps'].copy()
 
+    @api
     def estimate_write_mb(self, *, video_as_frames: bool = False, global_max_fps: float) -> float:
         """Estimate the disk this whole protocol will write, in MB.
 
@@ -1523,6 +1540,7 @@ class Protocol:
             )
         return total
 
+    @api
     def size_advisory(
         self, *, video_as_frames: bool = False, global_max_fps: float
     ) -> ProtocolSizeAdvisory | None:
@@ -1552,11 +1570,13 @@ class Protocol:
             ),
         )
 
+    @api
     def modify_autofocus(self, step_idx: int, enabled: bool) -> None:
         self._refuse_unless_in_range(step_idx)
         self._config['steps'].at[step_idx, 'Auto_Focus'] = self._typed_value('Auto_Focus', enabled)
 
-    def modify_autofocus_all_steps(self, enabled: bool):
+    @api
+    def modify_autofocus_all_steps(self, enabled: bool) -> None:
         for idx, _ in self._config['steps'].iterrows():
             self.modify_autofocus(step_idx=idx, enabled=enabled)
 
@@ -1572,6 +1592,7 @@ class Protocol:
     ):
         self._config['labware_id'] = labware_id
 
+    @api
     def modify_time_params(
         self,
         period: datetime.timedelta | None,
@@ -1696,7 +1717,8 @@ class Protocol:
             steps_df.loc[mask, 'Z'] = z
         return count
 
-    def modify_capture_root(self, capture_root: str):
+    @api
+    def modify_capture_root(self, capture_root: str) -> None:
         self._config['capture_root'] = capture_root
 
     def _render_step_names(self) -> None:
@@ -1878,6 +1900,7 @@ class Protocol:
 
         return step_dict['Name']
 
+    @api
     def step(self, idx: int) -> pd.Series:
         """One step, as a DETACHED copy of its row.
 

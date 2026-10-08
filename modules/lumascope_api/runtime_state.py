@@ -31,13 +31,15 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import modules.coord_transformations as coord_transformations
 from lvp_logger import logger
 from modules.exceptions import ConfigError, ObjectiveUnknownError
+from modules.api_surface import api
 
 if TYPE_CHECKING:
+    from modules.labware import WellPlate
     from modules.lumascope_api._lumascope import Lumascope
 
 
@@ -64,7 +66,8 @@ class RuntimeState:
 
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
 
-    def get_labware(self) -> Any:
+    @api
+    def get_labware(self) -> WellPlate:
         """The selected labware (well plate).
 
         Built from the catalogue for the plate the settings name, on every
@@ -89,6 +92,7 @@ class RuntimeState:
         """
         self._turreted = turreted
 
+    @api
     def is_turreted(self) -> bool:
         """Whether this scope derives its objective from the turret slot.
 
@@ -106,6 +110,7 @@ class RuntimeState:
             )
         return self._turreted
 
+    @api
     def resolve_current_objective(self) -> tuple[str, dict]:
         """The active objective's id and metadata, or why it is unknown.
 
@@ -196,6 +201,7 @@ class RuntimeState:
         """
         return self._derive_current_objective()[0]
 
+    @api
     def get_objective_info(self, objective_id: str) -> dict:
         """Get objective metadata by ID.
 
@@ -215,6 +221,7 @@ class RuntimeState:
         """
         return self._scope.objective_helper.get_objective_info(objective_id=objective_id)
 
+    @api
     def get_available_objectives(self) -> list[str]:
         """Get list of all available objective IDs.
 
@@ -232,6 +239,7 @@ class RuntimeState:
         """
         return self._derive_current_objective()[1]
 
+    @api
     def get_turret_config(self) -> dict:
         """The turret's objective assignments, from the settings.
 
@@ -245,6 +253,7 @@ class RuntimeState:
         """
         return self._scope.read_setting('turret_objectives')
 
+    @api
     def get_stage_offset(self) -> dict:
         """The stage offset for coordinate transformations, from the settings.
 
@@ -257,6 +266,7 @@ class RuntimeState:
         """
         return self._scope.read_setting('stage_offset')
 
+    @api
     def stage_to_plate(self, sx: float, sy: float) -> tuple[float, float]:
         """Convert a stage position (um) to plate coordinates (mm).
 
@@ -282,6 +292,7 @@ class RuntimeState:
             sy=sy,
         )
 
+    @api(in_process=True)
     def plate_transform(self) -> Callable[[float, float], tuple[float, float]]:
         """The stage-to-plate transform bound to the labware and offset selected now.
 
@@ -310,6 +321,7 @@ class RuntimeState:
 
         return to_plate
 
+    @api
     def plate_to_stage_axis(self, axis: str, plate_mm: float) -> float:
         """Convert one axis of a plate coordinate (mm) to a stage target (um).
 
@@ -330,6 +342,7 @@ class RuntimeState:
         )
         return sx if axis == 'X' else sy
 
+    @api
     def get_well_label(self) -> str | None:
         """Get the well label for the current stage XY position.
 

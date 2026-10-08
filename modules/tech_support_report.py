@@ -73,6 +73,7 @@ from modules.lumascope_api.diagnostics import (
 from modules.path_utils import get_script_root, get_source_root
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
+from modules.api_surface import api, api_fields
 
 logger = logging.getLogger(__name__)
 
@@ -1554,6 +1555,7 @@ class FirmwareDiagnostics:
 _REPORT_TITLES = {'support report': 'Support Report Saved', 'logs zip': 'Logs Zip Saved'}
 
 
+@api_fields('path', 'report')
 @dataclasses.dataclass(frozen=True)
 class SupportReportSaved:
     """A support report or logs zip that was saved, and the words that say where.
@@ -1572,10 +1574,12 @@ class SupportReportSaved:
                 f'{self.report!r} is not a report; use one of {sorted(_REPORT_TITLES)}'
             )
 
+    @api
     @property
     def title(self) -> str:
         return _REPORT_TITLES[self.report]
 
+    @api
     @property
     def message(self) -> str:
         """Where the ZIP is and where to send it; the folder is the one it was written to."""

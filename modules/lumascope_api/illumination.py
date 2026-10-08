@@ -16,6 +16,7 @@ import logging as _logging
 import threading
 import typing
 from dataclasses import dataclass
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from drivers.null_ledboard import NullLEDBoard
@@ -24,6 +25,7 @@ from lvp_logger import logger
 from modules import common_utils
 from modules.exceptions import ConfigError, HardwareCommandRefusedError, MissingPart
 from modules.sequential_io_executor import IOTask
+from modules.api_surface import api
 
 if TYPE_CHECKING:
     from modules.activity_claim import Taking
@@ -868,6 +870,7 @@ class IlluminationAPI:
             IOTask(action=impl, args=args, kwargs=kwargs), name, _LED_WRITE_TIMEOUT_S
         )
 
+    @api
     def led_on(
         self,
         channel: int | str,
@@ -886,6 +889,7 @@ class IlluminationAPI:
             args=(channel, illumination_ma, block),
         )
 
+    @api
     def led_off(self, channel: int | str) -> None:
         """Turn off an LED channel, and wait for it.
 
@@ -893,6 +897,7 @@ class IlluminationAPI:
         """
         return self._dispatch_led(self._led_off_impl, 'led_off', args=(channel,))
 
+    @api
     def leds_off(self) -> None:
         """Turn off all LEDs, and wait for it.
 
@@ -990,6 +995,7 @@ class IlluminationAPI:
             )
 
     # --- State ---
+    @api
     def get_led_state(self, channel: str) -> dict | None:
         """Get the on/off state and illumination for an LED channel.
 
@@ -1011,6 +1017,7 @@ class IlluminationAPI:
                 return {'enabled': False, 'illumination_ma': None}
             return {'enabled': True, 'illumination_ma': entry['illumination_ma']}
 
+    @api
     def get_led_states(self) -> dict | None:
         """Get state and illumination for all LED channels.
 
@@ -1040,6 +1047,7 @@ class IlluminationAPI:
             }
 
     # --- Save / restore ---
+    @api
     def save_led_state(self, tag: str) -> dict | None:
         """Snapshot the current LED state for later restoration.
 
@@ -1059,6 +1067,7 @@ class IlluminationAPI:
         )
         return snapshot
 
+    @api
     def restore_led_state(self, snapshot: dict) -> None:
         """Restore LEDs to a previously saved state, as one task on the IO lane, and wait.
 
@@ -1438,6 +1447,7 @@ class IlluminationAPI:
     # recordable and extinguishable even when the current identity
     # cannot name it (a mid-session identity change must never strand a
     # lit LED or drop it from a restore set).
+    @api
     def ch2color(self, channel: int) -> str | None:
         """The stable layer name whose record drives *channel*, else None.
 
@@ -1449,6 +1459,7 @@ class IlluminationAPI:
                 return record.key_name
         return None
 
+    @api
     def color2ch(self, color: str) -> int | None:
         """The LED board address of the layer named *color*, else None.
 
@@ -1485,7 +1496,8 @@ class IlluminationAPI:
         return self._driver.color2ch(color)
 
     # --- Listeners ---
-    def add_led_listener(self, listener: typing.Callable) -> None:
+    @api
+    def add_led_listener(self, listener: Callable[[str, bool, float], None]) -> None:
         """Register a callback for LED state changes.
 
         The listener is called with ``(channel, enabled, illumination_ma)`` whenever
@@ -1499,7 +1511,8 @@ class IlluminationAPI:
         with self._led_listeners_lock:
             self._led_listeners.append(listener)
 
-    def remove_led_listener(self, listener) -> None:
+    @api
+    def remove_led_listener(self, listener: Callable[[str, bool, float], None]) -> None:
         """Unregister an LED listener.
 
         Args:

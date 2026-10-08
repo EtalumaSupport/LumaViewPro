@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from lvp_logger import log_dir, logger, version
+from modules.api_surface import api
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
@@ -121,6 +122,7 @@ class DiagnosticsAPI:
         self._scope = scope
 
     # --- Camera probes ---
+    @api
     def get_camera_temperatures_degc(self) -> dict | None:
         """Get all camera temperature sensor readings.
 
@@ -148,6 +150,7 @@ class DiagnosticsAPI:
             return None
         return driver.get_all_temperatures()
 
+    @api
     def get_camera_link_info(self) -> dict | None:
         """Read the camera's link, live.
 
@@ -198,6 +201,7 @@ class DiagnosticsAPI:
             return None
         return driver.get_link_info()
 
+    @api
     def get_camera_diagnostic_info(self) -> dict:
         """Read-only snapshot of camera state for diagnostics.
 
@@ -249,12 +253,13 @@ class DiagnosticsAPI:
         _try('temperatures', self.get_camera_temperatures_degc)
         return info
 
+    @api
     def run_camera_bandwidth_test(
         self,
         num_frames: int,
         *,
         timeout_s: float = 60.0,
-        progress_cb=None,
+        progress_cb: Callable[[int, str], None] | None = None,
     ) -> dict:
         """Run an N-frame camera throughput test through the production capture path.
 
@@ -363,6 +368,7 @@ class DiagnosticsAPI:
         )
         return results
 
+    @api
     def run_grab_lifecycle_benchmark(
         self,
         num_cycles: int = 100,
@@ -596,6 +602,7 @@ class DiagnosticsAPI:
         )
         return results
 
+    @api
     def run_pylon_diagnostic_probe(
         self,
         duration_s: float = 3.0,
@@ -938,6 +945,7 @@ class DiagnosticsAPI:
     # diagnostic endpoint) read None as "INCONCLUSIVE -- firmware
     # does not support this probe."
 
+    @api
     def read_motor_drv_status(self, axis: str) -> int | None:
         """Read TMC5072 DRV_STATUS register for an axis.
 
@@ -949,6 +957,7 @@ class DiagnosticsAPI:
             return None
         return drv.read_drv_status(axis)
 
+    @api
     def read_motor_fan_rpm(self) -> int | None:
         """Read motor-board fan tachometer RPM.
 
@@ -960,6 +969,7 @@ class DiagnosticsAPI:
             return None
         return drv.read_fanspeed()
 
+    @api
     def set_motor_fan_duty(self, duty_pct: int) -> bool:
         """Set motor-board fan PWM duty cycle (0..100).
 
@@ -989,6 +999,7 @@ class DiagnosticsAPI:
     # entries keep the careful handshake as the single canonical
     # implementation.
 
+    @api
     def enter_led_engineering_mode(self, timeout_s: float = 5.0) -> bool:
         """Enter LED engineering mode via the driver-canonical handshake.
 
@@ -1017,6 +1028,7 @@ class DiagnosticsAPI:
         except Exception:
             return False
 
+    @api
     def exit_led_engineering_mode(self) -> bool:
         """Exit LED engineering mode via the driver-canonical handshake.
 
@@ -1049,6 +1061,7 @@ class DiagnosticsAPI:
     # Bodies live here; Lumascope keeps thin wrappers calling down until
     # they retire.
 
+    @api
     def get_motor_info(self) -> dict:
         """Get motor controller information.
 
@@ -1080,6 +1093,7 @@ class DiagnosticsAPI:
             'command_set': MOTOR_COMMANDS_TEXT if speaks_text else None,
         }
 
+    @api
     def get_led_info(self) -> dict:
         """Get LED controller information.
 
@@ -1113,6 +1127,7 @@ class DiagnosticsAPI:
             'command_set': command_set,
         }
 
+    @api
     def read_led_currents_ma(self) -> dict[int, float | None]:
         """Read the measured current of every LED channel, in mA.
 
@@ -1138,6 +1153,7 @@ class DiagnosticsAPI:
     def _read_led_currents_impl(drv) -> dict[int, float | None]:
         return {ch: drv.read_led_current(ch) for ch in drv.available_channels()}
 
+    @api
     def get_camera_profile_info(self) -> dict | None:
         """Get detailed camera profile information for display.
 
@@ -1184,6 +1200,7 @@ class DiagnosticsAPI:
             'connected': connected,
         }
 
+    @api
     def get_system_info(self) -> dict:
         """Get consolidated system information for all hardware.
 

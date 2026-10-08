@@ -5,6 +5,7 @@ import contextlib
 import threading
 from collections.abc import Iterator
 from dataclasses import dataclass
+from modules.api_surface import api
 
 # The activity kinds that hold the WHOLE scope: a run and a diagnostic both
 # drive every axis, the LEDs and the camera, so while one holds the claim a
@@ -137,6 +138,7 @@ class HeldClaim:
         """The claim this taking was taken from."""
         return self._claim
 
+    @api
     @property
     def holds(self) -> bool:
         """Whether this taking still holds the claim.
@@ -146,6 +148,7 @@ class HeldClaim:
         """
         return self._claim._is_held_by(self)
 
+    @api
     def release(self) -> None:
         """Release the claim this taking holds.
 

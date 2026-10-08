@@ -11,6 +11,11 @@ from these facts once, through the reporter, and this is what stays behind.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+from modules.api_surface import api, api_fields
+
+if TYPE_CHECKING:
+    from modules.settings_init import SettingValue
 
 # The parts a scope is made of, in the order the record lists them.
 MOTOR = 'motor'
@@ -34,6 +39,7 @@ CAUSE_PHRASES = {
 }
 
 
+@api_fields('cause', 'detail', 'expected', 'part', 'up')
 @dataclass(frozen=True)
 class PartStatus:
     """One part of the scope at bring-up.
@@ -57,11 +63,13 @@ class PartStatus:
     cause: str | None = None
     detail: str = ''
 
+    @api
     @property
     def missing(self) -> bool:
         """Expected and not up: the part this scope should have and lacks."""
         return self.expected and not self.up
 
+    @api
     def describe(self) -> str:
         """The part's label with its cause: ``Motor Controller (port in use)``."""
         label = PART_LABELS[self.part]
@@ -70,6 +78,7 @@ class PartStatus:
         return f'{label} ({CAUSE_PHRASES[self.cause]})'
 
 
+@api_fields('saved', 'setting', 'used')
 @dataclass(frozen=True)
 class Substitution:
     """A saved setting the camera could not take, and what bring-up used instead.
@@ -82,10 +91,11 @@ class Substitution:
     """
 
     setting: str
-    saved: object
-    used: object
+    saved: SettingValue
+    used: SettingValue
 
 
+@api_fields('path', 'reason')
 @dataclass(frozen=True)
 class SettingsSetAside:
     """The user's settings file that could not be used, and why.
@@ -98,6 +108,7 @@ class SettingsSetAside:
     reason: str
 
 
+@api_fields('parts', 'settings_set_aside', 'substitutions')
 @dataclass(frozen=True)
 class BringUpRecord:
     """What bring-up found, substituted and set aside."""
@@ -106,6 +117,7 @@ class BringUpRecord:
     substitutions: tuple[Substitution, ...] = ()
     settings_set_aside: SettingsSetAside | None = None
 
+    @api
     def part(self, name: str) -> PartStatus:
         """The status of ``name``; KeyError when this record has no such part."""
         for status in self.parts:
@@ -113,11 +125,13 @@ class BringUpRecord:
                 return status
         raise KeyError(name)
 
+    @api
     @property
     def missing(self) -> tuple[PartStatus, ...]:
         """The parts this scope should have and lacks."""
         return tuple(status for status in self.parts if status.missing)
 
+    @api
     def substitution(self, setting: str) -> Substitution | None:
         """What bring-up used for ``setting`` instead of the saved value, if anything."""
         for sub in self.substitutions:

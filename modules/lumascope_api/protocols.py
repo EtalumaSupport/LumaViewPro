@@ -42,6 +42,7 @@ from modules.exceptions import (
     unknown_positions_sentence,
 )
 from modules.lumascope_api.imaging import camera_range_words
+from modules.api_surface import api, api_fields
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -54,6 +55,7 @@ _api_log = logging.getLogger('LVP.api')
 _coordinate_transformer = CoordinateTransformer()
 
 
+@api_fields('turret_slot', 'x', 'y', 'z')
 @dataclasses.dataclass(frozen=True)
 class StepTargets:
     """Where a protocol step puts the scope, in the frames the motors take.
@@ -91,6 +93,7 @@ class ProtocolsAPI:
         """
         return pathlib.Path(self._scope.source_path) / 'data' / 'tiling.json'
 
+    @api
     def tiling_config(self) -> TilingConfig:
         """The tiling grids this installation offers, from the scope's data folder.
 
@@ -170,6 +173,7 @@ class ProtocolsAPI:
                 ProtocolStepsInvalidNotice(errors=errors), solicited=solicited, category='Protocol'
             )
 
+    @api
     def create_protocol(
         self,
         *,
@@ -375,6 +379,7 @@ class ProtocolsAPI:
         self._report_invalid_steps(protocol, solicited=True)
         return protocol.step(idx=step_idx)['Name']
 
+    @api
     def focus_z(self, *, then: str) -> float:
         """The live Z, as a focus to save into a layer or a step.
 
@@ -433,6 +438,7 @@ class ProtocolsAPI:
                 message=f'This scope has no motor for Z, so it cannot {then}.',
             )
 
+    @api
     def set_step_z(self, protocol: Protocol, step_idx: int, z: float) -> None:
         """Write ``z`` as step ``step_idx``'s Z.
 
@@ -573,6 +579,7 @@ class ProtocolsAPI:
         )
         self._report_invalid_steps(protocol, solicited=True)
 
+    @api
     def plate_to_stage(
         self, protocol: Protocol, px: float, py: float, *, stage_offset: dict | None = None
     ) -> tuple[float, float]:
@@ -597,6 +604,7 @@ class ProtocolsAPI:
             py=py,
         )
 
+    @api(in_process=True)
     def plate_transform(
         self, protocol: Protocol, *, stage_offset: dict | None
     ) -> Callable[[float, float], tuple[float, float]] | None:
@@ -636,6 +644,7 @@ class ProtocolsAPI:
 
         return to_plate
 
+    @api
     def stage_targets(
         self,
         protocol: Protocol,
@@ -666,6 +675,7 @@ class ProtocolsAPI:
             x, y = self.plate_to_stage(protocol, px, py, stage_offset=stage_offset)
         return x, y, (z if 'Z' in axes else None)
 
+    @api
     def step_targets(
         self, protocol: Protocol, step_idx: int, *, stage_offset: dict | None = None
     ) -> StepTargets:

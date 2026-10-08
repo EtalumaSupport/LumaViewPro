@@ -7,6 +7,7 @@ import pathlib
 import modules.labware as labware
 from modules.exceptions import ConfigError
 from modules.path_utils import read_installation_file, resolve_data_file
+from modules.api_surface import api
 
 logger = logging.getLogger('LVP.modules.labware_loader')
 
@@ -118,10 +119,12 @@ class WellPlateLoader(LabwareLoader):
     def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
         super().__init__(*arg, source_path=source_path)
 
-    def get_plate_list(self):
+    @api
+    def get_plate_list(self) -> list[str]:
         return list(self.labware['Wellplate'].keys())
 
-    def resolve_plate_key(self, plate_key: object) -> str:
+    @api
+    def resolve_plate_key(self, plate_key: str) -> str:
         """The catalogue key for ``plate_key``, whatever spelling it arrived in.
 
         Raises:
@@ -142,7 +145,8 @@ class WellPlateLoader(LabwareLoader):
             )
         return resolved_key
 
-    def is_known_plate(self, plate_key: object) -> bool:
+    @api
+    def is_known_plate(self, plate_key: str) -> bool:
         """Whether ``plate_key`` resolves to a plate, directly or under a retired spelling.
 
         Use this for validation so callers accept exactly what get_plate() accepts.
@@ -155,7 +159,8 @@ class WellPlateLoader(LabwareLoader):
             return False
         return True
 
-    def get_plate(self, plate_key: object) -> labware.WellPlate:
+    @api
+    def get_plate(self, plate_key: str) -> labware.WellPlate:
         # The caller's own copy of the row: a changed plate would otherwise
         # change the catalogue every later reader gets.
         return labware.WellPlate(

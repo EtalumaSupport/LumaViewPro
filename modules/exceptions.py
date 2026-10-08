@@ -9,8 +9,10 @@ import pathlib
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import ClassVar
+from modules.api_surface import api_fields
 
 
+@api_fields('member', 'confirm_text', 'cancel_text')
 @dataclass(frozen=True)
 class Remedy:
     """The one action that answers a refusal, offered to whoever was refused.

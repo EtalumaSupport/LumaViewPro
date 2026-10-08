@@ -96,6 +96,7 @@ from modules.lumascope_api._constants import (
     is_turret_slot,
     refuse_acceleration_pct,
 )
+from modules.api_surface import api, api_fields
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
@@ -147,6 +148,7 @@ class _Move:
         self.done.set()
 
 
+@api_fields('axis')
 class MoveInFlight:
     """A move that has started; ``wait()`` gives its outcome.
 
@@ -163,11 +165,14 @@ class MoveInFlight:
         axis: The axis this move drove.
     """
 
+    axis: str
+
     def __init__(self, motion: MotionAPI, axis: str, move: _Move) -> None:
         self._motion = motion
         self.axis = axis
         self._move = move
 
+    @api
     def wait(self) -> None:
         """Return once this move's axis has arrived at its target.
 
@@ -414,6 +419,7 @@ class MotionAPI:
         """
         return state in (AxisState.IDLE, AxisState.MOVING)
 
+    @api
     def position_is_known(self, axis: str) -> bool:
         """Whether *axis* has a reference position an absolute move can use.
 
@@ -557,6 +563,7 @@ class MotionAPI:
         """A failed home's reason: ``'stopped'`` when a Stop landed during it."""
         return 'stopped' if self._stopped_since(stop_generation) else reason
 
+    @api
     def interlocks(self) -> frozenset[str]:
         """The stage's hardware interlocks open now (``'lid_open'``, ``'stage_unpowered'``).
 
@@ -769,6 +776,7 @@ class MotionAPI:
     # Order mirrors _lumascope.py source order.
     # ------------------------------------------------------------------
 
+    @api
     def stop_motion(self) -> None:
         """Stop all in-flight motor moves.
 
@@ -820,6 +828,7 @@ class MotionAPI:
             self._stop_generation += 1
             raise MotorStopFailedError() from e
 
+    @api
     def get_turret_position_for_objective_id(self, objective_id: str) -> int | None:
         """The turret slot to use for an objective, or None when no slot carries it.
 
@@ -854,6 +863,7 @@ class MotionAPI:
 
         return None
 
+    @api
     def is_current_turret_position_objective_set(self) -> bool:
         """Check whether the objective slot at the current turret position is set.
 
@@ -1183,6 +1193,7 @@ class MotionAPI:
         self._last_turret_position = int(position)
         self._preferred_turret_slot = int(position)
 
+    @api
     def get_turret_slot(self) -> int | None:
         """The turret slot in the light path, or None when it is not known.
 
@@ -1199,6 +1210,7 @@ class MotionAPI:
         """
         return self._last_turret_position
 
+    @api
     def get_preferred_turret_slot(self) -> int | None:
         """The slot the last successful turret move landed on, or None.
 
@@ -1233,6 +1245,7 @@ class MotionAPI:
             )
         self._preferred_turret_slot = slot
 
+    @api
     def jog_step(self, axis: str, coarse: bool) -> float:
         """The jog step for ``axis`` under the active objective.
 
@@ -1255,6 +1268,7 @@ class MotionAPI:
         _, objective = self._scope.runtime_state.resolve_current_objective()
         return objective[f'{kind}_{"coarse" if coarse else "fine"}']
 
+    @api
     def get_actual_position(self, axis: str) -> float | None:
         """Query the actual hardware position via serial (not cached); um for X/Y/Z, turret slot for T.
 
@@ -1283,6 +1297,7 @@ class MotionAPI:
         self._refuse_absent('get_actual_position')
         return self._driver.current_pos(axis)
 
+    @api
     def set_precision_mode(self, axis: str, enabled: bool) -> None:
         """Set motor precision mode for an axis.
 
@@ -1338,6 +1353,7 @@ class MotionAPI:
         self._refuse_absent('get_target_status', axis)
         return self._driver.target_status(axis)
 
+    @api
     def get_limit_switch_status(self, axis: str) -> tuple[int, int]:
         """Get the limit switch status for an axis.
 
@@ -1383,6 +1399,7 @@ class MotionAPI:
             resp[axis] = self.get_limit_switch_status(axis=axis)
         return resp
 
+    @api
     def is_moving(self) -> bool:
         """Check if any axis is currently moving.
 
@@ -1467,6 +1484,7 @@ class MotionAPI:
             return True
         return action == self._home_impl and self._scope.capabilities.has_turret
 
+    @api
     def get_axis_state(self, axis: str) -> str:
         """Get the current state of an axis.
 
@@ -1479,6 +1497,7 @@ class MotionAPI:
         with self._axis_state_lock:
             return self._axis_state.get(axis, AxisState.UNKNOWN)
 
+    @api
     def add_position_listener(self, listener: Callable[[str, float, str], None]) -> None:
         """Register a callback for position/state changes on any axis.
 
@@ -1494,7 +1513,8 @@ class MotionAPI:
         with self._position_listeners_lock:
             self._position_listeners.append(listener)
 
-    def remove_position_listener(self, listener) -> None:
+    @api
+    def remove_position_listener(self, listener: Callable[[str, float, str], None]) -> None:
         """Unregister a position listener.
 
         Args:
@@ -1535,6 +1555,7 @@ class MotionAPI:
         with self._axis_state_lock:
             return any(s in (AxisState.MOVING, AxisState.HOMING) for s in self._axis_state.values())
 
+    @api
     def get_axis_limits(self, axis: str) -> Mapping[str, float] | None:
         """Get the travel limits for an axis, in um.
 
@@ -1605,6 +1626,7 @@ class MotionAPI:
         finally:
             _api_log.info('Z home DONE')
 
+    @api
     def has_homed(self) -> bool:
         """Whether the stage / focus axes have a known reference position.
 
@@ -1629,6 +1651,7 @@ class MotionAPI:
             return False
         return all(self._position_known(state) for state in stage_states)
 
+    @api
     def axes_without_position(self) -> dict[str, str]:
         """Which of this scope's axes do not know their position, and why.
 
@@ -1656,6 +1679,7 @@ class MotionAPI:
                 if not self._position_known(state)
             }
 
+    @api
     def axis_positions(self) -> dict[str, AxisPosition]:
         """Every axis's state and its position, or None where the position is not known.
 
@@ -1744,6 +1768,7 @@ class MotionAPI:
         with self._pos_cache_lock:
             return self._pos_cache.get(axis, 0.0)
 
+    @api
     def get_target_position(self, axis: str | None = None) -> float | dict | None:
         """Get the target position for an axis (where it is commanded to go); um for X/Y/Z, turret slot for T.
 
@@ -2237,6 +2262,7 @@ class MotionAPI:
             timeout_s=self._MOTION_WAIT_BASE_S,
         )
 
+    @api
     def start_move_absolute(
         self,
         axis: str,
@@ -2264,6 +2290,7 @@ class MotionAPI:
             frame=frame,
         )
 
+    @api
     def start_move_relative(
         self,
         axis: str,
@@ -2283,6 +2310,7 @@ class MotionAPI:
             overshoot_enabled=overshoot_enabled,
         )
 
+    @api
     def move_absolute(
         self,
         axis: str,
@@ -2313,6 +2341,7 @@ class MotionAPI:
             frame=frame,
         ).wait()
 
+    @api
     def move_relative(
         self,
         axis: str,
@@ -2336,6 +2365,7 @@ class MotionAPI:
             overshoot_enabled=overshoot_enabled,
         ).wait()
 
+    @api
     def home(self, axis: str = 'ALL') -> None:
         """Home the given axis set, and wait for it.
 
@@ -2381,6 +2411,7 @@ class MotionAPI:
             release_if_unrun()
             raise
 
+    @api
     def start_home(self, axis: str = 'ALL') -> concurrent.futures.Future[None]:
         """Start the home ``home`` runs, without waiting for it; returns its Future.
 
@@ -2452,6 +2483,7 @@ class MotionAPI:
         body.__name__ = body.__qualname__ = impl.__name__
         return body, release_if_unrun
 
+    @api
     def move_turret(self, position: int, restore_z: bool = True) -> None:
         """Move the turret to a position, and wait for it. See ``_move_turret_impl``.
 
@@ -2471,6 +2503,7 @@ class MotionAPI:
             falsifies_recording=True,
         )
 
+    @api
     def wait_until_finished_moving(self, timeout_s: float = 120.0) -> None:
         """Block until every axis moving now has stopped; raise if one did not stop well.
 

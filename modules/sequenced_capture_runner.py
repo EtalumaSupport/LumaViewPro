@@ -72,6 +72,7 @@ import threading
 
 import modules.stack_builder as stack_builder
 from modules.config_helpers import COMPOSITE_MIN_CHANNELS
+from modules.api_surface import api, api_fields
 
 # How often the run loop re-asks whether the camera lane has gone idle
 # before the run takes the camera; a still's grab is tens to hundreds of
@@ -117,6 +118,7 @@ step_dict = {
 T = typing.TypeVar('T')
 
 
+@api_fields('not_written', 'not_written_reason', 'outcome', 'written')
 @dataclasses.dataclass(frozen=True)
 class RunFiles:
     """What became of one run's images, once its writes are done.
@@ -182,6 +184,7 @@ class RunHandle:
         self._delivery_lock = threading.Lock()
         self._deliveries: collections.Counter[threading.Thread] = collections.Counter()
 
+    @api
     def wait(self, timeout_s: float | None) -> 'RunOutcome | None':
         """How this run ended, once it no longer holds the scope and has told its caller.
 
@@ -211,6 +214,7 @@ class RunHandle:
             return None
         return outcome
 
+    @api
     def wait_for_files(self, timeout_s: float | None) -> RunFiles | None:
         """What became of this run's images, once its files are done and told.
 
@@ -306,6 +310,7 @@ class RunHandle:
                     del self._deliveries[me]
             told.set()
 
+    @api
     def stop(self) -> None:
         """Stop this run. Only asks: the run ends on its own thread.
 
@@ -316,29 +321,35 @@ class RunHandle:
         """
         self._engine._reset(self)
 
+    @api
     @property
     def is_live(self) -> bool:
         return self._engine._is_live_run(self)
 
+    @api
     @property
     def is_stopping(self) -> bool:
         """Live, and a Stop of it accepted: True until its teardown finishes."""
         return self._engine._is_stopping(self)
 
+    @api
     @property
     def is_last_run(self) -> bool:
         """Whether this is the engine's most recent run, live or finished."""
         return self._engine._last_run() is self
 
+    @api
     @property
     def run_dir(self) -> pathlib.Path | None:
         return self._run_dir
 
+    @api
     @property
     def step_number(self) -> int | None:
         """The step executing now, counted from 1; None once this run is not live."""
         return self._engine._live_run_value(self, self._engine._step_number)
 
+    @api
     @property
     def num_steps(self) -> int | None:
         """This run's step count; None once this run is not live.
@@ -349,10 +360,12 @@ class RunHandle:
         """
         return self._engine._live_run_value(self, self._engine._num_steps)
 
+    @api
     @property
     def remaining_scans(self) -> int | None:
         return self._engine._live_run_value(self, self._engine._remaining_scans)
 
+    @api
     @property
     def interval(self) -> datetime.timedelta | None:
         """This run's scan period; None once it is not live."""

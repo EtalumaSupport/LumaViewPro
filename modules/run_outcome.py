@@ -54,6 +54,7 @@ import uuid
 from collections.abc import Callable
 
 from lvp_logger import logger
+from modules.api_surface import api, api_fields
 
 
 @dataclasses.dataclass(frozen=True)
@@ -120,6 +121,7 @@ class EndingLatch:
             return self._ending
 
 
+@api_fields('scan', 'step_index', 'step_name', 'cause')
 @dataclasses.dataclass(frozen=True)
 class FailedCapture:
     """One capture a run was asked for that produced no image.
@@ -137,6 +139,7 @@ class FailedCapture:
     cause: str
 
 
+@api_fields('asked', 'captured', 'failed')
 @dataclasses.dataclass(frozen=True)
 class CaptureTally:
     """The captures a run was asked for, and what became of each.
@@ -159,12 +162,28 @@ class CaptureTally:
     captured: int
     failed: tuple[FailedCapture, ...]
 
+    @api
     @property
     def missing(self) -> int:
         """Captures asked for that produced no image, failed or never reached."""
         return self.asked - self.captured
 
 
+@api_fields(
+    'af_data_path',
+    'af_data_saved',
+    'af_focus_z_um',
+    'artifact_path',
+    'captures',
+    'cleanup_failures',
+    'focus_written',
+    'merge_reason',
+    'merged',
+    'message',
+    'reason',
+    'status',
+    'title',
+)
 @dataclasses.dataclass(frozen=True)
 class RunOutcome:
     """How a run ended, and what its merge produced.

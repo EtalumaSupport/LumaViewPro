@@ -7,6 +7,7 @@ import pandas as pd
 
 from modules.exceptions import ConfigError, InstallationFileError
 from modules.path_utils import read_installation_file, resolve_data_file
+from modules.api_surface import api
 
 logger = logging.getLogger('LVP.modules.objectives_loader')
 
@@ -155,9 +156,11 @@ class ObjectiveLoader:
 
         return self._objectives[objective_id]
 
+    @api
     def get_objectives_list(self) -> list:
         return list(self._objectives.keys())
 
+    @api
     def get_objectives_dataframe(self) -> pd.DataFrame:
         """The objectives table, as the caller's own copy.
 

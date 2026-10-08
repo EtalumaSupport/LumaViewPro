@@ -77,13 +77,22 @@ if TYPE_CHECKING:
     import os
 
     from drivers.simulated_camera import SimulatedStall
+    from modules.labware_loader import WellPlateLoader
     from modules.layer_record import LayerIdentity
+    from modules.lumascope_api.diagnostics import DiagnosticsAPI
+    from modules.lumascope_api.illumination import IlluminationAPI
+    from modules.lumascope_api.imaging import ImagingAPI
+    from modules.lumascope_api.motion import MotionAPI
+    from modules.lumascope_api.protocols import ProtocolsAPI
+    from modules.lumascope_api.runtime_state import RuntimeState
+    from modules.objectives_loader import ObjectiveLoader
     from modules.scope_init_config import ScopeInitConfig
 
 # Import additional libraries
 import logging as _logging
 
 from modules.notification_center import notifications
+from modules.api_surface import api, api_fields
 
 _api_log = _logging.getLogger('LVP.api')
 
@@ -204,6 +213,18 @@ def _board_status(part: str, board, fallback) -> 'PartStatus':
     return PartStatus(part, up=True)
 
 
+@api_fields(
+    'capabilities',
+    'diagnostics',
+    'illumination',
+    'imaging',
+    'layer_identity',
+    'motion',
+    'objective_helper',
+    'protocols',
+    'runtime_state',
+    'wellplate_loader',
+)
 class Lumascope:
     # --- Input validation constants ---
     # There is no LED current cap on this class: the connected LED driver
@@ -216,6 +237,18 @@ class Lumascope:
     # to avoid a circular dep with this file.
     _VALID_AXIS_NAMES = _api_constants._VALID_AXIS_NAMES
     _MOTOR_POSITION_LIMIT = _api_constants.MOTOR_POSITION_LIMIT
+
+    # What the scope holds, set during construction.
+    capabilities: 'ScopeCapabilities'
+    diagnostics: 'DiagnosticsAPI'
+    illumination: 'IlluminationAPI'
+    imaging: 'ImagingAPI'
+    layer_identity: 'LayerIdentity'
+    motion: 'MotionAPI'
+    objective_helper: 'ObjectiveLoader'
+    protocols: 'ProtocolsAPI'
+    runtime_state: 'RuntimeState'
+    wellplate_loader: 'WellPlateLoader'
 
     def _read_catalogues(self, source_path: 'str | os.PathLike') -> dict:
         """Read the installation's files once, from ``source_path``; return the motor defaults.
@@ -1157,6 +1190,7 @@ class Lumascope:
     # live on ImagingAPI; forwarders have been retired. Callers use
     # scope.imaging.
 
+    @api
     @property
     def scope_models(self) -> dict:
         """The model catalogue (scopes.json's ``Models``), as the caller's own copy.
@@ -1166,6 +1200,7 @@ class Lumascope:
         """
         return copy.deepcopy(self._scope_models)
 
+    @api
     @property
     def settings_template(self) -> dict:
         """The shipped settings template: which settings exist, and their shipped values.
@@ -1174,6 +1209,7 @@ class Lumascope:
         """
         return copy.deepcopy(self._settings_template)
 
+    @api
     @property
     def motor_connected(self) -> bool:
         """Whether the motor controller is connected.
@@ -1186,6 +1222,7 @@ class Lumascope:
             and self._motion_driver.is_connected()
         )
 
+    @api
     @property
     def motion_expected(self) -> bool:
         """Whether this scope's model has a motor board at all.
@@ -1196,6 +1233,7 @@ class Lumascope:
         """
         return self._motion_expected
 
+    @api
     @property
     def led_connected(self) -> bool:
         """Whether the LED controller is connected.
@@ -1230,6 +1268,7 @@ class Lumascope:
             return False
         return driver.is_connected()
 
+    @api
     @property
     def camera_connected(self) -> bool:
         """Whether the camera is connected and active.
@@ -1418,6 +1457,7 @@ class Lumascope:
         except Exception:
             pass
 
+    @api
     @property
     def no_hardware(self) -> bool:
         """True if no real hardware was detected (LED, motor, and camera all missing).
@@ -1482,6 +1522,7 @@ class Lumascope:
         """
         return not self.unconnected_parts()
 
+    @api
     def unconnected_parts(self) -> tuple[str, ...]:
         """The parts this scope needs that are not connected, by name.
 

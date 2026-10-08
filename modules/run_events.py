@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from modules.api_surface import api_fields
 from modules.kivy_utils import schedule_ui
 
 if TYPE_CHECKING:
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
     from modules.run_outcome import RunOutcome
 
 
+@api_fields('phase', 'elapsed_s', 'total_s', 'percent')
 @dataclasses.dataclass(frozen=True)
 class VideoProgress:
     """Where a video step is, as its ``video_progress`` event says.
@@ -45,6 +47,15 @@ class VideoProgress:
     percent: float | None = None
 
 
+@api_fields(
+    'scan_started',
+    'scan_ended',
+    'step_started',
+    'frame_captured',
+    'video_progress',
+    'run_ended',
+    'files_written',
+)
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class RunEvents:
     """The handlers a run calls as it goes, each optional; a misspelt one fails here.

@@ -13,7 +13,10 @@ import dataclasses
 import threading
 from collections.abc import Callable
 
+from modules.api_surface import api_fields
 
+
+@api_fields('schedule', 'thread')
 @dataclasses.dataclass(frozen=True)
 class UiDispatcher:
     """How the GUI delivers a callback, and the thread it delivers on.

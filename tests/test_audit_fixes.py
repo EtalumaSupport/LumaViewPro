@@ -10106,7 +10106,7 @@ class TestLumascopeSkillsApiPluginDocBatch:
         )
         assert 'runtime_state.set_objective' not in doc
         assert 'session.select_objective' in doc
-        assert 'scope.runtime_state.get_current_objective_id' in doc
+        assert 'scope.runtime_state.resolve_current_objective' in doc
 
     def test_objective_surface_lives_on_runtime_state_in_code(self):
         from modules.lumascope_api import Lumascope
@@ -10117,7 +10117,7 @@ class TestLumascopeSkillsApiPluginDocBatch:
         # runtime_state only answers it.
         assert not hasattr(Lumascope, 'set_objective')
         assert not hasattr(RuntimeState, 'set_objective')
-        assert hasattr(RuntimeState, 'get_current_objective_id')
+        assert hasattr(RuntimeState, 'resolve_current_objective')
         assert hasattr(RuntimeState, 'get_turret_config')
 
     def test_acquisition_stop_mode_not_a_public_setter_example(self):
@@ -10146,11 +10146,12 @@ class TestLumascopeSkillsApiPluginDocBatch:
         # only the address is. Doc and code must move together or this
         # test catches whichever lagged.
         from modules.lumascope_api import ProtocolsAPI
+        from modules.scope_session import ScopeSession
 
         doc = self._doc()
-        assert 'scope.protocols.load_protocol' in doc
+        assert 'session.load_protocol' in doc
         assert 'scope.protocols.create_protocol' in doc
-        assert hasattr(ProtocolsAPI, 'load_protocol')
+        assert hasattr(ScopeSession, 'load_protocol')
         assert hasattr(ProtocolsAPI, 'create_protocol')
 
     def test_listener_signature_overview_present(self):

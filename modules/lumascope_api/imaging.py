@@ -45,6 +45,7 @@ from modules.lumascope_api.illumination import live_lit_pairs
 from modules.notification_center import notifications
 from modules.sequential_io_executor import IOTask
 from modules.video_cadence import StallWatch, prologue_stall_threshold_s
+from modules.api_surface import api, api_fields
 
 
 # What a dispatched camera command does when no camera is connected: it is
@@ -123,6 +124,16 @@ class _AutoGainArm:
     resume_after_capture: bool
 
 
+@api_fields(
+    'ceiling_ms',
+    'exposure_ms',
+    'floor_ms',
+    'gain_db',
+    'resume_after_capture',
+    'settings',
+    'state',
+    'stored_exposure_ms',
+)
 @dataclasses.dataclass(frozen=True)
 class AutoGainLock:
     """The result of locking an auto-gain arm; ``state`` is None when no
@@ -181,6 +192,7 @@ def stored_exposure_after_lock(exposure_ms: float, floor_ms: float | None) -> fl
     return max(exposure_ms, floor_ms) if floor_ms is not None else exposure_ms
 
 
+@api_fields('applied', 'capped', 'stored')
 @dataclasses.dataclass(frozen=True)
 class AppliedCameraSetting:
     """What a stored camera setting actually becomes on the attached body.
@@ -1012,6 +1024,7 @@ class ImagingAPI:
         else:
             _api_log.debug(f'camera {key} read failed: {cause}')
 
+    @api
     @property
     def camera_removed(self) -> bool:
         """Whether this scope's camera was declared removed by its driver.
@@ -1379,6 +1392,7 @@ class ImagingAPI:
                 ),
             )
 
+    @api
     def set_gain_db(self, gain_db: float) -> float | None:
         """Set the camera gain, wait for it, and answer with the gain in effect.
 
@@ -1426,6 +1440,7 @@ class ImagingAPI:
         # them. The raise is added to that, not substituted for it.
         return applied
 
+    @api
     def set_exposure_ms(self, exposure_ms: float) -> float | None:
         """Set the camera exposure time, wait for it, and answer with the
         exposure in effect.
@@ -1468,6 +1483,7 @@ class ImagingAPI:
         # See set_gain_db: the dispatcher's pass-through contract holds.
         return applied
 
+    @api
     def set_auto_gain(
         self, state: bool, settings: dict, *, resume_after_capture: bool = True
     ) -> bool | None:
@@ -1574,6 +1590,7 @@ class ImagingAPI:
             self._refresh_cache_from_hardware_after_auto()
         return result
 
+    @api
     def lock_auto_gain(self) -> AutoGainLock:
         """Lock a standing continuous auto-gain arm and return the result.
 
@@ -1749,6 +1766,7 @@ class ImagingAPI:
         if self._set_auto_gain_impl(True, lock.settings, resume_after_capture=True) is False:
             self._report_refused_write(_mode_rejection('auto_gain', True, 'auto-gain'))
 
+    @api
     def set_auto_exposure_time(self, state: bool = True) -> bool | None:
         """Enable or disable automatic exposure adjustment, and wait for it.
 
@@ -2225,6 +2243,7 @@ class ImagingAPI:
             return False
         return result
 
+    @api
     def get_black_level(self) -> float | None:
         """Read the camera's black level, live.
 
@@ -2250,6 +2269,7 @@ class ImagingAPI:
             return None
         return driver.get_black_level()
 
+    @api
     def get_black_level_range(self) -> tuple[float, float] | None:
         """Read the range ``set_black_level`` accepts, live, in the units of
         ``get_black_level``.
@@ -2275,6 +2295,7 @@ class ImagingAPI:
             return None
         return driver.get_black_level_range()
 
+    @api
     def get_resulting_frame_rate(self) -> float | None:
         """Read the frame rate the camera reports its current settings allow,
         live, in frames per second.
@@ -2299,6 +2320,7 @@ class ImagingAPI:
             return None
         return driver.get_resulting_frame_rate()
 
+    @api
     def set_black_level(self, value: float) -> float | None:
         """Set the camera's black level, wait for it, and answer with the
         value in effect.
@@ -2785,6 +2807,7 @@ class ImagingAPI:
         exposure_ms = self.get_exposure_ms()
         return exposure_ms / 1000 if exposure_ms is not None else 0.0
 
+    @api
     def get_live_camera_settings(self) -> dict:
         """Live-confirmed camera settings, omitting any field whose read
         did not just succeed.
@@ -2837,6 +2860,7 @@ class ImagingAPI:
             settings['pixel_format'] = pixel_format
         return settings
 
+    @api
     def get_gain_db(self) -> float | None:
         """Get the current camera gain.
 
@@ -2853,6 +2877,7 @@ class ImagingAPI:
             None,
         )
 
+    @api
     def get_exposure_ms(self) -> float | None:
         """Get the current camera exposure time.
 
@@ -2927,6 +2952,7 @@ class ImagingAPI:
         frame_size = self._get_frame_size()
         return int(frame_size['height']) if frame_size else None
 
+    @api
     def get_binning_size(self) -> int:
         """Get the current camera binning size.
 
@@ -2945,6 +2971,7 @@ class ImagingAPI:
             1,
         )
 
+    @api
     def get_pixel_alignment(self) -> dict:
         """Return the camera's deliverable frame-size granularity.
 
@@ -3357,6 +3384,7 @@ class ImagingAPI:
         """
         return self._driver.get_black_level()
 
+    @api
     def capture_and_wait(
         self,
         force_to_8bit: bool = True,
@@ -3367,7 +3395,7 @@ class ImagingAPI:
         timeout_s: float = 0.0,
         sum_count: int = 1,
         sum_delay_s: float = 0,
-        sum_iteration_callback=None,
+        sum_iteration_callback: Callable[[], None] | None = None,
     ) -> np.ndarray | None:
         """Capture a frame-valid image on the camera worker, and wait for it.
 
@@ -3477,7 +3505,7 @@ class ImagingAPI:
         dark_floor_check: bool = False,
         sum_count: int = 1,
         sum_delay_s: float = 0,
-        sum_iteration_callback: Callable | None = None,
+        sum_iteration_callback: Callable[[], None] | None = None,
         force_new_capture: bool = False,
         new_capture_timeout_s: float = 5.0,
         verify_chunk_targets: bool = False,
@@ -3810,6 +3838,7 @@ class ImagingAPI:
 
         return image
 
+    @api
     def get_image(
         self,
         force_to_8bit: bool = True,
@@ -3817,7 +3846,7 @@ class ImagingAPI:
         all_ones_check: bool = False,
         sum_count: int = 1,
         sum_delay_s: float = 0,
-        sum_iteration_callback: Callable | None = None,
+        sum_iteration_callback: Callable[[], None] | None = None,
         force_new_capture: bool = False,
         new_capture_timeout_s: float = 5.0,
         verify_chunk_targets: bool = False,
@@ -3848,6 +3877,7 @@ class ImagingAPI:
             verify_chunk_targets=verify_chunk_targets,
         )
 
+    @api
     def get_image_from_buffer(
         self, force_to_8bit: bool = True, out_8bit: np.ndarray | None = None
     ) -> tuple:
@@ -3966,6 +3996,7 @@ class ImagingAPI:
         stamped = driver.last_stamped_significant_bits()
         return int(stamped) if stamped is not None else self.significant_bits
 
+    @api
     def capture_frame_depth(self, array: np.ndarray | None) -> int:
         """Payload depth of a frame just produced by a capture call.
 
@@ -3988,6 +4019,7 @@ class ImagingAPI:
             return self.last_significant_bits
         return image_utils.summed_significant_bits(*summing)
 
+    @api
     def capture_frame_full_scale(self, array: np.ndarray | None) -> int:
         """The value at which a frame just produced by a capture call is saturated.
 
@@ -4006,6 +4038,7 @@ class ImagingAPI:
         return image_utils.summed_full_scale(*summing)
 
     # --- Streaming control ---
+    @api
     def start_streaming(self) -> None:
         """Begin camera streaming -- the public way to start the live feed, and wait.
 
@@ -4035,6 +4068,7 @@ class ImagingAPI:
         if not driver.open_and_start() and not driver.is_grabbing():
             driver.start_grabbing()
 
+    @api
     def stop_streaming(self) -> None:
         """Stop camera streaming, and wait.
 
@@ -4056,6 +4090,7 @@ class ImagingAPI:
             return
         driver.stop_grabbing()
 
+    @api
     def is_streaming(self) -> bool:
         """Whether the camera is currently acquiring frames.
 
@@ -4078,6 +4113,7 @@ class ImagingAPI:
         with self._camera_cache_lock:
             return self._camera_cache['active']
 
+    @api
     @property
     def gain_db_cached(self) -> float:
         """Current camera gain in dB (reads cache).
@@ -4088,6 +4124,7 @@ class ImagingAPI:
         with self._camera_cache_lock:
             return self._camera_cache['gain_db']
 
+    @api
     @property
     def longest_exposure_ms(self) -> float | None:
         """The longest exposure the camera may be using now, in ms.
@@ -4110,6 +4147,7 @@ class ImagingAPI:
         ceiling = arm.settings.get('max_exposure_ms')
         return float(ceiling) if ceiling else self.max_exposure_ms_cached
 
+    @api
     @property
     def exposure_ms_cached(self) -> float:
         """Current camera exposure time in ms (reads cache).
@@ -4120,6 +4158,7 @@ class ImagingAPI:
         with self._camera_cache_lock:
             return self._camera_cache['exposure_ms']
 
+    @api
     @property
     def frame_size_cached(self) -> dict:
         """Current camera frame size as {'width': int, 'height': int} (reads cache).
@@ -4130,6 +4169,7 @@ class ImagingAPI:
         with self._camera_cache_lock:
             return dict(self._camera_cache['frame_size'])
 
+    @api
     @property
     def min_frame_size_cached(self) -> dict | None:
         """Minimum camera frame size, or None if no camera is connected.
@@ -4148,6 +4188,7 @@ class ImagingAPI:
             return None
         return value
 
+    @api
     @property
     def max_exposure_ms_cached(self) -> float | None:
         """Maximum camera exposure time in ms, or None if no camera is connected.
@@ -4164,6 +4205,7 @@ class ImagingAPI:
             return None
         return float(value)
 
+    @api
     @property
     def max_gain_db_cached(self) -> float | None:
         """Maximum camera gain in dB, or None if no camera is connected.
@@ -4182,6 +4224,7 @@ class ImagingAPI:
             return None
         return float(value)
 
+    @api
     @property
     def min_gain_db_cached(self) -> float | None:
         """Minimum camera gain in dB, or None when the camera declares none.
@@ -4194,6 +4237,7 @@ class ImagingAPI:
             value = self._camera_cache.get('min_gain_db')
         return None if value is None else float(value)
 
+    @api
     @property
     def min_exposure_ms_cached(self) -> float | None:
         """Minimum camera exposure in ms, or None when the camera declares
@@ -4202,6 +4246,7 @@ class ImagingAPI:
             value = self._camera_cache.get('min_exposure_ms')
         return None if value is None else float(value)
 
+    @api
     def applied_gain_db_for(self, stored_gain_db: float) -> AppliedCameraSetting:
         """What a stored gain becomes on the attached camera.
 
@@ -4212,6 +4257,7 @@ class ImagingAPI:
         """
         return cap_stored_value(stored_gain_db, self.max_gain_db_cached)
 
+    @api
     def applied_exposure_ms_for(self, stored_exposure_ms: float) -> AppliedCameraSetting:
         """What a stored exposure becomes on the attached camera.
 
@@ -4220,6 +4266,7 @@ class ImagingAPI:
         """
         return cap_stored_value(stored_exposure_ms, self.max_exposure_ms_cached)
 
+    @api
     def applied_auto_gain_for(self, stored_auto_gain: bool) -> AppliedCameraSetting:
         """What a stored auto-gain preference becomes on the attached camera.
 
@@ -4244,6 +4291,7 @@ class ImagingAPI:
         (``capabilities.camera_supports_auto_exposure``)."""
         return self._scope.capabilities.camera_supports_auto_exposure
 
+    @api
     @property
     def pixel_format_cached(self) -> str | None:
         """Current camera pixel format (e.g. 'Mono8', 'Mono12') (reads cache).
@@ -4506,6 +4554,7 @@ class ImagingAPI:
                 self._report_refused_write(_value_rejection('black_level', wanted))
 
     # --- Camera config orchestration ---
+    @api
     def apply_layer_camera_settings(
         self,
         gain_db: float,
@@ -4639,6 +4688,7 @@ class ImagingAPI:
             )
         return {'gain_db': gain_result, 'exposure_ms': exposure_result}
 
+    @api
     def update_auto_gain_target_brightness(self, target_brightness: float) -> bool | None:
         """Set the auto-gain target brightness, and wait for it.
 
@@ -4816,6 +4866,7 @@ class ImagingAPI:
             self._focusing_event.clear()
 
     # --- Frame validity ---
+    @api
     @property
     def frame_is_valid(self) -> bool:
         """True if all pending hardware state changes have settled.
@@ -4827,6 +4878,7 @@ class ImagingAPI:
         """
         return self.frame_validity.is_valid
 
+    @api
     def frames_until_valid(self, exclude_sources: tuple = ()) -> int:
         """Number of frames that must be grabbed before the next valid frame.
 
@@ -4890,6 +4942,7 @@ class ImagingAPI:
             )
         return False
 
+    @api
     @property
     def scale_bar_config(self) -> dict:
         """Whether the scale bar is drawn on captured images, and in what colour.
@@ -4909,6 +4962,7 @@ class ImagingAPI:
         with self._state_lock:
             return {'enabled': enabled, 'color': self._scale_bar_color}
 
+    @api
     def set_scale_bar_color(self, color: str) -> None:
         """The colour the scale bar is drawn in on captured images.
 
@@ -5096,7 +5150,8 @@ class ImagingAPI:
         )
 
     # --- Frame-flow listeners ---
-    def add_camera_listener(self, listener) -> None:
+    @api
+    def add_camera_listener(self, listener: Callable[[str, float], None]) -> None:
         """Register a callback for camera setting changes.
 
         The listener is called with ``(param, value)`` whenever camera
@@ -5113,7 +5168,8 @@ class ImagingAPI:
         with self._camera_listeners_lock:
             self._camera_listeners.append(listener)
 
-    def remove_camera_listener(self, listener) -> None:
+    @api
+    def remove_camera_listener(self, listener: Callable[[str, float], None]) -> None:
         """Unregister a camera listener.
 
         Args:
@@ -5127,8 +5183,11 @@ class ImagingAPI:
             except ValueError:
                 pass
 
+    @api
     def add_frame_listener(
-        self, cb: Callable[[Any, Any, Any], None], name: str | None = None
+        self,
+        cb: Callable[[np.ndarray, datetime.datetime, dict | None], None],
+        name: str | None = None,
     ) -> None:
         """Register a per-frame listener fired on every successful grab.
 
@@ -5182,7 +5241,10 @@ class ImagingAPI:
                 self._frame_listener_wrappers.pop(cb, None)
             raise FrameListenerNotRegisteredError(name) from ex
 
-    def remove_frame_listener(self, cb: Callable[[Any, Any, Any], None]) -> None:
+    @api
+    def remove_frame_listener(
+        self, cb: Callable[[np.ndarray, datetime.datetime, dict | None], None]
+    ) -> None:
         """Remove a listener registered via ``add_frame_listener``.
 
         No new call reaches the handler once this returns (a call already
