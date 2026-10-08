@@ -19,6 +19,7 @@ from modules.kivy_utils import schedule_ui as _schedule_ui
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
+import modules.image_utils as image_utils
 
 if typing.TYPE_CHECKING:
     from modules.sequential_io_executor import SequentialIOExecutor
@@ -242,21 +243,33 @@ def _contained(fn: typing.Callable[[], object] | None, label: str, *, solicited:
 # ============================================================================
 
 
-def live_display_callbacks() -> dict:
-    """The run callbacks that feed the live display, for every GUI run starter.
+def show_captured_frame(image, frames_summed: int, frame_significant_bits: int) -> None:
+    """Every GUI run's ``frame_captured``: hold the frame a run just captured on screen.
 
-    One key today: the hold that keeps a just-saved protocol frame on screen.
-    Late-bound on purpose -- the display is resolved when the writer calls,
-    not when the starter builds its dict -- so a run started before the
-    display exists degrades inside the writer's own guard, exactly as the
-    writer's former direct read did, in one place rather than at each
-    starter.
+    Rendered as a JPG save renders it -- a sum against one frame's white,
+    brighter -- on the run's thread, where the engine delivers the event, so
+    the display only uploads the result. The display is looked up when the
+    frame arrives, not when the run starts.
     """
-    return {
-        'hold_protocol_saved_image': lambda image, significant_bits: (
-            _app_ctx.ctx.scope_display.hold_protocol_saved_image(image, significant_bits)
-        ),
-    }
+    rendered = image_utils.convert_sum_to_8bit(image, frames_summed, frame_significant_bits)
+    _app_ctx.ctx.scope_display.hold_protocol_saved_image(rendered, 8)
+
+
+def restore_display_after_run(*_ended) -> None:
+    """Put the display back on the user's settings once a run has ended.
+
+    A run shows each step in the layer panel and in the shader's false
+    colour without writing the user's settings; this puts every layer's
+    widgets back on the settings and the shader back on the open drawer's
+    layer, or BF when none is open. Takes and ignores ``run_ended``'s values.
+    """
+    sync_layer_widgets_from_settings()
+    ctx = _app_ctx.ctx
+    layer_name = common_utils.get_opened_layer(ctx.image_settings)
+    if layer_name is not None:
+        ctx.image_settings.layer_lookup(layer=layer_name).update_shader(dt=0)
+        return
+    ctx.viewer.update_shader(false_color='BF')
 
 
 def set_last_save_folder(dir):
@@ -297,13 +310,6 @@ def find_nearest_step(x, y, protocol):
 # ============================================================================
 # Protocol Step Navigation Helpers
 # ============================================================================
-
-
-def _update_step_number_callback(step_num: int):
-    ctx = _app_ctx.ctx
-    protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
-    protocol_settings.curr_step = step_num - 1
-    _schedule_ui(lambda dt: protocol_settings.update_step_ui(), 0)
 
 
 # ============================================================================
@@ -570,22 +576,29 @@ def set_title_event_text(text):
     _title_event_text = text or None
 
 
-# Should only be called from main thread
-def set_recording_title(elapsed_sec=None, total_sec=None):
-    if elapsed_sec is None:
-        set_title_event_text('Recording Video...')
-    elif total_sec:
-        set_title_event_text(f'Recording Video... {int(elapsed_sec)}s / {int(total_sec)}s')
-    else:
-        set_title_event_text(f'Recording Video... {int(elapsed_sec)}s')
+# The suffix the last video progress wrote, so its 'ended' clears only its
+# own text: the slot also holds homing, compositing and file-drain text.
+_video_progress_text = None
 
 
-# Should only be called from main thread
-def set_writing_title(progress=None):
-    if progress is None:
-        set_title_event_text('Writing Video...')
+def show_video_progress(progress) -> None:
+    """Every GUI run's ``video_progress``: say in the title what a video step is doing.
+
+    On the UI thread. ``'ended'`` clears the suffix only while it still holds
+    the text this wrote; anything another writer has put there since stays.
+    """
+    global _video_progress_text
+    if progress.phase == 'ended':
+        if get_title_event_text() == _video_progress_text:
+            set_title_event_text(None)
+        _video_progress_text = None
+        return
+    if progress.phase == 'recording':
+        text = f'Recording Video... {int(progress.elapsed_s)}s / {int(progress.total_s)}s'
     else:
-        set_title_event_text(f'Writing Video... {int(progress)}%')
+        text = f'Writing Video... {int(progress.percent)}%'
+    _video_progress_text = text
+    set_title_event_text(text)
 
 
 def reset_title():

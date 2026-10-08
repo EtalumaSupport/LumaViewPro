@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING, NamedTuple
 import numpy as np
 
 import modules.common_utils as common_utils
-import modules.image_utils as image_utils
 import modules.protocol_recording as protocol_recording
 from lib import profile_trace
 from lvp_logger import protocol_logger as logger
@@ -39,6 +38,7 @@ from modules.notification_center import notifications
 from modules.protocol import Protocol
 from modules.protocol_recording import ProtocolVideoStep
 from modules.recording_frames import FrameFact, frame_fact
+from modules.run_events import RunEvents, deliver_here
 from modules.run_outcome import CaptureTally, EndingLatch, FailedCapture, RunEnding
 from modules.sequential_io_executor import IOTask
 
@@ -51,7 +51,6 @@ if TYPE_CHECKING:
     from modules.labware import WellPlate
     from modules.lumascope_api import Lumascope
     from modules.lumascope_api.frame_record import FrameRecord
-    from modules.protocol_callbacks import ProtocolCallbacks
     from modules.protocol_execution_record import ProtocolExecutionRecord
     from modules.sequential_io_executor import SequentialIOExecutor
 
@@ -349,7 +348,7 @@ class RunWriteBatch:
         Now, on the caller's thread, when the last write has already
         landed; otherwise on the thread that lands it. Handed over by the
         run's end, after the run has let go of the scope, so the actions
-        -- files_complete among them -- never reach a caller while the run
+        -- files_written among them -- never reach a caller while the run
         still holds it.
         """
         with self._cond:
@@ -554,7 +553,7 @@ class ProtocolImageWriter:
         self,
         *,
         scope: Lumascope,
-        callbacks: ProtocolCallbacks,
+        events: RunEvents,
         aborted: threading.Event,
         # THIS run's write batch, created with the run. Every write the
         # writer makes is the run's and is counted there, so what the run
@@ -614,7 +613,7 @@ class ProtocolImageWriter:
         captures_asked: int,
     ):
         self._scope = scope
-        self._callbacks = callbacks
+        self._events = events
         self._aborted = aborted
         self._write_batch = write_batch
         self._abort_fn = abort_fn
@@ -1263,7 +1262,7 @@ class ProtocolImageWriter:
                         timestamp_overlay=self._timestamp_overlay,
                         global_max_fps=self._video_max_fps,
                         autogain_settings=autogain_settings,
-                        callbacks=self._callbacks.to_dict(),
+                        events=self._events,
                         aborted_event=self._aborted,
                         is_run_in_progress=self._is_run_in_progress,
                         abort_run_fatal=self._abort_run_fatal,
@@ -1415,33 +1414,11 @@ class ProtocolImageWriter:
                         f'{self._capture_evidence(captured_image, full_scale)}'
                     )
 
-                    # Hold the captured image on screen for at least 500 ms so
-                    # the user can see the saved frame before the live preview
-                    # overwrites it. NOT a delay -- the next protocol save bumps
-                    # the hold deadline forward, so display tracks the
-                    # most-recent saved frame in real time. The hold is the
-                    # GUI's hook and nobody waits on it: a failure to show the
-                    # frame (one deeper than its declared depth, a shape the
-                    # display cannot draw) is reported here and the capture's
-                    # write goes on.
-                    # The display is handed the frame as it is shown: a sum
-                    # rendered against one frame's white, brighter, as on
-                    # every other 8-bit rendering of it.
-                    try:
-                        if self._callbacks.hold_protocol_saved_image:
-                            self._callbacks.hold_protocol_saved_image(
-                                image_utils.convert_sum_to_8bit(
-                                    captured_image,
-                                    frame_record.frames_summed,
-                                    frame_record.frame_significant_bits,
-                                ),
-                                8,
-                            )
-                    except Exception as hold_failure:
-                        notifications.report_outcome(
-                            hold_failure, solicited=False, category='Protocol'
-                        )
-
+                    # Read-only from here: the write job and frame_captured's
+                    # handler hold this one array, and no view of it can be
+                    # made writeable again, so no handler can change the
+                    # file's pixels. Nothing downstream writes it in place.
+                    captured_image.flags.writeable = False
                     _success_capture_time = datetime.datetime.now()
                     if not self._submit_write(
                         kwargs={
@@ -1466,6 +1443,17 @@ class ProtocolImageWriter:
                         _proto_outcome = 'write_aborted'
                         return False
                     _proto_outcome = 'success'
+                    # Once the write is the batch's, which under write
+                    # backpressure is once the batch had room; a frame whose
+                    # submit was refused is not announced. On this thread,
+                    # which waits for the handler.
+                    deliver_here(
+                        self._events.frame_captured,
+                        'frame_captured',
+                        captured_image,
+                        frame_record.frames_summed,
+                        frame_record.frame_significant_bits,
+                    )
 
             else:
                 _not_saving_capture_time = datetime.datetime.now()

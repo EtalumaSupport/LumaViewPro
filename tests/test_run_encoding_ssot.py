@@ -39,11 +39,11 @@ from modules.image_mode import (
     SAVE_ENCODING_RIGHT_ALIGNED,
 )
 from modules.protocol import Protocol
-from modules.protocol_callbacks import ProtocolCallbacks
 from modules.sequenced_capture_runner import (
     SequencedCaptureRunMode,
     SequencedCaptureRunner,
 )
+from modules.run_events import RunEvents
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
 
@@ -194,7 +194,7 @@ def _spy_save_image(monkeypatch, tmp_path):
 def _run_one_still(executor, tmp_path, config):
     done = threading.Event()
 
-    def on_complete(**kwargs):
+    def on_ended(outcome, run_dir, protocol):
         done.set()
 
     plan = executor.prepare(
@@ -206,10 +206,7 @@ def _run_one_still(executor, tmp_path, config):
         autogain_settings={'target_brightness': 0.3},
         parent_dir=tmp_path / 'output',
         max_scans=1,
-        callbacks={
-            'run_complete': on_complete,
-            'go_to_step': lambda **kw: None,
-        },
+        events=RunEvents(run_ended=on_ended),
     )
     handle = executor.start(plan)
     assert done.wait(timeout=COMPLETION_TIMEOUT), 'run did not complete'
@@ -274,7 +271,7 @@ class TestOneRunOneEncoding:
         scope.runtime_state.resolve_current_objective.return_value = ('10x Oly', {})
         return ProtocolImageWriter(
             scope=scope,
-            callbacks=ProtocolCallbacks(),
+            events=RunEvents(),
             aborted=threading.Event(),
             write_batch=RunWriteBatch(MagicMock()),
             abort_fn=lambda: None,

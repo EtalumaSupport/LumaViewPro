@@ -24,6 +24,7 @@ import modules.common_utils as common_utils
 import modules.protocol_image_writer as protocol_image_writer
 from modules.image_utils import read_pixel_size_um
 from modules.protocol import Protocol
+from modules.run_events import RunEvents
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
@@ -119,7 +120,7 @@ def test_a_save_after_the_next_turret_move_keeps_its_own_objective(tmp_path, mon
         outcome = runner.run_single_scan(
             protocol=_two_objective_protocol(),
             parent_dir=str(run_parent),
-            callbacks={'files_complete': lambda **kw: files_written.set()},
+            events=RunEvents(files_written=lambda *_: files_written.set()),
         )
         result = outcome.wait(timeout_s=60.0)
         assert result is not None and result.status == 'completed', result

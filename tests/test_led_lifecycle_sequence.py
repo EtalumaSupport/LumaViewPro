@@ -63,6 +63,7 @@ from tests.af_drives import park_z
 from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.protocol import Protocol
+from modules.run_events import RunEvents
 from modules.sequenced_capture_runner import (
     SequencedCaptureRunner,
     SequencedCaptureRunMode,
@@ -341,13 +342,11 @@ def _run_protocol(
     _build_two_scan_protocol's near-zero period so it finishes in test time.
     """
     done = threading.Event()
-    result_holder: dict = {}
+    ended: list = []
 
-    def on_complete(**kwargs):
-        result_holder.update(kwargs)
+    def on_ended(outcome, run_dir, protocol):
+        ended.append(outcome)
         done.set()
-
-    callbacks = {'run_complete': on_complete}
 
     plan = runner.prepare(
         keep_led_between_steps=keep_led_between_steps,
@@ -364,12 +363,12 @@ def _run_protocol(
         },
         parent_dir=tmp_path / 'output',
         max_scans=max_scans,
-        callbacks=callbacks,
+        events=RunEvents(run_ended=on_ended),
     )
     runner.start(plan)
 
     completed = done.wait(timeout=timeout)
-    return completed, result_holder
+    return completed, ended[0] if ended else None
 
 
 # ---------------------------------------------------------------------------
@@ -770,9 +769,9 @@ def test_run_recovers_a_stranded_led_lease(scope, runner, tmp_path, caplog):
         completed, result = _run_protocol(runner, _build_protocol([('A1', 'Green', {})]), tmp_path)
 
     assert completed, 'the run must complete after reclaiming the stranded lease'
-    assert result.get('status') == 'completed', f'run must complete normally; got {result}'
+    assert result.status == 'completed', f'run must complete normally; got {result}'
     assert not stranded.held, 'the stranded lease must be dropped by the reclaim'
-    # run_complete comes once the lease is released and the run has left
+    # run_ended comes once the lease is released and the run has left
     # its run phase; the poll confirms it.
     deadline = time.monotonic() + 5.0
     while runner.run_in_progress() and time.monotonic() < deadline:
@@ -888,13 +887,13 @@ def test_s11_wedged_writer_aborts_run_and_goes_dark(scope, runner, tmp_path, mon
         wedge_release.set()
         notifications.remove_listener(listener)
 
-    assert completed, f'run_complete never fired after the wedge abort\n{sub.render()}'
-    assert result.get('status') == 'failed', (
+    assert completed, f'run_ended never fired after the wedge abort\n{sub.render()}'
+    assert result.status == 'failed', (
         f'a wedged writer is a fault the instrument imposed, not a stop the '
-        f'user asked for; status={result.get("status")!r}'
+        f'user asked for; status={result.status!r}'
     )
-    assert result.get('ending').reason == 'file_writer_stalled', (
-        f'the run must name the fault that killed it; got {result.get("ending")!r}'
+    assert result.reason == 'file_writer_stalled', (
+        f'the run must name the fault that killed it; got {result!r}'
     )
     assert install_results == [ENQUEUED, True, ENQUEUED], (
         f'wedge install did not follow the expected sequence: {install_results}'

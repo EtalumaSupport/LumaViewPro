@@ -67,6 +67,7 @@ from modules.sequenced_capture_runner import (
     SequencedCaptureRunMode,
 )
 from modules.protocol import Protocol
+from modules.run_events import RunEvents
 from modules.kivy_utils import schedule_ui
 import modules.kivy_utils as _kivy_utils
 from modules.scope_session import ScopeSession
@@ -291,12 +292,8 @@ class TestHeadlessProtocolExecution:
 
                 done = threading.Event()
 
-                def on_complete(**kwargs):
+                def on_ended(outcome, run_dir, protocol):
                     done.set()
-
-                callbacks = {
-                    'run_complete': on_complete,
-                }
 
                 autogain_settings = {
                     'target_brightness': 0.3,
@@ -316,7 +313,7 @@ class TestHeadlessProtocolExecution:
                     autogain_settings=autogain_settings,
                     parent_dir=tmp_path / 'output',
                     max_scans=1,
-                    callbacks=callbacks,
+                    events=RunEvents(run_ended=on_ended),
                     enable_image_saving=False,
                 )
                 executor.start(plan)

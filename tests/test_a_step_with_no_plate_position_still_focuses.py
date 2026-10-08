@@ -21,6 +21,7 @@ import threading
 import pytest
 import tifffile
 
+from modules.run_events import RunEvents
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
@@ -54,10 +55,7 @@ def _run_and_wait_for_files(session, tmp_path, protocol):
         protocol=protocol,
         sequence_name='zonly',
         parent_dir=str(tmp_path),
-        callbacks={
-            'run_complete': lambda **kw: None,
-            'files_complete': lambda **kw: files_written.set(),
-        },
+        events=RunEvents(files_written=lambda run_dir, files: files_written.set()),
     )
     assert files_written.wait(COMPLETION_TIMEOUT), 'the run never finished its files'
     assert run.wait(timeout_s=COMPLETION_TIMEOUT) is not None

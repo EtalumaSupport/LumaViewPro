@@ -3,7 +3,7 @@
 into the user's live layer settings; the panel re-syncs from settings at run
 end.
 
-The defect: the run's step executor navigates to every step through the
+The defect: the run's step executor navigated to every step through the
 GUI's ``go_to_step`` callback, which wrote the step's nine values into the
 user's live layer settings on every step, and the per-layer widget setter
 wrote two more (video and stim config). After a run the user's live
@@ -21,9 +21,9 @@ Contract under test:
   alone.
 - ``LayerControl.set_step_state`` is a pure widget setter: it touches no
   settings.
-- At run end the cleanup schedules ``sync_layer_widgets`` exactly once,
-  and that callback re-syncs every layer's widgets from its stored settings through
-  the one settings-to-widgets implementation (the startup loop, extracted).
+- At run end the GUI's ``run_ended`` handler re-syncs every layer's widgets
+  from its stored settings, once, through the one settings-to-widgets
+  implementation (the startup loop, extracted); the engine names no such chore.
 """
 
 from __future__ import annotations
@@ -402,9 +402,9 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
                 assert ids[box].visible is False and ids[box].opacity == 0
             assert stand.visibility_calls == 1
 
-    def test_cleanup_schedules_the_sync_once(self):
-        """The schedule sits outside every loop: one call per run."""
-        fn = find_def('modules/protocol_cleanup.py', 'run_cleanup')
+    def test_the_run_end_handler_syncs_once(self):
+        """The GUI's run_ended handler re-syncs the panel, once, outside every loop."""
+        fn = find_def('ui/ui_helpers.py', 'restore_display_after_run')
         assert fn is not None
         parents = {}
         for node in ast.walk(fn):
@@ -413,28 +413,25 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
         sites = [
             node
             for node in ast.walk(fn)
-            if isinstance(node, ast.Attribute) and node.attr == 'sync_layer_widgets'
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == 'sync_layer_widgets_from_settings'
         ]
-        assert sites, 'run_cleanup must schedule callbacks.sync_layer_widgets'
-        for site in sites:
-            node = site
-            while node in parents:
-                node = parents[node]
-                assert not isinstance(node, (ast.For, ast.While)), (
-                    'the sync must be scheduled once per run'
-                )
+        assert len(sites) == 1, 'restore_display_after_run must sync the layer widgets once'
+        node = sites[0]
+        while node in parents:
+            node = parents[node]
+            assert not isinstance(node, (ast.For, ast.While)), 'the sync must run once per run'
 
-    def test_callbacks_carry_sync_layer_widgets_not_reset_autofocus_btns(self):
-        tree = parse_module('modules/protocol_callbacks.py')
-        fields = {
-            stmt.target.id
+    def test_the_engine_names_no_layer_widget_sync(self):
+        """The sync is display work: the run's cleanup names no GUI chore."""
+        tree = parse_module('modules/protocol_cleanup.py')
+        names = {
+            node.attr if isinstance(node, ast.Attribute) else node.id
             for node in ast.walk(tree)
-            if isinstance(node, ast.ClassDef) and node.name == 'ProtocolCallbacks'
-            for stmt in node.body
-            if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name)
+            if isinstance(node, (ast.Attribute, ast.Name))
         }
-        assert 'sync_layer_widgets' in fields
-        assert 'reset_autofocus_btns' not in fields
+        assert not {'sync_layer_widgets', 'restore_layer_shader'} & names
 
 
 def _constant_key_path(target: ast.AST) -> str:

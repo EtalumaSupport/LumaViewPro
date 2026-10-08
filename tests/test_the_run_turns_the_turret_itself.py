@@ -15,6 +15,7 @@ from types import SimpleNamespace
 import pytest
 
 from modules.exceptions import HardwareCommandRefusedError
+from modules.run_events import RunEvents
 from modules.protocol_step_runner import ProtocolStepRunner
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES
 from tests.test_a_saved_frame_keeps_its_objective import _two_objective_protocol
@@ -37,7 +38,7 @@ def test_a_headless_run_visits_each_steps_slot(tmp_path, monkeypatch):
         outcome = runner.run_single_scan(
             protocol=_two_objective_protocol(),
             parent_dir=str(tmp_path / 'runs'),
-            callbacks={'go_to_step': lambda **kw: displayed.append(kw['include_move'])},
+            events=RunEvents(step_started=displayed.append),
         )
         result = outcome.wait(timeout_s=60.0)
         assert result is not None and result.status == 'completed', result
@@ -49,8 +50,8 @@ def test_a_headless_run_visits_each_steps_slot(tmp_path, monkeypatch):
     # because the step's own Z move follows.
     assert [slot for slot, _ in visited][: len(expected)] == expected
     assert all(restore_z is False for _, restore_z in visited)
-    # The host's callback is told to display, never to move.
-    assert displayed and not any(displayed)
+    # The host is told each step as it starts; the run moves the turret itself.
+    assert displayed == list(range(protocol.num_steps()))
 
 
 def test_a_refused_move_raises_instead_of_being_skipped():

@@ -12,6 +12,7 @@ Test tiers:
   - Tier 3: Autofocus -- real AutofocusRunner with SimulatedCamera focus simulation
 """
 
+import dataclasses
 import datetime
 import json
 import logging
@@ -52,6 +53,7 @@ from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.autofocus_runner import AutofocusRunner
 from modules.protocol import Protocol
+from modules.run_events import RunEvents
 from tests.protocol_drives import (
     StepHeartbeat,
     held_run_claim,
@@ -201,15 +203,15 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
     done = threading.Event()
     result_holder = {}
 
-    def on_complete(**kwargs):
-        result_holder.update(kwargs)
+    events = run_kwargs.pop('events', RunEvents())
+
+    def on_ended(outcome, run_dir, protocol):
+        result_holder.update(outcome=outcome, run_dir=run_dir, protocol=protocol)
+        if events.run_ended is not None:
+            events.run_ended(outcome, run_dir, protocol)
         done.set()
 
-    callbacks = run_kwargs.pop('callbacks', {})
-    callbacks['run_complete'] = on_complete
-    # The run moves the scope itself; go_to_step only marks each step's start.
-    heartbeat = StepHeartbeat(callbacks.get('go_to_step'))
-    callbacks['go_to_step'] = heartbeat
+    heartbeat = StepHeartbeat(events.step_started)
 
     plan = executor.prepare(
         protocol=protocol,
@@ -220,7 +222,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         autogain_settings=run_kwargs.pop('autogain_settings', _make_autogain_settings()),
         parent_dir=tmp_path / 'output',
         max_scans=run_kwargs.pop('max_scans', 1),
-        callbacks=callbacks,
+        events=dataclasses.replace(events, run_ended=on_ended, step_started=heartbeat),
         enable_image_saving=run_kwargs.pop('enable_image_saving', False),
         **run_kwargs,
     )
@@ -901,14 +903,14 @@ class TestHeadlessSession:
 
             done = threading.Event()
 
-            def on_complete(**kwargs):
+            def on_complete(*_ended):
                 done.set()
 
             runner.run_single_scan(
                 protocol=protocol,
                 sequence_name='headless_test',
                 parent_dir=str(tmp_path),
-                callbacks={'run_complete': on_complete, 'files_complete': lambda **kw: None},
+                events=RunEvents(run_ended=on_complete),
             )
 
             completed = done.wait(timeout=COMPLETION_TIMEOUT)

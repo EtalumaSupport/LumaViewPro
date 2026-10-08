@@ -47,9 +47,6 @@ def _start_run(executor, tmp_path):
         autogain_settings=_make_autogain_settings(),
         parent_dir=tmp_path / 'output',
         max_scans=1,
-        callbacks={
-            'go_to_step': lambda **kw: None,
-        },
     )
     return executor.start(plan)
 

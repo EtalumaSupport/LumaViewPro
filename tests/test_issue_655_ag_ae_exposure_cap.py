@@ -259,6 +259,7 @@ def _video_session_autogain_call(autogain_settings):
 
     import modules.protocol_recording as protocol_recording
     from modules.protocol_recording import ProtocolVideoStep
+    from modules.run_events import RunEvents
 
     scope = MagicMock()
     scope.imaging.frames_until_valid.return_value = 0
@@ -287,7 +288,7 @@ def _video_session_autogain_call(autogain_settings):
         timestamp_overlay=True,
         global_max_fps=0,
         autogain_settings=autogain_settings,
-        callbacks={},
+        events=RunEvents(),
         aborted_event=threading.Event(),
         is_run_in_progress=lambda: True,
         abort_run_fatal=MagicMock(),

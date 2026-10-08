@@ -31,6 +31,7 @@ import pytest
 
 import modules.protocol_image_writer as protocol_image_writer
 from modules.config_helpers import get_composite_channels
+from modules.run_events import RunEvents
 from tests.test_composite_run_e2e import (
     headless_settings,
     open_composite_session,
@@ -149,8 +150,8 @@ _ABORT_ACQUIRING = ('BF', 'Blue', 'Green')
 def aborted_composite(tmp_path):
     """One composite stopped from a per-step callback after step one.
 
-    The abort is fired from ``update_step_number``, which the step runner
-    invokes as it advances off a completed step -- so the run is
+    The abort is fired from ``step_started`` for the second step, which the
+    step runner sends as it advances off a completed step -- so the run is
     genuinely mid-sequence, with channels still uncaptured, rather than
     an abort racing a run that had already finished. ``reset()`` is
     documented non-blocking for its caller, so calling it from the
@@ -170,10 +171,10 @@ def aborted_composite(tmp_path):
         started = []
         have_handle = threading.Event()
 
-        def _abort_after_the_first_step(step):
-            if aborted_at:
+        def _abort_after_the_first_step(step_idx):
+            if step_idx == 0 or aborted_at:
                 return
-            aborted_at.append(step)
+            aborted_at.append(step_idx)
             # This callback can beat start_composite()'s return, so the Stop
             # waits for the handle the caller holds.
             assert have_handle.wait(120), 'start_composite never returned its handle'
@@ -183,7 +184,7 @@ def aborted_composite(tmp_path):
         outcome = runner.start_composite(
             sequence_name='abort',
             parent_dir=str(tmp_path),
-            callbacks={'update_step_number': _abort_after_the_first_step},
+            events=RunEvents(step_started=_abort_after_the_first_step),
             run_trigger_source='composite',
         )
         started.append(outcome)
@@ -210,7 +211,7 @@ class TestAbortMidComposite:
         # restore and would stay green even if the abort path forced the
         # sample dark.
         assert aborted_composite['fired'], 'the per-step callback never fired, so nothing aborted'
-        assert aborted_composite['aborted_at'] == [2], (
+        assert aborted_composite['aborted_at'] == [1], (
             f'the abort was not fired at the first step boundary: {aborted_composite["aborted_at"]}'
         )
         assert len(aborted_composite['frames']) < len(_ABORT_ACQUIRING), (

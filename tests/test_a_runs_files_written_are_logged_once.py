@@ -8,6 +8,7 @@ lands, one INFO line names the run's folder, the outcome, how many images
 were written and how many were not, and why.
 """
 
+from modules.run_events import RunEvents
 import time
 
 import modules.protocol_image_writer as protocol_image_writer
@@ -42,7 +43,7 @@ def _one_run(tmp_path, monkeypatch):
                 [_step('C1', 0, x=20.0, gain=1.0), _step('C2', 1, x=20.0, gain=1.0)]
             ),
             parent_dir=str(tmp_path / 'runs'),
-            callbacks={'files_complete': lambda **kw: files.append(kw['run_dir'])},
+            events=RunEvents(files_written=lambda run_dir, _files: files.append(run_dir)),
         )
         assert outcome.wait(timeout_s=WAIT_S) is not None
         deadline = time.monotonic() + WAIT_S

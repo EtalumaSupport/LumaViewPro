@@ -31,7 +31,6 @@ _DIRECT_WRITE_PIN = {
     ('ui/advanced_settings.py', 'AdvancedSettings.update_stimulation_settings'): 1,
     ('ui/layer_control.py', 'LayerControl.update_stim_enable'): 3,
     ('ui/microscope_settings.py', 'MicroscopeSettings.apply_stimulation_support'): 2,
-    ('ui/vertical_control.py', 'VerticalControl._autofocus_run_complete'): 1,
 }
 
 

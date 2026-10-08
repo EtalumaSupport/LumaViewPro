@@ -6,12 +6,12 @@ copied the protocol, turned every step's autofocus on, asked the engine
 for a Z write-back by a flag no other caller could reach, and copied the
 focused Z column into the protocol from a callback scheduled after the
 run had released the scope. A script had to rebuild all of it by hand,
-and still found the focus only on the protocol the run_complete callback
-handed it.
+and still found the focus only on the protocol the run_ended event handed
+it.
 
 Now ``ProtocolRunner.run_autofocus_all_steps`` is the scan, and the run
 writes the focused Z into the caller's protocol itself, on its own
-thread, before run_complete is sent and before it lets go of the scope.
+thread, before run_ended is sent and before it lets go of the scope.
 A protocol whose steps no longer match the scanned copy -- a different
 number of steps, or a step at a different position, channel or objective
 -- is left unchanged, and the refusal is reported once in its own words.
@@ -27,6 +27,7 @@ import pytest
 from modules.exceptions import FocusNotWrittenError, Refusal
 from modules.run_outcome import PendingRunOutcome, RunEnding
 from modules.protocol_image_writer import RunWriteBatch
+from modules.run_events import RunEvents
 from modules.sequenced_capture_runner import RunHandle
 
 from tests.test_a_late_write_records_its_frame import _protocol, _step
@@ -98,22 +99,22 @@ class TestTheScanWritesTheFocusIntoTheCallersProtocol:
             "the scan turned every step's autofocus on in its own copy, not the caller's"
         )
 
-    def test_the_focus_is_written_before_run_complete_is_sent(self, tmp_path):
+    def test_the_focus_is_written_before_run_ended_is_sent(self, tmp_path):
         protocol = _two_steps()
-        seen_at_run_complete = []
+        seen_at_run_ended = []
         with _focusing_session(tmp_path) as (_session, runner):
             runner.run_autofocus_all_steps(
                 protocol,
-                callbacks={
-                    'run_complete': lambda **kw: seen_at_run_complete.append(
+                events=RunEvents(
+                    run_ended=lambda *ended: seen_at_run_ended.append(
                         protocol.steps()['Z'].tolist()
                     )
-                },
+                ),
             ).wait(timeout_s=WAIT_S)
 
-        assert seen_at_run_complete == [protocol.steps()['Z'].tolist()]
-        assert STEP_Z_UM not in seen_at_run_complete[0], (
-            'run_complete was sent before the focus was written'
+        assert seen_at_run_ended == [protocol.steps()['Z'].tolist()]
+        assert STEP_Z_UM not in seen_at_run_ended[0], (
+            'run_ended was sent before the focus was written'
         )
 
     def test_the_outcome_names_no_single_focus(self, tmp_path):
@@ -129,17 +130,18 @@ class TestAProtocolThatChangedDuringTheScanIsLeftAlone:
     def test_a_step_moved_during_the_scan_refuses_the_write_and_says_so_once(self, tmp_path):
         protocol = _two_steps()
 
-        def _move_a_step(_step):
+        def _move_a_step(step_idx):
             # As the scan reaches its second step, behind the writers: the
             # protocol has no one-cell position writer.
-            protocol._config['steps'].at[1, 'X'] = 40.0
+            if step_idx == 1:
+                protocol._config['steps'].at[1, 'X'] = 40.0
 
         with (
             _reports_of(FocusNotWrittenError) as reported,
             _focusing_session(tmp_path) as (_session, runner),
         ):
             outcome = runner.run_autofocus_all_steps(
-                protocol, callbacks={'update_step_number': _move_a_step}
+                protocol, events=RunEvents(step_started=_move_a_step)
             ).wait(timeout_s=WAIT_S)
 
         assert outcome.status == 'completed', outcome
@@ -153,7 +155,7 @@ class TestAProtocolThatChangedDuringTheScanIsLeftAlone:
 
         protocol = _two_steps()
         with _focusing_session(tmp_path) as (_session, runner):
-            # The callback can fire before the start returns the handle, so
+            # The event can fire before the start returns the handle, so
             # the Stop waits for the handle the caller holds.
             started = []
             have_handle = threading.Event()
@@ -162,10 +164,11 @@ class TestAProtocolThatChangedDuringTheScanIsLeftAlone:
                 assert have_handle.wait(WAIT_S), 'the start never returned its handle'
                 started[0].stop()
 
-            def _stop(_step):
-                threading.Thread(target=_stop_once_held).start()
+            def _stop(step_idx):
+                if step_idx == 1:
+                    threading.Thread(target=_stop_once_held).start()
 
-            run = runner.run_autofocus_all_steps(protocol, callbacks={'update_step_number': _stop})
+            run = runner.run_autofocus_all_steps(protocol, events=RunEvents(step_started=_stop))
             started.append(run)
             have_handle.set()
             outcome = run.wait(timeout_s=WAIT_S)

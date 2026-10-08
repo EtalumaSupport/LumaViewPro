@@ -27,7 +27,6 @@ from unittest.mock import MagicMock
 from modules.lumascope_api.illumination import LedEndPolicy, LedTransition
 from modules.exceptions import RecordIncompleteError
 from modules.notification_center import Severity
-from modules.protocol_callbacks import ProtocolCallbacks
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.protocol_state_machine import ProtocolState
 from modules.protocol_image_writer import RunWriteBatch
@@ -160,7 +159,6 @@ def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
     scope.illumination.color2ch.return_value = 1
     af_thread = MagicMock()
     af_thread.current_future = None
-    callbacks = ProtocolCallbacks()
     ending = RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped')
 
     swap_lanes(scope, io=_FakeExecutor(), camera=_FakeExecutor())
@@ -174,7 +172,6 @@ def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
         saved_camera_state=None,
         return_to_position=None,
         scope=scope,
-        callbacks=callbacks,
         apply_led_transition_fn=lambda transition, ctx: applied.append((transition, ctx)),
         default_move_fn=lambda **kw: None,
         cancel_scheduled_events_fn=lambda: None,

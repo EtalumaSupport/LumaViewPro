@@ -15,9 +15,9 @@ from modules.protocol_state_machine import (
     SequencedCaptureRunMode,
     validate_transition,
 )
-from modules.protocol_callbacks import ProtocolCallbacks
+from modules.run_events import RunEvents
 from modules.protocol_image_writer import ProtocolImageWriter, RunWriteBatch, WRITE_STALL_FATAL_S
-from modules.protocol_cleanup import RunCompleteNotice, run_cleanup, schedule_files_complete
+from modules.protocol_cleanup import run_cleanup, send_files_written, send_run_ended
 from modules.protocol_step_runner import ProtocolStepRunner
 from modules.protocol_run_loop import ProtocolRunLoop
 
@@ -170,7 +170,7 @@ class RunHandle:
         # thread building its hyperstacks, which writes after the batch
         # completes; None for a run that builds none.
         self._hyperstack_build: threading.Thread | None = None
-        # Set once the run's run_complete, then its files_complete, has run
+        # Set once the run's run_ended, then its files_written, has run
         # -- or at once when it has none to run -- on every path that
         # reaches IDLE. What the waits wait for last.
         self._run_told = threading.Event()
@@ -186,9 +186,9 @@ class RunHandle:
         """How this run ended, once it no longer holds the scope and has told its caller.
 
         Blocks for the outcome, then, inside the same bound, for the run's
-        teardown to finish and its run_complete to have run, so a caller
+        teardown to finish and its run_ended to have run, so a caller
         woken here can start the next run, move the stage or write a setting
-        without a second wait, and reads what its run_complete did. A new
+        without a second wait, and reads what its run_ended did. A new
         run can still be refused while this run's files finish writing;
         that refusal is the drain's.
 
@@ -218,7 +218,7 @@ class RunHandle:
         run's images are on disk or given up on, its hyperstack build, when
         it has one, has finished, and the run has said everything about
         them -- the lost-image report, the record's reconcile and its
-        files_complete -- so a caller woken here can start the next run
+        files_written -- so a caller woken here can start the next run
         without a 'files_writing' refusal. One thing can still refuse it,
         as after wait(): an autofocus sweep that did not stop inside
         cleanup's bound, which the run's outcome names as a cleanup
@@ -252,8 +252,8 @@ class RunHandle:
             if build.is_alive():
                 return None
         if not own:
-            # Both, in order: under the GUI a run with no files_complete has
-            # its files told at once, while its run_complete waits its turn.
+            # Both: under the GUI a run with no files_written handler has its
+            # files told at once, while its run_ended waits its turn.
             for told in (self._run_told, self._files_told):
                 if not told.wait(_remaining(deadline)):
                     return None
@@ -378,7 +378,7 @@ class RunPlan:
     sequence_name: str
     image_capture_config: image_mode.ImageCaptureConfig
     autogain_settings: dict
-    callbacks: ProtocolCallbacks
+    events: RunEvents
     n_scans: int | None
     parent_dir: pathlib.Path | None
     enable_image_saving: bool
@@ -508,9 +508,9 @@ class SequencedCaptureRunner:
         self._protocol_state_lock = threading.Lock()
         self._state = ProtocolState.IDLE
         # Defensive default so attribute access before the first start()
-        # (e.g. from a test that drives scan_iterate directly) returns
-        # a no-op callbacks object instead of AttributeError.
-        self._callbacks = ProtocolCallbacks()
+        # (e.g. from a test that drives scan_iterate directly) finds a run
+        # with no handlers instead of AttributeError.
+        self._events = RunEvents()
         self._reset_vars()
         self._step_executor = ProtocolStepRunner(self)
         self._run_loop_executor = ProtocolRunLoop(self)
@@ -1013,7 +1013,7 @@ class SequencedCaptureRunner:
         parent_dir: pathlib.Path | None = None,
         enable_image_saving: bool = True,
         separate_folder_per_channel: bool = False,
-        callbacks: dict[str, typing.Callable] | None = None,
+        events: RunEvents | None = None,
         max_scans: int | None = None,
         return_to_position: dict | None = None,
         disable_saving_artifacts: bool = False,
@@ -1378,11 +1378,7 @@ class SequencedCaptureRunner:
             autogain_settings=(
                 copy.deepcopy(autogain_settings) if autogain_settings is not None else {}
             ),
-            callbacks=(
-                ProtocolCallbacks.from_dict(callbacks)
-                if isinstance(callbacks, dict)
-                else (callbacks or ProtocolCallbacks())
-            ),
+            events=events if events is not None else RunEvents(),
             n_scans=self._calculate_num_scans(
                 protocol=execution_protocol,
                 run_mode=run_mode,
@@ -1482,7 +1478,7 @@ class SequencedCaptureRunner:
         """Commit to the prepared run and dispatch it.
 
         The commitment point: once entered, the run's terminal callback
-        (run_complete) fires exactly once on every path -- normal
+        (run_ended) fires exactly once on every path -- normal
         completion, abort, or a setup failure, which unwinds through the
         same cleanup as a mid-run failure (with status 'failed_at_start').
         There is no path on which a caller waits forever.
@@ -1556,7 +1552,7 @@ class SequencedCaptureRunner:
             self._enable_image_saving = plan.enable_image_saving
             self._separate_folder_per_channel = plan.separate_folder_per_channel
             self._autogain_settings = plan.autogain_settings
-            self._callbacks = plan.callbacks
+            self._events = plan.events
             self._return_to_position = plan.return_to_position
             self._disable_saving_artifacts = plan.disable_saving_artifacts
             self._save_autofocus_data = plan.save_autofocus_data
@@ -1672,7 +1668,7 @@ class SequencedCaptureRunner:
             self._aborted = self.protocol_thread.aborted
             self._image_writer = ProtocolImageWriter(
                 scope=self._scope,
-                callbacks=self._callbacks,
+                events=self._events,
                 aborted=self._aborted,
                 write_batch=self._write_batch,
                 abort_fn=self.protocol_thread.abort,
@@ -1718,7 +1714,7 @@ class SequencedCaptureRunner:
                 if stopped is None:
                     # The run's folder, as its setup left it (None when it
                     # saves nothing), written to the handle before the loop
-                    # can run: once the loop ends the run, a run_complete
+                    # can run: once the loop ends the run, a run_ended
                     # subscriber may start the next, whose setup replaces
                     # the runner's.
                     handle._run_dir = self._run_dir
@@ -1795,7 +1791,7 @@ class SequencedCaptureRunner:
         """Unwind a run that failed during start()'s setup phase.
 
         Routes the failure through the normal run cleanup so the terminal
-        run_complete callback fires (status 'failed_at_start') and the
+        run_ended callback fires (status 'failed_at_start') and the
         executors leave protocol-mode.
         """
         logger.error(f'[{self.LOGGER_NAME} ] Run failed during start: {exc}', exc_info=True)
@@ -1951,7 +1947,7 @@ class SequencedCaptureRunner:
 
         ending is REQUIRED so every cleanup site states the truth it
         knows -- a defaulted value would let an abort or failure silently
-        report itself as a normal completion to run_complete subscribers.
+        report itself as a normal completion to run_ended subscribers.
         It is what this site believes; a fault that recorded its own
         cause into the run's ending latch outranks it, and cleanup
         resolves the two in one read below.
@@ -1977,7 +1973,8 @@ class SequencedCaptureRunner:
         finally:
             # After IDLE and the release, outside the run's taking: a
             # listener that reads is_live_run, or starts the next run, sees
-            # the run ended -- the Session's levels first, then run_complete,
+            # the run ended -- the Session's levels first, then run_ended
+            # (a composite's waits for its merge, on the merge's thread),
             # then the files' completion. The callbacks go through the UI
             # dispatcher: under the GUI on its thread, else inline on the
             # thread that ended the run, where a callback that waits on a
@@ -2022,7 +2019,7 @@ class SequencedCaptureRunner:
     def _write_focus(self, ending: RunEnding, run: RunHandle) -> None:
         """Write a completed autofocus scan's focus into the caller's protocol.
 
-        Here, on the run's thread before run_complete is sent, because the
+        Here, on the run's thread before run_ended is sent, because the
         run still holds the scope: the GUI's protocol edits stay disabled
         until the claim is released, so no edit lands between the scan and
         the write. A scan that did not complete focused only some of its
@@ -2048,7 +2045,7 @@ class SequencedCaptureRunner:
         stays 'aborted' and a fault stays 'failed', because what ended the
         run is the first thing a caller needs and the tally is on the
         outcome either way. Decided here, where the ending is read once, so
-        run_complete, the run-end log and the outcome all carry one word.
+        run_ended, the run-end log and the outcome all carry one word.
 
         The person is told here, once: the unattended mute is already down.
         A composite is told by its merge instead, which knows whether the
@@ -2442,7 +2439,7 @@ class SequencedCaptureRunner:
 
         Once every image the run captured is on disk -- or given up on by a
         writer recovery or a shutdown -- the execution record completes and
-        reconciles, the Session hears the drain end, and files_complete goes
+        reconciles, the Session hears the drain end, and files_written goes
         out with the outcome last, so marking *run*'s files told covers every
         action. The returned actions are handed to the batch by the run's
         end, after the run has let go of the scope, so none reaches a caller
@@ -2455,8 +2452,7 @@ class SequencedCaptureRunner:
         from modules.notification_center import notifications
 
         record = None if self._disable_saving_artifacts else self._protocol_execution_record
-        callbacks = self._callbacks
-        protocol = self._protocol
+        events = self._events
         run_dir = self._run_dir
         on_run_state = self._on_run_idle
         # A composite's merge waits on these same files and says when they
@@ -2517,11 +2513,7 @@ class SequencedCaptureRunner:
             # its levels, as it does when the run itself goes idle.
             if on_run_state is not None:
                 actions.append(on_run_state)
-            actions.append(
-                lambda: schedule_files_complete(
-                    callbacks, run=run, protocol=protocol, run_dir=run_dir, files=outcome
-                )
-            )
+            actions.append(lambda: send_files_written(events, run, run_dir=run_dir, files=outcome))
             for action in actions:
                 try:
                     action()
@@ -2551,14 +2543,9 @@ class SequencedCaptureRunner:
         notifications.close_run_scope()
 
         led_end_state_applied = False
-        # This run's writes and its one run_complete, read while the run is
-        # still this runner's. The notice carries the run's protocol, ending
-        # and directory by value: it is sent after the release, when a
-        # successor's start() may have replaced the runner's fields, and a
-        # subscriber would otherwise process the successor's directory as
-        # this run's.
+        # This run's writes, read while the run is still this runner's.
         write_batch = self._write_batch
-        run_complete = None
+        run_ending = None
         try:
             # A video step's drain tail writes on its own thread; its
             # execution-record row must land before the record reconciles
@@ -2580,9 +2567,7 @@ class SequencedCaptureRunner:
             forced_dark = self._fatal_abort_event.is_set()
             ending = self._account_for_captures(latched or ending)
             self._write_focus(ending, run)
-            run_complete = RunCompleteNotice(
-                self._callbacks, protocol=self._protocol, ending=ending, run_dir=self._run_dir
-            )
+            run_ending = ending
             led_end_state_applied = run_cleanup(
                 get_state_fn=lambda: self._state,
                 set_state_fn=self._set_state,
@@ -2593,7 +2578,6 @@ class SequencedCaptureRunner:
                 saved_camera_state=getattr(self, '_saved_camera_state', None),
                 return_to_position=self._return_to_position,
                 scope=self._scope,
-                callbacks=self._callbacks,
                 apply_led_transition_fn=self._step_executor.apply_led_transition,
                 default_move_fn=self._step_executor.default_move,
                 cancel_scheduled_events_fn=self._cancel_all_scheduled_events,
@@ -2637,17 +2621,20 @@ class SequencedCaptureRunner:
             # outcome, and a next run's prepare(), read this batch, and must
             # find it closed and still draining rather than open and not yet
             # asked.
-            run_complete = run_complete or RunCompleteNotice(
-                self._callbacks,
-                protocol=self._protocol,
-                ending=self._ending.get() or ending,
-                run_dir=self._run_dir,
+            run_ending = run_ending or self._ending.get() or ending
+            # The run's events, protocol and directory by value: run_ended is
+            # sent after the release, when a successor's start() may have
+            # replaced the runner's fields, and a subscriber would otherwise
+            # process the successor's directory as this run's.
+            events, protocol, run_dir = self._events, self._protocol, self._run_dir
+            files_written = self._close_run_writes(write_batch, run_ending, run)
+            # Told after the release, run_ended first: a subscriber hears the
+            # run end before its files, on every path, a cleanup that raised
+            # above included -- but a composite whose merge is still owed,
+            # whose run_ended waits for the merge to settle its outcome.
+            after_end.append(
+                lambda: send_run_ended(events, run, protocol=protocol, run_dir=run_dir)
             )
-            files_written = self._close_run_writes(write_batch, run_complete.ending, run)
-            # Told after the release, run_complete first: a subscriber hears
-            # the run end before its files, on every path, a cleanup that
-            # raised above included.
-            after_end.append(lambda: run_complete.send(run))
             after_end.append(lambda: write_batch.when_complete(files_written))
             # Settle (or arm) the run's merge outcome before the releases
             # below, while the fields it reads are still this run's: once

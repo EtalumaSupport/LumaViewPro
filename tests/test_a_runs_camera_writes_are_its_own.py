@@ -26,6 +26,7 @@ STEP_RUNNER = 'modules/protocol_step_runner.py'
 
 
 def test_an_auto_gain_step_arms_captures_and_disarms_inside_its_run(tmp_path):
+    from modules.run_events import RunEvents
     from modules.scope_session import ScopeSession
     from tests.scope_fakes import home_sim_scope
     from tests.settings_fixtures import complete_settings
@@ -42,10 +43,7 @@ def test_an_auto_gain_step_arms_captures_and_disarms_inside_its_run(tmp_path):
             protocol=_build_real_protocol([step]),
             sequence_name='auto_gain',
             parent_dir=str(tmp_path),
-            callbacks={
-                'run_complete': lambda **kw: None,
-                'files_complete': lambda **kw: files_written.set(),
-            },
+            events=RunEvents(files_written=lambda *written: files_written.set()),
         )
         assert files_written.wait(COMPLETION_TIMEOUT), 'the run never finished its files'
         outcome = run.wait(timeout_s=COMPLETION_TIMEOUT)

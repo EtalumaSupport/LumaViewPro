@@ -44,7 +44,7 @@ def lent_run_claim():
 def wait_until_not_running(session, timeout: float = 5.0) -> bool:
     """Wait for a finished run to release the activity claim.
 
-    `run_complete` and `handle.wait()` come only once the claim -- and
+    `run_ended` and `handle.wait()` come only once the claim -- and
     with it `session.is_protocol_running` -- is released, so after either
     this returns at once; it confirms the release for a test that asserts
     the state without having waited on the run itself.
@@ -67,21 +67,21 @@ STEP_STALL_S = 15.0
 
 
 class StepHeartbeat:
-    """A run's go_to_step callback that also notes when each step starts.
+    """A run's step_started handler that also notes when each step starts.
 
-    The runner calls go_to_step once per step, so the time since the last
-    call says whether the run is still moving. Wraps the test's own
-    callback, if it has one.
+    The runner sends step_started once per step, so the time since the last
+    one says whether the run is still moving. Wraps the test's own handler,
+    if it has one.
     """
 
     def __init__(self, inner=None):
         self._inner = inner
         self._last = time.monotonic()
 
-    def __call__(self, **kwargs):
+    def __call__(self, step_idx):
         self._last = time.monotonic()
         if self._inner is not None:
-            self._inner(**kwargs)
+            self._inner(step_idx)
 
     def idle_s(self) -> float:
         return time.monotonic() - self._last
@@ -258,9 +258,9 @@ def scan_ready_runner(step, **state):
 
 def run_loop_ready_runner(step, n_scans=1, **state):
     """Runner ready for a synchronous run_loop() drive: RUNNING state,
-    zero-period protocol, go_to_step handled by a callback mock, and
+    zero-period protocol, step_started handled by a mock, and
     _cleanup mocked out (its behavior is covered on run_cleanup)."""
-    from modules.protocol_callbacks import ProtocolCallbacks
+    from modules.run_events import RunEvents
     from modules.protocol_state_machine import ProtocolState
     from modules.run_outcome import PendingRunOutcome
 
@@ -270,7 +270,7 @@ def run_loop_ready_runner(step, n_scans=1, **state):
     runner._protocol.period.return_value = datetime.timedelta(0)
     # _start_t is a monotonic timestamp (seconds), matching the run loop's pacing.
     runner._start_t = time.monotonic()
-    runner._callbacks = ProtocolCallbacks(go_to_step=MagicMock())
+    runner._events = RunEvents(step_started=MagicMock())
     # The run moves every step itself: a turretless scope on a flat plate
     # frame, its moves queued on the io executor mock.
     runner._scope.capabilities.has_turret = False

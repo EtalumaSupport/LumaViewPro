@@ -134,11 +134,7 @@ def _build_env(monkeypatch, files_draining=False, run_in_progress=False):
     )
 
     monkeypatch.setattr(_app_ctx, 'ctx', ctx)
-    for name in (
-        'reset_acquire_ui',
-        'reset_title',
-    ):
-        monkeypatch.setattr(ps_module, name, lambda *a, **k: None)
+    monkeypatch.setattr(ps_module, 'reset_acquire_ui', lambda *a, **k: None)
 
     stand = _Stand()
     # The stale state under test: BF's toggle claims ON, driver says dark.

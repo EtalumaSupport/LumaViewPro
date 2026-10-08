@@ -19,6 +19,7 @@ import pytest
 from tests.protocol_drives import lent_run_claim
 import modules.protocol_recording as protocol_recording
 from modules.protocol_recording import ProtocolVideoStep
+from modules.run_events import RunEvents
 from tests.scope_fakes import answer_auto_gain_like_the_api
 
 
@@ -89,7 +90,7 @@ def _video_step(monkeypatch, tmp_path, *, timestamp_overlay, false_color=False):
         timestamp_overlay=timestamp_overlay,
         global_max_fps=0,
         autogain_settings={},
-        callbacks={},
+        events=RunEvents(),
         aborted_event=threading.Event(),
         is_run_in_progress=lambda: True,
         abort_run_fatal=MagicMock(),

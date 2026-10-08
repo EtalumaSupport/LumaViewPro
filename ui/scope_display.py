@@ -1157,8 +1157,10 @@ class ScopeDisplay(Image):
     def hold_protocol_saved_image(self, image, significant_bits):
         """Show the most-recent protocol-saved image and hold it.
 
-        Called from the protocol-image-writer thread immediately after a
-        step finishes capturing. Pushes the captured frame to the
+        Called by the GUI's ``frame_captured`` handler on the run's thread,
+        once a captured frame's write has been handed to the run's writer,
+        with the frame rendered to 8 bits as a JPG save renders it. Pushes
+        the captured frame to the
         display texture (so the user sees the actual saved frame, not
         a stale live grab) and bumps the hold deadline to ``now +
         PROTOCOL_HOLD_MS`` so the live preview's pull loop pauses long

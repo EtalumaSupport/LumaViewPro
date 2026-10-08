@@ -76,6 +76,7 @@ def _expected_pixel_size(session, objective_id):
 def main():
     from modules.image_utils import read_pixel_size_um
     from modules.protocol import Protocol
+    from modules.run_events import RunEvents
 
     repo = pathlib.Path(__file__).resolve().parents[2]
     session_cm = (
@@ -160,7 +161,7 @@ def main():
             outcome = runner.run_single_scan(
                 protocol=protocol,
                 parent_dir=str(run_parent),
-                callbacks={'files_complete': lambda **kw: files_written.set()},
+                events=RunEvents(files_written=lambda *written: files_written.set()),
             )
             result = outcome.wait(timeout_s=RUN_TIMEOUT_S)
         finally:

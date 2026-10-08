@@ -52,6 +52,7 @@ from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
 from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from modules.protocol import Protocol
+from modules.run_events import RunEvents
 from modules.sequenced_capture_runner import (
     SequencedCaptureRunner,
     SequencedCaptureRunMode,
@@ -201,13 +202,9 @@ def _run_protocol(executor, protocol, tmp_path):
     done = threading.Event()
     result_holder: dict = {}
 
-    def on_complete(**kwargs):
-        result_holder.update(kwargs)
+    def on_ended(outcome, run_dir, protocol):
+        result_holder.update(outcome=outcome, run_dir=run_dir, protocol=protocol)
         done.set()
-
-    callbacks = {
-        'run_complete': on_complete,
-    }
 
     plan = executor.prepare(
         protocol=protocol,
@@ -223,7 +220,7 @@ def _run_protocol(executor, protocol, tmp_path):
         },
         parent_dir=tmp_path / 'output',
         max_scans=1,
-        callbacks=callbacks,
+        events=RunEvents(run_ended=on_ended),
     )
     executor.start(plan)
 

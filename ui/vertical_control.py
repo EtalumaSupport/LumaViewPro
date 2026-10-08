@@ -13,13 +13,14 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from modules.sequenced_capture_runner import RunHandle
+from modules.run_events import RunEvents
 from ui.ui_helpers import (
-    live_display_callbacks,
     move_absolute,
     move_home,
     move_relative,
     run_reported,
     run_unasked,
+    show_captured_frame,
     submit_reported,
     typed_number,
 )
@@ -334,16 +335,16 @@ class VerticalControl(BoxLayout):
         member = ctx.session.create_protocol_runner()
         layer = common_utils.get_opened_layer(ctx.image_settings)
         engineering_mode = ctx.engineering_mode
-        callbacks = {
-            **live_display_callbacks(),
-            'run_complete': self._autofocus_run_complete,
-        }
+        events = RunEvents(
+            frame_captured=show_captured_frame,
+            run_ended=lambda outcome, *_ended: self._autofocus_run_ended(layer, outcome),
+        )
 
         def _start():
             self._autofocus_run = member.run_autofocus(
                 layer=layer,
                 save_characterization_data=engineering_mode,
-                callbacks=callbacks,
+                events=events,
                 run_trigger_source='autofocus',
                 engineering_mode=engineering_mode,
             )
@@ -414,35 +415,29 @@ class VerticalControl(BoxLayout):
 
         self._af_safety_event = Clock.schedule_once(_af_safety, AF_SAFETY_TIMEOUT_S)
 
-    def _autofocus_run_complete(self, **kwargs):
+    def _autofocus_run_ended(self, layer: str | None, outcome) -> None:
+        """Save the focus this button's autofocus chose, as the focus of the layer it focused.
+
+        ``layer`` is the drawer open when the button was pressed, which is
+        the layer the run focused, whatever is open now; the Z is the one
+        the run chose, read from its outcome, never the stage, which may
+        have moved since. An autofocus that chose none leaves the layer's
+        focus alone. A refusal of the Z is reported once by the run's
+        delivery.
+        """
         ctx = _app_ctx.ctx
         self._unschedule_af_safety_timer()
-
-        # Ask the autofocus what it found. Sampling the stage instead
-        # reads an in-transit coordinate: the pre-AF restore is issued
-        # without waiting, so at this point the stage may still be
-        # travelling, and that coordinate was committed to the layer and
-        # persisted. No result means no answer to store -- an autofocus
-        # that found nothing must leave the layer's focus alone.
-        layer = common_utils.get_opened_layer(ctx.image_settings)
-        focus_z = (
-            ctx.autofocus_runner.best_focus_position() if ctx.autofocus_runner is not None else None
-        )
-        if layer is not None and focus_z is not None:
-            with ctx.settings_lock:
-                ctx.settings[layer]['focus'] = focus_z
-            logger.info(f'[AF] Updated {layer} focus to {focus_z:.2f}um')
-
+        if layer is None:
+            return
         # AF restored the camera from committed settings; an uncommitted
         # text edit (typed, no Enter) would keep showing a value the
         # hardware no longer has. Re-point the widgets at the truth. Not
-        # conditional on a result: the camera restore happens on every
-        # terminal path, and these widgets show illumination, gain and
-        # exposure rather than focus. The run's cleanup wraps this callback
-        # and reports a failure here once.
-        if layer is not None:
-            layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-            layer_obj.sync_widgets_from_settings()
+        # conditional on a result, and ahead of the save, which can be
+        # refused: the camera restore happens on every terminal path, and
+        # these widgets show illumination, gain and exposure, not focus.
+        ctx.image_settings.layer_lookup(layer=layer).sync_widgets_from_settings()
+        if outcome.af_focus_z_um is not None:
+            ctx.session.save_layer_focus(layer, outcome.af_focus_z_um)
 
     def reset_turret_objective(self):
         """Clear the assignment of the slot in the light path.

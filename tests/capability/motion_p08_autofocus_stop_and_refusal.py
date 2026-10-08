@@ -8,6 +8,7 @@ start returned.
 
 from harness import check, run
 from modules.protocol_runner import ProtocolRunner
+from modules.run_events import RunEvents
 from modules.exceptions import ProtocolRunRefusedError, RunAlreadyEndedError
 
 
@@ -26,10 +27,10 @@ def body(s):
     #     run_autofocus's is 'api_autofocus'.
     seen = {}
 
-    def on_complete(**kw):
-        seen['complete'] = True
+    def on_ended(outcome, run_dir, protocol):
+        seen['ended'] = True
 
-    pending = runner.run_autofocus(layer='BF', callbacks={'run_complete': on_complete})
+    pending = runner.run_autofocus(layer='BF', events=RunEvents(run_ended=on_ended))
     holder = s.activity_claim.holder
     src = holder.run_trigger_source if holder is not None else None
     check(
@@ -51,7 +52,7 @@ def body(s):
 
     outcome = pending.wait(timeout_s=300)
     check('run finished', outcome is not None, f'status={outcome.status}')
-    check('a caller-supplied run_complete callback fires', seen.get('complete') is True)
+    check('a caller-supplied run_ended handler fires', seen.get('ended') is True)
 
     check(
         "a STOP naming another run is refused at the API ('run_not_live')",

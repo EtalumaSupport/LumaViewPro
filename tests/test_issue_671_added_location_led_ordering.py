@@ -64,6 +64,7 @@ from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
 from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from modules.protocol import Protocol
+from modules.run_events import RunEvents
 from modules.sequenced_capture_runner import (
     SequencedCaptureRunner,
     SequencedCaptureRunMode,
@@ -266,19 +267,13 @@ class _ApiLogCapture(logging.Handler):
 
 
 def _run_protocol(executor, protocol, tmp_path):
-    """Run protocol with default_move firing (no no-op go_to_step)."""
+    """Run protocol; the run's own moves fire real move_abs calls."""
     done = threading.Event()
     result_holder: dict = {}
 
-    def on_complete(**kwargs):
-        result_holder.update(kwargs)
+    def on_ended(outcome, run_dir, protocol):
+        result_holder.update(outcome=outcome, run_dir=run_dir, protocol=protocol)
         done.set()
-
-    callbacks = {
-        'run_complete': on_complete,
-        # Deliberately DO NOT set 'go_to_step' so the runner falls
-        # through to default_move(), which fires real move_abs calls.
-    }
 
     plan = executor.prepare(
         protocol=protocol,
@@ -294,7 +289,7 @@ def _run_protocol(executor, protocol, tmp_path):
         },
         parent_dir=tmp_path / 'output',
         max_scans=1,
-        callbacks=callbacks,
+        events=RunEvents(run_ended=on_ended),
     )
     executor.start(plan)
 

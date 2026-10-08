@@ -18,11 +18,12 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from modules.sequenced_capture_runner import RunHandle
+from modules.run_events import RunEvents
 from ui.ui_helpers import (
-    live_display_callbacks,
     run_reported,
     set_last_save_folder,
     set_title_event_text,
+    show_captured_frame,
     submit_reported,
 )
 
@@ -114,12 +115,12 @@ class CompositeCapture(FloatLayout):
             return
 
         engineering_mode = ctx.engineering_mode
-        callbacks = {**live_display_callbacks()}
+        events = RunEvents(frame_captured=show_captured_frame)
 
         def _start():
             started = runner.start_composite(
                 sequence_name='composite',
-                callbacks=callbacks,
+                events=events,
                 run_trigger_source='composite',
                 engineering_mode=engineering_mode,
             )

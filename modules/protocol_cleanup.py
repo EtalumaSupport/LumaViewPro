@@ -2,15 +2,14 @@
 
 """Protocol cleanup / shutdown logic.
 
-Unwinds an in-flight autofocus, restores LED and camera state, and fires
-completion callbacks.
+Unwinds an in-flight autofocus, restores LED and camera state, and sends
+the run's end and its files' completion to its events.
 Extracted from ``sequenced_capture_runner.py`` during the
 protocol-decomposition refactor.
 """
 
 from __future__ import annotations
 
-import contextlib
 import pathlib
 import threading
 from concurrent.futures import CancelledError
@@ -26,6 +25,7 @@ from modules.lumascope_api.illumination import (
 )
 from modules.protocol_image_writer import SLOW_WRITE_BLOCKED_WARN_S, WRITE_STALL_FATAL_S
 from modules.protocol_state_machine import ProtocolState
+from modules.run_events import RunEvents, deliver
 from modules.run_outcome import RunEnding
 
 if TYPE_CHECKING:
@@ -34,172 +34,53 @@ if TYPE_CHECKING:
     from modules.autofocus_thread import AutofocusThread
     from modules.lumascope_api import Lumascope
     from modules.protocol import Protocol
-    from modules.protocol_callbacks import ProtocolCallbacks
     from modules.protocol_image_writer import RunWriteBatch
     from modules.sequenced_capture_runner import RunHandle
 
 
-from modules.kivy_utils import schedule_ui as _schedule_ui
-
-
-def _schedule_cleanup_ui(
-    func,
-    step_label: str,
-    cleanup_errors: list[tuple[str, str]],
-    summary_sent: threading.Event,
-    delivery: contextlib.AbstractContextManager,
+def send_run_ended(
+    events: RunEvents, run: RunHandle, *, protocol: Protocol, run_dir: pathlib.Path | None
 ) -> None:
-    """Schedule a cleanup UI callback that must not take the app down.
+    """Send the run's one ``run_ended`` once its outcome settles; mark *run* told after it.
 
-    Every `try` in this module collects its failure into `cleanup_errors`
-    and keeps going, because a run's data is already written by the time
-    cleanup starts and no cleanup step is worth losing the session over.
-    A callback handed to `schedule_ui` was outside that contract whenever
-    it was genuinely deferred: it runs on a later Clock tick, so the `try`
-    that scheduled it has already returned, and the app's crash guard
-    re-raises anything it cannot pin on a plugin. A panel-sync failure
-    therefore terminated LumaViewPro at the end of every protocol run.
-
-    The re-raise is right as a DEFAULT -- a core bug should be loud -- and
-    is left alone everywhere else. It is wrong for these callbacks for the
-    same reason the code around them is fault-tolerant, and for the same
-    reason a non-fatal failure during a run is log-only: an unattended run
-    must not lose its application to a cosmetic restore step.
-
-    Which channel reports the failure depends on WHEN it happens, because
-    the summary is emitted once, partway through:
-
-    - before the summary (the callback ran inline -- headless, REST, or a
-      test dispatcher): collected into `cleanup_errors` exactly as if the
-      surrounding `try` had caught it, so the one summary still carries
-      every failed step and its count stays honest.
-    - after it (the GUI case, a real Clock tick): the summary has already
-      gone, so the callback reports itself.
-
-    `step_label` is the same wording the surrounding `except` blocks use,
-    so a step reads identically whichever channel carried it.
-
-    `delivery` is entered around the callback and its report, on the thread
-    that runs it: a run's own callback is delivered inside its handle's
-    delivery, which marks the run told once the callback and its report are
-    done; any other step passes a null context.
+    Called once the run has let go of the scope, on every path, a cleanup
+    that raised included, and before the run's files are handed their
+    completion. Every run's outcome has settled by then but a composite's
+    whose merge is still owed, which is sent from the merge's settle, on
+    the merge's thread: before or after its ``files_written``, whichever the
+    merge and the last write reach first. The values are captured here, while the run's
+    fields are still its own: a successor started after the release
+    replaces them.
     """
 
-    def _guarded(dt):
-        with delivery:
-            try:
-                return func(dt)
-            except Exception as ex:
-                if not summary_sent.is_set():
-                    # The summary carries the step and its message; the
-                    # traceback belongs in the log that ships with a bundle.
-                    logger.exception(f'[PROTOCOL] {step_label} failed after the run')
-                    cleanup_errors.append((step_label, f'{type(ex).__name__}: {ex}'))
-                    return
-                from modules.notification_center import notifications
+    def _send(outcome) -> None:
+        deliver(
+            events.run_ended,
+            'run_ended',
+            outcome,
+            run_dir,
+            protocol,
+            delivery=run._delivering(run._run_told),
+        )
 
-                # Says nothing of the images: this runs for any step after the
-                # run, whether or not its files were all written, and the files
-                # are told on their own. Chained, so the one report logs the
-                # traceback.
-                failed = RunCleanupFailedError([(step_label, f'{type(ex).__name__}: {ex}')])
-                failed.__cause__ = ex
-                notifications.report_outcome(failed, solicited=False, category='Protocol')
-
-    _schedule_ui(_guarded, 0)
+    run._pending.when_settled(_send)
 
 
-class RunCompleteNotice:
-    """The run's one ``run_complete``, carrying the run's values by value.
-
-    Sent by the run's end once the run has let go of the scope -- on every
-    path, a cleanup that raised included -- and before the run's files are
-    handed their completion, so every subscriber hears ``run_complete``
-    once, when it can act on the scope, and before ``files_complete``.
-    Built while the run's fields are still its own: a successor started
-    after the release replaces them.
-    """
-
-    def __init__(
-        self,
-        callbacks: ProtocolCallbacks,
-        *,
-        protocol: Protocol,
-        ending: RunEnding,
-        run_dir: pathlib.Path | None,
-    ):
-        self._callbacks = callbacks
-        self._protocol = protocol
-        self._ending = ending
-        self._run_dir = run_dir
-
-    @property
-    def ending(self) -> RunEnding:
-        """The ending this notice carries to the run's subscribers."""
-        return self._ending
-
-    def send(self, run: RunHandle) -> None:
-        """Schedule ``run_complete``; a failure inside it is reported by the callback's own guard.
-
-        Sent after the run's cleanup summary, so the failure is its own report.
-        *run* is marked told once the callback has run, or at once when
-        there is none to run or it could not be scheduled, so its waits
-        never wait on a delivery that will not come.
-        """
-        if not self._callbacks.run_complete:
-            run._run_told.set()
-            return
-        summary_sent = threading.Event()
-        summary_sent.set()
-        try:
-            _schedule_cleanup_ui(
-                lambda dt: self._callbacks.run_complete(
-                    protocol=self._protocol,
-                    status=self._ending.status,
-                    ending=self._ending,
-                    run_dir=self._run_dir,
-                ),
-                'Run-complete callback',
-                [],
-                summary_sent,
-                run._delivering(run._run_told),
-            )
-        except BaseException:
-            run._run_told.set()
-            raise
-
-
-def schedule_files_complete(
-    callbacks: ProtocolCallbacks,
-    *,
-    run: RunHandle,
-    protocol: Protocol,
-    run_dir: pathlib.Path | None,
-    files: str,
+def send_files_written(
+    events: RunEvents, run: RunHandle, *, run_dir: pathlib.Path | None, files: str
 ) -> None:
-    """Schedule the run's one ``files_complete``, after its cleanup summary.
+    """Send the run's one ``files_written``; mark *run* files told after it.
 
     ``files`` is the run's write outcome: ``'written'``, or ``'incomplete'``
-    when some of its images are not on disk. *run* is marked files told
-    once the callback has run, or at once when there is none to run or it
-    could not be scheduled.
+    when some of its images are not on disk.
     """
-    if not callbacks.files_complete:
-        run._files_told.set()
-        return
-    summary_sent = threading.Event()
-    summary_sent.set()
-    try:
-        _schedule_cleanup_ui(
-            lambda dt: callbacks.files_complete(protocol=protocol, run_dir=run_dir, files=files),
-            'Files-complete callback',
-            [],
-            summary_sent,
-            run._delivering(run._files_told),
-        )
-    except BaseException:
-        run._files_told.set()
-        raise
+    deliver(
+        events.files_written,
+        'files_written',
+        run_dir,
+        files,
+        delivery=run._delivering(run._files_told),
+    )
 
 
 # How long cleanup waits for an aborted autofocus to unwind -- its restore,
@@ -230,7 +111,6 @@ def run_cleanup(
     return_to_position: dict | None,
     # Dependencies
     scope: Lumascope,
-    callbacks: ProtocolCallbacks,
     # Executor functions
     apply_led_transition_fn: Callable[[LedTransition, LedTransitionCtx], object],
     default_move_fn: Callable[..., object],
@@ -238,7 +118,7 @@ def run_cleanup(
     # IO executors; the IO and CAMERA lanes are the scope's
     autofocus_thread: AutofocusThread | None,
     # THIS run's writes: read for the run-end summary. Its completion --
-    # the record's, and files_complete -- is the batch's, once the last
+    # the record's, and files_written -- is the batch's, once the last
     # write lands.
     write_batch: RunWriteBatch,
     logger_name: str = 'SequencedCaptureRunner',
@@ -254,7 +134,7 @@ def run_cleanup(
     required so the cleanup site states the run's true terminal outcome.
     The run's writes are not ended here: they are the run's batch's, which
     the caller closes on every path out, and which writes every image the
-    run captured however the run ended. Nor is run_complete sent here: the
+    run captured however the run ended. Nor is run_ended sent here: the
     run sends it once it has let go of the scope, so a subscriber can act
     on the scope when told.
 
@@ -276,14 +156,10 @@ def run_cleanup(
 
     # Collect cleanup-step failures so a single summary notification at
     # the end tells the user what went wrong. Each except continues to
-    # the next step (fault tolerance -- all six must run regardless of
+    # the next step (fault tolerance -- every step must run regardless of
     # any one failing); total silence at the end was the bug. One
-    # summary popup, not six.
+    # summary popup, not one per step.
     cleanup_errors: list[tuple[str, str]] = []
-    # Flipped once the summary below has gone out. A guarded UI callback
-    # that fails before this is collected into the summary like every
-    # other step; one that fails after it has to report itself.
-    summary_sent = threading.Event()
 
     try:
         cancel_scheduled_events_fn()
@@ -395,43 +271,6 @@ def run_cleanup(
             cleanup_errors.append(('Restore LED states', f'{type(ex).__name__}: {ex}'))
     logger.info(f'[{logger_name}] Cleanup: LED restore complete')
 
-    # --- Restore layer shader / false-color (UI side) ---
-    # Each protocol step calls layer_control.apply_settings() which
-    # writes the OpenGL shader white_point for that layer's
-    # false-color (Red tint for the Red step, Green tint for Green,
-    # etc.). Without this restore the last step's shader stays
-    # active and tints the live preview after protocol stop. Cluster
-    # sibling of LED-state-hygiene-at-transition (#666 / #659 /
-    # #617): driver LED state was already cleared above; this is
-    # the sibling UI-shader-state clear. Bugs cluster -- one cleanup
-    # pass covers both halves.
-    try:
-        if callbacks.restore_layer_shader:
-            _schedule_cleanup_ui(
-                lambda dt: callbacks.restore_layer_shader(),
-                'Restore layer shader',
-                cleanup_errors,
-                summary_sent,
-                contextlib.nullcontext(),
-            )
-    except Exception as ex:
-        cleanup_errors.append(('Restore layer shader', f'{type(ex).__name__}: {ex}'))
-
-    # --- Put the layer panel back on the settings ---
-    # The run displayed each step in the panel without writing the user's
-    # settings; the panel now shows the settings again. Once per run.
-    try:
-        if callbacks.sync_layer_widgets:
-            _schedule_cleanup_ui(
-                lambda dt: callbacks.sync_layer_widgets(),
-                'Sync layer panel',
-                cleanup_errors,
-                summary_sent,
-                contextlib.nullcontext(),
-            )
-    except Exception as ex:
-        cleanup_errors.append(('Sync layer panel', f'{type(ex).__name__}: {ex}'))
-
     # --- Restore camera gain and exposure ---
     # Before the return moves and the executors' end: live preview after the
     # stop must not briefly run at the run's gain and exposure. The restore
@@ -514,11 +353,6 @@ def run_cleanup(
             RunCleanupFailedError(cleanup_errors), solicited=False, category='Protocol'
         )
 
-    # The one summary has now gone out (or there was nothing to say). Any
-    # guarded UI callback that fails from here on has missed it and must
-    # report itself instead of appending where nobody will read.
-    summary_sent.set()
-
     # Sustained-slow-write warning, demand-relative: the time this run's
     # capture loop spent blocked waiting for a write slot. An absolute MB/s
     # floor false-fires on healthy machines (PERFORMANCE_BUDGETS.md
@@ -531,8 +365,8 @@ def run_cleanup(
 
         notifications.report_outcome(SlowFileWritesNotice(), solicited=False, category='Protocol')
 
-    # run_complete and files_complete are the run's to send, once it has let
-    # go of the scope.
+    # run_ended and files_written are the run's to send, once it has let go
+    # of the scope.
     logger.info(f'[{logger_name}] Run ended: status={ending.status} reason={ending.reason}')
     logger.info(f'[{logger_name}] Cleanup: pending_writes={write_batch.pending}')
 

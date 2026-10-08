@@ -30,6 +30,7 @@ import threading
 import pytest
 
 from modules.exceptions import ProtocolRunRefusedError
+from modules.run_events import RunEvents
 from tests.test_composite_run_e2e import (
     composite_session,  # noqa: F401  -- imported as a fixture, used by name
     headless_settings,
@@ -56,20 +57,19 @@ class _StepGate:
     already fires makes the mid-run window as wide as the test needs it,
     without the test reaching into the engine to create one.
 
-    ``update_step_number`` is the callback used because it is purely
-    observational: unlike ``go_to_step`` it does not REPLACE the move the
-    step runner would otherwise make, so the parked run still completes
-    normally once released.
+    ``step_started`` is the event used because it is purely observational:
+    it replaces nothing the step runner does, so the parked run still
+    completes normally once released.
     """
 
     def __init__(self):
         self.reached = threading.Event()
         self.release = threading.Event()
 
-    def callbacks(self):
-        return {'update_step_number': self._on_step}
+    def events(self):
+        return RunEvents(step_started=self._on_step)
 
-    def _on_step(self, _step_number):
+    def _on_step(self, _step_idx):
         self.reached.set()
         self.release.wait(timeout=60)
 
@@ -131,7 +131,7 @@ class TestARivalRunRefusesTheComposite:
         outcome = runner.start_composite(
             sequence_name='rival_incumbent',
             parent_dir=str(tmp_path),
-            callbacks=gate.callbacks(),
+            events=gate.events(),
         )
         try:
             assert gate.reached.wait(timeout=60), 'the first composite never reached a step'
@@ -168,7 +168,7 @@ class TestARivalRunRefusesTheComposite:
             _plain_scan_protocol(session),
             sequence_name='scan_incumbent',
             parent_dir=str(tmp_path),
-            callbacks=gate.callbacks(),
+            events=gate.events(),
         )
         try:
             assert gate.reached.wait(timeout=60), 'the scan never reached a step'

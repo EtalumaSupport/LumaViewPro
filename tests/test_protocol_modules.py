@@ -3,7 +3,7 @@
 
 Tests the 5 modules extracted from sequenced_capture_runner.py:
   - protocol_state_machine
-  - protocol_callbacks
+  - run_events
   - kivy_utils
   - protocol_cleanup
   - protocol_image_writer
@@ -28,7 +28,7 @@ from modules.protocol_state_machine import (
     PROTOCOL_STATE_TRANSITIONS,
     validate_transition,
 )
-from modules.protocol_callbacks import ProtocolCallbacks
+from modules.run_events import RunEvents
 
 
 # ===========================================================================
@@ -139,117 +139,58 @@ class TestValidateTransition:
 
 
 # ===========================================================================
-# protocol_callbacks.py
+# run_events.py
 # ===========================================================================
 
 
-class TestProtocolCallbacksFromDict:
-    """Test ProtocolCallbacks.from_dict() factory."""
+class TestRunEvents:
+    """``RunEvents``: optional handlers, each named; a misspelt one fails at construction."""
 
-    def test_from_dict_full(self):
-        fn = lambda: None
-        d = {
-            'run_complete': fn,
-            'reset_title': fn,
-            'go_to_step': fn,
-        }
-        cb = ProtocolCallbacks.from_dict(d)
-        assert cb.run_complete is fn
-        assert cb.reset_title is fn
-        assert cb.go_to_step is fn
-        # Unset fields stay None
-        assert cb.files_complete is None
+    def test_unset_handlers_are_none(self):
+        fn = lambda *a: None
+        events = RunEvents(run_ended=fn, step_started=fn)
+        assert events.run_ended is fn
+        assert events.step_started is fn
+        assert events.files_written is None
+        assert events.video_progress is None
 
-    def test_from_dict_empty(self):
-        cb = ProtocolCallbacks.from_dict({})
-        assert cb.run_complete is None
-        assert cb.reset_title is None
+    def test_a_misspelt_handler_is_refused(self):
+        with pytest.raises(TypeError):
+            RunEvents(run_complete=lambda *a: None)
 
-    def test_from_dict_none(self):
-        cb = ProtocolCallbacks.from_dict(None)
-        assert cb.run_complete is None
+    def test_a_positional_handler_is_refused(self):
+        with pytest.raises(TypeError):
+            RunEvents(lambda *a: None)
 
-    def test_from_dict_ignores_unknown_keys(self):
-        d = {
-            'run_complete': lambda: None,
-            'totally_bogus_key': 42,
-            'another_unknown': 'hello',
-        }
-        cb = ProtocolCallbacks.from_dict(d)
-        assert cb.run_complete is not None
-        assert not hasattr(cb, 'totally_bogus_key')
+    def test_the_events_cannot_be_rewritten_after_construction(self):
+        import dataclasses
+
+        events = RunEvents()
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            events.run_ended = lambda *a: None
 
 
-class TestProtocolCallbacksHasNoAutofocusRestore:
-    """A run restores no layer's autofocus flag, so the callbacks carry no restorer.
+class TestRunEventsHaveNoAutofocusRestore:
+    """A run restores no layer's autofocus flag, so the events carry no restorer.
 
     Nothing in a run reads the flags; a restore at its end could only
-    revert a change the user made during it. A callbacks field for one
-    would bring that back. Assert on dataclasses.fields so it cannot come
-    back under a different construction site.
+    revert a change the user made during it. A field for one would bring
+    that back. Assert on dataclasses.fields so it cannot come back under a
+    different construction site.
     """
 
     def test_no_restore_autofocus_state_field(self):
         import dataclasses
 
-        names = {f.name for f in dataclasses.fields(ProtocolCallbacks)}
+        names = {f.name for f in dataclasses.fields(RunEvents)}
         assert 'restore_autofocus_state' not in names, (
-            'a run restores no autofocus flag, so the callbacks carry no '
+            'a run restores no autofocus flag, so the events carry no '
             f'restorer. fields={sorted(names)}'
         )
 
     def test_construction_with_the_removed_field_is_refused(self):
         with pytest.raises(TypeError):
-            ProtocolCallbacks(restore_autofocus_state=lambda **kw: None)
-
-
-class TestProtocolCallbacksToDict:
-    """Test ProtocolCallbacks.to_dict() -- must NOT use dataclasses.asdict()."""
-
-    def test_to_dict_only_non_none(self):
-        fn = lambda: None
-        cb = ProtocolCallbacks(run_complete=fn, reset_title=fn)
-        d = cb.to_dict()
-        assert 'run_complete' in d
-        assert 'reset_title' in d
-        # None fields omitted
-        assert 'files_complete' not in d
-        assert 'go_to_step' not in d
-
-    def test_to_dict_no_callbacks_set(self):
-        cb = ProtocolCallbacks()
-        d = cb.to_dict()
-        assert d == {}
-
-    def test_to_dict_all_callbacks_set(self):
-        import dataclasses
-
-        fields = dataclasses.fields(ProtocolCallbacks)
-        fn = lambda: None
-        kwargs = {f.name: fn for f in fields}
-        cb = ProtocolCallbacks(**kwargs)
-        d = cb.to_dict()
-        assert len(d) == len(fields)
-        for f in fields:
-            assert f.name in d
-
-    def test_to_dict_does_not_deepcopy(self):
-        """Verify to_dict() returns the original callable references,
-        not deep copies. dataclasses.asdict() would deep-copy and crash
-        on Kivy bound methods."""
-        fn = lambda: None
-        cb = ProtocolCallbacks(run_complete=fn)
-        d = cb.to_dict()
-        assert d['run_complete'] is fn  # same object, not a copy
-
-    def test_roundtrip_dict(self):
-        fn_a = lambda: None
-        fn_b = lambda: None
-        original = {'run_complete': fn_a, 'reset_title': fn_b}
-        cb = ProtocolCallbacks.from_dict(original)
-        result = cb.to_dict()
-        assert result['run_complete'] is fn_a
-        assert result['reset_title'] is fn_b
+            RunEvents(restore_autofocus_state=lambda **kw: None)
 
 
 # ===========================================================================
@@ -387,7 +328,6 @@ class TestRunCleanup:
         af_thread = MagicMock()
         file_exec = _FakeExecutor()
         camera_exec = _FakeExecutor()
-        callbacks = overrides.pop('callbacks', ProtocolCallbacks())
         ending = overrides.pop(
             'ending',
             RunEnding('completed', 'completed', 'Protocol Complete', 'The run finished normally.'),
@@ -403,7 +343,6 @@ class TestRunCleanup:
             'saved_camera_state': None,
             'return_to_position': None,
             'scope': MagicMock(),
-            'callbacks': callbacks,
             'apply_led_transition_fn': lambda transition, ctx: None,
             'default_move_fn': lambda **kw: None,
             'cancel_scheduled_events_fn': lambda: None,
@@ -457,12 +396,12 @@ class TestRunCleanup:
         camera.put.assert_not_called()
         camera.protocol_put.assert_not_called()
 
-    def test_files_complete_is_handed_over_after_the_close(self):
-        """run_cleanup sends neither run_complete nor files_complete: the run
+    def test_files_written_is_handed_over_after_the_close(self):
+        """run_cleanup sends neither run_ended nor files_written: the run
         sends both once it has let go of the scope. The runner closes the
         batch before the run ends, so a next run reads it as draining, and a
         batch with nothing outstanding completes at the close -- but its
-        files_complete goes out only when the run's end hands the actions
+        files_written goes out only when the run's end hands the actions
         over.
         """
         from types import SimpleNamespace
@@ -471,19 +410,19 @@ class TestRunCleanup:
         from modules.sequenced_capture_runner import SequencedCaptureRunner
 
         fired = []
-        cb = ProtocolCallbacks(
-            run_complete=lambda protocol=None, **kwargs: fired.append('run_complete'),
-            files_complete=lambda protocol=None, **kwargs: fired.append('files_complete'),
+        events = RunEvents(
+            run_ended=lambda *a: fired.append('run_ended'),
+            files_written=lambda *a: fired.append('files_written'),
         )
-        args, _ = self._make_cleanup_args(callbacks=cb)
+        args, _ = self._make_cleanup_args()
         run_cleanup(**args)
-        assert fired == [], "cleanup must leave both callbacks to the run's end"
+        assert fired == [], "cleanup must leave both events to the run's end"
 
         # The runner's close, on a runner that saves no record.
         runner = SimpleNamespace(
             _disable_saving_artifacts=True,
             _protocol_execution_record=None,
-            _callbacks=cb,
+            _events=events,
             _protocol=None,
             _run_dir=None,
             _on_run_idle=None,
@@ -495,17 +434,9 @@ class TestRunCleanup:
             runner, batch, args['ending'], MagicMock()
         )
         assert batch.wait_complete(0), 'a batch with nothing outstanding completes at the close'
-        assert fired == [], 'closing the batch must not send files_complete'
+        assert fired == [], 'closing the batch must not send files_written'
         batch.when_complete(files_written)
-        assert fired == ['files_complete']
-
-    def test_cleanup_handles_missing_callbacks_gracefully(self):
-        from modules.protocol_cleanup import run_cleanup
-
-        cb = ProtocolCallbacks()  # all None
-        args, state = self._make_cleanup_args(callbacks=cb)
-        run_cleanup(**args)  # should not raise
-        assert state[0] == ProtocolState.COMPLETING
+        assert fired == ['files_written']
 
     def test_cleanup_offs_leds_via_run_end_transition(self):
         from modules.lumascope_api.illumination import LedEndPolicy, LedTransition
@@ -667,7 +598,7 @@ class TestProtocolImageWriterWriteCapture:
 
         writer = ProtocolImageWriter(
             scope=MagicMock(),
-            callbacks=ProtocolCallbacks(),
+            events=RunEvents(),
             aborted=threading.Event(),
             write_batch=RunWriteBatch(_FakeExecutor()),
             abort_fn=lambda: None,

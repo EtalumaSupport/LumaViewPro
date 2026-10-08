@@ -16,6 +16,7 @@ import pytest
 
 from modules.activity_claim import ActivityClaim, acting, current_taking
 from modules.exceptions import HardwareCommandRefusedError, Refusal
+from modules.run_events import RunEvents
 from modules.sequential_io_executor import ENQUEUED, IOTask, SequentialIOExecutor
 from tests.protocol_drives import run_identity
 
@@ -558,10 +559,7 @@ class TestTheRunsOwnWorkRunsUnderItsClaim:
                 protocol=protocol,
                 sequence_name='gating',
                 parent_dir=str(tmp_path),
-                callbacks={
-                    'run_complete': lambda **kw: None,
-                    'files_complete': lambda **kw: files_written.set(),
-                },
+                events=RunEvents(files_written=lambda *_written: files_written.set()),
             )
             assert files_written.wait(COMPLETION_TIMEOUT), 'the run never finished its files'
             outcome = run.wait(timeout_s=COMPLETION_TIMEOUT)

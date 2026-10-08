@@ -128,7 +128,7 @@ def test_the_button_states_only_what_the_gui_knows(clicked):
     # Nothing else about the run is the button's to say.
     assert set(kwargs) == {
         'layer',
-        'callbacks',
+        'events',
         'run_trigger_source',
         'engineering_mode',
         'enable_image_saving',
@@ -170,8 +170,8 @@ def test_progress_reads_the_runs_own_step_and_count(clicked):
     clicked.engine._num_steps.return_value = 7
 
     clicked.starter.run_zstack_acquire_from_ui()
-    progress = clicked.runner.run_zstack.call_args.kwargs['callbacks']['update_step_number']
-    progress(3)
+    step_started = clicked.runner.run_zstack.call_args.kwargs['events'].step_started
+    step_started(2)
 
     assert clicked.starter.button.text == 'Z 3/7'
     # Any other edge mid-run draws the same label: there is one writer.
@@ -181,8 +181,8 @@ def test_progress_reads_the_runs_own_step_and_count(clicked):
 
 def test_progress_after_the_run_ended_draws_idle(clicked):
     clicked.starter.run_zstack_acquire_from_ui()
-    progress = clicked.runner.run_zstack.call_args.kwargs['callbacks']['update_step_number']
-    progress(3)
+    step_started = clicked.runner.run_zstack.call_args.kwargs['events'].step_started
+    step_started(2)
 
     assert (clicked.starter.button.state, clicked.starter.button.text) == ('normal', 'Acquire')
 

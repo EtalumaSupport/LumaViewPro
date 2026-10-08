@@ -33,22 +33,26 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 def test_recording_title_shows_seconds_not_percent():
     import ui.ui_helpers as ui_helpers
+    from modules.run_events import VideoProgress
 
-    ui_helpers.set_recording_title(elapsed_sec=12, total_sec=30)
+    ui_helpers.show_video_progress(VideoProgress('recording', elapsed_s=12, total_s=30))
     title = ui_helpers._title_event_text
     assert '12s' in title and '30s' in title, title
     assert '%' not in title, f'recording title must not show percent: {title!r}'
 
 
-def test_recording_title_elapsed_only_and_start():
+def test_the_end_of_a_video_clears_only_its_own_title():
     import ui.ui_helpers as ui_helpers
+    from modules.run_events import VideoProgress
 
-    ui_helpers.set_recording_title(elapsed_sec=7)
-    assert '7s' in ui_helpers._title_event_text
-    assert '%' not in ui_helpers._title_event_text
+    ui_helpers.show_video_progress(VideoProgress('recording', elapsed_s=7, total_s=30))
+    ui_helpers.show_video_progress(VideoProgress('ended'))
+    assert ui_helpers._title_event_text is None
 
-    ui_helpers.set_recording_title()
-    assert ui_helpers._title_event_text == 'Recording Video...'
+    ui_helpers.show_video_progress(VideoProgress('writing', percent=40))
+    ui_helpers.set_title_event_text('Homing, please wait...')
+    ui_helpers.show_video_progress(VideoProgress('ended'))
+    assert ui_helpers._title_event_text == 'Homing, please wait...'
 
 
 # ---------------------------------------------------------------------------

@@ -15,6 +15,7 @@ import pytest
 
 from tests.protocol_drives import lent_run_claim
 import modules.protocol_recording as protocol_recording
+from modules.run_events import RunEvents
 
 
 def _make_recorder(tmp_path, clock, active_cached=True):
@@ -42,7 +43,7 @@ def _make_recorder(tmp_path, clock, active_cached=True):
         timestamp_overlay=True,
         global_max_fps=0,
         autogain_settings={},
-        callbacks={},
+        events=RunEvents(),
         aborted_event=threading.Event(),
         is_run_in_progress=lambda: True,
         abort_run_fatal=MagicMock(),

@@ -138,11 +138,7 @@ def app_ctx(engine, session, held, tmp_path, monkeypatch):
 
     pool.put.side_effect = _put
     monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
-    for name, value in (
-        ('is_image_saving_enabled', lambda: True),
-        ('live_display_callbacks', lambda: {}),
-    ):
-        monkeypatch.setattr(ps, name, value)
+    monkeypatch.setattr(ps, 'is_image_saving_enabled', lambda: True)
     _app_ctx.ctx = SimpleNamespace(
         session=session,
         settings={'live_folder': str(tmp_path)},
@@ -408,9 +404,9 @@ def test_a_scan_between_iterations_redraws_rather_than_drawing_idle(app_ctx, eng
     engine.start.return_value = handle
     _live(engine, handle)
     panel.run_scan_from_ui()
-    iterate = engine.prepare.call_args.kwargs['callbacks']['scan_iterate_post']
+    scan_ended = engine.prepare.call_args.kwargs['events'].scan_ended
 
-    iterate()
+    scan_ended(1, 1, timedelta(minutes=5))
 
     button = panel.ids['run_scan_btn']
     assert (button.state, button.text) == ('down', 'Abort One Scan'), (

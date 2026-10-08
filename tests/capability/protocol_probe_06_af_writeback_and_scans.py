@@ -1,7 +1,7 @@
 """Probe 06 -- two follow-ups from probe 05.
 
 1. Does a headless 'Autofocus All Steps' get the focused Z back? The
-   run writes it into the caller's protocol before run_complete is sent.
+   run writes it into the caller's protocol before run_ended is sent.
 2. Multi-scan: how many scans does a period/duration pair actually run?
 """
 
@@ -15,6 +15,7 @@ session, live = make_session('afwb', home=True)
 try:
     import modules.config_helpers as config_helpers
     from modules.protocol_runner import ProtocolRunner
+    from modules.run_events import RunEvents
 
     settings = session.settings
     runner = ProtocolRunner(session)
@@ -34,19 +35,19 @@ try:
     banner('1. AF-all-steps write-back')
     seen = {}
 
-    def on_complete(**kw):
+    def on_ended(outcome, run_dir, ended_protocol):
         seen['z_on_mine'] = protocol.steps()['Z'].tolist()
 
     z_in = protocol.steps()['Z'].tolist()
-    af = runner.run_autofocus_all_steps(protocol, callbacks={'run_complete': on_complete}).wait(
+    af = runner.run_autofocus_all_steps(protocol, events=RunEvents(run_ended=on_ended)).wait(
         timeout_s=300
     )
     print('status / focus_written :', af.status, af.focus_written)
     print('Z handed in            :', z_in)
-    print('Z on MY protocol at run_complete:', seen.get('z_on_mine'))
+    print('Z on MY protocol at run_ended:', seen.get('z_on_mine'))
     print('Z on MY protocol after :', protocol.steps()['Z'].tolist())
     print(
-        'ASSERT the focused Z is on the caller protocol by run_complete:',
+        'ASSERT the focused Z is on the caller protocol by run_ended:',
         'PASS'
         if af.focus_written and seen.get('z_on_mine') == protocol.steps()['Z'].tolist()
         else 'FAIL',

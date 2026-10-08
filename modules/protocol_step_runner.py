@@ -44,7 +44,7 @@ from modules.sequential_io_executor import IOTask, PROTOCOL_ENQUEUED
 if TYPE_CHECKING:
     from modules.sequenced_capture_runner import SequencedCaptureRunner
 
-from modules.kivy_utils import schedule_ui as _schedule_ui
+from modules.run_events import deliver
 
 
 class ProtocolStepRunner:
@@ -540,8 +540,6 @@ class ProtocolStepRunner:
                 # step starts a fresh AF run whose outcome must be consumed anew.
                 p._af_result_consumed = False
 
-            if p._callbacks.update_step_number:
-                _schedule_ui(lambda dt: p._callbacks.update_step_number(p._curr_step + 1), 0)
             self.go_to_step(step_idx=p._curr_step)
             return
 
@@ -622,6 +620,7 @@ class ProtocolStepRunner:
         p._motion_wait_start = None
         if p._aborted.is_set():
             return
+        deliver(p._events.step_started, 'step_started', step_idx)
 
         # The targets a person's navigation to this step computes too, with
         # the offset this run started with.
@@ -633,14 +632,6 @@ class ProtocolStepRunner:
         if targets.turret_slot is not None:
             self._move_turret_through_io(targets.turret_slot)
         self._move_to_stage(targets.x, targets.y, targets.z)
-
-        # The host's callback displays the step; it moves nothing.
-        if p._callbacks.go_to_step:
-            p._callbacks.go_to_step(
-                protocol=p._protocol,
-                step_idx=step_idx,
-                include_move=False,
-            )
 
     # ------------------------------------------------------------------
     # Grease redistribution

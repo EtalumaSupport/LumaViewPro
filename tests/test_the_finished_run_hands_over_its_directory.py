@@ -1,11 +1,11 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A completion subscriber is HANDED the finished run's directory.
+"""A run-end subscriber is HANDED the finished run's directory.
 
 Reading it back off the runner is reachable-wrong, not theoretically
 wrong: while a run's files drain, the protocol leg re-enables the
 z-stack, composite and standalone-autofocus starters, so the user can
 commit a successor whose own run directory replaces the field before
-the pending completion callback runs. The post-processing plugins then
+the pending run_ended or files_written handler runs. The post-processing plugins then
 receive the successor's directory described as the finished run's.
 """
 
@@ -15,15 +15,23 @@ import pathlib
 
 import pytest
 
-from modules.protocol_callbacks import ProtocolCallbacks
+from modules.run_events import RunEvents
 from tests.test_audit_fixes import _run_cleanup_kwargs
 
 
 @pytest.fixture
-def fired(monkeypatch):
-    """Cleanup's UI scheduling, run inline so the callbacks land here."""
-    monkeypatch.setattr('modules.protocol_cleanup._schedule_ui', lambda fn, timeout=0: fn(0))
+def fired():
+    """What the run's events were handed, in order; headless delivery runs inline."""
     return []
+
+
+def _events(fired, *, files=True):
+    return RunEvents(
+        run_ended=lambda outcome, run_dir, protocol: fired.append(('run_ended', run_dir)),
+        files_written=(
+            (lambda run_dir, files: fired.append(('files_written', run_dir))) if files else None
+        ),
+    )
 
 
 class _HeldFileLane:
@@ -44,76 +52,71 @@ class _HeldFileLane:
             task.action(*task.args, **task.kwargs)
 
 
-def _end_the_run(kwargs, callbacks, run_dir):
-    """The runner's end of the run, after cleanup: the notice and the files'
+def _end_the_run(kwargs, events, run_dir):
+    """The runner's end of the run, after cleanup: run_ended and the files'
     completion are built by value before the release and told after it."""
     from types import SimpleNamespace
     from unittest.mock import MagicMock
 
-    from modules.protocol_cleanup import RunCompleteNotice
+    from modules.protocol_cleanup import send_run_ended
     from modules.sequenced_capture_runner import SequencedCaptureRunner
 
     runner = SimpleNamespace(
         _disable_saving_artifacts=True,
         _protocol_execution_record=None,
-        _callbacks=callbacks,
+        _events=events,
         _protocol=None,
         _run_dir=run_dir,
         _on_run_idle=None,
         _run_mode=None,
         LOGGER_NAME='TEST',
     )
-    notice = RunCompleteNotice(callbacks, protocol=None, ending=kwargs['ending'], run_dir=run_dir)
     batch = kwargs['write_batch']
     run = MagicMock()
+    # A plain run's outcome has settled by the release.
+    run._pending.when_settled = lambda tell: tell(MagicMock(status='completed'))
     files_written = SequencedCaptureRunner._close_run_writes(runner, batch, kwargs['ending'], run)
     # After the release.
-    notice.send(run)
+    send_run_ended(events, run, protocol=None, run_dir=run_dir)
     batch.when_complete(files_written)
 
 
 class TestBothCompletionLegsCarryTheDirectory:
-    def test_the_drained_leg_hands_the_directory_to_both_callbacks(self, fired, monkeypatch):
+    def test_the_drained_leg_hands_the_directory_to_both_events(self, fired, monkeypatch):
         from modules.protocol_cleanup import run_cleanup
 
         run_dir = pathlib.Path('/tmp/the_finished_run')
-        callbacks = ProtocolCallbacks(
-            run_complete=lambda **kw: fired.append(('run_complete', kw.get('run_dir'))),
-            files_complete=lambda **kw: fired.append(('files_complete', kw.get('run_dir'))),
-        )
-        kwargs = _run_cleanup_kwargs(callbacks=callbacks)
+        events = _events(fired)
+        kwargs = _run_cleanup_kwargs()
 
         run_cleanup(**kwargs)
         # Nothing left to drain: the batch completes at the close, and both
-        # callbacks fire once the run has let go.
-        _end_the_run(kwargs, callbacks, run_dir)
+        # events fire once the run has let go.
+        _end_the_run(kwargs, events, run_dir)
 
-        assert fired == [('run_complete', run_dir), ('files_complete', run_dir)]
+        assert fired == [('run_ended', run_dir), ('files_written', run_dir)]
 
-    def test_the_draining_leg_hands_the_directory_to_the_deferred_callback(self, fired):
+    def test_the_draining_leg_hands_the_directory_to_the_deferred_event(self, fired):
         from modules.protocol_cleanup import run_cleanup
         from modules.protocol_image_writer import RunWriteBatch
 
         run_dir = pathlib.Path('/tmp/the_finished_run')
-        callbacks = ProtocolCallbacks(
-            run_complete=lambda **kw: fired.append(('run_complete', kw.get('run_dir'))),
-            files_complete=lambda **kw: fired.append(('files_complete', kw.get('run_dir'))),
-        )
+        events = _events(fired)
         lane = _HeldFileLane()
-        kwargs = _run_cleanup_kwargs(callbacks=callbacks, write_batch=RunWriteBatch(lane))
+        kwargs = _run_cleanup_kwargs(write_batch=RunWriteBatch(lane))
         # One of the run's writes is still on its way to the disk.
         kwargs['write_batch'].submit(lambda: None, {}, what='The image x', pace_until=None)
 
         run_cleanup(**kwargs)
-        _end_the_run(kwargs, callbacks, run_dir)
+        _end_the_run(kwargs, events, run_dir)
 
         # The deferred leg waits rather than fires; the last write landing
-        # completes the batch, and files_complete must still carry THIS
+        # completes the batch, and files_written must still carry THIS
         # run's directory then -- which is the whole point of passing by
         # value.
-        assert fired == [('run_complete', run_dir)]
+        assert fired == [('run_ended', run_dir)]
         lane.run_held()
-        assert fired[-1] == ('files_complete', run_dir)
+        assert fired[-1] == ('files_written', run_dir)
 
     def test_a_run_that_made_no_directory_carries_none(self, fired):
         """A run that failed at start nulls its directory before cleanup;
@@ -121,21 +124,19 @@ class TestBothCompletionLegsCarryTheDirectory:
         path."""
         from modules.protocol_cleanup import run_cleanup
 
-        callbacks = ProtocolCallbacks(
-            run_complete=lambda **kw: fired.append(('run_complete', kw.get('run_dir'))),
-        )
-        kwargs = _run_cleanup_kwargs(callbacks=callbacks)
+        events = _events(fired, files=False)
+        kwargs = _run_cleanup_kwargs()
 
         run_cleanup(**kwargs)
-        _end_the_run(kwargs, callbacks, None)
+        _end_the_run(kwargs, events, None)
 
-        assert fired == [('run_complete', None)]
+        assert fired == [('run_ended', None)]
 
 
 class TestTheRunnerHandsOverItsOwnDirectory:
     def test_cleanup_is_given_the_directory_the_run_created(self, fired, monkeypatch):
         """The runner reads its own field once, on the cleanup path, with
-        the claim still held -- not later, when the notice is sent."""
+        the claim still held -- not later, when run_ended is sent."""
         from modules.protocol_image_writer import RunWriteBatch
         from modules.run_outcome import PendingRunOutcome
         from modules.sequenced_capture_runner import RunHandle
@@ -154,14 +155,12 @@ class TestTheRunnerHandsOverItsOwnDirectory:
         runner._write_batch = RunWriteBatch(runner.file_io_executor)
         run = runner._run_handle = RunHandle(runner, runner._run_outcome, runner._write_batch)
 
-        runner._callbacks = ProtocolCallbacks(
-            run_complete=lambda **kw: fired.append(('run_complete', kw.get('run_dir'))),
-        )
+        runner._events = _events(fired, files=False)
 
         # The stack build is the next statement after cleanup and belongs
         # to a different contract; this drive stops at the handover. The
-        # directory rides the run's run_complete notice, built by value in
-        # cleanup and sent once the run has let go.
+        # directory rides the run's run_ended, captured by value in cleanup
+        # and sent once the run has let go and its outcome has settled.
         monkeypatch.setattr(runner, '_start_hyperstack_build', lambda: None)
         monkeypatch.setattr('modules.sequenced_capture_runner.run_cleanup', lambda **kw: True)
         from modules.run_outcome import RunEnding
@@ -170,10 +169,10 @@ class TestTheRunnerHandsOverItsOwnDirectory:
         runner._cleanup_inner(
             RunEnding('completed', 'completed', 'Done', 'The run finished.'), run, after_end
         )
-        # A successor's setup replaces the runner's field before the notice
-        # goes out; the notice still carries this run's.
+        # A successor's setup replaces the runner's field before run_ended
+        # goes out; run_ended still carries this run's.
         runner._run_dir = pathlib.Path('/tmp/the_successors_dir')
         for tell in after_end:
             tell()
 
-        assert fired == [('run_complete', run_dir)]
+        assert fired == [('run_ended', run_dir)]

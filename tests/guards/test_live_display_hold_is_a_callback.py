@@ -1,17 +1,14 @@
-"""The live-display hold is a run callback the GUI hands in, not a context read.
+"""A saved frame reaches the display through the run's ``frame_captured`` event.
 
-After every saved protocol frame the writer holds that frame on screen for a
+After every saved protocol frame the GUI holds that frame on screen for a
 moment, so the user sees what was saved before the live preview overwrites
 it. The writer used to find the display by reading the GUI's application
-context from inside the engine, guarded so a process with no display skipped
-it. That was the last GUI read inside the protocol image writer, and the only
-run callback that did not travel on the callbacks object every other UI hook
-rides on.
-
-Now the hold is a field on the callbacks object. Every GUI run starter spreads
-one helper that supplies it, late-bound so a run started before the display
-exists degrades inside the writer's own guard exactly as the direct read did.
-The dead ``update_scope_display`` field, which nothing read, goes with it.
+context from inside the engine; then it called a hold hook the GUI handed in
+by name. Now the run publishes ``frame_captured(image, frames_summed,
+frame_significant_bits)`` once the frame's write is the batch's, and every GUI
+run starter subscribes ``show_captured_frame``, which renders the frame and
+holds it. The engine names no display. The dead ``update_scope_display``
+field, which nothing read, stays gone.
 """
 
 import ast
@@ -28,8 +25,8 @@ from tests.frame_records import frame_record, plate
 from modules.protocol_image_writer import RunWriteBatch
 import modules.app_context as _app_ctx
 from modules.image_mode import ImageCaptureConfig
-from modules.protocol_callbacks import ProtocolCallbacks
 from modules.protocol_image_writer import ProtocolImageWriter
+from modules.run_events import RunEvents
 from tests.ast_seams import iter_package_modules, parse_module
 from tests.scope_fakes import spec_scope
 
@@ -43,10 +40,10 @@ for _name in ('kivy.clock', 'kivy.uix', 'kivy.uix.scrollview'):
 from modules.run_outcome import EndingLatch
 
 
-def _writer(callbacks):
+def _writer(events):
     writer = ProtocolImageWriter(
         scope=spec_scope(),
-        callbacks=callbacks,
+        events=events,
         aborted=threading.Event(),
         write_batch=RunWriteBatch(MagicMock()),
         abort_fn=lambda: None,
@@ -107,38 +104,56 @@ def no_context(monkeypatch):
     monkeypatch.setattr(_app_ctx, 'ctx', None)
 
 
-class TestTheHoldFiresThroughTheCallback:
-    def test_a_saved_frame_reaches_the_hold_with_no_context_in_the_process(self, no_context):
-        """The first test this hold has ever had: the writer hands the frame
-        and its depth to the callback it was given, with nothing in the
+class TestFrameCapturedCarriesTheSavedFrame:
+    def test_a_saved_frame_reaches_the_event_with_no_context_in_the_process(self, no_context):
+        """The writer hands the frame, its sum count and its depth to the
+        event, after the frame's write was submitted, with nothing in the
         process for it to read a display from."""
-        holds = []
-        writer = _writer(
-            ProtocolCallbacks(
-                hold_protocol_saved_image=lambda image, bits: holds.append((image, bits))
-            )
-        )
+        seen = []
+        writer = _writer(None)
+
+        def _captured(image, frames_summed, bits):
+            seen.append((image, frames_summed, bits, writer._write_batch._executor.put.called))
+
+        writer._events = RunEvents(frame_captured=_captured)
 
         _capture_one_still(writer)
 
-        assert len(holds) == 1, holds
-        image, bits = holds[0]
+        assert len(seen) == 1, seen
+        image, frames_summed, bits, submitted = seen[0]
         assert image.shape == (4, 4)
-        assert bits == 8
+        assert (frames_summed, bits) == (1, 8)
+        assert submitted, 'frame_captured must follow the write being handed to the batch'
 
-    def test_no_callback_no_hold_and_no_error(self, no_context):
-        """A headless run supplies no display hook; the writer saves and
-        moves on."""
-        writer = _writer(ProtocolCallbacks())
+    def test_the_frame_cannot_be_changed_through_a_view_or_its_base(self, no_context):
+        """The handler holds the array the file is written from; neither it,
+        a view of it, nor its base can be made writeable again."""
+        seen = []
+        writer = _writer(RunEvents(frame_captured=lambda image, *_: seen.append(image)))
+
+        _capture_one_still(writer)
+
+        (image,) = seen
+        assert not image.flags.writeable
+        with pytest.raises(ValueError):
+            image.view().flags.writeable = True
+        base = image.base if image.base is not None else image
+        assert not base.flags.writeable
+
+    def test_no_handler_no_event_and_no_error(self, no_context):
+        """A headless run subscribes nothing; the writer saves and moves on."""
+        writer = _writer(RunEvents())
 
         _capture_one_still(writer)
 
         assert writer._write_batch._executor.put.called, 'the save itself must still run'
 
-    def test_a_failed_hold_is_reported_and_the_save_goes_on(self, no_context, monkeypatch):
-        """A frame the display cannot hold -- here one deeper than its declared
-        depth -- is reported once, unasked, by the writer that called the hold,
-        and the capture's write is still submitted."""
+    def test_a_failed_handler_is_reported_once_as_itself_and_the_save_goes_on(
+        self, no_context, monkeypatch
+    ):
+        """A frame the handler cannot show -- here one deeper than its declared
+        depth -- is reported once, unasked, as the exception it is, under the
+        event's name, and the capture's write is still submitted."""
         from modules.exceptions import FrameDepthError
         from modules.notification_center import notifications
 
@@ -146,44 +161,29 @@ class TestTheHoldFiresThroughTheCallback:
         monkeypatch.setattr(notifications, 'report_outcome', lambda e, **k: reported.append((e, k)))
         failure = FrameDepthError(4095, 8)
 
-        def _hold(image, bits):
+        def _captured(image, frames_summed, bits):
             raise failure
 
-        writer = _writer(ProtocolCallbacks(hold_protocol_saved_image=_hold))
+        writer = _writer(RunEvents(frame_captured=_captured))
 
         _capture_one_still(writer)
 
         assert writer._write_batch._executor.put.called, 'the save itself must still run'
-        holds = [(e, k) for e, k in reported if e is failure]
-        assert len(holds) == 1, reported
-        assert holds[0][1]['solicited'] is False
+        assert reported == [(failure, {'solicited': False, 'category': 'frame_captured'})], reported
 
 
-class TestTheGuiHelperIsLateBound:
-    def test_the_helper_builds_before_the_display_exists(self, monkeypatch):
-        """A starter that runs before the display is built must not raise
-        while assembling its callbacks; the failure comes later, inside the
-        writer's own guard, which reports it."""
-        from ui.ui_helpers import live_display_callbacks
-
-        monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace())
-
-        callbacks = live_display_callbacks()
-
-        assert set(callbacks) == {'hold_protocol_saved_image'}
-        assert callable(callbacks['hold_protocol_saved_image'])
-
-    def test_a_missing_display_is_reported_by_the_writer(self, monkeypatch):
-        """A run that starts before the display is built: the hook's late read
-        fails inside the writer, which reports it once, unasked, and the save
-        goes on."""
+class TestTheGuiHandlerLooksTheDisplayUpLate:
+    def test_a_missing_display_is_reported_by_the_delivery(self, monkeypatch):
+        """A run that starts before the display is built: the handler's late
+        read fails inside the event's delivery, which reports it once,
+        unasked, and the save goes on."""
         from modules.notification_center import notifications
-        from ui.ui_helpers import live_display_callbacks
+        from ui.ui_helpers import show_captured_frame
 
         monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace())
         reported = []
         monkeypatch.setattr(notifications, 'report_outcome', lambda e, **k: reported.append((e, k)))
-        writer = _writer(ProtocolCallbacks(**live_display_callbacks()))
+        writer = _writer(RunEvents(frame_captured=show_captured_frame))
 
         _capture_one_still(writer)
 
@@ -192,67 +192,50 @@ class TestTheGuiHelperIsLateBound:
         assert holds[0][1]['solicited'] is False
         assert writer._write_batch._executor.put.called, 'the save itself must still run'
 
-    def test_the_helper_reaches_the_live_display(self, monkeypatch):
-        from ui.ui_helpers import live_display_callbacks
+    def test_the_handler_reaches_the_live_display(self, monkeypatch):
+        from ui.ui_helpers import show_captured_frame
 
         display = MagicMock()
         monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope_display=display))
-        image = np.zeros((2, 2), dtype=np.uint8)
+        image = np.full((2, 2), 200, dtype=np.uint8)
 
-        live_display_callbacks()['hold_protocol_saved_image'](image, 12)
+        show_captured_frame(image, 1, 8)
 
-        display.hold_protocol_saved_image.assert_called_once_with(image, 12)
+        ((held, bits), _kw) = display.hold_protocol_saved_image.call_args
+        assert bits == 8 and held.dtype == np.uint8
+        assert np.array_equal(held, image)
 
 
-def _spreads_the_helper(node) -> bool:
+def _subscribes_the_handler(call: ast.Call) -> bool:
     return any(
-        isinstance(n, ast.Dict)
-        and any(
-            key is None
-            and isinstance(value, ast.Call)
-            and isinstance(value.func, ast.Name)
-            and value.func.id == 'live_display_callbacks'
-            for key, value in zip(n.keys, n.values, strict=True)
-        )
-        for n in ast.walk(node)
+        kw.arg == 'frame_captured'
+        and isinstance(kw.value, ast.Name)
+        and kw.value.id == 'show_captured_frame'
+        for kw in call.keywords
     )
 
 
-def _passes_callbacks_to_a_run(node) -> bool:
-    for n in ast.walk(node):
-        if not isinstance(n, ast.Call) or not isinstance(n.func, ast.Attribute):
-            continue
-        if n.func.attr in ('prepare', 'start_composite') and any(
-            kw.arg == 'callbacks' for kw in n.keywords
-        ):
-            return True
-    return False
-
-
-class TestEveryGuiRunStarterSpreadsTheHelper:
-    def test_every_ui_method_that_hands_callbacks_to_a_run_spreads_the_helper(self):
-        """Source-level: a GUI run started without the helper would silently
-        lose the hold. Every method under ui/ that passes callbacks into
-        prepare or start_composite must spread the helper somewhere in its
-        body (directly, or through the dict it builds and hands down)."""
+class TestEveryGuiRunStarterSubscribesTheHandler:
+    def test_every_run_events_the_gui_builds_subscribes_show_captured_frame(self):
+        """Source-level: a GUI run started without the handler would silently
+        lose the hold. Every ``RunEvents(...)`` built under ui/ subscribes
+        ``show_captured_frame`` as its ``frame_captured``."""
+        built = []
         offenders = []
         for rel, tree in iter_package_modules(('ui',)):
-            # Outermost scopes only: a starter builds its dict in the method
-            # and hands it down to a nested closure that calls prepare, so the
-            # method is the unit that must carry the spread.
-            outer = [n for n in tree.body if isinstance(n, ast.FunctionDef)] + [
-                m
-                for c in tree.body
-                if isinstance(c, ast.ClassDef)
-                for m in c.body
-                if isinstance(m, ast.FunctionDef)
-            ]
-            for node in outer:
-                if _passes_callbacks_to_a_run(node) and not _spreads_the_helper(node):
-                    offenders.append(f'{rel}:{node.lineno} {node.name}')
+            for n in ast.walk(tree):
+                if (
+                    isinstance(n, ast.Call)
+                    and isinstance(n.func, ast.Name)
+                    and n.func.id == 'RunEvents'
+                ):
+                    built.append(f'{rel}:{n.lineno}')
+                    if not _subscribes_the_handler(n):
+                        offenders.append(f'{rel}:{n.lineno}')
+        assert built, 'no GUI run starter builds RunEvents; the guard would be vacuous'
         assert not offenders, (
-            'these GUI run starters hand callbacks to a run without spreading '
-            f'live_display_callbacks(): {offenders}'
+            f'these GUI run starters build RunEvents without frame_captured=show_captured_frame: '
+            f'{offenders}'
         )
 
     def test_the_dead_display_key_is_gone_everywhere(self):
@@ -304,13 +287,12 @@ class TestEveryGuiRunStarterSpreadsTheHelper:
 
 
 class TestTheHoldShowsASumAsItIsShown:
-    def test_a_sum_reaches_the_hold_rendered_against_one_frames_white(self, no_context):
-        holds = []
-        writer = _writer(
-            ProtocolCallbacks(
-                hold_protocol_saved_image=lambda image, bits: holds.append((image, bits))
-            )
-        )
+    def test_a_sum_reaches_the_display_rendered_against_one_frames_white(self, monkeypatch):
+        from ui.ui_helpers import show_captured_frame
+
+        display = MagicMock()
+        monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope_display=display))
+        writer = _writer(RunEvents(frame_captured=show_captured_frame))
         imaging = writer._scope.imaging
         imaging.capture_and_wait.return_value = np.full((4, 4), 255, dtype=np.uint16)
         imaging.capture_frame_depth.return_value = 10
@@ -321,6 +303,6 @@ class TestTheHoldShowsASumAsItIsShown:
 
         _capture_one_still(writer)
 
-        ((image, bits),) = holds
+        ((image, bits), _kw) = display.hold_protocol_saved_image.call_args
         assert image.dtype == np.uint8 and bits == 8
         assert int(image.min()) == 255

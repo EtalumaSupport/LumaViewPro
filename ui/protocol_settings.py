@@ -25,18 +25,17 @@ if TYPE_CHECKING:
 from ui.step_navigation import go_to_step
 from modules.timedelta_formatter import strfdelta
 from modules import gui_logger
+from modules.run_events import RunEvents
 from ui.ui_helpers import (
-    _update_step_number_callback,
-    live_display_callbacks,
     refused_in_this_input,
     reset_acquire_ui,
     reset_stim_ui,
-    reset_title,
+    restore_display_after_run,
     run_reported,
     run_unasked,
     set_last_save_folder,
-    set_recording_title,
-    set_writing_title,
+    show_captured_frame,
+    show_video_progress,
     submit_reported,
     sync_layer_widgets_from_settings,
     typed_number,
@@ -1134,41 +1133,36 @@ class ProtocolSettings(FloatLayout):
 
         The scan and the focus it writes into the protocol are
         ProtocolRunner.run_autofocus_all_steps, the one a script or REST
-        calls; this panel passes its protocol and its own callbacks.
+        calls; this panel passes its protocol and its own event handlers.
         """
         ctx = _app_ctx.ctx
         member = ctx.session.create_protocol_runner()
         trigger_source = 'autofocus_scan'
-
-        callbacks = {
-            **live_display_callbacks(),
-            'run_scan_pre': self._run_scan_pre_callback,
-            'scan_iterate_post': self.draw_protocol_buttons,
-            'update_step_number': _update_step_number_callback,
-            'go_to_step': go_to_step,
-            'run_complete': self._scan_run_complete,
-            # LED observer handles UI sync -- no manual callbacks needed
-            'sync_layer_widgets': sync_layer_widgets_from_settings,
-            'set_recording_title': set_recording_title,
-            'set_writing_title': set_writing_title,
-            'reset_title': reset_title,
-        }
-
         protocol = self._protocol
+
+        def _ended(*_ended):
+            self.reset_autofocus_ui()
+            sync_layer_widgets_from_settings()
+
+        events = RunEvents(
+            frame_captured=show_captured_frame,
+            scan_started=lambda *_scan: self._run_scan_pre_callback(),
+            scan_ended=lambda *_scan: self.draw_protocol_buttons(),
+            step_started=lambda step_idx: go_to_step(protocol, step_idx, include_move=False),
+            video_progress=show_video_progress,
+            run_ended=_ended,
+        )
         engineering_mode = ctx.engineering_mode
 
         def _start():
             self._runs_started_here[trigger_source] = member.run_autofocus_all_steps(
                 protocol,
-                callbacks=callbacks,
+                events=events,
                 run_trigger_source=trigger_source,
                 engineering_mode=engineering_mode,
             )
 
         return _start
-
-    def _scan_run_complete(self, **kwargs):
-        self.reset_autofocus_ui()
 
     def run_scan_from_ui(self):
         gui_logger.protocol_action('SCAN')
@@ -1181,27 +1175,15 @@ class ProtocolSettings(FloatLayout):
 
     def _scan_start(self) -> typing.Callable[[], None]:
         ctx = _app_ctx.ctx
-        callbacks = {
-            'run_scan_pre': self._run_scan_pre_callback,
-            'scan_iterate_post': self.draw_protocol_buttons,
-            'run_complete': self._scan_run_complete,
-            # LED observer handles UI sync -- no manual callbacks needed
-        }
         return self._sequenced_capture_start(
             start_run=ctx.session.create_protocol_runner().run_single_scan,
             run_trigger_source='scan',
             protocol=self._protocol.copy_for_execution(),
-            callbacks=callbacks,
+            scan_started=lambda *_scan: self._run_scan_pre_callback(),
+            scan_ended=lambda *_scan: self.draw_protocol_buttons(),
         )
 
-    def _protocol_run_complete(self, **kwargs):
-        self.reset_autofocus_ui()
-
-    def _protocol_files_complete(self, **kwargs):
-        """Called once per run, after its run_complete, when its files are done."""
-        self._dispatch_post_processing_auto_run(_app_ctx.ctx, **kwargs)
-
-    def _dispatch_post_processing_auto_run(self, ctx, **kwargs):
+    def _dispatch_post_processing_auto_run(self, ctx, protocol, run_dir, files):
         """Fire post_processing plugins opted into
         PluginSpec.auto_run_on_protocol_complete=True. UI-trigger only
         today; REST-triggered runs gain this when the dispatch moves
@@ -1209,18 +1191,16 @@ class ProtocolSettings(FloatLayout):
         """
         from modules.plugins import run_protocol_complete_processors
 
-        # The finished run hands its directory over in the callback. Read
+        # The finished run hands its directory over in the event. Read
         # back off the runner it would be whatever run holds the scope
         # NOW: this dispatch can reach the user's next run, because the
         # file-drain wait re-enables the z-stack, composite and autofocus
         # starters while it is still pending.
-        run_dir = kwargs.get('run_dir')
         if run_dir is None:
             return
         run_dir_str = str(run_dir)
-        protocol = kwargs.get('protocol')
         manifest = {
-            'protocol_name': getattr(protocol, 'name', '') if protocol else '',
+            'protocol_name': getattr(protocol, 'name', ''),
             'run_dir': run_dir_str,
             'trigger_source': 'ui_protocol_button',
         }
@@ -1229,7 +1209,7 @@ class ProtocolSettings(FloatLayout):
             input_dir=run_dir_str,
             manifest=manifest,
             output_dir=run_dir_str,
-            files=kwargs['files'],
+            files=files,
         )
 
     def run_protocol_from_ui(self):
@@ -1243,21 +1223,22 @@ class ProtocolSettings(FloatLayout):
 
     def _protocol_start(self) -> typing.Callable[[], None]:
         ctx = _app_ctx.ctx
-        callbacks = {
-            'protocol_iterate_pre': lambda **kwargs: self.draw_protocol_buttons(),
-            'run_scan_pre': self._run_scan_pre_callback,
-            'run_complete': self._protocol_run_complete,
-            'files_complete': self._protocol_files_complete,
-            # LED observer handles UI sync -- no manual callbacks needed
-        }
         # The run's own copy: the panel's protocol is the person's, and is
         # not the run's to change.
         protocol = self._protocol.copy_for_execution()
+
+        def _scan_started(*_scan):
+            self.draw_protocol_buttons()
+            self._run_scan_pre_callback()
+
         return self._sequenced_capture_start(
             start_run=ctx.session.create_protocol_runner().run_protocol,
             run_trigger_source='protocol',
             protocol=protocol,
-            callbacks=callbacks,
+            scan_started=_scan_started,
+            files_written=lambda run_dir, files: self._dispatch_post_processing_auto_run(
+                _app_ctx.ctx, protocol, run_dir, files
+            ),
         )
 
     def reset_autofocus_ui(self, **kwargs):
@@ -1282,47 +1263,36 @@ class ProtocolSettings(FloatLayout):
         start_run: typing.Callable[..., 'RunHandle'],
         run_trigger_source: str,
         protocol: Protocol,
-        callbacks: dict[str, typing.Callable],
+        *,
+        scan_started: typing.Callable[..., object],
+        scan_ended: typing.Callable[..., object] | None = None,
+        files_written: typing.Callable[..., object] | None = None,
     ) -> typing.Callable[[], None]:
         """Read a Scan or Protocol run's inputs from the panel; return the call that starts it.
 
         Runs on the GUI thread, so every value a widget holds is read here
         and closed over. The call it returns is what the worker pool runs --
         the runner member a script calls, the handle this button's Stop
-        names, and the save folder -- and touches no widget.
+        names, and the save folder -- and touches no widget. The run's
+        events show the run on the panel: the scan handlers are the
+        starter's own, the rest every Scan and Protocol run shares.
         """
         logger.info('[LVP Main  ] ProtocolSettings._sequenced_capture_start()')
 
         ctx = _app_ctx.ctx
 
-        def restore_layer_shader_for_open_accordion():
-            """Re-apply the shader for the currently-open accordion's
-            layer. Called by protocol_cleanup to undo per-step shader
-            changes (Red tint for Red step, etc.) so the live preview
-            returns to the user's visible-layer false-color setting.
-            Runs on the UI thread via _schedule_ui in protocol_cleanup.
-            """
-            ctx_inner = _app_ctx.ctx
-            layer_name = common_utils.get_opened_layer(ctx_inner.image_settings)
-            if layer_name is not None:
-                layer_obj = ctx_inner.image_settings.layer_lookup(layer=layer_name)
-                layer_obj.update_shader(dt=0)
-                return
-            # No open accordion -- default to BF (no false-color tint)
-            ctx_inner.viewer.update_shader(false_color='BF')
+        def _ended(*ended):
+            self.reset_autofocus_ui()
+            restore_display_after_run()
 
-        callbacks.update(
-            {
-                **live_display_callbacks(),
-                # LED observer handles UI sync -- no manual callbacks needed
-                'update_step_number': _update_step_number_callback,
-                'go_to_step': go_to_step,
-                'sync_layer_widgets': sync_layer_widgets_from_settings,
-                'set_recording_title': set_recording_title,
-                'set_writing_title': set_writing_title,
-                'reset_title': reset_title,
-                'restore_layer_shader': restore_layer_shader_for_open_accordion,
-            }
+        events = RunEvents(
+            frame_captured=show_captured_frame,
+            scan_started=scan_started,
+            scan_ended=scan_ended,
+            step_started=lambda step_idx: go_to_step(protocol, step_idx, include_move=False),
+            video_progress=show_video_progress,
+            run_ended=_ended,
+            files_written=files_written,
         )
 
         sequence_name = self.ids['protocol_filename'].text
@@ -1334,7 +1304,7 @@ class ProtocolSettings(FloatLayout):
                 protocol,
                 sequence_name=sequence_name,
                 enable_image_saving=enable_image_saving,
-                callbacks=callbacks,
+                events=events,
                 run_trigger_source=run_trigger_source,
                 engineering_mode=engineering_mode,
             )

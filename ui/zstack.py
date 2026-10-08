@@ -13,12 +13,11 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from modules.sequenced_capture_runner import RunHandle
+from modules.run_events import RunEvents
 from ui.ui_helpers import (
-    live_display_callbacks,
-    reset_title,
     set_last_save_folder,
-    set_recording_title,
-    set_writing_title,
+    show_captured_frame,
+    show_video_progress,
     submit_reported,
     sync_layer_widgets_from_settings,
     typed_number,
@@ -137,22 +136,19 @@ class ZStack(FloatLayout):
         layer = common_utils.get_opened_layer(ctx.image_settings)
         engineering_mode = ctx.engineering_mode
         enable_image_saving = is_image_saving_enabled()
-        callbacks = {
-            **live_display_callbacks(),
+        events = RunEvents(
+            frame_captured=show_captured_frame,
             # Each slice redraws the button, which reads the step from the
             # engine: a redraw from any other edge draws the same thing.
-            'update_step_number': lambda step_num: self.draw_zstack_button(),
-            # LED observer handles UI sync -- no manual callbacks needed
-            'sync_layer_widgets': sync_layer_widgets_from_settings,
-            'set_recording_title': set_recording_title,
-            'set_writing_title': set_writing_title,
-            'reset_title': reset_title,
-        }
+            step_started=lambda step_idx: self.draw_zstack_button(),
+            video_progress=show_video_progress,
+            run_ended=lambda *ended: sync_layer_widgets_from_settings(),
+        )
 
         def _start():
             started = runner.run_zstack(
                 layer=layer,
-                callbacks=callbacks,
+                events=events,
                 run_trigger_source='zstack',
                 engineering_mode=engineering_mode,
                 enable_image_saving=enable_image_saving,

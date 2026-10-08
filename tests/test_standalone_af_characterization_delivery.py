@@ -52,6 +52,7 @@ from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import configure_turret_like_bringup
+from modules.run_events import RunEvents
 
 COMPLETION_TIMEOUT = 60  # seconds -- a real AF sweep runs in sim time
 
@@ -162,17 +163,16 @@ class TestStandaloneAfDeliversCharacterizationData:
                 disable_saving_artifacts=True,
                 save_autofocus_data=True,
                 max_scans=1,
-                callbacks={
-                    'go_to_step': lambda **kw: None,
-                    'run_complete': lambda **kw: done.set(),
-                    'files_complete': lambda **kw: files_done.set(),
-                },
+                events=RunEvents(
+                    run_ended=lambda *_: done.set(),
+                    files_written=lambda *_: files_done.set(),
+                ),
             )
             runner.start(plan)
             assert done.wait(timeout=COMPLETION_TIMEOUT), 'AF run did not complete'
-            assert files_done.wait(timeout=COMPLETION_TIMEOUT), 'AF run files_complete did not fire'
+            assert files_done.wait(timeout=COMPLETION_TIMEOUT), 'AF run files_written did not fire'
 
-            # files_complete comes after the run's last write lands, and the
+            # files_written comes after the run's last write lands, and the
             # data rides the run's writes: it is on disk now or never.
             files = [p for p in char_dir.rglob('*') if p.is_file()]
             assert files, (

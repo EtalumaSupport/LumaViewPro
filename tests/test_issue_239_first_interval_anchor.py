@@ -22,6 +22,7 @@ import pytest
 
 from modules.protocol_run_loop import ProtocolRunLoop
 from modules.protocol_state_machine import ProtocolState
+from modules.run_events import RunEvents
 from modules.run_outcome import PendingRunOutcome
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 
@@ -94,11 +95,7 @@ def _make_parent(clock, n_scans, period_s, first_scan_lead_s=30.0, later_scan_le
     p._protocol_state_lock = threading.Lock()
     p._auto_gain_armed_step = -1
     p.LOGGER_NAME = 'TEST'
-    p._callbacks = SimpleNamespace(
-        protocol_iterate_pre=None,
-        run_scan_pre=None,
-        scan_iterate_post=None,
-    )
+    p._events = RunEvents()
     return p
 
 
@@ -109,7 +106,6 @@ def _run(clock, parent):
         # time.sleep through it would hand every thread in the process the
         # fake clock, and a leftover thread's sleep would advance it.
         mock.patch('modules.protocol_run_loop.time', clock),
-        mock.patch('modules.protocol_run_loop._schedule_ui', lambda cb, *a, **k: None),
     ):
         loop._run_loop_inner(PendingRunOutcome())
 

@@ -41,6 +41,7 @@ sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 from modules.exceptions import ProtocolRunRefusedError
 from tests.protocol_drives import wait_until_not_running
 from tests.scope_fakes import home_sim_scope
+from modules.run_events import RunEvents
 
 COMPLETION_TIMEOUT = 15  # seconds -- generous for CI
 
@@ -141,10 +142,7 @@ class TestClaimRefusalLeavesNoState:
                 protocol=_make_single_step_protocol(),
                 sequence_name='pre_refusal_scan',
                 parent_dir=str(tmp_path),
-                callbacks={
-                    'run_complete': lambda **kw: first_done.set(),
-                    'files_complete': lambda **kw: None,
-                },
+                events=RunEvents(run_ended=lambda *_: first_done.set()),
             )
             assert first_done.wait(timeout=COMPLETION_TIMEOUT), 'first run did not end'
             settled = first.wait(timeout_s=COMPLETION_TIMEOUT)
@@ -152,7 +150,7 @@ class TestClaimRefusalLeavesNoState:
             assert (settled.status, settled.reason) == ('completed', 'completed'), (
                 f'the first run reported {settled.status!r} ({settled.reason!r})'
             )
-            # run_complete and wait() come once the claim is released;
+            # run_ended and wait() come once the claim is released;
             # the poll confirms it before claiming as the recording.
             deadline = time.monotonic() + COMPLETION_TIMEOUT
             while session.activity_claim.owner is not None:
@@ -200,15 +198,12 @@ class TestClaimRefusalLeavesNoState:
                 protocol=_make_single_step_protocol(),
                 sequence_name='post_refusal_scan',
                 parent_dir=str(tmp_path),
-                callbacks={
-                    'run_complete': lambda **kw: done.set(),
-                    'files_complete': lambda **kw: None,
-                },
+                events=RunEvents(run_ended=lambda *_: done.set()),
             )
             assert done.wait(timeout=COMPLETION_TIMEOUT), (
                 'a valid run after a claim refusal must start and complete'
             )
-            # run_complete comes once the claim is released; this
+            # run_ended comes once the claim is released; this
             # confirms it.
             assert wait_until_not_running(session)
         finally:
@@ -232,13 +227,13 @@ class TestTheHolderIsTheLiveRun:
         home_sim_scope(session.scope)
         runner = session.create_protocol_runner()
         try:
-            # Read from inside the run: run_scan_pre fires from the run
+            # Read from inside the run: scan_started fires from the run
             # loop, with the claim held, so this observes the holder while
-            # it holds rather than racing the run's end. run_complete no
+            # it holds rather than racing the run's end. run_ended no
             # longer can: it comes after the run has let go.
             observed = {}
 
-            def _observe(**_kwargs):
+            def _observe(*_scan):
                 holder = session.activity_claim.holder
                 observed['kind'] = holder.kind if holder is not None else None
                 observed['trigger'] = holder.run_trigger_source if holder is not None else None
@@ -247,7 +242,7 @@ class TestTheHolderIsTheLiveRun:
                 protocol=_make_single_step_protocol(),
                 sequence_name='holder_scan',
                 parent_dir=str(tmp_path),
-                callbacks={'run_scan_pre': _observe, 'files_complete': lambda **kw: None},
+                events=RunEvents(scan_started=_observe),
             )
             assert run.wait(timeout_s=COMPLETION_TIMEOUT) is not None
 

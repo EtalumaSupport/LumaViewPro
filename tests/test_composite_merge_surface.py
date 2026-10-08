@@ -81,9 +81,7 @@ class TestAFailedMergeTellsTheUserOnce:
             runner.run_composite(
                 sequence_name='no_data',
                 parent_dir=str(tmp_path),
-                callbacks=_fail_these_channels(
-                    session.scope._camera_driver, ('BF', 'Blue'), {'Blue'}
-                ),
+                events=_fail_these_channels(session.scope._camera_driver, ('BF', 'Blue'), {'Blue'}),
             )
 
         # The post-processor's refusal is told as itself: a warning under

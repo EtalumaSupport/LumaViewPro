@@ -21,8 +21,8 @@ from tests.protocol_drives import lent_run_claim
 from tests.frame_records import plate
 from modules.protocol_image_writer import RunWriteBatch
 from modules.image_mode import ImageCaptureConfig
-from modules.protocol_callbacks import ProtocolCallbacks
 from modules.protocol_image_writer import ProtocolImageWriter
+from modules.run_events import RunEvents
 
 
 from modules.run_outcome import EndingLatch
@@ -31,7 +31,7 @@ from modules.run_outcome import EndingLatch
 def _drive_capture(monkeypatch, debug_enabled):
     writer = ProtocolImageWriter(
         scope=MagicMock(),
-        callbacks=ProtocolCallbacks(),
+        events=RunEvents(),
         aborted=threading.Event(),
         write_batch=RunWriteBatch(MagicMock()),
         abort_fn=lambda: None,

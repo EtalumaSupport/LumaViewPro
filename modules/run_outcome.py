@@ -51,6 +51,7 @@ from __future__ import annotations
 import dataclasses
 import threading
 import uuid
+from collections.abc import Callable
 
 from lvp_logger import logger
 
@@ -217,11 +218,9 @@ class RunOutcome:
             that did not finish ('Restore LED states', 'Return to
             position', ...); empty when every one did, so the LEDs,
             camera settings and stage are as the run found them. None
-            only for a run settled before its cleanup ran. The two steps
-            the GUI runs on its own clock ('Restore layer shader', 'Sync
-            layer panel') are named only when they could not be scheduled:
-            one that fails when it runs, after the outcome is settled,
-            reports itself and is not added here.
+            only for a run settled before its cleanup ran. A host's own
+            display work at the run's end is its ``run_ended`` handler's,
+            never a step here.
         focus_written: Whether the focus a scan found was written into the
             protocol the caller asked it to write to. None for a run asked
             to write no focus; False when it was asked and wrote none --
@@ -307,6 +306,8 @@ class PendingRunOutcome:
         self._cleanup_failures: tuple[str, ...] | None = None
         self._focus_written: bool | None = None
         self._settled = threading.Event()
+        # Told once the outcome settles, on the thread that settles it.
+        self._on_settled: list[Callable[[RunOutcome], None]] = []
 
     @property
     def state(self) -> str:
@@ -414,7 +415,10 @@ class PendingRunOutcome:
                 focus_written=self._focus_written,
             )
             self._settled.set()
-            return True
+            told, self._on_settled = self._on_settled, []
+        for tell in told:
+            tell(self._outcome)
+        return True
 
     def force_resolve(self, merge_reason: str, *, fallback: RunEnding) -> bool:
         """Settle from PENDING or ARMED, because nothing will finish it.
@@ -449,7 +453,10 @@ class PendingRunOutcome:
                 focus_written=self._focus_written,
             )
             self._settled.set()
-            return True
+            told, self._on_settled = self._on_settled, []
+        for tell in told:
+            tell(self._outcome)
+        return True
 
     def resolve(
         self,
@@ -484,7 +491,26 @@ class PendingRunOutcome:
                 focus_written=self._focus_written,
             )
             self._settled.set()
-            return True
+            told, self._on_settled = self._on_settled, []
+        for tell in told:
+            tell(self._outcome)
+        return True
+
+    def when_settled(self, tell: Callable[[RunOutcome], None]) -> None:
+        """Call ``tell(outcome)`` once the outcome settles: now, when it has.
+
+        On the thread that settles it -- the run's end for every run, the
+        merge's for a composite whose merge was still owed, a teardown's for
+        one nothing will finish -- or on this one when it already has. Called
+        outside the lock, after the outcome has settled, so a raise from
+        ``tell`` reaches that thread's own handling and never unsettles it.
+        """
+        with self._lock:
+            if self._state != RESOLVED:
+                self._on_settled.append(tell)
+                return
+            outcome = self._outcome
+        tell(outcome)
 
     def wait(self, timeout_s: float | None) -> RunOutcome | None:
         """Block until the outcome settles; None when the bound expires.

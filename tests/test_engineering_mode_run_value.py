@@ -113,12 +113,12 @@ class TestTheWriterIsHandedTheMode:
         """Every writer parameter is required so no writer can decide a run
         value by itself; the mode is one of them."""
         from modules.image_mode import ImageCaptureConfig
-        from modules.protocol_callbacks import ProtocolCallbacks
         from modules.protocol_image_writer import ProtocolImageWriter
+        from modules.run_events import RunEvents
 
         kwargs = {
             'scope': MagicMock(),
-            'callbacks': ProtocolCallbacks(),
+            'events': RunEvents(),
             'aborted': threading.Event(),
             'write_batch': RunWriteBatch(MagicMock()),
             'abort_fn': lambda: None,

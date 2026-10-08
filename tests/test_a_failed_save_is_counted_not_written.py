@@ -3,7 +3,7 @@
 
 The run's write batch settled every write that ran, whether it landed or
 raised, so a run whose save failed completed ``written``: its
-``files_complete`` said so, and the composite merge, the hyperstack build
+``files_written`` said so, and the composite merge, the hyperstack build
 and the post-processing auto-run all read the folder as whole while an
 image was missing from it. A write that raises is now counted not written,
 the run's files end ``incomplete``, and a build refused on it says the save
@@ -19,6 +19,7 @@ import pytest
 import modules.protocol_image_writer as protocol_image_writer
 from modules.exceptions import CaptureError, RunFilesNotWrittenError
 from modules.protocol_image_writer import RunWriteBatch
+from modules.run_events import RunEvents
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
@@ -109,7 +110,7 @@ class TestARunWhoseSaveFails:
             outcome = runner.run_single_scan(
                 protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(tmp_path / 'runs'),
-                callbacks={'files_complete': lambda **kw: files.append(kw['files'])},
+                events=RunEvents(files_written=lambda _run_dir, files_: files.append(files_)),
             )
             assert outcome.wait(timeout_s=WAIT_S) is not None
             _wait_for(files)

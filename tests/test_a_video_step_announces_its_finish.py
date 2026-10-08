@@ -19,6 +19,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 
+from modules.run_events import RunEvents
 import modules.protocol_recording as protocol_recording
 from modules.activity_claim import ActivityClaim
 from modules.protocol_recording import ProtocolVideoStep
@@ -87,7 +88,7 @@ def test_the_finish_end_is_announced_and_reads_not_busy(tmp_path, monkeypatch):
         timestamp_overlay=False,
         global_max_fps=0,
         autogain_settings={},
-        callbacks={},
+        events=RunEvents(),
         aborted_event=threading.Event(),
         is_run_in_progress=lambda: True,
         abort_run_fatal=MagicMock(),

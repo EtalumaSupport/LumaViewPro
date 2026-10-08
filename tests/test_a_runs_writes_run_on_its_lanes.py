@@ -25,6 +25,7 @@ import pytest
 import modules.sequenced_capture_runner as scr
 from modules.exceptions import HardwareCommandRefusedError
 from modules.run_outcome import RunEnding
+from modules.run_events import RunEvents
 from modules.sequential_io_executor import IOTask
 from tests.protocol_drives import held_run_claim
 from tests.test_a_run_waits_for_the_camera_lane import RESULT_TIMEOUT_S, _LaneHold, lane_session  # noqa: F401
@@ -82,10 +83,7 @@ def _run_protocol(session, tmp_path, steps) -> None:
         protocol=_build_real_protocol(steps),
         sequence_name='lanes',
         parent_dir=str(tmp_path),
-        callbacks={
-            'run_complete': lambda **kw: None,
-            'files_complete': lambda **kw: files_written.set(),
-        },
+        events=RunEvents(files_written=lambda *_written: files_written.set()),
     )
     assert files_written.wait(COMPLETION_TIMEOUT), 'the run never finished its files'
     outcome = run.wait(timeout_s=COMPLETION_TIMEOUT)

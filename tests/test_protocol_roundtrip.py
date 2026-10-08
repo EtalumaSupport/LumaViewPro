@@ -16,6 +16,7 @@ These tests verify that:
 3. Step validation catches invalid configs before execution
 """
 
+import dataclasses
 import datetime
 import pathlib
 import json
@@ -31,6 +32,7 @@ from modules.image_mode import ImageCaptureConfig
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol import Protocol, ProtocolFormatError
+from modules.run_events import RunEvents
 from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
@@ -302,14 +304,15 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
     done = threading.Event()
     result_holder = {}
 
-    def on_complete(**kwargs):
-        result_holder.update(kwargs)
+    events = run_kwargs.pop('events', RunEvents())
+
+    def on_ended(outcome, run_dir, protocol):
+        result_holder.update(outcome=outcome, run_dir=run_dir, protocol=protocol)
+        if events.run_ended is not None:
+            events.run_ended(outcome, run_dir, protocol)
         done.set()
 
-    callbacks = run_kwargs.pop('callbacks', {})
-    callbacks['run_complete'] = on_complete
-    heartbeat = StepHeartbeat(callbacks.get('go_to_step'))
-    callbacks['go_to_step'] = heartbeat
+    heartbeat = StepHeartbeat(events.step_started)
 
     plan = executor.prepare(
         protocol=protocol,
@@ -320,7 +323,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         autogain_settings=run_kwargs.pop('autogain_settings', _make_autogain_settings()),
         parent_dir=tmp_path / 'output',
         max_scans=run_kwargs.pop('max_scans', 1),
-        callbacks=callbacks,
+        events=dataclasses.replace(events, run_ended=on_ended, step_started=heartbeat),
         **run_kwargs,
     )
     handle = executor.start(plan)
@@ -1477,13 +1480,10 @@ class TestExecuteCancellation:
 
         done = threading.Event()
 
-        def on_complete(**kwargs):
+        def on_complete(*_ended):
             done.set()
 
-        callbacks = {
-            'run_complete': on_complete,
-            'go_to_step': lambda **kw: None,
-        }
+        events = RunEvents(run_ended=on_complete)
 
         plan = executor.prepare(
             protocol=proto,
@@ -1494,7 +1494,7 @@ class TestExecuteCancellation:
             autogain_settings=_make_autogain_settings(),
             parent_dir=tmp_path / 'output',
             max_scans=1,
-            callbacks=callbacks,
+            events=events,
         )
         executor.start(plan)
 
@@ -1504,10 +1504,10 @@ class TestExecuteCancellation:
         time.sleep(0.5)
         executor.protocol_thread.abort()
 
-        # Should still fire run_complete callback
+        # Should still fire run_ended event
         completed = done.wait(timeout=COMPLETION_TIMEOUT)
-        assert completed, 'Protocol did not fire run_complete after cancellation'
-        # run_complete comes once the run has ended; this confirms it.
+        assert completed, 'Protocol did not fire run_ended after cancellation'
+        # run_ended comes once the run has ended; this confirms it.
         assert executor.wait_for_run_idle(COMPLETION_TIMEOUT), 'the cancelled run never ended'
         assert not executor.run_in_progress(), 'Executor still running after cancel'
 
@@ -1932,9 +1932,9 @@ class TestExecutorEdgeCases:
                 autogain_settings=_make_autogain_settings(),
                 parent_dir=tmp_path / 'output',
                 max_scans=1,
-                callbacks={'run_complete': lambda **kw: done.set()},
+                events=RunEvents(run_ended=lambda *_ended: done.set()),
             )
-        assert not done.is_set(), 'run_complete must not fire for a refused run'
+        assert not done.is_set(), 'run_ended must not fire for a refused run'
         assert not real_executor.run_in_progress(), (
             'Executor should not be running for empty protocol'
         )

@@ -2,6 +2,13 @@
 
 ## 4.0.0 (in development)
 
+- **A run tells its caller through typed run events (SDK, breaking)**: every run member and
+  `prepare()` take `events=RunEvents(...)` (`modules.run_events`) in place of
+  `callbacks=`; `ProtocolCallbacks` is removed. The events are `scan_started`, `scan_ended`,
+  `step_started` (0-based, step 0 included), `frame_captured`, `video_progress`, `run_ended`
+  (was `run_complete`; it carries the settled outcome, a composite's merge included) and
+  `files_written` (was `files_complete`). A misspelt handler fails where the record is built;
+  before, an unknown callback key was silently dropped and never called.
 - **A display follows the motion listener, not the run (SDK, breaking)**: `ScopeSession.create`'s
   `af_ui_update_func`, `AutofocusRunner`'s `ui_update_func` and `run(callbacks=)`, and the run
   callbacks' `move_position` are removed. Every move a run or an autofocus makes, the give-up

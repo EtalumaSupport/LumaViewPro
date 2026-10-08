@@ -22,11 +22,11 @@ Usage
 """
 
 import pathlib
-import typing
 
 from modules.activity_claim import HeldClaim
 from modules.exceptions import CaptureError
 from modules.protocol import Protocol
+from modules.run_events import RunEvents
 from modules.run_outcome import RunOutcome
 from modules.sequenced_capture_runner import (
     RunHandle,
@@ -78,7 +78,7 @@ class ProtocolRunner:
         sequence_name: str = 'scan',
         parent_dir: pathlib.Path | str | None = None,
         enable_image_saving: bool = True,
-        callbacks: dict[str, typing.Callable] | None = None,
+        events: RunEvents | None = None,
         return_to_position: dict | None = None,
         run_trigger_source: str = 'api_scan',
         engineering_mode: bool | None = None,
@@ -91,7 +91,7 @@ class ProtocolRunner:
                 its folder ('.tsv' added): a name, not a path
             parent_dir: Parent directory for output (defaults to settings['live_folder']/ProtocolData)
             enable_image_saving: Whether to save captured images
-            callbacks: Optional dict of callback functions
+            events: The run's event handlers (``RunEvents``); None for none.
             return_to_position: Optional position to return to after scan
             run_trigger_source: Provenance recorded on the run and named
                 in refusals, so the protocol panel's button records its own
@@ -119,7 +119,7 @@ class ProtocolRunner:
             sequence_name=sequence_name,
             parent_dir=parent_dir,
             enable_image_saving=enable_image_saving,
-            callbacks=callbacks,
+            events=events,
             return_to_position=return_to_position,
             engineering_mode=engineering_mode,
         )
@@ -130,7 +130,7 @@ class ProtocolRunner:
         sequence_name: str = 'protocol',
         parent_dir: pathlib.Path | str | None = None,
         enable_image_saving: bool = True,
-        callbacks: dict[str, typing.Callable] | None = None,
+        events: RunEvents | None = None,
         run_trigger_source: str = 'api_protocol',
         engineering_mode: bool | None = None,
     ) -> RunHandle:
@@ -142,7 +142,7 @@ class ProtocolRunner:
                 its folder ('.tsv' added): a name, not a path
             parent_dir: Parent directory for output
             enable_image_saving: Whether to save captured images
-            callbacks: Optional dict of callback functions
+            events: The run's event handlers (``RunEvents``); None for none.
             run_trigger_source: Provenance recorded on the run and named
                 in refusals, so the protocol panel's button records its own
                 token rather than the API's.
@@ -169,7 +169,7 @@ class ProtocolRunner:
             sequence_name=sequence_name,
             parent_dir=parent_dir,
             enable_image_saving=enable_image_saving,
-            callbacks=callbacks,
+            events=events,
             engineering_mode=engineering_mode,
         )
 
@@ -177,7 +177,7 @@ class ProtocolRunner:
         self,
         sequence_name: str = 'composite',
         parent_dir: pathlib.Path | str | None = None,
-        callbacks: dict[str, typing.Callable] | None = None,
+        events: RunEvents | None = None,
         run_trigger_source: str = 'api_composite',
         engineering_mode: bool | None = None,
     ) -> RunHandle:
@@ -196,7 +196,7 @@ class ProtocolRunner:
                 'Manual/Composites' under the live folder, where the button
                 already puts it, so a script's composite and a click's land
                 in the same place.
-            callbacks: Optional dict of callback functions.
+            events: The run's event handlers (``RunEvents``); None for none.
             run_trigger_source: Provenance recorded on the run and named
                 in refusals, so a GUI click records its own token rather
                 than the API's.
@@ -237,7 +237,7 @@ class ProtocolRunner:
             sequence_name=sequence_name,
             parent_dir=parent_dir,
             enable_image_saving=True,
-            callbacks=callbacks,
+            events=events,
             composite_thresholds_percent=config_helpers.get_composite_blend_thresholds(settings),
             engineering_mode=engineering_mode,
         )
@@ -248,7 +248,7 @@ class ProtocolRunner:
         save_characterization_data: bool = False,
         sequence_name: str = 'autofocus',
         parent_dir: pathlib.Path | str | None = None,
-        callbacks: dict[str, typing.Callable] | None = None,
+        events: RunEvents | None = None,
         claim: HeldClaim | None = None,
         run_trigger_source: str = 'api_autofocus',
         engineering_mode: bool | None = None,
@@ -289,7 +289,7 @@ class ProtocolRunner:
                 the button already puts it. Unused when no data is saved:
                 that run writes nowhere, so where it would have written
                 cannot refuse it.
-            callbacks: Optional dict of callback functions.
+            events: The run's event handlers (``RunEvents``); None for none.
             claim: A claim the caller holds -- the one
                 ``session.diagnostic_claim()`` yields -- to run under
                 instead of taking the scope. The run acts inside the
@@ -356,7 +356,7 @@ class ProtocolRunner:
             sequence_name=sequence_name,
             parent_dir=parent_dir,
             enable_image_saving=False,
-            callbacks=callbacks,
+            events=events,
             disable_saving_artifacts=True,
             save_autofocus_data=save_characterization_data,
             claim=claim,
@@ -366,7 +366,7 @@ class ProtocolRunner:
     def run_autofocus_all_steps(
         self,
         protocol: Protocol,
-        callbacks: dict[str, typing.Callable] | None = None,
+        events: RunEvents | None = None,
         run_trigger_source: str = 'api_autofocus_scan',
         engineering_mode: bool | None = None,
     ) -> RunHandle:
@@ -376,7 +376,7 @@ class ProtocolRunner:
         step's own autofocus setting, and captures nothing. When the scan
         completes, each step's Z becomes the focus found for it, written
         before the run lets go of the scope, so it is in the protocol when
-        run_complete is sent.
+        run_ended is sent.
         A scan that does not complete writes nothing, because it focused
         only some of the steps.
 
@@ -389,7 +389,7 @@ class ProtocolRunner:
         Args:
             protocol: The protocol to focus. Its autofocus settings are not
                 changed; only its Z values are written.
-            callbacks: Optional dict of callback functions.
+            events: The run's event handlers (``RunEvents``); None for none.
             run_trigger_source: Who asked for the run. The GUI's button
                 passes its own; a script keeps the default.
             engineering_mode: Whether the run follows engineering-mode
@@ -415,7 +415,7 @@ class ProtocolRunner:
             max_scans=1,
             sequence_name='af_scan',
             enable_image_saving=False,
-            callbacks=callbacks,
+            events=events,
             disable_saving_artifacts=True,
             engineering_mode=engineering_mode,
             write_focus_to=protocol,
@@ -426,7 +426,7 @@ class ProtocolRunner:
         layer: str,
         sequence_name: str = 'zstack',
         parent_dir: pathlib.Path | str | None = None,
-        callbacks: dict[str, typing.Callable] | None = None,
+        events: RunEvents | None = None,
         return_to_start: bool = True,
         run_trigger_source: str = 'api_zstack',
         engineering_mode: bool | None = None,
@@ -463,7 +463,7 @@ class ProtocolRunner:
             parent_dir: Parent directory for output. Defaults to
                 'Manual/Z-Stacks' under the live folder, where the button
                 already puts it.
-            callbacks: Optional dict of callback functions.
+            events: The run's event handlers (``RunEvents``); None for none.
             return_to_start: Whether to put the stage back where the stack
                 was centred when the run ends. On by default, because a
                 stack leaves Z at whichever end it finished on, which is
@@ -527,7 +527,7 @@ class ProtocolRunner:
             sequence_name=sequence_name,
             parent_dir=parent_dir,
             enable_image_saving=enable_image_saving,
-            callbacks=callbacks,
+            events=events,
             return_to_position=position if return_to_start else None,
             engineering_mode=engineering_mode,
         )
@@ -536,7 +536,7 @@ class ProtocolRunner:
         self,
         sequence_name: str = 'composite',
         parent_dir: pathlib.Path | str | None = None,
-        callbacks: dict[str, typing.Callable] | None = None,
+        events: RunEvents | None = None,
         merge_timeout_s: float = 900.0,
         engineering_mode: bool | None = None,
     ) -> RunOutcome:
@@ -565,7 +565,7 @@ class ProtocolRunner:
                 its folder ('.tsv' added): a name, not a path.
             parent_dir: Parent directory for output. Defaults to
                 'Manual/Composites' under the live folder, as start_composite.
-            callbacks: Optional dict of callback functions.
+            events: The run's event handlers (``RunEvents``); None for none.
             merge_timeout_s: Upper bound on the whole capture-and-merge
                 wait. Covers the run itself, so it is longer than the
                 merge's own internal drain bound.
@@ -590,7 +590,7 @@ class ProtocolRunner:
         outcome = self.start_composite(
             sequence_name=sequence_name,
             parent_dir=parent_dir,
-            callbacks=callbacks,
+            events=events,
             engineering_mode=engineering_mode,
         )
         settled = outcome.wait(timeout_s=merge_timeout_s)
@@ -619,7 +619,7 @@ class ProtocolRunner:
         sequence_name: str,
         parent_dir: pathlib.Path | str | None = None,
         enable_image_saving: bool = True,
-        callbacks: dict[str, typing.Callable] | None = None,
+        events: RunEvents | None = None,
         return_to_position: dict | None = None,
         composite_thresholds_percent: dict | None = None,
         engineering_mode: bool | None = None,
@@ -662,9 +662,6 @@ class ProtocolRunner:
         if engineering_mode is None:
             engineering_mode = self.session.engineering_mode
 
-        # Copied so the engine cannot mutate the caller's dict.
-        run_callbacks = dict(callbacks or {})
-
         plan = self._executor.prepare(
             protocol=protocol,
             run_mode=run_mode,
@@ -674,7 +671,7 @@ class ProtocolRunner:
             parent_dir=parent_dir,
             enable_image_saving=enable_image_saving,
             autogain_settings=autogain_settings,
-            callbacks=run_callbacks,
+            events=events,
             return_to_position=return_to_position,
             composite_thresholds_percent=composite_thresholds_percent,
             engineering_mode=engineering_mode,

@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from tests.protocol_drives import lent_run_claim
+from modules.run_events import RunEvents
 import modules.video_writer as video_writer_module
 from modules.video_writer import VideoWriter
 from tests.scope_fakes import answer_auto_gain_like_the_api
@@ -329,7 +330,7 @@ class TestProtocolVideoDropNotification:
             timestamp_overlay=True,
             global_max_fps=0,
             autogain_settings={},
-            callbacks={},
+            events=RunEvents(),
             aborted_event=threading.Event(),
             is_run_in_progress=lambda: True,
             abort_run_fatal=MagicMock(),

@@ -24,6 +24,7 @@ import modules.protocol_image_writer as protocol_image_writer
 import modules.scope_session as scope_session
 from modules.exceptions import FileWriterNotStuckError, Notice, RunFilesNotWrittenError
 from modules.protocol_image_writer import RunWriteBatch
+from modules.run_events import RunEvents
 from tests.af_drives import af_runner_and_scope, drive_af
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
@@ -45,11 +46,11 @@ def _hold_saves(monkeypatch):
     return release, started, real_save
 
 
-def _finish_one_run(runner, run_parent, name, callbacks=None):
+def _finish_one_run(runner, run_parent, name, events=None):
     outcome = runner.run_single_scan(
         protocol=_protocol([_step(name, 0, x=20.0, gain=1.0)]),
         parent_dir=str(run_parent),
-        callbacks=callbacks,
+        events=events,
     )
     result = outcome.wait(timeout_s=WAIT_S)
     assert result is not None and result.status == 'completed', result
@@ -69,7 +70,7 @@ class TestRecoveringAStuckWriter:
                 runner,
                 run_parent,
                 'C1',
-                {'files_complete': lambda **kw: files.append(kw['files'])},
+                RunEvents(files_written=lambda _run_dir, files_: files.append(files_)),
             )
             assert started.acquire(timeout=WAIT_S)
             time.sleep(0.5)

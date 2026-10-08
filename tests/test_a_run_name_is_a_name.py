@@ -34,7 +34,6 @@ def _prepare(executor, parent_dir, sequence_name):
         autogain_settings=_make_autogain_settings(),
         parent_dir=parent_dir,
         max_scans=1,
-        callbacks={},
     )
 
 

@@ -109,7 +109,6 @@ def pressed(monkeypatch, held):
             worker_pool=pool,
         ),
     )
-    monkeypatch.setattr(vc, 'live_display_callbacks', dict)
     monkeypatch.setattr(vc.gui_logger, 'button', lambda *a, **kw: None)
     monkeypatch.setattr(vc.common_utils, 'get_opened_layer', lambda _settings: 'Green')
     return SimpleNamespace(
@@ -136,7 +135,7 @@ def test_the_button_states_only_what_the_gui_knows(pressed):
     assert set(kwargs) == {
         'layer',
         'save_characterization_data',
-        'callbacks',
+        'events',
         'run_trigger_source',
         'engineering_mode',
     }

@@ -17,6 +17,7 @@ import pytest
 
 import modules.common_utils as common_utils
 from modules.exceptions import CaptureError, RunImagesNotSavedError, RunIncompleteError
+from modules.run_events import RunEvents
 
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
@@ -25,11 +26,11 @@ from tests.test_composite_run_failures import _info_lines
 WAIT_S = 60.0
 
 
-def _run(runner, run_parent, steps, callbacks=None):
+def _run(runner, run_parent, steps, events=None):
     pending = runner.run_single_scan(
         protocol=_protocol(steps),
         parent_dir=str(run_parent),
-        callbacks=callbacks or {},
+        events=events,
     )
     outcome = pending.wait(timeout_s=WAIT_S)
     # The record and the images are on the file lane; they are there once
@@ -146,12 +147,14 @@ class TestARunWithFailedCapturesEndsIncomplete:
                 runner,
                 tmp_path / 'runs',
                 _two_steps(),
-                callbacks={'run_complete': lambda **kw: seen.append(kw['status'])},
+                events=RunEvents(
+                    run_ended=lambda outcome, run_dir, protocol: seen.append(outcome.status)
+                ),
             )
         assert (outcome.status, outcome.reason) == ('incomplete', 'captures_failed'), outcome
         assert (outcome.captures.asked, outcome.captures.captured) == (2, 0), outcome.captures
         assert [failed.step_name for failed in outcome.captures.failed] == ['C1', 'C2']
-        assert seen == ['incomplete'], 'run_complete told its subscribers a different ending'
+        assert seen == ['incomplete'], 'run_ended told its subscribers a different ending'
         assert len(reported) == 1, reported
 
     def test_a_success_between_failures_does_not_hide_them(self, tmp_path):
@@ -161,17 +164,16 @@ class TestARunWithFailedCapturesEndsIncomplete:
             camera = session.scope._camera_driver
             real_grab = camera.grab_new_capture
 
-            def update_step_number(step):
-                # 1-based, and step 1 never gets the call: armed below.
-                camera.grab_new_capture = _no_frame if step % 2 == 1 else real_grab
+            def step_started(step_idx):
+                # Every step, step 0 included, before it captures.
+                camera.grab_new_capture = _no_frame if step_idx % 2 == 0 else real_grab
 
-            camera.grab_new_capture = _no_frame
             steps = [_step(f'C{i}', i, x=20.0 + i, gain=1.0) for i in range(8)]
             outcome = _run(
                 runner,
                 tmp_path / 'runs',
                 steps,
-                callbacks={'update_step_number': update_step_number},
+                events=RunEvents(step_started=step_started),
             )
         assert outcome.status == 'incomplete', outcome
         assert (outcome.captures.asked, outcome.captures.captured) == (8, 4), outcome.captures
@@ -220,9 +222,7 @@ class TestACompositeMissingAChannel:
             outcome = runner.run_composite(
                 sequence_name='two_of_three',
                 parent_dir=str(tmp_path),
-                callbacks=_fail_these_channels(
-                    session.scope._camera_driver, step_colors, {_FAILING}
-                ),
+                events=_fail_these_channels(session.scope._camera_driver, step_colors, {_FAILING}),
             )
         assert outcome.merged and pathlib.Path(outcome.artifact_path).exists(), outcome
         assert outcome.status == 'incomplete', outcome
@@ -252,7 +252,7 @@ class TestACompositeMissingAChannel:
                 outcome = runner.run_composite(
                     sequence_name='two_of_three',
                     parent_dir=str(tmp_path),
-                    callbacks=_fail_these_channels(
+                    events=_fail_these_channels(
                         session.scope._camera_driver, step_colors, {_FAILING}
                     ),
                 )
@@ -263,7 +263,7 @@ class TestACompositeMissingAChannel:
         assert told_when_returned == ['armed'], told_when_returned
 
 
-def _files_complete(seen):
+def _files_written(seen):
     deadline = time.monotonic() + WAIT_S
     while not seen and time.monotonic() < deadline:
         time.sleep(0.02)
@@ -285,9 +285,9 @@ class TestTheFileCountCountsImages:
                 runner,
                 tmp_path / 'runs',
                 _two_steps(),
-                callbacks={'files_complete': lambda **kw: files.append(kw['files'])},
+                events=RunEvents(files_written=lambda run_dir, written: files.append(written)),
             )
-            _files_complete(files)
+            _files_written(files)
         assert files == ['written'], files
         assert any('0 written, 0 not written' in line for line in info), [
             line for line in info if 'files are' in line
@@ -311,9 +311,9 @@ class TestTheFileCountCountsImages:
                 runner,
                 tmp_path / 'runs',
                 _two_steps(),
-                callbacks={'files_complete': lambda **kw: files.append(kw['files'])},
+                events=RunEvents(files_written=lambda run_dir, written: files.append(written)),
             )
-            _files_complete(files)
+            _files_written(files)
             batch = runner._executor.write_batch()
         assert (outcome.status, outcome.reason) == ('failed', 'disk_space_critical'), outcome
         assert files == ['incomplete'], files
@@ -338,9 +338,9 @@ class TestTheFileCountCountsImages:
                 runner,
                 tmp_path / 'runs',
                 _two_steps(),
-                callbacks={'files_complete': lambda **kw: files.append(kw['files'])},
+                events=RunEvents(files_written=lambda run_dir, written: files.append(written)),
             )
-            _files_complete(files)
+            _files_written(files)
         assert (outcome.status, outcome.reason) == ('failed', 'disk_space_critical'), outcome
         assert files == ['incomplete'], files
         assert len(lost) == 1, 'the lost image is still reported, to the log'
@@ -424,9 +424,9 @@ class TestAVideoStepIsOneCapture:
                 runner,
                 tmp_path / 'runs',
                 [_video('V1', 0)],
-                callbacks={'files_complete': lambda **kw: files.append(kw['files'])},
+                events=RunEvents(files_written=lambda run_dir, written: files.append(written)),
             )
-            _files_complete(files)
+            _files_written(files)
             batch = runner._executor.write_batch()
         assert outcome.status == 'completed', outcome
         assert files == ['incomplete'], files
@@ -463,9 +463,9 @@ class TestTheFilesLineAndItsReport:
                 runner,
                 tmp_path / 'runs',
                 _two_steps(),
-                callbacks={'files_complete': lambda **kw: files.append(kw['files'])},
+                events=RunEvents(files_written=lambda run_dir, written: files.append(written)),
             )
-            _files_complete(files)
+            _files_written(files)
         assert files == ['incomplete'], files
         assert any("The run's files are incomplete" in line for line in warnings), warnings
 
@@ -484,9 +484,9 @@ class TestTheFilesLineAndItsReport:
                 runner,
                 tmp_path / 'runs',
                 _two_steps(),
-                callbacks={'files_complete': lambda **kw: files.append(kw['files'])},
+                events=RunEvents(files_written=lambda run_dir, written: files.append(written)),
             )
-            _files_complete(files)
+            _files_written(files)
             batch = runner._executor.write_batch()
         assert outcome.status == 'completed', outcome
         assert files == ['written'], files
@@ -497,13 +497,13 @@ class TestTheFilesLineAndItsReport:
         from tests.test_a_failed_save_is_counted_not_written import _fail_saves
 
         files_done = threading.Event()
-        schedule = sequenced_capture_runner.schedule_files_complete
+        send = sequenced_capture_runner.send_files_written
 
-        def _scheduled(*args, **kwargs):
-            schedule(*args, **kwargs)
+        def _sent(*args, **kwargs):
+            send(*args, **kwargs)
             files_done.set()
 
-        monkeypatch.setattr(sequenced_capture_runner, 'schedule_files_complete', _scheduled)
+        monkeypatch.setattr(sequenced_capture_runner, 'send_files_written', _sent)
         _fail_saves(monkeypatch, failing=lambda kwargs: kwargs['channel'] == 'Blue')
         with (
             _reports_of(RunImagesNotSavedError) as lost,
@@ -528,7 +528,7 @@ class TestACompositeThatCannotMerge:
             settled = runner.start_composite(
                 sequence_name='one_of_two',
                 parent_dir=str(tmp_path),
-                callbacks=_fail_these_channels(
+                events=_fail_these_channels(
                     session.scope._camera_driver, ('BF', _FAILING), {_FAILING}
                 ),
             ).wait(timeout_s=WAIT_S)

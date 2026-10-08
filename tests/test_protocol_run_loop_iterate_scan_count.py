@@ -1,16 +1,16 @@
-"""Regression: the protocol_iterate_pre UI callback must report the
-remaining-scan count from the scan that scheduled it, not whatever the run
-loop has advanced to by the time Kivy runs the deferred callback.
+"""Regression: the scan_started event must report the remaining-scan count
+from the scan that sent it, not whatever the run loop has advanced to by the
+time Kivy runs the deferred delivery.
 
-The run loop schedules protocol_iterate_pre via schedule_ui (Kivy
+The run loop delivers scan_started through the UI dispatcher (Kivy
 Clock.schedule_once), which defers the call to the UI thread while the worker
-loop continues into a multi-second scan. If the scheduled lambda closes over
-the loop variable instead of binding its value, every deferred callback reads
-the final remaining-scan count, so a multi-scan run reports the same number
-(or zero) for every scan instead of counting down.
+loop continues into a multi-second scan. If the delivery read the loop's
+state when it ran instead of carrying its values, every deferred handler
+would read the final remaining-scan count, so a multi-scan run reports the
+same number (or zero) for every scan instead of counting down.
 
-This test defers the scheduled callbacks (captures them without running them),
-drives two scans, then runs the callbacks and asserts they counted down.
+This test defers the scheduled deliveries (captures them without running
+them), drives two scans, then runs them and asserts they counted down.
 """
 
 import datetime
@@ -21,6 +21,7 @@ from unittest import mock
 
 from modules.protocol_run_loop import ProtocolRunLoop
 from modules.protocol_state_machine import ProtocolState
+from modules.run_events import RunEvents
 from modules.run_outcome import PendingRunOutcome
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 
@@ -73,11 +74,7 @@ def _make_two_scan_parent():
     p._protocol_state_lock = threading.Lock()
     p._auto_gain_armed_step = -1
     p.LOGGER_NAME = 'TEST'
-    p._callbacks = SimpleNamespace(
-        protocol_iterate_pre=mock.MagicMock(),
-        run_scan_pre=None,
-        scan_iterate_post=None,
-    )
+    p._events = RunEvents(scan_started=mock.MagicMock())
     # The run loop itself increments _scan_count once per completed scan, so
     # remaining_scans() counts down across iterations without extra help here.
     return p
@@ -93,20 +90,18 @@ def test_iterate_callback_reports_per_scan_remaining_count():
         # Simulate Kivy deferral: stash the callback, run it later.
         deferred.append(callback)
 
-    with mock.patch('modules.protocol_run_loop._schedule_ui', _capture):
+    with mock.patch('modules.run_events.schedule_ui', _capture):
         loop._run_loop_inner(PendingRunOutcome())
 
-    # Two scans ran, so two iterate-pre callbacks were scheduled.
+    # Two scans ran, so two scan_started deliveries were scheduled.
     assert len(deferred) == 2
 
-    # Run the deferred callbacks now (as the Kivy clock would, after the loop
+    # Run the deferred deliveries now (as the Kivy clock would, after the loop
     # advanced) and capture what remaining-scan count each reported.
     for cb in deferred:
         cb(0)
 
-    reported = [
-        call.kwargs['remaining_scans'] for call in p._callbacks.protocol_iterate_pre.call_args_list
-    ]
+    reported = [call.args[1] for call in p._events.scan_started.call_args_list]
     assert reported == [2, 1]
 
 
@@ -130,9 +125,7 @@ def test_scan_pacing_waits_on_monotonic_period():
 
     deferred = []
     with (
-        mock.patch(
-            'modules.protocol_run_loop._schedule_ui', lambda cb, *a, **k: deferred.append(cb)
-        ),
+        mock.patch('modules.run_events.schedule_ui', lambda cb, *a, **k: deferred.append(cb)),
         # The loop's own name for time, not the time module, which every
         # thread in the process shares.
         mock.patch(
@@ -145,8 +138,8 @@ def test_scan_pacing_waits_on_monotonic_period():
     for cb in deferred:
         cb(0)
 
-    # Scan 0 fired (its iterate-pre was scheduled); scan 1 hit the pacing wait
-    # and aborted, so exactly one iterate-pre callback fired -- the period gated
+    # Scan 0 fired (its scan_started was scheduled); scan 1 hit the pacing wait
+    # and aborted, so exactly one scan_started delivery fired -- the period gated
     # on monotonic time, not on a stale wall-clock _start_t (which sat an hour in
     # the past in the helper and would have fired immediately).
-    assert p._callbacks.protocol_iterate_pre.call_count == 1
+    assert p._events.scan_started.call_count == 1

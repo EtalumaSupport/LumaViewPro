@@ -24,6 +24,7 @@ import modules.protocol_run_loop as protocol_run_loop
 from modules.exceptions import ProtocolRunRefusedError
 from modules.lumascope_api import AxisState
 from modules.notification_center import Severity
+from modules.run_events import RunEvents
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
@@ -106,7 +107,7 @@ def _run(session, tmp_path, protocol=None, scans=1):
         'protocol': protocol or _make_single_step_protocol(),
         'sequence_name': 'position',
         'parent_dir': str(tmp_path),
-        'callbacks': {'run_complete': lambda **kw: done.set(), 'files_complete': lambda **kw: None},
+        'events': RunEvents(run_ended=lambda *ended: done.set()),
     }
     if scans == 1:
         run = runner.run_single_scan(**kwargs)

@@ -58,10 +58,10 @@ class TestProtocolRunLoopNoCacheClearingLedsOffAtScanStart:
     """The run loop must not queue a nuclear leds_off before step 0; the
     clean slate comes from the capture path's exclusive wiring."""
 
-    def test_no_nuclear_leds_off_before_go_to_step(self):
+    def test_no_nuclear_leds_off_before_step_zero_starts(self):
         runner = run_loop_ready_runner(protocol_step())
         events = []
-        runner._callbacks.go_to_step.side_effect = lambda **kwargs: events.append('go_to_step')
+        runner._events.step_started.side_effect = lambda step_idx: events.append('step_started')
 
         def recording_put(task, **kwargs):
             if getattr(task, 'action', None) is runner._scope.illumination.leds_off:
@@ -70,10 +70,10 @@ class TestProtocolRunLoopNoCacheClearingLedsOffAtScanStart:
 
         runner._io_executor.protocol_put.side_effect = recording_put
         runner._run_loop_executor.run_loop(runner._last_run())
-        assert 'go_to_step' in events, 'the scan must reach go_to_step'
-        before_step_zero = events[: events.index('go_to_step')]
+        assert 'step_started' in events, 'the scan must reach step 0'
+        before_step_zero = events[: events.index('step_started')]
         assert 'leds_off' not in before_step_zero, (
-            'a nuclear leds_off before go_to_step clears the LED-state cache '
+            'a nuclear leds_off before step 0 starts clears the LED-state cache '
             'and re-introduces the scan-start off->on blink; LED traffic '
             f'observed: {events}'
         )

@@ -70,12 +70,12 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
     import numpy as np
 
     from modules.image_mode import ImageCaptureConfig
-    from modules.protocol_callbacks import ProtocolCallbacks
     from modules.protocol_image_writer import CapturedFrame, ProtocolImageWriter
+    from modules.run_events import RunEvents
 
     writer = ProtocolImageWriter(
         scope=MagicMock(),
-        callbacks=ProtocolCallbacks(),
+        events=RunEvents(),
         aborted=threading.Event(),
         write_batch=RunWriteBatch(MagicMock()),
         abort_fn=lambda: None,

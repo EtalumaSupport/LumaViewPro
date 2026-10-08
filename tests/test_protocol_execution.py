@@ -10,6 +10,7 @@ Uses Lumascope(simulate=True) with real SimulatedLEDBoard, SimulatedMotorBoard,
 and SimulatedCamera -- no hardware or Kivy needed.
 """
 
+import dataclasses
 import datetime
 import json
 import pathlib
@@ -39,6 +40,7 @@ sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 from modules.activity_claim import ActivityClaim
 from modules.exceptions import ProtocolRunRefusedError, RunAlreadyEndedError
 from modules.protocol_state_machine import ProtocolState
+from modules.run_events import RunEvents
 from modules.image_mode import ImageCaptureConfig
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_runner import RunPlan, SequencedCaptureRunner
@@ -268,19 +270,20 @@ def _make_multi_step_protocol(steps_config):
 def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
     """Run a protocol on the executor and wait for completion.
 
-    Returns (completed: bool, run_complete_kwargs: dict).
+    Returns (completed: bool, run_ended_args: dict).
     """
     done = threading.Event()
     result_holder = {}
 
-    def on_complete(**kwargs):
-        result_holder.update(kwargs)
+    events = run_kwargs.pop('events', RunEvents())
+
+    def on_ended(outcome, run_dir, protocol):
+        result_holder.update(outcome=outcome, run_dir=run_dir, protocol=protocol)
+        if events.run_ended is not None:
+            events.run_ended(outcome, run_dir, protocol)
         done.set()
 
-    callbacks = run_kwargs.pop('callbacks', {})
-    callbacks['run_complete'] = on_complete
-    heartbeat = StepHeartbeat(callbacks.get('go_to_step'))
-    callbacks['go_to_step'] = heartbeat
+    heartbeat = StepHeartbeat(events.step_started)
 
     plan = executor.prepare(
         protocol=protocol,
@@ -291,7 +294,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         autogain_settings=run_kwargs.pop('autogain_settings', _make_autogain_settings()),
         parent_dir=tmp_path / 'output',
         max_scans=run_kwargs.pop('max_scans', 1),
-        callbacks=callbacks,
+        events=dataclasses.replace(events, run_ended=on_ended, step_started=heartbeat),
         **run_kwargs,
     )
     handle = executor.start(plan)
@@ -1377,14 +1380,11 @@ class TestCancellationMidRun:
         done = threading.Event()
         result_holder = {}
 
-        def on_complete(**kwargs):
-            result_holder.update(kwargs)
+        def on_complete(outcome, run_dir, protocol):
+            result_holder.update(outcome=outcome, run_dir=run_dir, protocol=protocol)
             done.set()
 
-        callbacks = {
-            'run_complete': on_complete,
-            'go_to_step': lambda **kw: None,
-        }
+        events = RunEvents(run_ended=on_complete)
 
         plan = executor.prepare(
             protocol=protocol,
@@ -1395,7 +1395,7 @@ class TestCancellationMidRun:
             autogain_settings=_make_autogain_settings(),
             parent_dir=tmp_path / 'output',
             max_scans=100,
-            callbacks=callbacks,
+            events=events,
         )
         run = executor.start(plan)
 
@@ -1407,19 +1407,16 @@ class TestCancellationMidRun:
         assert completed, 'Protocol did not complete after reset()'
 
     def test_reset_before_first_scan_completes(self, executor, scope, tmp_path):
-        """Reset immediately -- should still invoke run_complete."""
+        """Reset immediately -- should still invoke run_ended."""
         steps = _make_tile_grid_steps(rows=3, cols=5)  # 15 steps
         protocol = _make_multi_step_protocol(steps)
 
         done = threading.Event()
 
-        def on_complete(**kwargs):
+        def on_complete(*_ended):
             done.set()
 
-        callbacks = {
-            'run_complete': on_complete,
-            'go_to_step': lambda **kw: None,
-        }
+        events = RunEvents(run_ended=on_complete)
 
         plan = executor.prepare(
             protocol=protocol,
@@ -1430,7 +1427,7 @@ class TestCancellationMidRun:
             autogain_settings=_make_autogain_settings(),
             parent_dir=tmp_path / 'output',
             max_scans=1,
-            callbacks=callbacks,
+            events=events,
         )
         run = executor.start(plan)
 
@@ -1463,7 +1460,7 @@ class TestResetWhenNotRunning:
 class TestBackToBackRuns:
     """Run a protocol, wait for completion, then immediately run another.
 
-    run_complete comes once the run has ended, and its files can still be
+    run_ended comes once the run has ended, and its files can still be
     draining then. A second start before they land is refused by design,
     so _run_and_wait returns only once the run's wait_for_files has -- the
     designed contract, not a workaround for an executor bug.
@@ -1503,13 +1500,10 @@ class TestDisconnectedScope:
 
         done = threading.Event()
 
-        def on_complete(**kwargs):
+        def on_complete(*_ended):
             done.set()
 
-        callbacks = {
-            'run_complete': on_complete,
-            'go_to_step': lambda **kw: None,
-        }
+        events = RunEvents(run_ended=on_complete)
 
         with pytest.raises(ProtocolRunRefusedError):
             executor.prepare(
@@ -1521,10 +1515,10 @@ class TestDisconnectedScope:
                 autogain_settings=_make_autogain_settings(),
                 parent_dir=tmp_path / 'output',
                 max_scans=1,
-                callbacks=callbacks,
+                events=events,
             )
 
-        # Should NOT have started -- run_complete should NOT fire
+        # Should NOT have started -- run_ended should NOT fire
         assert not done.is_set(), 'Protocol should not have started with disconnected scope'
         assert not executor.run_in_progress()
 
@@ -1680,14 +1674,11 @@ class TestSavingWithNoneParentDir:
         done = threading.Event()
         result_holder = {}
 
-        def on_complete(**kwargs):
-            result_holder.update(kwargs)
+        def on_complete(outcome, run_dir, protocol):
+            result_holder.update(outcome=outcome, run_dir=run_dir, protocol=protocol)
             done.set()
 
-        callbacks = {
-            'run_complete': on_complete,
-            'go_to_step': lambda **kw: None,
-        }
+        events = RunEvents(run_ended=on_complete)
 
         plan = executor.prepare(
             protocol=protocol,
@@ -1698,7 +1689,7 @@ class TestSavingWithNoneParentDir:
             autogain_settings=_make_autogain_settings(),
             parent_dir=None,
             max_scans=1,
-            callbacks=callbacks,
+            events=events,
         )
         executor.start(plan)
 
@@ -1726,19 +1717,17 @@ class TestWithTurret:
 # ---------------------------------------------------------------------------
 
 
-class TestMinimalCallbacks:
-    """Run with only the required run_complete callback -- no optional ones."""
+class TestMinimalEvents:
+    """Run with only a run_ended handler -- no other event subscribed."""
 
-    def test_completes_with_minimal_callbacks(self, executor, scope, tmp_path):
+    def test_completes_with_minimal_events(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
 
         done = threading.Event()
 
-        def on_complete(**kwargs):
+        def on_complete(*_ended):
             done.set()
 
-        # Only provide run_complete -- no go_to_step.
-        # This forces _go_to_step to use _default_move (which we've mocked).
         plan = executor.prepare(
             protocol=protocol,
             run_trigger_source='test',
@@ -1748,7 +1737,7 @@ class TestMinimalCallbacks:
             autogain_settings=_make_autogain_settings(),
             parent_dir=tmp_path / 'output',
             max_scans=1,
-            callbacks={'run_complete': on_complete},
+            events=RunEvents(run_ended=on_complete),
         )
         executor.start(plan)
 
@@ -1816,10 +1805,7 @@ class TestCleanupConcurrency:
             autogain_settings=_make_autogain_settings(),
             parent_dir=tmp_path / 'output',
             max_scans=1,
-            callbacks={
-                'run_complete': lambda **kw: done.set(),
-                'go_to_step': lambda **kw: None,
-            },
+            events=RunEvents(run_ended=lambda *_ended: done.set()),
         )
         run = executor.start(plan)
         # Let protocol start
@@ -2077,10 +2063,7 @@ class TestCameraStateRestoration:
             autogain_settings=_make_autogain_settings(),
             parent_dir=tmp_path / 'output',
             max_scans=1,
-            callbacks={
-                'run_complete': lambda **kw: done.set(),
-                'go_to_step': lambda **kw: None,
-            },
+            events=RunEvents(run_ended=lambda *_ended: done.set()),
         )
         run = executor.start(plan)
         time.sleep(0.2)
@@ -2108,7 +2091,7 @@ class TestValidationOrder:
         protocol = _make_single_step_protocol(color='BF')
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        # run_complete comes once the run has ended; this confirms it.
+        # run_ended comes once the run has ended; this confirms it.
         assert executor.wait_for_run_idle(COMPLETION_TIMEOUT), 'the run never ended'
         assert not executor.run_in_progress()
 
@@ -2136,10 +2119,7 @@ class TestCleanupCorrectness:
             autogain_settings=_make_autogain_settings(),
             parent_dir=tmp_path / 'output',
             max_scans=1,
-            callbacks={
-                'run_complete': lambda **kw: done.set(),
-                'go_to_step': lambda **kw: None,
-            },
+            events=RunEvents(run_ended=lambda *_ended: done.set()),
         )
         run = executor.start(plan)
         time.sleep(0.2)
@@ -2241,7 +2221,7 @@ class TestProtocolLedNoFlash:
 
 class TestMotionTimeoutEndsRunInsteadOfWedging:
     """A motion timeout mid-run must END the protocol (ERROR -> cleanup ->
-    run_complete), not wedge it. Previously the timed-out scan was counted
+    run_ended), not wedge it. Previously the timed-out scan was counted
     complete and every later period raised an invalid ERROR->SCANNING
     transition that the transient-failure classifier retried forever -- a
     multi-day timelapse silently delivering nothing after one timeout."""
@@ -2264,7 +2244,7 @@ class TestMotionTimeoutEndsRunInsteadOfWedging:
         )
 
         assert completed, (
-            'Protocol wedged after a motion timeout: run_complete never '
+            'Protocol wedged after a motion timeout: run_ended never '
             'fired. ERROR state must terminate the run, not be retried '
             'as a transient failure every period.'
         )
@@ -2380,12 +2360,7 @@ class TestRunReturnValueContract:
     commits unwinds as a failed run whose terminal callback fires.
     """
 
-    def _prepare_run(self, executor, protocol, tmp_path, callbacks=None):
-        cbs = {
-            'go_to_step': lambda **kw: None,
-        }
-        if callbacks:
-            cbs.update(callbacks)
+    def _prepare_run(self, executor, protocol, tmp_path, events=None):
         return executor.prepare(
             protocol=protocol,
             run_trigger_source='test',
@@ -2395,7 +2370,7 @@ class TestRunReturnValueContract:
             autogain_settings=_make_autogain_settings(),
             parent_dir=tmp_path / 'output',
             max_scans=1,
-            callbacks=cbs,
+            events=events,
         )
 
     def test_refused_run_raises_and_leaves_runner_idle(self, executor, tmp_path):
@@ -2414,7 +2389,7 @@ class TestRunReturnValueContract:
             executor,
             protocol,
             tmp_path,
-            callbacks={'run_complete': lambda **kwargs: done.set()},
+            events=RunEvents(run_ended=lambda *_ended: done.set()),
         )
         assert isinstance(plan, RunPlan), 'prepare() must return the validated RunPlan'
         executor.start(plan)
@@ -2433,7 +2408,7 @@ class TestRunReturnValueContract:
         self, executor, scope, tmp_path, monkeypatch, centre_posts
     ):
         """A run-directory setup failure is a failed-at-start run, not a
-        wedge: exactly one user notification, the terminal run_complete
+        wedge: exactly one user notification, the terminal run_ended
         callback fires with the failed-at-start status, the runner is
         idle afterwards, and a subsequent prepare() succeeds."""
         from modules.notification_center import Severity
@@ -2451,7 +2426,9 @@ class TestRunReturnValueContract:
             executor,
             protocol,
             tmp_path,
-            callbacks={'run_complete': lambda **kwargs: completions.append(kwargs)},
+            events=RunEvents(
+                run_ended=lambda outcome, run_dir, protocol: completions.append(outcome)
+            ),
         )
         executor.start(plan)
         notified = [n for n in centre_posts[start:] if n.severity == Severity.ERROR]
@@ -2460,11 +2437,11 @@ class TestRunReturnValueContract:
             f'once; got {len(notified)}: {notified}'
         )
         assert len(completions) == 1, (
-            'The terminal run_complete callback must fire exactly once for a '
+            'The terminal run_ended event must fire exactly once for a '
             f'failed-at-start run; got {completions}'
         )
-        assert completions[0].get('status') == 'failed_at_start', (
-            f'run_complete must report the failed-at-start status; got {completions[0]}'
+        assert completions[0].status == 'failed_at_start', (
+            f'run_ended must report the failed-at-start status; got {completions[0]}'
         )
         assert not executor.run_in_progress(), (
             'A run that failed at directory setup must not stay marked in progress'

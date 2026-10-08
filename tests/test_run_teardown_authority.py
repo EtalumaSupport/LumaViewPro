@@ -31,6 +31,7 @@ import time
 import pytest
 
 from modules.exceptions import ProtocolRunRefusedError, RunAlreadyEndedError
+from modules.run_events import RunEvents
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     COMPLETION_TIMEOUT,
@@ -60,10 +61,7 @@ def _start_run(executor, tmp_path, done):
         autogain_settings=_make_autogain_settings(),
         parent_dir=tmp_path / 'output',
         max_scans=1,
-        callbacks={
-            'run_complete': lambda **kw: done.set(),
-            'go_to_step': lambda **kw: None,
-        },
+        events=RunEvents(run_ended=lambda *ended: done.set()),
     )
     run = executor.start(plan)
 
@@ -215,7 +213,7 @@ class TestTeardownAuthority:
 
         assert executor.wait_for_run_idle(COMPLETION_TIMEOUT), 'force_reset left the run live'
         assert not executor.run_in_progress()
-        assert done.is_set(), 'the run ended without run_complete'
+        assert done.is_set(), 'the run ended without run_ended'
 
 
 class TestTheRunIsRequired:
@@ -372,7 +370,6 @@ def _start_run_and_let_it_fail(executor, tmp_path):
         autogain_settings=_make_autogain_settings(),
         parent_dir=tmp_path / 'output',
         max_scans=1,
-        callbacks={'go_to_step': lambda **kw: None},
     )
     executor.start(plan)
     assert executor.wait_for_run_idle(COMPLETION_TIMEOUT)

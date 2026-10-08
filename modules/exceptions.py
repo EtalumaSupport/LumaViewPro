@@ -972,7 +972,7 @@ class RunAlreadyEndedError(Quiet, ProtocolError):
 class RunWaitOnUiThreadError(ProtocolError):
     """A run's wait was made on the thread that delivers the run's callbacks.
 
-    Under the GUI a run's ``run_complete`` and ``files_complete`` are
+    Under the GUI a run's ``run_ended`` and ``files_written`` are
     delivered on the UI thread, and a run's waits return only once they
     have run, so a wait there would wait on itself. Not a refusal: a caller
     that blocks the UI thread on a run is a defect in the caller, and the

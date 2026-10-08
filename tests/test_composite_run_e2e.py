@@ -31,6 +31,7 @@ import pytest
 import tifffile as tf
 
 from modules.image_mode import OUTPUT_FORMAT_TIFF
+from modules.run_events import RunEvents
 from tests.protocol_drives import wait_until_not_running
 from tests.scope_fakes import home_sim_scope
 from tests.test_composite_run_config import _settings as _base_settings
@@ -277,20 +278,20 @@ class TestStartComposite:
         # the click would abort someone else's run instead of being refused.
         session, runner, tmp_path = composite_session
 
-        # Observed from inside the run rather than after it: run_scan_pre
+        # Observed from inside the run rather than after it: scan_started
         # fires from the run loop, with the claim held, so this reads the
         # holder while it holds rather than racing the run's end.
-        # run_complete no longer can: it comes after the run has let go.
+        # run_ended cannot: it comes after the run has let go.
         held_by = []
         outcome = runner.start_composite(
             sequence_name='start_token',
             parent_dir=str(tmp_path),
             run_trigger_source='composite',
-            callbacks={
-                'run_scan_pre': lambda **kw: held_by.append(
+            events=RunEvents(
+                scan_started=lambda *_scan: held_by.append(
                     session.activity_claim.holder.run_trigger_source
                 )
-            },
+            ),
         )
         assert outcome.wait(timeout_s=120) is not None, 'the run never settled'
         assert held_by == ['composite']
@@ -299,6 +300,25 @@ class TestStartComposite:
         assert session.activity_claim.holder is None, (
             'the claim answers for the run HOLDING the scope; nothing holds it now'
         )
+
+    def test_run_ended_carries_the_merge_and_the_wait_follows_it(self, composite_session):
+        # A composite's run_ended is sent from the merge's settle, not at
+        # the release: it carries what the merge made, and wait() returns
+        # only once the handler has run.
+        _session, runner, tmp_path = composite_session
+        heard = []
+        outcome = runner.start_composite(
+            sequence_name='run_ended',
+            parent_dir=str(tmp_path),
+            events=RunEvents(run_ended=lambda outcome, run_dir, protocol: heard.append(outcome)),
+        )
+        settled = outcome.wait(timeout_s=120)
+
+        assert settled is not None, 'the run never settled'
+        assert heard == [settled], (
+            'wait() returned before run_ended, or it was not the settled outcome'
+        )
+        assert settled.merged and settled.artifact_path, settled
 
     def test_each_run_gets_the_outcome_it_started(self, composite_session):
         # The outcome used to be read back off the executor after start

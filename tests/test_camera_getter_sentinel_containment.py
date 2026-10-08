@@ -671,15 +671,15 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(monkeypatch,
     from unittest.mock import MagicMock
 
     from modules.image_mode import ImageCaptureConfig
-    from modules.protocol_callbacks import ProtocolCallbacks
     from modules.protocol_image_writer import CapturedFrame, ProtocolImageWriter
+    from modules.run_events import RunEvents
 
     scope = MagicMock()
     scope.imaging.last_significant_bits = 16  # save-time state disagrees
     scope.imaging.significant_bits = 16
     writer = ProtocolImageWriter(
         scope=scope,
-        callbacks=ProtocolCallbacks(),
+        events=RunEvents(),
         aborted=_threading.Event(),
         write_batch=RunWriteBatch(MagicMock()),
         abort_fn=lambda: None,

@@ -25,6 +25,7 @@ import modules.config_helpers as config_helpers
 from modules.exceptions import ProtocolRunRefusedError
 from modules.image_mode import IMAGE_MODE_8BIT, IMAGE_MODE_12BIT_SCIENTIFIC
 from modules.image_mode import OUTPUT_FORMAT_OME_TIFF, OUTPUT_FORMAT_TIFF
+from modules.run_events import RunEvents
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
@@ -117,7 +118,7 @@ def test_a_layers_autofocus_switched_during_a_run_is_still_switched_after_it(ses
     session.settings['BF']['autofocus'] = False
     files_written = threading.Event()
 
-    def users_switch(**_):
+    def users_switch(*_scan):
         with session.settings_lock:
             session.settings['BF']['autofocus'] = True
 
@@ -125,10 +126,10 @@ def test_a_layers_autofocus_switched_during_a_run_is_still_switched_after_it(ses
         protocol=_build_real_protocol([copy.deepcopy(_make_single_step_protocol().step(idx=0))]),
         sequence_name='autofocus_switch',
         parent_dir=str(tmp_path),
-        callbacks={
-            'run_scan_pre': users_switch,
-            'files_complete': lambda **_: files_written.set(),
-        },
+        events=RunEvents(
+            scan_started=users_switch,
+            files_written=lambda run_dir, files: files_written.set(),
+        ),
     )
     assert files_written.wait(COMPLETION_TIMEOUT), 'the run never finished its files'
     assert run.wait(timeout_s=COMPLETION_TIMEOUT) is not None

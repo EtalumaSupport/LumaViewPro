@@ -23,12 +23,11 @@ from modules.exceptions import (
     RunFailedError,
     describe_unknown_positions,
 )
+from modules.run_events import deliver
 from modules.run_outcome import RunEnding
 
 if TYPE_CHECKING:
     from modules.sequenced_capture_runner import RunHandle, SequencedCaptureRunner
-
-from modules.kivy_utils import schedule_ui as _schedule_ui
 
 # --- Hardware health check ---
 HW_CHECK_INTERVAL_S = 30  # Seconds between hardware connection checks
@@ -230,17 +229,16 @@ class ProtocolRunLoop:
                     p._start_t = current_time
 
                 # Time for next scan
-                if p._callbacks.protocol_iterate_pre:
-                    _schedule_ui(
-                        lambda dt, rs=remaining_scans: p._callbacks.protocol_iterate_pre(
-                            remaining_scans=rs, interval=p._protocol.period()
-                        )
-                    )
+                deliver(
+                    p._events.scan_started,
+                    'scan_started',
+                    p._scan_count + 1,
+                    remaining_scans,
+                    p._protocol.period(),
+                )
 
                 # Initialize per-scan state (curr_step, AF pointer).
                 p._reset_scan_state()
-                if p._callbacks.run_scan_pre:
-                    _schedule_ui(lambda dt: p._callbacks.run_scan_pre(), 0)
 
                 # Check disk space once per scan, against the per-run estimate
                 # summed once on the first check and reused thereafter.
@@ -329,8 +327,13 @@ class ProtocolRunLoop:
                     f'{"aborted" if scan_aborted else "completed"}'
                 )
 
-                if p._callbacks.scan_iterate_post:
-                    _schedule_ui(lambda dt: p._callbacks.scan_iterate_post(), 0)
+                deliver(
+                    p._events.scan_ended,
+                    'scan_ended',
+                    new_count,
+                    p._remaining_scans(),
+                    p._protocol.period(),
+                )
 
                 p._scan_in_progress.clear()
                 p.end_scan()

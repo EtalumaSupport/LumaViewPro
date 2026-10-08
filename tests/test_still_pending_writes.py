@@ -27,6 +27,7 @@ import modules.protocol_image_writer as piw
 from modules.exceptions import RunWriteRefusedError
 from modules.image_mode import ImageCaptureConfig
 from modules.protocol_image_writer import ProtocolImageWriter, RunWriteBatch
+from modules.run_events import RunEvents
 from tests.scope_fakes import spec_scope
 
 
@@ -36,7 +37,7 @@ from modules.run_outcome import EndingLatch
 def _writer(file_io_executor=None):
     return ProtocolImageWriter(
         scope=spec_scope(),
-        callbacks=MagicMock(),
+        events=RunEvents(),
         aborted=threading.Event(),
         write_batch=RunWriteBatch(file_io_executor or MagicMock()),
         abort_fn=MagicMock(),

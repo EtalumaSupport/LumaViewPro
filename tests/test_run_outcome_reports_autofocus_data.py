@@ -52,6 +52,7 @@ sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
 from modules.protocol import Protocol
+from modules.run_events import RunEvents
 from modules.run_outcome import PendingRunOutcome, RunEnding, RunOutcome
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
@@ -161,7 +162,7 @@ class _AfRig:
             parent_dir, save_data=save_data, borrowed_claim=borrowed_claim
         )
         assert self._done.wait(timeout=COMPLETION_TIMEOUT), 'AF run did not complete'
-        assert self._files_done.wait(timeout=COMPLETION_TIMEOUT), 'files_complete did not fire'
+        assert self._files_done.wait(timeout=COMPLETION_TIMEOUT), 'files_written did not fire'
         outcome = pending.wait(timeout_s=COMPLETION_TIMEOUT)
         assert outcome is not None, 'the AF run never settled its outcome'
         return outcome
@@ -195,11 +196,10 @@ class _AfRig:
             disable_saving_artifacts=True,
             save_autofocus_data=save_data,
             max_scans=1,
-            callbacks={
-                'go_to_step': lambda **kw: None,
-                'run_complete': lambda **kw: done.set(),
-                'files_complete': lambda **kw: files_done.set(),
-            },
+            events=RunEvents(
+                run_ended=lambda *ended: done.set(),
+                files_written=lambda *written: files_done.set(),
+            ),
             borrowed_claim=borrowed_claim,
         )
 

@@ -32,7 +32,7 @@ def test_a_slow_run_that_keeps_starting_steps_ends(monkeypatch):
     def run():
         for _ in range(12):
             time.sleep(0.1)
-            heartbeat(protocol=None, step_idx=0, include_move=False)
+            heartbeat(0)
         done.set()
 
     threading.Thread(target=run, daemon=True).start()
@@ -41,7 +41,5 @@ def test_a_slow_run_that_keeps_starting_steps_ends(monkeypatch):
 
 def test_the_heartbeat_hands_each_step_to_the_tests_own_callback():
     seen = []
-    StepHeartbeat(lambda **kw: seen.append(kw['step_idx']))(
-        protocol=None, step_idx=3, include_move=False
-    )
+    StepHeartbeat(seen.append)(3)
     assert seen == [3]

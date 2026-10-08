@@ -31,6 +31,7 @@ from modules.exceptions import (
 )
 from modules.lumascope_api.imaging import HANDLER_BUDGET_MS, HANDLER_DROP_K, _BudgetedHandler
 from modules.notification_center import Severity
+from modules.run_events import RunEvents
 from tests.shown_outcomes import capture_shown
 from tests.test_manual_recording_controller import make_controller
 from tests.test_video_camera_lost_outcome import _make_recorder
@@ -349,19 +350,20 @@ class TestTheUnwindAndRemovalEdges:
         kept = list((tmp_path / 'Manual').glob('Video_*/frame_0001.tiff'))
         assert len(kept) == 1, 'a folder holding anything is kept'
 
-    def test_a_refused_video_step_resets_the_title(self, tmp_path, monkeypatch):
+    def test_a_refused_video_step_sends_no_progress(self, tmp_path, monkeypatch):
+        # Refused before it records, the step sent no phase, so it owes no
+        # 'ended': 'ended' follows a recording or writing phase only.
         clock = {'t': 1000.0}
         recorder = _make_recorder(tmp_path, clock, active_cached=True)
         recorder._scope.imaging.add_frame_listener.side_effect = FrameListenerNotRegisteredError(
             'protocol_video:clip'
         )
-        reset = MagicMock()
-        recorder._callbacks = {'reset_title': reset}
-        monkeypatch.setattr(protocol_recording, '_schedule_ui', lambda fn, *a, **k: fn(0))
+        progress = MagicMock()
+        recorder._events = RunEvents(video_progress=progress)
         monkeypatch.setattr(
             protocol_recording.notifications, 'report_outcome', lambda *a, **k: None
         )
 
         with patch.object(recorder, '_prologue', return_value=None):
             assert recorder.run_blocking() == protocol_recording.NO_FRAMES
-        reset.assert_called_once()
+        progress.assert_not_called()

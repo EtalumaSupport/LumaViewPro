@@ -53,7 +53,7 @@ from modules.exceptions import (
     VideoFramesDroppedError,
     VideoWriterFailedError,
 )
-from modules.kivy_utils import schedule_ui as _schedule_ui
+from modules.run_events import RunEvents, VideoProgress, deliver
 from modules.notification_center import notifications
 from modules.recording_frames import (
     CameraTickRebaser,
@@ -85,10 +85,10 @@ CAMERA_LOST = 'camera_lost'  # camera went inactive mid-step; kept frames are fi
 ABORTED = 'aborted'  # the controller aborted the run (disk); no strike, no row here
 
 # The wait loop's tick: how quickly Stop/abort is honored during a video
-# step, and the ceiling on how stale the recording title can be beyond
+# step, and the ceiling on how stale a recording progress can be beyond
 # its 1 s update throttle.
 _WAIT_TICK_S = 0.1
-_TITLE_UPDATE_INTERVAL_S = 1.0
+_PROGRESS_INTERVAL_S = 1.0
 
 
 class ProtocolVideoStep:
@@ -108,9 +108,7 @@ class ProtocolVideoStep:
         global_max_fps: Run-scoped snapshot of the global "Video max
             FPS" cap (0 = uncapped); D15 -- never read live mid-run.
         autogain_settings: The runner's autogain settings dict.
-        callbacks: The run callbacks dict (set_recording_title,
-            set_writing_title, reset_title used here); dispatched via
-            the UI scheduler.
+        events: The run's events; this step sends its ``video_progress``.
         aborted_event: The run's abort event; checked every wait tick.
         is_run_in_progress: Callable; False ends the step early.
         abort_run_fatal: PIW's fatal-abort funnel, for disk faults and
@@ -144,7 +142,7 @@ class ProtocolVideoStep:
         timestamp_overlay: bool,
         global_max_fps: float,
         autogain_settings: dict,
-        callbacks: dict,
+        events: RunEvents,
         aborted_event: threading.Event,
         is_run_in_progress: Callable[[], bool],
         abort_run_fatal: Callable[[str, str, str, str], None],
@@ -163,7 +161,11 @@ class ProtocolVideoStep:
         self._timestamp_overlay = timestamp_overlay
         self._global_max_fps = global_max_fps
         self._autogain_settings = autogain_settings
-        self._callbacks = callbacks
+        self._events = events
+        # Whether this step has sent a recording or writing phase, which
+        # its 'ended' follows. Written by the recording and read by the
+        # finish thread, which starts after it.
+        self._progress_sent = False
         self._aborted = aborted_event
         self._is_run_in_progress = is_run_in_progress
         self._abort_run_fatal = abort_run_fatal
@@ -346,7 +348,7 @@ class ProtocolVideoStep:
             # a capture failure takes. Its flight ends here; unsolicited, so
             # an unattended run logs it without a popup.
             self._unwind_failed_start(engine)
-            self._reset_title()
+            self._end_progress()
             notifications.report_outcome(refused, solicited=False, category='Protocol')
             return NO_FRAMES
         except BaseException:
@@ -382,7 +384,7 @@ class ProtocolVideoStep:
                     self._writer.close()
                 except Exception as e:
                     logger.warning(f'[PROTOCOL-VIDEO] Writer close after empty step: {e}')
-            self._reset_title()
+            self._end_progress()
             # A user Stop or a run abort that arrived before any frame is
             # not a capture failure: the early exit keeps its meaning, or
             # a zero-frame Stop would land a bogus strike toward the
@@ -474,7 +476,7 @@ class ProtocolVideoStep:
         ``active_cached`` stays True.
         """
         start_ts = self._clock()
-        last_title_ts = 0.0
+        last_progress_ts = 0.0
         outcome, end_reason = COMPLETED, 'duration_elapsed'
         watch = StallWatch(stall_threshold)
         while engine.is_recording:
@@ -503,9 +505,11 @@ class ProtocolVideoStep:
                 # rate (the budget would otherwise never fill). Kept
                 # frames are an honest short delivery in the manifest.
                 break
-            if now - last_title_ts >= _TITLE_UPDATE_INTERVAL_S:
-                last_title_ts = now
-                self._set_title('set_recording_title', elapsed_sec=elapsed, total_sec=duration_s)
+            if now - last_progress_ts >= _PROGRESS_INTERVAL_S:
+                last_progress_ts = now
+                self._send_progress(
+                    VideoProgress('recording', elapsed_s=elapsed, total_s=duration_s)
+                )
             time.sleep(_WAIT_TICK_S)
         return outcome, end_reason
 
@@ -650,9 +654,8 @@ class ProtocolVideoStep:
         engine = self._engine
         total = max(1, engine.frames_selected)
         while not engine.wait_for_drain(timeout=1.0):
-            if 'set_writing_title' in self._callbacks:
-                done = total - engine.pending_writes
-                self._set_title('set_writing_title', progress=done / total * 100)
+            done = total - engine.pending_writes
+            self._send_progress(VideoProgress('writing', percent=done / total * 100))
 
         result = None
         writer_dropped = 0
@@ -673,7 +676,7 @@ class ProtocolVideoStep:
             fault.__cause__ = failed
             notifications.report_outcome(fault, solicited=False, category='Protocol')
         finally:
-            self._reset_title()
+            self._end_progress()
             if result is None:
                 # The finish failed before any measured truth existed. The
                 # step still owes the run a row: a video step that vanishes
@@ -749,15 +752,15 @@ class ProtocolVideoStep:
                 )
 
     # ------------------------------------------------------------------
-    # UI titles (dispatched to the UI scheduler; callbacks may be absent)
+    # The step's video_progress event
     # ------------------------------------------------------------------
 
-    def _set_title(self, key: str, **kwargs) -> None:
-        cb = self._callbacks.get(key)
-        if cb is not None:
-            _schedule_ui(lambda dt, cb=cb, kw=dict(kwargs): cb(**kw), 0)
+    def _send_progress(self, progress: VideoProgress) -> None:
+        self._progress_sent = True
+        deliver(self._events.video_progress, 'video_progress', progress)
 
-    def _reset_title(self) -> None:
-        cb = self._callbacks.get('reset_title')
-        if cb is not None:
-            _schedule_ui(lambda dt, cb=cb: cb(), 0)
+    def _end_progress(self) -> None:
+        """Send 'ended' once, when a recording or writing phase was sent."""
+        if self._progress_sent:
+            self._progress_sent = False
+            deliver(self._events.video_progress, 'video_progress', VideoProgress('ended'))

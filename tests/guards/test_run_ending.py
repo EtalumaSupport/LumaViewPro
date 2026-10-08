@@ -20,6 +20,7 @@ import pytest
 from unittest.mock import MagicMock
 
 from modules.exceptions import RunAlreadyEndedError
+from modules.run_events import RunEvents
 from modules.run_outcome import EndingLatch, PendingRunOutcome, RunEnding
 from tests.ast_seams import REPO_ROOT
 from tests.protocol_drives import run_identity
@@ -196,7 +197,7 @@ def test_no_cleanup_call_states_an_ending_without_one():
     assert not offenders, (
         f'these cleanup calls do not pass exactly one ending and the run it ends: '
         f'{offenders} -- a defaulted or omitted ending lets a failure report itself '
-        f'as a normal completion to every run_complete subscriber, and a cleanup '
+        f'as a normal completion to every run_ended subscriber, and a cleanup '
         f'that names no run can end a successor as if it were its own'
     )
 
@@ -580,7 +581,7 @@ class TestTheCallerHoldsTheEndingOfTheRunItStarted:
                 _plain_scan_protocol(session),
                 sequence_name='ending_scan',
                 parent_dir=str(tmp_path),
-                callbacks={'run_complete': lambda **kw: reported.update(kw)},
+                events=RunEvents(run_ended=lambda outcome, *_: reported.update(outcome=outcome)),
             )
             assert pending is not None, (
                 'run_single_scan committed a run and handed back nothing; the '
@@ -592,11 +593,11 @@ class TestTheCallerHoldsTheEndingOfTheRunItStarted:
         # The same fact through both channels. A caller that waits and a
         # subscriber that is called back must not be able to disagree about
         # the run they are both describing.
-        assert settled.status == reported['status'] == 'completed', (
-            f'the waiter was told {settled.status!r} and the run_complete '
-            f'subscriber {reported.get("status")!r}'
+        assert settled.status == reported['outcome'].status == 'completed', (
+            f'the waiter was told {settled.status!r} and the run_ended '
+            f'subscriber {reported["outcome"].status!r}'
         )
-        assert settled.reason == reported['ending'].reason
+        assert settled.reason == reported['outcome'].reason
 
     def test_a_completed_scan_carries_no_merge_verdict(self, tmp_path):
         # A scan has no merge, so the merge fields say nothing rather than
@@ -626,7 +627,7 @@ class TestSessionShutdownDoesNotRewriteAReportedEnding:
         Shutdown cuts the MERGE short, not the run: the executors go down
         without draining, so the merge can never finish and a blocked
         caller has to be released. Releasing it with 'aborted' would put
-        the waiter and the run_complete subscriber in contradiction about
+        the waiter and the run_ended subscriber in contradiction about
         a run that did, in fact, complete.
         """
         from modules.run_outcome import PendingRunOutcome, RunEnding

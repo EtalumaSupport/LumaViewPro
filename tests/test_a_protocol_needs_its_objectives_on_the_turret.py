@@ -99,7 +99,6 @@ def _prepare(executor, protocol, tmp_path):
         autogain_settings=_make_autogain_settings(),
         parent_dir=tmp_path / 'output',
         max_scans=1,
-        callbacks={},
     )
 
 

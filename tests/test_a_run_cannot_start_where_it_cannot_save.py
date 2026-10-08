@@ -64,7 +64,6 @@ def _prepare(executor, tmp_path, parent_dir, **overrides):
         'autogain_settings': _make_autogain_settings(),
         'parent_dir': parent_dir,
         'max_scans': 1,
-        'callbacks': {},
     }
     kwargs.update(overrides)
     return executor.prepare(**kwargs)

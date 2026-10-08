@@ -216,13 +216,13 @@ class TestTransitionNotification:
         # The drain's end is a run-state change: run_lockout drops with it,
         # so the Session must hear it -- once, when the run's last write
         # lands, not when the run closes its writes.
-        from modules.protocol_callbacks import ProtocolCallbacks
         from modules.protocol_image_writer import RunWriteBatch
+        from modules.run_events import RunEvents
 
         session = _make_session()
         runner = session.sequenced_capture_runner
         # The run's fields start() sets that the completion captures.
-        runner._callbacks = ProtocolCallbacks()
+        runner._events = RunEvents()
         runner._disable_saving_artifacts = True
         batch = RunWriteBatch(session.file_io_executor)
         runner._write_batch = batch

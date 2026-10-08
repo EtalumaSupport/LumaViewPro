@@ -33,6 +33,7 @@ import pytest
 
 from tests.protocol_drives import lent_run_claim
 from modules.common_utils import PostFunction
+from modules.run_events import RunEvents
 from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
@@ -512,7 +513,7 @@ def test_video_step_row_records_writers_actual_path(tmp_path, monkeypatch):
         timestamp_overlay=True,
         global_max_fps=0,
         autogain_settings={},
-        callbacks={},
+        events=RunEvents(),
         aborted_event=threading.Event(),
         is_run_in_progress=lambda: True,
         abort_run_fatal=MagicMock(),

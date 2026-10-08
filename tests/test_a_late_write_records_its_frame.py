@@ -29,6 +29,7 @@ import pytest
 
 import modules.protocol_image_writer as protocol_image_writer
 from modules.image_utils import read_postproc_input_metadata
+from modules.run_events import RunEvents
 from modules.protocol import Protocol
 from modules.recording_frames import FrameFact
 from tests.frame_records import plate
@@ -131,7 +132,7 @@ def _run_with_every_write_held(tmp_path, monkeypatch, steps, on_capture=None, mi
         outcome = runner.run_single_scan(
             protocol=_protocol(steps),
             parent_dir=str(run_parent),
-            callbacks={'files_complete': lambda **kw: files_written.set()},
+            events=RunEvents(files_written=lambda *_written: files_written.set()),
         )
         result = outcome.wait(timeout_s=120.0)
         assert result is not None and result.status == 'completed', result

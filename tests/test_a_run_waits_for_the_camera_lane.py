@@ -26,6 +26,7 @@ import modules.sequenced_capture_runner as runner_module
 from modules.exceptions import HardwareCommandRefusedError
 from modules.sequential_io_executor import IOTask
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
+from modules.run_events import RunEvents
 
 RESULT_TIMEOUT_S = 30.0
 STILL_EXPOSURE_MS = 800.0
@@ -68,7 +69,7 @@ def _first_step_observer(session):
             seen['lane_busy'] = session.camera_executor.is_busy()
             seen['still_in_flight'] = session.manual_capture.in_flight
 
-    return seen, {'update_step_number': _on_step}
+    return seen, RunEvents(step_started=_on_step)
 
 
 class TestAStillInFlightFinishesFirst:
@@ -76,10 +77,10 @@ class TestAStillInFlightFinishesFirst:
         session, runner, tmp_path = lane_session
         still = session.manual_capture.capture(layer='BF', false_color_on=False)
         assert session.manual_capture.in_flight, 'the still never reached the lane'
-        seen, callbacks = _first_step_observer(session)
+        seen, events = _first_step_observer(session)
 
         outcome = runner.start_composite(
-            sequence_name='after_still', parent_dir=str(tmp_path), callbacks=callbacks
+            sequence_name='after_still', parent_dir=str(tmp_path), events=events
         )
 
         paths = still.result(timeout=RESULT_TIMEOUT_S)
@@ -179,7 +180,7 @@ class TestAHeldLane:
                 outcome = runner.start_composite(
                     sequence_name='stuck',
                     parent_dir=str(tmp_path),
-                    callbacks={'run_complete': lambda **kw: completions.append(kw)},
+                    events=RunEvents(run_ended=lambda *ended: completions.append(ended)),
                 )
                 assert session.sequenced_capture_runner.wait_for_run_idle(
                     timeout_s=RESULT_TIMEOUT_S
@@ -221,7 +222,7 @@ class TestATakeoverWriteThatRaises:
             outcome = runner.start_composite(
                 sequence_name='raises',
                 parent_dir=str(tmp_path),
-                callbacks={'run_complete': lambda **kw: completions.append(kw)},
+                events=RunEvents(run_ended=lambda *ended: completions.append(ended)),
             )
             assert session.sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
         result = outcome.wait(timeout_s=RESULT_TIMEOUT_S)

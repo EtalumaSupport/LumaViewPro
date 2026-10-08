@@ -9,7 +9,7 @@ The start sequence is prepare() -> start(plan):
   prepare is observationally a no-op: every getter still answers for
   the previous run.
 - start(plan) is the commitment point: once entered, the terminal
-  run_complete callback fires exactly once on every path -- normal
+  run_ended event fires exactly once on every path -- normal
   completion, abort, or a setup failure that unwinds as an
   immediately-failed run (status 'failed_at_start'). No caller can
   wait forever on a run that never started.
@@ -68,6 +68,7 @@ sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 from modules.activity_claim import ActivityClaim
 from modules.autofocus_thread import AutofocusSweep
 from modules.exceptions import ProtocolRunRefusedError, RunCheckFailedError
+from modules.run_events import RunEvents
 from modules.protocol_image_writer import RunWriteBatch
 from modules.protocol_state_machine import ProtocolState
 from tests.protocol_drives import wait_until_not_running
@@ -246,12 +247,7 @@ def executor(scope, executors):
     return exc
 
 
-def _prepare(executor, protocol, tmp_path, callbacks=None, sequence_name='refusal_contract'):
-    cbs = {
-        'go_to_step': lambda **kw: None,
-    }
-    if callbacks:
-        cbs.update(callbacks)
+def _prepare(executor, protocol, tmp_path, events=None, sequence_name='refusal_contract'):
     return executor.prepare(
         protocol=protocol,
         run_trigger_source='test',
@@ -261,7 +257,7 @@ def _prepare(executor, protocol, tmp_path, callbacks=None, sequence_name='refusa
         autogain_settings=_make_autogain_settings(),
         parent_dir=tmp_path / 'output',
         max_scans=1,
-        callbacks=cbs,
+        events=events,
         # The snapshot carries its own restorer, so cleanup never reaches
         # the global settings module that other test files replace with
         # import-order-dependent stand-ins.
@@ -271,7 +267,7 @@ def _prepare(executor, protocol, tmp_path, callbacks=None, sequence_name='refusa
 def _run_to_completion(executor, protocol, tmp_path):
     done = threading.Event()
     plan = _prepare(
-        executor, protocol, tmp_path, callbacks={'run_complete': lambda **kw: done.set()}
+        executor, protocol, tmp_path, events=RunEvents(run_ended=lambda *_ended: done.set())
     )
     handle = executor.start(plan)
     assert done.wait(timeout=COMPLETION_TIMEOUT), 'run did not complete within timeout'
@@ -384,10 +380,7 @@ class TestHeadlessRefusalDoesNotHang:
                 protocol=_make_single_step_protocol(),
                 sequence_name='refusal_headless_first',
                 parent_dir=str(tmp_path),
-                callbacks={
-                    'run_complete': lambda **kw: done.set(),
-                    'files_complete': lambda **kw: None,
-                },
+                events=RunEvents(run_ended=lambda *_ended: done.set()),
             )
             assert done.wait(timeout=COMPLETION_TIMEOUT), 'first run did not end'
             settled = first.wait(timeout_s=COMPLETION_TIMEOUT)
@@ -419,10 +412,7 @@ class TestHeadlessRefusalDoesNotHang:
                 protocol=_make_single_step_protocol(),
                 sequence_name='refusal_headless_second',
                 parent_dir=str(tmp_path),
-                callbacks={
-                    'run_complete': lambda **kw: done2.set(),
-                    'files_complete': lambda **kw: None,
-                },
+                events=RunEvents(run_ended=lambda *_ended: done2.set()),
             )
             assert done2.wait(timeout=COMPLETION_TIMEOUT), (
                 'a valid run after a refusal must start and complete'
@@ -457,15 +447,15 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
             executor,
             _make_single_step_protocol(),
             tmp_path,
-            callbacks={'run_complete': lambda **kw: completions.append(kw)},
+            events=RunEvents(run_ended=lambda outcome, *_: completions.append(outcome)),
         )
         executor.start(plan)
 
         assert len(completions) == 1, (
-            f'run_complete must fire exactly once for a failed-at-start run; got {completions}'
+            f'run_ended must fire exactly once for a failed-at-start run; got {completions}'
         )
-        assert completions[0].get('status') == 'failed_at_start', (
-            f'run_complete must carry the failed-at-start status; got {completions[0]}'
+        assert completions[0].status == 'failed_at_start', (
+            f'run_ended must carry the failed-at-start status; got {completions[0]}'
         )
         assert len(captured) == 1, f'a failed-at-start run must notify exactly once; got {captured}'
         assert not executor.run_in_progress()
@@ -499,7 +489,7 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
             executor,
             _make_single_step_protocol(),
             tmp_path,
-            callbacks={'run_complete': lambda **kw: completions.append(kw)},
+            events=RunEvents(run_ended=lambda outcome, *_: completions.append(outcome)),
         )
 
         def _refused(**kwargs):
@@ -509,7 +499,7 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
         outcome = executor.start(plan).wait(COMPLETION_TIMEOUT)
 
         assert (outcome.status, outcome.reason) == ('failed_at_start', 'run_dir_init_failed')
-        assert [c.get('status') for c in completions] == ['failed_at_start']
+        assert [c.status for c in completions] == ['failed_at_start']
         assert len(captured) == 1, f'a failed-at-start run must notify exactly once; got {captured}'
         assert _wait_for_executors_out_of_protocol_mode(executor)
 
@@ -575,7 +565,6 @@ class TestTheCompositeChannelFloor:
             autogain_settings=_make_autogain_settings(),
             parent_dir=tmp_path / 'output',
             max_scans=1,
-            callbacks={'go_to_step': lambda **kw: None},
         )
 
     @pytest.mark.parametrize(
@@ -616,7 +605,7 @@ class TestStartCannotSilentlyHalfStart:
                 executor,
                 _make_single_step_protocol(),
                 tmp_path,
-                callbacks={'run_complete': lambda **kw: completions.append(kw)},
+                events=RunEvents(run_ended=lambda outcome, *_: completions.append(outcome)),
             )
             executor.start(plan)
 
@@ -624,7 +613,7 @@ class TestStartCannotSilentlyHalfStart:
             'a failure in the last commit step must fire the terminal '
             f'callback exactly once; got {completions}'
         )
-        assert completions[0].get('status') == 'failed_at_start', (
+        assert completions[0].status == 'failed_at_start', (
             f'the terminal callback must carry the failed status; got {completions[0]}'
         )
         assert not executor.run_in_progress(), (
@@ -965,10 +954,7 @@ class TestARunThatCannotResolveItsDataRootFailsAtStart:
             **scr_run_kwargs(
                 parent_dir=output_dir,
                 disable_saving_artifacts=False,
-                callbacks={
-                    'run_complete': lambda **kw: completions.append(kw),
-                    'go_to_step': lambda **kw: None,
-                },
+                events=RunEvents(run_ended=lambda outcome, *_: completions.append(outcome)),
             )
         )
         # start() resolves the outcome rather than raising, so the caller
@@ -980,8 +966,8 @@ class TestARunThatCannotResolveItsDataRootFailsAtStart:
             'the terminal callback must fire exactly once for a run that '
             f'could not resolve its data root; got {completions}'
         )
-        assert completions[0].get('status') == 'failed_at_start', (
-            f'run_complete must carry the failed-at-start status; got {completions[0]}'
+        assert completions[0].status == 'failed_at_start', (
+            f'run_ended must carry the failed-at-start status; got {completions[0]}'
         )
         notified = [
             (n.category, n.title, n.message) for n in centre_posts if n.severity == Severity.ERROR

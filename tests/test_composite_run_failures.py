@@ -39,6 +39,7 @@ import pytest
 
 from modules.exceptions import CaptureError
 from modules.image_mode import OUTPUT_FORMAT_JPG, OUTPUT_FORMAT_TIFF
+from modules.run_events import RunEvents
 from tests.test_composite_run_e2e import (
     headless_settings,
     open_composite_session,
@@ -84,37 +85,36 @@ def _info_lines():
 
 
 def _fail_these_channels(camera, step_colors, failing):
-    """Callbacks that make the camera deliver NO FRAME for *failing*
+    """Run events that make the camera deliver NO FRAME for *failing*
     channels' steps.
 
     A black test pattern used to serve as the failure here, but darkness
     is no longer a capture failure -- a dark frame is delivered, saved
     and recorded as dark. What still produces nothing is a grab that
-    never returns a frame, so that is what these callbacks induce; the
+    never returns a frame, so that is what these events induce; the
     contracts the tests assert (the channel is recorded as having
     captured nothing, the merge is skipped, the strike counter trips)
     are unchanged.
 
-    ``update_step_number`` fires synchronously on the protocol thread
-    before the step it names is positioned and lit (headless has no UI
-    dispatcher, so ``schedule_ui`` calls straight through), which makes it
-    the one hook that can arm a per-channel condition ahead of that
-    channel's capture. Step 1 never gets the call, so the pattern the
-    session opens with is what step 1 sees.
+    ``step_started`` fires synchronously on the protocol thread before the
+    step it names is positioned and lit (headless has no UI dispatcher, so
+    the delivery calls straight through), which makes it the one event that
+    can arm a per-channel condition ahead of that channel's capture. Every
+    step gets it, step 0 included.
 
-    The step number is 1-based; *step_colors* is the run's layer order.
+    The step index is 0-based; *step_colors* is the run's layer order.
     """
 
     real_grab = camera.grab_new_capture
 
-    def update_step_number(step):
-        color = step_colors[step - 1]
+    def step_started(step_idx):
+        color = step_colors[step_idx]
         if color in failing:
             camera.grab_new_capture = lambda timeout_s: (False, None, 0)
         else:
             camera.grab_new_capture = real_grab
 
-    return {'update_step_number': update_step_number}
+    return RunEvents(step_started=step_started)
 
 
 def _record_rows(run_dir):
@@ -156,7 +156,7 @@ class TestAChannelThatCapturesNothing:
             outcome = runner.start_composite(
                 sequence_name='one_of_two',
                 parent_dir=str(tmp_path),
-                callbacks=_fail_these_channels(
+                events=_fail_these_channels(
                     _session.scope._camera_driver, ('BF', _FAILING), {_FAILING}
                 ),
             )
@@ -204,7 +204,7 @@ class TestAChannelThatCapturesNothing:
             runner.start_composite(
                 sequence_name='no_file',
                 parent_dir=str(tmp_path),
-                callbacks=_fail_these_channels(
+                events=_fail_these_channels(
                     _session.scope._camera_driver, ('BF', _FAILING), {_FAILING}
                 ),
             ).wait(timeout_s=120)
@@ -231,7 +231,7 @@ class TestAChannelThatCapturesNothing:
                 runner.run_composite(
                     sequence_name='typed_raise',
                     parent_dir=str(tmp_path),
-                    callbacks=_fail_these_channels(
+                    events=_fail_these_channels(
                         _session.scope._camera_driver, ('BF', _FAILING), {_FAILING}
                     ),
                 )
@@ -253,9 +253,7 @@ class TestAChannelThatCapturesNothing:
             outcome = runner.start_composite(
                 sequence_name='two_of_three',
                 parent_dir=str(tmp_path),
-                callbacks=_fail_these_channels(
-                    _session.scope._camera_driver, step_colors, {_FAILING}
-                ),
+                events=_fail_these_channels(_session.scope._camera_driver, step_colors, {_FAILING}),
             )
             settled = outcome.wait(timeout_s=120)
 

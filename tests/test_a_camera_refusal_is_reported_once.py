@@ -158,14 +158,14 @@ class TestTheRunReportsAndCarriesOn:
 
     def test_the_image_writer_reports_a_refused_step_value_once(self, reported):
         from modules.image_mode import ImageCaptureConfig
-        from modules.protocol_callbacks import ProtocolCallbacks
         from modules.protocol_image_writer import ProtocolImageWriter
+        from modules.run_events import RunEvents
         from modules.run_outcome import EndingLatch
         from tests.protocol_drives import lent_run_claim
 
         writer = ProtocolImageWriter(
             scope=spec_scope(),
-            callbacks=ProtocolCallbacks(),
+            events=RunEvents(),
             aborted=threading.Event(),
             write_batch=RunWriteBatch(MagicMock()),
             abort_fn=lambda: None,
