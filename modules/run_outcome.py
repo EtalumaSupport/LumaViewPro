@@ -53,7 +53,6 @@ import threading
 import uuid
 from collections.abc import Callable
 
-from lvp_logger import logger
 from modules.api_surface import api, api_fields
 
 
@@ -442,17 +441,16 @@ class PendingRunOutcome:
     def force_resolve(self, merge_reason: str, *, fallback: RunEnding) -> bool:
         """Settle from PENDING or ARMED, because nothing will finish it.
 
-        For teardown only -- session shutdown, or a discard of the run's
-        unwritten inputs. Both leave a merge unable to complete, so the
-        outcome settles here rather than leaving a caller blocked on a
-        result that is never coming.
+        For a run's cleanup that failed while settling its outcome: nothing
+        is coming to finish it, so the outcome settles here rather than
+        leaving a caller blocked on a result that is never coming.
 
         From ARMED the run already reported its own ending to the
         run-complete subscribers, so that ending stands and merge_reason
-        is the only new fact; from PENDING the run never reached cleanup
-        and has no ending of its own, so ``fallback`` -- the ending the
-        tearing-down caller is imposing -- becomes it. Choosing between
-        them inside the lock is what keeps a concurrent arm() from
+        is the only new fact; from PENDING the run recorded no ending of
+        its own before its cleanup failed, so ``fallback`` -- the ending the
+        caller is imposing -- becomes it. Choosing between them inside the
+        lock is what keeps a concurrent arm() from
         stamping the fallback over a real ending.
         """
         with self._lock:
@@ -543,16 +541,3 @@ class PendingRunOutcome:
             return None
         with self._lock:
             return self._outcome
-
-    def settle_unfinished(self, merge_reason: str, *, fallback: RunEnding) -> None:
-        """Force-resolve and say so, for teardown paths that must not fail.
-
-        Wraps force_resolve so a teardown caller cannot be the reason a
-        finally block raises; the log line is what makes an outcome
-        settled this way visible afterward.
-        """
-        try:
-            if self.force_resolve(merge_reason, fallback=fallback):
-                logger.info(f'[RunOutcome] Run outcome settled unfinished as {merge_reason}')
-        except Exception:
-            logger.error('[RunOutcome] Failed to settle the run outcome', exc_info=True)

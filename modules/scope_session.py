@@ -73,7 +73,6 @@ from modules.manual_capture import ManualCaptureController
 from modules.manual_recording import ManualRecordingController
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
 from modules.plugins import PLUGIN_API_LEVEL, PluginRegistry
-from modules.run_outcome import RunEnding
 from modules.scheduler import Scheduler, ThreadingTimerScheduler
 from modules.sequential_io_executor import IOTask, refuse_blocking_on_a_worker, slow_task_budget
 from modules.api_surface import FilePath, api, api_fields
@@ -94,11 +93,6 @@ SUPPORT_REPORT_SLOW_TASK_S = 600.0
 # home's declared 120 s and the turret move's 15 s, the two motions it waits
 # for in turn (derived from those declarations, not measured whole).
 STARTUP_MOTION_SLOW_TASK_S = 135.0
-
-# How long shutdown lets a finished run's images finish writing before it
-# gives up on them and takes the file lane down. Budget row:
-# shutdown_run_files_wait_s in PERFORMANCE_BUDGETS.md.
-_SHUTDOWN_RUN_FILES_WAIT_S = 10.0
 
 # The reports a session counts while they run, by their live-work kind.
 _REPORT_NAMES = {
@@ -3884,39 +3878,6 @@ class ScopeSession:
 
     def _tear_down(self) -> None:
         """Release everything the session constructed, the hardware last."""
-        # Settle any run's merge outcome FIRST. The executor teardown below
-        # does not wait for the file lanes to drain, so a merge still
-        # waiting on this run's writes can never finish -- and a caller
-        # blocked on the result would wait out its whole bound for an
-        # answer that is no longer coming.
-        runner = self.sequenced_capture_runner
-        if runner is not None:
-            # The fallback is used only when the run never reached
-            # cleanup and so recorded no ending of its own; a run that
-            # already reported one keeps it, and 'shutdown' says only
-            # that the merge is what the teardown cut short.
-            runner.settle_unfinished_run(
-                'shutdown',
-                fallback=RunEnding(
-                    'aborted',
-                    'shutdown',
-                    'Session Shutdown',
-                    'The session shut down before the run reported.',
-                ),
-            )
-            # A finished run's images still being written get a bounded
-            # chance to land before the lanes go down below; whatever is
-            # still outstanding then is given up on and counted, never
-            # cleared silently with the lane's queue. A run still live has
-            # not closed its writes, so nothing can complete them during a
-            # wait: they are given up on at once.
-            batch = runner.write_batch()
-            if (
-                batch is not None
-                and batch.outcome is None
-                and not (batch.draining and batch.wait_complete(_SHUTDOWN_RUN_FILES_WAIT_S))
-            ):
-                batch.abandon('Session shutdown')
         # The session owns its scheduler: a session over a caller's scope
         # still ends its own timers (a live health check outliving the
         # session would fire into torn-down state).

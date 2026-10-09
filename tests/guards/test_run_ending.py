@@ -618,34 +618,3 @@ class TestTheCallerHoldsTheEndingOfTheRunItStarted:
             f'a scan reported merged={settled.merged!r} merge_reason={settled.merge_reason!r}'
         )
         assert settled.artifact_path is None
-
-
-class TestSessionShutdownDoesNotRewriteAReportedEnding:
-    def test_a_composite_armed_at_shutdown_keeps_completed(self, tmp_path):
-        """The run already told its subscribers it completed.
-
-        Shutdown cuts the MERGE short, not the run: the executors go down
-        without draining, so the merge can never finish and a blocked
-        caller has to be released. Releasing it with 'aborted' would put
-        the waiter and the run_ended subscriber in contradiction about
-        a run that did, in fact, complete.
-        """
-        from modules.run_outcome import PendingRunOutcome, RunEnding
-        from tests.test_composite_run_e2e import headless_settings, open_composite_session
-
-        with open_composite_session(headless_settings(tmp_path)) as (session, _runner):
-            armed = PendingRunOutcome()
-            armed.arm(RunEnding('completed', 'completed', 'Protocol Complete', 'The run finished.'))
-            session.sequenced_capture_runner._run_outcome = armed
-
-            session.shutdown()
-
-            settled = armed.wait(timeout_s=5)
-
-        assert settled is not None, 'shutdown left a caller blocked on a merge that cannot finish'
-        assert settled.status == 'completed', (
-            f'session shutdown rewrote a completed run as {settled.status!r}'
-        )
-        assert settled.merge_reason == 'shutdown', (
-            'the shutdown is why no artifact followed, not how the run ended'
-        )

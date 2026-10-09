@@ -134,6 +134,8 @@ class TestDerivations:
         assert session.protocol_files_draining is False
         assert session.protocol_files_pending == 0
         batch.abandon('the test is over')
+        # Planted as a live run's: end it as the run's cleanup would.
+        batch.close()
 
     @pytest.mark.slow
     def test_a_stalled_drain_is_judged_by_the_run_refusals_threshold(self):

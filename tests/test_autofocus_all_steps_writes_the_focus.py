@@ -222,31 +222,6 @@ class TestOnlyACompletedScanWritesItsFocus:
         pending.resolve_if_pending(RunEnding(status, 'stopped', 't', 'm'))
         assert pending.wait(timeout_s=1.0).focus_written is False
 
-    def test_a_scan_torn_down_before_its_cleanup_says_it_wrote_nothing(self):
-        # A shutdown settles the run without its cleanup, so the write never
-        # runs; the outcome must say False, not None ('was not asked').
-        from modules.sequenced_capture_runner import SequencedCaptureRunMode
-        from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
-
-        engine = bare_capture_runner()
-        plan = engine.prepare(
-            **scr_run_kwargs(
-                run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
-                max_scans=1,
-                write_focus_to=_two_steps(),
-            )
-        )
-        run = engine.start(plan)
-
-        # Session shutdown's settle. The run is never unwound here, so the
-        # handle's wait (which waits for the scope to be free) would only
-        # time out; the outcome the engine settled is read directly.
-        engine.settle_unfinished_run(
-            'shutdown', fallback=RunEnding('aborted', 'shutdown', 't', 'm')
-        )
-
-        assert run._pending.wait(timeout_s=1.0).focus_written is False
-
 
 class TestARunThatWritesNoFocusSaysNone:
     def test_a_standalone_autofocus(self, tmp_path):

@@ -214,15 +214,6 @@ class TestTeardownResolver:
         assert outcome.force_resolve('shutdown', fallback=_SHUTDOWN) is False
         assert outcome.wait(timeout_s=0.1).artifact_path == '/done.tiff'
 
-    def test_settle_unfinished_never_raises(self):
-        # It runs from teardown paths and from cleanup's finally, ahead of
-        # the activity-claim release; a raise there would leak the claim
-        # and refuse every future run.
-        outcome = PendingRunOutcome()
-        outcome.settle_unfinished('shutdown', fallback=_SHUTDOWN)
-        outcome.settle_unfinished('shutdown', fallback=_SHUTDOWN)
-        assert outcome.wait(timeout_s=0.1).merge_reason == 'shutdown'
-
 
 class TestWaiting:
     def test_the_wait_is_bounded(self):

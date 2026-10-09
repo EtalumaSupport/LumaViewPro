@@ -2170,18 +2170,6 @@ class SequencedCaptureRunner:
         """The live or last run's handle, or None when no run has started."""
         return getattr(self, '_run_handle', None)
 
-    def settle_unfinished_run(self, merge_reason: str, *, fallback: RunEnding) -> None:
-        """Settle the last run's outcome now, for a teardown that will not wait for it.
-
-        The session's shutdown, which tears the lanes down without waiting
-        for a merge still waiting on this run's writes. A run that already
-        recorded its own ending keeps it; *fallback* is used only when the
-        run never reached cleanup.
-        """
-        outcome = getattr(self, '_run_outcome', None)
-        if outcome is not None:
-            outcome.settle_unfinished(merge_reason, fallback=fallback)
-
     def write_batch(self) -> RunWriteBatch | None:
         """The live or last run's writes, or None when no run has started."""
         return self._write_batch
