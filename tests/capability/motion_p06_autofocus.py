@@ -6,7 +6,7 @@ API member under test: modules/protocol_runner.py:281 ProtocolRunner.run_autofoc
 
 from harness import check, run, void
 from modules.protocol_runner import ProtocolRunner
-from modules.exceptions import ConfigError
+from modules.exceptions import ArgumentRefusedError
 
 
 def body(s):
@@ -48,8 +48,8 @@ def body(s):
     try:
         runner.run_autofocus(layer='Purple')
         check('unknown layer refused', False, 'NO RAISE')
-    except ConfigError as e:
-        check('unknown layer refused', True, str(e)[:80])
+    except ArgumentRefusedError as e:
+        check('unknown layer refused', e.reason == 'layer_unknown', f'reason={e.reason}')
 
     # second run works (no lock left behind)
     p2 = runner.run_autofocus(layer='BF')
