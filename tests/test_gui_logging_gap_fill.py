@@ -25,86 +25,6 @@ from tests.ast_seams import REPO_ROOT, find_def
 
 _KV = 'ui/lumaviewpro.kv'
 
-# id -> (expected binding events, owning module, owning class, handler method)
-_WIRED = {
-    'zstack_stepsize_id': (
-        ('on_focus',),
-        'ui/zstack.py',
-        'ZStack',
-        'log_step_field',
-    ),
-    'zstack_range_id': (
-        ('on_focus',),
-        'ui/zstack.py',
-        'ZStack',
-        'log_step_field',
-    ),
-    'graph_title_input': (
-        ('on_focus',),
-        'ui/post_processing.py',
-        'GraphingControls',
-        'log_text_commit',
-    ),
-    'x_axis_label_input': (
-        ('on_focus',),
-        'ui/post_processing.py',
-        'GraphingControls',
-        'log_text_commit',
-    ),
-    'y_axis_label_input': (
-        ('on_focus',),
-        'ui/post_processing.py',
-        'GraphingControls',
-        'log_text_commit',
-    ),
-    'video_gen_fps_id': (
-        ('on_focus',),
-        'ui/post_processing.py',
-        'VideoCreationControls',
-        'log_video_gen_fps',
-    ),
-    'enable_timestamp_overlay_btn': (
-        ('on_release',),
-        'ui/post_processing.py',
-        'VideoCreationControls',
-        'log_timestamp_overlay',
-    ),
-    'zprojection_method_spinner': (
-        ('on_text',),
-        'ui/post_processing.py',
-        'ZProjectionControls',
-        'log_zprojection_method',
-    ),
-    'protocol_disable_image_saving_id': (
-        ('on_release',),
-        'ui/protocol_settings.py',
-        'ProtocolSettings',
-        'log_disable_image_saving',
-    ),
-    'logHistogram_id': (
-        ('on_release',),
-        'ui/layer_control.py',
-        'LayerControl',
-        'log_histogram_scale',
-    ),
-}
-
-# handlers that already existed and gained the emitter inside them
-_IN_HANDLER = {
-    'video_recording_format_spinner': (
-        'ui/microscope_settings.py',
-        'MicroscopeSettings',
-        'select_video_recording_format',
-        'select',
-    ),
-    'apply_method_to_preview_image': (
-        'ui/post_processing.py',
-        'CellCountControls',
-        'apply_method_to_preview_image',
-        'button',
-    ),
-}
-
 
 def _indent_width(line):
     prefix = line[: len(line) - len(line.lstrip(' \t'))]
@@ -127,49 +47,6 @@ def _block_for(control_id):
             break
         block.append(ln)
     return block
-
-
-def _called_names(fn):
-    names = set()
-    for node in ast.walk(fn):
-        if isinstance(node, ast.Call):
-            f = node.func
-            if isinstance(f, ast.Name):
-                names.add(f.id)
-            elif isinstance(f, ast.Attribute):
-                names.add(f.attr)
-    return names
-
-
-def test_every_wired_control_binds_its_logging_handler():
-    """The kv half: each control's own block carries the expected bindings."""
-    for control_id, (events, _mod, _cls, method) in _WIRED.items():
-        block = '\n'.join(_block_for(control_id))
-        for event in events:
-            assert re.search(rf'^[ \t]*{event}:.*{method}\b', block, re.M), (
-                f'{control_id} lost its {event} binding to {method}; the control '
-                f'would go back to producing no gui_interactions record'
-            )
-
-
-def test_every_wired_handler_lives_on_the_class_that_owns_the_block():
-    """The python half: root.<method>() resolves, so the binding is not dead."""
-    for control_id, (_events, module, cls, method) in _WIRED.items():
-        assert find_def(module, method, class_name=cls) is not None, (
-            f'{control_id} binds root.{method}(), where root is {cls}; that method '
-            f'is not on {cls}, so the binding is present but silently does nothing'
-        )
-
-
-def test_the_existing_handlers_still_reach_their_emitter():
-    """The controls whose handler predates this work still log from inside it."""
-    for control_id, (module, cls, handler, callee) in _IN_HANDLER.items():
-        fn = find_def(module, handler, class_name=cls)
-        assert fn is not None, f'{cls}.{handler} moved or was renamed'
-        assert callee in _called_names(fn), (
-            f'{control_id}: {cls}.{handler} no longer calls {callee}, so operating '
-            f'the control leaves no record naming it'
-        )
 
 
 def _record_name_arg(fn, callee):

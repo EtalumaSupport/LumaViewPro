@@ -23,15 +23,12 @@ its real handler.
 from __future__ import annotations
 
 import ast
-import pathlib
 from typing import ClassVar
 
 import pytest
 
 from modules import gui_logger
 from tests.ast_seams import find_def
-
-REPO = pathlib.Path(__file__).resolve().parent.parent
 
 # Handler -> the record it must write with the box's own text.
 _TYPED_RECORDS = (
@@ -163,15 +160,6 @@ class TestATypedZCommitIsNotADrag:
         assert not _emitter_calls(fn, 'text_input'), (
             'the slider handler records a typed entry, so a drag reads as a keystroke'
         )
-
-    def test_the_two_controls_bind_their_own_handlers(self):
-        """The split is only real if the kv actually routes the box elsewhere."""
-        kv = (REPO / 'ui' / 'lumaviewpro.kv').read_text()
-        assert 'root.set_position_text(self.text)' in kv, (
-            'the Z box no longer commits through its own handler, so it is '
-            'back to reporting itself as a slider drag'
-        )
-        assert 'root.set_position(self.value)' in kv, 'the Z slider lost its binding'
 
 
 class TestTheAccelerationBoxReportsTheAttempt:

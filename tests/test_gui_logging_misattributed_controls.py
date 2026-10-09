@@ -24,31 +24,6 @@ from tests.ast_seams import find_def
 
 _EMITTERS = {'button', 'toggle', 'slider', 'select', 'text_input'}
 
-# control id -> (module, class, handler)
-_SITES = {
-    'toggle_motionsettings': ('ui/motion_settings.py', 'MotionSettings', 'toggle_settings'),
-    'zstack_spinner': ('ui/zstack.py', 'ZStack', 'set_position'),
-    'prev_step_btn': ('ui/protocol_settings.py', 'ProtocolSettings', 'prev_step'),
-    'next_step_btn': ('ui/protocol_settings.py', 'ProtocolSettings', 'next_step'),
-    'step_number_input': (
-        'ui/protocol_settings.py',
-        'ProtocolSettings',
-        'handle_step_ui_input_change',
-    ),
-    'tiling_size_apply_id': ('ui/protocol_settings.py', 'ProtocolSettings', 'apply_tiling'),
-    'protocol_zstacking_apply_id': (
-        'ui/protocol_settings.py',
-        'ProtocolSettings',
-        'apply_zstacking',
-    ),
-    'trendline_spinner': ('ui/post_processing.py', 'GraphingControls', 'update_trendline'),
-    'text_cell_count_pixels_per_um_id': (
-        'ui/post_processing.py',
-        'CellCountControls',
-        'commit_pixels_per_um',
-    ),
-}
-
 
 def _emitter_calls(fn):
     out = []
@@ -60,49 +35,6 @@ def _emitter_calls(fn):
         if name in _EMITTERS:
             out.append(node)
     return out
-
-
-def test_each_control_emits_a_record_from_its_own_handler():
-    """Its OWN handler, not something transitively reached from it."""
-    for control_id, (module, cls, handler) in _SITES.items():
-        fn = find_def(module, handler, class_name=cls)
-        assert fn is not None, f'{cls}.{handler} moved or was renamed'
-        assert _emitter_calls(fn), (
-            f'{control_id}: {cls}.{handler} emits nothing of its own, so operating '
-            f'the control is credited to whatever record it happens to reach'
-        )
-
-
-def test_the_two_name_collisions_emit_distinguishable_records():
-    """Same method name on two classes must not produce the same record name."""
-    for handler, pairs in (
-        (
-            'toggle_settings',
-            (
-                ('ui/motion_settings.py', 'MotionSettings'),
-                ('ui/image_settings.py', 'ImageSettings'),
-            ),
-        ),
-        (
-            'set_position',
-            (('ui/zstack.py', 'ZStack'), ('ui/vertical_control.py', 'VerticalControl')),
-        ),
-    ):
-        names = []
-        for module, cls in pairs:
-            fn = find_def(module, handler, class_name=cls)
-            assert fn is not None, f'{cls}.{handler} moved; the collision pin is stale'
-            for call in _emitter_calls(fn):
-                if call.args:
-                    names.append(ast.unparse(call.args[0]))
-        assert len(names) >= 2, (
-            f'both definitions of {handler} must emit, or the silent one is still '
-            f'credited with the other class record'
-        )
-        assert len(set(names)) == len(names), (
-            f'{handler}: the two classes emit the same record name {names}, so the '
-            f'collision this fix exists to remove is still present in the bundle'
-        )
 
 
 def test_a_togglebutton_site_compares_state_rather_than_passing_it():

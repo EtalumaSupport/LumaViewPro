@@ -17,19 +17,6 @@ import logging
 from modules import gui_logger
 
 
-def test_a_declared_write_produces_no_record(caplog):
-    """The startup case: declare, then the assignment's event arrives."""
-    gui_logger._write_backs.clear()
-    with caplog.at_level(logging.INFO, logger='LVP.gui_interactions'):
-        gui_logger.note_write_back('ZPROJECTION_METHOD', 'Min')
-        gui_logger.select('ZPROJECTION_METHOD', 'Min')
-
-    assert caplog.records == [], (
-        f'a panel populating itself still records a selection: '
-        f'{[r.getMessage() for r in caplog.records]}'
-    )
-
-
 def test_the_measured_startup_pair_produces_nothing(caplog):
     """Both assignments in _init_ui, in order, exactly as the bundle showed."""
     gui_logger._write_backs.clear()

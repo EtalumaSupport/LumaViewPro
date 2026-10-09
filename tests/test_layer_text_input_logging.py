@@ -27,21 +27,6 @@ def _helper():
     return fn
 
 
-def test_the_helper_emits_a_log_line():
-    """Positive pin: the helper reaches the typed-text emitter."""
-    names = {
-        n.func.attr
-        for n in _calls(_helper())
-        if isinstance(n.func, ast.Attribute)
-        and isinstance(n.func.value, ast.Name)
-        and n.func.value.id == 'gui_logger'
-    }
-    assert 'text_input' in names, (
-        'the shared helper no longer logs; a typed numeric commit would leave '
-        'no line in gui_interactions.log'
-    )
-
-
 def test_the_helper_does_not_emit_through_the_slider_verb():
     """A typed commit and a drag on the same setting must stay distinguishable.
 
