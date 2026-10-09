@@ -198,19 +198,28 @@ class TestALentClaim:
 
 
 class TestTheDiagnosticEndsOnlyWhenItsRunDoes:
-    def test_a_run_still_live_past_the_wait_keeps_the_claim_and_raises(self, monkeypatch):
+    def test_a_run_still_live_past_the_wait_keeps_the_claim_until_it_ends(self, monkeypatch):
+        from modules.protocol_state_machine import ProtocolState
+
         session = _make_session()
-        monkeypatch.setattr(
-            session.sequenced_capture_runner, 'wait_for_run_idle', lambda timeout_s: False
-        )
+        runner = session.sequenced_capture_runner
+        monkeypatch.setattr(runner, '_state', ProtocolState.RUNNING)
+        monkeypatch.setattr(runner, 'wait_for_run_idle', lambda timeout_s: False)
         with (
-            pytest.raises(RuntimeError, match='still live'),
+            pytest.raises(RuntimeError, match='released when it ends'),
             session.diagnostic_claim(),
         ):
             pass
         assert session.exclusive_activity == 'diagnostic', (
             'the claim was released underneath a run still acting under it'
         )
+
+        # The run ends: its cleanup puts the runner back to IDLE and tells
+        # the session, which releases the claim nobody else holds.
+        monkeypatch.setattr(runner, '_state', ProtocolState.IDLE)
+        runner._on_run_idle()
+
+        assert session.exclusive_activity is None, 'the claim was left with nobody to release it'
 
     def test_it_waits_for_the_run_before_it_releases(self, monkeypatch):
         session = _make_session()

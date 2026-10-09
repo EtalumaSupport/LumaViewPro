@@ -281,6 +281,11 @@ class ScopeSession:
         # retry possible; read at entry to make the second call a logged
         # no-op. Host-serialized like the metrics flag.
         self._shut_down = False
+        # A diagnostic's claim whose lent run outlived the diagnostic's wait:
+        # released when that run ends, so a claim is never left with nobody
+        # to release it -- a close would wait on it for ever.
+        self._release_at_run_idle: list[HeldClaim] = []
+        self._release_at_run_idle_lock = threading.Lock()
         # Support reports and logs zips in flight, by kind: each runs on its
         # caller's thread -- the GUI's diagnostics lane, a script's own -- so
         # the members count them, and the live-work read sees a script's
@@ -409,7 +414,7 @@ class ScopeSession:
             autofocus_thread=autofocus_thread,
             autofocus_runner=autofocus_runner,
             activity_claim=self.activity_claim,
-            on_run_idle=self.notify_run_state,
+            on_run_idle=self._run_went_idle,
             on_protocol_files_written=self._run_protocol_complete_processors,
         )
         self._protocol_runner = None
@@ -476,8 +481,8 @@ class ScopeSession:
         between starting it and waiting on it. The release waits for that
         run to go idle first: its LED lease lives under this claim, and
         releasing underneath a live run hands the scope to the next taker
-        mid-sweep. If the run is still live after the wait, the claim is
-        kept with it, as a stuck run keeps its own claim, and this raises.
+        mid-sweep. If the run is still live after the wait, this raises and
+        the claim is kept with the run, released when the run ends.
 
         Yields:
             The held claim.
@@ -486,7 +491,8 @@ class ScopeSession:
             DiagnosticRefusedError: A run, a recording, a home or
                 another diagnostic holds the scope. Nothing was taken.
             RuntimeError: At the block's end, a run under this claim was
-                still live after the wait; the claim stays held.
+                still live after the wait; the claim is released when the
+                run ends.
         """
         held = self.activity_claim.try_claim('diagnostic')
         if held is None:
@@ -507,9 +513,15 @@ class ScopeSession:
                 yield held
         finally:
             if not self.sequenced_capture_runner.wait_for_run_idle(DIAGNOSTIC_EXIT_RUN_IDLE_WAIT_S):
+                with self._release_at_run_idle_lock:
+                    self._release_at_run_idle.append(held)
+                # The run can have ended between the wait and the hand-over,
+                # its idle already told: then nobody else will release it.
+                if not self.sequenced_capture_runner.run_in_progress():
+                    self._run_went_idle()
                 raise RuntimeError(
                     'diagnostic_claim: a run under this claim is still live after '
-                    f'{DIAGNOSTIC_EXIT_RUN_IDLE_WAIT_S:.0f} s; the claim stays held with it'
+                    f'{DIAGNOSTIC_EXIT_RUN_IDLE_WAIT_S:.0f} s; the claim is released when it ends'
                 )
             held.release()
 
@@ -782,6 +794,14 @@ class ScopeSession:
         """
         self._run_state_listeners.append(listener)
         listener()
+
+    def _run_went_idle(self) -> None:
+        """The engine's run has ended: release any claim waiting on it, then tell the listeners."""
+        with self._release_at_run_idle_lock:
+            waiting, self._release_at_run_idle = self._release_at_run_idle, []
+        for held in waiting:
+            held.release()
+        self.notify_run_state()
 
     def notify_run_state(self) -> None:
         """Notify every run-state listener (level semantics: listeners
