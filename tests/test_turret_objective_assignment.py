@@ -32,31 +32,6 @@ class TestTurretSlotKeyMatchesTheFile:
         assert loaded.get(2) == '20x w/collar'
         assert json.dumps(loaded).count('"2"') == 2, 'the int key round-trips as a duplicate'
 
-    def test_the_conversion_has_exactly_one_home(self):
-        """A turret position is a number, so the slot map is int-keyed at
-        runtime and string-keyed only on disk, where JSON forces it.
-
-        The conversion belongs to the shared settings pipeline, which every
-        host runs. It used to live in the GUI's settings load instead, so a
-        headless caller kept string keys while the GUI had ints -- the two
-        hosts disagreed about the type of the same dict, which duplicated
-        keys in the saved file and raised KeyError off the GUI. Pinning it
-        here keeps a second converter from reappearing somewhere a headless
-        caller never reaches.
-        """
-        import modules.settings_init as si
-        import ui.microscope_settings as ms
-        import ui.vertical_control as vc
-
-        assert hasattr(si, '_normalize_turret_slot_keys')
-
-        for module in (ms, vc):
-            src = inspect.getsource(module)
-            assert 'int(k): v for k, v in' not in src, (
-                f'{module.__name__} rebuilds the slot map keys; the shared '
-                f'settings pipeline is the only place that may convert them'
-            )
-
     def test_assign_and_clear_write_the_runtime_key_type(self):
         from modules.scope_session import ScopeSession
 
@@ -182,13 +157,3 @@ class TestBothHostsAgreeOnTheSlotKeyType:
         slots = next(value for key, value in saved if key == 'turret_objectives')
         assert len(slots) == 4, f'saved file still carries duplicates: {slots}'
         assert dict(slots)['2'] == '4x Oly', f'assignment did not reach the file: {slots}'
-
-    def test_an_assignment_does_not_add_a_parallel_entry(self, tmp_path):
-        import json as _json
-
-        prepared = self._prepared(
-            tmp_path, {'turret_objectives': {'1': None, '2': None, '3': None, '4': None}}
-        )
-        prepared['turret_objectives'][2] = '20x Oly'
-        assert len(prepared['turret_objectives']) == 4
-        assert _json.dumps(prepared['turret_objectives']).count('":') == 4

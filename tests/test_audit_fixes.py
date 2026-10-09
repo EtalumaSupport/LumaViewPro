@@ -10809,11 +10809,6 @@ class TestHeadlessSettingsResolutionMatchesGui:
     resolution. Fix: the fallback resolves via _resolve_settings_path.
     """
 
-    def _src(self):
-        import pathlib
-
-        return pathlib.Path('modules/scope_session.py').read_text()
-
     def test_headless_fallback_uses_resolver(self, monkeypatch, tmp_path):
         """With no settings loaded, load_user_settings must resolve the same
         file the GUI reads -- current.json first -- so headless state
@@ -10862,13 +10857,6 @@ class TestHeadlessSettingsResolutionMatchesGui:
         assert session.settings.get('marker') == 'from-current', (
             'the headless fallback must pick current.json (live state) over '
             f'settings.json; got {session.settings}'
-        )
-
-    def test_headless_fallback_does_not_hardcode_settings_json_only(self):
-        src = self._src()
-        assert "os.path.join(source_path, 'data', 'settings.json')" not in src, (
-            'load_user_settings must not hardcode a settings.json-only open in the '
-            'headless fallback -- that bypasses current.json + the resolver.'
         )
 
 

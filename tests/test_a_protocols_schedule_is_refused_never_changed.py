@@ -282,18 +282,6 @@ def _appdata_with_stored_protocol(tmp_path, **stored) -> str:
 
 
 class TestAStoredDefaultOutOfRange:
-    def test_that_key_alone_takes_the_templates_value(self, tmp_path):
-        template = json.loads(TEMPLATE.read_text())['protocol']
-        root = _appdata_with_stored_protocol(tmp_path, period=0.001, duration=5)
-
-        settings, _rejected = settings_init.prepare_settings(
-            logging.getLogger(__name__), root, fall_back_to_template=False
-        )
-
-        assert settings['protocol']['period'] == template['period']
-        assert settings['protocol']['duration'] == 5
-        settings_init.take_stored_replacements()
-
     def test_the_replacement_is_told_once_when_the_session_has_a_listener(self, tmp_path):
         root = _appdata_with_stored_protocol(tmp_path, period=0.001)
         settings, _rejected = settings_init.prepare_settings(

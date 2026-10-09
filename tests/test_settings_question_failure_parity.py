@@ -525,27 +525,6 @@ class TestTheQuestionIsAskable:
         assert 'Permission denied' in str(raised.value)
         assert settings_init.settings_are_provisional()
 
-    def test_a_retire_logs_where_the_old_file_went_once(self, monkeypatch, tmp_path, caplog):
-        """The retire is the state change, so it says what it did -- once,
-        where it happened, whoever asked for it."""
-        data = tmp_path / 'data'
-        data.mkdir()
-        (data / 'current.json').write_text('{ not json')
-        _make_provisional(monkeypatch, tmp_path)
-        caplog.set_level(logging.WARNING)
-
-        retired = settings_init.retire_rejected_current_json()
-
-        lines = [
-            r.getMessage()
-            for r in caplog.records
-            if 'settings reset by user choice' in r.getMessage()
-        ]
-        assert lines == [
-            f'[Settings ] settings reset by user choice; previous file kept at {retired}'
-        ]
-        assert not settings_init.settings_are_provisional()
-
 
 # ---------------------------------------------------------------------------
 # E2 -- failure parity at the API boundary

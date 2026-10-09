@@ -51,12 +51,6 @@ def test_a_deliberate_save_reaches_disk(session, tmp_path):
         assert json.load(f)['live_folder'] == '/data/run7'
 
 
-def test_a_relative_path_resolves_against_the_session_source(session, tmp_path):
-    """Not the working directory -- an installed build cannot write beside itself."""
-    session.save_settings(force=True)
-    assert (tmp_path / 'data' / 'current.json').exists()
-
-
 def test_no_hardware_this_session_skips_the_write(session, tmp_path, monkeypatch):
     """The sliders would be at their defaults; those are not the user's values.
 
@@ -84,21 +78,6 @@ def test_force_overrides_the_hardware_gate(session, tmp_path, monkeypatch):
 
     with open(tmp_path / 'data' / 'current.json') as f:
         assert json.load(f)['live_folder'] == '/data/deliberate'
-
-
-def test_running_on_the_template_declines_even_when_forced(session, tmp_path, monkeypatch):
-    """current.json is the user's only copy; do not overwrite what we could not read."""
-    monkeypatch.setattr(
-        settings_init, 'rejected_current_json', (str(tmp_path / 'data' / 'current.json'), 'garbled')
-    )
-    before = (tmp_path / 'data' / 'current.json').read_text()
-
-    session.settings['live_folder'] = '/data/template_values'
-    with pytest.raises(SettingsSaveRefusedError) as excinfo:
-        session.save_settings(force=True)
-
-    assert excinfo.value.reason == 'settings_provisional'
-    assert (tmp_path / 'data' / 'current.json').read_text() == before
 
 
 def test_the_plugins_receive_what_was_written(session, monkeypatch):

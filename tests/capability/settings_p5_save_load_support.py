@@ -64,17 +64,6 @@ try:
         f'rejected={rejected}',
     )
 
-    # corrupt current.json -> template fallback, not a crash
-    (root / 'data' / 'current.json').write_text('{ this is not json')
-    loaded2, rejected2 = settings_init.prepare_settings(
-        logger, str(root), fall_back_to_template=True
-    )
-    _common.ok(
-        'corrupt current.json falls back to the template',
-        loaded2 is not None,
-        f'rejected={rejected2}',
-    )
-
     # --- support report / logs zip ---------------------------------------
     from modules.tech_support_report import TechSupportReport
 

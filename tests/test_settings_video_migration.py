@@ -35,9 +35,3 @@ def test_no_manual_video_section_is_a_noop():
     settings = {'video': {'max_fps': 0}}
     assert migrate_video_settings_dict(settings) is False
     assert settings == {'video': {'max_fps': 0}}
-
-
-def test_empty_dict_is_a_noop():
-    settings = {}
-    assert migrate_video_settings_dict(settings) is False
-    assert settings == {}

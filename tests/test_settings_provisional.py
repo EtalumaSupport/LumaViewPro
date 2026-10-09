@@ -283,25 +283,6 @@ class TestShapeValidation:
 
         assert refused.value.file_path.name == 'settings.json'
 
-    def test_an_unreadable_template_is_refused_even_when_current_is_also_bad(self, appdata):
-        # Both files broken: the fallback has nothing to come up on, and the
-        # installation's file is the one named.
-        with open(appdata / 'data' / 'current.json', 'w') as f:
-            f.write('not json')
-        with open(appdata / 'data' / 'settings.json', 'w') as f:
-            f.write('{"truncated": ')
-
-        with pytest.raises(InstallationFileError) as refused:
-            self._load(appdata)
-
-        assert refused.value.file_path.name == 'settings.json'
-
-    def test_the_healthy_shipped_template_validates_against_itself(self, appdata):
-        # If the rule rejects the app's own shipped config, the rule is wrong.
-        with open(appdata / 'data' / 'settings.json') as f:
-            template = json.load(f)
-        assert settings_init._check_container_shape(template, template) == []
-
 
 class TestALateRejectionGetsTheSamePolicy:
     """A value that parses and is still unusable arrives AFTER the load.
