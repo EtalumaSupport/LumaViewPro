@@ -65,7 +65,7 @@ from tests.settings_fixtures import protocol_filepath_writer, settings_writer
 
 def _refusal():
     return ProtocolRunRefusedError(
-        reason='objective_not_on_turret',
+        reason='turret_objectives_unassigned',
         title='Objective Not Available',
         message='That objective is not on the turret.',
     )

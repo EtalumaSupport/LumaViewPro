@@ -8,6 +8,7 @@ For driver-layer hardware exceptions (HardwareError), see drivers/exceptions.py.
 import pathlib
 from collections.abc import Iterable
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import ClassVar
 from modules.api_surface import api_fields
 
@@ -52,10 +53,86 @@ class Refusal:
             reporter then shows the refusal as an offer to take it. Set per
             instance: one reason of a refusal type can have a remedy that its
             others do not.
+        cause: Whether the same request could succeed later with the caller
+            changing nothing (``RefusalCause``). Every type states it: as
+            ``cause`` when it has one, or as ``causes``, keyed by every
+            reason it carries, when its reasons differ. A type that states
+            neither is refused at import.
     """
 
     title: str
     remedy: Remedy | None = None
+    causes: ClassVar[dict[str, 'RefusalCause']]
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        _require_a_cause(cls, Refusal, ('cause', 'causes'))
+
+    @property
+    def cause(self) -> 'RefusalCause':
+        """Whether the same request could succeed later, read from this type's ``causes`` by reason.
+
+        A type with one cause states ``cause`` in its body, which shadows
+        this read.
+        """
+        return self.causes[self.reason]
+
+    @classmethod
+    def _declared(cls, reason: str) -> str:
+        """``reason``, once this type's ``causes`` is shown to hold it.
+
+        A type that mixes causes calls it where it sets ``reason``, so a
+        refusal with a reason no cause answers fails where it is raised,
+        never at a later read of ``cause``.
+
+        Raises:
+            TypeError: ``causes`` has no row for ``reason``.
+        """
+        if reason not in cls.causes:
+            raise TypeError(f'{cls.__name__} declares no cause for the reason {reason!r}')
+        return reason
+
+
+class RefusalCause(StrEnum):
+    """Whether a refused request could succeed later with the caller changing nothing.
+
+    Declared on the refusal's type, per reason where one type mixes them, so
+    a server answers from the declaration (REST: 422 for ``REQUEST``, 409 for
+    ``STATE``) and never from the exception's base: a ``ValueError`` can be
+    refused for the scope's state, as a live folder on an unplugged drive is.
+    A string enum, so the value crosses a wire as itself.
+
+    Attributes:
+        REQUEST: As sent, the request cannot succeed on this scope: a bad
+            argument, a value outside a fixed rule or this hardware's range,
+            hardware this scope does not have, a handle that no longer names
+            anything live. The caller changes the request.
+        STATE: The scope's state refused it -- a run is live, an axis is not
+            homed, a drive is unplugged -- and the same request may succeed
+            later.
+    """
+
+    REQUEST = 'request'
+    STATE = 'state'
+
+
+def _require_a_cause(cls: type, mixin: type, names: tuple[str, ...]) -> None:
+    """Refuse, at import, an outcome type that declares no cause.
+
+    A class's own body is read (``vars``), not what it can reach, since the
+    base's ``cause`` read makes every refusal answer ``hasattr``. A cause
+    inherited from a class between ``cls`` and ``mixin`` counts.
+
+    Raises:
+        TypeError: no class from ``cls`` up to ``mixin`` states one of
+            ``names``.
+    """
+    below = cls.__mro__[: cls.__mro__.index(mixin)]
+    if not any(name in vars(c) for c in below for name in names):
+        raise TypeError(
+            f'{cls.__name__} declares no cause: state {" or ".join(names)} in its body '
+            f'(cause = RefusalCause.REQUEST or RefusalCause.STATE)'
+        )
 
 
 class RemedyUnknownError(Refusal, ValueError):
@@ -70,6 +147,7 @@ class RemedyUnknownError(Refusal, ValueError):
         member: The name that was asked for.
     """
 
+    cause = RefusalCause.REQUEST
     title = 'Unknown Remedy'
 
     def __init__(self, member: str, offered: Iterable[str]):
@@ -100,10 +178,18 @@ class LiveFolderPathRefusedError(Refusal, ValueError):
     """
 
     title = 'Path Not Available'
+    # A missing live folder is an unplugged drive, which comes back; a name
+    # that is a file, or names nothing, is listed again unchanged, so a
+    # polling client must not wait on it.
+    causes: ClassVar[dict[str, RefusalCause]] = {
+        'outside_live_folder': RefusalCause.REQUEST,
+        'capture_location_unusable': RefusalCause.STATE,
+        'not_a_folder': RefusalCause.REQUEST,
+    }
 
     def __init__(self, reason: str, name: str, message: str):
         super().__init__(message)
-        self.reason = reason
+        self.reason = self._declared(reason)
         self.name = name
 
 
@@ -116,7 +202,18 @@ class Quiet:
     never becomes a notification. Whether an outcome is quiet belongs to its
     type, never to the code that raises or catches it, so every client reads
     the same answer. A message on a quiet exception is written for the log.
+
+    Attributes:
+        cause: Whether the same request could succeed later, stated on the
+            type as a refusal's is, since a quiet outcome answers a caller's
+            request too.
     """
+
+    cause: 'RefusalCause'
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        _require_a_cause(cls, Quiet, ('cause',))
 
 
 class Notice:
@@ -526,6 +623,7 @@ class FocusNotWrittenError(Refusal, ProtocolError):
         difference: What no longer matches, in the words the person reads.
     """
 
+    cause = RefusalCause.STATE
     reason = 'focus_not_written'
     title = 'Focus Not Saved'
 
@@ -719,6 +817,7 @@ class FocusNotSavedError(Refusal, ConfigError):
         layer: The channel asked about.
     """
 
+    cause = RefusalCause.STATE
     reason = 'focus_not_saved'
     title = 'No Focus Saved'
 
@@ -753,6 +852,7 @@ class ObjectiveUnknownError(Refusal, ConfigError):
             unknown.
     """
 
+    cause = RefusalCause.STATE
     title = 'Objective Unknown'
 
     _SENTENCES: ClassVar[dict[str, str]] = {
@@ -804,6 +904,7 @@ class SettingsSaveRefusedError(Refusal, ConfigError):
         file: The destination whose write was refused.
     """
 
+    cause = RefusalCause.STATE
     title = 'Settings Not Saved'
 
     _SENTENCES: ClassVar[dict[str, str]] = {
@@ -846,6 +947,7 @@ class SettingRefusedError(Refusal, ConfigError):
             otherwise None.
     """
 
+    cause = RefusalCause.REQUEST
     title = 'Setting Not Changed'
 
     def __init__(self, reason: str, path: str, detail: str, *, member: str | None = None):
@@ -897,6 +999,7 @@ class ScopeModelUnknownError(Refusal, ValueError):
         model: The model that was refused.
     """
 
+    cause = RefusalCause.REQUEST
     reason = 'model_unknown'
     title = 'Unknown Scope Model'
 
@@ -968,6 +1071,45 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             progress does not, since its files will land.
     """
 
+    # What a protocol holds is the request's, whoever made it: a client
+    # changes the protocol, and the scope's state never makes it runnable.
+    # So are a stage's travel, a camera's range and hardware the scope does
+    # not have, which no wait changes, and a stop naming an ended run.
+    causes: ClassVar[dict[str, RefusalCause]] = {
+        'already_running': RefusalCause.STATE,
+        'exclusive_activity_running': RefusalCause.STATE,
+        'files_writing': RefusalCause.STATE,
+        'files_writing_stalled': RefusalCause.STATE,
+        'autofocus_running': RefusalCause.STATE,
+        'hardware_disconnected': RefusalCause.STATE,
+        'camera_not_streaming': RefusalCause.STATE,
+        'position_unknown': RefusalCause.STATE,
+        'lid_open': RefusalCause.STATE,
+        'capture_location_unusable': RefusalCause.STATE,
+        'no_acquiring_layer': RefusalCause.STATE,
+        'step_position_unknown': RefusalCause.STATE,
+        'turret_objective_unset': RefusalCause.STATE,
+        'turret_objectives_unassigned': RefusalCause.STATE,
+        'objective_not_mounted': RefusalCause.STATE,
+        'objective_unknown': RefusalCause.STATE,
+        'run_not_live': RefusalCause.REQUEST,
+        'sequence_name_invalid': RefusalCause.REQUEST,
+        'empty_protocol': RefusalCause.REQUEST,
+        'validation_failed': RefusalCause.REQUEST,
+        'composite_needs_two_channels': RefusalCause.REQUEST,
+        'tiling_unknown': RefusalCause.REQUEST,
+        'zstack_not_configured': RefusalCause.REQUEST,
+        'already_tiled': RefusalCause.REQUEST,
+        'objective_not_in_catalogue': RefusalCause.REQUEST,
+        'tiles_outside_travel': RefusalCause.REQUEST,
+        'zslices_outside_travel': RefusalCause.REQUEST,
+        'positions_outside_travel': RefusalCause.REQUEST,
+        'camera_setting_out_of_range': RefusalCause.REQUEST,
+        'positions_unreachable': RefusalCause.REQUEST,
+        'layer_not_on_scope': RefusalCause.REQUEST,
+        'objectives_require_turret': RefusalCause.REQUEST,
+    }
+
     def __init__(
         self,
         reason: str,
@@ -978,7 +1120,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         remedy: Remedy | None = None,
     ):
         super().__init__(message)
-        self.reason = reason
+        self.reason = self._declared(reason)
         self.title = title
         self.message = message
         self.holder = holder
@@ -1020,7 +1162,16 @@ class RunAlreadyEndedError(Quiet, ProtocolError):
     Stop that arrives after that has nothing to act on. Raised so a script
     learns its handle is stale; logged, never notified, because the person
     at the instrument pressed Stop on a run that has already stopped.
+
+    Attributes:
+        reason: ``'run_already_ended'``.
     """
+
+    # An ended run's handle never names a live run again, so the same stop
+    # can never act: the request's, not the scope's.
+    cause = RefusalCause.REQUEST
+    reason = 'run_already_ended'
+    title = 'Run Already Ended'
 
 
 class RunWaitOnUiThreadError(ProtocolError):
@@ -1089,6 +1240,8 @@ class RecordingRefusedError(Refusal, CaptureError):
             holder is 'protocol'; a recording holder has no trigger.
     """
 
+    cause = RefusalCause.STATE
+
     def __init__(
         self,
         reason: str,
@@ -1139,6 +1292,8 @@ class PostProcessingRefusedError(Refusal, CaptureError):
         operation: The operation's name as a person reads it ("Stitch").
         reason: Machine-readable refusal code.
     """
+
+    cause = RefusalCause.REQUEST
 
     # Refused for lack of Z-stack data, a z-projection names the thing the
     # folder is missing and where such a folder lives, rather than leaving
@@ -1721,6 +1876,7 @@ class FileWriterNotStuckError(Refusal, Exception):
         pending: The writes still outstanding when asked.
     """
 
+    cause = RefusalCause.STATE
     title = 'File Writer Not Stuck'
 
     def __init__(self, pending: int):
@@ -1844,6 +2000,7 @@ class FrameHandlerRemovedError(Refusal, Exception):
             drop count of frames in a row.
     """
 
+    cause = RefusalCause.STATE
     title = 'Plugin Removed'
 
     def __init__(
@@ -2004,6 +2161,21 @@ class HardwareCommandRefusedError(Refusal, Exception):
             nothing connected is not a busy microscope.
     """
 
+    # A part the scope does not have is never found by asking again, and a
+    # task made under a taking that has ended is never sent under it.
+    causes: ClassVar[dict[str, RefusalCause]] = {
+        'exclusive_activity_running': RefusalCause.STATE,
+        'capture_in_flight': RefusalCause.STATE,
+        'home_in_flight': RefusalCause.STATE,
+        'scope_disconnected': RefusalCause.STATE,
+        'position_unread': RefusalCause.STATE,
+        'lid_open': RefusalCause.STATE,
+        'stage_unpowered': RefusalCause.STATE,
+        'not_connected': RefusalCause.STATE,
+        'axis_absent': RefusalCause.REQUEST,
+        'activity_ended': RefusalCause.REQUEST,
+    }
+
     def __init__(
         self,
         reason: str,
@@ -2019,7 +2191,7 @@ class HardwareCommandRefusedError(Refusal, Exception):
         super().__init__(
             missing.sentence if missing is not None else _command_refused_sentence(reason, holder)
         )
-        self.reason = reason
+        self.reason = self._declared(reason)
         self.member = member
         self.holder = holder
         self.missing = missing
@@ -2198,6 +2370,8 @@ class DiagnosticRefusedError(Refusal, Exception):
             holder is a run; None otherwise.
     """
 
+    cause = RefusalCause.STATE
+
     def __init__(
         self,
         reason: str,
@@ -2229,6 +2403,7 @@ class SessionClosingError(Refusal, Exception):
         activity: The kind of activity that was refused.
     """
 
+    cause = RefusalCause.STATE
     title = 'Closing'
 
     def __init__(self, activity: str):
@@ -2254,6 +2429,7 @@ class AccelerationLimitRefusedError(Refusal, ValueError):
         value: What was given, as given.
     """
 
+    cause = RefusalCause.REQUEST
     reason = 'acceleration_out_of_range'
     title = 'Acceleration Limit Not Changed'
 
@@ -2291,6 +2467,9 @@ class PositionOutOfRangeError(Refusal, ValueError):
     refusal is the same event, and only the sentence differs.
     """
 
+    # The travel is the model's, fixed for the scope's life, so a target
+    # outside it is refused every time it is sent.
+    cause = RefusalCause.REQUEST
     reason = 'position_out_of_range'
     title = 'Position Out of Range'
 
@@ -2404,6 +2583,7 @@ class AxisStateUnknownError(Refusal, Exception):
             response by a single axis (REST status codes, SDK branches).
     """
 
+    cause = RefusalCause.STATE
     reason = 'position_unknown'
     title = 'Scope Not Homed'
 
@@ -2675,6 +2855,10 @@ class CameraSettingUnsupportedError(Refusal, ValueError):
         offered: The values the camera reports it supports.
     """
 
+    # Hardware this camera does not have is the request's: asking again,
+    # unchanged, never finds it.
+    cause = RefusalCause.REQUEST
+
     def __init__(self, setting: str, requested, offered, *, title: str, message: str):
         super().__init__(message)
         self.reason = f'{setting}_unsupported'
@@ -2704,6 +2888,10 @@ class CameraSettingOutOfRangeError(Refusal, ValueError):
         maximum: The camera's declared ceiling, or None when it declares none.
         title: The notification title the reporter shows.
     """
+
+    # The range is the attached camera's, fixed for its life, so a value
+    # outside it is refused every time it is sent.
+    cause = RefusalCause.REQUEST
 
     def __init__(
         self,

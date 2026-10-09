@@ -20,7 +20,7 @@ import logging
 import pytest
 
 import modules.config_helpers as config_helpers
-from modules.exceptions import ProtocolRunRefusedError
+from modules.exceptions import ProtocolRunRefusedError, RefusalCause
 from modules.lumascope_api import AxisState
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -101,6 +101,9 @@ class TestTheApiRefuses:
             _add(scope, protocol, _layer_configs(BF='image'), objective_id=None, before_step=0)
 
         assert excinfo.value.reason == 'objective_unknown'
+        # The objective in the light path becomes known on a home or a
+        # select, so the same add can succeed later.
+        assert excinfo.value.cause == RefusalCause.STATE
         assert len(captured) == 1
         assert protocol.num_steps() == 0
 

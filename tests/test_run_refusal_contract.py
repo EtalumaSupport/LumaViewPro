@@ -634,6 +634,10 @@ class TestStartCannotSilentlyHalfStart:
 
 _FUNNEL_LOOP = 'test_each_refusal_reason_notifies_once_with_matching_reason'
 
+# A check that crashed is a fault, not a refusal, so it declares no cause;
+# its two reasons ride the same census and coverage map.
+_RUN_CHECK_FAILED_REASONS = frozenset({'validation_crashed', 'hardware_state_unknown'})
+
 # Every refusal reason the runner can raise, mapped to the test that pins
 # its notify-once contract. test_every_runner_refusal_reason_is_covered
 # diffs this map against the runner's source, so a reason added to the
@@ -725,6 +729,10 @@ RUNNER_REFUSAL_COVERAGE = {
         'tests/test_adding_a_step_is_an_api_capability.py::TestTheApiRefuses'
     ),
     'objective_unknown': ('tests/test_adding_a_step_is_an_api_capability.py::TestTheApiRefuses'),
+    'objective_not_in_catalogue': (
+        'tests/test_a_tile_grid_is_the_protocols_to_refuse.py::'
+        'test_a_step_with_an_unknown_objective_is_refused_not_tiled_at_nan'
+    ),
     'step_position_unknown': (
         'tests/test_adding_a_step_is_an_api_capability.py::TestTheApiRefuses'
     ),
@@ -1002,11 +1010,14 @@ class TestARunThatCannotResolveItsDataRootFailsAtStart:
 
 
 def test_every_runner_refusal_reason_is_covered():
-    """Census guard: the coverage map above matches production source.
+    """Census guard: the refusal's declared reasons, the source and the coverage map agree.
 
     Collects every reason literal fed to a _refuse funnel (or a direct
     ProtocolRunRefusedError construction) in every module under modules/
-    and diffs the set against RUNNER_REFUSAL_COVERAGE, in both directions.
+    and diffs the set, in both directions, against the reasons
+    ProtocolRunRefusedError declares a cause for (with RunCheckFailedError's
+    two), and those against RUNNER_REFUSAL_COVERAGE: the type's table is the
+    vocabulary, so no second list of the reasons is kept here.
     The modules are discovered, not listed: a hand-kept list once missed
     modules/protocol.py for a commit, and a refusal added in a module
     nobody listed escaped the census in silence. A reason the census
@@ -1062,13 +1073,25 @@ def test_every_runner_refusal_reason_is_covered():
         'literal at the raise, or through a funnel parameter whose callers pass literals.'
     )
 
-    uncovered = raised - set(RUNNER_REFUSAL_COVERAGE)
+    declared = set(ProtocolRunRefusedError.causes) | _RUN_CHECK_FAILED_REASONS
+    undeclared = raised - declared
+    assert not undeclared, (
+        f'refusal reasons raised with no cause declared: {sorted(undeclared)}. '
+        'Add each to ProtocolRunRefusedError.causes.'
+    )
+    unraised = declared - raised
+    assert not unraised, (
+        f'reasons declared that nothing raises: {sorted(unraised)}. '
+        'Retire each from ProtocolRunRefusedError.causes.'
+    )
+
+    uncovered = declared - set(RUNNER_REFUSAL_COVERAGE)
     assert not uncovered, (
         f'refusal reasons raised by the runner with no coverage row: {sorted(uncovered)}. '
         'Pin the notify-once contract for each (scenario or dedicated test), '
         'then add its row to RUNNER_REFUSAL_COVERAGE.'
     )
-    stale = set(RUNNER_REFUSAL_COVERAGE) - raised
+    stale = set(RUNNER_REFUSAL_COVERAGE) - declared
     assert not stale, (
         f'coverage rows for reasons the runner no longer raises: {sorted(stale)}. '
         'Retire each row together with its test.'

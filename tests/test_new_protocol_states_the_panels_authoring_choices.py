@@ -129,7 +129,7 @@ def test_new_protocol_goes_ahead_while_a_finished_run_s_files_drain(monkeypatch)
     not refuse it: the drain is no reason for the GUI to say no."""
     session = SimpleNamespace(
         new_protocol=MagicMock(
-            side_effect=ProtocolRunRefusedError(reason='r', title='t', message='m')
+            side_effect=ProtocolRunRefusedError(reason='files_writing', title='t', message='m')
         ),
         protocol_files_draining=True,
         protocol_files_stalled=False,

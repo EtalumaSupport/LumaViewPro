@@ -175,7 +175,9 @@ class TestTheTravelCheckHandlesNoneFromGetAxisLimits:
         scope.motion.get_axis_limits.side_effect = lambda axis: per_axis[axis]
         api = ProtocolsAPI(scope)
         api._refuse = MagicMock(
-            side_effect=ProtocolRunRefusedError(reason='r', title='t', message='m')
+            side_effect=ProtocolRunRefusedError(
+                reason='positions_outside_travel', title='t', message='m'
+            )
         )
         steps = pd.DataFrame([{'Name': 'a', 'X': 0.0, 'Y': 0.0, 'Z': 20000.0, 'Auto_Focus': False}])
         with pytest.raises(ProtocolRunRefusedError):

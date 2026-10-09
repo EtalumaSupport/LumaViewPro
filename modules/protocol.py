@@ -25,6 +25,7 @@ from modules.exceptions import (
     ProtocolNotSavedError,
     ProtocolRunRefusedError,
     Refusal,
+    RefusalCause,
 )
 from modules.notification_center import notifications
 
@@ -262,6 +263,7 @@ class ProtocolFormatError(Refusal, ProtocolError):
         file: The file refused, or None for a protocol built in memory.
     """
 
+    cause = RefusalCause.REQUEST
     reason = 'protocol_invalid'
     title = 'Protocol Refused'
 
@@ -287,6 +289,7 @@ class StepNotFoundError(Refusal, ProtocolError):
         num_steps: How many steps the protocol has.
     """
 
+    cause = RefusalCause.REQUEST
     reason = 'no_such_step'
     title = 'No Such Step'
 
@@ -309,6 +312,7 @@ class StepEditRefusedError(Refusal, ProtocolError):
     or an insert that names no place or two. A refusal, as a missing step is.
     """
 
+    cause = RefusalCause.REQUEST
     reason = 'step_value_refused'
     title = 'Step Not Changed'
 
@@ -1984,7 +1988,7 @@ class Protocol:
         )
         if unknown:
             _refuse_build(
-                reason='objective_unknown',
+                reason='objective_not_in_catalogue',
                 title='Objective Not Known',
                 message=(
                     f'The protocol names {", ".join(unknown)}, which is not in this '

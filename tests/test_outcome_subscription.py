@@ -118,7 +118,7 @@ class TestBringUpIsHeard:
 class TestWhatASubscriberHears:
     def test_each_kind_arrives_declared(self, session, centre):
         heard = _listening(session)
-        refusal = ProtocolRunRefusedError('protocol_empty', 'Protocol Empty', 'Add a step first.')
+        refusal = ProtocolRunRefusedError('empty_protocol', 'Protocol Empty', 'Add a step first.')
 
         centre.report_outcome(refusal, solicited=True, category='Protocol')
         centre.report_outcome(
@@ -133,7 +133,7 @@ class TestWhatASubscriberHears:
             ('Operation failed', OutcomeKind.FAULT),
             ('Raw', OutcomeKind.UNCLASSIFIED),
         ]
-        assert heard[0].reason == 'protocol_empty'
+        assert heard[0].reason == 'empty_protocol'
         assert all(n.shown for n in heard)
 
     def test_a_fault_muted_by_an_unattended_run_still_arrives_marked_not_shown(
