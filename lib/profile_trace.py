@@ -152,30 +152,32 @@ def _write_run_info():
 def _build_identity(repo_root):
     """Name the build that produced this run, and say where the name came from.
 
-    `git rev-parse` is preferred and is the only source that cannot go stale.
-    It is also unavailable exactly where these runs happen: a source tree
-    downloaded as a zip has no `.git`, so git answers nothing on the bench
-    machine while answering fine on a developer clone. version.txt is the
-    fallback rather than the primary because it does not refresh under a
-    source run -- it has carried a SHA naming a commit that exists in no
-    repository.
+    The commit is LumaViewPro's one reader's (`lvp_logger.git_revision`),
+    which also answers a source tree downloaded as a zip, from its
+    `.git_archival.txt`, where there is no `.git` to ask. `git_dirty` says
+    what a commit cannot: whether the tree held uncommitted changes, so a
+    profile of uncommitted code is not taken for that commit's; None where
+    there is no `.git` to ask. version.txt is the fallback when no commit is
+    known, not the primary, because it does not refresh under a source run
+    -- it has carried a SHA naming a commit that exists in no repository.
 
     Every field is paired with `build_identity_source` so a reader never has
     to guess which one answered. A bare null would say "unknown" in the one
     place whose whole purpose is stating what produced the rows.
     """
-    sha = _git(repo_root, 'rev-parse', 'HEAD')
+    import lvp_logger
+
+    sha = lvp_logger.git_revision()
     if sha:
+        changes = _git(repo_root, 'status', '--porcelain')
         return {
-            'build_identity_source': 'git',
+            'build_identity_source': 'lvp_logger.git_revision',
             'git_sha': sha,
-            'git_branch': _git(repo_root, 'rev-parse', '--abbrev-ref', 'HEAD'),
-            'git_dirty': bool(_git(repo_root, 'status', '--porcelain')),
+            'git_dirty': None if changes is None else bool(changes),
         }
     identity = {
-        'build_identity_source': 'fallback -- no git metadata in this source tree',
+        'build_identity_source': 'fallback -- no commit known for this source tree',
         'git_sha': None,
-        'git_branch': None,
         'git_dirty': None,
         'source_dir': repo_root.name,
     }

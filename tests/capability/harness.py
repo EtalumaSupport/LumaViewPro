@@ -168,7 +168,7 @@ def _write_verdict(failed):
         'probe': PROBE,
         'target': 'hardware',
         'passed': not failed,
-        'lvp_commit': lvp_logger.git_revision(str(REPO)),
+        'lvp_commit': lvp_logger.git_revision(),
         'scope': IDENTITY,
         'checks': [{'name': n, 'passed': p, 'kind': k} for n, p, k in RESULTS],
         'figures': FIGURES,

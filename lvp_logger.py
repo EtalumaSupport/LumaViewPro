@@ -53,7 +53,7 @@ script_path = abspath[: -len(basename)]
 # reader with a different policy is how the two drifted apart before.
 # path_utils imports only the standard library and modules.exceptions, so
 # this import cannot reach back into the logger.
-from modules.path_utils import data_folder_name, read_version
+from modules.path_utils import data_folder_name, get_script_root, read_version
 
 version, build_timestamp = read_version(pathlib.Path(script_path))
 
@@ -620,12 +620,17 @@ def collect_installed_packages() -> dict:
     return _collect_installed_packages()
 
 
-def git_revision(install_path: str) -> str | None:
-    """The commit the code at *install_path* was built from, or None.
+def git_revision() -> str | None:
+    """The commit the running code was built from, or None.
 
     The banner's ``Git:`` line and any record that names the build read it
-    here, so the two can never disagree.
+    here, so the two can never disagree. It looks where the code really
+    lives (``get_script_root``, links resolved), never in the folder
+    LumaViewPro was launched from: a launch from a folder of links into a
+    clone has no ``.git`` of its own. A frozen build asks git nothing: its
+    bundle is no checkout, and a folder around it may be another one.
     """
+    root = str(get_script_root())
     # SHA lookup precedence:
     #   1) .git_archival.txt -- GitHub ZIP downloads substitute the
     #      $Format:%H$ placeholder with the real SHA at archive time.
@@ -638,21 +643,21 @@ def git_revision(install_path: str) -> str | None:
     # Branch + Built + CommitGUID for triage.
     _git_hash = None
     try:
-        with open(os.path.join(install_path, '.git_archival.txt')) as _af:
+        with open(os.path.join(root, '.git_archival.txt')) as _af:
             for _line in _af:
                 if _line.startswith('node: ') and not _line.startswith('node: $Format'):
                     _git_hash = _line.split(': ', 1)[1].strip()[:12]
                     break
     except Exception:
         pass
-    if not _git_hash:
+    if not _git_hash and not getattr(sys, 'frozen', False):
         try:
             import subprocess
 
             _git_hash = (
                 subprocess.check_output(
                     ['git', 'rev-parse', '--short', 'HEAD'],
-                    cwd=install_path,
+                    cwd=root,
                     stderr=subprocess.DEVNULL,
                     timeout=2,
                 )
@@ -670,7 +675,7 @@ def log_environment_banner(
     """Emit the standard launch-time environment fingerprint.
 
     ``install_path`` is the directory the executable runs from -- where
-    version.txt, build_id.txt and .git_archival.txt ship. On an installed build this is
+    version.txt and build_id.txt ship. On an installed build this is
     the install root, NOT the per-user data directory; on a source/dev run
     the two coincide.
 
@@ -765,7 +770,7 @@ def log_environment_banner(
     # a developer running `python lumaviewpro.py` from a clone.
     logger.info(f'[LVP Main  ] Runtime:   {"installed exe" if lvp_installed else "source / dev"}')
 
-    _git_hash = git_revision(install_path)
+    _git_hash = git_revision()
     logger.info(
         f'[LVP Main  ] Git:       {_git_hash or "unknown (use CommitGUID or Branch + Built)"}'
     )

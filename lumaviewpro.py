@@ -976,7 +976,7 @@ class LumaViewProApp(TooltipMixin, App):
         from modules.app_environment import camera_sdk_probe
 
         # Pass the install directory (script_path), not the per-user data
-        # directory (source_path). version.txt and .git_archival.txt ship next
+        # directory (source_path). version.txt and build_id.txt ship next
         # to the executable; on an installed build source_path points at the
         # Documents data folder, which has no version.txt, so the banner would
         # report Built/Branch/CommitGUID as "unknown". On a source/dev run the

@@ -6,7 +6,6 @@ import os
 import pathlib
 import re
 import shutil
-import subprocess
 import tempfile
 from dataclasses import dataclass
 
@@ -51,21 +50,6 @@ def init_environment(main_file: str) -> AppEnvironment:
     from modules.path_utils import data_folder_name, read_version
 
     version, build_timestamp = read_version(pathlib.Path(script_path))
-
-    # Get git commit hash for build identification (dev mode only)
-    if not build_timestamp:
-        try:
-            result = subprocess.run(
-                ['git', 'rev-parse', '--short', 'HEAD'],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                cwd=script_path,
-            )
-            if result.returncode == 0:
-                build_timestamp = result.stdout.strip()
-        except Exception as e:
-            _logger.debug(f'Failed to get git hash: {e}')
 
     # Check if running as installed application
     lvp_installed = False
