@@ -138,7 +138,6 @@ if __name__ == '__main__':
     capture_installer_logs(log_dir)
 
     print(f'LumaViewPro {version}')
-    logger.info(f'[LVP Main  ] LumaViewPro {version}')
 
     if DEBUG_MODE:
         logger.info('[LVP Main  ] Debug mode is enabled.')

@@ -35,7 +35,13 @@ _paused_threads = threading.local()
 # a second reader with a different policy is how the two drifted apart
 # before. path_utils imports nothing that imports the logger, so this
 # import cannot reach back into it.
-from modules.path_utils import app_runtime, get_script_root, get_source_root, read_version
+from modules.path_utils import (
+    app_runtime,
+    get_script_root,
+    get_source_root,
+    launch_root,
+    read_version,
+)
 
 version, build_timestamp = read_version()
 
@@ -551,6 +557,14 @@ if debug and sys.__stderr__ is not None:
     _root_console.setFormatter(CustomFormatter())
     _root_logger.addHandler(_root_console)
 
+# Every process that imports this module shares the log, so each one's first
+# record says what it is: the GUI, the REST server, a headless script and a
+# test runner alike. Only the GUI writes the banner.
+logger.info(
+    f'[Process   ] LumaViewPro {version or "(no version.txt)"}, {app_runtime()}, '
+    f'from {launch_root()}, data in {lvp_appdata}, PID {os.getpid()}'
+)
+
 
 def _collect_installed_packages() -> dict:
     """Map distribution name -> version for every installed package.
@@ -657,9 +671,9 @@ def log_environment_banner(
     its process: every process that imports this module writes to the same
     log, and the CPU profiler finds the build it profiles by it.
 
-    Today only the GUI writes it (``LumaViewProApp.build``); a headless
-    Session, a script or a test runner that imports this module writes to
-    the log with no banner of its own.
+    Only the GUI writes it (``LumaViewProApp.build``); every process that
+    imports this module, the GUI included, first writes its one ``[Process]``
+    line: version, runtime, launch folder, data root and PID.
     """
     import sys as _sys
 
@@ -752,6 +766,7 @@ def log_environment_banner(
 
         logger.info(f'[LVP Main  ] Host: {_platform.node()}')
         logger.info(f'[LVP Main  ] OS: {_platform.platform()}')
+        logger.info(f'[LVP Main  ] Cores: {os.cpu_count()}')
     except Exception as e:
         logger.info(f'[LVP Main  ] OS: unavailable ({e})')
     logger.info(f'[LVP Main  ] Python: {_sys.version.split()[0]} ({_sys.executable})')
