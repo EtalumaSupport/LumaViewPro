@@ -3900,8 +3900,9 @@ class ScopeSession:
 
         Uses the session's scheduler and the
         ``settings.profiling.metrics_interval_s`` cadence override when
-        present. Metrics stay opt-in by the call itself: headless hosts
-        simply never call this.
+        present. Metrics stay opt-in by the call itself: a host that runs
+        the scope for others calls it -- the GUI does, and so does a
+        server host -- and a script that only drives the scope need not.
 
         Raises:
             RuntimeError: Metrics are already running. A second
