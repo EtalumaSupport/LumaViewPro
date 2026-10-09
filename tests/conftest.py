@@ -385,6 +385,16 @@ def centre_posts():
     notifications.remove_listener(heard)
 
 
+@pytest.fixture
+def unattended_run():
+    """The real centre judges the test's posts as an unattended run's, closed at teardown."""
+    from modules.notification_center import notifications
+
+    notifications.open_run_scope(attended=False)
+    yield
+    notifications.close_run_scope()
+
+
 @pytest.fixture(autouse=True)
 def _no_refused_edit_outlives_its_test():
     """Each test starts with no refused edit on record for the input being handled.

@@ -95,7 +95,6 @@ class _ImmediateClock:
 
 def _make_display(monkeypatch, controller):
     from modules.sequential_io_executor import ENQUEUED
-    from tests.shown_outcomes import capture_shown
 
     display = main_display.MainDisplay.__new__(main_display.MainDisplay)
     toggle = _FakeToggle()
@@ -114,18 +113,18 @@ def _make_display(monkeypatch, controller):
 
     ctx.worker_pool.put.side_effect = _run_now
     monkeypatch.setattr(_app_ctx, 'ctx', ctx)
-    return display, toggle, ctx, capture_shown(monkeypatch)
+    return display, toggle, ctx
 
 
 class TestRecordButtonRecovery:
-    def test_first_press_records_after_failed_start(self, monkeypatch):
+    def test_first_press_records_after_failed_start(self, monkeypatch, centre_posts):
         controller = _Controller(error=RuntimeError('scripted post-commit failure'))
-        display, toggle, _ctx, shown = _make_display(monkeypatch, controller)
+        display, toggle, _ctx = _make_display(monkeypatch, controller)
 
         toggle.press()
         display.record_button()
 
-        assert len(shown) == 1, 'the failure is reported once, by the boundary'
+        assert len(centre_posts) == 1, 'the failure is reported once, by the boundary'
         assert toggle.state == 'normal'
 
         # The next press. A 'down' toggle here would flip to 'normal', and
@@ -138,7 +137,7 @@ class TestRecordButtonRecovery:
         assert controller.stop_calls == 0
         assert toggle.state == 'down'
 
-    def test_a_refusal_is_one_warning_and_the_button_draws_idle(self, monkeypatch):
+    def test_a_refusal_is_one_warning_and_the_button_draws_idle(self, monkeypatch, centre_posts):
         from modules.notification_center import Severity
 
         refusal = RecordingRefusedError(
@@ -147,12 +146,14 @@ class TestRecordButtonRecovery:
             message='A recording is still finishing.',
         )
         controller = _Controller(error=refusal)
-        display, toggle, _ctx, shown = _make_display(monkeypatch, controller)
+        display, toggle, _ctx = _make_display(monkeypatch, controller)
 
         toggle.press()
         display.record_button()
 
-        assert [(n.title, n.severity) for n in shown] == [('Recording Active', Severity.WARNING)]
+        assert [(n.title, n.severity) for n in centre_posts] == [
+            ('Recording Active', Severity.WARNING)
+        ]
         assert toggle.state == 'normal'
 
 
@@ -160,7 +161,7 @@ class TestStartOrStopIsTheApisAnswer:
     def test_a_press_while_recording_stops_whatever_the_toggle_reads(self, monkeypatch):
         controller = _Controller()
         controller.is_recording = True
-        display, toggle, _ctx, _shown = _make_display(monkeypatch, controller)
+        display, toggle, _ctx = _make_display(monkeypatch, controller)
         toggle.state = 'normal'
         toggle.press()  # a redraw had not yet caught up: the press reads 'down'
 
@@ -172,7 +173,7 @@ class TestStartOrStopIsTheApisAnswer:
 
     def test_a_press_with_nothing_recording_starts_whatever_the_toggle_reads(self, monkeypatch):
         controller = _Controller()
-        display, toggle, _ctx, _shown = _make_display(monkeypatch, controller)
+        display, toggle, _ctx = _make_display(monkeypatch, controller)
         toggle.state = 'down'
         toggle.press()
 
@@ -184,7 +185,7 @@ class TestStartOrStopIsTheApisAnswer:
 
     def test_the_start_runs_on_the_pool_not_the_camera_lane(self, monkeypatch):
         controller = _Controller()
-        display, toggle, ctx, _shown = _make_display(monkeypatch, controller)
+        display, toggle, ctx = _make_display(monkeypatch, controller)
 
         toggle.press()
         display.record_button()
@@ -194,7 +195,7 @@ class TestStartOrStopIsTheApisAnswer:
 
     def test_a_started_recording_starts_the_status_poll_once(self, monkeypatch):
         controller = _Controller()
-        display, toggle, _ctx, _shown = _make_display(monkeypatch, controller)
+        display, toggle, _ctx = _make_display(monkeypatch, controller)
 
         toggle.press()
         display.record_button()

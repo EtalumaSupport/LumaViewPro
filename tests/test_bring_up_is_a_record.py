@@ -17,8 +17,6 @@ from __future__ import annotations
 import ast
 import pathlib
 
-import pytest
-
 import modules.lumascope_api._lumascope as lumascope_module
 import modules.settings_init as settings_init
 from drivers.null_ledboard import NullLEDBoard
@@ -34,7 +32,7 @@ from modules.exceptions import (
     PartialHardwareError,
 )
 from modules.lumascope_api.bring_up import CAMERA, LED, MOTOR, SettingsSetAside
-from modules.notification_center import NotificationCenter, OutcomeKind, Severity
+from modules.notification_center import OutcomeKind
 from modules.scope_session import ScopeSession
 from tests.ast_seams import find_def
 from tests.settings_fixtures import complete_settings
@@ -44,16 +42,6 @@ class _SafetyOffFailedBoard(NullLEDBoard):
     """A board that connected and reported its connect-time LEDS_OFF did not complete."""
 
     last_safety_off_error = 'TimeoutError: no reply'
-
-
-@pytest.fixture
-def heard(monkeypatch):
-    """A fresh centre under the scope, no dedup, every post recorded."""
-    centre = NotificationCenter(dedup_window_s=0)
-    posts = []
-    centre.add_listener(posts.append, min_severity=Severity.DEBUG)
-    monkeypatch.setattr(lumascope_module, 'notifications', centre)
-    return posts
 
 
 def _bring_up(monkeypatch, tmp_path, *, motor=None, led=None, camera=None, **settings):
@@ -100,7 +88,7 @@ def _outcomes(posts, kind):
 
 class TestEachPartNamesItsCause:
     def test_a_motor_board_whose_port_is_held_is_on_the_record_and_in_the_one_report(
-        self, monkeypatch, tmp_path, heard
+        self, monkeypatch, tmp_path, centre_posts
     ):
         s = _bring_up(
             monkeypatch,
@@ -112,7 +100,7 @@ class TestEachPartNamesItsCause:
             motor = s.bring_up_record().part(MOTOR)
             assert (motor.up, motor.expected, motor.cause) == (False, True, 'port_in_use')
             assert motor.missing
-            faults = _outcomes(heard, OutcomeKind.FAULT)
+            faults = _outcomes(centre_posts, OutcomeKind.FAULT)
             assert [n.reason for n in faults] == [PartialHardwareError('').reason]
             assert 'Motor Controller (port in use)' in faults[0].message
             assert faults[0].shown
@@ -121,7 +109,7 @@ class TestEachPartNamesItsCause:
             s.scope.disconnect()
 
     def test_a_manual_scope_is_not_missing_the_motor_board_it_never_had(
-        self, monkeypatch, tmp_path, heard
+        self, monkeypatch, tmp_path, centre_posts
     ):
         s = _bring_up(
             monkeypatch,
@@ -134,13 +122,13 @@ class TestEachPartNamesItsCause:
             assert (motor.up, motor.expected, motor.cause) == (False, False, 'not_detected')
             assert not motor.missing
             assert s.bring_up_record().missing == ()
-            assert _outcomes(heard, OutcomeKind.FAULT) == []
+            assert _outcomes(centre_posts, OutcomeKind.FAULT) == []
         finally:
             s.shutdown()
             s.scope.disconnect()
 
     def test_an_absent_led_board_is_said_once_with_the_advice_its_cause_needs(
-        self, monkeypatch, tmp_path, heard
+        self, monkeypatch, tmp_path, centre_posts
     ):
         s = _bring_up(
             monkeypatch,
@@ -151,7 +139,7 @@ class TestEachPartNamesItsCause:
         try:
             led = s.bring_up_record().part(LED)
             assert (led.up, led.cause) == (False, 'not_responding')
-            faults = _outcomes(heard, OutcomeKind.FAULT)
+            faults = _outcomes(centre_posts, OutcomeKind.FAULT)
             by_reason = {n.reason: n for n in faults}
             assert set(by_reason) == {'not_responding', 'partial_hardware'}
             unavailable = by_reason['not_responding']
@@ -163,7 +151,7 @@ class TestEachPartNamesItsCause:
             s.scope.disconnect()
 
     def test_a_camera_that_raised_keeps_its_own_heading_and_its_cause(
-        self, monkeypatch, tmp_path, heard
+        self, monkeypatch, tmp_path, centre_posts
     ):
         s = _bring_up(
             monkeypatch,
@@ -175,7 +163,7 @@ class TestEachPartNamesItsCause:
             camera = s.bring_up_record().part(CAMERA)
             assert (camera.up, camera.cause) == (False, 'camera_port_in_use')
             assert 'PermissionError' in camera.detail
-            faults = _outcomes(heard, OutcomeKind.FAULT)
+            faults = _outcomes(centre_posts, OutcomeKind.FAULT)
             by_reason = {n.reason: n for n in faults}
             assert by_reason['camera_port_in_use'].title == 'Camera port in use'
             assert by_reason['camera_port_in_use'].category == 'Camera'
@@ -204,7 +192,9 @@ class TestEachPartNamesItsCause:
 
 
 class TestASimulatedScopeReportsNothing:
-    def test_a_simulated_scope_s_parts_are_all_up_and_nothing_is_reported(self, tmp_path, heard):
+    def test_a_simulated_scope_s_parts_are_all_up_and_nothing_is_reported(
+        self, tmp_path, centre_posts
+    ):
         s = ScopeSession.create(
             complete_settings(live_folder=str(tmp_path)), simulate=True, warn_pre_release=False
         )
@@ -212,13 +202,13 @@ class TestASimulatedScopeReportsNothing:
             record = s.bring_up_record()
             assert [p.up for p in record.parts] == [True, True, True]
             assert record.missing == ()
-            assert heard == []
+            assert centre_posts == []
         finally:
             s.shutdown()
 
 
 class TestASimulatedManualScope:
-    def test_its_motor_board_is_neither_up_nor_missing(self, tmp_path, heard):
+    def test_its_motor_board_is_neither_up_nor_missing(self, tmp_path, centre_posts):
         s = ScopeSession.create(
             complete_settings(live_folder=str(tmp_path), microscope='LS620'),
             simulate=True,
@@ -228,13 +218,13 @@ class TestASimulatedManualScope:
             motor = s.bring_up_record().part(MOTOR)
             assert (motor.up, motor.expected, motor.cause) == (False, False, None)
             assert s.bring_up_record().missing == ()
-            assert heard == []
+            assert centre_posts == []
         finally:
             s.shutdown()
 
 
 class TestNothingCameUp:
-    def test_one_notice_and_no_fault(self, monkeypatch, tmp_path, heard):
+    def test_one_notice_and_no_fault(self, monkeypatch, tmp_path, centre_posts):
         s = _bring_up(
             monkeypatch,
             tmp_path,
@@ -247,9 +237,9 @@ class TestNothingCameUp:
             assert s.scope.no_hardware
             record = s.bring_up_record()
             assert [p.up for p in record.parts] == [False, False, False]
-            assert [n.reason for n in heard] == [NoHardwareDetectedNotice.reason]
-            assert heard[0].kind == OutcomeKind.NOTICE
-            assert heard[0].shown
+            assert [n.reason for n in centre_posts] == [NoHardwareDetectedNotice.reason]
+            assert centre_posts[0].kind == OutcomeKind.NOTICE
+            assert centre_posts[0].shown
         finally:
             s.shutdown()
             s.scope.disconnect()
@@ -257,7 +247,7 @@ class TestNothingCameUp:
 
 class TestAProblemOnAPartThatCameUp:
     def test_a_refused_led_safety_off_is_recorded_and_reported_once(
-        self, monkeypatch, tmp_path, heard
+        self, monkeypatch, tmp_path, centre_posts
     ):
         s = _bring_up(monkeypatch, tmp_path, led=_SafetyOffFailedBoard(), microscope='LS850T')
         try:
@@ -265,7 +255,7 @@ class TestAProblemOnAPartThatCameUp:
             assert (led.up, led.cause) == (True, 'safety_off_failed')
             assert led.detail == 'TimeoutError: no reply'
             assert not led.missing
-            safety = [n for n in heard if n.reason == 'safety_off_failed']
+            safety = [n for n in centre_posts if n.reason == 'safety_off_failed']
             assert len(safety) == 1
             assert safety[0].title == LedSafetyOffNotTakenError.title
             assert 'TimeoutError: no reply' in safety[0].message
@@ -276,13 +266,13 @@ class TestAProblemOnAPartThatCameUp:
 
 class TestSubstitutions:
     def test_a_saved_binning_the_camera_lacks_is_recorded_and_reported_once(
-        self, monkeypatch, tmp_path, heard
+        self, monkeypatch, tmp_path, centre_posts
     ):
         s = _bring_up(monkeypatch, tmp_path, microscope='LS850T', binning={'size': '8x8'})
         try:
             sub = s.bring_up_record().substitution('binning')
             assert (sub.saved, sub.used) == (8, 1)
-            notices = [n for n in heard if n.reason == BinningSubstitutedNotice.reason]
+            notices = [n for n in centre_posts if n.reason == BinningSubstitutedNotice.reason]
             assert len(notices) == 1
             assert notices[0].kind == OutcomeKind.NOTICE
             assert '8x8' in notices[0].message and '1x1' in notices[0].message
@@ -295,7 +285,7 @@ class TestSubstitutions:
             s.scope.disconnect()
 
     def test_a_saved_full_depth_mode_on_an_8_bit_camera_runs_as_saved(
-        self, monkeypatch, tmp_path, heard
+        self, monkeypatch, tmp_path, centre_posts
     ):
         # Every mode is a save policy every camera honours: an 8-bit camera
         # keeps the depth it delivers, so nothing is substituted or reported.
@@ -303,14 +293,14 @@ class TestSubstitutions:
         s = _bring_up(monkeypatch, tmp_path, microscope='LS850T', image_mode='12bit_scientific')
         try:
             assert s.bring_up_record().substitution('image_mode') is None
-            assert _outcomes(heard, OutcomeKind.NOTICE) == []
+            assert _outcomes(centre_posts, OutcomeKind.NOTICE) == []
             assert s.settings['image_mode'] == '12bit_scientific'
         finally:
             s.shutdown()
             s.scope.disconnect()
 
     def test_a_camera_that_takes_the_saved_values_substitutes_nothing(
-        self, monkeypatch, tmp_path, heard
+        self, monkeypatch, tmp_path, centre_posts
     ):
         # A frame the simulated 1920 x 1200 sensor delivers at 2x2.
         s = _bring_up(
@@ -322,13 +312,13 @@ class TestSubstitutions:
         )
         try:
             assert s.bring_up_record().substitutions == ()
-            assert _outcomes(heard, OutcomeKind.NOTICE) == []
+            assert _outcomes(centre_posts, OutcomeKind.NOTICE) == []
         finally:
             s.shutdown()
             s.scope.disconnect()
 
     def test_a_saved_frame_larger_than_the_scope_delivers_is_refitted_and_reported_once(
-        self, monkeypatch, tmp_path, heard
+        self, monkeypatch, tmp_path, centre_posts
     ):
         # The LS560's lens images 1700 of the sensor (data/scopes.json
         # MaxFrame); the simulated sensor is 3840 x 2160.
@@ -344,7 +334,7 @@ class TestSubstitutions:
             assert (sub.saved, sub.used) == ((1900, 1100), (1700, 1100))
             assert s.scope.imaging.frame_size_cached == {'width': 1700, 'height': 1100}
             assert s.settings['frame']['width'] == 1700, 'the frame that ran is stored'
-            notices = [n for n in heard if n.reason == 'frame_refitted']
+            notices = [n for n in centre_posts if n.reason == 'frame_refitted']
             assert len(notices) == 1
             assert notices[0].kind == OutcomeKind.NOTICE
             assert notices[0].title == 'Saved frame too large'
@@ -357,7 +347,7 @@ class TestSubstitutions:
             s.scope.disconnect()
 
     def test_the_refitted_frame_is_not_reported_again_at_the_next_bring_up(
-        self, monkeypatch, tmp_path, heard
+        self, monkeypatch, tmp_path, centre_posts
     ):
         first = _bring_up(
             monkeypatch,
@@ -371,11 +361,11 @@ class TestSubstitutions:
         finally:
             first.shutdown()
             first.scope.disconnect()
-        heard.clear()
+        centre_posts.clear()
         again = _bring_up(monkeypatch, tmp_path, microscope='LS560', **stored)
         try:
             assert again.bring_up_record().substitutions == ()
-            assert [n for n in heard if n.reason == 'frame_refitted'] == []
+            assert [n for n in centre_posts if n.reason == 'frame_refitted'] == []
         finally:
             again.shutdown()
             again.scope.disconnect()

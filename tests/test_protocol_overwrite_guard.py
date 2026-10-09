@@ -178,23 +178,14 @@ def _step_row(name, well, tile, z_slice, tile_group, x, y, z):
     return '\t'.join(cells) + '\n'
 
 
-def test_load_warns_on_duplicate_filename_keys_and_loads(tmp_path, monkeypatch):
+def test_load_warns_on_duplicate_filename_keys_and_loads(tmp_path, centre_posts):
     """Two rows whose captures render the same filename (the user-reported
     #636 case where the second image silently overwrote the first) load
     WITH one warning saying the run will be refused. The load never
     rejects: that would block the in-app rename which is the remedy; the
     data-loss gate is validate_for_run at run start.
     """
-    from modules import protocol as protocol_mod
     from modules.protocol import Protocol
-
-    captured: list = []
-
-    class _RecordingNotifier:
-        def report_outcome(self, outcome, *, category, **kw):
-            captured.append(str(outcome))
-
-    monkeypatch.setattr(protocol_mod, 'notifications', _RecordingNotifier())
 
     rows = ''
     rows += _step_row('_PC_TA1', 'A1', '', -1, 0, 46.5, 34.6, 4972.9)
@@ -207,6 +198,7 @@ def test_load_warns_on_duplicate_filename_keys_and_loads(tmp_path, monkeypatch):
         tiling_configs_file_loc=TILING_CONFIGS,
     )
     assert proto.num_steps() == 2, 'the colliding file must load so the steps can be renamed'
+    captured = [n.message for n in centre_posts]
     assert len(captured) == 1, captured
     assert 'refused' in captured[0].lower()
     assert 'rename' in captured[0].lower()
@@ -233,7 +225,7 @@ def test_load_accepts_same_name_in_different_tile_groups(tmp_path):
     assert proto.num_steps() == 3
 
 
-def test_load_warns_on_cross_tgid_filename_collision(tmp_path, monkeypatch):
+def test_load_warns_on_cross_tgid_filename_collision(tmp_path, centre_posts):
     """The customer's #636 case: 4 rows render one capture filename
     across DIFFERENT Tile Group IDs. The hard check PASSES (TGID is part
     of its key, so all 4 tuples are unique). The softer check must
@@ -241,16 +233,7 @@ def test_load_warns_on_cross_tgid_filename_collision(tmp_path, monkeypatch):
     telling the user the RUN will be refused until the steps are renamed
     -- the file still loads so the names can be edited.
     """
-    from modules import protocol as protocol_mod
     from modules.protocol import Protocol
-
-    captured_notifications: list = []
-
-    class _RecordingNotifier:
-        def report_outcome(self, outcome, *, category, **kw):
-            captured_notifications.append((category, outcome.title, str(outcome)))
-
-    monkeypatch.setattr(protocol_mod, 'notifications', _RecordingNotifier())
 
     rows = ''
     rows += _step_row('_PC_TA1', 'A1', '', -1, 0, 46.5, 34.6, 4972.9)
@@ -268,6 +251,7 @@ def test_load_warns_on_cross_tgid_filename_collision(tmp_path, monkeypatch):
         'Cross-TGID duplicates must NOT be rejected (the legitimate tiled-'
         'acquisition pattern still loads).'
     )
+    captured_notifications = [(n.category, n.title, n.message) for n in centre_posts]
     assert len(captured_notifications) == 1, (
         f'Cross-TGID duplicate filenames must fire exactly one '
         f'notifications.warning at load time. Captured: {captured_notifications}'

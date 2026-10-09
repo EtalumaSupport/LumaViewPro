@@ -27,19 +27,6 @@ def session(tmp_path):
         s.shutdown()
 
 
-@pytest.fixture
-def shown(monkeypatch):
-    # A centre of its own: the shared one's dedup window remembers what
-    # earlier tests posted, and would swallow this one's popup.
-    import modules.notification_center as nc
-
-    centre = nc.NotificationCenter()
-    seen = []
-    centre.add_listener(seen.append, min_severity=Severity.INFO)
-    monkeypatch.setattr(nc, 'notifications', centre)
-    return seen
-
-
 def _raises(exc):
     def _home(axis):
         raise exc
@@ -47,18 +34,18 @@ def _raises(exc):
     return _home
 
 
-def test_a_homing_fault_is_shown_once_and_the_turret_is_not_moved(session, shown):
+def test_a_homing_fault_is_shown_once_and_the_turret_is_not_moved(session, centre_posts):
     turret = []
     fault = HomingFailedError('ALL', 'failed', ('X', 'Y', 'Z', 'T'))
     session.start_application_session(home_fn=_raises(fault), turret_fn=turret.append)
 
-    assert [(n.severity, n.title, n.message) for n in shown] == [
+    assert [(n.severity, n.title, n.message) for n in centre_posts] == [
         (Severity.ERROR, 'Homing Failed', 'Homing failed. Position is unknown.')
     ]
     assert turret == []
 
 
-def test_no_motor_controller_is_shown_once_as_not_connected(session, shown):
+def test_no_motor_controller_is_shown_once_as_not_connected(session, centre_posts):
     turret = []
     session.start_application_session(
         home_fn=_raises(
@@ -69,11 +56,11 @@ def test_no_motor_controller_is_shown_once_as_not_connected(session, shown):
         turret_fn=turret.append,
     )
 
-    assert [(n.severity, n.title) for n in shown] == [(Severity.WARNING, 'Not Connected')]
+    assert [(n.severity, n.title) for n in centre_posts] == [(Severity.WARNING, 'Not Connected')]
     assert turret == []
 
 
-def test_a_busy_refusal_reaches_the_caller(session, shown):
+def test_a_busy_refusal_reaches_the_caller(session, centre_posts):
     refusal = HardwareCommandRefusedError('exclusive_activity_running', 'home', 'protocol')
 
     with pytest.raises(HardwareCommandRefusedError) as raised:

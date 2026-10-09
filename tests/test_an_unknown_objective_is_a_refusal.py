@@ -16,7 +16,7 @@ import pytest
 
 import modules.sequential_io_executor as sio
 from modules.exceptions import ObjectiveUnknownError
-from modules.notification_center import NotificationCenter, Severity
+from modules.notification_center import Severity
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 # The notification centre also writes an INFO forensic line of what the
@@ -35,13 +35,9 @@ def _jog_step():
     raise ObjectiveUnknownError('slot_unassigned', slot=2)
 
 
-def _run_on_the_lane(monkeypatch):
+def _run_on_the_lane():
     """Run one fire-and-forget task through a real executor's worker path
-    and epilogue; what the person was shown."""
-    centre = NotificationCenter(dedup_window_s=10.0)
-    shown = []
-    centre.add_listener(shown.append, min_severity=Severity.INFO)
-    monkeypatch.setattr(sio, 'notifications', centre)
+    and epilogue."""
     executor = SequentialIOExecutor(name='TEST')
     task = IOTask(_jog_step)
     task.set_name(executor.executor_name)
@@ -49,13 +45,12 @@ def _run_on_the_lane(monkeypatch):
     executor.queue.get()
     result, exception = task.run()
     executor._on_task_done(task, result, exception)
-    return shown
 
 
-def test_is_shown_once_as_a_warning_titled_objective_unknown(monkeypatch):
-    shown = _run_on_the_lane(monkeypatch)
+def test_is_shown_once_as_a_warning_titled_objective_unknown(centre_posts):
+    _run_on_the_lane()
 
-    assert [(n.severity, n.title, n.message) for n in shown] == [
+    assert [(n.severity, n.title, n.message) for n in centre_posts] == [
         (
             Severity.WARNING,
             'Objective Unknown',
@@ -64,9 +59,9 @@ def test_is_shown_once_as_a_warning_titled_objective_unknown(monkeypatch):
     ]
 
 
-def test_is_logged_as_a_warning_with_no_traceback(monkeypatch, caplog):
+def test_is_logged_as_a_warning_with_no_traceback(caplog):
     with caplog.at_level(logging.DEBUG):
-        _run_on_the_lane(monkeypatch)
+        _run_on_the_lane()
 
     records = [
         r for r in caplog.records if '_jog_step' in r.getMessage() and r.name != FORENSIC_LOGGER

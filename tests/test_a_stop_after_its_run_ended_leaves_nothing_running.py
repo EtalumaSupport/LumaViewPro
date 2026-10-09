@@ -22,14 +22,12 @@ from tests.pool_fakes import run_task_now
 
 
 @pytest.fixture
-def stop(monkeypatch):
-    """Submit a Stop of *handle* to a pool that runs it at once; return what was shown."""
+def stop(monkeypatch, centre_posts):
+    """Submit a Stop of *handle* to a pool that runs it at once; return what was posted."""
     from types import SimpleNamespace
 
     from modules.sequential_io_executor import ENQUEUED
-    from tests.shown_outcomes import capture_shown
 
-    shown = capture_shown(monkeypatch)
     pool = MagicMock()
 
     def _run_now(task):
@@ -47,7 +45,7 @@ def stop(monkeypatch):
         )
         return redraws
 
-    return SimpleNamespace(submit=_stop, shown=shown)
+    return SimpleNamespace(submit=_stop, posts=centre_posts)
 
 
 def _runner_raising(exc):
@@ -63,7 +61,7 @@ def test_a_stop_after_its_run_ended_shows_nothing_and_redraws(stop):
     redraws = stop.submit(runner, handle)
 
     runner.reset.assert_called_once_with(handle)
-    assert stop.shown == []
+    assert stop.posts == []
     assert redraws == [1], 'the control is drawn from the engine, now idle'
 
 
@@ -80,12 +78,12 @@ def test_a_stale_stop_while_another_run_is_live_is_one_warning(stop):
 
     redraws = stop.submit(runner, object())
 
-    assert [(n.title, n.severity) for n in stop.shown] == [('Run Already Ended', Severity.WARNING)]
+    assert [(n.title, n.severity) for n in stop.posts] == [('Run Already Ended', Severity.WARNING)]
     assert redraws == [1]
 
 
 def test_a_stop_of_the_live_run_shows_nothing(stop):
     redraws = stop.submit(MagicMock(), object())
 
-    assert stop.shown == []
+    assert stop.posts == []
     assert redraws == [1]

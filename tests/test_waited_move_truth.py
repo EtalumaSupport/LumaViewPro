@@ -123,20 +123,13 @@ def test_a_later_move_on_the_same_axis_supersedes_this_one(session, monkeypatch)
         motion._set_axis_state('Z', AxisState.IDLE)
 
 
-def test_the_executor_shows_the_failure_in_its_own_words(monkeypatch):
+def test_the_executor_shows_the_failure_in_its_own_words(centre_posts):
     """Off an executor worker the user reads the error's message, not the
     generic 'did not complete' line that names no axis and no remedy."""
-    import modules.sequential_io_executor as sio
-    from modules.notification_center import NotificationCenter, Severity
     from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
     def _move():
         raise MoveNotCompletedError('T', 'faulted')
-
-    centre = NotificationCenter(dedup_window_s=10.0)
-    seen = []
-    centre.add_listener(seen.append, min_severity=Severity.ERROR)
-    monkeypatch.setattr(sio, 'notifications', centre)
 
     executor = SequentialIOExecutor(name='TEST')
     task = IOTask(_move)
@@ -146,7 +139,7 @@ def test_the_executor_shows_the_failure_in_its_own_words(monkeypatch):
     result, exception = task.run()
     executor._on_task_done(task, result, exception)
 
-    assert [n.message for n in seen] == [str(MoveNotCompletedError('T', 'faulted'))]
+    assert [n.message for n in centre_posts] == [str(MoveNotCompletedError('T', 'faulted'))]
 
 
 def test_another_axis_timing_out_does_not_fail_an_arrived_move(session, monkeypatch):

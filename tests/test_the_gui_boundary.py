@@ -21,17 +21,11 @@ import modules.app_context as _app_ctx
 from modules.exceptions import HardwareCommandRefusedError
 from modules.notification_center import Severity
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
-from tests.shown_outcomes import capture_shown
 from ui import ui_helpers
 from ui.ui_helpers import run_reported, submit_reported
 from tests.protocol_drives import run_identity
 
 _WAIT_S = 2.0
-
-
-@pytest.fixture
-def shown(monkeypatch):
-    return capture_shown(monkeypatch)
 
 
 @pytest.fixture
@@ -76,7 +70,7 @@ def _submit_and_wait(call, redraw, label):
 
 
 class TestTheInlineForm:
-    def test_runs_the_call_on_the_calling_thread(self, shown):
+    def test_runs_the_call_on_the_calling_thread(self, centre_posts):
         where = []
         run_reported(lambda: where.append(threading.current_thread()), None, 'TEST')
         assert where == [threading.current_thread()]
@@ -90,24 +84,28 @@ class TestTheInlineForm:
         ],
         ids=['success', 'refusal', 'fault'],
     )
-    def test_shows_the_outcome_as_typed_and_redraws_after_it(self, shown, call, expected):
+    def test_shows_the_outcome_as_typed_and_redraws_after_it(self, centre_posts, call, expected):
         order = []
-        run_reported(call, lambda: order.append([(n.severity, n.title) for n in shown]), 'TEST')
+        run_reported(
+            call, lambda: order.append([(n.severity, n.title) for n in centre_posts]), 'TEST'
+        )
         assert order == [expected], 'the redraw ran once, after the outcome was shown'
 
-    def test_a_redraw_that_raises_is_one_reported_fault(self, shown):
+    def test_a_redraw_that_raises_is_one_reported_fault(self, centre_posts):
         run_reported(lambda: None, _fail, 'TEST')
-        assert [(n.severity, n.category) for n in shown] == [(Severity.ERROR, 'UI:TEST')]
+        assert [(n.severity, n.category) for n in centre_posts] == [(Severity.ERROR, 'UI:TEST')]
 
-    def test_a_call_that_would_wait_on_a_lane_fails_by_name_and_never_waits(self, shown, lane):
+    def test_a_call_that_would_wait_on_a_lane_fails_by_name_and_never_waits(
+        self, centre_posts, lane
+    ):
         ran = []
         run_reported(
             lambda: lane.call(IOTask(action=ran.append, args=(1,)), 'move', 5.0), None, 'T'
         )
         assert ran == []
-        assert [(n.severity, n.category) for n in shown] == [(Severity.ERROR, 'UI:T')]
+        assert [(n.severity, n.category) for n in centre_posts] == [(Severity.ERROR, 'UI:T')]
 
-    def test_the_mark_does_not_outlive_the_call(self, shown, lane):
+    def test_the_mark_does_not_outlive_the_call(self, centre_posts, lane):
         run_reported(_fail, None, 'T')
         run_reported(lambda: run_reported(lambda: None, None, 'INNER'), None, 'OUTER')
         # Outside the form a blocking call waits as it always did.
@@ -115,7 +113,7 @@ class TestTheInlineForm:
 
 
 class TestThePoolForm:
-    def test_runs_the_call_on_the_worker_pool(self, shown, pool):
+    def test_runs_the_call_on_the_worker_pool(self, centre_posts, pool):
         where = []
         _submit_and_wait(lambda: where.append(threading.current_thread().name), None, 'TEST')
         assert where and where[0] != threading.current_thread().name
@@ -129,14 +127,14 @@ class TestThePoolForm:
         ],
         ids=['success', 'refusal', 'fault'],
     )
-    def test_shows_the_outcome_and_redraws_after_it(self, shown, pool, call, expected):
+    def test_shows_the_outcome_and_redraws_after_it(self, centre_posts, pool, call, expected):
         seen_at_redraw = []
         _submit_and_wait(
-            call, lambda: seen_at_redraw.append([(n.severity, n.title) for n in shown]), 'T'
+            call, lambda: seen_at_redraw.append([(n.severity, n.title) for n in centre_posts]), 'T'
         )
         assert seen_at_redraw == [expected]
 
-    def test_a_blocking_member_waits_on_its_lane_from_the_pool(self, shown, pool, lane):
+    def test_a_blocking_member_waits_on_its_lane_from_the_pool(self, centre_posts, pool, lane):
         answers = []
         _submit_and_wait(
             lambda: answers.append(lane.call(IOTask(action=lambda: 'moved'), 'move', 5.0)),
@@ -144,15 +142,15 @@ class TestThePoolForm:
             'T',
         )
         assert answers == ['moved']
-        assert shown == []
+        assert centre_posts == []
 
-    def test_a_pool_that_takes_no_work_still_redraws(self, shown, pool):
+    def test_a_pool_that_takes_no_work_still_redraws(self, centre_posts, pool):
         pool.shutdown(wait=False)
         redrawn = []
         submit_reported(lambda: None, lambda: redrawn.append(True), 'T')
         assert redrawn == [True]
 
-    def test_a_stop_goes_ahead_of_queued_requests(self, shown, pool):
+    def test_a_stop_goes_ahead_of_queued_requests(self, centre_posts, pool):
         started = threading.Event()
         release = threading.Event()
         order = []
@@ -180,14 +178,8 @@ class TestTheLaneForm:
     """
 
     @pytest.fixture
-    def headless(self, monkeypatch, shown):
-        from modules import notification_center, sequential_io_executor
-
+    def headless(self, monkeypatch):
         monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
-        # The lane reports its refusals through the name it imported.
-        monkeypatch.setattr(
-            sequential_io_executor, 'notifications', notification_center.notifications
-        )
 
     @pytest.fixture
     def claim(self, lane):
@@ -209,19 +201,19 @@ class TestTheLaneForm:
         self._settle(lane)
         return redrawn
 
-    def test_runs_the_call_on_the_lane_and_redraws_once(self, shown, headless, lane):
+    def test_runs_the_call_on_the_lane_and_redraws_once(self, centre_posts, headless, lane):
         where = []
         redrawn = self._submit(lane, lambda: where.append(threading.current_thread().name))
         assert where == ['TEST_IO_WORKER']
         assert redrawn == ['T']
-        assert shown == []
+        assert centre_posts == []
 
-    def test_a_call_that_raises_is_one_fault_and_one_redraw(self, shown, headless, lane):
+    def test_a_call_that_raises_is_one_fault_and_one_redraw(self, centre_posts, headless, lane):
         redrawn = self._submit(lane, _fail)
-        assert [(n.severity, n.category) for n in shown] == [(Severity.ERROR, 'UI:T')]
+        assert [(n.severity, n.category) for n in centre_posts] == [(Severity.ERROR, 'UI:T')]
         assert redrawn == ['T']
 
-    def test_a_refusal_at_submit_redraws_once(self, shown, headless, lane, claim):
+    def test_a_refusal_at_submit_redraws_once(self, centre_posts, headless, lane, claim):
         held = claim.try_claim('protocol', run=run_identity('test'))
         ran = []
         redrawn = []
@@ -231,10 +223,10 @@ class TestTheLaneForm:
             held.release()
         self._settle(lane)
         assert ran == []
-        assert [n.title for n in shown] == ['Microscope Busy']
+        assert [n.title for n in centre_posts] == ['Microscope Busy']
         assert redrawn == ['T']
 
-    def test_a_refusal_while_queued_redraws_once(self, shown, headless, lane, claim):
+    def test_a_refusal_while_queued_redraws_once(self, centre_posts, headless, lane, claim):
         gate = threading.Event()
         started = threading.Event()
 
@@ -257,23 +249,23 @@ class TestTheLaneForm:
             held.release()
         self._settle(lane)
         assert ran == []
-        assert [n.title for n in shown] == ['Microscope Busy']
+        assert [n.title for n in centre_posts] == ['Microscope Busy']
         assert redrawn == ['T']
 
-    def test_a_lane_that_takes_no_work_redraws_once(self, shown, headless, lane):
+    def test_a_lane_that_takes_no_work_redraws_once(self, centre_posts, headless, lane):
         lane.shutdown(wait=False)
         redrawn = []
         submit_reported(lambda: None, lambda: redrawn.append('T'), 'T', lane=lane)
         assert redrawn == ['T']
 
-    def test_a_refusal_names_the_gesture_not_the_wrapper(self, shown, headless, lane, claim):
+    def test_a_refusal_names_the_gesture_not_the_wrapper(self, centre_posts, headless, lane, claim):
         held = claim.try_claim('protocol', run=run_identity('test'))
         try:
             submit_reported(lambda: None, None, 'LED_Blue', lane=lane)
         finally:
             held.release()
         self._settle(lane)
-        assert [n.category for n in shown] == ['Task:UI:LED_Blue']
+        assert [n.category for n in centre_posts] == ['Task:UI:LED_Blue']
 
 
 def test_a_burst_of_scroll_ticks_is_one_move_of_the_last_ticks_step(monkeypatch):

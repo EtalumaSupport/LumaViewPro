@@ -150,13 +150,6 @@ def app_ctx(engine, session, held, tmp_path, monkeypatch):
     _app_ctx.ctx = saved
 
 
-@pytest.fixture
-def shown(monkeypatch):
-    from tests.shown_outcomes import capture_shown
-
-    return capture_shown(monkeypatch)
-
-
 def _handle(engine):
     """A run's handle over the engine stand-in, as the engine's start() makes it."""
     return RunHandle(engine, PendingRunOutcome(), RunWriteBatch(MagicMock()))
@@ -196,7 +189,7 @@ def test_a_press_starts_its_run_through_the_apis_runner(
     assert not engine._reset.called, 'a start is not a stop'
 
 
-def test_a_refused_start_is_shown_once_and_the_button_draws_idle(app_ctx, engine, shown):
+def test_a_refused_start_is_shown_once_and_the_button_draws_idle(app_ctx, engine, centre_posts):
     engine.prepare.side_effect = ProtocolRunRefusedError(
         'already_running', 'Already Running', 'Another run is already in progress.'
     )
@@ -205,14 +198,14 @@ def test_a_refused_start_is_shown_once_and_the_button_draws_idle(app_ctx, engine
 
     panel.run_scan_from_ui()
 
-    assert [n.title for n in shown] == ['Already Running']
+    assert [n.title for n in centre_posts] == ['Already Running']
     assert panel.ids['run_scan_btn'].state == 'normal'
     assert panel.ids['run_scan_btn'].text == 'Run One Scan'
     assert panel.scan_pending is False, 'the button must come back for the next press'
     assert not engine.start.called
 
 
-def test_an_empty_protocol_is_the_engines_refusal_not_the_panels(app_ctx, engine, shown):
+def test_an_empty_protocol_is_the_engines_refusal_not_the_panels(app_ctx, engine, centre_posts):
     engine.prepare.side_effect = ProtocolRunRefusedError(
         'empty_protocol', 'No Steps', 'Protocol has no steps.'
     )
@@ -221,17 +214,19 @@ def test_an_empty_protocol_is_the_engines_refusal_not_the_panels(app_ctx, engine
 
     panel.run_protocol_from_ui()
 
-    assert [n.title for n in shown] == ['No Steps'], "one refusal, the engine's words"
+    assert [n.title for n in centre_posts] == ['No Steps'], "one refusal, the engine's words"
 
 
-def test_an_unexpected_failure_is_one_fault_and_the_button_draws_idle(app_ctx, engine, shown):
+def test_an_unexpected_failure_is_one_fault_and_the_button_draws_idle(
+    app_ctx, engine, centre_posts
+):
     engine.prepare.side_effect = TypeError('bad call')
     panel = _Panel()
     panel.ids['run_autofocus_btn'].state = 'down'
 
     panel.run_autofocus_scan_from_ui()
 
-    assert len(shown) == 1
+    assert len(centre_posts) == 1
     assert panel.ids['run_autofocus_btn'].state == 'normal'
     assert panel.autofocus_scan_pending is False
 
@@ -294,7 +289,7 @@ def test_a_second_press_stops_its_own_run_ahead_of_queued_work(app_ctx, engine):
     assert panel.ids['run_protocol_btn'].text == 'Stopping...'
 
 
-def test_a_stop_that_finds_its_run_already_ended_shows_nothing(app_ctx, engine, shown):
+def test_a_stop_that_finds_its_run_already_ended_shows_nothing(app_ctx, engine, centre_posts):
     panel = _Panel()
     handle = _handle(engine)
     panel._runs_started_here['scan'] = handle
@@ -308,11 +303,11 @@ def test_a_stop_that_finds_its_run_already_ended_shows_nothing(app_ctx, engine, 
 
     panel.run_scan_from_ui()
 
-    assert shown == []
+    assert centre_posts == []
     assert panel.ids['run_scan_btn'].state == 'normal'
 
 
-def test_a_refused_stop_leaves_every_button_showing_its_own_run(app_ctx, engine, shown):
+def test_a_refused_stop_leaves_every_button_showing_its_own_run(app_ctx, engine, centre_posts):
     panel = _Panel()
     mine, theirs = _handle(engine), _handle(engine)
     panel._runs_started_here['scan'] = mine
@@ -324,7 +319,7 @@ def test_a_refused_stop_leaves_every_button_showing_its_own_run(app_ctx, engine,
 
     panel.run_scan_from_ui()
 
-    assert [n.title for n in shown] == ['Not Running']
+    assert [n.title for n in centre_posts] == ['Not Running']
     assert panel.ids['run_scan_btn'].state == 'down'
     assert panel.ids['run_protocol_btn'].state == 'down'
 
@@ -433,7 +428,7 @@ def test_each_panel_press_is_recorded_as_what_it_did(app_ctx, engine, monkeypatc
 
 
 def test_a_press_during_a_finished_runs_drain_is_the_engines_to_refuse(
-    app_ctx, engine, session, shown
+    app_ctx, engine, session, centre_posts
 ):
     """A finished run's files draining is no reason for the panel to say no:
     the press reaches the engine, whose refusal every client gets, and it is
@@ -448,7 +443,7 @@ def test_a_press_during_a_finished_runs_drain_is_the_engines_to_refuse(
     panel.run_scan_from_ui()
 
     assert engine.prepare.called, 'the press never reached the engine'
-    assert [n.title for n in shown] == ['Files Still Writing']
+    assert [n.title for n in centre_posts] == ['Files Still Writing']
     assert not engine.start.called
 
 

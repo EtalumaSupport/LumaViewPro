@@ -13,28 +13,14 @@ from __future__ import annotations
 
 import pytest
 
-import modules.notification_center as nc
 from drivers.registry import DriverFallback
 from modules.exceptions import (
     HardwareCommandRefusedError,
     NoHardwareDetectedNotice,
     PartialHardwareError,
 )
-from modules.notification_center import NotificationCenter, OutcomeKind, Severity
+from modules.notification_center import OutcomeKind
 from tests.test_bring_up_is_a_record import _bring_up
-
-
-@pytest.fixture
-def heard(monkeypatch):
-    """One centre for the scope and the session, no dedup, every post recorded."""
-    import modules.lumascope_api._lumascope as lumascope_module
-
-    centre = NotificationCenter(dedup_window_s=0)
-    posts = []
-    centre.add_listener(posts.append, min_severity=Severity.DEBUG)
-    monkeypatch.setattr(lumascope_module, 'notifications', centre)
-    monkeypatch.setattr(nc, 'notifications', centre)
-    return posts
 
 
 _NOT_DETECTED = DriverFallback('not_detected', ('MotorBoard',))
@@ -55,7 +41,7 @@ _NOT_DETECTED = DriverFallback('not_detected', ('MotorBoard',))
     ],
 )
 def test_a_missing_motor_is_reported_once_and_never_homed(
-    monkeypatch, tmp_path, heard, others, report
+    monkeypatch, tmp_path, centre_posts, others, report
 ):
     session = _bring_up(monkeypatch, tmp_path, motor=_NOT_DETECTED, microscope='LS850T', **others)
     homed, turret = [], []
@@ -72,10 +58,10 @@ def test_a_missing_motor_is_reported_once_and_never_homed(
         session.scope.disconnect()
 
     assert (homed, turret) == ([], [])
-    assert [(n.kind, n.reason) for n in heard] == [report]
+    assert [(n.kind, n.reason) for n in centre_posts] == [report]
 
 
-def test_a_motor_that_came_up_is_homed(monkeypatch, tmp_path, heard):
+def test_a_motor_that_came_up_is_homed(monkeypatch, tmp_path, centre_posts):
     session = _bring_up(monkeypatch, tmp_path, microscope='LS850T')
     homed = []
     try:

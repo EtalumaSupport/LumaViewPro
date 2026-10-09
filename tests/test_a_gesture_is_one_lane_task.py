@@ -21,7 +21,6 @@ import pytest
 import modules.app_context as _app_ctx
 from modules.exceptions import AxisStateUnknownError, PositionOutOfRangeError
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
-from tests.shown_outcomes import capture_shown
 from ui import ui_helpers
 
 _WAIT_S = 2.0
@@ -36,11 +35,7 @@ def lane():
 
 
 @pytest.fixture
-def env(monkeypatch, lane):
-    from modules import notification_center, sequential_io_executor
-
-    shown = capture_shown(monkeypatch)
-    monkeypatch.setattr(sequential_io_executor, 'notifications', notification_center.notifications)
+def env(monkeypatch, lane, centre_posts):
     monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
     monkeypatch.setattr(ui_helpers, '_user_motion_locked', lambda label: False)
 
@@ -71,7 +66,7 @@ def env(monkeypatch, lane):
         lane=lane,
         motion=motion,
         record=record,
-        shown=shown,
+        posts=centre_posts,
         vertical_control=vertical_control,
     )
 
@@ -111,7 +106,7 @@ def test_asks_once_then_moves_on_the_lane_then_redraws_then_its_gui_work(env):
         ('draw', 'T'),
         ('moved',),
     ]
-    assert env.shown == []
+    assert env.posts == []
 
 
 def test_a_refusal_moves_nothing_is_shown_once_and_still_redraws(env):
@@ -125,7 +120,7 @@ def test_a_refusal_moves_nothing_is_shown_once_and_still_redraws(env):
     assert ('move',) not in env.record
     assert ('moved',) not in env.record, "a refused gesture ran the gesture's GUI work"
     assert ('draw', 'XY') in env.record
-    assert len(env.shown) == 1, env.shown
+    assert len(env.posts) == 1, env.posts
 
 
 def test_a_move_refused_part_way_leaves_what_moved_and_skips_the_gui_work(env):
@@ -138,7 +133,7 @@ def test_a_move_refused_part_way_leaves_what_moved_and_skips_the_gui_work(env):
     assert ('move', 'X') in env.record
     assert ('moved',) not in env.record
     assert ('draw', 'XY') in env.record
-    assert len(env.shown) == 1, env.shown
+    assert len(env.posts) == 1, env.posts
 
 
 def test_a_gesture_with_no_axes_asks_nothing_and_still_runs(env):

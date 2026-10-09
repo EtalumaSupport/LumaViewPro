@@ -122,11 +122,9 @@ def test_a_relative_move_of_absurd_distance_is_refused_the_same_way(api):
 
 
 @pytest.mark.parametrize('bound', ['travel range', 'safety limit'])
-def test_both_safety_refusals_reach_the_user_in_their_own_words(bound):
+def test_both_safety_refusals_reach_the_user_in_their_own_words(bound, centre_posts):
     """Driven through the real executor: a refusal raised in a background
     task is shown with its own message, whichever limit refused it."""
-    import modules.sequential_io_executor as sio
-    from modules.notification_center import NotificationCenter, Severity
     from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
     error = PositionOutOfRangeError('Y', 1e30, 0.0, 80000.0, bound=bound)
@@ -134,23 +132,15 @@ def test_both_safety_refusals_reach_the_user_in_their_own_words(bound):
     def _move_absolute_impl():
         raise error
 
-    centre = NotificationCenter(dedup_window_s=10.0)
-    seen = []
-    centre.add_listener(seen.append, min_severity=Severity.INFO)
-    original = sio.notifications
-    try:
-        sio.notifications = centre
-        executor = SequentialIOExecutor(name='TEST')
-        task = IOTask(_move_absolute_impl)
-        task.set_name(executor.executor_name)
-        executor.queue.put(task)
-        executor.queue.get()
-        result, exception = task.run()
-        executor._on_task_done(task, result, exception)
-    finally:
-        sio.notifications = original
+    executor = SequentialIOExecutor(name='TEST')
+    task = IOTask(_move_absolute_impl)
+    task.set_name(executor.executor_name)
+    executor.queue.put(task)
+    executor.queue.get()
+    result, exception = task.run()
+    executor._on_task_done(task, result, exception)
 
-    assert [n.message for n in seen] == [str(error)]
+    assert [n.message for n in centre_posts] == [str(error)]
 
 
 def test_distinct_failures_do_not_suppress_each_other():
@@ -172,7 +162,7 @@ def test_distinct_failures_do_not_suppress_each_other():
     )
 
 
-def test_each_failure_has_its_own_identity_and_none_of_it_is_a_symbol():
+def test_each_failure_has_its_own_identity_and_none_of_it_is_a_symbol(centre_posts):
     """Each failure must carry its own dedup identity, and none of it may
     be a Python symbol.
 
@@ -189,8 +179,6 @@ def test_each_failure_has_its_own_identity_and_none_of_it_is_a_symbol():
     """
     import re
 
-    import modules.sequential_io_executor as sio
-    from modules.notification_center import NotificationCenter, Severity
     from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
     def _grind_beans():
@@ -199,25 +187,17 @@ def test_each_failure_has_its_own_identity_and_none_of_it_is_a_symbol():
     def _pull_shot():
         raise ValueError('portafilter empty')
 
-    centre = NotificationCenter(dedup_window_s=10.0)
-    seen = []
-    centre.add_listener((lambda n: n.shown and seen.append(n)), min_severity=Severity.ERROR)
-
-    original = sio.notifications
-    try:
-        sio.notifications = centre
-        for action in (_grind_beans, _pull_shot, _grind_beans):
-            executor = SequentialIOExecutor(name='TEST')
-            task = IOTask(action)
-            task.set_name(executor.executor_name)
-            executor.queue.put(task)
-            executor.queue.get()
-            result, exception = task.run()
-            executor._on_task_done(task, result, exception)
-    finally:
-        sio.notifications = original
+    for action in (_grind_beans, _pull_shot, _grind_beans):
+        executor = SequentialIOExecutor(name='TEST')
+        task = IOTask(action)
+        task.set_name(executor.executor_name)
+        executor.queue.put(task)
+        executor.queue.get()
+        result, exception = task.run()
+        executor._on_task_done(task, result, exception)
 
     # Two distinct actions reach the user; the repeat of the first dedups.
+    seen = [n for n in centre_posts if n.shown]
     assert len(seen) == 2, (
         f'distinct failures must keep distinct dedup identities, and a repeat '
         f'of one must collapse: {[(n.category, n.title) for n in seen]}'

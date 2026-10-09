@@ -26,13 +26,11 @@ import modules.protocol_recording as protocol_recording
 from modules import notification_center
 from modules.exceptions import (
     CaptureError,
-    FrameHandlerRemovedError,
     FrameListenerNotRegisteredError,
 )
 from modules.lumascope_api.imaging import HANDLER_BUDGET_MS, HANDLER_DROP_K, _BudgetedHandler
-from modules.notification_center import Severity
+from modules.notification_center import OutcomeKind, Severity
 from modules.run_events import RunEvents
-from tests.shown_outcomes import capture_shown
 from tests.test_manual_recording_controller import make_controller
 from tests.test_video_camera_lost_outcome import _make_recorder
 from tests.scope_fakes import bind_settings_like_a_session
@@ -41,14 +39,6 @@ from tests.protocol_drives import run_identity
 
 def _refuse(*_a, **_kw):
     raise RuntimeError('scripted driver refusal')
-
-
-@pytest.fixture
-def shown(monkeypatch):
-    """What the one reporter shows, with imaging's own name bound to it."""
-    shown = capture_shown(monkeypatch)
-    monkeypatch.setattr(imaging_mod, 'notifications', notification_center.notifications)
-    return shown
 
 
 @pytest.fixture
@@ -65,7 +55,7 @@ def sim_scope():
 
 class TestTheRegistrantHearsTheRefusal:
     def test_a_refused_registration_raises_posts_nothing_and_can_be_retried(
-        self, sim_scope, shown, monkeypatch
+        self, sim_scope, centre_posts, monkeypatch
     ):
         def handler(*_a):
             pass
@@ -76,7 +66,7 @@ class TestTheRegistrantHearsTheRefusal:
                 sim_scope.imaging.add_frame_listener(handler, name='probe')
 
         assert isinstance(raised.value.__cause__, RuntimeError)
-        assert shown == [], 'the registrant reports it; the API shows nothing itself'
+        assert centre_posts == [], 'the registrant reports it; the API shows nothing itself'
         assert handler not in sim_scope.imaging._frame_listener_wrappers
 
         sim_scope.imaging.add_frame_listener(handler, name='probe')
@@ -157,7 +147,7 @@ class TestTheRegistrantHearsTheRefusal:
 
 
 class TestAFailingHandlerIsBounded:
-    def test_a_handler_raising_k_frames_running_is_removed_with_one_traceback(self):
+    def test_a_handler_raising_k_frames_running_is_removed_with_one_traceback(self, centre_posts):
         imaging = MagicMock()
         calls = []
 
@@ -166,21 +156,18 @@ class TestAFailingHandlerIsBounded:
             raise ValueError('plugin bug')
 
         w = _BudgetedHandler(imaging, raises, name='bad_plugin')
-        with (
-            patch.object(imaging_mod, 'logger') as log,
-            patch.object(imaging_mod, 'notifications') as notify,
-        ):
+        with patch.object(imaging_mod, 'logger') as log:
             for _ in range(HANDLER_DROP_K + 5):
                 w(None, None, None)
 
         assert len(calls) == HANDLER_DROP_K, 'no call reaches the handler once it is removed'
         assert log.exception.call_count == 1, 'the first failure is logged; the rest counted'
         imaging._remove_wrapper.assert_called_once_with(w)
-        outcome = notify.report_outcome.call_args[0][0]
-        assert isinstance(outcome, FrameHandlerRemovedError)
-        assert outcome.reason == 'raised'
+        assert [(n.kind, n.title, n.reason) for n in centre_posts] == [
+            (OutcomeKind.REFUSAL, 'Plugin Removed', 'raised')
+        ]
 
-    def test_a_handler_that_recovers_before_k_is_kept(self):
+    def test_a_handler_that_recovers_before_k_is_kept(self, centre_posts):
         imaging = MagicMock()
         results = iter([ValueError('x')] * (HANDLER_DROP_K - 1) + [None] * 3)
 
@@ -190,15 +177,16 @@ class TestAFailingHandlerIsBounded:
                 raise result
 
         w = _BudgetedHandler(imaging, flaky, name='flaky')
-        with patch.object(imaging_mod, 'logger'), patch.object(imaging_mod, 'notifications'):
+        with patch.object(imaging_mod, 'logger'):
             for _ in range(HANDLER_DROP_K + 2):
                 w(None, None, None)
 
         imaging._remove_wrapper.assert_not_called()
         assert w._consecutive_raised == 0
+        assert centre_posts == []
 
     def test_on_a_streaming_camera_a_raising_handler_logs_once_and_is_removed(
-        self, sim_scope, shown, monkeypatch
+        self, sim_scope, centre_posts, monkeypatch
     ):
         logged = []
         monkeypatch.setattr(
@@ -213,27 +201,36 @@ class TestAFailingHandlerIsBounded:
 
         monkeypatch.setattr(sim_scope.imaging, '_remove_wrapper', observing_remove)
         reported = threading.Event()
-        notification_center.notifications.add_listener(
-            lambda _n: reported.set(), min_severity=Severity.INFO
-        )
+
+        def _reported(_n):
+            reported.set()
+
+        notification_center.notifications.add_listener(_reported, min_severity=Severity.INFO)
 
         def bad(*_a):
             raise ValueError('plugin bug')
 
-        sim_scope.imaging.set_exposure_ms(1.0)
-        sim_scope.imaging.add_frame_listener(bad, name='bad_plugin')
-        sim_scope.imaging.start_streaming()
-        assert removed.wait(timeout=5.0), 'a handler failing every frame must be removed'
-        # The removal is reported after it is made; the report is the signal.
-        assert reported.wait(timeout=5.0), 'the removal was never reported'
+        try:
+            sim_scope.imaging.set_exposure_ms(1.0)
+            sim_scope.imaging.add_frame_listener(bad, name='bad_plugin')
+            sim_scope.imaging.start_streaming()
+            assert removed.wait(timeout=5.0), 'a handler failing every frame must be removed'
+            # The removal is reported after it is made; the report is the signal.
+            assert reported.wait(timeout=5.0), 'the removal was never reported'
+        finally:
+            notification_center.notifications.remove_listener(_reported)
 
         assert len(logged) == 1, f'one traceback, not one per frame: {len(logged)}'
         assert bad not in sim_scope.imaging._frame_listener_wrappers
-        assert [(n.severity, n.title) for n in shown] == [(Severity.WARNING, 'Plugin Removed')]
+        assert [(n.severity, n.title) for n in centre_posts] == [
+            (Severity.WARNING, 'Plugin Removed')
+        ]
 
 
 class TestARemovalIsReportedAndStopsCalls:
-    def test_an_over_budget_removal_is_one_warning_and_no_traceback(self, shown, monkeypatch):
+    def test_an_over_budget_removal_is_one_warning_and_no_traceback(
+        self, centre_posts, monkeypatch
+    ):
         errors = []
         monkeypatch.setattr(
             notification_center._outcome_logger,
@@ -252,8 +249,10 @@ class TestARemovalIsReportedAndStopsCalls:
             w(None, None, None)
 
         assert len(calls) == HANDLER_DROP_K
-        assert [(n.severity, n.title) for n in shown] == [(Severity.WARNING, 'Plugin Removed')]
-        assert 'slow_plugin' in shown[0].message
+        assert [(n.severity, n.title) for n in centre_posts] == [
+            (Severity.WARNING, 'Plugin Removed')
+        ]
+        assert 'slow_plugin' in centre_posts[0].message
         assert errors == [], 'a removal is a refusal: no ERROR, no traceback'
 
     def test_a_removal_the_driver_fails_to_unregister_still_stops_calls(
@@ -293,10 +292,7 @@ class TestTheUnwindAndRemovalEdges:
         sim_scope.imaging.add_frame_listener(bad, name='leaky_bad')
         wrapper = sim_scope.imaging._frame_listener_wrappers[bad]
         monkeypatch.setattr(sim_scope._camera_driver, 'unregister_frame_callback', _refuse)
-        with (
-            patch.object(imaging_mod, 'logger') as log,
-            patch.object(imaging_mod, 'notifications'),
-        ):
+        with patch.object(imaging_mod, 'logger') as log:
             for _ in range(HANDLER_DROP_K + 3):
                 wrapper(None, None, None)
 

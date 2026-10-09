@@ -25,27 +25,15 @@ from tests.test_a_zstack_with_no_range_is_refused import (  # noqa: F401
 )
 
 
-@pytest.fixture
-def shown(monkeypatch):
-    """What the reporter shows, with the funnels' own module names pointed at it."""
-    import modules.lumascope_api.motion as motion
-    import modules.protocol as protocol
-    from modules import notification_center
-    from tests.shown_outcomes import capture_shown
-
-    shown = capture_shown(monkeypatch)
-    for module in (protocol, motion):
-        monkeypatch.setattr(module, 'notifications', notification_center.notifications)
-    return shown
-
-
 def _report_again(error):
     from modules import notification_center
 
     notification_center.notifications.report_outcome(error, solicited=True, category='UI:TEST')
 
 
-def test_the_zstack_builders_refusal_is_shown_once_however_often_it_is_reported(sim_scope, shown):
+def test_the_zstack_builders_refusal_is_shown_once_however_often_it_is_reported(
+    sim_scope, centre_posts
+):
     with pytest.raises(ProtocolRunRefusedError) as refusal:
         Protocol.from_config(
             input_config=_standalone_config({'range': 0.0, 'step_size': 5.0}),
@@ -56,15 +44,17 @@ def test_the_zstack_builders_refusal_is_shown_once_however_often_it_is_reported(
         )
     _report_again(refusal.value)
 
-    assert [(n.title, n.severity) for n in shown] == [('Z-Stack Not Configured', Severity.WARNING)]
+    assert [(n.title, n.severity) for n in centre_posts] == [
+        ('Z-Stack Not Configured', Severity.WARNING)
+    ]
 
 
-def test_the_motion_refusal_is_shown_once_however_often_it_is_reported(sim_scope, shown):
+def test_the_motion_refusal_is_shown_once_however_often_it_is_reported(sim_scope, centre_posts):
     with pytest.raises(AxisStateUnknownError) as refusal:
         sim_scope.motion.refuse_unknown_positions(('Z',), recording=True, then='save the focus')
     _report_again(refusal.value)
 
-    assert [(n.title, n.severity) for n in shown] == [('Scope Not Homed', Severity.WARNING)]
+    assert [(n.title, n.severity) for n in centre_posts] == [('Scope Not Homed', Severity.WARNING)]
 
 
 def test_the_sessions_listeners_hear_a_run_return_to_idle(tmp_path):

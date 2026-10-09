@@ -14,23 +14,10 @@ from __future__ import annotations
 
 import pytest
 
-import modules.lumascope_api._lumascope as lumascope_module
-import modules.lumascope_api.motion as motion_module
 from drivers.exceptions import HardwareError
 from modules.exceptions import MotorStopFailedError, ScopeDisconnectError
 from modules.lumascope_api.motion import AxisState
-from modules.notification_center import NotificationCenter, Severity
 from tests.scope_fakes import build_scope
-
-
-@pytest.fixture
-def centre(monkeypatch):
-    c = NotificationCenter(dedup_window_s=10.0)
-    c.shown = []
-    c.add_listener(c.shown.append, min_severity=Severity.INFO)
-    monkeypatch.setattr(motion_module, 'notifications', c)
-    monkeypatch.setattr(lumascope_module, 'notifications', c)
-    return c
 
 
 @pytest.fixture
@@ -48,7 +35,7 @@ def _stop_fails(scope, monkeypatch):
     return cause
 
 
-def test_a_failed_stop_raises_chained_and_moves_the_generation(scope, centre, monkeypatch):
+def test_a_failed_stop_raises_chained_and_moves_the_generation(scope, centre_posts, monkeypatch):
     cause = _stop_fails(scope, monkeypatch)
     generation = scope.motion._stop_generation
 
@@ -59,10 +46,10 @@ def test_a_failed_stop_raises_chained_and_moves_the_generation(scope, centre, mo
     assert raised.value.title == 'Motor Stop Failed'
     assert 'power-cycle the microscope' in str(raised.value)
     assert scope.motion._stop_generation == generation + 1
-    assert centre.shown == []
+    assert centre_posts == []
 
 
-def test_disconnect_raises_a_failed_stop_after_finishing(scope, centre, monkeypatch):
+def test_disconnect_raises_a_failed_stop_after_finishing(scope, centre_posts, monkeypatch):
     _stop_fails(scope, monkeypatch)
 
     with pytest.raises(ScopeDisconnectError) as excinfo:
@@ -70,7 +57,7 @@ def test_disconnect_raises_a_failed_stop_after_finishing(scope, centre, monkeypa
 
     assert excinfo.value.parts == ('motor stop',)
     assert isinstance(excinfo.value.__cause__, MotorStopFailedError)
-    assert centre.shown == [], 'disconnect shows nothing; its caller reports it'
+    assert centre_posts == [], 'disconnect shows nothing; its caller reports it'
     assert scope.motor_connected is False
     assert all(
         scope.motion.get_axis_state(ax) == AxisState.UNKNOWN for ax in scope.motion._axis_state

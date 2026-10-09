@@ -16,10 +16,8 @@ import time
 
 import pytest
 
-import modules.notification_center as nc
 import modules.sequenced_capture_runner as runner_module
 from drivers.simulated_camera import SimulatedStall
-from modules.notification_center import NotificationCenter, Severity
 from modules.protocol_image_writer import RunWriteBatch
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import build_scope
@@ -75,11 +73,9 @@ class TestTheLaneIsHeld:
             session.shutdown()
 
     @pytest.mark.slow
-    def test_a_drain_behind_the_hold_is_reported_as_a_stalled_writer(self, tmp_path, monkeypatch):
-        centre = NotificationCenter(dedup_window_s=0)
-        heard = []
-        centre.add_listener(heard.append, min_severity=Severity.DEBUG)
-        monkeypatch.setattr(nc, 'notifications', centre)
+    def test_a_drain_behind_the_hold_is_reported_as_a_stalled_writer(
+        self, tmp_path, monkeypatch, centre_posts
+    ):
         # The real threshold is 30 s; the judgement is the same at any threshold.
         monkeypatch.setattr(runner_module, 'WRITE_STALL_FATAL_S', 0.3)
         session = ScopeSession.create(
@@ -96,9 +92,9 @@ class TestTheLaneIsHeld:
             session.sequenced_capture_runner._write_batch = batch
 
             assert _wait_for(
-                lambda: any(n.reason == 'files_writing_stalled' for n in heard), 5.0
+                lambda: any(n.reason == 'files_writing_stalled' for n in centre_posts), 5.0
             ), 'the stall behind the held lane was not reported'
-            stall = next(n for n in heard if n.reason == 'files_writing_stalled')
+            stall = next(n for n in centre_posts if n.reason == 'files_writing_stalled')
             assert 'simulated_stuck_write' in stall.message
         finally:
             session.shutdown()

@@ -75,10 +75,9 @@ GESTURES = {
 
 
 @pytest.fixture
-def unknown(monkeypatch):
+def unknown(monkeypatch, centre_posts):
     """A scope whose axes do not know their positions, and what the person is shown."""
     from tests.scope_fakes import spec_scope
-    from tests.shown_outcomes import capture_shown
 
     def _refuse(axes, *, recording, then):
         raise AxisStateUnknownError(dict.fromkeys(axes, 'unknown'), then=then)
@@ -123,7 +122,7 @@ def unknown(monkeypatch):
     monkeypatch.setattr(_app_ctx, 'ctx', ctx)
     for module in (motion_settings, vertical_control, layer_control):
         monkeypatch.setattr(module.gui_logger, 'button', lambda *a, **kw: None)
-    return SimpleNamespace(scope=scope, settings=settings, shown=capture_shown(monkeypatch))
+    return SimpleNamespace(scope=scope, settings=settings, posts=centre_posts)
 
 
 @pytest.mark.parametrize('gesture', list(GESTURES))
@@ -135,7 +134,7 @@ def test_the_refusal_is_one_warning_and_nothing_is_saved(unknown, gesture):
 
     getattr(build(), press)()
 
-    assert [(n.title, n.severity) for n in unknown.shown] == [('Scope Not Homed', Severity.WARNING)]
+    assert [(n.title, n.severity) for n in unknown.posts] == [('Scope Not Homed', Severity.WARNING)]
     assert unknown.settings == before, 'a refused save writes nothing'
     assert not unknown.scope.motion.get_current_position.called, (
         'the position is not even read once the API refused'

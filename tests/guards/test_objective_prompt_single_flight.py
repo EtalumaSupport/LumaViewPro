@@ -235,21 +235,18 @@ class TestSingleFlight:
         stand.prompt_if_objective_unknown()
         assert len(popups) == 2
 
-    def test_an_empty_catalogue_does_not_latch(self, monkeypatch, popups, session):
+    def test_an_empty_catalogue_does_not_latch(self, monkeypatch, popups, session, centre_posts):
         """An empty catalogue is refused by the Session BEFORE the popup
         exists -- one reported outcome, no modal -- and must not leave the
         flag set with no popup to clear it."""
-        from tests.shown_outcomes import capture_shown
-
         _install_ctx(monkeypatch, session)
         stand = _Stand()
-        shown = capture_shown(monkeypatch)
         catalogue = session.objective_helper.get_objectives_list
         monkeypatch.setattr(session.objective_helper, 'get_objectives_list', lambda: [])
 
         stand.prompt_if_objective_unknown()
         assert popups == []
-        assert len(shown) == 1
+        assert len(centre_posts) == 1
 
         monkeypatch.setattr(session.objective_helper, 'get_objectives_list', catalogue)
         stand.prompt_if_objective_unknown()
@@ -326,16 +323,16 @@ class TestNoHardwareSuppression:
 
 
 class TestTheFlagCannotStrand:
-    def test_raise_inside_apply_does_not_wedge_the_prompt(self, monkeypatch, popups, session):
+    def test_raise_inside_apply_does_not_wedge_the_prompt(
+        self, monkeypatch, popups, session, centre_posts
+    ):
         """The answer is applied AFTER dismiss and a failure applying it
         is shown, not raised -- so it cannot leave the app unable to ever
         ask again, nor exit it from the popup's callback."""
         from modules.notification_center import Severity
-        from tests.shown_outcomes import capture_shown
 
         _install_ctx(monkeypatch, session)
         stand = _Stand()
-        shown = capture_shown(monkeypatch)
 
         def _boom(objective_id, turret_position=None):
             raise ConfigError('turret write failed')
@@ -344,7 +341,9 @@ class TestTheFlagCannotStrand:
 
         stand.prompt_if_objective_unknown()
         confirm(popups[0], '10x Oly')
-        assert [(n.severity, n.message) for n in shown] == [(Severity.ERROR, 'turret write failed')]
+        assert [(n.severity, n.message) for n in centre_posts] == [
+            (Severity.ERROR, 'turret write failed')
+        ]
 
         stand.prompt_if_objective_unknown()
         assert len(popups) == 2

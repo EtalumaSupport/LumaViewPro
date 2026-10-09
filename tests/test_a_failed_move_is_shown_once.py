@@ -21,11 +21,10 @@ import threading
 
 import pytest
 
-import modules.lumascope_api.motion as motion_module
 from drivers.exceptions import HardwareError
 from modules.exceptions import MoveNotCompletedError
 from modules.lumascope_api.motion import AxisState
-from modules.notification_center import NotificationCenter, Severity
+from modules.notification_center import Severity, notifications
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
@@ -45,25 +44,20 @@ def session(tmp_path):
         s.scope.disconnect()
 
 
-@pytest.fixture
-def centre(monkeypatch):
-    c = NotificationCenter(dedup_window_s=10.0)
-    c.shown = []
-    c.add_listener((lambda n: n.shown and c.shown.append(n)), min_severity=Severity.INFO)
-    monkeypatch.setattr(motion_module, 'notifications', c)
-    return c
+def _shown(centre_posts):
+    return [n for n in centre_posts if n.shown]
 
 
 def _z_target(motion):
     return motion.get_current_position('Z') + 50.0
 
 
-def _the_caller_reports(centre, call):
+def _the_caller_reports(call):
     """What the GUI boundary does with a waited call's outcome."""
     try:
         call()
     except MoveNotCompletedError as e:
-        centre.report_outcome(e, solicited=True, category='UI:MOVE_Z')
+        notifications.report_outcome(e, solicited=True, category='UI:MOVE_Z')
         return e
     return None
 
@@ -99,7 +93,7 @@ _DRIVER_MOVES = {
 
 @pytest.mark.parametrize('kind', list(_DRIVER_MOVES))
 def test_a_driver_failure_is_one_popup_chained_to_the_drivers_error(
-    session, centre, monkeypatch, kind
+    session, centre_posts, monkeypatch, kind
 ):
     motion = session.scope.motion
     cause = HardwareError('no response from motor board')
@@ -110,42 +104,46 @@ def test_a_driver_failure_is_one_popup_chained_to_the_drivers_error(
 
     monkeypatch.setattr(motion._driver, driver_call, _dead)
 
-    raised = _the_caller_reports(centre, lambda: move(motion))
+    raised = _the_caller_reports(lambda: move(motion))
 
     assert raised.reason == 'driver_failed'
     assert raised.__cause__ is cause
-    assert [(n.severity, n.title) for n in centre.shown] == [
+    assert [(n.severity, n.title) for n in _shown(centre_posts)] == [
         (Severity.ERROR, 'Move Did Not Complete')
     ]
     assert motion.get_axis_state('Z') == AxisState.UNKNOWN
 
 
-def test_a_stall_during_a_waited_move_is_one_popup_the_monitors(session, centre, monkeypatch):
+def test_a_stall_during_a_waited_move_is_one_popup_the_monitors(session, centre_posts, monkeypatch):
     motion = session.scope.motion
     _z_never_arrives(motion, monkeypatch)
     _monitor_gives_up_first(motion, monkeypatch)
 
-    raised = _the_caller_reports(centre, lambda: motion.move_absolute('Z', _z_target(motion)))
+    raised = _the_caller_reports(lambda: motion.move_absolute('Z', _z_target(motion)))
 
     assert raised.reason == 'stalled'
-    assert [n.title for n in centre.shown] == ['Motor Axis Stalled']
-    assert centre.shown[0].message == str(raised)
+    assert [n.title for n in _shown(centre_posts)] == ['Motor Axis Stalled']
+    assert _shown(centre_posts)[0].message == str(raised)
 
 
-def test_a_second_stall_inside_the_dedup_window_is_still_shown_once(session, centre, monkeypatch):
+def test_a_second_stall_inside_the_dedup_window_is_still_shown_once(
+    session, centre_posts, monkeypatch
+):
     motion = session.scope.motion
     _z_never_arrives(motion, monkeypatch)
     _monitor_gives_up_first(motion, monkeypatch)
-    _the_caller_reports(centre, lambda: motion.move_absolute('Z', _z_target(motion)))
+    _the_caller_reports(lambda: motion.move_absolute('Z', _z_target(motion)))
     motion.home('Z')
 
-    second = _the_caller_reports(centre, lambda: motion.move_absolute('Z', _z_target(motion)))
+    second = _the_caller_reports(lambda: motion.move_absolute('Z', _z_target(motion)))
 
     assert second.reason == 'stalled'
-    assert [n.title for n in centre.shown] == ['Motor Axis Stalled', 'Motor Axis Stalled']
+    assert [n.title for n in _shown(centre_posts)] == ['Motor Axis Stalled', 'Motor Axis Stalled']
 
 
-def test_a_board_lost_during_a_waited_move_is_one_popup_the_monitors(session, centre, monkeypatch):
+def test_a_board_lost_during_a_waited_move_is_one_popup_the_monitors(
+    session, centre_posts, monkeypatch
+):
     motion = session.scope.motion
     driver = motion._driver
     real_connected = driver.is_connected
@@ -156,13 +154,13 @@ def test_a_board_lost_during_a_waited_move_is_one_popup_the_monitors(session, ce
     )
     monkeypatch.setattr(motion, '_DISCONNECT_FAULT_S', 0.1)
 
-    raised = _the_caller_reports(centre, lambda: motion.move_absolute('Z', _z_target(motion)))
+    raised = _the_caller_reports(lambda: motion.move_absolute('Z', _z_target(motion)))
 
     assert raised.reason == 'board_lost'
-    assert [n.title for n in centre.shown] == ['Motor Board Disconnected']
+    assert [n.title for n in _shown(centre_posts)] == ['Motor Board Disconnected']
 
 
-def test_a_stalled_jog_nobody_waits_on_is_shown_by_the_monitor(session, centre, monkeypatch):
+def test_a_stalled_jog_nobody_waits_on_is_shown_by_the_monitor(session, centre_posts, monkeypatch):
     motion = session.scope.motion
     _z_never_arrives(motion, monkeypatch)
     monkeypatch.setattr(motion, '_MOTION_SETTLE_TIMEOUT_S', MONITOR_GIVES_UP_S)
@@ -175,14 +173,14 @@ def test_a_stalled_jog_nobody_waits_on_is_shown_by_the_monitor(session, centre, 
 
     assert raised.value.reason == 'stalled'
     assert motion.get_axis_state('Z') == AxisState.UNKNOWN
-    assert [n.title for n in centre.shown] == ['Motor Axis Stalled']
+    assert [n.title for n in _shown(centre_posts)] == ['Motor Axis Stalled']
 
 
-def test_a_later_wait_does_not_raise_an_earlier_stall(session, centre, monkeypatch):
+def test_a_later_wait_does_not_raise_an_earlier_stall(session, centre_posts, monkeypatch):
     motion = session.scope.motion
     _z_never_arrives(motion, monkeypatch)
     _monitor_gives_up_first(motion, monkeypatch)
-    _the_caller_reports(centre, lambda: motion.move_absolute('Z', _z_target(motion)))
+    _the_caller_reports(lambda: motion.move_absolute('Z', _z_target(motion)))
     motion.home('Z')
 
     # The next move's wait ends with Z set UNKNOWN by something other than

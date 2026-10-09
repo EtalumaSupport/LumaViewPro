@@ -18,19 +18,7 @@ from modules.exceptions import (
     RunCheckFailedError,
     SettingsSaveRefusedError,
 )
-from modules.notification_center import NotificationCenter, Severity
-
-
-@pytest.fixture
-def centre(monkeypatch):
-    import modules.notification_center as nc
-
-    centre = NotificationCenter(dedup_window_s=10.0)
-    seen = []
-    centre.add_listener(seen.append, min_severity=Severity.DEBUG)
-    monkeypatch.setattr(nc, 'notifications', centre)
-    centre.seen = seen
-    return centre
+from modules.notification_center import Severity, notifications
 
 
 def _refuse_through_the_runner():
@@ -60,7 +48,7 @@ def _refuse_through_the_protocols_api():
 
 
 @pytest.mark.parametrize('refuse', [_refuse_through_the_runner, _refuse_through_the_protocols_api])
-def test_a_funnel_refusal_is_one_warning_line_naming_its_reason(centre, caplog, refuse):
+def test_a_funnel_refusal_is_one_warning_line_naming_its_reason(centre_posts, caplog, refuse):
     with caplog.at_level(logging.DEBUG):
         refusal = refuse()
 
@@ -70,10 +58,10 @@ def test_a_funnel_refusal_is_one_warning_line_naming_its_reason(centre, caplog, 
     assert f'({refusal.reason})' in records[0].getMessage(), (
         'the one line a shown refusal leaves must name its reason code'
     )
-    assert len(centre.seen) == 1
-    assert centre.seen[0].severity == Severity.WARNING
-    assert centre.seen[0].solicited is True
-    assert centre.seen[0].title == refusal.title
+    assert len(centre_posts) == 1
+    assert centre_posts[0].severity == Severity.WARNING
+    assert centre_posts[0].solicited is True
+    assert centre_posts[0].title == refusal.title
 
 
 def test_a_refusals_words_are_its_sentence():
@@ -94,7 +82,7 @@ def test_a_refused_settings_save_says_why_in_a_sentence(reason):
     assert reason not in str(refusal), 'the code is for machines; the sentence is for people'
 
 
-def test_a_crashed_check_is_one_error_with_both_tracebacks(centre, caplog):
+def test_a_crashed_check_is_one_error_with_both_tracebacks(centre_posts, caplog):
     try:
         try:
             raise OSError('objectives.json missing')
@@ -107,7 +95,7 @@ def test_a_crashed_check_is_one_error_with_both_tracebacks(centre, caplog):
     except RunCheckFailedError as raised:
         fault = raised
     with caplog.at_level(logging.DEBUG):
-        centre.report_outcome(fault, solicited=True, category='UI:RUN')
+        notifications.report_outcome(fault, solicited=True, category='UI:RUN')
 
     assert not isinstance(fault, Refusal)
     errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
@@ -116,7 +104,7 @@ def test_a_crashed_check_is_one_error_with_both_tracebacks(centre, caplog):
     assert traced[0].exc_info[1].__cause__.args == ('objectives.json missing',), (
         'the crash that stopped the check must travel with the fault'
     )
-    assert len(centre.seen) == 1
-    assert centre.seen[0].severity == Severity.ERROR
-    assert centre.seen[0].title == 'Cannot validate protocol'
-    assert centre.seen[0].message == 'Pre-run validation could not run.'
+    assert len(centre_posts) == 1
+    assert centre_posts[0].severity == Severity.ERROR
+    assert centre_posts[0].title == 'Cannot validate protocol'
+    assert centre_posts[0].message == 'Pre-run validation could not run.'

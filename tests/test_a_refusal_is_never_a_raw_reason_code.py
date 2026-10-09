@@ -106,7 +106,6 @@ def refusing_runner():
 @pytest.fixture
 def app_ctx(monkeypatch, refusing_runner):
     from modules.sequential_io_executor import ENQUEUED
-    from tests.shown_outcomes import capture_shown
     import ui.ui_helpers as ui_helpers
 
     pool = MagicMock()
@@ -117,7 +116,6 @@ def app_ctx(monkeypatch, refusing_runner):
 
     pool.put.side_effect = _run_now
     monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
-    capture_shown(monkeypatch)
     monkeypatch.setattr(
         _app_ctx,
         'ctx',

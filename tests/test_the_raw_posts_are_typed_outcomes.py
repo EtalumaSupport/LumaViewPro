@@ -17,25 +17,9 @@ import datetime
 import pytest
 
 import modules.exceptions as exc
-import modules.notification_center as nc
-from modules.notification_center import NotificationCenter, OutcomeKind, Severity
+from modules.notification_center import OutcomeKind, Severity, notifications
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
-
-
-@pytest.fixture
-def centre(monkeypatch):
-    # A centre of its own: the shared one's dedup window remembers what
-    # earlier tests posted.
-    centre = NotificationCenter()
-    monkeypatch.setattr(nc, 'notifications', centre)
-    return centre
-
-
-def _heard(centre):
-    heard = []
-    centre.add_listener(heard.append, min_severity=Severity.DEBUG)
-    return heard
 
 
 _NOTICES = [
@@ -99,45 +83,44 @@ _FAULTS = [
 
 
 @pytest.mark.parametrize(('notice', 'reason'), _NOTICES, ids=lambda v: type(v).__name__)
-def test_a_notice_arrives_as_a_notice_with_its_reason_and_is_shown_once(centre, notice, reason):
-    heard = _heard(centre)
+def test_a_notice_arrives_as_a_notice_with_its_reason_and_is_shown_once(
+    centre_posts, notice, reason
+):
+    notifications.report_outcome(notice, solicited=False, category='Test')
+    notifications.report_outcome(notice, solicited=False, category='Test')
 
-    centre.report_outcome(notice, solicited=False, category='Test')
-    centre.report_outcome(notice, solicited=False, category='Test')
-
-    assert [(n.kind, n.severity, n.title, n.message, n.reason, n.shown) for n in heard] == [
+    assert [(n.kind, n.severity, n.title, n.message, n.reason, n.shown) for n in centre_posts] == [
         (OutcomeKind.NOTICE, Severity.NOTICE, notice.title, str(notice), reason, True)
     ]
 
 
 @pytest.mark.parametrize(('fault', 'reason', 'fatal'), _FAULTS, ids=lambda v: type(v).__name__)
-def test_a_fault_arrives_as_a_fault_in_its_own_words_with_its_reason(centre, fault, reason, fatal):
-    heard = _heard(centre)
+def test_a_fault_arrives_as_a_fault_in_its_own_words_with_its_reason(
+    centre_posts, fault, reason, fatal
+):
+    notifications.report_outcome(fault, solicited=False, category='Test')
 
-    centre.report_outcome(fault, solicited=False, category='Test')
-
-    assert [(n.kind, n.title, n.message, n.reason, n.fatal) for n in heard] == [
+    assert [(n.kind, n.title, n.message, n.reason, n.fatal) for n in centre_posts] == [
         (OutcomeKind.FAULT, fault.title, str(fault), reason, fatal)
     ]
-    assert heard[0].severity is (Severity.CRITICAL if fatal else Severity.ERROR)
+    assert centre_posts[0].severity is (Severity.CRITICAL if fatal else Severity.ERROR)
 
 
-def test_a_failed_run_is_shown_through_an_unattended_runs_mute_and_a_failed_start_is_not(centre):
-    heard = _heard(centre)
-    centre.open_run_scope(attended=False)
-
-    centre.report_outcome(
+def test_a_failed_run_is_shown_through_an_unattended_runs_mute_and_a_failed_start_is_not(
+    centre_posts, unattended_run
+):
+    notifications.report_outcome(
         exc.RunFailedError(reason='disk_space_critical', title='Disk Space Critical', message='m'),
         solicited=False,
         category='FileIO',
     )
-    centre.report_outcome(
+    notifications.report_outcome(
         exc.RunFailedToStartError(reason='start_failed', title='Run failed to start', message='m'),
         solicited=False,
         category='Protocol',
     )
 
-    assert [(n.title, n.shown) for n in heard] == [
+    assert [(n.title, n.shown) for n in centre_posts] == [
         ('Disk Space Critical', True),
         ('Run failed to start', False),
     ]
@@ -145,9 +128,7 @@ def test_a_failed_run_is_shown_through_an_unattended_runs_mute_and_a_failed_star
 
 class TestTheAutoGainLimitsAreShown:
     @pytest.fixture
-    def session(self, tmp_path, centre, monkeypatch):
-        # Imaging binds the centre when it is imported.
-        monkeypatch.setattr('modules.lumascope_api.imaging.notifications', centre)
+    def session(self, tmp_path):
         s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         try:
             yield s

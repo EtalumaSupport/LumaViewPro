@@ -285,12 +285,11 @@ class TestWheelDirectionIsConsistent:
         assert up._scroll_z_pending[0] > 0, 'ctrl + wheel up must queue a POSITIVE Z move.'
         assert down._scroll_z_pending[0] < 0, 'ctrl + wheel down must lower the objective.'
 
-    def test_focus_with_the_objective_unknown_is_refused_visibly(self, monkeypatch):
+    def test_focus_with_the_objective_unknown_is_refused_visibly(self, monkeypatch, centre_posts):
         """The step scales with the objective. With none known nothing
         moves, and the refusal is shown as the jog buttons show theirs --
         not a debug line nobody sees."""
         from modules.exceptions import ObjectiveUnknownError
-        from tests.shown_outcomes import capture_shown
         from ui import shader, ui_helpers
 
         def _unknown(axis, coarse):
@@ -298,13 +297,12 @@ class TestWheelDirectionIsConsistent:
 
         moved = []
         monkeypatch.setattr(ui_helpers, 'move_relative', lambda *a, **k: moved.append(a))
-        shown = capture_shown(monkeypatch)
         viewer = self._scroll_live_image(
             monkeypatch, self.TOKEN_PHYSICAL_UP, ctrl_held=True, jog_step=_unknown
         )
         shader.ShaderViewer._flush_scroll_z(viewer, 0)
         assert moved == []
-        assert [n.title for n in shown] == ['Objective Unknown']
+        assert [n.title for n in centre_posts] == ['Objective Unknown']
 
     def test_wheel_up_zooms_in(self, monkeypatch):
         up = self._scroll_live_image(monkeypatch, self.TOKEN_PHYSICAL_UP, ctrl_held=False)

@@ -126,13 +126,6 @@ def ctx(monkeypatch):
     return context
 
 
-@pytest.fixture
-def shown(monkeypatch):
-    from tests.shown_outcomes import capture_shown
-
-    return capture_shown(monkeypatch)
-
-
 class TestAddStep:
     def test_an_accepted_step_is_gone_to_last(self, ctx):
         ctx.session.add_step.return_value = ['A1_Green']
@@ -144,13 +137,13 @@ class TestAddStep:
         assert panel.moves == [1]
         ctx.stage.set_protocol_steps.assert_called_once()
 
-    def test_a_refused_step_is_shown_once_and_not_navigated_to(self, ctx, shown):
+    def test_a_refused_step_is_shown_once_and_not_navigated_to(self, ctx, centre_posts):
         ctx.session.add_step.side_effect = _refusal()
         panel = _Panel(_protocol())
 
         panel.insert_step(after_current_step=True)
 
-        assert [n.title for n in shown] == ['Objective Not Available']
+        assert [n.title for n in centre_posts] == ['Objective Not Available']
         assert panel.moves == [], 'a refused step has nowhere to go'
         assert panel.curr_step == 0
         assert panel.redraws == 1, 'the panel still shows its protocol as the API has it'
@@ -167,13 +160,13 @@ class TestModifyStep:
         assert kwargs['layer'] == 'Green'
         assert kwargs['label'] == 'my_step'
 
-    def test_a_refused_modify_is_shown_once(self, ctx, shown):
+    def test_a_refused_modify_is_shown_once(self, ctx, centre_posts):
         ctx.session.update_step.side_effect = _refusal()
         panel = _Panel(_protocol())
 
         panel.modify_step()
 
-        assert [n.title for n in shown] == ['Objective Not Available']
+        assert [n.title for n in centre_posts] == ['Objective Not Available']
         assert panel.redraws == 1
 
 
@@ -190,14 +183,14 @@ class TestNewProtocol:
         assert (panel.ids['protocol_filename'].text, panel.ids['capture_root'].text) == ('', '')
         assert panel.moves == [0]
 
-    def test_a_refused_build_is_shown_once_and_adopts_nothing(self, ctx, shown):
+    def test_a_refused_build_is_shown_once_and_adopts_nothing(self, ctx, centre_posts):
         ctx.session.new_protocol.side_effect = _refusal()
         previous = _protocol()
         panel = _Panel(previous)
 
         panel.new_protocol()
 
-        assert [n.title for n in shown] == ['Objective Not Available']
+        assert [n.title for n in centre_posts] == ['Objective Not Available']
         assert panel._protocol is previous
 
 
@@ -225,7 +218,9 @@ class TestSave:
         assert panel.ids['protocol_filename'].text == 'other.tsv'
         assert own_popups == []
 
-    def test_a_failed_save_is_shown_once_and_the_previous_name_stays(self, ctx, shown, own_popups):
+    def test_a_failed_save_is_shown_once_and_the_previous_name_stays(
+        self, ctx, centre_posts, own_popups
+    ):
         panel = self._panel()
         ctx.session.save_protocol.side_effect = ProtocolNotSavedError(
             file='/data/other.tsv', cause=PermissionError(13, 'Permission denied')
@@ -234,7 +229,7 @@ class TestSave:
         panel.save_protocol(filepath='/data/other')
 
         assert own_popups == [], 'the outcome is shown by the one reporter'
-        assert [n.title for n in shown] == ['Protocol Not Saved']
+        assert [n.title for n in centre_posts] == ['Protocol Not Saved']
         assert ctx.settings['protocol']['filepath'] == 'plate.tsv'
         assert panel.ids['protocol_filename'].text == 'plate.tsv'
 
@@ -274,7 +269,7 @@ class TestLoad:
         assert panel.moves == []
 
     def test_a_plate_refused_under_a_recording_is_shown_once_and_adopts_nothing(
-        self, ctx, shown, own_popups, tsv
+        self, ctx, centre_posts, own_popups, tsv
     ):
         refusal = HardwareCommandRefusedError(
             'exclusive_activity_running', 'select_labware', 'recording'
@@ -283,28 +278,30 @@ class TestLoad:
         self._refused_load(ctx, tsv, refusal)
 
         assert own_popups == [], 'the outcome is shown by the one reporter'
-        assert [n.title for n in shown] == [refusal.title]
+        assert [n.title for n in centre_posts] == [refusal.title]
 
-    def test_a_file_that_cannot_be_read_says_so(self, ctx, shown, own_popups, tsv):
+    def test_a_file_that_cannot_be_read_says_so(self, ctx, centre_posts, own_popups, tsv):
         error = ProtocolNotLoadedError(file=tsv, cause=PermissionError(13, 'Permission denied'))
 
         self._refused_load(ctx, tsv, error)
 
         assert own_popups == [], 'the outcome is shown by the one reporter'
-        assert [(n.title, n.message) for n in shown] == [('Protocol Not Loaded', str(error))], (
-            'an unreadable file was a silent no-op'
-        )
+        assert [(n.title, n.message) for n in centre_posts] == [
+            ('Protocol Not Loaded', str(error))
+        ], 'an unreadable file was a silent no-op'
 
-    def test_a_file_that_is_not_a_protocol_is_shown_in_its_words(self, ctx, shown, own_popups, tsv):
+    def test_a_file_that_is_not_a_protocol_is_shown_in_its_words(
+        self, ctx, centre_posts, own_popups, tsv
+    ):
         error = ProtocolFormatError('Not a valid LumaViewPro Protocol', file=tsv)
 
         self._refused_load(ctx, tsv, error)
 
         assert own_popups == [], 'the outcome is shown by the one reporter'
-        assert [(n.title, n.message) for n in shown] == [('Protocol Refused', str(error))]
+        assert [(n.title, n.message) for n in centre_posts] == [('Protocol Refused', str(error))]
 
     def test_a_failure_drawing_the_panel_is_reported_and_leaves_the_sessions_protocol(
-        self, ctx, shown, own_popups, tsv
+        self, ctx, centre_posts, own_popups, tsv
     ):
         """The file dialog's callback has no reporter of its own: a failure
         drawing the panel after the Session opened the file was raised out of
@@ -323,12 +320,12 @@ class TestLoad:
         assert panel._protocol is opened
         ctx.session.open_protocol.assert_called_once_with(str(tsv))
         assert ctx.settings['protocol']['filepath'] == 'plate.tsv', 'the panel writes no path'
-        [outcome] = shown
+        [outcome] = centre_posts
         assert (outcome.category, outcome.kind.value) == ('UI:LOAD_PROTOCOL', 'fault')
 
     @pytest.mark.parametrize('shown_plate', ['6 well microplate', '96 well microplate'])
     def test_an_adoption_draws_the_stage_and_declares_only_a_spinner_write_that_dispatches(
-        self, ctx, shown, tsv, monkeypatch, shown_plate
+        self, ctx, centre_posts, tsv, monkeypatch, shown_plate
     ):
         """The stage redraws only on XY motion outside a run, so the adoption
         draws the new steps itself. The spinner's write is declared to the GUI
@@ -364,14 +361,14 @@ class TestLoad:
 
 class TestTheStartupLoad:
     def test_a_refusal_already_reported_is_not_logged_again(
-        self, ctx, shown, tmp_path, caplog, monkeypatch
+        self, ctx, centre_posts, tmp_path, caplog, monkeypatch
     ):
         from modules.notification_center import notifications
 
         refusal = _refusal()
         # The API's funnel reports a refusal as it raises it.
         notifications.report_outcome(refusal, solicited=True, category='Protocol')
-        shown.clear()
+        centre_posts.clear()
         caplog.clear()
         saved = tmp_path / 'saved.tsv'
         saved.write_text('LumaViewPro Protocol\n')
@@ -385,6 +382,6 @@ class TestTheStartupLoad:
         with caplog.at_level(logging.DEBUG):
             panel.load_persisted_protocol()
 
-        assert shown == [], 'nobody asked for the startup load'
+        assert centre_posts == [], 'nobody asked for the startup load'
         assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
         assert ctx.settings['protocol']['filepath'] == str(saved), 'the panel writes no path'

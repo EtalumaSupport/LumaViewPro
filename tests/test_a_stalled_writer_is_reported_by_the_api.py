@@ -17,10 +17,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import modules.notification_center as nc
 from modules.exceptions import FileWriterStalledError, ProtocolRunRefusedError
 from modules.image_mode import ImageCaptureConfig
-from modules.notification_center import NotificationCenter, OutcomeKind, Severity
+from modules.notification_center import OutcomeKind
 from modules.protocol_image_writer import RunWriteBatch
 from modules.scope_session import ScopeSession
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
@@ -62,15 +61,6 @@ def session():
 
 
 @pytest.fixture
-def heard(monkeypatch):
-    centre = NotificationCenter(dedup_window_s=0)
-    posts = []
-    centre.add_listener(posts.append, min_severity=Severity.DEBUG)
-    monkeypatch.setattr(nc, 'notifications', centre)
-    return posts
-
-
-@pytest.fixture
 def scheduler(session):
     scheduler = _Scheduler()
     session.sequenced_capture_runner.start_file_writer_check(scheduler)
@@ -98,19 +88,19 @@ def _batch(
     return batch
 
 
-def _stalls(heard):
-    return [n for n in heard if n.reason == 'files_writing_stalled']
+def _stalls(centre_posts):
+    return [n for n in centre_posts if n.reason == 'files_writing_stalled']
 
 
 class TestTheStallIsReported:
     @pytest.mark.slow
-    def test_once_as_a_fault_carrying_its_remedy(self, session, heard, scheduler):
+    def test_once_as_a_fault_carrying_its_remedy(self, session, centre_posts, scheduler):
         _batch(session, stalled=True)
 
         scheduler.tick()
         scheduler.tick()
 
-        stalls = _stalls(heard)
+        stalls = _stalls(centre_posts)
         assert len(stalls) == 1, 'one stall is one report, not one per tick'
         stall = stalls[0]
         assert (stall.kind, stall.shown, stall.solicited) == (OutcomeKind.FAULT, True, False)
@@ -120,17 +110,17 @@ class TestTheStallIsReported:
         assert "write_capture 'B2_BF'" in stall.message
 
     @pytest.mark.slow
-    def test_a_different_stuck_write_is_a_new_stall(self, session, heard, scheduler):
+    def test_a_different_stuck_write_is_a_new_stall(self, session, centre_posts, scheduler):
         _batch(session, stalled=True)
         scheduler.tick()
 
         session.file_io_executor.running_task = object()
         scheduler.tick()
 
-        assert len(_stalls(heard)) == 2
+        assert len(_stalls(centre_posts)) == 2
 
     @pytest.mark.slow
-    def test_a_new_run_s_batch_starts_unreported(self, session, heard, scheduler):
+    def test_a_new_run_s_batch_starts_unreported(self, session, centre_posts, scheduler):
         _batch(session, stalled=True)
         scheduler.tick()
 
@@ -138,34 +128,34 @@ class TestTheStallIsReported:
         _batch(session, stalled=True, task=session.file_io_executor.running_task)
         scheduler.tick()
 
-        assert len(_stalls(heard)) == 2
+        assert len(_stalls(centre_posts)) == 2
 
 
 class TestNothingIsReported:
     @pytest.mark.slow
-    def test_while_the_writer_is_moving(self, session, heard, scheduler):
+    def test_while_the_writer_is_moving(self, session, centre_posts, scheduler):
         _batch(session, stalled=False)
         scheduler.tick()
-        assert _stalls(heard) == []
+        assert _stalls(centre_posts) == []
 
-    def test_while_the_run_is_live(self, session, heard, scheduler):
+    def test_while_the_run_is_live(self, session, centre_posts, scheduler):
         # A live run's own writes answer for a stuck writer; the drain has not begun.
         _batch(session, stalled=True, closed=False)
         scheduler.tick()
-        assert _stalls(heard) == []
+        assert _stalls(centre_posts) == []
 
-    def test_with_no_run_yet(self, session, heard, scheduler):
+    def test_with_no_run_yet(self, session, centre_posts, scheduler):
         scheduler.tick()
-        assert _stalls(heard) == []
+        assert _stalls(centre_posts) == []
 
 
 @pytest.mark.slow
 def test_the_refusal_and_the_report_offer_one_remedy_in_one_set_of_words(
-    session, heard, scheduler, tmp_path
+    session, centre_posts, scheduler, tmp_path
 ):
     _batch(session, stalled=True)
     scheduler.tick()
-    report = _stalls(heard)[0]
+    report = _stalls(centre_posts)[0]
 
     with pytest.raises(ProtocolRunRefusedError) as refused:
         session.sequenced_capture_runner.prepare(

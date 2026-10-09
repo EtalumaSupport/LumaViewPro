@@ -18,7 +18,6 @@ import modules.app_context as _app_ctx
 import ui.vertical_control as vc
 from modules.notification_center import Severity
 from tests.scope_fakes import home_sim_scope
-from tests.shown_outcomes import capture_shown
 from tests.test_the_gui_displays_the_turret import _Stand, session, stand  # noqa: F401 -- fixtures
 from ui import ui_helpers
 from tests.protocol_drives import run_identity
@@ -45,60 +44,59 @@ def run_holds_the_scope(session):
 
 class TestWhileARunHoldsTheScope:
     def test_picking_another_objective_is_one_microscope_busy_warning(
-        self, stand, session, run_holds_the_scope, monkeypatch, caplog
+        self, stand, session, run_holds_the_scope, caplog, centre_posts
     ):
         home_sim_scope(session.scope)
-        shown = capture_shown(monkeypatch)
         with caplog.at_level(logging.DEBUG):
             stand.pick_objective('4x Oly')
 
-        assert [(n.severity, n.title) for n in shown] == [(Severity.WARNING, 'Microscope Busy')]
+        assert [(n.severity, n.title) for n in centre_posts] == [
+            (Severity.WARNING, 'Microscope Busy')
+        ]
         assert _records(caplog) == [(NOTIFICATIONS, logging.WARNING, False)]
         assert stand.popups == []
         # The display shows the objective still mounted in slot 1.
         assert stand.ids['objective_spinner2'].text == '10x Oly'
 
     def test_picking_the_mounted_objective_is_no_outcome(
-        self, stand, session, run_holds_the_scope, monkeypatch
+        self, stand, session, run_holds_the_scope, centre_posts
     ):
         home_sim_scope(session.scope)
-        shown = capture_shown(monkeypatch)
         stand.pick_objective('10x Oly')
-        assert shown == []
+        assert centre_posts == []
 
 
 def test_resetting_an_unknown_slot_is_one_objective_unknown_warning(
-    stand, session, monkeypatch, caplog
+    stand, session, caplog, centre_posts
 ):
-    shown = capture_shown(monkeypatch)
     with caplog.at_level(logging.DEBUG):
         stand.reset_turret_objective()
 
-    assert [(n.severity, n.title) for n in shown] == [(Severity.WARNING, 'Objective Unknown')]
-    assert 'home the turret' in shown[0].message
+    assert [(n.severity, n.title) for n in centre_posts] == [
+        (Severity.WARNING, 'Objective Unknown')
+    ]
+    assert 'home the turret' in centre_posts[0].message
     assert _records(caplog) == [(NOTIFICATIONS, logging.WARNING, False)]
     assert stand.popups == []
 
 
 def test_a_refused_answer_is_shown_and_the_startup_question_still_resolves(
-    stand, session, run_holds_the_scope, monkeypatch
+    stand, session, run_holds_the_scope, centre_posts
 ):
     home_sim_scope(session.scope)
-    shown = capture_shown(monkeypatch)
     resolved = []
     stand._resolve_objective = lambda on_resolved: resolved.append(on_resolved)
     vc.VerticalControl._apply_objective_answer(stand, '4x Oly', 1, on_resolved='startup')
 
-    assert [n.title for n in shown] == ['Microscope Busy']
+    assert [n.title for n in centre_posts] == ['Microscope Busy']
     assert resolved == ['startup']
     assert stand.popups == []
 
 
 @pytest.mark.parametrize('axis', ['Z', 'X'])
 def test_a_jog_with_the_objective_unknown_is_one_objective_unknown_warning(
-    session, monkeypatch, axis
+    session, monkeypatch, axis, centre_posts
 ):
-    shown = capture_shown(monkeypatch)
     moved = []
     monkeypatch.setattr(
         _app_ctx,
@@ -120,4 +118,6 @@ def test_a_jog_with_the_objective_unknown_is_one_objective_unknown_warning(
         motion_settings.XYStageControl._xy_jog(SimpleNamespace(), 'X', +1, coarse=False)
 
     assert moved == []
-    assert [(n.severity, n.title) for n in shown] == [(Severity.WARNING, 'Objective Unknown')]
+    assert [(n.severity, n.title) for n in centre_posts] == [
+        (Severity.WARNING, 'Objective Unknown')
+    ]

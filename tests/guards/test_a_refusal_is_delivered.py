@@ -106,17 +106,12 @@ def test_shutdown_still_suppresses_a_refusal(centre_and_seen):
     assert seen == [], 'a notification was dispatched after teardown began'
 
 
-def test_the_runner_funnel_delivers_its_refusal_during_an_unattended_run(monkeypatch):
+def test_the_runner_funnel_delivers_its_refusal_during_an_unattended_run(
+    centre_posts, unattended_run
+):
     """End to end through the production funnel, not a reconstruction of it."""
     from modules.exceptions import ProtocolRunRefusedError
     from modules.sequenced_capture_runner import SequencedCaptureRunner
-    import modules.notification_center as nc
-
-    centre = NotificationCenter(dedup_window_s=10.0)
-    seen = []
-    centre.add_listener(seen.append, min_severity=Severity.NOTICE)
-    centre.open_run_scope(attended=False)
-    monkeypatch.setattr(nc, 'notifications', centre)
 
     runner = object.__new__(SequencedCaptureRunner)
     with pytest.raises(ProtocolRunRefusedError):
@@ -126,9 +121,11 @@ def test_the_runner_funnel_delivers_its_refusal_during_an_unattended_run(monkeyp
             message='A protocol run is already in progress.',
         )
 
-    assert len(seen) == 1, 'the runner funnel posted a refusal that never reached the user'
-    assert seen[0].solicited is True
-    assert seen[0].operation_key, 'without a key the bridge stacks a dialog per press'
+    assert [(n.reason, n.shown) for n in centre_posts] == [('already_running', True)], (
+        'the runner funnel posted a refusal that never reached the user'
+    )
+    assert centre_posts[0].solicited is True
+    assert centre_posts[0].operation_key, 'without a key the bridge stacks a dialog per press'
 
 
 def _functions_raising_the_typed_refusal():

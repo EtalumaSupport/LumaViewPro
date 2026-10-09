@@ -57,12 +57,10 @@ def held():
 
 
 @pytest.fixture
-def pressed(monkeypatch, held):
+def pressed(monkeypatch, held, centre_posts):
     """A GUI with nothing running; the pool runs each request at once."""
     from modules.sequential_io_executor import ENQUEUED
-    from tests.shown_outcomes import capture_shown
 
-    shown = capture_shown(monkeypatch)
     pool = MagicMock()
 
     def _put(task):
@@ -98,7 +96,7 @@ def pressed(monkeypatch, held):
     monkeypatch.setattr(vc.gui_logger, 'button', lambda *a, **kw: None)
     monkeypatch.setattr(vc.common_utils, 'get_opened_layer', lambda _settings: 'Green')
     return SimpleNamespace(
-        member=member, engine=engine, handle=handle, shown=shown, pool=pool, button=_Button()
+        member=member, engine=engine, handle=handle, posts=centre_posts, pool=pool, button=_Button()
     )
 
 
@@ -140,7 +138,7 @@ def test_a_refused_start_is_shown_once_and_the_button_draws_idle(pressed):
 
     pressed.button.run_autofocus_from_ui()
 
-    assert [n.title for n in pressed.shown] == ['Objective Unknown']
+    assert [n.title for n in pressed.posts] == ['Objective Unknown']
     assert (pressed.button.button.state, pressed.button.button.text) == ('normal', 'Autofocus')
     assert pressed.button.autofocus_pending is False, 'the button must come back for the next press'
 
@@ -150,7 +148,7 @@ def test_an_unexpected_failure_is_one_fault_and_the_button_draws_idle(pressed):
 
     pressed.button.run_autofocus_from_ui()
 
-    assert len(pressed.shown) == 1
+    assert len(pressed.posts) == 1
     assert pressed.button.button.state == 'normal'
     assert pressed.button.autofocus_pending is False
 
@@ -191,7 +189,7 @@ def test_a_stop_that_finds_its_run_already_ended_shows_nothing(pressed):
 
     pressed.button.run_autofocus_from_ui()
 
-    assert pressed.shown == []
+    assert pressed.posts == []
     assert (pressed.button.button.state, pressed.button.button.text) == ('normal', 'Autofocus')
 
 
@@ -204,7 +202,7 @@ def test_a_refused_stop_leaves_the_button_showing_its_own_run(pressed):
 
     pressed.button.run_autofocus_from_ui()
 
-    assert [n.title for n in pressed.shown] == ['Not Running']
+    assert [n.title for n in pressed.posts] == ['Not Running']
     assert (pressed.button.button.state, pressed.button.button.text) == ('down', 'Focusing...')
 
 

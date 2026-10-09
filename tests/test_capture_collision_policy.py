@@ -126,21 +126,11 @@ def test_validate_for_run_allows_image_and_video_step_sharing_name():
 # ---------------------------------------------------------------------------
 
 
-def test_load_warns_same_base_in_same_tile_group_and_still_loads(tmp_path, monkeypatch):
+def test_load_warns_same_base_in_same_tile_group_and_still_loads(tmp_path, centre_posts):
     # Two steps on DIFFERENT wells renamed to one label render the same
     # base. The load must NOT reject -- a load-time rejection would block
     # the in-app rename that is the remedy -- it warns once, and the run
     # itself is refused at start (validate_for_run), the data-loss gate.
-    from modules import protocol as protocol_mod
-
-    captured: list = []
-
-    class _RecordingNotifier:
-        def report_outcome(self, outcome, *, category, **kw):
-            captured.append(str(outcome))
-
-    monkeypatch.setattr(protocol_mod, 'notifications', _RecordingNotifier())
-
     rows = ''
     rows += _step_row('Control', 'A1', '', -1, 0, 46.5, 34.6, 4972.9)
     rows += _step_row('Control', 'A2', '', -1, 0, 60.1, 34.6, 5001.7)
@@ -149,6 +139,7 @@ def test_load_warns_same_base_in_same_tile_group_and_still_loads(tmp_path, monke
 
     proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
     assert proto.num_steps() == 2, 'the file must load so the user can rename the steps'
+    captured = [n.message for n in centre_posts]
     assert len(captured) == 1, captured
     assert 'refused' in captured[0].lower()
     assert 'rename' in captured[0].lower()
@@ -688,19 +679,9 @@ def test_load_sanitizes_labels_loudly(tmp_path, monkeypatch):
     assert any('removed unsupported characters' in w for w in warnings), warnings
 
 
-def test_labels_differing_only_in_stripped_chars_collide(tmp_path, monkeypatch):
+def test_labels_differing_only_in_stripped_chars_collide(tmp_path, centre_posts):
     # 'A.1' and 'A1' sanitize to one label; on different wells they render
     # one capture base, so the load warns and the run is refused at start.
-    from modules import protocol as protocol_mod
-
-    notified: list = []
-
-    class _RecordingNotifier:
-        def report_outcome(self, outcome, *, category, **kw):
-            notified.append(str(outcome))
-
-    monkeypatch.setattr(protocol_mod, 'notifications', _RecordingNotifier())
-
     tsv = tmp_path / 'stripped_collision.tsv'
     tsv.write_text(
         _V8_HEADER
@@ -709,6 +690,7 @@ def test_labels_differing_only_in_stripped_chars_collide(tmp_path, monkeypatch):
     )
     proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
     assert list(proto.steps()['Label']) == ['A1', 'A1']
+    notified = [n.message for n in centre_posts]
     assert len(notified) == 1 and 'refused' in notified[0].lower(), notified
 
     errors = proto.validate_for_run(

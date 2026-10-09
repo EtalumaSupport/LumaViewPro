@@ -91,18 +91,13 @@ def _quiet_ui(monkeypatch):
     monkeypatch.setattr(cc, 'set_last_save_folder', MagicMock())
 
 
-@pytest.fixture
-def shown(monkeypatch):
-    from tests.shown_outcomes import capture_shown
-
-    return capture_shown(monkeypatch)
-
-
 def _click(starter):
     cc.CompositeCapture.composite_capture(starter)
 
 
-def test_the_button_hands_the_press_to_the_engine_and_decides_nothing(app_ctx, runner, shown):
+def test_the_button_hands_the_press_to_the_engine_and_decides_nothing(
+    app_ctx, runner, centre_posts
+):
     # No folder: the API owns where a composite goes, so a script's and a
     # press's land in the same place. No camera pre-check: a camera that
     # is not streaming is the engine's refusal, and the button cannot know
@@ -120,7 +115,7 @@ def test_the_button_hands_the_press_to_the_engine_and_decides_nothing(app_ctx, r
     assert not app_ctx.sequenced_capture_runner._reset.called, 'a start is not a stop'
 
 
-def test_a_refused_start_is_shown_once_and_the_button_draws_idle(app_ctx, runner, shown):
+def test_a_refused_start_is_shown_once_and_the_button_draws_idle(app_ctx, runner, centre_posts):
     # The button changed nothing ahead of the engine's answer, so there is
     # nothing to undo: the redraw asks the engine, which has no live run.
     runner.start_composite.side_effect = ProtocolRunRefusedError(
@@ -130,18 +125,20 @@ def test_a_refused_start_is_shown_once_and_the_button_draws_idle(app_ctx, runner
 
     _click(starter)
 
-    assert [n.title for n in shown] == ['Already Running']
+    assert [n.title for n in centre_posts] == ['Already Running']
     assert starter.button.state == 'normal'
     assert starter.composite_pending is False, 'the button must come back for the next press'
 
 
-def test_an_unexpected_failure_is_one_fault_and_the_button_draws_idle(app_ctx, runner, shown):
+def test_an_unexpected_failure_is_one_fault_and_the_button_draws_idle(
+    app_ctx, runner, centre_posts
+):
     runner.start_composite.side_effect = TypeError('bad call')
     starter = _Starter()
 
     _click(starter)
 
-    assert len(shown) == 1
+    assert len(centre_posts) == 1
     assert starter.button.state == 'normal'
     assert starter.composite_pending is False
 

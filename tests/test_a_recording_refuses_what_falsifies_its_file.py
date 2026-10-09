@@ -303,14 +303,12 @@ class TestTheLabwarePanelReportsARefusal:
     that once, through the one reporter, and renders the plate in place: the
     stage, and the spinner, which went on naming the refused plate."""
 
-    def test_a_refused_pick_is_shown_once_and_the_panel_carries_on(self, monkeypatch):
+    def test_a_refused_pick_is_shown_once_and_the_panel_carries_on(self, monkeypatch, centre_posts):
         import types
 
         import modules.app_context as _app_ctx
         import ui.protocol_settings as protocol_settings_module
-        from tests.shown_outcomes import capture_shown
 
-        shown = capture_shown(monkeypatch)
         redrawn = []
         protocol_plates = []
 
@@ -342,7 +340,7 @@ class TestTheLabwarePanelReportsARefusal:
 
         protocol_settings_module.ProtocolSettings.select_labware(panel)
 
-        assert [n.title for n in shown] == ['Microscope Busy']
+        assert [n.title for n in centre_posts] == ['Microscope Busy']
         assert protocol_plates == [], 'a plate the scope refused was written into the protocol'
         assert redrawn == ['stage'], 'the panel must still render the plate in place'
         assert panel.ids['labware_spinner'].text == 'A', (

@@ -29,10 +29,11 @@ import lvp_logger
 import pytest
 import modules.config_helpers as config_helpers
 from drivers.exceptions import HardwareError
-from modules.exceptions import AutoGainNotSettledError, ExposureAtMinimumNotice
+from modules.exceptions import ExposureAtMinimumNotice
 from drivers.simulated_camera import SimulatedCamera, _SimImageHandler
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
+from modules.notification_center import OutcomeKind
 from tests import ast_seams
 from tests.scope_fakes import (
     bind_settings_like_a_session,
@@ -277,39 +278,37 @@ def test_a_failed_black_level_read_fails_the_capture_and_the_arm_resumes():
     assert cam._auto_gain_enabled is True
 
 
-def test_live_view_lock_tells_the_user_and_a_protocol_lock_does_not():
+def test_live_view_lock_tells_the_user_and_a_protocol_lock_does_not(centre_posts):
     """A limit state reaches an attended user through the notification
     center from the API itself, so the GUI renders nothing of its own and
     a headless caller gets the same notice; a protocol step's arm is
     unattended and gets the log line only."""
     imaging, _cam = _build(ae_lands_on_ms=0.4)
     _arm(imaging, AG_SETTINGS_FLUORESCENCE, resume_after_capture=True)
-    with patch('modules.lumascope_api.imaging.notifications') as notifications:
-        lock = imaging._lock_auto_gain_impl()
+    lock = imaging._lock_auto_gain_impl()
     assert lock.state.value == 'AT_MINIMUM'
-    assert notifications.report_outcome.call_count == 1
-    (notice,) = notifications.report_outcome.call_args.args
-    assert isinstance(notice, ExposureAtMinimumNotice)
-    assert '0.4' in str(notice)
+    assert [(n.kind, n.reason) for n in centre_posts] == [
+        (OutcomeKind.NOTICE, ExposureAtMinimumNotice.reason)
+    ]
+    assert '0.4' in centre_posts[0].message
 
+    centre_posts.clear()
     imaging, _cam = _build(ae_lands_on_ms=0.4)
     _arm(imaging, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
-    with patch('modules.lumascope_api.imaging.notifications') as notifications:
-        assert imaging._lock_auto_gain_impl().state.value == 'AT_MINIMUM'
-    assert notifications.report_outcome.call_count == 0
+    assert imaging._lock_auto_gain_impl().state.value == 'AT_MINIMUM'
+    assert centre_posts == []
 
 
-def test_failed_lock_under_a_live_view_arm_is_an_error_to_the_user():
+def test_failed_lock_under_a_live_view_arm_is_an_error_to_the_user(centre_posts):
     imaging, cam = _build(ae_lands_on_ms=62.0)
     _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
     cam.chunks_absent = True
     cam.fail_readback = True
-    with patch('modules.lumascope_api.imaging.notifications') as notifications:
-        assert imaging._capture_and_wait_impl(timeout_s=1.0) is not None
+    assert imaging._capture_and_wait_impl(timeout_s=1.0) is not None
     assert imaging.last_capture_info['auto_gain'] == 'FAILED'
-    assert notifications.report_outcome.call_count == 1
-    (fault,) = notifications.report_outcome.call_args.args
-    assert isinstance(fault, AutoGainNotSettledError)
+    assert [(n.kind, n.reason) for n in centre_posts] == [
+        (OutcomeKind.FAULT, 'auto_gain_not_settled')
+    ]
 
 
 def test_public_lock_runs_the_impl_without_an_executor():

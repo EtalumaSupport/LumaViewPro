@@ -42,13 +42,11 @@ class _Starter(zs.ZStack):
 
 
 @pytest.fixture
-def clicked(monkeypatch):
+def clicked(monkeypatch, centre_posts):
     """Click Acquire with nothing running; return what the member was asked."""
     from modules.sequential_io_executor import ENQUEUED
-    from tests.shown_outcomes import capture_shown
     import ui.ui_helpers as ui_helpers
 
-    shown = capture_shown(monkeypatch)
     pool = MagicMock()
 
     def _run_now(task):
@@ -93,7 +91,7 @@ def clicked(monkeypatch):
         engine=engine,
         handle=handle,
         linked=linked,
-        shown=shown,
+        posts=centre_posts,
         starter=_Starter(),
     )
 
@@ -136,7 +134,7 @@ def test_a_refusal_is_shown_once_draws_idle_and_links_no_folder(clicked):
 
     clicked.starter.run_zstack_acquire_from_ui()
 
-    assert [n.title for n in clicked.shown] == ['Z-Stack Not Configured']
+    assert [n.title for n in clicked.posts] == ['Z-Stack Not Configured']
     assert clicked.starter.button.state == 'normal'
     assert clicked.starter.button.text == 'Acquire'
     assert clicked.starter.zstack_pending is False, 'the button must come back for the next press'

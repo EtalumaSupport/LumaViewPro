@@ -18,8 +18,7 @@ This walk over every test module refuses three forms:
 * swapping a module's ``notifications`` for anything but the real singleton.
 
 Replacing ``report_outcome`` is not refused: it watches what the code under
-test reported, not what was posted. The allowlist names each remaining site
-by file and enclosing def, with why it stays.
+test reported, not what was posted.
 """
 
 from __future__ import annotations
@@ -34,116 +33,6 @@ POST_METHODS = frozenset({'debug', 'info', 'notice', 'warning', 'error', 'critic
 _SETATTR_TAILS = ('setattr', 'patch.object')
 # A dotted path that ends at a module's centre, or one level below it.
 _CENTRE_PATH = re.compile(r'\.notifications(?:\.(?P<attr>\w+|\{[^}]*\}))?$')
-
-_D2 = 'swaps a fresh centre in; moves to centre_posts on the D2 follow-up row'
-_REPORTER_MOCK = (
-    'a stand-in centre asserted only on report_outcome; moves to a report_outcome '
-    'spy on the real singleton on the D2 follow-up row'
-)
-
-# (file, enclosing def) -> why the site stays.
-ALLOWED = {
-    # A direct post from ui/file_dialogs.py, which the guard's subject is not.
-    ('tests/test_issue_750_native_dialog_async.py', 'test_stuck_dialog_reclick_notifies_user'): (
-        'spies the direct warning post in ui/file_dialogs.py'
-    ),
-    # The D2 class.
-    (
-        'tests/guards/test_a_refusal_is_delivered.py',
-        'test_the_runner_funnel_delivers_its_refusal_during_an_unattended_run',
-    ): _D2,
-    ('tests/shown_outcomes.py', 'capture_shown'): _D2,
-    ('tests/test_a_failed_motor_stop_is_raised.py', 'centre'): _D2,
-    ('tests/test_a_failed_move_is_shown_once.py', 'centre'): _D2,
-    ('tests/test_a_failed_startup_home_is_reported_once.py', 'shown'): _D2,
-    ('tests/test_a_missing_motor_is_not_homed_at_startup.py', 'heard'): _D2,
-    ('tests/test_a_plugin_failure_is_reported_once.py', 'shown'): _D2,
-    ('tests/test_a_refusal_in_a_task_is_a_refusal.py', '_run_task'): _D2,
-    ('tests/test_a_run_refusal_is_reported_once.py', 'centre'): _D2,
-    (
-        'tests/test_a_simulated_file_stall_holds_the_file_lane.py',
-        'TestTheLaneIsHeld.test_a_drain_behind_the_hold_is_reported_as_a_stalled_writer',
-    ): _D2,
-    ('tests/test_a_stalled_writer_is_reported_by_the_api.py', 'heard'): _D2,
-    ('tests/test_an_unknown_objective_is_a_refusal.py', '_run_on_the_lane'): _D2,
-    ('tests/test_bring_up_is_a_record.py', 'heard'): _D2,
-    ('tests/test_one_lane_reporter.py', 'shown'): _D2,
-    (
-        'tests/test_one_lane_reporter.py',
-        'test_a_listener_that_submits_from_inside_a_report_does_not_deadlock',
-    ): _D2,
-    ('tests/test_outcome_subscription.py', 'centre'): _D2,
-    (
-        'tests/test_outcome_subscription.py',
-        'TestABrokenListenerIsLoud.test_a_raising_scope_listener_is_reported_once',
-    ): _D2,
-    (
-        'tests/test_protocol_execution.py',
-        'TestMotionTimeoutEndsRunInsteadOfWedging.test_a_failed_stop_is_folded_into_the_one_fatal_popup',
-    ): _D2,
-    (
-        'tests/test_refusal_reaches_the_user.py',
-        'test_both_safety_refusals_reach_the_user_in_their_own_words',
-    ): _D2,
-    (
-        'tests/test_refusal_reaches_the_user.py',
-        'test_each_failure_has_its_own_identity_and_none_of_it_is_a_symbol',
-    ): _D2,
-    (
-        'tests/test_settings_question_failure_parity.py',
-        'TestTheQuestionIsAskable.test_the_answer_path_survives_a_locked_file',
-    ): _D2,
-    ('tests/test_the_raw_posts_are_typed_outcomes.py', 'centre'): _D2,
-    (
-        'tests/test_the_raw_posts_are_typed_outcomes.py',
-        'TestTheAutoGainLimitsAreShown.session',
-    ): _D2,
-    (
-        'tests/test_waited_move_truth.py',
-        'test_the_executor_shows_the_failure_in_its_own_words',
-    ): _D2,
-    # Reporter-input mocks, on the D2 row.
-    (
-        'tests/test_auto_gain_lock.py',
-        'test_live_view_lock_tells_the_user_and_a_protocol_lock_does_not',
-    ): _REPORTER_MOCK,
-    (
-        'tests/test_auto_gain_lock.py',
-        'test_failed_lock_under_a_live_view_arm_is_an_error_to_the_user',
-    ): _REPORTER_MOCK,
-    (
-        'tests/test_a_refused_frame_listener_is_raised.py',
-        'TestAFailingHandlerIsBounded.test_a_handler_raising_k_frames_running_is_removed_with_one_traceback',
-    ): _REPORTER_MOCK,
-    (
-        'tests/test_a_refused_frame_listener_is_raised.py',
-        'TestAFailingHandlerIsBounded.test_a_handler_that_recovers_before_k_is_kept',
-    ): _REPORTER_MOCK,
-    (
-        'tests/test_a_refused_frame_listener_is_raised.py',
-        'TestTheUnwindAndRemovalEdges.test_an_auto_remove_stops_calls_even_when_the_driver_unregister_raises',
-    ): _REPORTER_MOCK,
-    (
-        'tests/test_hyperstack_run_trigger.py',
-        'TestRunnerHyperstackTrigger.test_a_held_batch_builds_nothing_and_reports_the_timeout',
-    ): _REPORTER_MOCK,
-    (
-        'tests/test_protocol_overwrite_guard.py',
-        'test_load_warns_on_duplicate_filename_keys_and_loads',
-    ): _REPORTER_MOCK,
-    (
-        'tests/test_protocol_overwrite_guard.py',
-        'test_load_warns_on_cross_tgid_filename_collision',
-    ): _REPORTER_MOCK,
-    (
-        'tests/test_capture_collision_policy.py',
-        'test_load_warns_same_base_in_same_tile_group_and_still_loads',
-    ): _REPORTER_MOCK,
-    (
-        'tests/test_capture_collision_policy.py',
-        'test_labels_differing_only_in_stripped_chars_collide',
-    ): _REPORTER_MOCK,
-}
 
 
 def _text(node) -> str:
@@ -261,20 +150,12 @@ def _found_in_tests():
 
 def test_no_test_replaces_a_posting_method_or_swaps_a_centre():
     found = [
-        f'{rel}:{lineno} {qualname} {what}'
-        for rel, qualname, lineno, what in _found_in_tests()
-        if (rel, qualname) not in ALLOWED
+        f'{rel}:{lineno} {qualname} {what}' for rel, qualname, lineno, what in _found_in_tests()
     ]
     assert found == [], (
         'observe a post through the centre_posts fixture (tests/conftest.py), '
         f'never by replacing the centre or its posting methods: {found}'
     )
-
-
-def test_every_allowed_site_still_exists():
-    # An entry whose site is gone would exempt the next test written there.
-    sites = {(rel, qualname) for rel, qualname, _lineno, _what in _found_in_tests()}
-    assert sorted(set(ALLOWED) - sites) == []
 
 
 def _forms(source: str) -> list[str]:

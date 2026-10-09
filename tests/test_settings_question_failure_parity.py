@@ -431,7 +431,7 @@ class TestTheQuestionIsAskable:
         ]
         assert offenders == [], f'popup(s) opened before the root attaches: {offenders}'
 
-    def test_the_answer_path_survives_a_locked_file(self, monkeypatch, tmp_path):
+    def test_the_answer_path_survives_a_locked_file(self, monkeypatch, tmp_path, centre_posts):
         """The retire is a file rename. Under a Windows AV/indexer lock
         it raises -- from a button callback, where an escape kills the
         process with no teardown. It must say so, re-present the
@@ -463,11 +463,6 @@ class TestTheQuestionIsAskable:
         log = MagicMock()
         stand = _AppStand()
 
-        centre = notification_center.NotificationCenter()
-        errors = []
-        centre.add_listener(errors.append, min_severity=notification_center.Severity.INFO)
-        monkeypatch.setattr(notification_center, 'notifications', centre)
-
         shown = {}
         monkeypatch.setattr(
             notification_popup,
@@ -494,11 +489,11 @@ class TestTheQuestionIsAskable:
 
         assert stand.stopped == 0, 'a locked file is recoverable; it must not stop the app'
         assert not log.error.called, 'the handler logs nothing of its own beside the report'
-        assert [(n.title, n.severity) for n in errors] == [
+        assert [(n.title, n.severity) for n in centre_posts] == [
             ('Settings File Not Replaced', notification_center.Severity.ERROR)
         ]
-        assert 'The process cannot access the file' in errors[0].message
-        assert 'in use by another program' not in errors[0].message
+        assert 'The process cannot access the file' in centre_posts[0].message
+        assert 'in use by another program' not in centre_posts[0].message
         assert stand.re_asked == 1, 'the unresolved question must be put back to the user'
         assert stand.objective_prompts == 0, (
             'settings are still provisional, so the objective answer still could not be kept'

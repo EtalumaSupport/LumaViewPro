@@ -16,8 +16,8 @@ from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
-from modules.exceptions import Notice, RunFilesNotWrittenError
 from modules.image_mode import OUTPUT_FORMAT_HYPERSTACK, ImageCaptureConfig
+from modules.notification_center import OutcomeKind
 from modules.protocol_image_writer import RunWriteBatch
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.protocol_drives import bare_capture_runner
@@ -60,7 +60,9 @@ class TestRunnerHyperstackTrigger:
             save_encoding='8bit',
         )
 
-    def test_a_held_batch_builds_nothing_and_reports_the_timeout(self, tmp_path, monkeypatch):
+    def test_a_held_batch_builds_nothing_and_reports_the_timeout(
+        self, tmp_path, monkeypatch, centre_posts
+    ):
         # The stacks are read back off the run's images: a build that
         # started before the run's last write landed would silently miss
         # planes. With a write held past the bound, the build waits, reads
@@ -74,23 +76,16 @@ class TestRunnerHyperstackTrigger:
         runner._write_batch.submit(lambda: None, {}, what='an image', pace_until=None)
         runner._write_batch.close()
         builder = MagicMock()
+        builder.operation_key = 'hyperstack_build'
         monkeypatch.setattr(stack_builder, 'StackBuilder', lambda has_turret: builder)
-        notifications = MagicMock()
-        monkeypatch.setattr(stack_builder, 'notifications', notifications)
 
         _join(runner._start_hyperstack_build())
 
         builder.load_folder.assert_not_called()
         # The announcement is reported too; what went wrong is the rest.
-        (failure,) = [
-            call
-            for call in notifications.report_outcome.call_args_list
-            if not isinstance(call.args[0], Notice)
-        ]
-        (raised,) = failure.args
-        assert isinstance(raised, RunFilesNotWrittenError)
-        assert raised.reason == 'write_batch_timeout'
-        assert failure.kwargs['operation_key'] is builder.operation_key
+        (failure,) = [n for n in centre_posts if n.kind is not OutcomeKind.NOTICE]
+        assert (failure.kind, failure.reason) == (OutcomeKind.FAULT, 'write_batch_timeout')
+        assert failure.operation_key == builder.operation_key
 
     def test_the_build_holds_the_path_the_run_armed_it_with(self, tmp_path, monkeypatch):
         # The build runs on a daemon thread that outlives the run: the

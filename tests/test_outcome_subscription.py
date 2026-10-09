@@ -16,24 +16,14 @@ import logging
 
 import pytest
 
-import modules.notification_center as nc
 from modules.exceptions import Notice, ProtocolRunRefusedError
-from modules.notification_center import NotificationCenter, OutcomeKind
+from modules.notification_center import NotificationCenter, OutcomeKind, notifications
 from modules.scope_session import ScopeSession, _scheduler_callback_error
 from tests.settings_fixtures import complete_settings
 
 
 @pytest.fixture
-def centre(monkeypatch):
-    # A centre of its own: the shared one's dedup window remembers what
-    # earlier tests posted.
-    centre = NotificationCenter()
-    monkeypatch.setattr(nc, 'notifications', centre)
-    return centre
-
-
-@pytest.fixture
-def session(tmp_path, centre):
+def session(tmp_path):
     s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
     try:
         yield s
@@ -57,7 +47,7 @@ def _listening(session):
 
 class TestBringUpIsHeard:
     def test_a_listener_given_to_create_hears_what_the_scope_reports_while_it_is_built(
-        self, tmp_path, centre, monkeypatch
+        self, tmp_path, monkeypatch
     ):
         import modules.lumascope_api as lumascope_api
 
@@ -65,7 +55,7 @@ class TestBringUpIsHeard:
 
         class _ReportsWhileBuilt(real):
             def __init__(self, *args, **kwargs):
-                nc.notifications.warning('Hardware', 'Camera not detected', 'no camera')
+                notifications.warning('Hardware', 'Camera not detected', 'no camera')
                 super().__init__(*args, **kwargs)
 
         monkeypatch.setattr(lumascope_api, 'Lumascope', _ReportsWhileBuilt)
@@ -81,7 +71,7 @@ class TestBringUpIsHeard:
         finally:
             s.shutdown()
 
-    def test_a_factory_that_raises_gives_the_listener_back(self, tmp_path, centre, monkeypatch):
+    def test_a_factory_that_raises_gives_the_listener_back(self, tmp_path, monkeypatch):
         import modules.lumascope_api as lumascope_api
 
         def _refuses(*args, **kwargs):
@@ -96,11 +86,11 @@ class TestBringUpIsHeard:
                 simulate=True,
                 outcome_listener=heard.append,
             )
-        centre.error('Hardware', 'After', 'a post after the failed compose')
+        notifications.error('Hardware', 'After', 'a post after the failed compose')
 
         assert heard == [], 'a host composing again would hear every outcome twice'
 
-    def test_shutdown_takes_the_listener_back(self, tmp_path, centre):
+    def test_shutdown_takes_the_listener_back(self, tmp_path):
         heard = []
         s = ScopeSession.create(
             complete_settings(live_folder=str(tmp_path)),
@@ -110,22 +100,24 @@ class TestBringUpIsHeard:
         s.shutdown()
         heard.clear()
 
-        centre.error('Hardware', 'After', 'a post after shutdown')
+        notifications.error('Hardware', 'After', 'a post after shutdown')
 
         assert heard == []
 
 
 class TestWhatASubscriberHears:
-    def test_each_kind_arrives_declared(self, session, centre):
+    def test_each_kind_arrives_declared(self, session):
         heard = _listening(session)
         refusal = ProtocolRunRefusedError('empty_protocol', 'Protocol Empty', 'Add a step first.')
 
-        centre.report_outcome(refusal, solicited=True, category='Protocol')
-        centre.report_outcome(
+        notifications.report_outcome(refusal, solicited=True, category='Protocol')
+        notifications.report_outcome(
             _PositionNotRecordedError('Saved without a well.'), solicited=False, category='Capture'
         )
-        centre.report_outcome(_StreamStoppedError('stopped'), solicited=False, category='Camera')
-        centre.warning('Camera', 'Raw', 'posted straight to the centre')
+        notifications.report_outcome(
+            _StreamStoppedError('stopped'), solicited=False, category='Camera'
+        )
+        notifications.warning('Camera', 'Raw', 'posted straight to the centre')
 
         assert [(n.title, n.kind) for n in heard] == [
             ('Protocol Empty', OutcomeKind.REFUSAL),
@@ -137,39 +129,38 @@ class TestWhatASubscriberHears:
         assert all(n.shown for n in heard)
 
     def test_a_fault_muted_by_an_unattended_run_still_arrives_marked_not_shown(
-        self, session, centre
+        self, session, unattended_run
     ):
         heard = _listening(session)
-        centre.open_run_scope(attended=False)
 
-        shown = centre.error('Camera', 'Camera Not Delivering Frames', 'stalled')
+        shown = notifications.error('Camera', 'Camera Not Delivering Frames', 'stalled')
 
         assert shown is False
         assert [(n.title, n.shown) for n in heard] == [('Camera Not Delivering Frames', False)]
 
-    def test_a_repeat_inside_the_dedup_window_arrives_marked_not_shown(self, session, centre):
+    def test_a_repeat_inside_the_dedup_window_arrives_marked_not_shown(self, session):
         heard = _listening(session)
 
-        centre.error('Camera', 'Stalled', 'first')
-        centre.error('Camera', 'Stalled', 'second')
+        notifications.error('Camera', 'Stalled', 'first')
+        notifications.error('Camera', 'Stalled', 'second')
 
         assert [n.shown for n in heard] == [True, False]
         assert heard[0].outcome_id != heard[1].outcome_id
 
-    def test_one_outcome_muted_then_shown_arrives_twice_under_one_id(self, session, centre):
+    def test_one_outcome_muted_then_shown_arrives_twice_under_one_id(self, session):
         heard = _listening(session)
         fault = _StreamStoppedError('stopped')
 
-        centre.open_run_scope(attended=False)
-        centre.report_outcome(fault, solicited=False, category='Camera')
-        centre.close_run_scope()
-        centre.report_outcome(fault, solicited=True, category='Camera')
+        notifications.open_run_scope(attended=False)
+        notifications.report_outcome(fault, solicited=False, category='Camera')
+        notifications.close_run_scope()
+        notifications.report_outcome(fault, solicited=True, category='Camera')
 
         assert [n.shown for n in heard] == [False, True]
         assert heard[0].outcome_id == heard[1].outcome_id
 
     def test_a_fault_whose_type_says_fatal_is_shown_through_the_mute_with_its_remedy(
-        self, session, centre
+        self, session, unattended_run
     ):
         from modules.exceptions import Remedy
 
@@ -183,35 +174,37 @@ class TestWhatASubscriberHears:
                 self.remedy = remedy
 
         heard = _listening(session)
-        centre.open_run_scope(attended=False)
-        centre.report_outcome(_WriterStalledError(), solicited=False, category='Files')
+        notifications.report_outcome(_WriterStalledError(), solicited=False, category='Files')
 
         assert [(n.kind, n.fatal, n.shown, n.remedy) for n in heard] == [
             (OutcomeKind.FAULT, True, True, remedy)
         ]
 
-    def test_a_removed_listener_hears_nothing_more(self, session, centre):
+    def test_a_removed_listener_hears_nothing_more(self, session):
         heard = _listening(session)
         session.remove_outcome_listener(heard.append)
 
-        centre.error('Camera', 'After', 'removed')
+        notifications.error('Camera', 'After', 'removed')
 
         assert heard == []
 
 
 class TestABrokenListenerIsLoud:
     def test_a_raising_subscriber_is_logged_with_its_traceback_and_the_next_is_still_told(
-        self, centre, caplog
+        self, caplog
     ):
+        # The centre's own listener guard, on a centre of its own.
+        own = NotificationCenter()
+
         def _broken(n):
             raise ValueError('the subscriber is broken')
 
         heard = []
-        centre.add_listener(_broken)
-        centre.add_listener(heard.append)
+        own.add_listener(_broken)
+        own.add_listener(heard.append)
 
         with caplog.at_level(logging.DEBUG, logger='LVP.notifications'):
-            centre.error('Camera', 'Stalled', 'stalled')
+            own.error('Camera', 'Stalled', 'stalled')
 
         raised = [r for r in caplog.records if 'listener raised' in r.getMessage()]
         assert [r.levelno for r in raised] == [logging.ERROR]
@@ -219,34 +212,24 @@ class TestABrokenListenerIsLoud:
         assert [n.title for n in heard] == ['Stalled']
 
     @pytest.mark.parametrize(
-        ('add', 'fire', 'module'),
+        ('add', 'fire'),
         [
             (
                 lambda s, cb: s.scope.motion.add_position_listener(cb),
                 lambda s: s.scope.motion._fire_position_listeners('Z'),
-                'modules.lumascope_api.motion',
             ),
             (
                 lambda s, cb: s.scope.illumination.add_led_listener(cb),
                 lambda s: s.scope.illumination._fire_led_listeners('Red', True, 10.0),
-                None,
             ),
             (
                 lambda s, cb: s.scope.imaging.add_camera_listener(cb),
                 lambda s: s.scope.imaging._fire_camera_listeners('gain', 1.0),
-                'modules.lumascope_api.imaging',
             ),
         ],
         ids=['position', 'led', 'camera'],
     )
-    def test_a_raising_scope_listener_is_reported_once(
-        self, session, centre, monkeypatch, add, fire, module
-    ):
-        import importlib
-
-        if module is not None:
-            # These modules bound the shared centre at import.
-            monkeypatch.setattr(importlib.import_module(module), 'notifications', centre)
+    def test_a_raising_scope_listener_is_reported_once(self, session, add, fire):
         heard = _listening(session)
 
         def _broken(*args):
@@ -259,7 +242,7 @@ class TestABrokenListenerIsLoud:
         faults = [n for n in heard if n.kind is OutcomeKind.FAULT]
         assert len(faults) == 1
 
-    def test_a_raising_scheduled_callback_is_reported_once(self, session, centre):
+    def test_a_raising_scheduled_callback_is_reported_once(self, session):
         heard = _listening(session)
 
         _scheduler_callback_error(RuntimeError('the health check raised'))

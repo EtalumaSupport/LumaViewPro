@@ -292,18 +292,15 @@ def test_rejected_reclick_logs_context_and_elapsed(caplog):
     assert guard['active'] is False
 
 
-def test_stuck_dialog_reclick_notifies_user(monkeypatch):
-    from modules.notification_center import notifications
-
-    fired = []
-    monkeypatch.setattr(notifications, 'warning', lambda *a, **k: fired.append(a))
+def test_stuck_dialog_reclick_notifies_user(centre_posts):
     runner, guard = _load_runner(thread_cls=_DeferredThread)
     _DeferredThread.pending.clear()
     runner(_Button('first'), lambda: '/p', lambda p: None, on_cancel=lambda: None)
     guard['since'] -= 120.0
     runner(_Button('second'), lambda: '/q', lambda p: None, on_cancel=lambda: None)
-    assert any(a[1] == 'A File Dialog May Already Be Open' for a in fired), (
-        f'a re-click on a long-stuck dialog must notify; got {fired}'
+    titles = [n.title for n in centre_posts]
+    assert 'A File Dialog May Already Be Open' in titles, (
+        f'a re-click on a long-stuck dialog must notify; got {titles}'
     )
     _DeferredThread.pending.pop()()
 
