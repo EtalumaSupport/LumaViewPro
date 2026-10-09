@@ -11,12 +11,14 @@ wrote. Each source is put into its working state here and read back
 through the one record, with its count or progress, and gone once it ends.
 """
 
+import pathlib
 import threading
 from unittest.mock import MagicMock
 
 import pytest
 
 from modules import live_work
+from modules.post_processing_api import BuildResult
 from modules.sequential_io_executor import IOTask
 
 SETTLE_S = 10.0
@@ -140,6 +142,10 @@ def test_a_build_reports_its_progress_and_the_builds_behind_it_wait(sim_session)
     post = sim_session.post_processing
     said, go_on, finish = threading.Event(), threading.Event(), threading.Event()
     seen_by_caller = []
+    answers = {}
+
+    def built(folder):
+        return BuildResult('built', 0, pathlib.Path(folder), (), ())
 
     def slow_build(folder, *, on_progress):
         on_progress(10, 'Image 1 of 10')
@@ -147,18 +153,23 @@ def test_a_build_reports_its_progress_and_the_builds_behind_it_wait(sim_session)
         go_on.wait(SETTLE_S)
         on_progress(60, 'Image 6 of 10')
         finish.wait(SETTLE_S)
-        return {'message': 'built'}
+        return built(folder)
 
     def quick_build(folder, *, on_progress):
-        return {'message': 'built'}
+        return built(folder)
 
     first = threading.Thread(
-        target=post._run,
-        args=(slow_build, 'stitch', 'folder-a'),
-        kwargs={'on_progress': lambda p, d: seen_by_caller.append(p)},
+        target=lambda: answers.__setitem__(
+            'stitch',
+            post._run(
+                slow_build, 'stitch', 'folder-a', on_progress=lambda p, d: seen_by_caller.append(p)
+            ),
+        )
     )
     second = threading.Thread(
-        target=post._run, args=(quick_build, 'zproject', 'folder-b'), kwargs={'on_progress': None}
+        target=lambda: answers.__setitem__(
+            'zproject', post._run(quick_build, 'zproject', 'folder-b', on_progress=None)
+        )
     )
     first.start()
     assert said.wait(SETTLE_S)
@@ -177,6 +188,8 @@ def test_a_build_reports_its_progress_and_the_builds_behind_it_wait(sim_session)
     second.join(SETTLE_S)
 
     assert seen_by_caller == [10, 60], "the caller's own progress callback is still called"
+    # Each build answered its caller: one that raised on the lane has no answer.
+    assert answers == {'stitch': built('folder-a'), 'zproject': built('folder-b')}
     assert sim_session.live_work.work == ()
 
 
