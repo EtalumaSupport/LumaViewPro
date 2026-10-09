@@ -80,12 +80,13 @@ class VerticalControl(BoxLayout):
         part-typed entry is not merely displayed -- it is committed as a Z
         move when the user clicks away. Every read-back write goes through
         here so the guard cannot be present at three sites and missing at
-        the fourth.
+        the fourth. ``pos`` None, a Z the API does not know (homing, or
+        lost), is shown as ``--``; committed from the box, it moves nothing.
         """
         box = self.ids['z_position_id']
         if box.focus:
             return
-        new_text = format(max(0, pos), '.2f')
+        new_text = '--' if pos is None else format(max(0, pos), '.2f')
         # Cache text to prevent redundant ScrollView updates
         if box.text != new_text:
             box.text = new_text
@@ -111,6 +112,9 @@ class VerticalControl(BoxLayout):
 
     def show_z(self, polled):
         """Show a Z position change: the slider at the API's Z target, the text at ``polled``.
+
+        ``polled`` is None while Z's position is not known, and the text
+        then says so rather than showing the last number Z reported.
 
         The listener bridge calls this, on the UI thread, for every Z move,
         run or not: a step's move, each autofocus sample, the restore when

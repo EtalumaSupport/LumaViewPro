@@ -76,12 +76,13 @@ class UIListenerBridge:
 
     # ------------------ Listener implementations ------------------
 
-    def _on_position_change(self, axis, position, state):
+    def _on_position_change(self, axis, at):
         """Position listener -- XY motion redraws the stage; Z the Z slider and text; T the turret.
 
         Fires from the IO worker thread (or whichever thread mutated the
         position cache), for every move a run, an autofocus or a person
-        makes. ``position`` is the polled position. Marshals to UI via
+        makes. ``at`` is the axis's ``AxisPosition``: its polled position,
+        None while it homes or is unknown. Marshals to UI via
         ``schedule_ui``.
         """
         ctx = self._ctx
@@ -93,7 +94,7 @@ class UIListenerBridge:
         if not z_ctrl:
             return
         if axis == 'Z':
-            schedule_ui(lambda dt: z_ctrl.show_z(position), 0)
+            schedule_ui(lambda dt: z_ctrl.show_z(at.position), 0)
         elif axis == 'T':
             # Display only: a person's own turret press asks the objective
             # question where it ends, never on each event of the move.

@@ -1436,9 +1436,11 @@ scope.motion.get_axis_state('Z')          # 'idle', 'moving', 'homing', or 'unkn
 **Position listeners** (push-based):
 
 ```python
-def on_position(axis: str, position: float, state: str):
-    # the polled position, what axis_positions() reports now -- not the target
-    print(f"{axis} → {position:.1f}µm ({state})")
+def on_position(axis: str, at: AxisPosition):
+    # at is what axis_positions()[axis] answers now, from the same snapshot:
+    # at.state, and at.position, the polled position (not the target) -- None
+    # while the axis is homing or unknown, never the last number it reported
+    print(f"{axis}: {at.position} um ({at.state})")
 
 scope.motion.add_position_listener(on_position)
 scope.motion.remove_position_listener(on_position)
@@ -1832,7 +1834,7 @@ The six listener families each pass a different callback signature -- register a
 
 | Listener | Register via | Callback signature |
 |---|---|---|
-| Motion / position | `scope.motion.add_position_listener` | `on_position(axis: str, position: float, state: str)` |
+| Motion / position | `scope.motion.add_position_listener` | `on_position(axis: str, at: AxisPosition)` |
 | LED / illumination | `scope.illumination.add_led_listener` | `on_led(channel: str, enabled: bool, illumination_ma: float)` |
 | Camera params | `scope.imaging.add_camera_listener` | `on_camera(param: str, value: float)` |
 | Live frame | `scope.imaging.add_frame_listener` | `on_frame(image, timestamp, chunks)` |

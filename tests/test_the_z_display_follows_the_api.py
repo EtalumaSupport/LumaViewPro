@@ -20,6 +20,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from modules import app_context as _app_ctx
+from modules.lumascope_api import AxisPosition, AxisState
 from tests.ast_seams import iter_package_modules
 from ui.listener_bridge import UIListenerBridge
 from ui.vertical_control import VerticalControl
@@ -110,15 +111,23 @@ def bridge():
 def test_a_z_change_draws_the_z_display_with_the_polled_position(bridge):
     b, z_ctrl, _ = bridge
 
-    b._on_position_change('Z', 1234.5, 'moving')
+    b._on_position_change('Z', AxisPosition(AxisState.MOVING, 1234.5))
 
     z_ctrl.show_z.assert_called_once_with(1234.5)
+
+
+def test_a_homing_z_draws_the_z_display_with_no_position(bridge):
+    b, z_ctrl, _ = bridge
+
+    b._on_position_change('Z', AxisPosition(AxisState.HOMING, None))
+
+    z_ctrl.show_z.assert_called_once_with(None)
 
 
 def test_a_turret_change_draws_the_turret_without_asking_the_objective(bridge):
     b, z_ctrl, _ = bridge
 
-    b._on_position_change('T', 2.0, 'idle')
+    b._on_position_change('T', AxisPosition(AxisState.IDLE, 2.0))
 
     z_ctrl.show_turret_state.assert_called_once_with(prompt=False)
 
@@ -126,7 +135,7 @@ def test_a_turret_change_draws_the_turret_without_asking_the_objective(bridge):
 def test_an_xy_change_draws_the_stage_and_not_the_z_display(bridge):
     b, z_ctrl, ctx = bridge
 
-    b._on_position_change('X', 10.0, 'idle')
+    b._on_position_change('X', AxisPosition(AxisState.IDLE, 10.0))
 
     ctx.motion_settings.update_xy_stage_control_gui.assert_called_once_with()
     z_ctrl.show_z.assert_not_called()

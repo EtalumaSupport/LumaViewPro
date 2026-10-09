@@ -1494,23 +1494,25 @@ class MotionAPI:
             return self._axis_state.get(axis, AxisState.UNKNOWN)
 
     @api
-    def add_position_listener(self, listener: Callable[[str, float, str], None]) -> None:
+    def add_position_listener(self, listener: Callable[[str, AxisPosition], None]) -> None:
         """Register a callback for position/state changes on any axis.
 
-        The listener is called with ``(axis, position, state)`` whenever
-        the position cache or axis state changes: the polled position,
-        what ``get_current_position(axis)`` returns then, not the target. It fires from the thread
-        that caused the change (IO executor, motion monitor, etc.), so
-        listeners **must** schedule any UI work via ``Clock.schedule_once``.
+        The listener is called with ``(axis, AxisPosition)`` whenever the
+        position cache or axis state changes: the axis's state and its
+        polled position as ``axis_positions`` answers them then, from the
+        same snapshot -- not the target, and no position (None) while the
+        axis is HOMING or UNKNOWN. It fires from the thread that caused the
+        change (IO executor, motion monitor, etc.), so listeners **must**
+        schedule any UI work via ``Clock.schedule_once``.
 
         Args:
-            listener: ``callable(axis: str, target: float, state: str)``
+            listener: ``callable(axis: str, at: AxisPosition)``
         """
         with self._position_listeners_lock:
             self._position_listeners.append(listener)
 
     @api
-    def remove_position_listener(self, listener: Callable[[str, float, str], None]) -> None:
+    def remove_position_listener(self, listener: Callable[[str, AxisPosition], None]) -> None:
         """Unregister a position listener.
 
         Args:
@@ -1525,16 +1527,13 @@ class MotionAPI:
                 pass
 
     def _fire_position_listeners(self, axis: str):
-        """Notify all position listeners of a change on *axis*."""
-        with self._pos_cache_lock:
-            position = self._pos_cache.get(axis, 0.0)
-        with self._axis_state_lock:
-            state = self._axis_state.get(axis, AxisState.UNKNOWN)
+        """Notify all position listeners of a change on *axis*, as ``axis_positions`` answers it."""
+        at = self.axis_positions()[axis]
         with self._position_listeners_lock:
             listeners = list(self._position_listeners)
         for fn in listeners:
             try:
-                fn(axis, position, state)
+                fn(axis, at)
             except Exception as ex:
                 # No caller waits on a listener, so its fault stops here; the
                 # other listeners are still told.

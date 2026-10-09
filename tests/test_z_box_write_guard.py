@@ -99,3 +99,13 @@ def test_redundant_write_leaves_the_text_object_alone(control):
         del type(box).text
 
     assert writes == [], 'an identical value was written back to the widget'
+
+
+def test_a_z_with_no_known_position_is_shown_as_not_known(control):
+    """While Z homes or is lost the API answers no position; the box says so, not a stale number."""
+    control.ids['z_position_id'].focus = False
+    control.ids['z_position_id'].text = '3774.00'
+
+    control.show_z(None)
+
+    assert control.ids['z_position_id'].text == '--'
