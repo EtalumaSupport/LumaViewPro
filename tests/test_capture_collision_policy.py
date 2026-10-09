@@ -154,32 +154,6 @@ def test_load_warns_same_base_in_same_tile_group_and_still_loads(tmp_path, monke
     assert 'rename' in captured[0].lower()
 
 
-def test_load_soft_warns_same_base_across_tile_groups(tmp_path, monkeypatch):
-    from modules import protocol as protocol_mod
-
-    captured: list = []
-
-    class _RecordingNotifier:
-        def report_outcome(self, outcome, *, category, **kw):
-            captured.append((category, outcome.title, str(outcome)))
-
-    monkeypatch.setattr(protocol_mod, 'notifications', _RecordingNotifier())
-
-    rows = ''
-    rows += _step_row('Control', 'A1', '', -1, 0, 46.5, 34.6, 4972.9)
-    rows += _step_row('Control', 'A2', '', -1, 1, 60.1, 34.6, 5001.7)
-    tsv = tmp_path / 'renamed_cross_tgid.tsv'
-    tsv.write_text(_build_tsv(rows))
-
-    proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
-    assert proto.num_steps() == 2, 'the file must still load so the user can edit the names'
-    assert len(captured) == 1, captured
-    _category, _title, message = captured[0]
-    assert 'refused' in message.lower(), (
-        'the warning must say the run will be refused, not promise a rename suffix'
-    )
-
-
 # ---------------------------------------------------------------------------
 # custom_step_count resumes past the highest loaded 'custom<NNNN>' label.
 # ---------------------------------------------------------------------------

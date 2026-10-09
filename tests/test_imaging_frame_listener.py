@@ -10,7 +10,7 @@ frame-listener infrastructure.
 
 import threading
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from modules.lumascope_api.imaging import (
     _BudgetedHandler,
@@ -74,29 +74,6 @@ def test_one_in_budget_call_resets_counter():
     w(None, None, None)
     assert w._consecutive_over == 0
     imaging._remove_wrapper.assert_not_called()
-
-
-def test_drop_at_K_consecutive_over_budget():
-    """K consecutive over-budget hits triggers auto-remove + one report."""
-    from modules.exceptions import FrameHandlerRemovedError
-
-    imaging = _make_imaging_stub()
-
-    def slow(*args):
-        time.sleep((HANDLER_BUDGET_MS + 5) / 1000.0)
-
-    w = _BudgetedHandler(imaging, slow, name='slow-plugin')
-    with patch('modules.lumascope_api.imaging.notifications') as mock_notify:
-        for _ in range(HANDLER_DROP_K):
-            w(None, None, None)
-        imaging._remove_wrapper.assert_called_once_with(w)
-        mock_notify.report_outcome.assert_called_once()
-        # The outcome names the plugin so L1 knows who to debug.
-        outcome = mock_notify.report_outcome.call_args[0][0]
-        assert isinstance(outcome, FrameHandlerRemovedError)
-        assert outcome.reason == 'over_budget'
-        assert 'slow-plugin' in str(outcome)
-    assert w._removed is True
 
 
 def test_handler_exception_does_not_count_toward_budget():

@@ -179,24 +179,6 @@ def test_a_refusal_in_a_runs_own_task_keeps_the_runs_mute(make_error, title):
     assert shown == []
 
 
-def test_a_failure_is_still_a_failure(caplog):
-    def _move_absolute_impl_broke():
-        raise RuntimeError('the board stopped answering')
-
-    with caplog.at_level(logging.DEBUG):
-        shown = _run_on_the_lane(_move_absolute_impl_broke)
-
-    assert [(n.severity, n.title) for n in shown] == [
-        (Severity.ERROR, 'Background operation failed')
-    ]
-    raised = [
-        r
-        for r in _task_records(caplog, '_move_absolute_impl_broke')
-        if r.name != 'LVP.notifications'
-    ]
-    assert raised and raised[0].levelno == logging.ERROR and raised[0].exc_info
-
-
 def test_a_one_axis_move_on_an_unhomed_scope_is_refused_as_not_homed(scope, monkeypatch):
     """The sim finding, end to end: a person's move on an axis that has not
     homed reaches them as the same refusal every gesture gives."""

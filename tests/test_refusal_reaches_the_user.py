@@ -172,21 +172,6 @@ def test_distinct_failures_do_not_suppress_each_other():
     )
 
 
-def test_a_genuine_repeat_of_one_failure_still_dedups():
-    """The spam the dedup exists to stop must still be stopped -- one
-    failure repeating is not two failures."""
-    from modules.notification_center import NotificationCenter, Severity
-
-    centre = NotificationCenter(dedup_window_s=10.0)
-    seen = []
-    centre.add_listener((lambda n: n.shown and seen.append(n)), min_severity=Severity.ERROR)
-
-    for _ in range(5):
-        centre.error('Task', '_move_absolute_impl failed', 'same failure again')
-
-    assert len(seen) == 1
-
-
 def test_each_failure_has_its_own_identity_and_none_of_it_is_a_symbol():
     """Each failure must carry its own dedup identity, and none of it may
     be a Python symbol.

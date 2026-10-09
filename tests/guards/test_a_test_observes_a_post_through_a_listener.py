@@ -112,10 +112,6 @@ ALLOWED = {
         'test_failed_lock_under_a_live_view_arm_is_an_error_to_the_user',
     ): _REPORTER_MOCK,
     (
-        'tests/test_imaging_frame_listener.py',
-        'test_drop_at_K_consecutive_over_budget',
-    ): _REPORTER_MOCK,
-    (
         'tests/test_a_refused_frame_listener_is_raised.py',
         'TestAFailingHandlerIsBounded.test_a_handler_raising_k_frames_running_is_removed_with_one_traceback',
     ): _REPORTER_MOCK,
@@ -132,10 +128,6 @@ ALLOWED = {
         'TestRunnerHyperstackTrigger.test_a_held_batch_builds_nothing_and_reports_the_timeout',
     ): _REPORTER_MOCK,
     (
-        'tests/test_protocol_modules.py',
-        'TestRunCleanupCancelledHandoff.test_real_led_restore_failure_still_surfaces',
-    ): _REPORTER_MOCK,
-    (
         'tests/test_protocol_overwrite_guard.py',
         'test_load_warns_on_duplicate_filename_keys_and_loads',
     ): _REPORTER_MOCK,
@@ -146,10 +138,6 @@ ALLOWED = {
     (
         'tests/test_capture_collision_policy.py',
         'test_load_warns_same_base_in_same_tile_group_and_still_loads',
-    ): _REPORTER_MOCK,
-    (
-        'tests/test_capture_collision_policy.py',
-        'test_load_soft_warns_same_base_across_tile_groups',
     ): _REPORTER_MOCK,
     (
         'tests/test_capture_collision_policy.py',

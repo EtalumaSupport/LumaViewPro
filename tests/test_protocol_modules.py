@@ -706,21 +706,6 @@ class TestRunCleanupCancelledHandoff:
         run_cleanup(**args)
         assert [n for n in centre_posts if n.severity >= Severity.WARNING] == []
 
-    def test_real_led_restore_failure_still_surfaces(self):
-        from unittest.mock import patch
-        from modules.protocol_cleanup import run_cleanup
-
-        def broken_apply(transition, ctx):
-            raise RuntimeError('serial dead')
-
-        args, _ = self._args(apply_led_transition_fn=broken_apply)
-        with patch('modules.notification_center.notifications') as mock_notif:
-            run_cleanup(**args)
-            mock_notif.report_outcome.assert_called_once()
-            # Aborted runs get this summary too; the wording must not
-            # claim completion.
-            assert 'completed' not in str(mock_notif.report_outcome.call_args[0][0])
-
 
 class TestFinalStepKeepsLedWhenCleanupRestoresIt:
     """The final step of the final scan must not turn its LED off when

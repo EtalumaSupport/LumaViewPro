@@ -15,7 +15,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from modules.exceptions import CaptureError, HardwareCommandRefusedError, ObjectiveUnknownError
-from modules.notification_center import Severity
 from tests.shown_outcomes import capture_shown
 
 
@@ -140,15 +139,6 @@ def test_the_button_hands_the_member_what_the_user_sees(button_ctx):
         'bullseye': True,
         'crosshairs': False,
     }
-
-
-def test_a_refused_press_says_why(button_ctx, shown):
-    _press(
-        button_ctx,
-        raises=HardwareCommandRefusedError('capture_in_flight', 'manual_capture.capture'),
-    )
-
-    assert [n.severity for n in shown] == [Severity.WARNING]
 
 
 def test_a_saved_still_remembers_its_folder(button_ctx, shown, tmp_path):

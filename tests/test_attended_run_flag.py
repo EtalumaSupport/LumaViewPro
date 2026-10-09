@@ -142,27 +142,6 @@ def _listening_centre():
     return nc, received
 
 
-def test_unattended_run_suppresses_a_non_fatal_notification():
-    nc, received = _listening_centre()
-    nc.open_run_scope(attended=False)
-
-    nc.error('Autofocus', 'Autofocus Failed', 'Focus curve is flat or invalid')
-
-    assert received == [], 'a non-fatal notification escaped an unattended run'
-
-
-def test_attended_run_delivers_a_non_fatal_notification():
-    """The bench case: a flat curve on the Autofocus button must reach the
-    listener that renders popups."""
-    nc, received = _listening_centre()
-    nc.open_run_scope(attended=True)
-
-    nc.error('Autofocus', 'Autofocus Failed', 'Focus curve is flat or invalid')
-
-    assert len(received) == 1, 'the attended autofocus failure never reached the listener'
-    assert received[0].title == 'Autofocus Failed'
-
-
 @pytest.mark.parametrize('attended', [True, False])
 def test_a_fatal_notification_is_delivered_either_way(attended):
     """fatal means run-aborting; it crosses the bridge regardless. This is

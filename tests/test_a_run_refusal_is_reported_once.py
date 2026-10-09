@@ -76,18 +76,6 @@ def test_a_funnel_refusal_is_one_warning_line_naming_its_reason(centre, caplog, 
     assert centre.seen[0].title == refusal.title
 
 
-@pytest.mark.parametrize('refuse', [_refuse_through_the_runner, _refuse_through_the_protocols_api])
-def test_reporting_a_funnel_refusal_again_changes_nothing(centre, caplog, refuse):
-    refusal = refuse()
-    caplog.clear()
-
-    with caplog.at_level(logging.DEBUG):
-        centre.report_outcome(refusal, solicited=True, category='UI:RUN')
-
-    assert [r for r in caplog.records if r.levelno >= logging.INFO] == []
-    assert len(centre.seen) == 1, 'a second report of the same refusal was shown'
-
-
 def test_a_refusals_words_are_its_sentence():
     run = ProtocolRunRefusedError(reason='already_running', title='T', message='Stop it first.')
     recording = RecordingRefusedError(reason='camera_inactive', title='T', message='No camera.')

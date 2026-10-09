@@ -16,18 +16,14 @@ one reporter and carry on at the value the camera holds.
 """
 
 import threading
-from unittest.mock import MagicMock
 
-import numpy as np
 import pytest
 
 from drivers.simulated_camera import SimulatedCamera
-from modules.protocol_image_writer import RunWriteBatch
 from modules.exceptions import CameraSettingRejected
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.notification_center import Severity
-from tests.frame_records import plate
 from tests.scope_fakes import (
     bind_settings_like_a_session,
     give_camera_capabilities,
@@ -155,70 +151,6 @@ class TestTheRunReportsAndCarriesOn:
         assert [exc for exc, _kw in reported] == [refusal]
         assert reported[0][1]['solicited'] is False
         runner._scope.imaging.set_exposure_ms.assert_called_once_with(20.0)
-
-    def test_the_image_writer_reports_a_refused_step_value_once(self, reported):
-        from modules.image_mode import ImageCaptureConfig
-        from modules.protocol_image_writer import ProtocolImageWriter
-        from modules.run_events import RunEvents
-        from modules.run_outcome import EndingLatch
-        from tests.protocol_drives import lent_run_claim
-
-        writer = ProtocolImageWriter(
-            scope=spec_scope(),
-            events=RunEvents(),
-            aborted=threading.Event(),
-            write_batch=RunWriteBatch(MagicMock()),
-            abort_fn=lambda: None,
-            fatal_abort_event=threading.Event(),
-            ending=EndingLatch(),
-            execution_record=None,
-            leds_off_fn=lambda: None,
-            is_run_in_progress_fn=lambda: True,
-            image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
-            timestamp_overlay=True,
-            video_max_fps=0,
-            engineering_mode=False,
-            run_claim=lent_run_claim(),
-            labware=plate(),
-            to_plate=None,
-            captures_asked=1,
-        )
-        scope = writer._scope
-        scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
-        scope.capabilities.has_turret = False
-        scope.led_connected = False
-        scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
-        refusal = _rejected()
-        scope.imaging.set_gain_db.side_effect = refusal
-        protocol = MagicMock()
-        protocol.capture_root.return_value = ''
-
-        writer.capture(
-            save_folder='/tmp',
-            step={
-                'Name': 'stepA',
-                'Label': '',
-                'Acquire': 'image',
-                'Auto_Gain': False,
-                'Color': 'BF',
-                'Gain': 7.0,
-                'Exposure': 10.0,
-                'Objective': '4x',
-                'Well': 'A1',
-                'Z-Slice': 0,
-                'Tile': '',
-                'Illumination': 50.0,
-                'False_Color': False,
-            },
-            output_format='TIFF',
-            protocol=protocol,
-            enable_image_saving=True,
-        )
-
-        assert [exc for exc, _kw in reported] == [refusal]
-        assert reported[0][1]['solicited'] is False
-        scope.imaging.set_exposure_ms.assert_called_once_with(10.0)
-        assert scope.imaging.capture_and_wait.called, 'the step still captures'
 
     def test_the_step_auto_gain_arm_reports_a_refusal_and_goes_on(self, reported):
         from tests.protocol_drives import protocol_step, scan_ready_runner

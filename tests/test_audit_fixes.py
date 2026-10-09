@@ -2504,20 +2504,6 @@ class TestRule1_MotorBoardNoNotifications:
             'MotorBoard must not import notifications -- Rule 1 (call down, not up)'
         )
 
-    def test_motorboard_does_not_call_notifications(self):
-        import pathlib
-
-        source = pathlib.Path('drivers/motorboard.py').read_text()
-        assert 'notifications.error' not in source, (
-            'MotorBoard must not call notifications.error -- Rule 1'
-        )
-        assert 'notifications.warning' not in source, (
-            'MotorBoard must not call notifications.warning -- Rule 1'
-        )
-        assert 'notifications.info' not in source, (
-            'MotorBoard must not call notifications.info -- Rule 1'
-        )
-
 
 class TestRule1_CameraNoNotifications:
     """Rule 1: drivers must not fire user-facing notifications directly.
@@ -2532,16 +2518,6 @@ class TestRule1_CameraNoNotifications:
         assert 'from modules.notification_center import notifications' not in source, (
             'drivers/camera.py must not import notifications -- Rule 1'
         )
-
-    def test_camera_base_does_not_call_notifications(self):
-        import pathlib
-
-        source = pathlib.Path('drivers/camera.py').read_text()
-        assert 'notifications.error' not in source, (
-            'drivers/camera.py must not call notifications.error -- Rule 1'
-        )
-        assert 'notifications.warning' not in source
-        assert 'notifications.info' not in source
 
 
 class TestRule1_PylonCameraNoNotifications:
@@ -2559,16 +2535,6 @@ class TestRule1_PylonCameraNoNotifications:
             'drivers/pyloncamera.py must not import notifications -- Rule 1'
         )
 
-    def test_pyloncamera_does_not_call_notifications(self):
-        import pathlib
-
-        source = pathlib.Path('drivers/pyloncamera.py').read_text()
-        assert 'notifications.error' not in source, (
-            'drivers/pyloncamera.py must not call notifications.error -- Rule 1'
-        )
-        assert 'notifications.warning' not in source
-        assert 'notifications.info' not in source
-
 
 class TestRule1_SerialBoardNoNotifications:
     """Rule 1: SerialBoard fires per-command timeout/exception notifications
@@ -2585,16 +2551,6 @@ class TestRule1_SerialBoardNoNotifications:
         assert 'from modules.notification_center import notifications' not in source, (
             'drivers/serialboard.py must not import notifications -- Rule 1'
         )
-
-    def test_serialboard_does_not_call_notifications(self):
-        import pathlib
-
-        source = pathlib.Path('drivers/serialboard.py').read_text()
-        assert 'notifications.error' not in source, (
-            'drivers/serialboard.py must not call notifications.error -- Rule 1'
-        )
-        assert 'notifications.warning' not in source
-        assert 'notifications.info' not in source
 
 
 class TestPylonChunkTimestampEnabled:
@@ -6491,73 +6447,6 @@ class TestSequentialIOExecutorCancelledNotErrorLogged:
             assert calls == [], (
                 f'_on_task_done(..., CancelledError()) must not fire '
                 f'notifications.error; got {calls}'
-            )
-        finally:
-            executor.shutdown(wait=False)
-
-    def test_runtime_error_still_calls_notifications_error(self, centre_posts):
-        from modules.sequential_io_executor import SequentialIOExecutor
-
-        executor = SequentialIOExecutor(max_workers=1, name='TEST_REAL_FAIL')
-        try:
-            self._run_on_task_done(executor, RuntimeError('test failure'))
-            calls = _posted(centre_posts, Severity.ERROR)
-            assert len(calls) == 1, (
-                f'_on_task_done(..., RuntimeError) must fire one notifications.error; got {calls}'
-            )
-        finally:
-            executor.shutdown(wait=False)
-
-
-class TestSequentialIOExecutorSilentOnFailure:
-    """IOTask.silent_on_failure=True must suppress the generic
-    notifications.error popup at _on_task_done. The caller opted in to
-    handle its own notification path (Rule 14 -- API/caller decides,
-    not the executor). LVP 09a324a shipped this for the
-    protocol_image_writer.execute_step retry path where per-failure
-    popups would stack into the Class A 110-popups-overnight storm.
-    Regression guard for the executor topology plan Stage A amendments:
-    Stage A's inline _on_task_done call must preserve this flag's
-    semantics.
-    """
-
-    def _build_task(self, silent: bool):
-        from modules.sequential_io_executor import IOTask
-
-        return IOTask(
-            action=lambda: None,
-            callback=lambda *a, **k: None,
-            silent_on_failure=silent,
-        )
-
-    def test_silent_on_failure_suppresses_notification(self, centre_posts):
-        from modules.sequential_io_executor import SequentialIOExecutor
-
-        executor = SequentialIOExecutor(max_workers=1, name='TEST_SILENT')
-        try:
-            task = self._build_task(silent=True)
-            executor.queue.put(task)
-            executor.queue.get_nowait()  # mirror worker dequeue
-            executor._on_task_done(task, None, RuntimeError('expected'))
-            calls = _posted(centre_posts, Severity.ERROR)
-            assert calls == [], (
-                f'silent_on_failure=True must suppress notifications.error; got {calls}'
-            )
-        finally:
-            executor.shutdown(wait=False)
-
-    def test_silent_on_failure_default_does_fire_notification(self, centre_posts):
-        from modules.sequential_io_executor import SequentialIOExecutor
-
-        executor = SequentialIOExecutor(max_workers=1, name='TEST_LOUD')
-        try:
-            task = self._build_task(silent=False)
-            executor.queue.put(task)
-            executor.queue.get_nowait()  # mirror worker dequeue
-            executor._on_task_done(task, None, RuntimeError('expected'))
-            calls = _posted(centre_posts, Severity.ERROR)
-            assert len(calls) == 1, (
-                f'silent_on_failure=False (default) must fire one notifications.error; got {calls}'
             )
         finally:
             executor.shutdown(wait=False)

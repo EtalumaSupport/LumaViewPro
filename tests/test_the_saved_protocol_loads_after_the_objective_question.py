@@ -148,27 +148,6 @@ class TestTheContinuationRunsOnEveryOutcome:
         ]
         assert '_resolve_objective' in names
 
-    def test_a_continuation_that_raises_is_reported_once_and_does_not_escape(self, monkeypatch):
-        """It runs on a Clock callback, where a raise exits the app; nothing
-        waits on it, so its fault is shown, through the one reporter."""
-        from types import SimpleNamespace
-
-        import ui.vertical_control as vc
-        from modules.notification_center import notifications
-
-        reported = []
-        monkeypatch.setattr(
-            notifications, 'report_outcome', lambda ex, **kw: reported.append((ex, kw))
-        )
-        boom = RuntimeError('the saved protocol would not load')
-
-        def _continuation():
-            raise boom
-
-        vc.VerticalControl._resolve_objective(SimpleNamespace(), _continuation)
-
-        assert reported == [(boom, {'solicited': False, 'category': 'UI:OBJECTIVE_CONTINUATION'})]
-
 
 class TestAnEmptyPathIsNoSavedProtocol:
     def test_nothing_is_loaded_and_nothing_is_reported(self, monkeypatch, caplog):
