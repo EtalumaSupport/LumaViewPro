@@ -481,6 +481,12 @@ class SequencedCaptureRunner:
         # disk are answered per run -- by prepare's refusal, the Session and
         # the post-run builds -- never by the shared lane.
         self._write_batch: RunWriteBatch | None = None
+        # The post-run steps' threads still running, of every run: a step
+        # outlives its run's claim, and a successor run's steps can start
+        # while an earlier run's still build. Kept until each thread ends,
+        # so a close can wait for the files they write.
+        self._post_run_steps: set[threading.Thread] = set()
+        self._post_run_steps_lock = threading.Lock()
         # The run kind of the run in hand; None before the first one.
         self._run_mode: SequencedCaptureRunMode | None = None
         self.autofocus_thread = autofocus_thread
@@ -1927,6 +1933,16 @@ class SequencedCaptureRunner:
         with self._run_lock:
             return self._is_run_live()
 
+    @property
+    def run_live(self) -> bool:
+        """Is a run happening, in any phase, read without the run lock.
+
+        For a read that decides nothing about starting a run -- what the
+        session is still doing -- and may be asked from inside a run's own
+        transition, where ``run_in_progress`` would wait on the lock.
+        """
+        return self._is_run_live()
+
     def run_trigger_source(self) -> 'str | None':
         """The trigger of the run HOLDING the scope; None when none does.
 
@@ -2477,11 +2493,33 @@ class SequencedCaptureRunner:
         flag and the thread name a stall report prints. Each step begins by
         waiting for its run's images to land, inside its own outcome
         handling, so a wait that expires or finds images not written is
-        reported in that step's words.
+        reported in that step's words. The thread is kept until it ends,
+        so ``post_run_steps_running`` names it.
         """
-        thread = threading.Thread(target=build_fn, name=name, daemon=True)
-        thread.start()
+
+        def step() -> None:
+            try:
+                build_fn()
+            finally:
+                with self._post_run_steps_lock:
+                    self._post_run_steps.discard(thread)
+
+        thread = threading.Thread(target=step, name=name, daemon=True)
+        with self._post_run_steps_lock:
+            self._post_run_steps.add(thread)
+        try:
+            thread.start()
+        except BaseException:
+            with self._post_run_steps_lock:
+                self._post_run_steps.discard(thread)
+            raise
         return thread
+
+    @property
+    def post_run_steps_running(self) -> tuple[str, ...]:
+        """The names of the post-run steps still running, of every run."""
+        with self._post_run_steps_lock:
+            return tuple(sorted(step.name for step in self._post_run_steps))
 
     def _close_run_writes(
         self, write_batch: RunWriteBatch, ending: RunEnding, run: RunHandle

@@ -21,14 +21,18 @@ callers.
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import pathlib
+import threading
 import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from lvp_logger import logger
+from modules import live_work
 from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
+from modules.live_work import WorkItem
 from modules.sequential_io_executor import IOTask
 from modules.api_surface import FilePath, api
 
@@ -65,6 +69,39 @@ class PostProcessingAPI:
         self._tiling_configs_path = tiling_configs_path
         self._has_turret = has_turret
         self._settings_snapshot = settings_snapshot
+        # Each build submitted through _run, by its lane task, with its
+        # progress as its own callback last said; kept from the submit until
+        # the call returns, so the lane's running task is named by it.
+        self._builds: dict[IOTask, WorkItem] = {}
+        self._builds_lock = threading.Lock()
+
+    def work(self) -> tuple[WorkItem, ...]:
+        """The build the lane is running and how many wait behind it.
+
+        A task the lane runs that no member submitted is a protocol's
+        processors, which the run hands to the lane itself; it reports no
+        progress.
+        """
+        items = []
+        running = self.lane.running_task
+        if running is not None:
+            with self._builds_lock:
+                build = self._builds.get(running)
+            items.append(
+                build
+                if build is not None
+                else WorkItem(live_work.POST_PROCESSING, "a protocol's post-processing")
+            )
+        queued = self.lane.queue_size()
+        if queued:
+            items.append(
+                WorkItem(
+                    live_work.POST_PROCESSING_QUEUED,
+                    'post-processing waiting to start',
+                    left=queued,
+                )
+            )
+        return tuple(items)
 
     @api
     def stitch(
@@ -207,7 +244,11 @@ class PostProcessingAPI:
             ``message``, the outcome in words.
         """
         return self._run(
-            self._enhance, 'enhance', pathlib.Path(target), on_progress, on_derived_image
+            self._enhance,
+            'enhance',
+            pathlib.Path(target),
+            on_progress=on_progress,
+            on_derived_image=on_derived_image,
         )
 
     @api
@@ -249,8 +290,17 @@ class PostProcessingAPI:
         raises is named by its outcome's type only: the reporter where the
         outcome's flight stops logs and shows it once.
         *folder* is the build's first argument, the folder (or, for an
-        enhance, the file) it reads.
+        enhance, the file) it reads. Its progress reaches ``work`` through
+        the ``on_progress`` it is handed, the caller's own still called.
         """
+        caller_progress = kwargs.get('on_progress')
+
+        def on_progress(percent: float, detail: str | None = None) -> None:
+            with self._builds_lock:
+                if task in self._builds:
+                    self._builds[task] = dataclasses.replace(self._builds[task], percent=percent)
+            if caller_progress is not None:
+                caller_progress(percent, detail)
 
         @functools.wraps(action)
         def build(*a, **kw):
@@ -270,11 +320,16 @@ class PostProcessingAPI:
             )
             return result
 
-        return self.lane.call(
-            IOTask(action=build, args=(folder, *args), kwargs=kwargs),
-            f'post_processing.{member}',
-            None,
+        task = IOTask(
+            action=build, args=(folder, *args), kwargs={**kwargs, 'on_progress': on_progress}
         )
+        with self._builds_lock:
+            self._builds[task] = WorkItem(live_work.POST_PROCESSING, f'{member} of {folder}')
+        try:
+            return self.lane.call(task, f'post_processing.{member}', None)
+        finally:
+            with self._builds_lock:
+                del self._builds[task]
 
     @staticmethod
     def _playback_rate(frames_per_sec: float | str | None) -> float | None:

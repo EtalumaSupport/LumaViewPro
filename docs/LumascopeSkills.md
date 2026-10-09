@@ -961,6 +961,12 @@ session.controls_locked          # full control-surface lock (any run lockout, o
 session.motion_enabled           # user stage motion allowed right now
 session.manual_recording.is_recording  # a manual recording is LIVE (not its file drain)
 session.recording_active         # a manual recording holds the scope and is live (False in its drain)
+session.live_work                # everything the session is still doing, one read: .work is a tuple of
+                                 # WorkItem(kind, name, left, percent) -- what holds the scope, a run starting
+                                 # or ending, a recording's file, a run's video, a run's images, its post-run
+                                 # builds, post-processing builds running and queued, a support report or logs
+                                 # zip, a still being saved; left counts frames, images or builds still to
+                                 # finish, percent is a build's last progress; .closed once the session shut down
 session.close_drain_pending      # a close would cut video short: a manual recording live, draining or finishing its file, or a run's video step still writing
 session.close_drain_frames       # how many of those frames, across both drains (0 when none)
 session.discard_close_drain()    # a closing host's escape: drop every queued frame in both; written ones stay
@@ -2499,6 +2505,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `held_by_other`
 - `is_protocol_running`
 - `live_folder_path` (in-process)
+- `live_work`
 - `load_plugins` (in-process)
 - `load_protocol`
 - `load_user_settings` (in-process)
@@ -2992,6 +2999,13 @@ Reached through returned by `scope.layer_identity.find` and `layers`.
 - `key_name`
 - `led_channel`
 
+### LiveWork
+
+Reached through `session.live_work`.
+
+- `closed`
+- `work`
+
 ### MoveInFlight
 
 Reached through returned by `scope.motion.start_move_absolute`, `start_move_relative` and `session.start_go_to_step`.
@@ -3177,6 +3191,15 @@ Reached through returned by `scope.runtime_state.get_labware` and `scope.wellpla
 - `get_well_index`
 - `get_well_position`
 - `has_wells`
+
+### WorkItem
+
+Reached through `LiveWork.work`.
+
+- `kind`
+- `left`
+- `name`
+- `percent`
 
 ## Appendix A: Internal serial-protocol interfaces (firmware tooling only)
 

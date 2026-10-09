@@ -71,8 +71,10 @@ def test_a_build_runs_on_its_lane_with_the_installations_tiling(
     turret_scope = dataclasses.replace(session.scope.capabilities, has_turret=True)
     monkeypatch.setattr(session.scope, 'capabilities', turret_scope)
 
+    told = []
+
     def progress(percent, text):
-        pass
+        told.append((percent, text))
 
     result = getattr(session.post_processing, member)(tmp_path, on_progress=progress, **kwargs)
 
@@ -81,7 +83,9 @@ def test_a_build_runs_on_its_lane_with_the_installations_tiling(
     assert seen['lane'] is not session.file_io_executor
     assert seen['tiling_configs_file_loc'] == session.scope.protocols.tiling_configs_path()
     assert seen['has_turret'] is True
-    assert seen['on_progress'] is progress
+    # What the build is handed reaches the caller's own callback.
+    seen['on_progress'](42, 'Image 42')
+    assert told == [(42, 'Image 42')]
 
 
 def test_the_composite_takes_the_users_format_and_thresholds(session, monkeypatch, tmp_path):
@@ -161,14 +165,18 @@ def test_a_cell_count_takes_the_callers_method_and_progress(session, monkeypatch
     monkeypatch.setattr(PostProcessing, 'apply_cell_count_to_folder', record)
     method = default_cell_count_method()
 
+    told = []
+
     def progress(percent, text):
-        pass
+        told.append((percent, text))
 
     assert session.post_processing.count_cells(tmp_path, method=method, on_progress=progress) == {
         'message': 'counted'
     }
     assert seen['settings'] is method
-    assert seen['on_progress'] is progress
+    # What the build is handed reaches the caller's own callback.
+    seen['on_progress'](42, 'Image 42')
+    assert told == [(42, 'Image 42')]
     assert seen['lane'] is session.post_processing.lane
 
 

@@ -31,7 +31,15 @@ from typing import TYPE_CHECKING
 
 import modules.settings_init as settings_init
 from lvp_logger import logger
-from modules import binning, common_utils, image_mode, kivy_utils, path_utils, settings_paths
+from modules import (
+    binning,
+    common_utils,
+    image_mode,
+    kivy_utils,
+    live_work,
+    path_utils,
+    settings_paths,
+)
 from modules.activity_claim import (
     SCOPE_HOLDING_KINDS,
     ActivityClaim,
@@ -59,6 +67,7 @@ from modules.exceptions import (
     SettingsSaveRefusedError,
 )
 from modules.kivy_utils import UiDispatcher
+from modules.live_work import LiveWork, WorkItem
 from modules.lumascope_api.illumination import LedLease, LedTransition, LedTransitionCtx
 from modules.manual_capture import ManualCaptureController
 from modules.manual_recording import ManualRecordingController
@@ -90,6 +99,12 @@ STARTUP_MOTION_SLOW_TASK_S = 135.0
 # gives up on them and takes the file lane down. Budget row:
 # shutdown_run_files_wait_s in PERFORMANCE_BUDGETS.md.
 _SHUTDOWN_RUN_FILES_WAIT_S = 10.0
+
+# The reports a session counts while they run, by their live-work kind.
+_REPORT_NAMES = {
+    live_work.SUPPORT_REPORT: 'A support report',
+    live_work.LOGS_ZIP: 'A logs zip',
+}
 
 # A protocol's Layer Settings column beside the layer-settings key it is
 # saved from and restored into; Acquire and Stim_Enabled are handled apart.
@@ -266,6 +281,12 @@ class ScopeSession:
         # retry possible; read at entry to make the second call a logged
         # no-op. Host-serialized like the metrics flag.
         self._shut_down = False
+        # Support reports and logs zips in flight, by kind: each runs on its
+        # caller's thread -- the GUI's diagnostics lane, a script's own -- so
+        # the members count them, and the live-work read sees a script's
+        # report as it sees the GUI's.
+        self._reports_in_flight = dict.fromkeys(_REPORT_NAMES, 0)
+        self._reports_lock = threading.Lock()
         from modules import coord_transformations
 
         # Stateless: several instances are not several stores, so the
@@ -541,6 +562,73 @@ class ScopeSession:
         """The current exclusive-activity owner: None, 'protocol',
         'recording', 'diagnostic' or 'home'."""
         return self.activity_claim.owner
+
+    @api
+    @property
+    def live_work(self) -> LiveWork:
+        """Everything the session is still doing, each piece from its owner.
+
+        What holds the scope (a run, a recording, a home, a diagnostic --
+        and a run starting or unwinding with no holder yet or any more);
+        then what finishes after it lets go: a recording's file, a run's
+        video steps, a finished run's images and its post-run builds;
+        post-processing builds running and queued; a support report or logs
+        zip; a still being saved. Each item says how much it has left, and
+        a build how far it has got. Read lock-free, owner by owner, from any
+        thread; ``closed`` once the session has shut down.
+        """
+        work: list[WorkItem] = []
+        runner = self.sequenced_capture_runner
+        holder = self.activity_claim.holder
+        if holder is not None:
+            work.append(WorkItem(holder.kind, the_holder_named(holder)))
+        elif runner.run_live:
+            work.append(WorkItem(live_work.PROTOCOL, 'A run, starting or ending'))
+        recording = self.manual_recording
+        if recording.is_busy and not recording.is_recording:
+            work.append(
+                WorkItem(
+                    live_work.RECORDING_FINISH,
+                    "A recording's file",
+                    left=recording.pending_writes,
+                )
+            )
+        if runner.video_drain_busy:
+            work.append(
+                WorkItem(
+                    live_work.RUN_VIDEO_FINISH,
+                    "A run's video",
+                    left=runner.video_pending_writes,
+                )
+            )
+        if self.protocol_files_draining:
+            work.append(
+                WorkItem(live_work.RUN_FILES, "A run's images", left=self.protocol_files_pending)
+            )
+        work.extend(
+            WorkItem(live_work.POST_RUN_STEP, f"A run's {step}")
+            for step in runner.post_run_steps_running
+        )
+        work.extend(self.post_processing.work())
+        with self._reports_lock:
+            reports = dict(self._reports_in_flight)
+        for kind, count in reports.items():
+            if count:
+                work.append(WorkItem(kind, _REPORT_NAMES[kind], left=count))
+        if self.manual_capture.in_flight:
+            work.append(WorkItem(live_work.STILL, 'A still being saved'))
+        return LiveWork(work=tuple(work), closed=self._shut_down)
+
+    @contextlib.contextmanager
+    def _report_in_flight(self, kind: str):
+        """Count a support report or logs zip from its call to its return."""
+        with self._reports_lock:
+            self._reports_in_flight[kind] += 1
+        try:
+            yield
+        finally:
+            with self._reports_lock:
+                self._reports_in_flight[kind] -= 1
 
     @api
     @property
@@ -2618,14 +2706,15 @@ class ScopeSession:
         from modules.tech_support_report import SupportReportSaved, TechSupportReport
 
         report = TechSupportReport(session=self)
-        return SupportReportSaved(
-            report.generate(
-                callback=on_progress,
-                include_bandwidth_test=include_bandwidth_test,
-                output_dir=output_dir,
-            ),
-            'support report',
-        )
+        with self._report_in_flight(live_work.SUPPORT_REPORT):
+            return SupportReportSaved(
+                report.generate(
+                    callback=on_progress,
+                    include_bandwidth_test=include_bandwidth_test,
+                    output_dir=output_dir,
+                ),
+                'support report',
+            )
 
     @api
     def make_logs_zip(
@@ -2655,10 +2744,11 @@ class ScopeSession:
         from modules.tech_support_report import SupportReportSaved, TechSupportReport
 
         report = TechSupportReport(session=self)
-        return SupportReportSaved(
-            report.generate_logs_only(callback=on_progress, output_dir=output_dir),
-            'logs zip',
-        )
+        with self._report_in_flight(live_work.LOGS_ZIP):
+            return SupportReportSaved(
+                report.generate_logs_only(callback=on_progress, output_dir=output_dir),
+                'logs zip',
+            )
 
     @api
     def plugin_health(self) -> 'PluginHealth | None':
