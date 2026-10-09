@@ -39,7 +39,11 @@ $ErrorActionPreference = "Stop"
 # folder that orphaned the user's settings, and `TIFF strings must be
 # 7-bit ASCII` on every save. A diagnostic has no business sharing a file
 # with a path-critical string; v2 must not build this branch.
-$script_version = 3
+#
+# v4: the clone's commit is written into .git_archival.txt, which the release
+# spec bundles, so the installed banner's Git: line names the commit through
+# LVP's one reader. A v3 build of this branch ships with Git: unknown.
+$script_version = 4
 
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
 $script_dir = Split-Path -Parent $PSCommandPath
@@ -471,6 +475,16 @@ if (Test-Path $min_file) {
 }
 
 Remove-Item "$clone\.git*" -Recurse -Force -ErrorAction SilentlyContinue
+
+# The installed banner names its commit through LVP's one reader, which reads
+# .git_archival.txt beside the bundled code. Written after the .git* removal
+# above, which would take it too, and with no byte-order mark (see v3). An
+# installer that cannot name its commit is refused, not shipped.
+if (-not $git_sha) {
+    Write-Host "ERROR: the clone's commit could not be read; an installer must name the commit it was built from."
+    Exit 1
+}
+[System.IO.File]::WriteAllText((Join-Path $clone ".git_archival.txt"), "node: $git_sha`n", (New-Object System.Text.UTF8Encoding $false))
 
 # ---------------------------------------------------------------------------
 # Read version

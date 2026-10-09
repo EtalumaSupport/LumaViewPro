@@ -21,6 +21,7 @@ datas = [
     ('docs/licenses', 'docs/licenses'),
     ('docs/LICENSE', 'docs'),
     ('version.txt', '.'),
+    ('.git_archival.txt', '.'),
     ('lvp_logger.py', '.'),
 ]
 
