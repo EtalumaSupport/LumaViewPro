@@ -108,6 +108,10 @@ class NoWireFormError(TypeError):
     """A value whose type has no wire form reached ``encode``."""
 
 
+class NotHandedOutError(NoWireFormError):
+    """A parameter takes only a live object no wire member hands out, so no client can name one."""
+
+
 def project_classes() -> dict[str, type]:
     """Every class defined under ``modules/``, by name, every module imported."""
     import modules
@@ -297,7 +301,64 @@ def wire_gaps(root: type, classes: dict[str, type], aliases: dict[str, str]) -> 
                     gaps.append(f'{where}: {used} has no wire form')
                     continue
                 queue.append(target)
+    reachable = handed_out(root, classes, aliases)
+    for cls in seen:
+        if class_form(cls) == RECORD:
+            continue
+        try:
+            wire_members(cls, classes, aliases, handed_out=reachable)
+        except (NoWireFormError, TypeError) as e:
+            gaps.append(f'{cls.__name__}: {e}')
     return sorted(gaps)
+
+
+def handed_out(root: type, classes: dict[str, type], aliases: dict[str, str]) -> frozenset[type]:
+    """Every live object's class a wire client can be handed, walking from *root*.
+
+    One a wire member returns, or a read or record holds, other than a
+    sub-object the routes pass through (a read whose type is that one
+    class), which a client reaches by its path and never holds.
+    """
+    found, seen, queue = set(), set(), [root]
+    while queue:
+        cls = queue.pop()
+        if cls in seen:
+            continue
+        seen.add(cls)
+        texts = [(_field_text(cls, f), True) for f in _fields(cls)]
+        for name, member in _marked(cls).items():
+            if mark_of(member) != API:
+                continue
+            for _edge, direction, text in _edges(cls, name, member):
+                if direction == 'out':
+                    texts.append((text, isinstance(member, property)))
+        for text, read in texts:
+            if text is None:
+                continue
+            segment = _segment(text, classes) if read else None
+            used_names = _names(text)
+            for used in used_names:
+                if used in aliases and used not in NAMED_FORMS:
+                    used_names += _names(aliases[used])
+                    continue
+                target = classes.get(used) if used not in NAMED_FORMS else None
+                if target is None or class_form(target) not in (HANDLE, RECORD):
+                    continue
+                if class_form(target) == HANDLE and target is not segment:
+                    found.add(target)
+                queue.append(target)
+    return frozenset(found)
+
+
+def _segment(text: str, classes: dict[str, type]) -> type | None:
+    """The live object's class a read of type *text* leads to as a sub-object, or None.
+
+    A sub-object is a read whose type is one live object's class, or that
+    class or None.
+    """
+    live = [n for n in (_base(a) for a in _alternatives(text)) if n != 'None']
+    target = classes.get(live[0]) if len(live) == 1 and live[0] not in NAMED_FORMS else None
+    return target if target is not None and class_form(target) == HANDLE else None
 
 
 # --- The runtime half: encode a value -----------------------------------------
@@ -475,24 +536,36 @@ def _base(node: ast.AST) -> str:
     raise NoWireFormError(f'{ast.unparse(node)} is not a type a wire carries')
 
 
-def inbound(text: str, classes: dict[str, type], aliases: dict[str, str]) -> tuple[Inbound, ...]:
+def inbound(
+    text: str,
+    classes: dict[str, type],
+    aliases: dict[str, str],
+    *,
+    handed_out: frozenset[type] | None = None,
+) -> tuple[Inbound, ...]:
     """The alternatives a parameter annotated *text* takes from a wire client.
 
     Empty when the host fills the parameter (a callback, a run's handlers).
+    Given ``handed_out``, the live objects a client can be handed
+    (``handed_out``), a live object's class outside it is no alternative: a
+    client has no id to send for one.
 
     Raises:
         NoWireFormError: the type has no inbound form -- a job, a thread, a
             path or record inside an array -- or is a union a sent value
             could be read as either side of (a name or a path), so which one
             the client meant is not knowable.
+        NotHandedOutError: every alternative but None is a live object no
+            wire member hands out.
     """
     found: list[Inbound] = []
+    unobtainable = []
     for node in _alternatives(text):
         name = _base(node)
         if name in _HOST_FILLED:
             return ()
         if name in aliases and name not in NAMED_FORMS:
-            found += inbound(aliases[name], classes, aliases)
+            found += inbound(aliases[name], classes, aliases, handed_out=handed_out)
             continue
         form = NAMED_FORMS.get(name)
         cls = classes.get(name) if form is None else None
@@ -502,14 +575,25 @@ def inbound(text: str, classes: dict[str, type], aliases: dict[str, str]) -> tup
             found.append(Inbound(form, name, items=_items(node, text, classes, aliases)))
         elif form == RECORD:
             fields = tuple(
-                (f, inbound(_field_text(cls, f) or 'object', classes, aliases))
+                (
+                    f,
+                    inbound(
+                        _field_text(cls, f) or 'object', classes, aliases, handed_out=handed_out
+                    ),
+                )
                 for f in _fields(cls)
             )
             found.append(Inbound(form, name, cls, fields=fields))
+        elif form == HANDLE and handed_out is not None and cls not in handed_out:
+            unobtainable.append(name)
         elif form in (SCALAR, SECONDS, PATH, ENUM, HANDLE):
             found.append(Inbound(form, name, cls))
         else:
             raise NoWireFormError(f'{text}: {name} has no inbound form')
+    if unobtainable and all(a.name == 'None' for a in found):
+        raise NotHandedOutError(
+            f'{text}: no wire member hands out the live object {unobtainable[0]}'
+        )
     converted = [a for a in found if a.form in _CONVERTED]
     others = [a for a in found if a not in converted and a.name != 'None']
     if converted and (len(converted) > 1 or others):
@@ -536,11 +620,22 @@ def _items(
     return items
 
 
-def wire_members(cls: type, classes: dict[str, type], aliases: dict[str, str]) -> list[WireMember]:
+def wire_members(
+    cls: type,
+    classes: dict[str, type],
+    aliases: dict[str, str],
+    *,
+    handed_out: frozenset[type] | None = None,
+) -> list[WireMember]:
     """Each member of *cls* a wire client reaches, sorted by name.
 
+    Given ``handed_out``, a parameter with a default that takes only a live
+    object no wire member hands out is not sent: its default stands.
+
     Raises:
-        NoWireFormError: a parameter's type has no inbound form.
+        NoWireFormError: a parameter's type has no inbound form, or a
+            parameter without a default takes only a live object no wire
+            member hands out (``NotHandedOutError``).
         TypeError: a method takes ``*args`` or ``**kwargs``, which a client
             cannot name.
     """
@@ -562,10 +657,15 @@ def wire_members(cls: type, classes: dict[str, type], aliases: dict[str, str]) -
                     f'{cls.__name__}.{name} takes *{p.name}, which a client cannot name'
                 )
             text = _annotation_text(function.__annotations__.get(p.name, p.empty))
-            alternatives = inbound(text, classes, aliases)
+            required = p.default is p.empty
+            try:
+                alternatives = inbound(text, classes, aliases, handed_out=handed_out)
+            except NotHandedOutError as e:
+                if required:
+                    raise NotHandedOutError(f'{cls.__name__}.{name} parameter {p.name}: {e}') from e
+                continue
             if not alternatives:
                 continue
-            required = p.default is p.empty
             parameters.append(
                 WireParameter(p.name, alternatives, required, None if required else p.default)
             )
@@ -577,15 +677,9 @@ def wire_members(cls: type, classes: dict[str, type], aliases: dict[str, str]) -
 
 
 def _read(name: str, annotation: object, function: object, classes: dict[str, type]) -> WireMember:
-    """A read member, with the live object's class it leads to when it is a sub-object.
-
-    A sub-object is a read whose type is one live object's class, or that
-    class or None.
-    """
+    """A read member, with the live object's class it leads to when it is a sub-object."""
     text = _annotation_text(annotation if annotation is not None else inspect.Parameter.empty)
-    live = [n for n in (_base(a) for a in _alternatives(text)) if n != 'None'] if text else []
-    target = classes.get(live[0]) if len(live) == 1 and live[0] not in NAMED_FORMS else None
-    segment = target if target is not None and class_form(target) == HANDLE else None
+    segment = _segment(text, classes) if text else None
     return WireMember(name, read=True, segment=segment, doc=getattr(function, '__doc__', '') or '')
 
 

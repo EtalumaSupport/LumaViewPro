@@ -1189,11 +1189,15 @@ class Protocol:
             }
         )
 
-    @api
+    @api(in_process=True)
     def validate_steps(
         self, objective_helper: 'ObjectiveLoader', *, led_max_ma: int | None
     ) -> list:
         """Validate all step fields and return a list of error strings.
+
+        In-process: a wire client holds no objective catalogue to pass. It is
+        told of a loaded protocol's invalid steps when the protocol loads,
+        and a run start refuses them.
 
         Args:
             objective_helper: The scope's objective catalogue; a step naming

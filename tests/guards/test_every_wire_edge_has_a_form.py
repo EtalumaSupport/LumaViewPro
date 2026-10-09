@@ -94,3 +94,78 @@ def test_each_kind_of_gap_is_caught():
         '_Root.image return: ndarray has no wire form',
         '_Root.worker return: Thread has no wire form',
     ]
+
+
+class _Kept:
+    """A live object no member hands out: a client never holds its id."""
+
+    @api
+    def poke(self) -> None:
+        raise NotImplementedError
+
+
+class _Given:
+    """A live object a member hands out."""
+
+    @api
+    def poke(self) -> None:
+        raise NotImplementedError
+
+
+class _Holder:
+    @api
+    def given(self) -> _Given:
+        raise NotImplementedError
+
+    @api
+    def needs_kept(self, kept: _Kept) -> None:
+        raise NotImplementedError
+
+    @api
+    def may_take_kept(self, n: int, kept: _Kept | None = None) -> None:
+        raise NotImplementedError
+
+    @api
+    def takes_given(self, given: _Given) -> None:
+        raise NotImplementedError
+
+
+def test_a_live_object_no_member_hands_out_cannot_be_required():
+    classes = {'_Holder': _Holder, '_Kept': _Kept, '_Given': _Given}
+
+    assert wire_encoding.handed_out(_Holder, classes, {}) == {_Given}
+    gaps = wire_encoding.wire_gaps(_Holder, classes, {})
+    assert gaps == [
+        '_Holder: _Holder.needs_kept parameter kept: _Kept: no wire member hands out '
+        'the live object _Kept'
+    ]
+
+
+def test_an_optional_live_object_no_member_hands_out_is_not_sent():
+    class _Optional:
+        @api
+        def given(self) -> _Given:
+            raise NotImplementedError
+
+        may_take_kept = _Holder.may_take_kept
+        takes_given = _Holder.takes_given
+
+    classes = {'_Optional': _Optional, '_Kept': _Kept, '_Given': _Given}
+    reach = wire_encoding.handed_out(_Optional, classes, {})
+
+    sent = {
+        m.name: [p.name for p in m.parameters]
+        for m in wire_encoding.wire_members(_Optional, classes, {}, handed_out=reach)
+    }
+    assert sent['may_take_kept'] == ['n']
+    assert sent['takes_given'] == ['given']
+
+
+def test_validate_steps_put_back_on_the_wire_is_caught(classes, aliases, monkeypatch):
+    from modules.protocol import Protocol
+    from modules.scope_session import ScopeSession
+
+    monkeypatch.setattr(Protocol.validate_steps, MARK_ATTRIBUTE, 'api')
+
+    gaps = wire_encoding.wire_gaps(ScopeSession, classes, aliases)
+    assert any('validate_steps' in g and 'ObjectiveLoader' in g for g in gaps), gaps

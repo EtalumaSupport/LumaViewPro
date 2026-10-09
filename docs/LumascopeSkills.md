@@ -2511,7 +2511,7 @@ ColorChannel.Lumi   # 6  — luminescence (all LEDs off, sensitive mode)
 
 ## API reference
 
-The API is exactly the members below, and nothing else: each carries `@api` in the source, or is a data attribute its class names in `@api_fields` (`modules/api_surface.py`). An unmarked member stays callable from Python but is not API: it can change in any release, and it is never put on a wire. A member labelled (in-process) is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire, because it hosts a session, takes or returns a function (a listener's registration among them: a wire client hears events on the stream), hands out an image array or a table (a wire client gets frames from the live view and data as files, steps through `num_steps` and `step(idx)`, objectives through `get_objectives_list`), is a method of a class that crosses the wire as a record (a wire client holds the record's data, and a record has no address), or is held back by policy. `tests/guards/test_the_api_is_declared.py` holds this index equal to the marks, and every type a member hands out or takes in published. How each type crosses a wire is declared once, in `modules/wire_encoding.py`: scalars as themselves, `timedelta` as seconds, `datetime` as ISO 8601, an enum by its value or name, a record (a dataclass, a NamedTuple, or a class `@api_fields(..., record=True)` declares one) as an object of its fields and wire properties, a path as its live-folder name and host path, a running call as a job, any other object as a handle; `tests/guards/test_every_wire_edge_has_a_form.py` fails a wire member whose type has none.
+The API is exactly the members below, and nothing else: each carries `@api` in the source, or is a data attribute its class names in `@api_fields` (`modules/api_surface.py`). An unmarked member stays callable from Python but is not API: it can change in any release, and it is never put on a wire. A member labelled (in-process) is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire, because it hosts a session, takes or returns a function (a listener's registration among them: a wire client hears events on the stream), hands out an image array or a table (a wire client gets frames from the live view and data as files, steps through `num_steps` and `step(idx)`, objectives through `get_objectives_list`), is a method of a class that crosses the wire as a record (a wire client holds the record's data, and a record has no address), takes a live object no wire member hands out (a wire client has no handle to send for it), or is held back by policy. `tests/guards/test_the_api_is_declared.py` holds this index equal to the marks, and every type a member hands out or takes in published. How each type crosses a wire is declared once, in `modules/wire_encoding.py`: scalars as themselves, `timedelta` as seconds, `datetime` as ISO 8601, an enum by its value or name, a record (a dataclass, a NamedTuple, or a class `@api_fields(..., record=True)` declares one) as an object of its fields and wire properties, a path as its live-folder name and host path, a running call as a job, any other object as a handle; `tests/guards/test_every_wire_edge_has_a_form.py` fails a wire member whose type has none.
 
 ### ScopeSession
 
@@ -2924,7 +2924,7 @@ Reached through returned by `session.load_protocol` and `session.new_protocol`.
 - `steps` (in-process)
 - `tiling`
 - `to_file`
-- `validate_steps`
+- `validate_steps` (in-process)
 
 ### RunEvents
 
