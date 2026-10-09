@@ -166,6 +166,9 @@ def test_every_event_of_a_run_names_the_run_its_call_handed_out(client, session,
         run = client.post(
             f'/api/v1/handles/ProtocolRunner/{runner}/run_single_scan',
             json={'protocol': protocol, 'enable_image_saving': False},
+            # The call's answer, not its job: a loaded machine can take
+            # longer than the default wait to reach the first event.
+            headers={'Prefer': 'wait=60'},
         ).json()
         events = stream.until('run_ended')
 
