@@ -114,38 +114,27 @@ class TestMotorDriverDiagnosticGating:
         motor = _make_motor_with_responses({'FANSPEED': '1234'})
         assert motor.read_fanspeed() == 1234
 
-    def test_set_fan_duty_unsupported_returns_false(self):
+    def test_set_fan_duty_error_raises(self):
+        # Support was supports_fan's answer, asked first: an ERROR to the
+        # write itself is a fault.
+        from drivers.exceptions import HardwareError
+
         motor = _make_motor_with_responses(
             {
                 'FAN:50': "ERROR: command 'FAN' not found:",
             }
         )
-        assert motor.set_fan_duty(50) is False
+        with pytest.raises(HardwareError):
+            motor.set_fan_duty(50)
 
-    def test_set_fan_duty_supported_returns_true(self):
+    def test_set_fan_duty_supported_returns_none(self):
         motor = _make_motor_with_responses({'FAN:50': 'OK'})
-        assert motor.set_fan_duty(50) is True
+        assert motor.set_fan_duty(50) is None
 
     def test_set_fan_duty_invalid_value_raises(self):
         motor = _make_motor_with_responses({})
         with pytest.raises(ValueError):
             motor.set_fan_duty(150)
-
-
-# ---------------------------------------------------------------------------
-# DiagnosticsAPI sub-API -- thin delegation that handles missing driver.
-# ---------------------------------------------------------------------------
-
-
-class TestDiagnosticsApiDelegation:
-    """The sub-API delegates to driver; returns sentinel when driver absent."""
-
-    def test_set_motor_fan_duty_no_driver_returns_false(self):
-        from modules.lumascope_api.diagnostics import DiagnosticsAPI
-
-        scope = MagicMock(spec=[])
-        api = DiagnosticsAPI(scope)
-        assert api.set_motor_fan_duty(50) is False
 
 
 # ---------------------------------------------------------------------------

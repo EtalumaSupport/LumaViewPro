@@ -10791,57 +10791,39 @@ class TestImagingPylonSdkPerfSettersPrivatized:
 
 
 class TestLedEngineeringModeSymmetricReturnTypes:
-    """Per API audit F10: enter_led_engineering_mode returned `bool`;
-    exit_led_engineering_mode returned `bool | None`. The asymmetry
-    forced L2 / Matlab consumers writing portable code to pick one
-    null check or the other. The fix collapses None paths to False
-    on exit so both enter / exit return a uniform `bool`.
+    """Per API audit F10: enter_led_engineering_mode and
+    exit_led_engineering_mode answer the same way, so an L2 / Matlab
+    consumer writes one shape for both: each returns nothing once done and
+    raises when it could not.
     """
 
-    def _src(self):
-        import pathlib
+    @pytest.mark.parametrize(
+        ('member', 'params'),
+        [
+            ('enter_led_engineering_mode', ['self', 'timeout_s']),
+            ('exit_led_engineering_mode', ['self']),
+        ],
+    )
+    def test_both_declare_no_return(self, member, params):
+        from tests.ast_seams import assert_def
 
-        return pathlib.Path('modules/lumascope_api/diagnostics.py').read_text()
-
-    def test_exit_returns_bool_only(self):
-        src = self._src()
-        idx = src.find('def exit_led_engineering_mode')
-        assert idx >= 0
-        # Look at the next ~600 chars (the function body).
-        block = src[idx : idx + 600]
-        assert '-> bool:' in block, (
-            'exit_led_engineering_mode return annotation must be `bool` '
-            '(not `bool | None`) -- symmetric with enter.'
-        )
-        assert 'return None' not in block, (
-            'exit_led_engineering_mode body must not return None; the '
-            'None paths collapsed to False so the L2 contract is '
-            'uniformly bool.'
+        assert_def(
+            'modules/lumascope_api/diagnostics.py',
+            member,
+            params=params,
+            returns='None',
+            msg=f'{member} must declare `-> None`: a failure raises',
         )
 
-    def test_enter_unchanged_returns_bool(self):
-        src = self._src()
-        idx = src.find('def enter_led_engineering_mode')
-        assert idx >= 0
-        block = src[idx : idx + 600]
-        assert '-> bool:' in block, (
-            'enter_led_engineering_mode must still return bool (the symmetric counterpart).'
-        )
+    @pytest.mark.parametrize('member', ['enter_led_engineering_mode', 'exit_led_engineering_mode'])
+    def test_both_refuse_with_no_led_controller(self, sim_scope, monkeypatch, member):
+        from drivers.null_ledboard import NullLEDBoard
+        from modules.exceptions import HardwareCommandRefusedError
 
-    def test_runtime_exit_returns_bool_with_no_driver(self):
-        # When no LED driver is attached, the helper short-circuits to
-        # False (previously returned None).
-        from modules.lumascope_api.diagnostics import DiagnosticsAPI
-        from unittest.mock import MagicMock
-
-        fake_scope = MagicMock()
-        fake_scope._led_driver = None
-        api = DiagnosticsAPI(fake_scope)
-        result = api.exit_led_engineering_mode()
-        assert result is False, (
-            'exit_led_engineering_mode must return False (not None) '
-            'when no LED driver is available.'
-        )
+        monkeypatch.setattr(sim_scope, '_led_driver', NullLEDBoard())
+        with pytest.raises(HardwareCommandRefusedError) as caught:
+            getattr(sim_scope.diagnostics, member)()
+        assert caught.value.reason == 'not_connected'
 
 
 class TestScopeSessionBuildsFullExecutorBundle:

@@ -1707,25 +1707,21 @@ class MotorBoard(SerialBoard):
             logger.warning(f'[XYZ Class ] FANSPEED unparseable: {raw!r}')
             return None
 
-    def set_fan_duty(self, duty_pct: int) -> bool:
-        """Set fan PWM duty cycle (0..100). Returns True if firmware
-        accepted the command, False if firmware does not support
-        FAN:<duty>.
+    def set_fan_duty(self, duty_pct: int) -> None:
+        """Set fan PWM duty cycle (0..100).
+
+        Support is ``supports_fan``'s answer, asked before this is called,
+        so an ``ERROR`` reply here is a fault, not "unsupported".
+
+        Raises:
+            ValueError: ``duty_pct`` is outside 0..100.
+            HardwareError: The board answered with an error, or did not
+                answer.
         """
         if not 0 <= duty_pct <= 100:
             raise ValueError(f'Fan duty must be 0..100, got {duty_pct}')
-        # expect_unsupported=True suppresses the FIRMWARE ERROR warning that
-        # exchange_command emits on legacy firmware lacking FAN:<duty>. This
-        # method already treats an ERROR response as "not supported" below, so
-        # the lower-level warning is duplicate noise in the user-visible log
-        # (mirrors the VOLTAGE / DRVSTAT / FANSPEED diagnostic probes).
-        resp = self.exchange_command(f'FAN:{duty_pct}', expect_unsupported=True)
+        resp = self.exchange_command(f'FAN:{duty_pct}')
         if resp is None:
-            return False
+            raise HardwareError(f'FAN:{duty_pct}: no response from motor board')
         if resp.startswith('ERROR'):
-            logger.debug(
-                f'[XYZ Class ] FAN:{duty_pct} not supported by '
-                f'connected firmware (response: {resp!r})'
-            )
-            return False
-        return True
+            raise HardwareError(f'FAN:{duty_pct}: the motor board answered {resp!r}')

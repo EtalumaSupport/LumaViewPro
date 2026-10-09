@@ -18,6 +18,7 @@ import numpy as np
 
 from lvp_logger import log_dir, logger, version
 from modules.api_surface import api
+from modules.exceptions import HardwareCommandRefusedError, MissingPart
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
@@ -938,12 +939,14 @@ class DiagnosticsAPI:
             return f'{ERROR_PREFIX}{e}'
 
     # --- Motor driver / fan diagnostics ---
-    # Each returns parsed values or None when the firmware does not
+    # Each read returns parsed values or None when the firmware does not
     # support the command (legacy 2024-09-10 firmware did not include
     # DRVSTAT_<axis> / FANSPEED / FAN). Per Eric: the driver
     # owns firmware-version gating; callers (TSR, future REST
     # diagnostic endpoint) read None as "INCONCLUSIVE -- firmware
-    # does not support this probe."
+    # does not support this probe." The fan setter differs on purpose: a
+    # write that did not happen raises, so a caller cannot read a status
+    # for one that did.
 
     @api
     def read_motor_drv_status(self, axis: str) -> int | None:
@@ -970,25 +973,33 @@ class DiagnosticsAPI:
         return drv.read_fanspeed()
 
     @api
-    def set_motor_fan_duty(self, duty_pct: int) -> bool:
-        """Set motor-board fan PWM duty cycle (0..100).
+    def set_motor_fan_duty(self, duty_pct: int) -> None:
+        """Set motor-board fan PWM duty cycle (0..100), and wait for it.
 
-        Returns True if firmware accepted the command, False if firmware
-        does not implement FAN:<duty> or no motor driver is present.
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'`` (the motor
+                controller) or ``'axis_absent'``: ``MissingPart.MOTORS`` on a
+                manual scope, ``MissingPart.FAN_CONTROL`` for a controller
+                without fan control. Nothing was sent.
+            HardwareError: The board answered the write with an error, or
+                did not answer.
+            ValueError: ``duty_pct`` is outside 0..100.
         """
-        drv = getattr(self._scope, '_motion_driver', None)
-        if drv is None or not hasattr(drv, 'set_fan_duty'):
-            return False
-        return self._scope.motion._dispatch_motion(
+        self._scope.motion._refuse_absent('set_motor_fan_duty')
+        self._scope.motion._dispatch_motion(
             self._set_motor_fan_duty_impl,
             'set_motor_fan_duty',
-            args=(drv, duty_pct),
+            args=(self._scope._motion_driver, duty_pct),
             timeout_s=self._BOARD_QUEUE_MARGIN_S,
         )
 
     @staticmethod
-    def _set_motor_fan_duty_impl(drv, duty_pct: int) -> bool:
-        return drv.set_fan_duty(duty_pct)
+    def _set_motor_fan_duty_impl(drv, duty_pct: int) -> None:
+        # Asked on the lane: the support probe is a board exchange.
+        if not drv.supports_fan():
+            part = MissingPart.FAN_CONTROL
+            raise HardwareCommandRefusedError(part.reason, 'set_motor_fan_duty', missing=part)
+        drv.set_fan_duty(duty_pct)
 
     # --- LED engineering mode (LEDREADS / SELFTEST handshake) ---
     # Open-coded FACTORY / Y / Q sequences in callers were leaving the
@@ -999,62 +1010,68 @@ class DiagnosticsAPI:
     # entries keep the careful handshake as the single canonical
     # implementation.
 
-    @api
-    def enter_led_engineering_mode(self, timeout_s: float = 5.0) -> bool:
-        """Enter LED engineering mode via the driver-canonical handshake.
+    def _refuse_no_led_engineering_mode(self, member: str) -> None:
+        """Refuse when no LED controller is connected, or it has no engineering mode.
 
-        Returns True on success, False when the LED driver is absent or
-        does not expose engineering-mode entry (legacy LED firmware
-        predating the FACTORY/Y/Q protocol).
+        No LED capability names the handshake, so the driver's having the
+        method is the dispatch: the Classic FX2 LED controller has none.
+        """
+        self._scope.illumination.refuse_controller_not_connected(member)
+        if not hasattr(self._scope._led_driver, 'enter_engineering_mode'):
+            part = MissingPart.LED_ENGINEERING_MODE
+            raise HardwareCommandRefusedError(part.reason, member, missing=part)
+
+    @api
+    def enter_led_engineering_mode(self, timeout_s: float = 5.0) -> None:
+        """Enter LED engineering mode via the driver-canonical handshake, and wait for it.
 
         Args:
             timeout_s: Max seconds to wait for the engineering-mode
                 handshake to complete.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'`` (the LED
+                controller) or ``'axis_absent'``
+                (``MissingPart.LED_ENGINEERING_MODE``, a controller without
+                the handshake). Nothing was sent.
+            HardwareError: The board did not complete the handshake; the
+                driver has already tried to bring it back to safe mode.
         """
-        drv = getattr(self._scope, '_led_driver', None)
-        if drv is None or not hasattr(drv, 'enter_engineering_mode'):
-            return False
-        return self._scope.motion._dispatch_motion(
+        self._refuse_no_led_engineering_mode('enter_led_engineering_mode')
+        self._scope.motion._dispatch_motion(
             self._enter_led_engineering_mode_impl,
             'enter_led_engineering_mode',
-            args=(drv, timeout_s),
+            args=(self._scope._led_driver, timeout_s),
             timeout_s=timeout_s + self._BOARD_QUEUE_MARGIN_S,
         )
 
     @staticmethod
-    def _enter_led_engineering_mode_impl(drv, timeout_s: float) -> bool:
-        try:
-            return drv.enter_engineering_mode(timeout=timeout_s)
-        except Exception:
-            return False
+    def _enter_led_engineering_mode_impl(drv, timeout_s: float) -> None:
+        drv.enter_engineering_mode(timeout=timeout_s)
 
     @api
-    def exit_led_engineering_mode(self) -> bool:
-        """Exit LED engineering mode via the driver-canonical handshake.
+    def exit_led_engineering_mode(self) -> None:
+        """Exit LED engineering mode via the driver-canonical handshake, and wait for it.
 
         Driver method drains and sleeps after Q so the LED firmware
         actually transitions out of eng mode.
 
-        Returns True on success, False when the LED driver is absent
-        or does not expose engineering-mode exit (symmetric with
-        ``enter_led_engineering_mode``).
+        Raises:
+            HardwareCommandRefusedError: as ``enter_led_engineering_mode``.
+            HardwareError: Q failed and the board's soft reset did not
+                bring its firmware back; it needs a power cycle.
         """
-        drv = getattr(self._scope, '_led_driver', None)
-        if drv is None or not hasattr(drv, 'exit_engineering_mode'):
-            return False
-        return self._scope.motion._dispatch_motion(
+        self._refuse_no_led_engineering_mode('exit_led_engineering_mode')
+        self._scope.motion._dispatch_motion(
             self._exit_led_engineering_mode_impl,
             'exit_led_engineering_mode',
-            args=(drv,),
+            args=(self._scope._led_driver,),
             timeout_s=self._BOARD_QUEUE_MARGIN_S,
         )
 
     @staticmethod
-    def _exit_led_engineering_mode_impl(drv) -> bool:
-        try:
-            return drv.exit_engineering_mode()
-        except Exception:
-            return False
+    def _exit_led_engineering_mode_impl(drv) -> None:
+        drv.exit_engineering_mode()
 
     # --- Facade getters relocated from Lumascope ---
     # Six thin getters that report hardware identity / connection state.

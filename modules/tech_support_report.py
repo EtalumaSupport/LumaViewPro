@@ -54,6 +54,7 @@ from collections.abc import Callable
 
 import platformdirs
 
+from drivers.exceptions import HardwareError
 from lvp_logger import collect_installed_packages
 from modules import recording_frames, settings_init
 from modules.exceptions import (
@@ -1039,26 +1040,51 @@ class FirmwareDiagnostics:
             return {'not_applicable': 'Not supported by this LED firmware (needs v2 or later)'}
         return None
 
-    def _enter_engineering(self):
+    @staticmethod
+    def _what_the_hardware_said(action: Callable[[], object]) -> str | None:
+        """Run one hardware call of a step: None when it went through, else its words.
+
+        What is caught is what the hardware says, as ``run_homing_test``'s
+        home catches it: a board fault, and a refusal for the board's state
+        or a part this scope does not have. Any other refusal (a lane, a
+        claim) re-raises: it is the report's own defect, not the board's.
+        """
+        try:
+            action()
+        except HardwareError as e:
+            return str(e)
+        except HardwareCommandRefusedError as e:
+            if e.reason not in HARDWARE_STATE_REASONS and e.reason != 'axis_absent':
+                raise
+            return str(e)
+        return None
+
+    def _enter_engineering(self) -> str | None:
         """Enter LED engineering mode via the diagnostics sub-API.
 
         Routes through ``scope.diagnostics.enter_led_engineering_mode``
         so the driver-canonical FACTORY + Y handshake (with end-marker
         detection + post-Y drain) is the single canonical implementation.
-        """
-        if not self._led_ok():
-            return False
-        return self._scope.diagnostics.enter_led_engineering_mode(timeout_s=5)
 
-    def _exit_engineering(self):
+        Returns:
+            None once the board is in engineering mode, else the words
+            saying why it is not.
+        """
+        return self._what_the_hardware_said(
+            lambda: self._scope.diagnostics.enter_led_engineering_mode(timeout_s=5)
+        )
+
+    def _exit_engineering(self) -> None:
         """Exit LED engineering mode via the diagnostics sub-API.
 
         Driver-canonical exit drains and sleeps after Q so the LED
-        firmware actually transitions out of eng mode.
+        firmware actually transitions out of eng mode. Called from a
+        step's ``finally``, so a failed exit never replaces the step's
+        result: it is logged at error, which the bundle's logs carry.
         """
-        if not self._led_ok():
-            return
-        self._scope.diagnostics.exit_led_engineering_mode()
+        failed = self._what_the_hardware_said(self._scope.diagnostics.exit_led_engineering_mode)
+        if failed is not None:
+            logger.error(f'[TSR] LED engineering mode exit failed: {failed}')
 
     def _cmd(self, target, command, timeout_s=None):
         """Send command and return response string, or error string.
@@ -1195,8 +1221,11 @@ class FirmwareDiagnostics:
         if unread is not None:
             return _unread_text(unread)
         try:
-            if not self._enter_engineering():
-                return 'The LED board did not enter engineering mode; SELFTEST was not run'
+            failed = self._enter_engineering()
+            if failed is not None:
+                return (
+                    f'The LED board did not enter engineering mode; SELFTEST was not run: {failed}'
+                )
             return self._read_multiline(self.led_board, 'SELFTEST', timeout_s=90)
         finally:
             self._exit_engineering()
@@ -1385,9 +1414,12 @@ class FirmwareDiagnostics:
         if unread is not None:
             return {**unread, 'passed': False}
         try:
-            if not self._enter_engineering():
+            failed = self._enter_engineering()
+            if failed is not None:
                 return {
-                    'error': 'The LED board did not enter engineering mode; no current was read',
+                    'error': (
+                        f'The LED board did not enter engineering mode; no current was read: {failed}'
+                    ),
                     'passed': False,
                 }
             currents = self._scope.diagnostics.read_led_currents_ma()
@@ -1413,26 +1445,21 @@ class FirmwareDiagnostics:
         """Set fan to known duty, wait, read tachometer.
 
         Informational test only -- many units lack a tachometer wire,
-        so RPM=0 is not a fault. Returns ``supported=False`` (with no
-        readings) when firmware does not implement FAN: / FANSPEED.
+        so RPM=0 is not a fault. Returns ``supported=False`` with the
+        hardware's words in ``error`` when a fan write did not go through:
+        a controller without fan control, or a board that faulted.
         """
         unread = self._unread_motor_board()
         if unread is not None:
             return {'supported': False, 'tests': [], **unread}
 
-        # Probe first: if the driver rejects FAN:0 (always a safe
-        # baseline) the firmware doesn't implement fan duty control,
-        # and the rest of this test would just emit firmware errors.
-        if not self._scope.diagnostics.set_motor_fan_duty(0):
-            return {
-                'supported': False,
-                'message': (
-                    'Firmware does not support fan duty control '
-                    '(FAN:<duty> / FANSPEED). Upgrade motor firmware '
-                    'to v3.1+ to enable this check.'
-                ),
-                'tests': [],
-            }
+        # FAN:0 first, always a safe baseline: a controller without fan
+        # control is refused before anything is sent, and the rest of this
+        # test would only repeat the refusal.
+        fan = self._scope.diagnostics
+        failed = self._what_the_hardware_said(lambda: fan.set_motor_fan_duty(0))
+        if failed is not None:
+            return {'supported': False, 'error': failed, 'tests': []}
 
         results = {
             'supported': True,
@@ -1441,9 +1468,11 @@ class FirmwareDiagnostics:
         }
 
         # Test 1: Set fan to ~50% duty, read RPM
-        self._scope.diagnostics.set_motor_fan_duty(50)
+        failed = self._what_the_hardware_said(lambda: fan.set_motor_fan_duty(50))
+        if failed is not None:
+            return {**results, 'supported': False, 'error': failed}
         time.sleep(2.0)
-        rpm_50 = self._scope.diagnostics.read_motor_fan_rpm()
+        rpm_50 = fan.read_motor_fan_rpm()
 
         has_tach = rpm_50 is not None and rpm_50 > 100
         results['tests'].append(
@@ -1455,9 +1484,11 @@ class FirmwareDiagnostics:
         )
 
         # Test 2: Fan off, read RPM
-        self._scope.diagnostics.set_motor_fan_duty(0)
+        failed = self._what_the_hardware_said(lambda: fan.set_motor_fan_duty(0))
+        if failed is not None:
+            return {**results, 'supported': False, 'error': failed}
         time.sleep(3.0)
-        rpm_off = self._scope.diagnostics.read_motor_fan_rpm()
+        rpm_off = fan.read_motor_fan_rpm()
 
         results['tests'].append(
             {

@@ -25,6 +25,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 
 class TestDiagnosticQueryCapabilityProbe:
     def _make_board(self, response):
@@ -55,26 +57,22 @@ class TestDiagnosticQueryCapabilityProbe:
         assert args[0] == 'FANSPEED'
         assert kwargs.get('expect_unsupported') is True
 
-    def test_set_fan_duty_passes_expect_unsupported_flag(self):
+    def test_set_fan_duty_is_not_quieted(self):
+        # Support is supports_fan's answer, asked first: the write itself is
+        # not a probe, so an ERROR to it is a fault and keeps its warning.
         board = self._make_board(response='OK')
-        result = board.set_fan_duty(0)
-        assert result is True
+        assert board.set_fan_duty(0) is None
         assert board.exchange_command.call_count == 1
         args, kwargs = board.exchange_command.call_args
         assert args[0] == 'FAN:0'
-        assert kwargs.get('expect_unsupported') is True, (
-            'set_fan_duty must pass expect_unsupported=True so the '
-            'FIRMWARE ERROR warning is suppressed on legacy firmware that '
-            'does not implement FAN:<duty>; the method already reports the '
-            'unsupported case via its False return.'
-        )
+        assert not kwargs.get('expect_unsupported')
 
-    def test_set_fan_duty_error_returns_false_without_warning(self):
+    def test_set_fan_duty_error_raises(self):
+        from drivers.exceptions import HardwareError
+
         board = self._make_board(response="ERROR: command 'FAN:0' not found:")
-        result = board.set_fan_duty(0)
-        assert result is False
-        _args, kwargs = board.exchange_command.call_args
-        assert kwargs.get('expect_unsupported') is True
+        with pytest.raises(HardwareError):
+            board.set_fan_duty(0)
 
     def test_diagnostic_query_returns_response_when_supported(self):
         """When firmware supports the command, the response passes

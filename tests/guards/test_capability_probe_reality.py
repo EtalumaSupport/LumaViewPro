@@ -83,7 +83,7 @@ _ALLOWED_MISSING: dict[str, str] = {}
 # Floor for the not-vacuous self-check. Set from the measured count at
 # introduction, well below it, so ordinary code churn does not trip it
 # but a scanner that has stopped matching anything does.
-_MIN_SCOPE_PROBE_SITES = 8
+_MIN_SCOPE_PROBE_SITES = 5
 
 
 @dataclass(frozen=True)

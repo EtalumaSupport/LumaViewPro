@@ -1392,11 +1392,10 @@ class SimulatedMotorBoard:
         """Simulated fan tachometer -- returns nominal RPM."""
         return 1200
 
-    def set_fan_duty(self, duty_pct: int) -> bool:
+    def set_fan_duty(self, duty_pct: int) -> None:
         """Simulated fan PWM duty -- accepts any valid 0..100 setting."""
         if not 0 <= duty_pct <= 100:
             raise ValueError(f'Fan duty must be 0..100, got {duty_pct}')
-        return True
 
     def wait_for_position(self, axis: str, timeout: float = 5.0) -> bool:
         """Simulated wait -- position is always reached instantly.

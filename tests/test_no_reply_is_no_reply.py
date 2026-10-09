@@ -85,10 +85,11 @@ def test_an_spi_write_with_no_reply_raises(motor):
 
 
 @pytest.mark.slow
-def test_a_fan_write_with_no_reply_is_not_a_success(motor):
+def test_a_fan_write_with_no_reply_raises(motor):
     board, sim = motor
     sim.drop_next_reply()
-    assert board.set_fan_duty(50) is False
+    with pytest.raises(HardwareError, match='no response'):
+        board.set_fan_duty(50)
 
 
 @pytest.mark.slow

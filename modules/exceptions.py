@@ -1924,9 +1924,10 @@ class HardwareCommandRefusedError(Refusal, Exception):
     too, and ``missing`` names the part: ``'not_connected'`` when the model
     has a motor controller and none is connected, whose remedy is the cable,
     or when no LED controller is connected; ``'axis_absent'`` when the
-    scope has no such motor or LED -- a Z-only scope asked for X, a scope
+    scope does not have the part -- a Z-only scope asked for X, a scope
     with no turret asked for one, a manual scope asked for any motion, an
-    LS560 asked to light Red. Nothing was driven. So does a move whose drive needs a
+    LS560 asked to light Red, a motor controller without fan control asked
+    to drive the fan. Nothing was driven. So does a move whose drive needs a
     position the controller did not report (``'position_unread'``): the
     relative base, or Z for the backlash approach. Nothing was driven and
     the axis keeps its state.
@@ -2022,6 +2023,8 @@ class MissingPart:
     TURRET: ClassVar['MissingPart']
     LED_CONTROLLER: ClassVar['MissingPart']
     CAMERA: ClassVar['MissingPart']
+    FAN_CONTROL: ClassVar['MissingPart']
+    LED_ENGINEERING_MODE: ClassVar['MissingPart']
 
     @classmethod
     def axis(cls, axis: str) -> 'MissingPart':
@@ -2064,6 +2067,16 @@ MissingPart.LED_CONTROLLER = MissingPart(
     'LED controller', 'not_connected', 'The LED controller is not connected.'
 )
 MissingPart.CAMERA = MissingPart('camera', 'not_connected', 'The camera is not connected.')
+MissingPart.FAN_CONTROL = MissingPart(
+    'fan control',
+    'axis_absent',
+    "This microscope's motor controller does not support fan control.",
+)
+MissingPart.LED_ENGINEERING_MODE = MissingPart(
+    'LED engineering mode',
+    'axis_absent',
+    "This microscope's LED controller has no engineering mode.",
+)
 _AXIS_PARTS = {
     'X': MissingPart.X,
     'Y': MissingPart.Y,

@@ -17,6 +17,7 @@ be built is named, with its cause, in every hardware file.
 import pytest
 
 from drivers import fx2driver
+from drivers.exceptions import HardwareError
 from drivers.simulated_fx2 import SimulatedFX2
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.diagnostics import (
@@ -29,6 +30,8 @@ from modules.lumascope_api.diagnostics import (
     is_board_reply,
 )
 from modules.scope_session import ScopeSession
+from modules import tech_support_report
+from modules.exceptions import HardwareCommandRefusedError, SessionClosingError
 from modules.tech_support_report import FirmwareDiagnostics, TechSupportReport
 from tests.scope_fakes import spec_scope
 from tests.settings_fixtures import complete_settings
@@ -201,13 +204,16 @@ def test_the_command_line_says_why_and_does_not_send_the_user_to_the_cable(monke
 
 
 def test_a_board_that_does_not_enter_engineering_mode_is_not_measured(session, monkeypatch):
-    monkeypatch.setattr(
-        session.scope.diagnostics, 'enter_led_engineering_mode', lambda timeout_s=5: False
-    )
+    def no_prompt(timeout_s=5):
+        raise HardwareError('enter_engineering_mode(): no Y/N prompt seen')
+
+    monkeypatch.setattr(session.scope.diagnostics, 'enter_led_engineering_mode', no_prompt)
     diag = FirmwareDiagnostics(scope=session.scope)
     leakage = diag.check_led_leakage()
     assert leakage['passed'] is False and 'engineering mode' in leakage['error']
-    assert 'SELFTEST was not run' in diag.run_led_selftest()
+    assert 'no Y/N prompt seen' in leakage['error'], "the board's own words are the step's"
+    selftest = diag.run_led_selftest()
+    assert 'SELFTEST was not run' in selftest and 'no Y/N prompt seen' in selftest
 
 
 def test_with_no_led_board_the_api_reads_nothing_and_names_no_command_set(session, monkeypatch):
@@ -241,3 +247,74 @@ def _not_saved(*args, **kwargs):
     from modules.exceptions import SupportReportNotSavedError
 
     raise SupportReportNotSavedError('support report', OSError('not made in this test'))
+
+
+def _raising(error):
+    def call(*_args, **_kwargs):
+        raise error
+
+    return call
+
+
+def test_an_exit_that_fails_after_a_good_read_keeps_the_read(session, monkeypatch, caplog):
+    monkeypatch.setattr(
+        session.scope.diagnostics,
+        'exit_led_engineering_mode',
+        _raising(HardwareError('Q failed and the soft reset did not bring the firmware back')),
+    )
+    diag = FirmwareDiagnostics(scope=session.scope)
+
+    with caplog.at_level('ERROR', logger=tech_support_report.logger.name):
+        leakage = diag.check_led_leakage()
+
+    assert 'channels' in leakage and 'error' not in leakage, leakage
+    assert 'LED engineering mode exit failed' in caplog.text
+    assert 'soft reset did not bring the firmware back' in caplog.text
+
+
+@pytest.mark.parametrize(
+    'refusal',
+    [
+        HardwareCommandRefusedError('exclusive_activity_running', 'enter_led_engineering_mode'),
+        SessionClosingError('diagnostic'),
+    ],
+    ids=['held', 'closing'],
+)
+def test_a_refusal_that_is_not_the_boards_is_the_reports_defect(session, monkeypatch, refusal):
+    # A run, a claim or a closing session holding the scope is not the
+    # board's state: it re-raises rather than reading as a board fault.
+    monkeypatch.setattr(session.scope.diagnostics, 'enter_led_engineering_mode', _raising(refusal))
+    monkeypatch.setattr(session.scope.diagnostics, 'exit_led_engineering_mode', lambda: None)
+    diag = FirmwareDiagnostics(scope=session.scope)
+
+    with pytest.raises(type(refusal)):
+        diag.check_led_leakage()
+
+
+def test_a_controller_without_fan_control_reads_unsupported_in_its_words(session, monkeypatch):
+    monkeypatch.setattr(session.scope._motion_driver, 'supports_fan', lambda: False)
+    diag = FirmwareDiagnostics(scope=session.scope)
+
+    fan = diag.verify_fan_tachometer()
+
+    assert fan['supported'] is False
+    assert fan['error'] == "This microscope's motor controller does not support fan control."
+    assert fan['tests'] == []
+
+
+def test_with_every_led_and_fan_call_raising_the_steps_still_write(session, monkeypatch, tmp_path):
+    fault = HardwareError('the board did not answer')
+    for member in ('enter_led_engineering_mode', 'exit_led_engineering_mode', 'set_motor_fan_duty'):
+        monkeypatch.setattr(session.scope.diagnostics, member, _raising(fault))
+    report = TechSupportReport(scope=session.scope)
+
+    report._step_firmware_tests(tmp_path)
+    report._step_led_checks(tmp_path)
+    report._step_fan_test(tmp_path)
+
+    for rel in (
+        'firmware_tests/led_selftest.txt',
+        'hardware_checks/led_leakage.txt',
+        'hardware_checks/fan_test.txt',
+    ):
+        assert 'the board did not answer' in (tmp_path / rel).read_text(), rel
