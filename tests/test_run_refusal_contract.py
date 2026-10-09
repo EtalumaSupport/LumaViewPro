@@ -691,6 +691,7 @@ RUNNER_REFUSAL_COVERAGE = {
         'tests/test_audit_fixes.py::TestRule14_A5_AreAllConnectedExceptionNotify'
     ),
     'hardware_disconnected': _FUNNEL_LOOP,
+    'camera_not_streaming': _FUNNEL_LOOP,
     'position_unknown': _FUNNEL_LOOP,
     'lid_open': _FUNNEL_LOOP,
     # Raised at start(), not prepare(), so it cannot ride the scenario
@@ -772,6 +773,12 @@ class TestRefusalNotifyOnceFunnel:
             mp.setattr(scope, 'unconnected_parts', lambda: ('camera',))
             return _make_single_step_protocol()
 
+        def camera_not_streaming(mp):
+            # Open and connected, its feed stopped: the lane read behind the
+            # queued commands says so too.
+            mp.setattr(scope.imaging, 'is_streaming', lambda: False)
+            return _make_single_step_protocol()
+
         def position_unknown(mp):
             # Stated rather than inherited from the fixture's un-homed scope,
             # so the scenario still refuses if the fixture ever homes.
@@ -824,6 +831,7 @@ class TestRefusalNotifyOnceFunnel:
             ('turret_objectives_unassigned', turret_objectives_unassigned),
             ('validation_failed', validation_failed),
             ('hardware_disconnected', hardware_disconnected),
+            ('camera_not_streaming', camera_not_streaming),
             ('position_unknown', position_unknown),
             ('layer_not_on_scope', layer_not_on_scope),
             ('lid_open', lid_open),

@@ -266,7 +266,9 @@ class TestHeadlessProtocolExecution:
             scope._led_driver.set_timing_mode('fast')
             scope._motion_driver.set_timing_mode('fast')
             scope._camera_driver.set_timing_mode('fast')
-            scope._camera_driver.grab()
+            # Bring-up starts the grab; a bare scope skipped it, and a run
+            # on a camera that is not grabbing is refused.
+            scope._camera_driver.start_grabbing()
 
             execs = self._make_executors()
             try:

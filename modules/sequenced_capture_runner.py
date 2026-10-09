@@ -1080,7 +1080,8 @@ class SequencedCaptureRunner:
         Raises:
             ProtocolRunRefusedError: The run cannot start (already
                 running, files still writing, empty protocol, validation
-                errors, hardware not connected, an axis position not
+                errors, hardware not connected, a camera that is not
+                streaming, an axis position not
                 known, the stage's lid open, a save location that cannot
                 be used, a sequence_name that is a path rather than a
                 name). The user has already been notified once when this
@@ -1208,6 +1209,24 @@ class SequencedCaptureRunner:
                 message=(
                     f'{parts[0].upper()}{parts[1:]} {"is" if len(named) == 1 else "are"} '
                     'not connected. Check connections and try again.'
+                ),
+            )
+
+        # A camera that is open but not grabbing delivers no frame, so a run
+        # admitted on it captures nothing and ends as a fault. Asked once the
+        # camera's queued commands have run, so a frame-size change in flight
+        # is not taken for a stopped feed.
+        try:
+            streaming = self._scope.imaging.is_streaming_once_settled()
+        except Exception as ex:
+            self._hardware_state_unknown('check whether the camera is streaming', ex)
+        if not streaming:
+            self._refuse(
+                reason='camera_not_streaming',
+                title='Camera Not Streaming',
+                message=(
+                    'The camera is connected but is not delivering frames. Start its '
+                    'live feed and try again.'
                 ),
             )
 

@@ -4201,6 +4201,32 @@ class ImagingAPI:
             return False
         return driver.is_grabbing()
 
+    def is_streaming_once_settled(self) -> bool:
+        """Whether the camera is acquiring once the camera commands queued ahead have run.
+
+        A consult seam for a gate that must not refuse a camera mid-way
+        through a change: a frame-size or binning change stops the grab and
+        starts it again on the camera lane, so the direct read says "not
+        grabbing" for its length. The direct read answers first; only when
+        it says "not grabbing" is the question put on the lane, behind what
+        is queued, so a streaming camera costs nothing. The lane read
+        changes nothing a holder depends on, so it is admitted whatever
+        holds the scope. False when no camera is attached.
+
+        Raises:
+            HardwareCommandRefusedError: ``'scope_disconnected'``, the lane
+                is closed.
+        """
+        if self.is_streaming():
+            return True
+        return self._dispatch_camera(
+            self.is_streaming,
+            'is_streaming_once_settled',
+            timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
+            override=True,
+            satisfied_when_absent=False,
+        )
+
     # --- State / lifecycle properties ---
     @property
     def active_cached(self) -> bool:
