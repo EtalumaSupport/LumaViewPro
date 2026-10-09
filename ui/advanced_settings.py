@@ -288,29 +288,10 @@ class AdvancedSettings(Popup):
         )
 
     def _show_saved_model(self) -> None:
-        """Show the saved model, and say when it waits for the next start.
-
-        A saved selection changes nothing on screen until the next start,
-        so a panel that stayed silent would read as a broken selector. The
-        wording must not promise the choice sticks either -- a board that
-        reports its own model overwrites it at the next start. A notice, not
-        info: info is log-only and never reaches the screen.
-        """
+        """Show the saved model; the session says when it waits for the next start."""
         ctx = _app_ctx.ctx
         self.ids['scope_spinner'].text = ctx.settings['microscope']
         ctx.motion_settings.ids['microscope_settings_id'].show_scope_model()
-        waiting = ctx.session.model_at_next_start
-        if waiting is None:
-            return
-        from modules.notification_center import notifications
-
-        notifications.notice(
-            'Microscope',
-            'Scope model saved',
-            f'{waiting} is saved as the configured model and applies the next '
-            f'time LumaViewPro starts. A microscope that reports its own '
-            f'model overrides this selection.',
-        )
 
     def acceleration_pct_slider(self):
         acc_val = self.ids['acceleration_pct_slider'].value

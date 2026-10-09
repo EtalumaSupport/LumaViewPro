@@ -348,6 +348,26 @@ class CellCountScaleDroppedNotice(Notice, Exception):  # noqa: N818 -- a notice,
         )
 
 
+class ScopeModelDeferredNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """A scope model saved for the next start, not the one running.
+
+    The running scope keeps its model until it is next brought up, so a
+    saved selection changes nothing yet; and a microscope that reports its
+    own model overrides the selection then.
+    """
+
+    title = 'Scope model saved'
+    reason = 'scope_model_deferred'
+
+    def __init__(self, model: str):
+        super().__init__(
+            f'{model} is saved as the configured model and applies the next time '
+            'LumaViewPro starts. A microscope that reports its own model overrides '
+            'this selection.'
+        )
+        self.model = model
+
+
 class BinningSubstitutedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
     """The saved binning is one this camera does not offer; bring-up ran at the camera's.
 

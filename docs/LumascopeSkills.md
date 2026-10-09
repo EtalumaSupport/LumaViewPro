@@ -162,7 +162,9 @@ identity.find('BF')                      # record by stable key name, or None
 A scope's model is fixed for its lifetime: `identity.model`, `scope.capabilities.model` and the model every saved image records are one answer. A model the catalogue lacks is still carried, with no layers. To change the model of a scope that cannot report its own (the FX2 line), save the selection through the session; it applies the next time the scope is brought up, and a motor board that reports its own model still wins then:
 
 ```python
-session.select_model('LS560')   # saved to settings['microscope']; raises ScopeModelUnknownError if the catalogue lacks it
+session.select_model('LS560')   # saved to settings['microscope']; raises ScopeModelUnknownError if the catalogue lacks it;
+                                # a model that is not the one running is reported once as a ScopeModelDeferredNotice
+                                # (reason 'scope_model_deferred', solicited) to every outcome listener
 session.model_at_next_start     # 'LS560' until the next bring-up; None when the saved model is the one running
 ```
 

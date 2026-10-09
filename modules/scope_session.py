@@ -62,6 +62,7 @@ from modules.exceptions import (
     Remedy,
     RemedyUnknownError,
     ScopeDisconnectError,
+    ScopeModelDeferredNotice,
     ScopeModelUnknownError,
     SettingRefusedError,
     SettingsSaveRefusedError,
@@ -2448,6 +2449,10 @@ class ScopeSession:
         motor board reports its own model the board's report still wins
         there.
 
+        A model that is not the one running is reported as a
+        ``ScopeModelDeferredNotice``, so every client hears that it waits
+        for the next start.
+
         Args:
             model: A model the release's catalogue lists.
 
@@ -2461,6 +2466,13 @@ class ScopeSession:
         with self.settings_lock:
             self._store_setting('microscope', model)
         logger.info(f'[Session  ] scope model {model!r} saved; it applies at the next start')
+        # Reported once the lock is released: listeners run on this thread.
+        if model != self.scope.layer_identity.model:
+            from modules.notification_center import notifications
+
+            notifications.report_outcome(
+                ScopeModelDeferredNotice(model), solicited=True, category='Microscope'
+            )
 
     @api
     @property

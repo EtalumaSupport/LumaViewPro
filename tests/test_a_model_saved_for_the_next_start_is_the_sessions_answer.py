@@ -38,3 +38,37 @@ def test_a_different_model_waits_for_the_next_start_until_the_running_one_is_cho
 
     ls620_session.select_model('LS620')
     assert ls620_session.model_at_next_start is None
+
+
+@pytest.fixture
+def heard(ls620_session):
+    """What a client subscribed to the session's outcomes hears."""
+    notes = []
+    ls620_session.add_outcome_listener(notes.append)
+    return notes
+
+
+def test_another_model_is_reported_once_as_waiting_for_the_next_start(ls620_session, heard):
+    ls620_session.select_model('LS560')
+
+    deferred = [n for n in heard if n.title == 'Scope model saved']
+    assert len(deferred) == 1
+    assert deferred[0].reason == 'scope_model_deferred'
+    assert deferred[0].solicited is True
+    assert deferred[0].category == 'Microscope'
+    assert 'LS560' in deferred[0].message and 'next time' in deferred[0].message
+
+
+def test_the_running_model_is_reported_as_nothing(ls620_session, heard):
+    ls620_session.select_model('LS620')
+
+    assert [n for n in heard if n.title == 'Scope model saved'] == []
+
+
+def test_an_unknown_model_is_refused_and_reported_as_nothing(ls620_session, heard):
+    from modules.exceptions import ScopeModelUnknownError
+
+    with pytest.raises(ScopeModelUnknownError):
+        ls620_session.select_model('LS9999')
+
+    assert [n for n in heard if n.title == 'Scope model saved'] == []
