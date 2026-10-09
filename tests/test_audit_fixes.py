@@ -696,9 +696,9 @@ class TestLvpLock:
         # pin-justified: lock-before-kivy-import ordering within the file
         # is the contract; textual position is the only observable.
         src = pathlib.Path('lumaviewpro.py').read_text()
-        lock_idx = src.find('_lvp_lock_singleton.lock()')
+        lock_idx = src.find('take_instance_lock(source_path)')
         assert lock_idx >= 0, (
-            'lumaviewpro.py must invoke _lvp_lock_singleton.lock() '
+            'lumaviewpro.py must invoke take_instance_lock(source_path) '
             'in __main__ block; structural fix for issue #559.'
         )
         first_kivy_import = src.find('from kivy.')
@@ -719,7 +719,7 @@ class TestLvpLock:
 
         src = pathlib.Path('lumaviewpro.py').read_text()
         # Slice the __main__ block lock-check region.
-        start = src.find('_lvp_lock_singleton.lock()')
+        start = src.find('take_instance_lock(source_path)')
         end = src.find('Kivy configurations', start)
         assert end > start
         region = src[start:end]

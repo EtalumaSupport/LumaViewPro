@@ -197,10 +197,8 @@ if __name__ == '__main__':
     # loser reached sys.exit, producing duplicate visible Kivy
     # windows on double-launch. Run the check now while only
     # tkinter is alive (used above for the Python-version dialog).
-    from modules.app_config import get_lvp_lock_port as _get_lvp_lock_port
-
-    _lvp_lock_singleton = lvp_lock.LvpLock(lock_port=_get_lvp_lock_port(source_path))
-    if not _lvp_lock_singleton.lock():
+    _lvp_lock_singleton = lvp_lock.take_instance_lock(source_path)
+    if _lvp_lock_singleton is None:
         _msg = 'Another instance of LVP may already be running. Exiting.'
         logger.error(f'[LVP Lock ] {_msg}')
         # Previously also printed to stderr; on a windowed PyInstaller

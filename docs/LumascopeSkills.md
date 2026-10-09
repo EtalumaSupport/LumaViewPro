@@ -2254,7 +2254,15 @@ The REST server puts the API reference below on HTTP: every member marked for th
 
 ### Serving it
 
-The server is an application (`rest.app.build_app`) for a session you have brought up, served with uvicorn:
+Start it from the installation's folder:
+
+```bash
+python -m rest --simulate      # the simulated scope; omit --simulate for the attached hardware
+```
+
+It brings the scope up as LumaViewPro does -- the user's settings, the startup home, the plugins -- and serves on `127.0.0.1` at the port in `rest_api.port` (shipped 8000), printing the URL. It takes the same single-instance lock as LumaViewPro, so it will not start while LumaViewPro or another server drives the scope. A failed startup home is reported in the log and the server still serves, so a client can home again. Ctrl-C stops it once its clients have disconnected, and closes the session. It runs from a source or pip install; the packaged LumaViewPro application does not start it.
+
+To serve a session your own program has brought up, the server is an application (`rest.app.build_app`) served with uvicorn:
 
 ```python
 import uvicorn
