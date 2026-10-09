@@ -328,9 +328,9 @@ class TestBannerIdentityContract:
         _, _, tail = text.partition('_build_id_str')
         assert tail, 'lvp_logger derives no build-ID display string'
         branch = tail[:600]
-        assert 'lvp_installed' in branch, (
-            'the absent-build-ID path does not branch on lvp_installed, so an '
-            'installed exe and a source run would report the same thing'
+        assert 'app_runtime().frozen' in branch, (
+            'the absent-build-ID path does not ask whether this is a built bundle, '
+            'so an installed exe and a source run would report the same thing'
         )
         assert 'build script' in branch, 'the stale-builder case is never named'
         assert 'source / dev' in branch, 'the source-run case is never named'

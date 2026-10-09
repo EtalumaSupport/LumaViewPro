@@ -22,7 +22,6 @@ class AppEnvironment:
     build_timestamp: str
     windows_machine: bool
     num_cores: int
-    lvp_installed: bool
 
 
 def init_environment(main_file: str) -> AppEnvironment:
@@ -38,60 +37,22 @@ def init_environment(main_file: str) -> AppEnvironment:
     basename = os.path.basename(main_file)
     script_path = abspath[: -len(basename)]
 
-    _logger.info(f'Script Location: {script_path}')
-
-    # Recomputed independently of lvp_logger's identical os.name check by
-    # design: this is a constant, not divergent state, and lvp_logger is the
-    # lowest-level module (imported before this runs), so sharing one source
-    # buys nothing and only adds an early-startup import coupling.
     windows_machine = os.name == 'nt'
 
-    # Read version and build timestamp via shared reader
-    from modules.path_utils import data_folder_name, read_version
+    from modules.path_utils import AppRuntime, app_runtime, get_source_root, read_version
 
     version, build_timestamp = read_version(pathlib.Path(script_path))
 
-    # Check if running as installed application
-    lvp_installed = False
-    try:
-        with open(os.path.join(script_path, 'marker.lvpinstalled')):
-            lvp_installed = True
-    except Exception:
-        pass
-
-    # Determine source_path (data directory)
-    if windows_machine and lvp_installed:
-        _logger.info('Machine-Type - WINDOWS')
-        import platformdirs
-
-        documents_folder = platformdirs.user_documents_dir()
-        # Use base version (without hash) for folder name
-        # version is already path-safe (no timestamp, no parens)
-        lvp_appdata = os.path.join(documents_folder, data_folder_name(version))
-
-        if not os.path.exists(lvp_appdata):
-            os.mkdir(lvp_appdata)
-
-        source_path = lvp_appdata
-        _logger.info(f'Data Location: {source_path}')
-
-        if not os.path.exists(os.path.join(lvp_appdata, 'data')):
-            shutil.copytree(os.path.join(script_path, 'data'), os.path.join(lvp_appdata, 'data'))
-
-        # Create logs directory if it doesn't exist. The source logs/ folder may not
-        # exist in PyInstaller builds, so just create an empty directory structure.
-        logs_dir = os.path.join(lvp_appdata, 'logs', 'LVP_Log')
-        os.makedirs(logs_dir, exist_ok=True)
-
-    elif windows_machine and not lvp_installed:
-        _logger.info('Machine-Type - WINDOWS (not installed)')
-        source_path = script_path
-    else:
-        _logger.info('Machine-Type - NON-WINDOWS')
-        source_path = script_path
+    # The data root is path_utils'. An installed build's is in Documents and
+    # starts empty, so the shipped data is copied into it on first launch;
+    # this runs before the logger is imported, which reads debug_mode there.
+    source_path = str(get_source_root())
+    if app_runtime() is AppRuntime.INSTALLED:
+        os.makedirs(source_path, exist_ok=True)
+        if not os.path.exists(os.path.join(source_path, 'data')):
+            shutil.copytree(os.path.join(script_path, 'data'), os.path.join(source_path, 'data'))
 
     num_cores = os.cpu_count()
-    _logger.info(f'Num cores identified as {num_cores}')
 
     return AppEnvironment(
         script_path=script_path,
@@ -100,7 +61,6 @@ def init_environment(main_file: str) -> AppEnvironment:
         build_timestamp=build_timestamp,
         windows_machine=windows_machine,
         num_cores=num_cores,
-        lvp_installed=lvp_installed,
     )
 
 
@@ -316,7 +276,6 @@ def _transcode_utf16_to_utf8(source: pathlib.Path, target: pathlib.Path) -> bool
 def capture_installer_logs(
     log_dir: str | pathlib.Path,
     *,
-    installed: bool,
     temp_dir: str | pathlib.Path | None = None,
     max_files: int = _MAX_CAPTURED_INSTALLER_LOGS,
 ) -> list[str]:
@@ -333,9 +292,11 @@ def capture_installer_logs(
     never collects it again. A log that cannot be deleted (an install still
     writing it) stays, is named in a warning, and is taken at a later start.
 
-    Only an installed build captures. The logs describe installs, and a run
-    from source logs into its checkout: capturing there would take an
-    install's log away from the installed build's folder.
+    Only an installed build captures, and it asks the process's runtime
+    itself rather than taking a caller's word. The logs describe installs,
+    and any other run logs into the folder it was launched from: capturing
+    there would take an install's log away from the installed build's
+    folder.
 
     MSI's verbose log is UTF-16; it is transcoded to UTF-8 on the way in
     (see ``_transcode_utf16_to_utf8``), which halves what the user's
@@ -344,8 +305,6 @@ def capture_installer_logs(
     Args:
         log_dir: Application log folder; logs land in its ``install``
             subfolder.
-        installed: Whether this process is an installed build; a source
-            run captures nothing.
         temp_dir: Directory to scan. Defaults to the system temp folder.
         max_files: Newest-first cap, so a long-lived TEMP cannot turn
             startup into a large copy.
@@ -358,8 +317,10 @@ def capture_installer_logs(
         is never the size of its source -- and a same-size content change
         would slip past a size comparison anyway.
     """
+    from modules import path_utils
+
     copied: list[str] = []
-    if not installed:
+    if path_utils.app_runtime() is not path_utils.AppRuntime.INSTALLED:
         return copied
     source_dir = (
         pathlib.Path(temp_dir) if temp_dir is not None else pathlib.Path(tempfile.gettempdir())

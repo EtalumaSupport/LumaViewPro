@@ -6,7 +6,6 @@ lvp_logger.py configures a standard python logger for LumaViewPro.
 """
 
 import os
-import pathlib
 
 # Suppress Kivy's own file/console logging before any Kivy import can fire.
 # LVP routes the `kivy` logger into its file_handler / error_handler below,
@@ -21,74 +20,28 @@ import logging
 from logging.handlers import RotatingFileHandler
 import sys
 import ctypes
-import platformdirs
 import threading
-
-global windows_machine
-
-# Platform flag derived here independently of modules.app_environment's
-# identical os.name check, by design: lvp_logger is the lowest-level module
-# (imported before app_environment runs), so it owns its own check rather
-# than importing one. The predicate is identical in both, so the two copies
-# cannot disagree -- it is a constant, not divergent state.
-windows_machine = False
 
 # Thread-local storage for tracking paused threads
 _paused_threads = threading.local()
-
-if os.name == 'nt':
-    windows_machine = True
-
-abspath = os.path.abspath(__file__)
-basename = os.path.basename(__file__)
-script_path = abspath[: -len(basename)]
 
 # version.txt format:
 #   Line 1: version string (e.g., "4.0.0-beta2") - used in folder names, must be path-safe
 #   Line 2: build timestamp (e.g., "2026-03-27 18:52") - displayed in title bar only
 #
 # Read through the application's one reader of the file, which strips a
-# byte-order mark: the version names the Documents data folder below and
-# is stamped into the TIFF Software tag of every saved image, so a second
-# reader with a different policy is how the two drifted apart before.
-# path_utils imports only the standard library and modules.exceptions, so
-# this import cannot reach back into the logger.
-from modules.path_utils import data_folder_name, get_script_root, read_version
+# byte-order mark: the version names an installed build's Documents data
+# folder and is stamped into the TIFF Software tag of every saved image, so
+# a second reader with a different policy is how the two drifted apart
+# before. path_utils imports nothing that imports the logger, so this
+# import cannot reach back into it.
+from modules.path_utils import app_runtime, get_script_root, get_source_root, read_version
 
-version, build_timestamp = read_version(pathlib.Path(script_path))
+version, build_timestamp = read_version()
 
-# Under PyInstaller (sys.frozen=True), this module's __file__ points
-# into the bundle's extract dir -- _MEI<random> (onefile mode) or
-# <install>/_internal (onedir 6+) -- NOT the install root where the
-# WiX MSI drops marker.lvpinstalled. version.txt above works because
-# it's bundled into the same dir via the .spec datas list; the marker
-# is intentionally NOT bundled (it exists to distinguish "MSI-installed
-# build" from "PyInstaller dev build"). Use sys.executable's directory
-# when frozen so the probe lands on the install root.
-if getattr(sys, 'frozen', False):
-    _marker_dir = os.path.dirname(os.path.abspath(sys.executable))
-else:
-    _marker_dir = script_path.rstrip(os.sep) or '.'
-
-try:
-    with open(os.path.join(_marker_dir, 'marker.lvpinstalled')) as f:
-        lvp_installed = True
-except FileNotFoundError:
-    lvp_installed = False  # Expected when running from source
-except Exception as e:
-    print(f'[lvp_logger] WARNING: Failed to read marker.lvpinstalled: {e}', file=sys.stderr)
-    lvp_installed = False
-
-if windows_machine and lvp_installed:
-    documents_folder = platformdirs.user_documents_dir()
-    lvp_appdata = os.path.join(documents_folder, data_folder_name(version))
-
-    # Do NOT os.chdir() here -- it changes global CWD as a side effect of import.
-    # Use absolute paths instead.
-    pass
-
-else:
-    lvp_appdata = script_path
+# The logs live in the data root, which an installed build keeps in
+# Documents; path_utils decides it for every reader.
+lvp_appdata = str(get_source_root())
 
 from modules.settings_init import load_debug_setting
 
@@ -663,7 +616,7 @@ def git_revision() -> str | None:
                     break
     except Exception:
         pass
-    if not _git_hash and not getattr(sys, 'frozen', False):
+    if not _git_hash and not app_runtime().frozen:
         try:
             import subprocess
 
@@ -764,22 +717,18 @@ def log_environment_banner(
     logger.info(f'[LVP Main  ] Built:     {_built or "unknown"}')
     logger.info(f'[LVP Main  ] CommitGUID: {_commit_guid or "unknown"}')
     # A missing build ID means two different things and they must not share
-    # a message: an installed exe with no build ID was produced by a build
+    # a message: a frozen build with no build ID was produced by a build
     # script too old to stamp one, and saying "source / dev" there would be
     # a lying log line introduced by the fix meant to stop misattribution.
     if _build_id:
         _build_id_str = _build_id
-    elif lvp_installed:
+    elif app_runtime().frozen:
         _build_id_str = 'unknown (built by build script < v3)'
     else:
         _build_id_str = 'source / dev (no build event)'
     logger.info(f'[LVP Main  ] BuildID:   {_build_id_str}')
 
-    # Runtime: distinguish installed .exe from running directly from a
-    # source clone. The presence of marker.lvpinstalled means the MSI
-    # ran (the marker is dropped by the installer). Without it, this is
-    # a developer running `python lumaviewpro.py` from a clone.
-    logger.info(f'[LVP Main  ] Runtime:   {"installed exe" if lvp_installed else "source / dev"}')
+    logger.info(f'[LVP Main  ] Runtime:   {app_runtime()}')
     logger.info(f'[LVP Main  ] PID:       {os.getpid()}')
 
     _git_hash = git_revision()

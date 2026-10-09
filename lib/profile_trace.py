@@ -28,7 +28,6 @@ import atexit
 import csv
 import hashlib
 import json
-import os
 import platform
 import socket
 import subprocess
@@ -55,20 +54,13 @@ def _appdata_root():
     On an installed build the working directory is the install folder, which
     is not writable -- so a CWD-relative output path fails at mkdir, and since
     the gate below calls enable() at import time, that failure takes the whole
-    application down before it starts. lvp_logger resolves the per-user data
+    application down before it starts. The data root is the per-user
     directory the application logs already live under; diagnostics belong
     beside them, and a support bundle collects that tree wholesale.
-
-    Falls back to the source root when lvp_logger is not importable (unit
-    tests exercising this module alone) -- which is also what lvp_appdata
-    resolves to on a source run, so the developer case is unchanged.
     """
-    try:
-        import lvp_logger
+    from modules import path_utils
 
-        return lvp_logger.lvp_appdata
-    except (ImportError, AttributeError):
-        return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return str(path_utils.get_source_root())
 
 
 ENABLE_PROFILE_TRACE = False

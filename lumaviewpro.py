@@ -122,7 +122,7 @@ if __name__ == '__main__':
     # ---------------------Module Imports---------------------------------------#
     ############################################################################
 
-    from lvp_logger import debug, install_crash_hooks, log_dir, logger, lvp_installed
+    from lvp_logger import debug, install_crash_hooks, log_dir, logger
 
     # LumaViewPro's crash policy: an uncaught exception is recorded in the
     # log, before settings, Kivy, the plugins or the app can raise one.
@@ -135,7 +135,7 @@ if __name__ == '__main__':
     # to replace a file cannot be told apart from an application defect.
     from modules.app_environment import capture_installer_logs
 
-    capture_installer_logs(log_dir, installed=lvp_installed)
+    capture_installer_logs(log_dir)
 
     print(f'LumaViewPro {version}')
     logger.info(f'[LVP Main  ] LumaViewPro {version}')
@@ -182,7 +182,9 @@ if __name__ == '__main__':
     global profiling_helper
     profiling_helper = None
 
-    if getattr(sys, 'frozen', False):
+    from modules.path_utils import app_runtime
+
+    if app_runtime().frozen:
         import pyi_splash  # type: ignore
 
         pyi_splash.update_text('')
@@ -824,7 +826,7 @@ class LumaViewProApp(TooltipMixin, App):
             lambda done: Clock.schedule_once(lambda dt: startup_motion_settled(done), 0)
         )
 
-        if getattr(sys, 'frozen', False):
+        if app_runtime().frozen:
             pyi_splash.close()
 
     def _prompt_objective_if_needed(self) -> None:

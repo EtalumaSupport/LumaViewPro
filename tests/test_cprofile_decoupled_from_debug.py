@@ -38,9 +38,9 @@ def test_cprofile_default_dir_is_cprofile_namespace(tmp_path, monkeypatch):
     # default used to be CWD-relative, which an installed build cannot write
     # to. The namespace separation is what this test is for; where the root
     # comes from is not.
-    import lvp_logger
+    from modules import path_utils
 
-    monkeypatch.setattr(lvp_logger, 'lvp_appdata', str(tmp_path))
+    monkeypatch.setattr(path_utils, 'get_source_root', lambda source_path=None: tmp_path)
     from modules.profiling_utils import ProfilingHelper
 
     helper = ProfilingHelper()

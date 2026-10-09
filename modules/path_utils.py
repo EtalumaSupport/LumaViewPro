@@ -6,6 +6,8 @@ import json
 import logging
 import os
 import pathlib
+import sys
+from enum import StrEnum
 
 from modules.exceptions import InstallationFileError
 
@@ -178,6 +180,56 @@ def get_script_root() -> pathlib.Path:
     return pathlib.Path(__file__).resolve().parent.parent
 
 
+# The installer drops this file beside the exe; nothing else writes it.
+INSTALLED_MARKER = 'marker.lvpinstalled'
+
+
+class AppRuntime(StrEnum):
+    """How this process was launched: the one answer every reader takes.
+
+    ``SOURCE``: a Python interpreter running a checkout or pip install.
+    ``BUNDLE``: a PyInstaller build the installer did not install (a build
+    run from ``dist``). ``INSTALLED``: a PyInstaller build in the folder the
+    installer wrote, its marker beside the exe.
+    """
+
+    SOURCE = 'source'
+    BUNDLE = 'bundle'
+    INSTALLED = 'installed'
+
+    @property
+    def frozen(self) -> bool:
+        """Whether the process is a PyInstaller build, installed or not."""
+        return self is not AppRuntime.SOURCE
+
+
+def launch_root() -> pathlib.Path:
+    """The folder this process was launched from, links not followed.
+
+    The exe's folder for a PyInstaller build, where the installer drops its
+    marker; the checkout as the interpreter found it otherwise. Links are
+    not followed: a simulator run from a scratch folder of links into a
+    clone keeps its logs and settings in that folder, not the clone's.
+    ``get_script_root`` follows them, for the build's own files and git.
+    """
+    if getattr(sys, 'frozen', False):
+        return pathlib.Path(os.path.abspath(sys.executable)).parent
+    return pathlib.Path(os.path.abspath(__file__)).parent.parent
+
+
+def app_runtime() -> AppRuntime:
+    """How this process was launched, read afresh on each call.
+
+    A marker beside a source checkout does not make it installed: only a
+    frozen build is ever installed.
+    """
+    if not getattr(sys, 'frozen', False):
+        return AppRuntime.SOURCE
+    if (launch_root() / INSTALLED_MARKER).exists():
+        return AppRuntime.INSTALLED
+    return AppRuntime.BUNDLE
+
+
 def read_version(script_root: pathlib.Path | None = None) -> tuple[str, str]:
     """Read version and build timestamp from version.txt -- the one reader of it.
 
@@ -215,34 +267,32 @@ def read_version(script_root: pathlib.Path | None = None) -> tuple[str, str]:
 def data_folder_name(version: str) -> str:
     """The name of an installed build's per-user data folder, in Documents.
 
-    One derivation for every reader of that folder: the logger, which
-    writes the logs there, the GUI's environment, which copies the shipped
-    data into it on first launch, and ``get_source_root``, which every
-    installation file is read from. Each composes its own root.
+    Named here and placed by ``get_source_root``, which every reader of
+    the folder takes it from: the logger, which writes the logs there, the
+    GUI's environment, which copies the shipped data into it on first
+    launch, and every reader of an installation file.
     """
     return f'LumaViewPro {version}'
-
-
-def _read_version(script_root: pathlib.Path) -> str:
-    """Legacy wrapper -- returns version string only."""
-    version, _ = read_version(script_root)
-    return version
 
 
 def get_source_root(
     source_path: str | pathlib.Path | None = None,
 ) -> pathlib.Path:
-    """Return the writable user data root for the current app session."""
+    """Return the writable user data root for the current app session.
+
+    The one derivation of it: an installed build keeps its data in
+    Documents, in a folder named for its version; any other run keeps it in
+    the folder it was launched from.
+    """
     if source_path is not None:
         return pathlib.Path(source_path)
 
-    script_root = get_script_root()
-    if os.name != 'nt' or not (script_root / 'marker.lvpinstalled').exists():
-        return script_root
+    if app_runtime() is not AppRuntime.INSTALLED:
+        return launch_root()
 
-    version = _read_version(script_root)
+    version, _build_timestamp = read_version()
     if not version:
-        return script_root
+        return launch_root()
 
     import platformdirs
 

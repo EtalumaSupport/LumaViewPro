@@ -365,9 +365,9 @@ class TestDiagnosticOutputIsWritable:
     """
 
     def test_default_output_dir_is_under_appdata(self, tmp_path, monkeypatch):
-        import lvp_logger
+        from modules import path_utils
 
-        monkeypatch.setattr(lvp_logger, 'lvp_appdata', str(tmp_path))
+        monkeypatch.setattr(path_utils, 'get_source_root', lambda source_path=None: tmp_path)
         profile_trace._base_dir = None  # forget any base a prior test supplied
         profile_trace.enable()
         run = profile_trace._output_dir
@@ -376,11 +376,10 @@ class TestDiagnosticOutputIsWritable:
         assert run.parent == tmp_path / 'logs' / 'profile'
 
     def test_cprofile_default_path_is_under_appdata(self, tmp_path, monkeypatch):
-        import lvp_logger
-
+        from modules import path_utils
         from modules.profiling_utils import ProfilingHelper
 
-        monkeypatch.setattr(lvp_logger, 'lvp_appdata', str(tmp_path))
+        monkeypatch.setattr(path_utils, 'get_source_root', lambda source_path=None: tmp_path)
         helper = ProfilingHelper()
         out = helper._profile_artifact_path
         assert out.is_absolute()

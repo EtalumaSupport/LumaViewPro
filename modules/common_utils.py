@@ -1226,20 +1226,12 @@ _tracemalloc_started = False
 
 
 def _read_tracemalloc_gate():
-    # Reuse lvp_logger.lvp_appdata so the production-installed path
-    # (~/Documents/LumaViewPro <version>/data/) resolves the same way
-    # the logger's debug-mode gate does. Fall back to the source root
-    # when lvp_logger isn't importable (e.g. unit tests that exercise
-    # this module in isolation).
+    # The data root, so an installed build reads its Documents settings as
+    # the logger's debug-mode gate does.
+    from modules import path_utils
     from modules.settings_init import load_tracemalloc_setting
 
-    try:
-        import lvp_logger
-
-        base_dir = lvp_logger.lvp_appdata
-    except (ImportError, AttributeError):
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return load_tracemalloc_setting(base_dir)
+    return load_tracemalloc_setting(str(path_utils.get_source_root()))
 
 
 # Read once at import from the tracemalloc_enabled setting. This is a

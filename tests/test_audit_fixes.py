@@ -11851,13 +11851,10 @@ class TestPostProcessingLoggerImported:
         )
 
 
-class TestWindowsMachinePredicateAgrees:
-    """lvp_logger and app_environment each derive the windows_machine flag
-    independently (lvp_logger is import-light and loads first, so it does not
-    import app_environment). They are allowed to stay separate ONLY because
-    both use the identical `os.name == 'nt'` predicate and therefore cannot
-    disagree. This pins that invariant: if either side switches predicates
-    (e.g. back to platform.system()), the two could diverge and this fails.
+class TestLoggerImportsNoAppEnvironment:
+    """The logger loads before the GUI's environment is built, and the GUI
+    seeds an installed build's data folder before the logger reads its
+    debug_mode there, so the logger must not import app_environment.
     """
 
     def _src(self, rel):
@@ -11866,18 +11863,7 @@ class TestWindowsMachinePredicateAgrees:
         root = pathlib.Path(__file__).resolve().parent.parent
         return (root / rel).read_text()
 
-    def test_lvp_logger_uses_os_name_predicate(self):
-        # pin-justified: import-time module-global predicate; lvp_logger is
-        # conftest-mocked wholesale, so a behavioral reload is fragile.
-        assert "os.name == 'nt'" in self._src('lvp_logger.py')
-
-    def test_app_environment_uses_os_name_predicate(self):
-        # pin-justified: same import-time predicate invariant (see class docstring).
-        assert "os.name == 'nt'" in self._src('modules/app_environment.py')
-
     def test_lvp_logger_does_not_import_app_environment(self):
-        # The independence is the point -- the foundational logger must not
-        # take an early-startup dependency on the heavier app_environment.
         # Scan imports (not the whole source) so the explanatory comment,
         # which names app_environment, does not trip the check.
         import ast
