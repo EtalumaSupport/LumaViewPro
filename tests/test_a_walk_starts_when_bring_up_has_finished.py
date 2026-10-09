@@ -20,10 +20,10 @@ from tests.ast_seams import find_def
 def _app_owing(
     *, ready: bool, protocol_loaded: bool, frames_shown: int, popups: list | None = None
 ) -> list[str]:
-    import sys
-    import types
+    from unittest import mock
 
     import modules.app_context as _app_ctx
+    import ui.sim_walk as sim_walk
 
     class _App:
         _persisted_protocol_loaded = protocol_loaded
@@ -32,13 +32,7 @@ def _app_owing(
         ).LumaViewProApp._bring_up_owes
 
     original = _app_ctx.ctx
-    # The driver imports Kivy's test touch, which the suite's Kivy mock does
-    # not carry; the predicate asks it one thing, which popups are open, so
-    # a stand-in answers that for the call and is gone afterwards.
-    driver = types.ModuleType('ui.sim_walk')
-    driver.open_popups = lambda: list(popups or [])
-    real_driver = sys.modules.get('ui.sim_walk')
-    sys.modules['ui.sim_walk'] = driver
+    # The predicate asks the driver one thing, which popups are open.
     try:
         _app_ctx.ctx = type(
             'C',
@@ -48,13 +42,10 @@ def _app_owing(
         import lumaviewpro
 
         lumaviewpro.ctx = _app_ctx.ctx
-        return _App()._bring_up_owes()
+        with mock.patch.object(sim_walk, 'open_popups', lambda: list(popups or [])):
+            return _App()._bring_up_owes()
     finally:
         _app_ctx.ctx = original
-        if real_driver is None:
-            del sys.modules['ui.sim_walk']
-        else:
-            sys.modules['ui.sim_walk'] = real_driver
 
 
 class TestWhatBringUpOwes:

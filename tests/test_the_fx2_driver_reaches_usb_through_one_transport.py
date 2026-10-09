@@ -231,7 +231,6 @@ def test_a_connection_that_cannot_connect_closes_its_transport_and_raises_its_ow
 
 
 def test_a_windows_start_that_fails_leaves_its_reader_where_the_stop_stops_it(monkeypatch):
-    import sys
     import types
 
     class Device:
@@ -254,9 +253,7 @@ def test_a_windows_start_that_fails_leaves_its_reader_where_the_stop_stops_it(mo
         def stop(self):
             self.running = False
 
-    monkeypatch.setitem(
-        sys.modules, 'drivers.winusb_iso', types.SimpleNamespace(WinUsbIsoReader=Reader)
-    )
+    monkeypatch.setattr('drivers.winusb_iso.WinUsbIsoReader', Reader)
     monkeypatch.setattr(
         fx2driver,
         'usb',

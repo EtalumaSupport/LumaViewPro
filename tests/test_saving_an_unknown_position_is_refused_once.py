@@ -9,25 +9,11 @@ refusal raises out of the gesture's call and the boundary shows it once;
 nothing is read and nothing is written.
 """
 
-import sys
-import types
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
-
-class _StubWidget:
-    def __init__(self, **kwargs):
-        pass
-
-
-for _name in ('kivy.clock', 'kivy.uix', 'kivy.metrics', 'kivy.properties'):
-    sys.modules.setdefault(_name, MagicMock())
-
-_boxlayout = types.ModuleType('kivy.uix.boxlayout')
-_boxlayout.BoxLayout = _StubWidget
-sys.modules.setdefault('kivy.uix.boxlayout', _boxlayout)
 
 import modules.app_context as _app_ctx
 import ui.layer_control as layer_control

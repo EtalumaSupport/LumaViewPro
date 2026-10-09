@@ -22,7 +22,6 @@ run. The Session's own move is
 
 from __future__ import annotations
 
-import sys
 import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call
@@ -156,11 +155,8 @@ def nav_env(monkeypatch):
     )
     monkeypatch.setattr('modules.app_context.ctx', ctx)
 
-    ui_helpers = MagicMock()
     # The move runs at once, so what it would drive is seen.
-    ui_helpers.submit_move.side_effect = inline_submit_move
-    monkeypatch.setitem(sys.modules, 'ui.ui_helpers', ui_helpers)
-    monkeypatch.setitem(sys.modules, 'ui.layer_control', MagicMock())
+    monkeypatch.setattr('ui.ui_helpers.submit_move', MagicMock(side_effect=inline_submit_move))
     monkeypatch.setattr('ui.step_navigation._schedule_ui', lambda fn, t: fn(0))
     monkeypatch.setattr(
         'modules.config_ui_getters.get_selected_labware',

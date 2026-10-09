@@ -24,14 +24,9 @@ exactly what the state reached so far justifies -- no more.
 
 from __future__ import annotations
 
-import sys
-from unittest.mock import MagicMock
 
 import pytest
 
-_mock_settings_init = MagicMock()
-_mock_settings_init.settings = {'BF': {'autofocus': False}, 'Green': {'autofocus': False}}
-sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.lumascope_api.illumination import LedTransition
 from tests.af_drives import AF_CENTER_Z, af_lease, af_runner_and_scope, drive_af

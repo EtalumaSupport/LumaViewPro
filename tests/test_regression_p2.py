@@ -12,7 +12,6 @@ Tests that the following bugs stay fixed:
 import datetime
 import time
 from types import SimpleNamespace
-import sys
 import threading
 from unittest.mock import MagicMock, patch
 
@@ -21,19 +20,8 @@ import pytest
 import serial
 
 # Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
-# tests/conftest.py at module-import time. Test-specific mocks below.
+# tests/conftest.py at module-import time.
 
-_mock_settings_init = MagicMock()
-_mock_settings_init.settings = {
-    'BF': {'autofocus': False},
-    'PC': {'autofocus': False},
-    'DF': {'autofocus': False},
-    'Red': {'autofocus': False},
-    'Green': {'autofocus': False},
-    'Blue': {'autofocus': False},
-    'Lumi': {'autofocus': False},
-}
-sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 import drivers.serialboard as serialboard
 from drivers.serialboard import SerialBoard

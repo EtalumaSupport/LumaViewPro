@@ -25,7 +25,6 @@ stubbed globals -- the real bodies run, not copies.
 
 import ast
 import pathlib
-import sys
 import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call
@@ -57,9 +56,7 @@ def _submits_run_at_once(monkeypatch):
         call()
 
     _submitted_lanes.clear()
-    monkeypatch.setitem(
-        sys.modules, 'ui.ui_helpers', SimpleNamespace(submit_reported=_submit_reported)
-    )
+    monkeypatch.setattr('ui.ui_helpers.submit_reported', _submit_reported)
 
 
 def _find_function(tree, name):

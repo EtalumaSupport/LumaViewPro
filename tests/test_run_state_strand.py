@@ -13,30 +13,13 @@ commit) is covered by tests/test_run_refusal_contract.py; this file
 pins the start-side (claim-gate) refusal specifically.
 """
 
-import sys
 import threading
 import time
-from unittest.mock import MagicMock
 
 import pytest
 
 from tests.settings_fixtures import complete_settings
 
-# Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
-# tests/conftest.py at module-import time. Mock settings_init before
-# sequenced_capture_runner imports it. (Harness mirrors
-# tests/test_run_refusal_contract.py.)
-_mock_settings_init = MagicMock()
-_mock_settings_init.settings = {
-    'BF': {'autofocus': False},
-    'PC': {'autofocus': False},
-    'DF': {'autofocus': False},
-    'Red': {'autofocus': False},
-    'Green': {'autofocus': False},
-    'Blue': {'autofocus': False},
-    'Lumi': {'autofocus': False},
-}
-sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.exceptions import ProtocolRunRefusedError
 from tests.protocol_drives import wait_until_not_running

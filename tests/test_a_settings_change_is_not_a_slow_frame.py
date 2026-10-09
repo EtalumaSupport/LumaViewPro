@@ -18,37 +18,9 @@ the real method through the frame sequences the logs showed.
 
 import ast
 import logging
-import sys
 from collections import deque
-from types import ModuleType, SimpleNamespace
-from unittest.mock import MagicMock
+from types import SimpleNamespace
 
-
-class _StubWidget:
-    def __init__(self, **kwargs):
-        pass
-
-
-def _real_base_module(name, **attrs):
-    mod = ModuleType(name)
-    for key, value in attrs.items():
-        setattr(mod, key, value)
-    sys.modules[name] = mod
-
-
-for _name in (
-    'kivy.uix',
-    'kivy.graphics',
-    'kivy.graphics.texture',
-    'kivy.metrics',
-    'kivy.properties',
-    'kivy.input',
-    'kivy.clock',
-):
-    sys.modules.setdefault(_name, MagicMock())
-
-_real_base_module('kivy.uix.image', Image=_StubWidget)
-_real_base_module('kivy.uix.widget', Widget=_StubWidget)
 
 from modules.frame_validity import FrameValidity
 from tests.ast_seams import find_def

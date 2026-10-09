@@ -17,25 +17,11 @@ button's to show.
 
 from __future__ import annotations
 
-import sys
-import types
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
-
-class _StubWidget:
-    def __init__(self, **kwargs):
-        pass
-
-
-for _name in ('kivy.clock', 'kivy.uix'):
-    sys.modules.setdefault(_name, MagicMock())
-
-_boxlayout = types.ModuleType('kivy.uix.boxlayout')
-_boxlayout.BoxLayout = _StubWidget
-sys.modules.setdefault('kivy.uix.boxlayout', _boxlayout)
 
 import modules.app_context as _app_ctx
 import ui.ui_helpers as ui_helpers

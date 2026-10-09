@@ -10,17 +10,10 @@ silently blitting garbage.
 
 from __future__ import annotations
 
-import sys
-from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 
-# image_utils_kivy imports `from kivy.graphics.texture import Texture`; the test
-# env mocks `kivy` but not this submodule. The dtype guard raises before Texture
-# is touched, so a permissive mock suffices.
-sys.modules.setdefault('kivy.graphics', MagicMock())
-sys.modules.setdefault('kivy.graphics.texture', MagicMock())
 
 from ui.image_utils_kivy import image_to_texture
 

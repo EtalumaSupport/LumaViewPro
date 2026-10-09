@@ -9,28 +9,11 @@ refusal at all (the run waits for it). Whether a press is a Stop is the
 engine's answer about this button's own run, never the toggle's state.
 """
 
-import sys
-import types
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
-
-# ui.composite_capture is a Kivy widget module; conftest mocks `kivy` but not
-# the uix submodules, and CompositeCapture subclasses FloatLayout (a bare
-# MagicMock cannot be subclassed).
-class _StubWidget:
-    def __init__(self, **kwargs):
-        pass
-
-
-for _name in ('kivy.clock', 'kivy.uix'):
-    sys.modules.setdefault(_name, MagicMock())
-
-_floatlayout = types.ModuleType('kivy.uix.floatlayout')
-_floatlayout.FloatLayout = _StubWidget
-sys.modules.setdefault('kivy.uix.floatlayout', _floatlayout)
 
 import modules.app_context as _app_ctx
 from modules.exceptions import ProtocolRunRefusedError

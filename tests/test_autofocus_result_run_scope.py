@@ -41,18 +41,11 @@ locks it as known-open so closing it cannot pass unnoticed.
 from __future__ import annotations
 
 import ast
-import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
-# Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
-# tests/conftest.py at module-import time. Mock settings_init before
-# sequenced_capture_runner imports it.
-_mock_settings_init = MagicMock()
-_mock_settings_init.settings = {'BF': {'autofocus': False}, 'Green': {'autofocus': False}}
-sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.run_events import RunEvents
 from tests.af_drives import af_runner_and_scope, drive_af

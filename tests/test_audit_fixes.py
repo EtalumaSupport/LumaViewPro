@@ -37,11 +37,6 @@ from modules.exceptions import (
 )
 
 
-# ---------------------------------------------------------------------------
-# Helpers for building mock modules (used by fixtures, not at module level)
-# ---------------------------------------------------------------------------
-
-
 from modules.notification_center import Severity
 from modules.run_outcome import EndingLatch, PendingRunOutcome, RunEnding
 from modules.sequenced_capture_runner import RunHandle
@@ -52,154 +47,6 @@ from tests.protocol_drives import run_identity
 def _posted(centre_posts, *severities):
     """The (category, title, message) of every post at one of ``severities``."""
     return [(n.category, n.title, n.message) for n in centre_posts if n.severity in severities]
-
-
-def _build_mock_logger():
-    """Build a mock lvp_logger module with a logger attribute."""
-    mock_logger = MagicMock()
-    for attr in ('info', 'debug', 'error', 'warning', 'critical'):
-        setattr(mock_logger, attr, MagicMock())
-
-    mock_lvp_logger = MagicMock()
-    mock_lvp_logger.logger = mock_logger
-    mock_lvp_logger.version = 'test'
-    mock_lvp_logger.is_thread_paused = MagicMock(return_value=False)
-    mock_lvp_logger.unpause_thread = MagicMock()
-    mock_lvp_logger.pause_thread = MagicMock()
-    return mock_lvp_logger
-
-
-def _kivy_mock_modules():
-    """Return a dict of {module_name: mock_object} for Kivy and camera SDKs."""
-
-    class _FakeKivyWidget:
-        pass
-
-    class _FakeButton(_FakeKivyWidget):
-        pass
-
-    class _FakeHoverBehavior:
-        pass
-
-    kivy_properties_mock = MagicMock()
-    kivy_properties_mock.ListProperty = lambda *a, **k: None
-    kivy_properties_mock.StringProperty = lambda *a, **k: None
-    kivy_properties_mock.NumericProperty = lambda *a, **k: None
-    kivy_properties_mock.BooleanProperty = lambda *a, **k: None
-    kivy_properties_mock.ObjectProperty = lambda *a, **k: None
-
-    kivy_uix_button_mock = MagicMock()
-    kivy_uix_button_mock.Button = _FakeButton
-
-    hover_mock = MagicMock()
-    hover_mock.HoverBehavior = _FakeHoverBehavior
-
-    mods = {}
-    for name in [
-        'kivy',
-        'kivy.app',
-        'kivy.clock',
-        'kivy.core',
-        'kivy.core.window',
-        'kivy.factory',
-        'kivy.graphics',
-        'kivy.graphics.texture',
-        'kivy.graphics.instructions',
-        'kivy.graphics.vertex_instructions',
-        'kivy.lang',
-        'kivy.metrics',
-        'kivy.uix',
-        'kivy.uix.boxlayout',
-        'kivy.uix.filechooser',
-        'kivy.uix.floatlayout',
-        'kivy.uix.gridlayout',
-        'kivy.uix.image',
-        'kivy.uix.label',
-        'kivy.uix.popup',
-        'kivy.uix.scrollview',
-        'kivy.uix.slider',
-        'kivy.uix.spinner',
-        'kivy.uix.textinput',
-        'kivy.uix.togglebutton',
-        'kivy.uix.widget',
-        'kivy.uix.behaviors',
-        'kivy.uix.behaviors.hover',
-    ]:
-        mods[name] = MagicMock()
-
-    mods['kivy.properties'] = kivy_properties_mock
-    mods['kivy.uix.button'] = kivy_uix_button_mock
-    mods['ui.hover_behavior'] = hover_mock
-
-    return mods
-
-
-def _camera_sdk_mock_modules():
-    """Return a dict of camera SDK mock modules."""
-    mods = {}
-    for name in [
-        'pypylon',
-        'pypylon.pylon',
-        'pypylon.genicam',
-        'ids_peak',
-        'ids_peak.ids_peak',
-        'ids_peak.ids_peak_ipl_extension',
-        'ids_peak_ipl',
-    ]:
-        mods[name] = MagicMock()
-    return mods
-
-
-def _common_mock_modules():
-    """Return a dict of commonly needed mock modules (lvp_logger, platformdirs, etc).
-
-    NOTE: cv2 is NOT mocked -- it's a real installed package with no Kivy
-    dependency. Mocking it causes test-ordering contamination: image_utils
-    caches the mock cv2 reference at import time, and monkeypatch cleanup
-    can't fix the cached reference. This broke TestAddTimestampInPlace.
-    """
-    mods = {
-        'platformdirs': MagicMock(),
-        'lvp_logger': _build_mock_logger(),
-        'requests': MagicMock(),
-        'requests.structures': MagicMock(),
-        'psutil': MagicMock(),
-    }
-    mock_settings_init = MagicMock()
-    mock_settings_init.settings = {}
-    mods['modules.settings_init'] = mock_settings_init
-    return mods
-
-
-def _all_mock_modules():
-    """Return the full set of mock modules needed for heavy imports."""
-    mods = {}
-    mods.update(_common_mock_modules())
-    mods.update(_camera_sdk_mock_modules())
-    mods.update(_kivy_mock_modules())
-    return mods
-
-
-# ---------------------------------------------------------------------------
-# Fixture: temporarily install mock modules for a test class, then clean up.
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def _mock_heavy_deps(monkeypatch):
-    """Install all mock modules into sys.modules for the duration of a test.
-
-    Only inserts keys that are NOT already present, and removes them on teardown.
-    This avoids polluting sys.modules for other test files.
-    """
-    mods = _all_mock_modules()
-    inserted_keys = []
-    for name, mock_mod in mods.items():
-        if name not in sys.modules:
-            monkeypatch.setitem(sys.modules, name, mock_mod)
-            inserted_keys.append(name)
-    yield
-    # monkeypatch handles cleanup automatically
 
 
 # ===========================================================================
@@ -259,7 +106,7 @@ class TestDomainExceptions:
 
 
 @pytest.fixture
-def sim_scope(_mock_heavy_deps):
+def sim_scope():
     """Create a homed Lumascope in simulate mode (no hardware needed)."""
 
     from tests.scope_fakes import home_sim_scope
@@ -313,7 +160,7 @@ class TestMoveAbsolutePositionValidation:
 class TestProtocolFileLimits:
     """Verify Protocol.from_file() enforces size and step count limits."""
 
-    def test_rejects_oversized_file(self, _mock_heavy_deps, tmp_path):
+    def test_rejects_oversized_file(self, tmp_path):
         """A file > 10 MB should be rejected before parsing."""
         from modules.protocol import Protocol, ProtocolFormatError
 
@@ -326,7 +173,7 @@ class TestProtocolFileLimits:
                 tiling_configs_file_loc=None,
             )
 
-    def test_accepts_file_under_limit(self, _mock_heavy_deps, tmp_path):
+    def test_accepts_file_under_limit(self, tmp_path):
         """A small file should pass the size check (may fail later on format,
         but should NOT be refused for its size)."""
         from modules.protocol import Protocol
@@ -348,7 +195,7 @@ class TestProtocolFileLimits:
 
 
 @pytest.fixture
-def protocol_state_imports(_mock_heavy_deps):
+def protocol_state_imports():
     """Import ProtocolState and transitions after mocks are installed."""
     from modules.protocol_state_machine import (
         ProtocolState,
@@ -513,7 +360,7 @@ class TestAppleScriptEscaping:
     """Verify _escape_applescript handles special characters."""
 
     @pytest.fixture(autouse=True)
-    def _import_escape_fn(self, _mock_heavy_deps):
+    def _import_escape_fn(self):
         """Import the function under test after mocks are installed."""
         from ui.file_dialogs import _escape_applescript
 
@@ -1033,7 +880,7 @@ class TestAxisState:
         for ax in sim_scope.capabilities.axes:
             assert sim_scope.motion.get_axis_state(ax) == AxisState.IDLE
 
-    def test_axis_state_homing_thome(self, _mock_heavy_deps):
+    def test_axis_state_homing_thome(self):
         """After home(axis='T') on a turret-equipped scope, T axis should be IDLE.
 
         Uses an LS850T sim explicitly instead of the default LS850
@@ -1061,7 +908,7 @@ class TestAxisState:
         scope.motion.home(axis='T')
         assert scope.motion.get_axis_state('T') == AxisState.IDLE
 
-    def test_thome_on_no_turret_scope_is_refused(self, _mock_heavy_deps):
+    def test_thome_on_no_turret_scope_is_refused(self):
         """Audit B4: home(axis='T') on a scope without a turret is refused
         and leaves T in UNKNOWN state -- there is no phantom T axis to
         transition.
@@ -1162,7 +1009,7 @@ class TestIssue602_AFExecutorLED:
     accepts led_color/led_illumination and manages its own LED.
     """
 
-    def test_af_executor_accepts_led_params(self, _mock_heavy_deps):
+    def test_af_executor_accepts_led_params(self):
         """AutofocusRunner.run() should accept led_color and led_illumination."""
         import inspect
         from modules.autofocus_runner import AutofocusRunner
@@ -1171,7 +1018,7 @@ class TestIssue602_AFExecutorLED:
         assert 'led_color' in sig.parameters
         assert 'led_illumination' in sig.parameters
 
-    def test_af_executor_turns_led_on(self, _mock_heavy_deps):
+    def test_af_executor_turns_led_on(self):
         """AF executor should call led_on when led_color is provided."""
         from modules.autofocus_runner import AutofocusRunner
 
@@ -1190,7 +1037,7 @@ class TestIssue602_AFExecutorLED:
         assert af._led_color is None
         assert af._led_illumination == 0
 
-    def test_af_executor_led_off_in_cancel(self, _mock_heavy_deps):
+    def test_af_executor_led_off_in_cancel(self):
         """AF executor cancel() should turn off LED."""
         from modules.autofocus_runner import AutofocusRunner
         from unittest.mock import patch
@@ -1257,7 +1104,7 @@ class TestAFPrecisionModeRestoresOn:
         park_z(scope, 5000.0)
         return AutofocusRunner(scope=scope), scope
 
-    def test_reset_restores_precision_on(self, _mock_heavy_deps):
+    def test_reset_restores_precision_on(self):
         from unittest.mock import patch
 
         af, scope = self._build_af()
@@ -1265,7 +1112,7 @@ class TestAFPrecisionModeRestoresOn:
             af.reset()
             mock_set.assert_called_with('Z', True)
 
-    def test_abort_path_restores_precision_on(self, _mock_heavy_deps):
+    def test_abort_path_restores_precision_on(self):
         # AFE.run() finally block must restore Z precision ON on abort,
         # mirroring the success and exception exit paths so the
         # invariant "Z precision ON outside of AF" holds for every
@@ -1371,7 +1218,7 @@ class TestIssue606_TurretObjectiveValidation:
 class TestB6_WriteMotorRegisterRemoved:
     """B6: write_motor_register() was dead code with zero callers."""
 
-    def test_write_motor_register_removed(self, _mock_heavy_deps):
+    def test_write_motor_register_removed(self):
         """write_motor_register should no longer exist on the API class."""
 
         scope = build_scope(simulate=True)
@@ -1385,7 +1232,7 @@ class TestB5_GetCurrentPositionUsesAxesPresent:
     """B5: get_current_position(axis=None) should use axes_present(), not
     a hardcoded 4-axis list."""
 
-    def test_returns_only_present_axes(self, _mock_heavy_deps):
+    def test_returns_only_present_axes(self):
         """get_current_position(None) should return dict keyed by present axes only."""
 
         scope = build_scope(simulate=True)
@@ -1399,7 +1246,7 @@ class TestB5_GetCurrentPositionUsesAxesPresent:
 class TestD2_LEDBoardStateCacheHelper:
     """D2: LED state cache updates should use _update_state_cache() helper."""
 
-    def test_update_state_cache_exists(self, _mock_heavy_deps):
+    def test_update_state_cache_exists(self):
         """LEDBoard should have _update_state_cache method."""
         from drivers.ledboard import LEDBoard
 
@@ -1407,7 +1254,7 @@ class TestD2_LEDBoardStateCacheHelper:
             'LEDBoard must have _update_state_cache helper (D2)'
         )
 
-    def test_led_on_fast_updates_cache(self, _mock_heavy_deps):
+    def test_led_on_fast_updates_cache(self):
         """led_on_fast should update state cache via _update_state_cache."""
         from drivers.simulated_ledboard import SimulatedLEDBoard
 
@@ -8577,8 +8424,8 @@ class TestFx2DriverLibusbBackendProbe:
         for name, mod in modules:
             monkeypatch.setitem(sys.modules, name, mod)
 
-        # Recording logger + inert registries so the fresh module exec
-        # cannot touch the real driver registry or log stack.
+        # Recording logger, and the real registries with their register
+        # recorded, so the fresh module exec reaches no real driver entry.
         records = []
 
         class _Recorder:
@@ -8590,17 +8437,16 @@ class TestFx2DriverLibusbBackendProbe:
         lvp_logger_mod.camera_logger = _Recorder()
         monkeypatch.setitem(sys.modules, 'lvp_logger', lvp_logger_mod)
 
-        registry_mod = types.ModuleType('drivers.registry')
+        from drivers import registry
+
         registered = []
 
-        class _Registry:
-            def register(self, name, **kwargs):
-                registered.append(name)
-                return lambda cls: cls
+        def _record(name, **kwargs):
+            registered.append(name)
+            return lambda cls: cls
 
-        registry_mod.camera_registry = _Registry()
-        registry_mod.led_registry = _Registry()
-        monkeypatch.setitem(sys.modules, 'drivers.registry', registry_mod)
+        monkeypatch.setattr(registry.camera_registry, 'register', _record)
+        monkeypatch.setattr(registry.led_registry, 'register', _record)
 
         spec = importlib.util.spec_from_file_location(
             'fx2driver_backend_probe_under_test', 'drivers/fx2driver.py'
@@ -10547,27 +10393,11 @@ class TestHeadlessSettingsResolutionMatchesGui:
         """With no settings loaded, load_user_settings must resolve the same
         file the GUI reads -- current.json first -- so headless state
         matches the running app."""
-        import importlib.util
         import json
         import pathlib
 
         import modules.settings_init as settings_init
         from modules.scope_session import ScopeSession
-        from unittest import mock as _mock
-
-        if isinstance(settings_init, _mock.MagicMock):
-            # Several test modules install a MagicMock as
-            # modules.settings_init at import time (sys.modules.setdefault),
-            # and whichever test module the session collects first decides
-            # who wins -- an order lottery. This test exists to exercise the
-            # REAL resolver, so load the real module explicitly and install
-            # it for this test's duration (monkeypatch restores the mock).
-            spec = importlib.util.spec_from_file_location(
-                'modules.settings_init', 'modules/settings_init.py'
-            )
-            settings_init = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(settings_init)
-            monkeypatch.setitem(sys.modules, 'modules.settings_init', settings_init)
 
         monkeypatch.setattr(settings_init, 'settings', None)
         (tmp_path / 'data').mkdir()

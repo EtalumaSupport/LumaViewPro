@@ -24,25 +24,8 @@ from __future__ import annotations
 
 import datetime
 import pathlib
-import sys
 import threading
-from unittest.mock import MagicMock
 
-# Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
-# tests/conftest.py at module-import time. Mock settings_init before
-# sequenced_capture_runner imports it. (Harness mirrors
-# tests/test_run_refusal_contract.py.)
-_mock_settings_init = MagicMock()
-_mock_settings_init.settings = {
-    'BF': {'autofocus': False},
-    'PC': {'autofocus': False},
-    'DF': {'autofocus': False},
-    'Red': {'autofocus': False},
-    'Green': {'autofocus': False},
-    'Blue': {'autofocus': False},
-    'Lumi': {'autofocus': False},
-}
-sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig

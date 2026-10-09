@@ -25,35 +25,6 @@ import pytest
 
 from tests.ast_seams import parse_module
 
-# ui.notification_popup imports Kivy widget classes at module scope; conftest
-# mocks `kivy` but not these submodules.
-#
-# These are REAL stub classes, not MagicMocks, and that distinction is
-# load-bearing across the whole suite: sys.modules entries planted here
-# outlive this module, and ui/file_dialogs.py does
-# `class FileChooseBTN(HoverBehavior, Button)`. A MagicMock Button makes that
-# a metaclass conflict at import time, which surfaces as errors in whichever
-# unrelated test file happens to import file_dialogs later.
-
-
-class _StubWidget:
-    def __init__(self, *args, **kwargs):
-        pass
-
-
-for _name, _attr in (
-    ('kivy.uix.boxlayout', 'BoxLayout'),
-    ('kivy.uix.button', 'Button'),
-    ('kivy.uix.label', 'Label'),
-    ('kivy.uix.popup', 'Popup'),
-):
-    if _name not in sys.modules:
-        _module = ModuleType(_name)
-        setattr(_module, _attr, type(_attr, (_StubWidget,), {}))
-        sys.modules[_name] = _module
-
-sys.modules.setdefault('kivy.uix', MagicMock())
-
 import ui.notification_popup as notification_popup
 from modules.notification_center import Notification, Severity
 

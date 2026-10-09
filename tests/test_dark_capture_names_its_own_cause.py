@@ -19,12 +19,6 @@ path had no rung, so it fell through to the camera-inactive default -- exactly
 the failure the docstring predicted. This adds the missing rung and locks it.
 """
 
-import sys
-from unittest.mock import MagicMock
-
-
-sys.modules.setdefault('modules.settings_init', MagicMock())
-
 
 def test_darkness_is_not_a_failure_cause_at_all():
     """Darkness never reaches the failure ladder.

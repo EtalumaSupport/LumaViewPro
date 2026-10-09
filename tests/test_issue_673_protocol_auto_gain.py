@@ -30,23 +30,11 @@ from __future__ import annotations
 
 import datetime
 import logging
-import sys
 import threading
 from unittest.mock import MagicMock
 
 import pytest
 
-_mock_settings_init = MagicMock()
-_mock_settings_init.settings = {
-    'BF': {'autofocus': False},
-    'PC': {'autofocus': False},
-    'DF': {'autofocus': False},
-    'Red': {'autofocus': False},
-    'Green': {'autofocus': False},
-    'Blue': {'autofocus': False},
-    'Lumi': {'autofocus': False},
-}
-sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig

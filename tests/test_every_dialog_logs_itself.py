@@ -20,11 +20,6 @@ suite's mocked Kivy substitutes a stub widget with no ``open()`` and the
 production class is not constructible here.
 """
 
-import sys
-from unittest.mock import MagicMock
-
-sys.modules.setdefault('modules.settings_init', MagicMock())
-
 
 class _FakeLabel:
     def __init__(self, text):

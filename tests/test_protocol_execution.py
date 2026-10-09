@@ -14,7 +14,6 @@ import dataclasses
 import datetime
 import json
 import pathlib
-import sys
 import threading
 import time
 from unittest.mock import MagicMock, patch
@@ -22,20 +21,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
-# tests/conftest.py at module-import time. Test-specific mocks below.
+# tests/conftest.py at module-import time.
 
-# Mock settings_init before sequenced_capture_runner imports it
-_mock_settings_init = MagicMock()
-_mock_settings_init.settings = {
-    'BF': {'autofocus': False},
-    'PC': {'autofocus': False},
-    'DF': {'autofocus': False},
-    'Red': {'autofocus': False},
-    'Green': {'autofocus': False},
-    'Blue': {'autofocus': False},
-    'Lumi': {'autofocus': False},
-}
-sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.activity_claim import ActivityClaim
 from modules.exceptions import ProtocolRunRefusedError, RunAlreadyEndedError

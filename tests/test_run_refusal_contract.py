@@ -39,7 +39,6 @@ refusal boundary) is locked by tests/test_protocol_start_refusal_ui_gate.py.
 import ast
 import datetime
 import pathlib
-import sys
 import threading
 import time
 from concurrent.futures import Future
@@ -50,20 +49,6 @@ import pytest
 from tests.settings_fixtures import complete_settings
 from tests.protocol_drives import run_identity
 
-# Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
-# tests/conftest.py at module-import time. Mock settings_init before
-# sequenced_capture_runner imports it.
-_mock_settings_init = MagicMock()
-_mock_settings_init.settings = {
-    'BF': {'autofocus': False},
-    'PC': {'autofocus': False},
-    'DF': {'autofocus': False},
-    'Red': {'autofocus': False},
-    'Green': {'autofocus': False},
-    'Blue': {'autofocus': False},
-    'Lumi': {'autofocus': False},
-}
-sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.activity_claim import ActivityClaim
 from modules.autofocus_thread import AutofocusSweep

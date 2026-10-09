@@ -399,23 +399,12 @@ class TestOneSessionFactory:
     def test_load_user_settings_refuses_a_directory_that_is_not_an_installation(
         self, monkeypatch, tmp_path
     ):
-        import importlib.util
-        import sys
-
-        import modules.scope_session as scope_session_module
+        import modules.settings_init as settings_init
         from modules.exceptions import ConfigError
 
-        # Some test modules install a MagicMock as modules.settings_init at
-        # import time; this test is about the real resolver, so it loads
-        # the real module and points both of the session's reads at it.
-        spec = importlib.util.spec_from_file_location(
-            'modules.settings_init', 'modules/settings_init.py'
-        )
-        real_settings_init = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(real_settings_init)
-        real_settings_init.settings = None
-        monkeypatch.setitem(sys.modules, 'modules.settings_init', real_settings_init)
-        monkeypatch.setattr(scope_session_module, 'settings_init', real_settings_init)
+        # No settings loaded in this process: the resolver, not the store,
+        # answers.
+        monkeypatch.setattr(settings_init, 'settings', None)
 
         with pytest.raises(ConfigError, match='not an LVP installation root'):
             ScopeSession.load_user_settings(str(tmp_path))

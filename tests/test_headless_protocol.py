@@ -29,18 +29,6 @@ from unittest.mock import MagicMock
 # gets purged below -- this test deliberately verifies the protocol chain
 # loads without any kivy module present.
 
-_mock_settings_init = MagicMock()
-_mock_settings_init.settings = {
-    'BF': {'autofocus': False},
-    'PC': {'autofocus': False},
-    'DF': {'autofocus': False},
-    'Red': {'autofocus': False},
-    'Green': {'autofocus': False},
-    'Blue': {'autofocus': False},
-    'Lumi': {'autofocus': False},
-}
-sys.modules.setdefault('modules.settings_init', _mock_settings_init)
-
 
 # ---------------------------------------------------------------------------
 # CRITICAL: remove any Kivy modules that might have been loaded by a previous

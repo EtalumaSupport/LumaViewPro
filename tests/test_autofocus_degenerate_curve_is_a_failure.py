@@ -36,15 +36,10 @@ saying "flat". Widening it is separate work.
 
 from __future__ import annotations
 
-import sys
 import threading
-from unittest.mock import MagicMock
 
 import pytest
 
-_mock_settings_init = MagicMock()
-_mock_settings_init.settings = {'BF': {'autofocus': False}, 'Green': {'autofocus': False}}
-sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.exceptions import AutofocusAborted
 from tests.af_drives import AF_CENTER_Z, af_lease, af_runner_and_scope, drive_af

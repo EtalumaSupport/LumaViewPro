@@ -8,7 +8,6 @@ a user never reads 'exclusive_activity_running'.
 """
 
 import concurrent.futures
-import sys
 import types
 from unittest.mock import MagicMock, patch
 
@@ -16,18 +15,6 @@ import pytest
 
 from modules.exceptions import CaptureError, HardwareCommandRefusedError, ObjectiveUnknownError
 from tests.shown_outcomes import capture_shown
-
-
-class _StubWidget:
-    def __init__(self, **kwargs):
-        pass
-
-
-for _name in ('kivy.clock', 'kivy.uix'):
-    sys.modules.setdefault(_name, MagicMock())
-_floatlayout = types.ModuleType('kivy.uix.floatlayout')
-_floatlayout.FloatLayout = _StubWidget
-sys.modules.setdefault('kivy.uix.floatlayout', _floatlayout)
 
 
 @pytest.fixture

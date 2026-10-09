@@ -23,10 +23,8 @@ is the r of the frame the driver now asks for at that window.
 from __future__ import annotations
 
 import logging
-import sys
 import threading
 import time
-import types
 from types import SimpleNamespace
 
 import pytest
@@ -159,9 +157,7 @@ def test_the_windows_reader_feeds_packets_and_failures_to_the_stream(monkeypatch
         def stop(self):
             pass
 
-    monkeypatch.setitem(
-        sys.modules, 'drivers.winusb_iso', types.SimpleNamespace(WinUsbIsoReader=Reader)
-    )
+    monkeypatch.setattr('drivers.winusb_iso.WinUsbIsoReader', Reader)
     monkeypatch.setattr(fx2driver._WinUsbTransport, '_release_idle', lambda self: None)
     stream = fx2driver._ByteStream()
     fx2driver._WinUsbTransport().start_stream(stream, on_gone=lambda: None)

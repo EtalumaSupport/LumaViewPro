@@ -12,12 +12,7 @@ The clamp is correct and stays. What must hold is that the target follows the
 applied value through it.
 """
 
-import sys
-from unittest.mock import MagicMock
-
 import pytest
-
-sys.modules.setdefault('modules.settings_init', MagicMock())
 
 
 CHUNK_TOLERANCE_US = 2.0

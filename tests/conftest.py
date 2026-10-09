@@ -197,21 +197,25 @@ def _install_kivy_uix_stubs():
     ):
         sys.modules.setdefault(name, MagicMock())
 
-    # One name per `from kivy.uix.<mod> import <Base>` in ui/, modules/,
-    # plugins/, lumaviewpro.py -- keep in sync with that import set.
+    # One name per `from kivy.uix.<mod> import <Base>` in ui/ (ui/sim_walk.py
+    # included), modules/, plugins/, lumaviewpro.py -- keep in sync with that
+    # import set.
     bases = {
-        'accordion': ('AccordionItem',),
+        'accordion': ('Accordion', 'AccordionItem'),
+        'behaviors': ('ButtonBehavior',),
         'boxlayout': ('BoxLayout',),
         'button': ('Button',),
         'dropdown': ('DropDown',),
         'floatlayout': ('FloatLayout',),
         'image': ('Image',),
         'label': ('Label',),
+        'modalview': ('ModalView',),
         'popup': ('Popup',),
         'scatter': ('Scatter',),
         'scrollview': ('ScrollView',),
         'slider': ('Slider',),
         'spinner': ('Spinner', 'SpinnerOption'),
+        'textinput': ('TextInput',),
         'togglebutton': ('ToggleButton',),
         'widget': ('Widget',),
     }
@@ -222,9 +226,44 @@ def _install_kivy_uix_stubs():
             setattr(mod, class_name, StubWidget)
         sys.modules.setdefault(full_name, mod)
 
+    # ui/sim_walk.py drives the window with Kivy's test touch; the class is a
+    # stand-in here like every other Kivy name, so the real driver module
+    # imports and a test patches the one member it asks.
+    tests_pkg = ModuleType('kivy.tests')
+    common = ModuleType('kivy.tests.common')
+    common.UnitTestTouch = StubWidget
+    sys.modules.setdefault('kivy.tests', tests_pkg)
+    sys.modules.setdefault('kivy.tests.common', common)
+
 
 # Run at conftest import time -- before any test file is collected.
 install_mock_deps()
+
+
+def _install_host_absent_production_modules():
+    """A production module this host cannot import gets an importable shell.
+
+    ``drivers/winusb_iso.py`` imports ``ctypes.windll`` at module scope, so on
+    macOS and Linux the import raises; ``drivers/fx2driver.py`` reaches it
+    only on Windows. A test of the WinUSB transport patches the one class the
+    transport asks for, ``WinUsbIsoReader``, on the module, the same call on
+    every host; here the module exists to be patched. The guard
+    ``tests/guards/test_no_test_installs_a_module_stand_in.py`` keeps this
+    the one place.
+    """
+    try:
+        import drivers.winusb_iso
+    except ImportError:
+        import drivers
+
+        shell = ModuleType('drivers.winusb_iso')
+        shell.WinUsbIsoReader = None
+        sys.modules.setdefault('drivers.winusb_iso', shell)
+        # The dotted form of monkeypatch.setattr walks the package's attributes.
+        drivers.winusb_iso = sys.modules['drivers.winusb_iso']
+
+
+_install_host_absent_production_modules()
 
 
 # ---------------------------------------------------------------------------

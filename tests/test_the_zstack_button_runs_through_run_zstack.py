@@ -16,28 +16,11 @@ count computed from settings could disagree with the run.
 
 from __future__ import annotations
 
-import sys
-import types
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
-
-# ui.zstack is a Kivy widget module; conftest mocks `kivy` but not the uix
-# submodules, and the class subclasses a layout (a bare MagicMock cannot be
-# subclassed).
-class _StubWidget:
-    def __init__(self, **kwargs):
-        pass
-
-
-for _name in ('kivy.clock', 'kivy.uix'):
-    sys.modules.setdefault(_name, MagicMock())
-
-_floatlayout = types.ModuleType('kivy.uix.floatlayout')
-_floatlayout.FloatLayout = _StubWidget
-sys.modules.setdefault('kivy.uix.floatlayout', _floatlayout)
 
 import modules.app_context as _app_ctx
 import ui.zstack as zs

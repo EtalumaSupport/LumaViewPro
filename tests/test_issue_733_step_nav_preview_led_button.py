@@ -18,7 +18,6 @@ is called with ``update_led=False`` so it cannot re-derive LED intent from
 the widget.
 """
 
-import sys
 import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -129,21 +128,16 @@ def stepnav_env(monkeypatch):
         io_executor=object(),
     )
     monkeypatch.setattr('modules.app_context.ctx', ctx)
-    # ui.ui_helpers and ui.layer_control pull kivy submodules the conftest
-    # kivy mock cannot provide; go_to_step defers both imports, so
-    # module-boundary stubs suffice. The move runs at once, so what follows
-    # it is seen.
-    ui_helpers = MagicMock()
-    ui_helpers.submit_move.side_effect = inline_submit_move
-    monkeypatch.setitem(sys.modules, 'ui.ui_helpers', ui_helpers)
-    monkeypatch.setitem(sys.modules, 'ui.layer_control', MagicMock())
+    # The move runs at once, so what follows it is seen.
+    submit_move = MagicMock(side_effect=inline_submit_move)
+    monkeypatch.setattr('ui.ui_helpers.submit_move', submit_move)
     # Run scheduled UI callbacks inline so the closures under test execute.
     monkeypatch.setattr('ui.step_navigation._schedule_ui', lambda fn, t: fn(0))
     monkeypatch.setattr(
         'modules.config_ui_getters.get_selected_labware',
         lambda: ('labware', MagicMock()),
     )
-    return SimpleNamespace(ctx=ctx, layer_obj=layer_obj)
+    return SimpleNamespace(ctx=ctx, layer_obj=layer_obj, submit_move=submit_move)
 
 
 def _run_manual_nav(env):
@@ -181,7 +175,7 @@ class TestStepNavPreviewRespectsLedEnable:
         assert stepnav_env.ctx.scope.illumination.apply_transition.call_count == 0
         assert stepnav_env.ctx.session.start_go_to_step.call_count == 1
         # The move rides the IO lane, and every axis the scope has is redrawn.
-        move = sys.modules['ui.ui_helpers'].submit_move
+        move = stepnav_env.submit_move
         assert move.call_count == 1
         assert move.call_args.kwargs['axes'] == stepnav_env.ctx.scope.capabilities.axes
 
