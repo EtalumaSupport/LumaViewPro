@@ -31,11 +31,21 @@ The forms:
 No form: an image array, a table (``DataFrame``), a callable anywhere but
 a parameter, ``Any`` or ``object``, a thread. A member that hands one out
 is marked in-process.
+
+Inbound, a parameter's value comes back the same way: seconds become a
+``timedelta``, an enum's form its member, an object a record, a handle's
+id its live object, a live-folder name an absolute path. ``wire_members``
+describes each member a host routes to, and ``decode`` turns what a
+client sent into what the member takes. A parameter type with no inbound
+form -- a job, a path inside an array, a union a value could be read as
+either side of -- is refused when the host is built, never guessed at a
+call.
 """
 
 from __future__ import annotations
 
 import ast
+import dataclasses
 import datetime
 import enum
 import importlib
@@ -365,3 +375,256 @@ def encode(
         raise NoWireFormError(f'{cls.__module__}.{cls.__qualname__} has no wire form')
 
     return form(value)
+
+
+# --- The inbound half: a value a wire client sends -----------------------------
+
+# The forms whose value is turned into something else on the way in; every
+# other inbound form is taken as the client sent it.
+_CONVERTED = {SECONDS, PATH, ENUM, RECORD, HANDLE}
+# The array types a JSON array becomes, by the name the annotation uses.
+_ARRAY_TYPES = {'tuple': tuple, 'set': set, 'frozenset': frozenset}
+
+
+@dataclasses.dataclass(frozen=True)
+class Inbound:
+    """One alternative of a parameter's type, as a wire client sends it.
+
+    Attributes:
+        form: The wire form.
+        name: The type's name, by its last part (``str``, ``FilePath``,
+            ``Remedy``).
+        cls: The project class, for an enum, a record or a handle.
+        items: An array's or object's value alternatives, scalars only; empty
+            when the annotation does not say.
+        fields: A record's published fields, each with its alternatives.
+    """
+
+    form: str
+    name: str
+    cls: type | None = None
+    items: tuple[Inbound, ...] = ()
+    fields: tuple[tuple[str, tuple[Inbound, ...]], ...] = ()
+
+
+@dataclasses.dataclass(frozen=True)
+class WireParameter:
+    """A parameter a wire client sends by name.
+
+    Attributes:
+        name: The Python parameter name, the JSON key.
+        alternatives: What the value may be.
+        required: Whether the client must send it; one it leaves out takes
+            the member's own default.
+        default: The member's default, for a description; None when required.
+    """
+
+    name: str
+    alternatives: tuple[Inbound, ...]
+    required: bool
+    default: object = None
+
+
+@dataclasses.dataclass(frozen=True)
+class WireMember:
+    """A member a host routes a wire client to.
+
+    Attributes:
+        name: The Python name, the route's last segment.
+        read: A property or published field, read rather than called.
+        parameters: What a call takes from the client; the parameters the
+            host fills (a callback, a run's handlers) are not among them.
+        segment: The live object's class a read leads to, when the member is
+            a sub-object the route continues through; None otherwise.
+        doc: The member's docstring.
+    """
+
+    name: str
+    read: bool
+    parameters: tuple[WireParameter, ...] = ()
+    segment: type | None = None
+    doc: str = ''
+
+
+def _alternatives(text: str) -> list[ast.AST]:
+    """The top-level alternatives of an annotation's union, forward references read."""
+
+    def split(node: ast.AST) -> list[ast.AST]:
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+            return split(node.left) + split(node.right)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return split(ast.parse(node.value, mode='eval').body)
+        if isinstance(node, ast.Subscript) and _base(node) in ('Optional', 'Union'):
+            inner = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+            found = [n for e in inner for n in split(e)]
+            return found + ([ast.Constant(None)] if _base(node) == 'Optional' else [])
+        return [node]
+
+    return split(ast.parse(text, mode='eval').body)
+
+
+def _base(node: ast.AST) -> str:
+    if isinstance(node, ast.Constant) and node.value is None:
+        return 'None'
+    if isinstance(node, ast.Subscript):
+        node = node.value
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    if isinstance(node, ast.Name):
+        return node.id
+    raise NoWireFormError(f'{ast.unparse(node)} is not a type a wire carries')
+
+
+def inbound(text: str, classes: dict[str, type], aliases: dict[str, str]) -> tuple[Inbound, ...]:
+    """The alternatives a parameter annotated *text* takes from a wire client.
+
+    Empty when the host fills the parameter (a callback, a run's handlers).
+
+    Raises:
+        NoWireFormError: the type has no inbound form -- a job, a thread, a
+            path or record inside an array -- or is a union a sent value
+            could be read as either side of (a name or a path), so which one
+            the client meant is not knowable.
+    """
+    found: list[Inbound] = []
+    for node in _alternatives(text):
+        name = _base(node)
+        if name in _HOST_FILLED:
+            return ()
+        if name in aliases and name not in NAMED_FORMS:
+            found += inbound(aliases[name], classes, aliases)
+            continue
+        form = NAMED_FORMS.get(name)
+        cls = classes.get(name) if form is None else None
+        if cls is not None:
+            form = class_form(cls)
+        if form in (ARRAY, OBJECT):
+            found.append(Inbound(form, name, items=_items(node, text, classes, aliases)))
+        elif form == RECORD:
+            fields = tuple(
+                (f, inbound(_field_text(cls, f) or 'object', classes, aliases))
+                for f in _fields(cls)
+            )
+            found.append(Inbound(form, name, cls, fields=fields))
+        elif form in (SCALAR, SECONDS, PATH, ENUM, HANDLE):
+            found.append(Inbound(form, name, cls))
+        else:
+            raise NoWireFormError(f'{text}: {name} has no inbound form')
+    converted = [a for a in found if a.form in _CONVERTED]
+    others = [a for a in found if a not in converted and a.name != 'None']
+    if converted and (len(converted) > 1 or others):
+        raise NoWireFormError(f'{text}: a sent value could be read as more than one of its types')
+    return tuple(found)
+
+
+def _items(
+    node: ast.AST, text: str, classes: dict[str, type], aliases: dict[str, str]
+) -> tuple[Inbound, ...]:
+    """An array's or object's value alternatives, which are scalars or nothing said."""
+    if not isinstance(node, ast.Subscript):
+        return ()
+    parts = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+    # A mapping's value is its last part; a tuple's ``...`` says nothing.
+    parts = [p for p in parts if not (isinstance(p, ast.Constant) and p.value is Ellipsis)]
+    if _base(node) == 'tuple' and len(parts) > 1:
+        # A fixed-shape tuple's parts each have their own type, which one item
+        # type would misdescribe.
+        raise NoWireFormError(f'{text}: a tuple of fixed shape is not sent')
+    items = inbound(ast.unparse(parts[-1]), classes, aliases)
+    if any(i.form != SCALAR for i in items):
+        raise NoWireFormError(f'{text}: an array or object of anything but scalars is not sent')
+    return items
+
+
+def wire_members(cls: type, classes: dict[str, type], aliases: dict[str, str]) -> list[WireMember]:
+    """Each member of *cls* a wire client reaches, sorted by name.
+
+    Raises:
+        NoWireFormError: a parameter's type has no inbound form.
+        TypeError: a method takes ``*args`` or ``**kwargs``, which a client
+            cannot name.
+    """
+    members = []
+    for name, member in _marked(cls).items():
+        if mark_of(member) != API:
+            continue
+        if isinstance(member, property):
+            fget = member.fget
+            members.append(_read(name, fget.__annotations__.get('return'), fget, classes))
+            continue
+        function = inspect.unwrap(getattr(member, '__func__', member))
+        parameters = []
+        for p in inspect.signature(function).parameters.values():
+            if p.name in ('self', 'cls'):
+                continue
+            if p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD):
+                raise TypeError(
+                    f'{cls.__name__}.{name} takes *{p.name}, which a client cannot name'
+                )
+            text = _annotation_text(function.__annotations__.get(p.name, p.empty))
+            alternatives = inbound(text, classes, aliases)
+            if not alternatives:
+                continue
+            required = p.default is p.empty
+            parameters.append(
+                WireParameter(p.name, alternatives, required, None if required else p.default)
+            )
+        members.append(
+            WireMember(name, read=False, parameters=tuple(parameters), doc=function.__doc__ or '')
+        )
+    members += [_read(f, _field_text(cls, f), None, classes) for f in _fields(cls)]
+    return sorted(members, key=lambda m: m.name)
+
+
+def _read(name: str, annotation: object, function: object, classes: dict[str, type]) -> WireMember:
+    """A read member, with the live object's class it leads to when it is a sub-object.
+
+    A sub-object is a read whose type is one live object's class, or that
+    class or None.
+    """
+    text = _annotation_text(annotation if annotation is not None else inspect.Parameter.empty)
+    live = [n for n in (_base(a) for a in _alternatives(text)) if n != 'None'] if text else []
+    target = classes.get(live[0]) if len(live) == 1 and live[0] not in NAMED_FORMS else None
+    segment = target if target is not None and class_form(target) == HANDLE else None
+    return WireMember(name, read=True, segment=segment, doc=getattr(function, '__doc__', '') or '')
+
+
+def decode(
+    value: object,
+    alternatives: tuple[Inbound, ...],
+    *,
+    resolve_path: Callable[[str], pathlib.Path],
+    handle: Callable[[str, type], object],
+) -> object:
+    """What a member takes for *value*, sent by a wire client for a parameter of *alternatives*.
+
+    The value's JSON type is the host's to have checked against the
+    alternatives (``inbound`` admits only unions a value picks one side
+    of); this turns it into the Python value.
+
+    ``resolve_path`` turns a live-folder name into an absolute path, refusing
+    a name outside the live folder; ``handle`` turns a handle's id into its
+    live object of the given class, refusing an unknown id.
+    """
+    converted = [a for a in alternatives if a.form in _CONVERTED]
+    if value is None or not converted:
+        array = next((a for a in alternatives if a.form == ARRAY), None)
+        if isinstance(value, list) and array is not None and array.name in _ARRAY_TYPES:
+            return _ARRAY_TYPES[array.name](value)
+        return value
+    (a,) = converted
+    if a.form == PATH:
+        return resolve_path(value)
+    if a.form == SECONDS:
+        return datetime.timedelta(seconds=value)
+    if a.form == ENUM:
+        return a.cls(value) if issubclass(a.cls, enum.StrEnum) else a.cls[value]
+    if a.form == HANDLE:
+        return handle(value, a.cls)
+    return a.cls(
+        **{
+            f: decode(value[f], alts, resolve_path=resolve_path, handle=handle)
+            for f, alts in a.fields
+            if f in value
+        }
+    )
