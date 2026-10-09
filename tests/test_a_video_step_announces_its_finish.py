@@ -3,8 +3,8 @@
 
 A video step's finish -- the MP4 closed, its execution-record row written --
 runs on its own thread after the drain, while the run goes on. Until it
-ends the Session's close_drain_pending answers True; when it ends that
-answer turns False. The listener contract is that every change to the
+ends the Session's live_work lists the run's video; when it ends that
+item is gone. The listener contract is that every change to the
 Session's run state is announced, so a REST or headless listener re-reads
 at the moment it changes rather than at some later, unrelated edge.
 

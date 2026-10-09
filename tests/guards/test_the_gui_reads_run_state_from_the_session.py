@@ -2,7 +2,7 @@
 """The GUI asks the Session what the run is doing, not the engine beneath it.
 
 The Session answers "is a run in progress" (``run_in_progress``) and "is a
-close still waiting on video writes" (``close_drain_pending``) once, for
+close still waiting on work" (``live_work``) once, for
 every client. A GUI read of the engine's own method, or an OR of the two
 drains assembled in the close handler, is a second copy of that answer:
 it drifts the day the Session's changes, and REST never sees it.

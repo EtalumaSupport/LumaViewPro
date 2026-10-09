@@ -151,40 +151,6 @@ class TestDerivations:
         executor.in_flight_task_stalled.assert_called_once_with(WRITE_STALL_FATAL_S)
         batch.abandon('the test is over')
 
-    def test_close_drain_pending_covers_both_video_drain_sources(self, monkeypatch):
-        """What a close would interrupt on the video side, in one read.
-
-        Two independent drains can hold queued frames at close: a manual
-        recording's own, and a finished run's video-step tail. The close
-        handler used to OR them together itself; the fact belongs here,
-        where every consumer -- GUI, headless, REST -- reads the same one.
-        """
-        session = _make_session()
-        monkeypatch.setattr(session.manual_recording, '_engine', None)
-        monkeypatch.setattr(session, 'sequenced_capture_runner', MagicMock(video_drain_busy=False))
-        assert session.close_drain_pending is False
-
-        monkeypatch.setattr(
-            session.manual_recording, '_engine', MagicMock(is_recording=False, is_draining=True)
-        )
-        assert session.close_drain_pending is True, 'a recording drain is pending work'
-
-        monkeypatch.setattr(session.manual_recording, '_engine', None)
-        session.sequenced_capture_runner.video_drain_busy = True
-        assert session.close_drain_pending is True, "a run's video tail is pending work"
-
-    def test_the_close_count_adds_both_video_drain_sources(self, monkeypatch):
-        """How many frames a close would wait for, from the same two sources
-        close_drain_pending reads, as an attribute like it."""
-        session = _make_session()
-        monkeypatch.setattr(session.manual_recording, '_engine', None)
-        monkeypatch.setattr(session, 'sequenced_capture_runner', MagicMock(video_pending_writes=0))
-        assert session.close_drain_frames == 0
-
-        monkeypatch.setattr(session.manual_recording, '_engine', MagicMock(pending_writes=5))
-        session.sequenced_capture_runner.video_pending_writes = 7
-        assert session.close_drain_frames == 12
-
     def test_the_close_discard_drops_both_video_drain_sources(self, monkeypatch):
         session = _make_session()
         recording_engine = MagicMock()
@@ -195,21 +161,6 @@ class TestDerivations:
 
         recording_engine.discard_pending.assert_called_once_with()
         session.sequenced_capture_runner.discard_video_pending.assert_called_once_with()
-
-    def test_a_live_recording_is_both_capturing_and_close_pending(self, monkeypatch):
-        """The close gate needs the two apart, and they overlap.
-
-        manual_recording.is_recording is the narrower fact: it alone means the rest
-        of the take is still to come, which is what the close confirms
-        about. close_drain_pending stays true across the whole window.
-        """
-        session = _make_session()
-        monkeypatch.setattr(session, 'sequenced_capture_runner', MagicMock(video_drain_busy=False))
-        monkeypatch.setattr(
-            session.manual_recording, '_engine', MagicMock(is_recording=True, is_draining=False)
-        )
-        assert session.manual_recording.is_recording is True
-        assert session.close_drain_pending is True
 
 
 class TestTransitionNotification:

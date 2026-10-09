@@ -11,8 +11,7 @@ try:
     print('exclusive_activity :', session.exclusive_activity)
 
     banner('video close members')
-    print('close_drain_pending:', session.close_drain_pending)
-    print('close_drain_frames :', session.close_drain_frames)
+    print('live_work          :', session.live_work)
     session.discard_close_drain()
     print('discard_close_drain -> OK')
 

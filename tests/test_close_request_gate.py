@@ -174,8 +174,6 @@ def test_the_gui_neither_ends_nor_waits_for_a_run_or_recording_at_close():
         'is_recording',
         'is_busy',
         'video_drain_busy',
-        'close_drain_pending',
-        'close_drain_frames',
         'sequenced_capture_runner',
     }
     for name in ('on_request_close', '_close_the_session', '_prepare_the_close', 'on_stop'):

@@ -638,7 +638,7 @@ class ProtocolVideoStep:
     def _finish_after_drain(self) -> None:
         """Run the finish, then say it ended, whatever it raised.
 
-        The end changes the Session's run state (close_drain_pending) with
+        The end changes the Session's run state (its live_work) with
         nothing else marking it: the recording returned its borrowing when
         the drain ended, and the run still holds its claim. So the step
         announces it, through the claim it was lent.

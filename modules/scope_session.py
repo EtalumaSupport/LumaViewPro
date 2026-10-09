@@ -646,41 +646,13 @@ class ScopeSession:
                 self._reports_in_flight[kind] -= 1
 
     @api
-    @property
-    def close_drain_pending(self) -> bool:
-        """True while a close would cut video short: a recording live, draining or finishing, or a run's video step writing.
-
-        What a close would interrupt on the video side, in one read: a
-        manual recording's own drain, or a finished run's video-step
-        tail. A closing host needs both, and asking it to OR them itself
-        puts the derivation somewhere headless and REST cannot reach.
-
-        True for a LIVE recording too, since its frames are also
-        outstanding -- a caller that needs "still capturing" specifically
-        wants ``manual_recording.is_recording``, which is the narrower fact.
-        """
-        return self.manual_recording.is_busy or self.sequenced_capture_runner.video_drain_busy
-
-    @api
-    @property
-    def close_drain_frames(self) -> int:
-        """How many video frames a close would wait for, across both drains.
-
-        The count beside close_drain_pending, from the same two sources: a
-        manual recording's queue and a run's video-step tail. Each has its
-        own recording engine, so no frame is counted twice.
-        """
-        return (
-            self.manual_recording.pending_writes
-            + self.sequenced_capture_runner.video_pending_writes
-        )
-
-    @api
     def discard_close_drain(self) -> None:
         """Drop every video frame still queued in either drain, loudly.
 
-        A close's one escape from waiting on the drains close_drain_pending
-        reads; frames already on disk stay.
+        The one escape from waiting on the video frames ``live_work`` lists
+        -- a recording's file, a run's video -- for a close or any caller;
+        each file is finished with what was written, and frames already on
+        disk stay.
         """
         self.manual_recording.discard_pending()
         self.sequenced_capture_runner.discard_video_pending()
