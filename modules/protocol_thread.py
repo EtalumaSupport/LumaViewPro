@@ -90,7 +90,8 @@ class ProtocolThread:
 
         Abort any in-flight run first; then wake the worker (via the
         shutdown sentinel) and join. If join times out the daemon=True
-        flag means process exit will reap the thread.
+        flag means process exit will reap the thread. Called on the worker
+        itself, it signals and returns without joining.
         """
         self._stop_event.set()
         self._aborted.set()
@@ -101,6 +102,12 @@ class ProtocolThread:
             # see _stop_event after it finishes the current request.
             pass
         t = self._thread
+        # Called on the worker itself -- a session closed from a run's
+        # handler with no UI dispatcher runs there -- the stop is signalled
+        # and the worker ends once that handler returns; it cannot join itself.
+        if t is threading.current_thread():
+            self._thread = None
+            return
         if t is not None and t.is_alive():
             t.join(timeout=timeout)
             if t.is_alive():

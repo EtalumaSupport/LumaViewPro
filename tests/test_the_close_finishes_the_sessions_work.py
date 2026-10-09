@@ -266,3 +266,39 @@ def test_after_the_close_a_start_is_refused_by_what_is_true(tmp_path):
         session.scope.motion.home('Z')
     assert not isinstance(refused.value, SessionClosingError)
     assert getattr(refused.value, 'reason', None) == 'scope_disconnected'
+
+
+def test_a_close_from_run_ended_with_no_dispatcher_completes(tmp_path):
+    """With no UI dispatcher, ``run_ended`` runs on the thread that sends it,
+    which a script's or the REST server's handler may close the session
+    from; the close must not wait on, or join, the thread it runs on."""
+    from modules.run_events import RunEvents
+
+    session = _session(tmp_path)
+    protocol = session.create_empty_protocol()
+    session.set_layer_acquire('BF', 'image')
+    session.add_step(protocol)
+    closed, failed, took, ran_on = threading.Event(), [], [], []
+
+    def close_the_session(*_args):
+        ran_on.append(threading.current_thread())
+        began = time.monotonic()
+        try:
+            session.shutdown()
+        except Exception as ex:
+            failed.append(ex)
+        took.append(time.monotonic() - began)
+        closed.set()
+
+    session.create_protocol_runner().run_single_scan(
+        protocol,
+        parent_dir=str(tmp_path / 'runs'),
+        events=RunEvents(run_ended=close_the_session),
+    )
+
+    assert closed.wait(SETTLE_S), 'the close from run_ended did not return'
+    assert failed == [], failed
+    assert session.live_work.closed is True
+    assert took[0] < 2.0, f'the close from run_ended took {took[0]:.1f} s'
+    ran_on[0].join(SETTLE_S)
+    assert not ran_on[0].is_alive(), 'the thread the close ran on never ended'
