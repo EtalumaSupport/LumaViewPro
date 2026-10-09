@@ -13,7 +13,6 @@ different write found stuck is a new stall.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -26,7 +25,7 @@ from modules.protocol_image_writer import RunWriteBatch
 from modules.scope_session import ScopeSession
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import ENQUEUED
-from tests.scope_fakes import spec_scope
+from tests.scope_fakes import real_executor_bundle, spec_scope
 from tests.settings_fixtures import complete_settings
 
 
@@ -50,13 +49,17 @@ class _Scheduler:
 
 @pytest.fixture
 def session():
-    bundle = SimpleNamespace(
-        file_io_executor=MagicMock(),
-        post_processing_executor=MagicMock(),
-        protocol_thread=MagicMock(),
-        shutdown=lambda: None,
-    )
-    return ScopeSession(settings={}, scope=spec_scope(), executor_bundle=bundle)
+    bundle = real_executor_bundle(file_io_executor=MagicMock())
+    session = ScopeSession(settings={}, scope=spec_scope(), executor_bundle=bundle)
+    yield session
+    # The planted writes went to a scripted lane that never runs them, so
+    # nothing would ever land them; the session cannot close until they settle.
+    batch = session.sequenced_capture_runner.write_batch()
+    if batch is not None:
+        batch.abandon('the test is over')
+        if batch.outcome is None:
+            # Planted as a live run's: end it as the run's cleanup would.
+            batch.close()
 
 
 @pytest.fixture

@@ -21,7 +21,6 @@ from unittest.mock import MagicMock
 import pytest
 
 import modules.protocol_image_writer as protocol_image_writer
-import modules.scope_session as scope_session
 from modules.exceptions import FileWriterNotStuckError, Notice, RunFilesNotWrittenError
 from modules.protocol_image_writer import RunWriteBatch
 from modules.run_events import RunEvents
@@ -112,8 +111,13 @@ class TestRecoveringAStuckWriter:
 
 
 class TestShuttingDownWithImagesStillWriting:
-    def test_the_wait_is_bounded_and_what_is_left_is_counted(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(scope_session, '_SHUTDOWN_RUN_FILES_WAIT_S', 0.3)
+    def test_a_stuck_writer_is_recovered_by_the_close_and_what_it_held_is_counted(
+        self, tmp_path, monkeypatch
+    ):
+        """The close waits for a run's images without a time limit; a writer
+        judged stuck by the stall threshold is the one wait that would never
+        end, so the close applies the recovery itself."""
+        monkeypatch.setattr(protocol_image_writer, 'WRITE_STALL_FATAL_S', 0.3)
         release, started, _real_save = _hold_saves(monkeypatch)
         run_parent = tmp_path / 'runs'
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
@@ -125,13 +129,12 @@ class TestShuttingDownWithImagesStillWriting:
                 protocol_image_writer.logger, 'warning', lambda msg, *a, **k: warned.append(msg)
             )
 
-            began = time.monotonic()
             session.shutdown()
-            took = time.monotonic() - began
 
             assert batch.outcome == 'incomplete'
-            assert any("Session shutdown: 1 of the run's write(s) abandoned" in m for m in warned)
-            assert took < 10.0, f'shutdown waited {took:.1f} s on a stuck write'
+            assert any(
+                "File writer recovery: 1 of the run's write(s) abandoned" in m for m in warned
+            )
             release.set()
 
     def test_a_write_that_lands_inside_the_wait_is_written(self, tmp_path, monkeypatch):
@@ -151,9 +154,12 @@ class TestShuttingDownWithImagesStillWriting:
             assert batch.outcome == 'written'
             assert any(run_parent.rglob('C1_*.tiff'))
 
-    def test_a_run_still_live_is_given_up_on_at_once(self, tmp_path, monkeypatch):
-        """A live run has not closed its writes, so nothing can complete them
-        while shutdown waits; the wait would buy nothing but delay."""
+    def test_a_live_run_is_stopped_and_the_images_it_captured_are_written(
+        self, tmp_path, monkeypatch
+    ):
+        """The close stops a live run before it waits, so the run closes its
+        writes and they land; giving them up at once called complete images
+        incomplete."""
         monkeypatch.setattr(protocol_image_writer, 'WRITE_BACKLOG_BOUND', 1)
         release, started, _real_save = _hold_saves(monkeypatch)
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
@@ -164,14 +170,11 @@ class TestShuttingDownWithImagesStillWriting:
             assert started.acquire(timeout=WAIT_S)
             batch = runner.sequenced_capture_runner.write_batch()
             assert batch.outcome is None and not batch.draining, 'the run was not live'
+            threading.Timer(0.3, release.set).start()
 
-            began = time.monotonic()
             session.shutdown()
-            took = time.monotonic() - began
 
-            release.set()
-            assert batch.outcome == 'incomplete'
-            assert took < 3.0, f'shutdown waited {took:.1f} s on a run that could not finish'
+            assert batch.outcome == 'written'
 
 
 class TestALateAutofocusSave:

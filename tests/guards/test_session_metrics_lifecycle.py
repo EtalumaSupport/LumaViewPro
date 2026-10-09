@@ -29,7 +29,7 @@ import pytest
 
 import tests.ast_seams as ast_seams
 from modules.scope_session import ScopeSession
-from tests.scope_fakes import spec_scope
+from tests.scope_fakes import real_executor_bundle, spec_scope
 
 
 # Identity sentinel: restart must reuse THIS instance. A mock (not a bare
@@ -42,7 +42,7 @@ def _make_session(**kwargs):
     defaults = {
         'settings': {'profiling': {'metrics_interval_s': 42}},
         'scope': spec_scope(),
-        'executor_bundle': MagicMock(),
+        'executor_bundle': real_executor_bundle(),
         'scheduler': _SCHEDULER,
     }
     defaults.update(kwargs)

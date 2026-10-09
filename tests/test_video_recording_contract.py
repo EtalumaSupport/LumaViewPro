@@ -672,20 +672,22 @@ class TestSessionActivityClaim:
         wins = []
         barrier = threading.Barrier(2)
 
-        def _race(owner):
+        def _race(owner, run):
             barrier.wait(timeout=5)
-            if claim.try_claim(owner):
-                wins.append(owner)
+            held = claim.try_claim(owner, run=run)
+            if held:
+                wins.append(held)
 
         threads = [
-            threading.Thread(target=_race, args=('protocol',)),
-            threading.Thread(target=_race, args=('recording',)),
+            threading.Thread(target=_race, args=('protocol', run_identity())),
+            threading.Thread(target=_race, args=('recording', None)),
         ]
         for t in threads:
             t.start()
         for t in threads:
             t.join(timeout=10)
         assert len(wins) == 1
+        wins[0].release()
 
     def test_protocol_start_refused_while_recording_holds_claim(self, headless_session, tmp_path):
         from tests.test_run_refusal_contract import (

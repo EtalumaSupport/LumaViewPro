@@ -23,7 +23,7 @@ from modules.exceptions import ScopeDisconnectError
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import IOTask
 from tests.log_capture import capture_module_log, messages
-from tests.scope_fakes import build_scope, spec_scope
+from tests.scope_fakes import build_scope, real_executor_bundle, spec_scope
 from tests.settings_fixtures import complete_settings
 
 
@@ -153,7 +153,7 @@ class TestACallersScopeIsLeftAlone:
     def test_a_directly_constructed_session_is_the_same_row(self):
         scope = spec_scope()
         session = ScopeSession(
-            settings=complete_settings(), scope=scope, executor_bundle=MagicMock()
+            settings=complete_settings(), scope=scope, executor_bundle=real_executor_bundle()
         )
         session.shutdown()
         scope.disconnect.assert_not_called()

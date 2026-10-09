@@ -21,7 +21,12 @@ from tests.settings_fixtures import complete_settings
 import modules.config_helpers as config_helpers
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import SequentialIOExecutor
-from tests.scope_fakes import build_scope, scope_delivering_nothing, swap_lanes
+from tests.scope_fakes import (
+    build_scope,
+    real_executor_bundle,
+    scope_delivering_nothing,
+    swap_lanes,
+)
 from tests.protocol_drives import run_identity
 
 
@@ -549,7 +554,7 @@ class TestScopeSession:
         defaults = {
             'settings': _make_settings(),
             'scope': scope,
-            'executor_bundle': MagicMock(),
+            'executor_bundle': real_executor_bundle(),
         }
         defaults.update(kwargs)
         return ScopeSession(**defaults)
@@ -572,7 +577,7 @@ class TestScopeSession:
         session = ScopeSession(
             settings=settings,
             scope=scope,
-            executor_bundle=MagicMock(),
+            executor_bundle=real_executor_bundle(),
         )
         assert session.settings is settings
         assert session.scope is scope

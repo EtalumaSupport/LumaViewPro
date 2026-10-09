@@ -413,7 +413,9 @@ class TestTheHardwareMembersUseTheLanesDispatch:
 
 
 class TestTheShutdownOverride:
-    def test_shutdown_darkens_on_the_io_lane_while_a_diagnostic_holds(self, tmp_path, monkeypatch):
+    def test_shutdown_waits_for_a_diagnostic_then_darkens_on_the_io_lane(
+        self, tmp_path, monkeypatch
+    ):
         from modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
 
@@ -428,12 +430,14 @@ class TestTheShutdownOverride:
 
         monkeypatch.setattr(illumination, '_leds_off_if_present', _spy)
         held = session.activity_claim.try_claim('diagnostic')
-        try:
-            session.shutdown()
-        finally:
-            held.release()
+        # The close waits for the diagnostic to end before it tears down.
+        ends = threading.Timer(0.3, held.release)
+        ends.start()
+        session.shutdown()
+        ends.join()
+        assert not held.holds
         assert 'IO_WORKER' in threads, (
-            f"shutdown's LED drain did not run on the io lane under a diagnostic hold: {threads}"
+            f"shutdown's LED drain did not run on the io lane after the diagnostic: {threads}"
         )
 
 

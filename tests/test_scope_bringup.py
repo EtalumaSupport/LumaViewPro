@@ -20,7 +20,7 @@ import pytest
 from tests.settings_fixtures import complete_settings
 
 from modules.scope_session import ScopeSession
-from tests.scope_fakes import build_scope, spec_scope, swap_lanes
+from tests.scope_fakes import build_scope, real_executor_bundle, spec_scope, swap_lanes
 from tests.test_scope_api import _RecordingExecutor
 
 
@@ -77,7 +77,7 @@ class TestDispatchInvariant:
         io_ex = _real_executor('BRINGUP_IO2')
         cam_ex = _real_executor('BRINGUP_CAM2')
         scope = swap_lanes(_real_scope(), io=io_ex, camera=cam_ex)
-        ScopeSession(settings={}, scope=scope, executor_bundle=MagicMock())
+        ScopeSession(settings={}, scope=scope, executor_bundle=real_executor_bundle())
 
         scope.motion.home('Z')
         assert io_ex.submitted, (
@@ -92,11 +92,12 @@ class TestDispatchInvariant:
 
 
 class TestShutdownOwnership:
-    def test_a_session_stops_the_bundle_it_holds_and_leaves_a_callers_scope(self):
+    def test_a_session_stops_the_bundle_it_holds_and_leaves_a_callers_scope(self, monkeypatch):
         # The bundle is the session's whoever built it: a caller that hands
         # one to the constructor hands it over. The scope's lanes are the
         # scope's, and a scope passed in is the caller's, so they run on.
-        bundle = MagicMock()
+        bundle = real_executor_bundle()
+        monkeypatch.setattr(bundle, 'shutdown', MagicMock(wraps=bundle.shutdown))
         af = MagicMock()
         session = _make_spec_session(
             executor_bundle=bundle,

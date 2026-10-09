@@ -23,7 +23,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tests.scope_fakes import spec_scope
+from tests.scope_fakes import real_executor_bundle, spec_scope
 from tests.protocol_drives import run_identity
 
 
@@ -37,7 +37,7 @@ def _make_session(has_xy_stage=True):
     return ScopeSession(
         settings={},
         scope=scope,
-        executor_bundle=MagicMock(file_io_executor=MagicMock()),
+        executor_bundle=real_executor_bundle(file_io_executor=MagicMock()),
     )
 
 
@@ -50,6 +50,7 @@ def _draining_run(session, writes=1):
         batch.submit(lambda: None, {}, what='an image', pace_until=None)
     session.sequenced_capture_runner._write_batch = batch
     batch.close()
+    return batch
 
 
 class TestDerivations:
@@ -63,40 +64,49 @@ class TestDerivations:
 
     def test_protocol_claim_locks_everything(self):
         session = _make_session()
-        assert session.activity_claim.try_claim('protocol', run=run_identity())
+        held = session.activity_claim.try_claim('protocol', run=run_identity())
+        assert held
         assert session.run_lockout is True
         assert session.controls_locked is True
         assert session.motion_enabled is False
+        held.release()
 
     @pytest.mark.slow
     def test_protocol_drain_holds_lockout_after_claim_release(self):
         # A finished protocol frees its claim while files drain; the
         # control surface stays locked until its files are written.
         session = _make_session()
-        _draining_run(session)
+        batch = _draining_run(session)
         assert session.exclusive_activity is None
         assert session.run_lockout is True
         assert session.controls_locked is True
         assert session.motion_enabled is False
+        batch.abandon('the test is over')
 
-    def test_live_recording_locks_controls_but_not_run_lockout(self):
+    def test_live_recording_locks_controls_but_not_run_lockout(self, monkeypatch):
         session = _make_session()
-        assert session.activity_claim.try_claim('recording')
-        session.manual_recording._engine = MagicMock(is_recording=True)
+        held = session.activity_claim.try_claim('recording')
+        assert held
+        monkeypatch.setattr(session.manual_recording, '_engine', MagicMock(is_recording=True))
         assert session.manual_recording.is_recording is True
         assert session.run_lockout is False, (
             'a recording is not a run: run_lockout carries only runs and the protocol file drain'
         )
         assert session.controls_locked is True
+        held.release()
 
-    def test_draining_recording_frees_controls_while_claim_refuses(self):
+    def test_draining_recording_frees_controls_while_claim_refuses(self, monkeypatch):
         # The recording drain window: claim held (new runs refuse), but
         # capturing is over so the control surface frees.
         session = _make_session()
-        assert session.activity_claim.try_claim('recording')
-        session.manual_recording._engine = MagicMock(is_recording=False, is_draining=True)
+        held = session.activity_claim.try_claim('recording')
+        assert held
+        monkeypatch.setattr(
+            session.manual_recording, '_engine', MagicMock(is_recording=False, is_draining=True)
+        )
         assert session.exclusive_activity == 'recording'
         assert session.controls_locked is False
+        held.release()
 
     def test_no_xystage_disables_motion_even_unlocked(self):
         session = _make_session(has_xy_stage=False)
@@ -106,8 +116,9 @@ class TestDerivations:
     @pytest.mark.slow
     def test_the_pending_count_is_the_write_batchs_own(self):
         session = _make_session()
-        _draining_run(session, writes=7)
+        batch = _draining_run(session, writes=7)
         assert session.protocol_files_pending == 7
+        batch.abandon('the test is over')
 
     def test_a_live_runs_writes_are_not_counted_as_draining(self):
         """While the run is live its own state answers; its writes held on
@@ -122,6 +133,7 @@ class TestDerivations:
 
         assert session.protocol_files_draining is False
         assert session.protocol_files_pending == 0
+        batch.abandon('the test is over')
 
     @pytest.mark.slow
     def test_a_stalled_drain_is_judged_by_the_run_refusals_threshold(self):
@@ -130,13 +142,14 @@ class TestDerivations:
         from modules.protocol_image_writer import WRITE_STALL_FATAL_S
 
         session = _make_session()
-        _draining_run(session)
+        batch = _draining_run(session)
         executor = session.file_io_executor
         executor.in_flight_task_stalled.return_value = True
         assert session.protocol_files_stalled is True
         executor.in_flight_task_stalled.assert_called_once_with(WRITE_STALL_FATAL_S)
+        batch.abandon('the test is over')
 
-    def test_close_drain_pending_covers_both_video_drain_sources(self):
+    def test_close_drain_pending_covers_both_video_drain_sources(self, monkeypatch):
         """What a close would interrupt on the video side, in one read.
 
         Two independent drains can hold queued frames at close: a manual
@@ -145,41 +158,43 @@ class TestDerivations:
         where every consumer -- GUI, headless, REST -- reads the same one.
         """
         session = _make_session()
-        session.manual_recording._engine = None
-        session.sequenced_capture_runner = MagicMock(video_drain_busy=False)
+        monkeypatch.setattr(session.manual_recording, '_engine', None)
+        monkeypatch.setattr(session, 'sequenced_capture_runner', MagicMock(video_drain_busy=False))
         assert session.close_drain_pending is False
 
-        session.manual_recording._engine = MagicMock(is_recording=False, is_draining=True)
+        monkeypatch.setattr(
+            session.manual_recording, '_engine', MagicMock(is_recording=False, is_draining=True)
+        )
         assert session.close_drain_pending is True, 'a recording drain is pending work'
 
-        session.manual_recording._engine = None
+        monkeypatch.setattr(session.manual_recording, '_engine', None)
         session.sequenced_capture_runner.video_drain_busy = True
         assert session.close_drain_pending is True, "a run's video tail is pending work"
 
-    def test_the_close_count_adds_both_video_drain_sources(self):
+    def test_the_close_count_adds_both_video_drain_sources(self, monkeypatch):
         """How many frames a close would wait for, from the same two sources
         close_drain_pending reads, as an attribute like it."""
         session = _make_session()
-        session.manual_recording._engine = None
-        session.sequenced_capture_runner = MagicMock(video_pending_writes=0)
+        monkeypatch.setattr(session.manual_recording, '_engine', None)
+        monkeypatch.setattr(session, 'sequenced_capture_runner', MagicMock(video_pending_writes=0))
         assert session.close_drain_frames == 0
 
-        session.manual_recording._engine = MagicMock(pending_writes=5)
+        monkeypatch.setattr(session.manual_recording, '_engine', MagicMock(pending_writes=5))
         session.sequenced_capture_runner.video_pending_writes = 7
         assert session.close_drain_frames == 12
 
-    def test_the_close_discard_drops_both_video_drain_sources(self):
+    def test_the_close_discard_drops_both_video_drain_sources(self, monkeypatch):
         session = _make_session()
         recording_engine = MagicMock()
-        session.manual_recording._engine = recording_engine
-        session.sequenced_capture_runner = MagicMock()
+        monkeypatch.setattr(session.manual_recording, '_engine', recording_engine)
+        monkeypatch.setattr(session, 'sequenced_capture_runner', MagicMock())
 
         session.discard_close_drain()
 
         recording_engine.discard_pending.assert_called_once_with()
         session.sequenced_capture_runner.discard_video_pending.assert_called_once_with()
 
-    def test_a_live_recording_is_both_capturing_and_close_pending(self):
+    def test_a_live_recording_is_both_capturing_and_close_pending(self, monkeypatch):
         """The close gate needs the two apart, and they overlap.
 
         manual_recording.is_recording is the narrower fact: it alone means the rest
@@ -187,8 +202,10 @@ class TestDerivations:
         about. close_drain_pending stays true across the whole window.
         """
         session = _make_session()
-        session.sequenced_capture_runner = MagicMock(video_drain_busy=False)
-        session.manual_recording._engine = MagicMock(is_recording=True, is_draining=False)
+        monkeypatch.setattr(session, 'sequenced_capture_runner', MagicMock(video_drain_busy=False))
+        monkeypatch.setattr(
+            session.manual_recording, '_engine', MagicMock(is_recording=True, is_draining=False)
+        )
         assert session.manual_recording.is_recording is True
         assert session.close_drain_pending is True
 
@@ -246,11 +263,13 @@ class TestTransitionNotification:
 
     def test_failed_claim_does_not_notify(self):
         session = _make_session()
-        assert session.activity_claim.try_claim('protocol', run=run_identity())
+        held = session.activity_claim.try_claim('protocol', run=run_identity())
+        assert held
         fired = []
         session._run_state_listeners.append(lambda: fired.append(True))
         assert not session.activity_claim.try_claim('recording')
         assert not fired, 'a refused claim is not a transition'
+        held.release()
 
     def test_listener_exception_does_not_break_others(self):
         session = _make_session()
@@ -274,31 +293,40 @@ class TestTheLockoutNamesWhatHoldsTheScope:
 
         session = _make_session()
         run = run_identity()
-        assert session.activity_claim.try_claim('protocol', run=run)
+        held = session.activity_claim.try_claim('protocol', run=run)
+        assert held
         assert session.run_lockout_named == (
             f'{the_run_named(run, sentence_start=True)} is in progress.'
         )
+        held.release()
 
     def test_a_diagnostic_is_named_as_one(self):
         session = _make_session()
-        assert session.activity_claim.try_claim('diagnostic')
+        held = session.activity_claim.try_claim('diagnostic')
+        assert held
         assert session.run_lockout_named == 'A diagnostic is in progress.'
         assert session.run_lockout is True
+        held.release()
 
     def test_a_home_is_named_as_one(self):
         session = _make_session()
-        assert session.activity_claim.try_claim('home')
+        held = session.activity_claim.try_claim('home')
+        assert held
         assert session.run_lockout_named == 'A home is in progress.'
         assert session.controls_locked is True
+        held.release()
 
     def test_a_recording_is_not_a_lockout(self):
         session = _make_session()
-        assert session.activity_claim.try_claim('recording')
+        held = session.activity_claim.try_claim('recording')
+        assert held
         assert session.run_lockout_named is None
+        held.release()
 
     @pytest.mark.slow
     def test_a_finished_runs_files_are_named_as_files(self):
         session = _make_session()
-        _draining_run(session)
+        batch = _draining_run(session)
         assert session.run_lockout_named == "A protocol's files are still being written."
         assert session.run_lockout is True
+        batch.abandon('the test is over')

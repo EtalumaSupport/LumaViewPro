@@ -34,6 +34,7 @@ from modules.sequential_io_executor import (
     SequentialIOExecutor,
 )
 from tests.test_audit_fixes import _bare_protocol_writer, _protocol_step
+from tests.scope_fakes import real_executor_bundle
 
 
 @pytest.fixture
@@ -438,18 +439,12 @@ def test_session_recover_file_writer_passthrough():
     stuck writes given up on and counted, the FILE lane's worker replaced
     -- and refuses when nothing is stuck, since recovery would lose images
     for nothing."""
-    from types import SimpleNamespace
     from unittest.mock import MagicMock
 
     from modules.exceptions import FileWriterNotStuckError
     from modules.scope_session import ScopeSession
 
-    bundle = SimpleNamespace(
-        file_io_executor=MagicMock(),
-        post_processing_executor=MagicMock(),
-        protocol_thread=MagicMock(),
-        shutdown=lambda: None,
-    )
+    bundle = real_executor_bundle(file_io_executor=MagicMock())
     session = ScopeSession(settings={}, scope=MagicMock(), executor_bundle=bundle)
 
     with pytest.raises(FileWriterNotStuckError) as refused:

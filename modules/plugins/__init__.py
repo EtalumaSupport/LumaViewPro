@@ -35,7 +35,11 @@ from dataclasses import dataclass, field
 from typing import Any
 from collections.abc import Callable, Iterable
 
-from modules.exceptions import PluginFailedError, PluginNotLoadedError
+from modules.exceptions import (
+    PluginFailedError,
+    PluginNotLoadedError,
+    PluginProcessorSkippedError,
+)
 from modules.notification_center import notifications
 from modules.api_surface import api_fields
 
@@ -497,6 +501,10 @@ class PluginRegistry:
         self.rest = RESTRegistry()
         self._loaded_plugins: list[tuple[str, Any]] = []  # (name, module)
         self._loaded_lock = threading.Lock()
+        # The plugins unload() has unregistered, under the same lock: a run's
+        # processors that arrive after it are not run, and each is reported
+        # as skipped rather than dropped without a word.
+        self._unloaded: set[str] = set()
         self._not_loaded: list[PluginNotLoaded] = []
         # The settings as subscribers last heard them: taken at load, so a
         # change made before the first save is told at that save. Written
@@ -511,6 +519,7 @@ class PluginRegistry:
         with self._loaded_lock:
             out = list(self._loaded_plugins)
             self._loaded_plugins.clear()
+            self._unloaded.update(name for name, _module in out)
         return out
 
     def attribute_exception(self, exc_tb) -> str | None:
@@ -824,7 +833,9 @@ class PluginRegistry:
         -- nothing runs, since a plugin reading the folder as whole would
         build from a partial one. Only a loaded plugin's processor runs: one
         unloaded since, or whose register failed after it registered the
-        processor, is not handed the folder. Each plugin's processor runs in
+        processor, is not handed the folder; one unloaded since -- the
+        session's close unloads plugins first -- is reported as skipped,
+        naming the run (``PluginProcessorSkippedError``). Each plugin's processor runs in
         turn; a processor that raises, returns something other than a
         ProcessorResult, or returns one that reports failure is recorded
         and reported, and does not block the others. A success is logged at
@@ -838,8 +849,19 @@ class PluginRegistry:
             return
         with self._loaded_lock:
             loaded = {name for name, _module in self._loaded_plugins}
+            unloaded = set(self._unloaded)
         for spec, processor in self.post_processing.handlers():
-            if not spec.auto_run_on_protocol_complete or spec.name not in loaded:
+            if not spec.auto_run_on_protocol_complete:
+                continue
+            if spec.name not in loaded:
+                if spec.name in unloaded:
+                    notifications.report_outcome(
+                        PluginProcessorSkippedError(
+                            spec.name, manifest.get('protocol_name') or input_dir, input_dir
+                        ),
+                        solicited=False,
+                        category='Plugins',
+                    )
                 continue
             try:
                 result = processor(input_dir, manifest, output_dir)

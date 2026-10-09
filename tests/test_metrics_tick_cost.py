@@ -31,7 +31,7 @@ from types import SimpleNamespace
 import pytest
 
 from modules import app_context, common_utils, config_helpers
-from tests.scope_fakes import scope_delivering_nothing
+from tests.scope_fakes import real_executor_bundle, scope_delivering_nothing
 
 
 @pytest.fixture
@@ -168,7 +168,7 @@ def _make_session(**kwargs):
     defaults = {
         'settings': {},
         'scope': spec_scope(),
-        'executor_bundle': MagicMock(),
+        'executor_bundle': real_executor_bundle(),
         'scheduler': _SCHEDULER,
     }
     defaults.update(kwargs)

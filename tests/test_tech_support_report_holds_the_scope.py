@@ -15,7 +15,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from modules.tech_support_report import TechSupportReport
-from tests.scope_fakes import spec_scope
+from tests.scope_fakes import real_executor_bundle, spec_scope
 
 WRITING_STEPS = ('_step_firmware_tests', '_step_led_checks', '_step_fan_test', '_step_homing_test')
 BOARD_QUERY_STEPS = ('_step_configbackup', '_step_tmc_registers', '_step_serial_latency')
@@ -40,7 +40,7 @@ def _make_session():
     return ScopeSession(
         settings={},
         scope=scope,
-        executor_bundle=MagicMock(file_io_executor=file_io_executor),
+        executor_bundle=real_executor_bundle(file_io_executor=file_io_executor),
     )
 
 

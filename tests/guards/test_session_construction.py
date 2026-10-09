@@ -16,7 +16,7 @@ import pytest
 
 import tests.ast_seams as ast_seams
 from modules.scope_session import ScopeSession
-from tests.scope_fakes import spec_scope
+from tests.scope_fakes import real_executor_bundle, spec_scope
 from tests.settings_fixtures import complete_settings
 
 
@@ -141,7 +141,7 @@ class TestScopeOwnershipIsConstructorState:
 
     def test_a_direct_construction_is_not_owned(self):
         session = ScopeSession(
-            settings=complete_settings(), scope=spec_scope(), executor_bundle=MagicMock()
+            settings=complete_settings(), scope=spec_scope(), executor_bundle=real_executor_bundle()
         )
         try:
             assert session._owns_scope is False

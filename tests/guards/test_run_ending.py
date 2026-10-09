@@ -96,7 +96,7 @@ COVERAGE = {
     'run_loop_crashed',
     'camera_lane_stalled',
     'stopped',
-    'force_reset',
+    'shutdown',
     'capture_location_unusable',
     'run_dir_init_failed',
     'dispatch_refused',
@@ -312,7 +312,7 @@ class TestTheRunnerRecordsTheStop:
         scr.SequencedCaptureRunner.force_reset(stub, 'app shutdown')
 
         ending = stub._ending.get()
-        assert (ending.status, ending.reason) == ('aborted', 'force_reset')
+        assert (ending.status, ending.reason) == ('aborted', 'shutdown')
         assert ending.message == 'app shutdown'
 
 

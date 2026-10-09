@@ -152,7 +152,7 @@ def test_a_shutdown_during_a_later_runs_setup_leaves_the_unwind_to_start(
     outcome = second.wait(timeout_s=COMPLETION_TIMEOUT)
 
     assert outcome is not None
-    assert (outcome.status, outcome.reason) == ('aborted', 'force_reset')
+    assert (outcome.status, outcome.reason) == ('aborted', 'shutdown')
     assert teardowns == [threading.current_thread().name], (
         f'the run was torn down {len(teardowns)} times, on {teardowns}; only '
         'start() on this thread may unwind a run it is still setting up'

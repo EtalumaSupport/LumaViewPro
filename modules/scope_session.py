@@ -286,6 +286,12 @@ class ScopeSession:
         # to release it -- a close would wait on it for ever.
         self._release_at_run_idle: list[HeldClaim] = []
         self._release_at_run_idle_lock = threading.Lock()
+        # Held for the whole of a close, so a close asked on another thread
+        # meanwhile waits for it and then finds it done; re-entrant, so a
+        # close asked from inside the close (a listener it calls) returns
+        # rather than waiting on itself.
+        self._close_lock = threading.RLock()
+        self._close_running = False
         # Support reports and logs zips in flight, by kind: each runs on its
         # caller's thread -- the GUI's diagnostics lane, a script's own -- so
         # the members count them, and the live-work read sees a script's
@@ -587,7 +593,7 @@ class ScopeSession:
         post-processing builds running and queued; a support report or logs
         zip; a still being saved. Each item says how much it has left, and
         a build how far it has got. Read lock-free, owner by owner, from any
-        thread; ``closing`` once the close has begun, ``closed`` once the
+        thread; ``closing`` while the close runs, ``closed`` once the
         session has shut down.
         """
         work: list[WorkItem] = []
@@ -3772,9 +3778,23 @@ class ScopeSession:
 
     @api(in_process=True)
     def shutdown(self) -> None:
-        """Tear down everything this session constructed.
+        """Finish what the session is doing, then tear down everything it constructed.
 
-        The bundle the session holds always stops: its long-lived consumer
+        First the close: from its first step nothing new takes the scope (a
+        run, a recording, a home or a diagnostic asked for meanwhile raises
+        ``SessionClosingError``); plugins unload, so a plugin's own work
+        stops through its ``unregister``, and metrics stop; the live run is
+        stopped (its ending ``aborted`` / ``shutdown``) and a live recording
+        is stopped. Then it waits, without a time limit, until
+        ``live_work`` lists nothing: the run's writes and post-run builds,
+        the recording's file, post-processing builds running or queued, a
+        support report, a still. ``discard_close_drain`` is the escape from
+        waiting on video frames, and any client may call it meanwhile. A
+        finished run's file writer judged stuck (``protocol_files_stalled``)
+        is recovered by the close itself, its unwritten images given up on,
+        counted and reported. While it waits the close logs what it waits for.
+
+        Then the teardown. The bundle the session holds always stops: its long-lived consumer
         threads first, then the FILE lane and the worker pool. When
         ``owns_scope`` (a factory BUILT the scope), the hardware half
         follows: the LEDs drained through the io lane while its worker is
@@ -3788,7 +3808,10 @@ class ScopeSession:
         first, or their ticks would outlive the executors they snapshot.
 
         A scope passed in is left connected with its lanes running: it is
-        the caller's. A second call is a logged no-op; a call that raised
+        the caller's. Callable from any thread, a run's ``run_ended``
+        handler included. One close runs: a call on another thread while it
+        runs waits for it and returns; a call after it is a logged no-op; a
+        call from inside the close returns at once; a call that raised
         part-way can be called again.
 
         Raises:
@@ -3796,13 +3819,71 @@ class ScopeSession:
                 cleanly; every teardown step has still run, and a second
                 call completes.
         """
-        if self._shut_down:
-            logger.info('[Session  ] shutdown() called again -- nothing to do')
-            return
+        with self._close_lock:
+            if self._shut_down or self._close_running:
+                logger.info('[Session  ] shutdown() called again -- nothing to do')
+                return
+            self._close_running = True
+            try:
+                self._finish_live_work()
+                self._tear_down()
+            finally:
+                self._close_running = False
+                self.activity_claim.end_closing()
+
+    _CLOSE_WAIT_LOG_S = 5.0
+
+    def _finish_live_work(self) -> None:
+        """Refuse what is new, stop the live run and recording, then wait for the rest."""
+        from modules.exceptions import FileWriterNotStuckError
+
+        self.activity_claim.begin_closing()
         # Plugins first, while everything they hold still runs: an
-        # unregister may stop its own run and wait for it.
+        # unregister stops its own work and may wait for it.
         self.unload_plugins()
         self.stop_metrics()
+        runner = self.sequenced_capture_runner
+        if runner is not None:
+            runner.force_reset(reason='session close')
+        if self.manual_recording.is_recording:
+            self.manual_recording.stop()
+        started = time.monotonic()
+        last_logged = None
+        while True:
+            work = self.live_work.work
+            if not work:
+                break
+            if self.activity_claim.owner not in SCOPE_HOLDING_KINDS and self.protocol_files_stalled:
+                try:
+                    given_up = self.recover_file_writer()
+                except FileWriterNotStuckError:
+                    # It moved again between the two reads: still writing,
+                    # so the close keeps waiting for it.
+                    given_up = None
+                if given_up is not None:
+                    logger.warning(
+                        f'[Session  ] shutdown: the file writer was stuck; gave up on '
+                        f"{given_up} of the run's image write(s)"
+                    )
+            now = time.monotonic()
+            if last_logged is None or now - last_logged >= self._CLOSE_WAIT_LOG_S:
+                waiting_for = '; '.join(
+                    item.name if item.left is None else f'{item.name} ({item.left} left)'
+                    for item in work
+                )
+                logger.info(
+                    f'[Session  ] shutdown: waiting {now - started:.1f} s for {waiting_for}'
+                )
+                last_logged = now
+            time.sleep(0.05)
+        if last_logged is not None:
+            logger.info(
+                f'[Session  ] shutdown: the session finished its work after '
+                f'{time.monotonic() - started:.1f} s'
+            )
+
+    def _tear_down(self) -> None:
+        """Release everything the session constructed, the hardware last."""
         # Settle any run's merge outcome FIRST. The executor teardown below
         # does not wait for the file lanes to drain, so a merge still
         # waiting on this run's writes can never finish -- and a caller

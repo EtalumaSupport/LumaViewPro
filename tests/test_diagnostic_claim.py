@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from modules.exceptions import DiagnosticRefusedError, HardwareCommandRefusedError
-from tests.scope_fakes import spec_scope
+from tests.scope_fakes import real_executor_bundle, spec_scope
 from tests.protocol_drives import run_identity
 
 
@@ -27,7 +27,7 @@ def _make_session():
     return ScopeSession(
         settings={},
         scope=scope,
-        executor_bundle=MagicMock(file_io_executor=file_io_executor),
+        executor_bundle=real_executor_bundle(file_io_executor=file_io_executor),
     )
 
 

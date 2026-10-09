@@ -1875,6 +1875,35 @@ class PluginFailedError(PluginError):
         self.detail = detail
 
 
+class PluginProcessorSkippedError(PluginError):
+    """A run's post-processing by a plugin did not run: the plugin was unloaded first.
+
+    The session's close unloads plugins before it waits for the work under
+    way, because a plugin's ``unregister`` is what stops its own work; a
+    run that finishes during that wait -- or after a host unloaded the
+    plugins itself -- then hands its folder to processors no longer loaded. The folder and its images are complete; only the
+    plugin's processing of it is missing, so the person is told which run
+    to process again.
+
+    Attributes:
+        run: The run whose folder was not processed, by its protocol name
+            or its folder.
+        folder: The run's folder.
+    """
+
+    def __init__(self, plugin_name: str, run: str, folder: str):
+        super().__init__(
+            plugin_name,
+            f'Post-Processing Skipped: {plugin_name}',
+            f'The "{plugin_name}" plugin did not process the run "{run}": it had been '
+            f"unloaded before the run finished, as LumaViewPro's close does first. The "
+            f"run's images are all in {folder}; process them with the plugin when it is "
+            'next loaded.',
+        )
+        self.run = run
+        self.folder = folder
+
+
 class HardwareCommandRefusedError(Refusal, Exception):
     """A hardware command was refused: something else has the scope, the lane is closed, or nothing is connected to take it.
 
@@ -2124,9 +2153,10 @@ class SessionClosingError(Refusal, Exception):
     """An activity was asked to take the scope while the session is closing.
 
     Raised by the activity claim for a run, a recording, a home or a
-    diagnostic once ``ScopeSession.shutdown`` has begun: the close finishes
-    the work already under way, then releases the hardware, so nothing new
-    may start in between. Work inside an activity already under way -- a
+    diagnostic while ``ScopeSession.shutdown`` runs: the close finishes the
+    work already under way, then releases the hardware, so nothing new may
+    start in between. Once the close has ended, a start is refused by what
+    is then true: the scope is disconnected. Work inside an activity already under way -- a
     run's video step under its run -- is not refused. Nothing was taken.
 
     Attributes:

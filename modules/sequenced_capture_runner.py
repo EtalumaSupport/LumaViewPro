@@ -806,8 +806,9 @@ class SequencedCaptureRunner:
             self.protocol_thread.abort()
 
     def force_reset(self, reason: str) -> None:
-        """Unwind the live run without naming it -- app shutdown only.
+        """Unwind the live run without naming it -- the session's close only.
 
+        The run ends ``aborted`` / ``shutdown``, *reason* its message.
         Exists because the shutdown path holds no run's handle and must
         stop whatever is live. A named method rather than a special
         handle value: a value meaning "whatever is live" would be
@@ -829,7 +830,7 @@ class SequencedCaptureRunner:
                 f'[{self.LOGGER_NAME}] force_reset({reason}): tearing down the '
                 f'{self._last_run_trigger()} run without an owner check'
             )
-            ending = RunEnding('aborted', 'force_reset', 'Protocol Stopped', reason)
+            ending = RunEnding('aborted', 'shutdown', 'Protocol Stopped', reason)
             self._ending.set_if_unset(ending)
             self.protocol_thread.abort()
             run = self._run_handle

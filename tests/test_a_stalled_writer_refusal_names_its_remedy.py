@@ -8,7 +8,6 @@ lived in the GUI's press gates: delete them and a person who declined the
 drain tick's single offer had no way back but a restart.
 """
 
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -20,18 +19,19 @@ from modules.protocol_image_writer import RunWriteBatch
 from modules.scope_session import ScopeSession
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import ENQUEUED
-from tests.scope_fakes import spec_scope
+from tests.scope_fakes import real_executor_bundle, spec_scope
 
 
 @pytest.fixture
 def session():
-    bundle = SimpleNamespace(
-        file_io_executor=MagicMock(),
-        post_processing_executor=MagicMock(),
-        protocol_thread=MagicMock(),
-        shutdown=lambda: None,
-    )
-    return ScopeSession(settings={}, scope=spec_scope(), executor_bundle=bundle)
+    bundle = real_executor_bundle(file_io_executor=MagicMock())
+    session = ScopeSession(settings={}, scope=spec_scope(), executor_bundle=bundle)
+    yield session
+    # The planted writes went to a scripted lane that never runs them, so
+    # nothing would ever land them; the session cannot close until they settle.
+    batch = session.sequenced_capture_runner.write_batch()
+    if batch is not None:
+        batch.abandon('the test is over')
 
 
 def _draining(session, *, stalled: bool, writes: int = 1) -> RunWriteBatch:

@@ -53,6 +53,7 @@ does not let that number grow.
 from __future__ import annotations
 
 import copy
+import time
 import weakref
 from unittest.mock import create_autospec
 
@@ -105,6 +106,39 @@ def disconnect_when_the_test_ends(camera):
     _TEARDOWNS.append(camera.disconnect)
 
 
+# How long a session's teardown lets work a test left live end on its own
+# before it fails the test rather than wait on a close that cannot return.
+_LEFT_WORK_WAIT_S = 30.0
+
+
+def real_executor_bundle(**members):
+    """A started executor bundle of real lanes around two fresh device lanes.
+
+    A session's close asks its lanes what they are still doing and waits
+    until nothing is; a real idle lane answers that by being idle, where a
+    MagicMock answers every such question with a truthy mock and the close
+    never ends. *members* replace bundle members a test injects (a file lane
+    it scripts); everything the bundle started is stopped when the test ends.
+    """
+    import dataclasses
+
+    from modules.executor_registry import create_default
+    from modules.sequential_io_executor import SequentialIOExecutor
+
+    io, camera = SequentialIOExecutor(name='IO'), SequentialIOExecutor(name='CAMERA')
+    io.start()
+    camera.start()
+    bundle = create_default(io, camera)
+
+    def stop() -> None:
+        bundle.shutdown()
+        io.shutdown(wait=False)
+        camera.shutdown(wait=False)
+
+    _TEARDOWNS.append(stop)
+    return dataclasses.replace(bundle, **members) if members else bundle
+
+
 def shut_down_when_the_test_ends(session):
     """Queue a session's shutdown with the test's other teardowns.
 
@@ -115,8 +149,24 @@ def shut_down_when_the_test_ends(session):
     inside the window of every later test that checks a refused bring-up
     started nothing. The autouse fixture in `conftest.py` routes every
     construction here; a second shutdown() is a logged no-op.
+
+    The close waits, without a time limit, for the work the session is
+    still doing. A test that leaves work live -- a claim it took and never
+    released, a run's writes it planted and never settled -- would hang the
+    worker there, so that work is given a short while to end, and if it has
+    not, the test fails naming it and the close is not called.
     """
-    _TEARDOWNS.append(session.shutdown)
+
+    def stop() -> None:
+        deadline = time.monotonic() + _LEFT_WORK_WAIT_S
+        while session.live_work.work and time.monotonic() < deadline:
+            time.sleep(0.02)
+        left = session.live_work.work
+        if left:
+            raise AssertionError(f'the test left work live, so its session cannot close: {left}')
+        session.shutdown()
+
+    _TEARDOWNS.append(stop)
 
 
 def give_stub_lanes(scope):
@@ -194,8 +244,16 @@ def tear_down_since(mark: int) -> None:
     """Stop everything `build_scope` and `give_stub_lanes` built after ``mark``."""
     built = _TEARDOWNS[mark:]
     del _TEARDOWNS[mark:]
+    failures = []
     for stop in built:
-        stop()
+        try:
+            stop()
+        except Exception as failed:
+            failures.append(failed)
+    if len(failures) == 1:
+        raise failures[0]
+    if failures:
+        raise ExceptionGroup("the test's teardowns failed", failures)
 
 
 def build_real_sim_scope():

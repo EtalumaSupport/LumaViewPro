@@ -69,8 +69,8 @@ class LiveWork:
     Attributes:
         work: The work still under way, in the order the session asked:
             what holds the scope first, then what finishes after.
-        closing: True once the session's close has begun: nothing new
-            takes the scope, and the close waits for this work.
+        closing: True while the session's close runs: nothing new takes
+            the scope, and the close waits for this work.
         closed: True once the session has shut down.
     """
 
