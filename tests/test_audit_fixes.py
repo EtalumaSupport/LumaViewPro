@@ -10275,10 +10275,9 @@ class TestProtocolCleanupLedRestoreKey:
 
 
 class TestPreReleaseFutureWarning:
-    """Rule 30 4-mechanism pre-freeze warning bundle requires a
-    runtime FutureWarning -- mechanism #3, paired with the README
-    banner, LumascopeSkills.md preface, and CHANGELOG note. Closes
-    API audit F4.
+    """The pre-freeze warning bundle requires a runtime
+    FutureWarning, paired with the README banner and the
+    LumascopeSkills.md preface.
 
     Warning fires once-per-process: either L2 entry point
     (Lumascope() and ScopeSession.create)
@@ -10370,9 +10369,9 @@ class TestPreReleaseFutureWarning:
     def test_warning_text_references_migration_plan(self):
         """The live warning message must point users at the migration
         plan and a support contact -- editing the bundle text without
-        those pointers breaks the warning's purpose. README banner /
-        LumascopeSkills preface / CHANGELOG note are the other three
-        mechanisms, verified outside this test file."""
+        those pointers breaks the warning's purpose. The README banner
+        and the LumascopeSkills preface are the other two pieces,
+        verified outside this test file."""
         import warnings
 
         with warnings.catch_warnings(record=True) as caught:

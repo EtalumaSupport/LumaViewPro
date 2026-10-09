@@ -135,11 +135,11 @@ def _wire_timing(sim_tier: str) -> str:
     return 'realistic' if sim_tier == 'realistic' else 'instant'
 
 
-# PRE-RELEASE 4-mechanism warning bundle: this is the runtime
-# FutureWarning piece. The other three are the README banner, the
-# LumascopeSkills.md preface, and the CHANGELOG note. All four
-# retire together in one commit at the freeze trigger; do not
-# retire this one without the bundle.
+# PRE-RELEASE warning bundle: this is the runtime FutureWarning
+# piece. The other two are the README banner and the
+# LumascopeSkills.md preface. All three retire together in one
+# commit at the freeze trigger; do not retire this one without the
+# bundle.
 _PRE_RELEASE_WARNING_FIRED = False
 _PRE_RELEASE_WARNING_TEXT = (
     'The Lumascope SDK API is PRE-RELEASE and subject to breaking '
