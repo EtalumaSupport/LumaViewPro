@@ -137,16 +137,16 @@ class CustomFormatter(logging.Formatter):
         return logging.Formatter.format(self, record)
 
 
-def minimize_logger_window():
+def minimize_logger_window() -> None:
     if sys.platform == 'win32':
         try:
             console_window = ctypes.windll.kernel32.GetConsoleWindow()
+            # A windowed build (the installed exe) has no console: nothing to
+            # minimize, and nothing wrong.
             if console_window:
                 # Setting the found console window to a minimized state (state 6)
                 ctypes.windll.user32.ShowWindow(console_window, 6)
                 logger.info('[Logger  ] Console window minimized')
-            else:
-                logger.warning('[Logger  ] Console window not found.')
         except Exception as e:
             logger.error(f'[Logger  ] Failed to minimize console window: {e}')
 
