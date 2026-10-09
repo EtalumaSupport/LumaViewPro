@@ -498,6 +498,8 @@ class WireMember:
         segment: The live object's class a read leads to, when the member is
             a sub-object the route continues through; None otherwise.
         doc: The member's docstring.
+        hands_out: Whether its answer can carry a live object a client is
+            handed; known only when ``wire_members`` is given ``handed_out``.
     """
 
     name: str
@@ -505,6 +507,7 @@ class WireMember:
     parameters: tuple[WireParameter, ...] = ()
     segment: type | None = None
     doc: str = ''
+    hands_out: bool = False
 
 
 def _alternatives(text: str) -> list[ast.AST]:
@@ -645,7 +648,8 @@ def wire_members(
             continue
         if isinstance(member, property):
             fget = member.fget
-            members.append(_read(name, fget.__annotations__.get('return'), fget, classes))
+            text = _annotation_text(fget.__annotations__.get('return', inspect.Parameter.empty))
+            members.append(_read(name, text, fget, classes, aliases, handed_out))
             continue
         function = inspect.unwrap(getattr(member, '__func__', member))
         parameters = []
@@ -669,18 +673,52 @@ def wire_members(
             parameters.append(
                 WireParameter(p.name, alternatives, required, None if required else p.default)
             )
+        returns = _annotation_text(function.__annotations__.get('return', inspect.Parameter.empty))
         members.append(
-            WireMember(name, read=False, parameters=tuple(parameters), doc=function.__doc__ or '')
+            WireMember(
+                name,
+                read=False,
+                parameters=tuple(parameters),
+                doc=function.__doc__ or '',
+                hands_out=_hands_out(returns, handed_out, aliases),
+            )
         )
-    members += [_read(f, _field_text(cls, f), None, classes) for f in _fields(cls)]
+    members += [
+        _read(f, _field_text(cls, f), None, classes, aliases, handed_out) for f in _fields(cls)
+    ]
     return sorted(members, key=lambda m: m.name)
 
 
-def _read(name: str, annotation: object, function: object, classes: dict[str, type]) -> WireMember:
+def _read(
+    name: str,
+    text: str | None,
+    function: object,
+    classes: dict[str, type],
+    aliases: dict[str, str],
+    handed_out: frozenset[type] | None,
+) -> WireMember:
     """A read member, with the live object's class it leads to when it is a sub-object."""
-    text = _annotation_text(annotation if annotation is not None else inspect.Parameter.empty)
-    segment = _segment(text, classes) if text else None
-    return WireMember(name, read=True, segment=segment, doc=getattr(function, '__doc__', '') or '')
+    return WireMember(
+        name,
+        read=True,
+        segment=_segment(text, classes) if text else None,
+        doc=getattr(function, '__doc__', '') or '',
+        hands_out=_hands_out(text, handed_out, aliases),
+    )
+
+
+def _hands_out(
+    text: str | None, handed_out: frozenset[type] | None, aliases: dict[str, str]
+) -> bool:
+    """Whether a value of type *text* can carry a live object in *handed_out*."""
+    if not text or not handed_out:
+        return False
+    names = {c.__name__ for c in handed_out}
+    used_names = _names(text)
+    for used in used_names:
+        if used in aliases and used not in NAMED_FORMS:
+            used_names += _names(aliases[used])
+    return bool(names & set(used_names))
 
 
 def decode(

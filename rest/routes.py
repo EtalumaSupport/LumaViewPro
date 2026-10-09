@@ -42,12 +42,15 @@ class Route:
     """One member's route.
 
     Attributes:
+        root: The class the route starts from: the Session, or a live
+            object's class a client holds a handle to.
         segments: The reads from the root to the member's owner.
         member: The member.
         owner: The class that declares it.
         body: The model a call's JSON body is checked against; None for a read.
     """
 
+    root: type
     segments: tuple[str, ...]
     member: WireMember
     owner: type
@@ -59,8 +62,12 @@ class Route:
         return '/'.join((*self.segments, self.member.name))
 
 
-def routes(root: type) -> list[Route]:
+def routes(root: type, *, handed_out: frozenset[type]) -> list[Route]:
     """Every route under *root*, through its sub-objects, sorted by path.
+
+    ``handed_out`` is the live objects a client can be handed
+    (``wire_encoding.handed_out`` from the Session): a parameter of any
+    other live object's class is not sent.
 
     Raises:
         NoWireFormError: a parameter's type has no inbound form.
@@ -73,14 +80,14 @@ def routes(root: type) -> list[Route]:
     found: list[Route] = []
 
     def walk(cls: type, segments: tuple[str, ...], through: tuple[type, ...]) -> None:
-        for member in wire_encoding.wire_members(cls, classes, aliases):
+        for member in wire_encoding.wire_members(cls, classes, aliases, handed_out=handed_out):
             if member.segment is not None:
                 if member.segment in through:
                     raise TypeError(f'{"/".join(segments)}/{member.name} leads back to itself')
                 walk(member.segment, (*segments, member.name), (*through, member.segment))
                 continue
             body = None if member.read else _body(cls, member, records)
-            found.append(Route(segments, member, cls, body))
+            found.append(Route(root, segments, member, cls, body))
 
     walk(root, (), (root,))
     return sorted(found, key=lambda r: r.path)

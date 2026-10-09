@@ -74,7 +74,12 @@ def _wire_routes(session) -> set[tuple[str, str]]:
 
 def test_the_routes_are_exactly_the_wire_members(client, session):
     paths = client.get('/api/v1/openapi.json').json()['paths']
-    served = {(method, path) for path, ops in paths.items() for method in ops}
+    served = {
+        (method, path)
+        for path, ops in paths.items()
+        for method in ops
+        if not path.startswith('/api/v1/handles')
+    }
 
     assert served - {('get', '/api')} == _wire_routes(session)
     # The sub-objects are reached, not only the Session's own members.
