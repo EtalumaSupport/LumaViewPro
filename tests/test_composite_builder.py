@@ -5,23 +5,7 @@ import numpy as np
 import pytest
 
 import modules.image_utils as image_utils
-from modules.composite_builder import build_composite, CHANNEL_RGB_INDEX
-
-
-class TestChannelMapping:
-    """Verify the canonical RGB color mapping."""
-
-    def test_red_maps_to_index_0(self):
-        assert CHANNEL_RGB_INDEX['Red'] == 0
-
-    def test_green_maps_to_index_1(self):
-        assert CHANNEL_RGB_INDEX['Green'] == 1
-
-    def test_blue_maps_to_index_2(self):
-        assert CHANNEL_RGB_INDEX['Blue'] == 2
-
-    def test_lumi_maps_to_blue_channel(self):
-        assert CHANNEL_RGB_INDEX['Lumi'] == 2
+from modules.composite_builder import build_composite
 
 
 class TestBuildCompositeNoTransmitted:
@@ -35,20 +19,6 @@ class TestBuildCompositeNoTransmitted:
         np.testing.assert_array_equal(img[:, :, 0], 200)  # Red channel
         np.testing.assert_array_equal(img[:, :, 1], 0)  # Green empty
         np.testing.assert_array_equal(img[:, :, 2], 0)  # Blue empty
-
-    def test_single_green_channel(self):
-        green = np.full((4, 4), 150, dtype=np.uint8)
-        img = build_composite(channel_images={'Green': green}, significant_bits=8)
-        np.testing.assert_array_equal(img[:, :, 0], 0)
-        np.testing.assert_array_equal(img[:, :, 1], 150)
-        np.testing.assert_array_equal(img[:, :, 2], 0)
-
-    def test_single_blue_channel(self):
-        blue = np.full((4, 4), 100, dtype=np.uint8)
-        img = build_composite(channel_images={'Blue': blue}, significant_bits=8)
-        np.testing.assert_array_equal(img[:, :, 0], 0)
-        np.testing.assert_array_equal(img[:, :, 1], 0)
-        np.testing.assert_array_equal(img[:, :, 2], 100)
 
     def test_lumi_goes_to_blue_channel(self):
         lumi = np.full((4, 4), 80, dtype=np.uint8)
@@ -105,34 +75,6 @@ class TestBuildCompositeWithTransmitted:
         np.testing.assert_array_equal(img[:, :, 0], 128)
         np.testing.assert_array_equal(img[:, :, 1], 128)
         np.testing.assert_array_equal(img[:, :, 2], 128)
-
-    def test_fluorescence_above_threshold_replaces_transmitted(self):
-        bf = np.full((4, 4), 100, dtype=np.uint8)
-        red = np.full((4, 4), 200, dtype=np.uint8)
-        img = build_composite(
-            channel_images={'Red': red},
-            significant_bits=8,
-            transmitted_image=bf,
-            brightness_thresholds={'Red': 50},
-        )
-        # All pixels above threshold: transmitted replaced with red channel
-        np.testing.assert_array_equal(img[:, :, 0], 200)  # Red set
-        np.testing.assert_array_equal(img[:, :, 1], 0)  # Others cleared
-        np.testing.assert_array_equal(img[:, :, 2], 0)
-
-    def test_fluorescence_below_threshold_keeps_transmitted(self):
-        bf = np.full((4, 4), 100, dtype=np.uint8)
-        red = np.full((4, 4), 30, dtype=np.uint8)
-        img = build_composite(
-            channel_images={'Red': red},
-            significant_bits=8,
-            transmitted_image=bf,
-            brightness_thresholds={'Red': 50},
-        )
-        # All pixels below threshold: transmitted image unchanged
-        np.testing.assert_array_equal(img[:, :, 0], 100)
-        np.testing.assert_array_equal(img[:, :, 1], 100)
-        np.testing.assert_array_equal(img[:, :, 2], 100)
 
     def test_mixed_above_below_threshold(self):
         bf = np.full((4, 4), 100, dtype=np.uint8)

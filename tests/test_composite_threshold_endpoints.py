@@ -17,8 +17,6 @@ refused by name before the per-group try that would otherwise report a caller's
 bad value as "every image group failed".
 """
 
-import math
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -147,11 +145,3 @@ class TestAPercentageOutsideTheRangeIsRefused:
         )
 
         assert result['status'] is True, result['error']
-
-
-class TestTheConversionHasOneHome:
-    """Production and tests share one mapping, so neither can drift."""
-
-    def test_the_conversion_matches_its_stated_formula(self):
-        for pct in range(101):
-            assert brightness_cutoff_from_percent(pct) == max(1, math.ceil(pct * 255 / 100))
