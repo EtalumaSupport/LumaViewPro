@@ -2155,7 +2155,10 @@ class PylonCamera(Camera):
                 _cam_log.info(f'pylon PixelFormat.SetValue({pixel_format!r}) (geometry-realloc)')
             with self.update_camera_config():
                 self.active.PixelFormat.SetValue(pixel_format)
-            self._pixel_format_cache = pixel_format
+                # Inside the config guard, while the grab is stopped: its
+                # __exit__ restarts grabbing and logs the delivered format
+                # from this cache, which would otherwise still name the old one.
+                self._pixel_format_cache = pixel_format
             return True
         except genicam.RuntimeException as e:
             if _cam_log is not None:
