@@ -11,8 +11,9 @@ The Session's members are at ``/api/v1/<member>``; a live object a client
 was handed has its members at ``/api/v1/handles/<type>/<id>/<member>``
 (``rest.handles``). A call that outlives what its client will wait is a
 job (``rest.jobs``), every answer that is not a result is a problem
-(``rest.problems``), and what the scope tells its listeners is one event
-stream (``rest.events``).
+(``rest.problems``), what the scope tells its listeners is one event
+stream (``rest.events``), and a file in the live folder is downloaded by
+its name there (``/api/v1/files/<name>``).
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ from concurrent.futures import Future
 import fastapi
 import pydantic
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from modules import wire_encoding
@@ -98,6 +99,7 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     _add_handle_routes(app, registry, handed_out)
     _add_job_routes(app, jobs)
     _add_event_route(app, stream)
+    _add_file_route(app, session)
     session_routes = routes(ScopeSession, handed_out=handed_out)
     shadowed = {r.path.split('/')[0] for r in session_routes} & SERVER_SEGMENTS
     if shadowed:
@@ -119,6 +121,26 @@ def _encoded_event(session: ScopeSession, registry: HandleRegistry, value: objec
     return wire_encoding.encode(
         value, live_folder=session.get_setting('live_folder'), handle=registry.mint, job=no_job
     )
+
+
+def _add_file_route(app: fastapi.FastAPI, session: ScopeSession) -> None:
+    async def download(request: fastapi.Request, name: str) -> fastapi.Response:
+        """A file in the live folder, by its name there: its type from its extension, as an attachment.
+
+        The name is the one a listing and every returned path give, as path
+        segments. A range of the file is answered on its own (``Range``).
+        """
+        _refuse_query(request)
+        try:
+            path = await asyncio.to_thread(session.live_folder_path, name)
+        except Exception as e:
+            # Refused as a Python caller is: the same door, the same words.
+            return problems.answered_by_member(e, request.state.request_id).response()
+        if not await asyncio.to_thread(path.is_file):
+            raise problems.not_found(f'No file {name} is in the live folder.')
+        return FileResponse(path, filename=path.name)
+
+    app.add_api_route(f'{PREFIX}/files/{{name:path}}', download, methods=['GET'], tags=['files'])
 
 
 def _add_event_route(app: fastapi.FastAPI, stream: EventStream) -> None:
