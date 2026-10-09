@@ -29,9 +29,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    from lvp_logger import install_crash_hooks, logger
+    from lvp_logger import install_crash_hooks, log_dir, logger
 
     install_crash_hooks()
+
+    # An installed server takes the installer's logs from TEMP, as the GUI
+    # does; any other run captures nothing.
+    from modules.app_environment import capture_installer_logs
+
+    capture_installer_logs(log_dir)
 
     from modules import lvp_lock
     from modules.path_utils import get_source_root

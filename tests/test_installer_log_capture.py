@@ -18,7 +18,9 @@ import logging
 import os
 import pathlib
 
+import json
 import sys
+import tempfile
 
 import pytest
 
@@ -273,3 +275,34 @@ def test_a_bom_that_does_not_decode_is_copied_verbatim(tmp_path):
     assert copied == ['LumaViewPro-4.0.0-beta23_5_LVP.log']
     target = log_dir / 'install' / 'LumaViewPro-4.0.0-beta23_5_LVP.log'
     assert target.read_bytes() == corrupt, 'an undecodable log must survive intact'
+
+
+def test_an_installed_rest_server_captures_them_as_the_gui_does(tmp_path, monkeypatch):
+    # Every installed host captures. The server is stopped right after, at
+    # its instance lock, held here on a port this test's settings name.
+    from modules import path_utils
+    from modules.lvp_lock import LvpLock
+    from rest.__main__ import main
+
+    documents = tmp_path / 'Documents'
+    # platformdirs and lvp_logger are conftest stand-ins.
+    monkeypatch.setattr(sys.modules['platformdirs'], 'user_documents_dir', lambda: str(documents))
+    log_dir = tmp_path / 'logs'
+    monkeypatch.setattr(sys.modules['lvp_logger'], 'log_dir', str(log_dir))
+    temp_dir = tmp_path / 'temp'
+    source = _make(temp_dir, 'LumaViewPro-4.0.0-beta23_0.log')
+    monkeypatch.setattr(tempfile, 'tempdir', str(temp_dir))
+
+    held = LvpLock()
+    assert held.lock()
+    try:
+        data = path_utils.get_source_root() / 'data'
+        data.mkdir(parents=True)
+        (data / 'current.json').write_text(json.dumps({'lvp_lock_port': held.port}))
+
+        assert main([]) == 1
+    finally:
+        held.close()
+
+    assert (log_dir / 'install' / source.name).read_text(encoding='utf-8') == 'log body'
+    assert not source.exists()
