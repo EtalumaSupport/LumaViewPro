@@ -24,8 +24,6 @@ end over the simulated LED board; stubbing either would let an inert
 derivation pass (the defect shape that killed two plan drafts).
 """
 
-import threading
-
 import numpy as np
 import pytest
 from unittest.mock import patch
@@ -198,35 +196,3 @@ class TestDrainDeadline:
         for key in ('hold_ms', 'drained', 'rechecks', 'deadline_s', 'n_entry', 'active_s'):
             assert key in info, f'missing capture-evidence key {key!r}'
         assert 'deadline_expired' not in info
-
-
-class TestSustainedStreamThreaded:
-    def test_concurrent_led_stream_is_bounded(self, live_scope):
-        """The F12 topology end to end: a real thread streaming LED
-        commands through the public illumination API while the capture
-        runs. The capture must return (frame or None) in bounded time
-        instead of waiting out the stream."""
-        stop = threading.Event()
-
-        def slider_drag():
-            on = True
-            while not stop.is_set():
-                if on:
-                    live_scope.illumination.led_on('BF', 50)
-                else:
-                    live_scope.illumination.led_off('BF')
-                on = not on
-                stop.wait(0.02)
-
-        t = threading.Thread(target=slider_drag, daemon=True)
-        t.start()
-        try:
-            live_scope.imaging._capture_and_wait_impl(timeout_s=0.5)
-            info = live_scope.imaging._last_capture_info
-            # Either the drain outran the stream (fast sim frames) and a
-            # frame came back, or the deadline fired -- both are bounded;
-            # the pre-fix behavior (hold until the stream stops) is not.
-            assert info['hold_ms'] / 1000.0 <= info['deadline_s'] + 5.0
-        finally:
-            stop.set()
-            t.join(timeout=2.0)

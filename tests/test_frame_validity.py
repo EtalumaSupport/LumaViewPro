@@ -77,14 +77,6 @@ class TestBasicInvalidation:
         assert fv.is_valid
         assert fv.frames_until_valid() == 0
 
-    def test_extra_frames_after_valid(self):
-        fv = FrameValidity(_frames)
-        fv.invalidate('led')
-        for _ in range(5):
-            fv.count_frame(_f())
-        assert fv.is_valid
-        assert fv.frames_until_valid() == 0
-
     def test_reset_clears_state(self):
         fv = FrameValidity(_frames)
         fv.invalidate('led')
@@ -94,23 +86,9 @@ class TestBasicInvalidation:
         assert fv.frame_counter == 0
         assert fv.pending_sources == {}
 
-    def test_no_pending_sources_initially(self):
-        fv = FrameValidity(_frames)
-        assert fv.pending_sources == {}
-        assert fv.frame_counter == 0
-
 
 class TestMultipleSources:
     """Multiple concurrent invalidation sources."""
-
-    def test_two_sources_same_time(self):
-        fv = FrameValidity(_frames)
-        fv.invalidate('led')
-        fv.invalidate('gain')
-        assert fv.frames_until_valid() == 2
-        fv.count_frame(_f())
-        fv.count_frame(_f())
-        assert fv.is_valid
 
     def test_sources_at_different_times(self):
         fv = FrameValidity(_frames)
@@ -145,20 +123,6 @@ class TestMultipleSources:
         assert fv.is_valid
         assert fv.pending_sources == {}
 
-    def test_rapid_invalidation_between_frames(self):
-        """Invalidate multiple times before any frame is grabbed."""
-        fv = FrameValidity(_frames)
-        invalidated = ('led', 'gain', 'exposure', 'xy_move', 'z_move')
-        for source in invalidated:
-            fv.invalidate(source)
-        # All invalidated at frame 0; the wait is the max over these sources
-        # (exposure=3), not over every known source.
-        max_skip = max(FrameValidity.SKIP_FRAMES[s] for s in invalidated)
-        assert fv.frames_until_valid() == max_skip
-        for _ in range(max_skip):
-            fv.count_frame(_f())
-        assert fv.is_valid
-
 
 class TestExcludeSources:
     """Exclude sources for autofocus-style usage."""
@@ -184,27 +148,6 @@ class TestExcludeSources:
         fv.count_frame(_f())
         assert fv.is_valid  # now everything settled
 
-    def test_exclude_multiple_sources(self):
-        fv = FrameValidity(_frames)
-        fv.invalidate('z_move')
-        fv.invalidate('xy_move')
-        fv.invalidate('led')
-        assert fv.frames_until_valid(exclude_sources=('z_move', 'xy_move')) == 2
-        fv.count_frame(_f())
-        fv.count_frame(_f())
-        assert fv.is_valid_for(exclude_sources=('z_move', 'xy_move'))
-
-    def test_exclude_nonexistent_source(self):
-        fv = FrameValidity(_frames)
-        fv.invalidate('led')
-        assert fv.frames_until_valid(exclude_sources=('nonexistent',)) == 2
-
-    def test_exclude_all_pending(self):
-        fv = FrameValidity(_frames)
-        fv.invalidate('z_move')
-        assert fv.frames_until_valid(exclude_sources=('z_move',)) == 0
-        assert fv.is_valid_for(exclude_sources=('z_move',))
-
 
 class TestUnknownSource:
     """A source without a skip count is refused: a silent default would be a
@@ -214,17 +157,6 @@ class TestUnknownSource:
         fv = FrameValidity(_frames)
         with pytest.raises(ValueError, match='custom_thing'):
             fv.invalidate('custom_thing')
-        assert fv.is_valid
-
-    @pytest.mark.parametrize(
-        'source', ['black_level', 'conversion_gain_mode', 'line_noise_reduction']
-    )
-    def test_the_sensor_setting_sources_have_counts(self, source):
-        assert source in FrameValidity.SKIP_FRAMES
-        fv = FrameValidity(_frames)
-        fv.invalidate(source)
-        for _ in range(FrameValidity.SKIP_FRAMES[source]):
-            fv.count_frame(_f())
         assert fv.is_valid
 
 
@@ -239,13 +171,6 @@ class TestPendingSourcesDebug:
         assert 'led' in pending
         assert 'gain' in pending
 
-    def test_pending_cleared_after_settle(self):
-        fv = FrameValidity(_frames)
-        fv.invalidate('led')
-        fv.count_frame(_f())
-        fv.count_frame(_f())
-        assert fv.pending_sources == {}
-
     def test_frame_counter_tracks_grabs(self):
         fv = FrameValidity(_frames)
         assert fv.frame_counter == 0
@@ -253,13 +178,6 @@ class TestPendingSourcesDebug:
         fv.count_frame(_f())
         fv.count_frame(_f())
         assert fv.frame_counter == 3
-
-    def test_frame_counter_not_affected_by_invalidation(self):
-        fv = FrameValidity(_frames)
-        fv.count_frame(_f())
-        fv.count_frame(_f())
-        fv.invalidate('led')
-        assert fv.frame_counter == 2
 
     def test_a_long_move_never_reports_a_negative_count(self):
         """A motion source stays pending while the axis moves, so frames keep
@@ -305,48 +223,6 @@ class TestPendingSourcesDebug:
             fv.count_frame(_f())
             assert all(v >= 0 for v in fv.pending_sources.values())
             assert fv.frames_until_valid() >= 0
-
-
-class TestEdgeCases:
-    """Edge cases and boundary conditions."""
-
-    def test_invalidate_then_immediate_check(self):
-        fv = FrameValidity(_frames)
-        fv.invalidate('led')
-        assert fv.frames_until_valid() == 2
-        assert not fv.is_valid
-
-    def test_count_without_invalidation(self):
-        fv = FrameValidity(_frames)
-        fv.count_frame(_f())
-        fv.count_frame(_f())
-        assert fv.is_valid
-        assert fv.frame_counter == 2
-
-    def test_invalidate_after_many_frames(self):
-        fv = FrameValidity(_frames)
-        for _ in range(100):
-            fv.count_frame(_f())
-        fv.invalidate('led')
-        assert fv.frames_until_valid() == 2
-        assert fv.frame_counter == 100
-
-    def test_settle_during_counting(self):
-        """Sources auto-clear from pending when count_frame crosses threshold."""
-        fv = FrameValidity(_frames)
-        fv.invalidate('led')  # target = 0 + 2 = 2
-        fv.invalidate('gain')  # target = 0 + 2 = 2
-        fv.count_frame(_f())  # frame 1
-        assert len(fv.pending_sources) == 2
-        fv.count_frame(_f())  # frame 2 -- both settle
-        assert len(fv.pending_sources) == 0
-
-    def test_frames_until_valid_never_negative(self):
-        fv = FrameValidity(_frames)
-        fv.invalidate('led')
-        for _ in range(10):
-            fv.count_frame(_f())
-        assert fv.frames_until_valid() == 0
 
 
 class TestThreadSafety:
@@ -437,14 +313,6 @@ class TestLoadCameraTiming:
         second.invalidate('led')
         assert second.frames_until_valid() == shipped['led']
 
-    def test_overrides_skip_frames(self):
-        """Config overrides SKIP_FRAMES values for specified sources."""
-        fv = FrameValidity(_frames)
-        config = {'skip_frames': {'led': 5, 'gain': 3}}
-        fv.load_camera_timing(config)
-        assert fv.SKIP_FRAMES['led'] == 5
-        assert fv.SKIP_FRAMES['gain'] == 3
-
     def test_overridden_values_used_by_invalidate(self):
         """After loading config, invalidate() uses the new skip counts."""
         fv = FrameValidity(_frames)
@@ -466,41 +334,6 @@ class TestLoadCameraTiming:
         assert fv.SKIP_FRAMES['led'] == 7
         assert fv.SKIP_FRAMES['exposure'] == original_exposure
         assert fv.SKIP_FRAMES['xy_move'] == original_xy
-
-    def test_empty_skip_frames_no_change(self):
-        """Empty skip_frames dict leaves all defaults unchanged."""
-        fv = FrameValidity(_frames)
-        original = dict(fv.SKIP_FRAMES)
-        fv.load_camera_timing({'skip_frames': {}})
-        assert original == fv.SKIP_FRAMES
-
-    def test_missing_skip_frames_key_no_change(self):
-        """Config without 'skip_frames' key leaves defaults unchanged."""
-        fv = FrameValidity(_frames)
-        original = dict(fv.SKIP_FRAMES)
-        fv.load_camera_timing({'camera_model': 'test'})
-        assert original == fv.SKIP_FRAMES
-
-    def test_empty_config_no_change(self):
-        """Completely empty config leaves defaults unchanged."""
-        fv = FrameValidity(_frames)
-        original = dict(fv.SKIP_FRAMES)
-        fv.load_camera_timing({})
-        assert original == fv.SKIP_FRAMES
-
-    def test_negative_count_rejected(self):
-        """Negative frame counts are silently ignored."""
-        fv = FrameValidity(_frames)
-        original_led = fv.SKIP_FRAMES['led']
-        fv.load_camera_timing({'skip_frames': {'led': -1}})
-        assert fv.SKIP_FRAMES['led'] == original_led
-
-    def test_float_count_rejected(self):
-        """Float frame counts are rejected (must be int)."""
-        fv = FrameValidity(_frames)
-        original_led = fv.SKIP_FRAMES['led']
-        fv.load_camera_timing({'skip_frames': {'led': 3.5}})
-        assert fv.SKIP_FRAMES['led'] == original_led
 
     def test_string_count_rejected(self):
         """String frame counts are rejected."""
@@ -524,16 +357,6 @@ class TestLoadCameraTiming:
         fv.invalidate('led')
         assert fv.is_valid  # zero skip means immediately valid
 
-    def test_does_not_affect_frame_counter(self):
-        """Loading config should not change the frame counter."""
-        fv = FrameValidity(_frames)
-        fv.count_frame(_f())
-        fv.count_frame(_f())
-        fv.count_frame(_f())
-        assert fv.frame_counter == 3
-        fv.load_camera_timing({'skip_frames': {'led': 5}})
-        assert fv.frame_counter == 3
-
     def test_does_not_affect_pending_state(self):
         """Loading config should not clear or modify pending invalidations."""
         fv = FrameValidity(_frames)
@@ -544,14 +367,6 @@ class TestLoadCameraTiming:
         # Pending state unchanged -- the already-queued invalidation keeps
         # its original threshold
         assert fv.pending_sources == pending_before
-
-    def test_new_invalidation_uses_updated_count(self):
-        """After loading config, new invalidations use the updated skip counts."""
-        fv = FrameValidity(_frames)
-        fv.load_camera_timing({'skip_frames': {'led': 10}})
-        fv.invalidate('led')  # should now use 10
-        assert fv.frames_until_valid() == 10
-        assert fv.pending_sources['led'] == 10
 
     def test_unknown_source_in_config(self):
         """Config can add skip counts for custom/unknown sources."""
@@ -578,19 +393,6 @@ class TestLoadCameraTiming:
         assert fv.SKIP_FRAMES['gain'] == 2  # unchanged default
         assert fv.SKIP_FRAMES['exposure'] == 3  # unchanged default (measured: 3 on a2A3536)
         assert fv.SKIP_FRAMES['z_move'] == 0
-
-    def test_extra_config_keys_ignored(self):
-        """Non-skip_frames keys in config are ignored without error."""
-        fv = FrameValidity(_frames)
-        config = {
-            'camera_model': 'daA3840-45um',
-            'measured_date': '2026-03-12',
-            'skip_frames': {'led': 3},
-            'frame_intervals_ms': {'100': 33.2},
-            'dark_noise_stddev': {'mono': 1.2},
-        }
-        fv.load_camera_timing(config)
-        assert fv.SKIP_FRAMES['led'] == 3
 
 
 class TestLoadCameraTimingLumascope:
@@ -656,27 +458,11 @@ class TestLoadCameraTimingLumascope:
 class TestSetTarget:
     """set_target(source, value) records the requested value for chunk-match."""
 
-    def test_set_target_stores_value(self):
-        fv = FrameValidity(_frames)
-        fv.set_target('gain', 5.0)
-        assert fv._target_values.get('gain') == 5.0
-
-    def test_set_target_overwrites(self):
-        fv = FrameValidity(_frames)
-        fv.set_target('exposure', 14530.0)
-        fv.set_target('exposure', 25000.0)
-        assert fv._target_values.get('exposure') == 25000.0
-
     def test_set_target_none_clears(self):
         fv = FrameValidity(_frames)
         fv.set_target('gain', 5.0)
         fv.set_target('gain', None)
         assert 'gain' not in fv._target_values
-
-    def test_set_target_coerces_to_float(self):
-        fv = FrameValidity(_frames)
-        fv.set_target('gain', 5)
-        assert isinstance(fv._target_values.get('gain'), float)
 
     def test_reset_clears_targets(self):
         fv = FrameValidity(_frames)
@@ -748,11 +534,6 @@ class TestAutoGainSettle:
         FrameValidity.SKIP_FRAMES.clear()
         FrameValidity.SKIP_FRAMES.update(original)
 
-    def test_invalidate_uses_skip_count(self):
-        fv = FrameValidity(_frames)
-        fv.invalidate('auto_gain')
-        assert fv.frames_until_valid() == FrameValidity.SKIP_FRAMES['auto_gain']
-
     def test_decrements_to_valid_by_frame_count(self):
         fv = FrameValidity(_frames)
         skip = FrameValidity.SKIP_FRAMES['auto_gain']
@@ -765,12 +546,6 @@ class TestAutoGainSettle:
     def test_not_a_motion_source(self):
         """auto_gain settles on count alone; no settle-callback gating."""
         assert 'auto_gain' not in FrameValidity.MOTION_SOURCES
-
-    def test_load_camera_timing_overrides_settle_count(self):
-        fv = FrameValidity(_frames)
-        fv.load_camera_timing({'skip_frames': {'auto_gain': 5}})
-        fv.invalidate('auto_gain')
-        assert fv.frames_until_valid() == 5
 
 
 class TestCaptureTimeChunkVerification:

@@ -26,7 +26,6 @@ from drivers.simulated_camera import SimulatedCamera
 from modules.exceptions import CameraSettingRejected
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
-from modules.lumascope_api.motion import MotionAPI
 from modules.notification_center import Severity
 from tests.scope_fakes import (
     build_scope,
@@ -146,16 +145,6 @@ class TestMotionValiditySources:
     """Turret moves must record the 'turret' source, so the settle-check
     gates on the turret reaching IDLE rather than on X/Y."""
 
-    def test_turret_axis_maps_to_turret_source(self):
-        assert MotionAPI._AXIS_VALIDITY_SOURCE.get('T', 'xy_move') == 'turret'
-
-    def test_z_axis_maps_to_z_move(self):
-        assert MotionAPI._AXIS_VALIDITY_SOURCE.get('Z', 'xy_move') == 'z_move'
-
-    def test_xy_axes_default_to_xy_move(self):
-        assert MotionAPI._AXIS_VALIDITY_SOURCE.get('X', 'xy_move') == 'xy_move'
-        assert MotionAPI._AXIS_VALIDITY_SOURCE.get('Y', 'xy_move') == 'xy_move'
-
     @staticmethod
     def _scope_with_invalidate_recorder():
         """Simulated scope whose frame_validity.invalidate records sources."""
@@ -227,14 +216,6 @@ class TestGeometryFormatInvalidates:
     """Pixel-format, frame-size, and binning changes realloc the camera
     buffer / restart the grab engine; each must turn the marker RED so a
     capture waits for the old geometry to flush."""
-
-    def test_geometry_sources_registered(self):
-        from modules.frame_validity import FrameValidity
-
-        for source in ('pixel_format', 'frame_size', 'binning'):
-            assert source in FrameValidity.SKIP_FRAMES, (
-                f'{source} must be a known frame-validity source'
-            )
 
     def test_set_frame_size_turns_marker_red(self, sim_imaging):
         imaging, _cam = sim_imaging

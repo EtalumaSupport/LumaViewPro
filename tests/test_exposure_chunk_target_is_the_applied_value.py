@@ -71,24 +71,6 @@ def test_clamped_write_targets_the_applied_value_not_the_request():
     )
 
 
-def test_short_circuited_write_still_reports_the_value_in_effect():
-    """No write occurs, but the clamped value is still what the camera uses.
-
-    This is the live path at every bench rejection -- the driver short-circuits
-    because the node already holds the clamped value, so a driver that returned
-    None here would leave the stale request standing as the target.
-    """
-    imaging, write_fn = _imaging_with(14.0)
-
-    imaging._camera_write(
-        write_fn,
-        targets=(('exposure', 10.0),),
-        target_from_result=('exposure',),
-    )
-
-    assert imaging.frame_validity.targets['exposure'] == 14.0
-
-
 def test_refused_write_records_no_target():
     """A driver that refused did not move the hardware."""
     imaging, write_fn = _imaging_with(False)

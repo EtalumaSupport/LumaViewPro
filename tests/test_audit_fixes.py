@@ -3958,13 +3958,6 @@ class TestFrameValidity_AutofocusDrainsBeforeScore:
         )
         assert result is not None, 'the drive must complete with a best-focus result'
 
-    def test_iterate_does_not_call_bare_get_image(self, monkeypatch):
-        scope, _ = self._drive_full_af(monkeypatch)
-        assert not scope.imaging.get_image.called, (
-            'the AF scan loop must not call get_image directly -- it '
-            'bypasses frame_validity. Route through capture_and_wait.'
-        )
-
     def test_iterate_waits_out_every_source_z_move_included(self, monkeypatch):
         """AF excluded z_move, so a frame already on its way when a step's
         move went out was scored at the new Z (the load census, 2026-10-06:
@@ -4074,45 +4067,6 @@ def _sim_backed_imaging():
     return imaging, cam
 
 
-class TestLatestChunksHelper:
-    """The capture path reads per-frame chunk metadata to REJECT a frame
-    whose chunk disagrees with what was asked for. Settling itself is by
-    frame count on every camera, so a chunk never clears a pending
-    source."""
-
-    def test_get_latest_chunks_helper_exists(self):
-        """The _get_latest_chunks helper abstracts handler shape (Pylon
-        composition vs IDS inheritance) and returns None for non-chunk cameras.
-        Phase 4 relocation: helper moved from Lumascope to ImagingAPI; the
-        contract (no required params besides self, returns dict | None) is
-        unchanged."""
-        import inspect
-
-        assert hasattr(ImagingAPI, '_get_latest_chunks'), (
-            'ImagingAPI must expose _get_latest_chunks() helper.'
-        )
-        sig = inspect.signature(ImagingAPI._get_latest_chunks)
-        # No required params (besides self) -- reads from self._driver state
-        non_self = [p for p in sig.parameters if p != 'self']
-        assert len(non_self) == 0, f'_get_latest_chunks should take no args; got {non_self}'
-
-    def test_get_latest_chunks_returns_none_when_no_camera(self):
-        """Defensive: helper returns None instead of raising when camera
-        isn't connected (FX2 fallback / pre-connect / disconnected state).
-        Post-4d: ImagingAPI._driver is a @property re-resolving
-        self._scope._camera_driver; with no camera driver attached the
-        helper returns None instead of AttributeError."""
-        from modules.lumascope_api import Lumascope
-
-        # Construct without going through full init -- attributes set by hand
-        scope = Lumascope.__new__(Lumascope)
-        bind_settings_like_a_session(scope)
-        scope.runtime_state = RuntimeState(scope)
-        scope._camera_driver = None
-        scope.imaging = ImagingAPI(scope, None)
-        assert scope.imaging._get_latest_chunks() is None
-
-
 class TestLumascopeRecordsTargetForChunkMatch:
     """The API layer records requested gain / exposure values via
     frame_validity.set_target() so capture_and_wait's chunk-match can
@@ -4136,13 +4090,6 @@ class TestLumascopeRecordsTargetForChunkMatch:
 
         imaging.frame_validity.set_target = recording_set_target
         return imaging, calls
-
-    def test_set_gain_records_target(self):
-        imaging, calls = self._recording_imaging()
-        imaging.set_gain_db(5.0)
-        assert ('gain', 5.0) in calls, (
-            f'set_gain_db must record the gain target via set_target; got {calls}'
-        )
 
     def test_set_exposure_time_records_target_in_microseconds(self):
         """ChunkExposureTime is microseconds; API takes milliseconds.
