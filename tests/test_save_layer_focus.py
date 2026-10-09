@@ -14,7 +14,12 @@ import math
 
 import pytest
 
-from modules.exceptions import ConfigError, PositionOutOfRangeError, ProtocolRunRefusedError
+from modules.exceptions import (
+    ArgumentRefusedError,
+    ConfigError,
+    PositionOutOfRangeError,
+    ProtocolRunRefusedError,
+)
 from modules.scope_session import ScopeSession
 from tests.ast_seams import direct_call_names, find_def, parse_module, walk_defs
 from tests.settings_fixtures import complete_settings
@@ -43,17 +48,30 @@ def test_a_z_inside_the_travel_is_stored_as_the_layers_focus(session):
     assert session.settings['BF']['focus'] == z
 
 
-@pytest.mark.parametrize('kind', ['nan', 'inf', 'below', 'above'])
+@pytest.mark.parametrize('kind', ['below', 'above'])
 def test_a_z_the_focus_cannot_reach_is_refused_and_nothing_written(session, kind):
     low, high = _z_limits(session)
     session.save_layer_focus('BF', (low + high) / 2)
     before = session.settings['BF']['focus']
-    z = {'nan': math.nan, 'inf': math.inf, 'below': low - 1.0, 'above': high + 1.0}[kind]
+    z = {'below': low - 1.0, 'above': high + 1.0}[kind]
 
     with pytest.raises(PositionOutOfRangeError) as refused:
         session.save_layer_focus('BF', z)
 
     assert refused.value.axis == 'Z'
+    assert session.settings['BF']['focus'] == before
+
+
+@pytest.mark.parametrize('z', [math.nan, math.inf])
+def test_a_z_that_is_not_a_number_is_refused_as_one_and_nothing_written(session, z):
+    low, high = _z_limits(session)
+    session.save_layer_focus('BF', (low + high) / 2)
+    before = session.settings['BF']['focus']
+
+    with pytest.raises(ArgumentRefusedError) as refused:
+        session.save_layer_focus('BF', z)
+
+    assert (refused.value.reason, refused.value.argument) == ('not_a_number', 'z_um')
     assert session.settings['BF']['focus'] == before
 
 

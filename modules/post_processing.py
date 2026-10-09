@@ -5,8 +5,6 @@ import contextlib
 import copy
 import csv
 import json
-import math
-import numbers
 import os
 import re
 import time
@@ -22,6 +20,7 @@ import modules.image_utils as image_utils
 from lvp_logger import logger
 from modules.cell_count import CellCount
 from modules.common_utils import CustomJSONizer, read_table
+from modules.finite_number import is_finite_number
 from modules.exceptions import (
     CellCountScaleDroppedNotice,
     PostProcessingFailedError,
@@ -112,11 +111,6 @@ def _method_field(method: Mapping, path: tuple[str, ...], source: str):
     return value
 
 
-def _is_number(value) -> bool:
-    # bool is an int to Python; true/false in a method file is not a number.
-    return isinstance(value, numbers.Real) and not isinstance(value, bool) and math.isfinite(value)
-
-
 def check_cell_count_method(method: object, *, source: str = 'The cell-count method') -> None:
     """Refuse a cell-count method the count cannot use, naming the field.
 
@@ -134,7 +128,7 @@ def check_cell_count_method(method: object, *, source: str = 'The cell-count met
         PostProcessingRefusedError: reason ``method_invalid``.
     """
     scale = _method_field(method, ('context', 'pixels_per_um'), source)
-    if scale is not None and (not _is_number(scale) or scale <= 0):
+    if scale is not None and (not is_finite_number(scale) or scale <= 0):
         _refuse_method(
             source,
             f'context.pixels_per_um must be a positive number of camera pixels '
@@ -149,7 +143,7 @@ def check_cell_count_method(method: object, *, source: str = 'The cell-count met
 
     _method_field(method, ('segmentation', 'algorithm'), source)
     threshold = _method_field(method, ('segmentation', 'parameters', 'threshold'), source)
-    if not _is_number(threshold):
+    if not is_finite_number(threshold):
         _refuse_method(
             source, f'segmentation.parameters.threshold must be a number, not {threshold!r}'
         )
@@ -159,7 +153,7 @@ def check_cell_count_method(method: object, *, source: str = 'The cell-count met
         low = _method_field(method, ('filters', *path, 'min'), source)
         high = _method_field(method, ('filters', *path, 'max'), source)
         for bound, value in (('min', low), ('max', high)):
-            if value is not None and not _is_number(value):
+            if value is not None and not is_finite_number(value):
                 _refuse_method(source, f'{name}.{bound} must be a number or null, not {value!r}')
         if low is not None and high is not None and low > high:
             _refuse_method(source, f'{name}.min ({low}) is above its max ({high})')

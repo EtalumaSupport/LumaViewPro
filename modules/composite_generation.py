@@ -1,11 +1,11 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-import math
 import pathlib
 
 import pandas as pd
 
 import modules.common_utils as common_utils
+from modules.finite_number import is_finite_number
 from modules.composite_builder import brightness_cutoff_from_percent, build_composite
 import modules.image_mode as image_mode
 import modules.image_utils as image_utils
@@ -25,11 +25,7 @@ def _is_valid_threshold_percent(value: object) -> bool:
     comparison against it is False -- a NaN cutoff admits no pixel and drops
     the layer, which is the silent outcome this check exists to prevent.
     """
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return False
-    if math.isnan(value):
-        return False
-    return 0 <= value <= 100
+    return is_finite_number(value) and 0 <= value <= 100
 
 
 class CompositeGeneration(ProtocolPostProcessor):

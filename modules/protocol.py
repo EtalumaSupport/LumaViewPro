@@ -30,6 +30,7 @@ from modules.exceptions import (
 from modules.notification_center import notifications
 
 import modules.common_utils as common_utils
+from modules.finite_number import is_finite_number, refuse_unless_finite_number
 import modules.labware_loader as labware_loader
 from modules.tiling_config import TilingConfig
 from modules.zstack_config import ZStackConfig
@@ -142,7 +143,13 @@ def _refuse_unless_zstack_has_extent(zstack_params: dict) -> None:
     Such a stack has no planes, and building it used to produce a protocol
     unchanged (or one plane per position) reported as success: the caller
     asked for a stack and got a photograph.
+
+    Raises:
+        ArgumentRefusedError: ``'not_a_number'``, the range or the step size
+            is not a finite number, which a comparison with zero would pass.
     """
+    for key in ('range', 'step_size'):
+        refuse_unless_finite_number(zstack_params[key], f'z-stack {key}')
     if zstack_params['range'] <= 0 or zstack_params['step_size'] <= 0:
         _refuse_build(
             reason='zstack_not_configured',
@@ -380,7 +387,7 @@ def _float_cell(value: object) -> float:
         number = float(value)
     except (TypeError, ValueError):
         raise ValueError('is not a number') from None
-    if not np.isfinite(number):
+    if not is_finite_number(number):
         raise ValueError('is not a number')
     return number
 

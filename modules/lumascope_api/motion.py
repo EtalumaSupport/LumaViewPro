@@ -40,6 +40,7 @@ from drivers.exceptions import HardwareError, MotionInterlockError
 from drivers.null_motorboard import NullMotionBoard
 from lib import profile_trace
 from lvp_logger import logger
+from modules.finite_number import refuse_unless_finite_number
 from modules.exceptions import (
     AxisStateUnknownError,
     HardwareCommandRefusedError,
@@ -1923,7 +1924,10 @@ class MotionAPI:
                 recovery paths only -- see ``_pre_drive``.
 
         Raises:
-            ValueError: If axis is invalid or position is not numeric.
+            ValueError: If axis is invalid.
+            ArgumentRefusedError: ``'not_a_number'``, the position is not a
+                finite number; refused before any limit, the safety limit on
+                the ``ignore_limits`` path included.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller or no such axis (see
                 ``_refuse_absent``); nothing was driven.
@@ -1941,8 +1945,7 @@ class MotionAPI:
         if axis not in _VALID_AXIS_NAMES:
             raise ValueError(f'Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}')
         self._refuse_absent('move_absolute', axis)
-        if not isinstance(position, (int, float)):
-            raise ValueError(f'Position must be numeric, got {type(position).__name__}')
+        refuse_unless_finite_number(position, 'position')
 
         if frame == 'plate':
             position = self._plate_target_to_stage(axis, position, ignore_limits=ignore_limits)
@@ -2108,7 +2111,9 @@ class MotionAPI:
             overshoot_enabled: Allow Z overshoot for backlash compensation.
 
         Raises:
-            ValueError: If axis is invalid or distance is not numeric / out of bounds.
+            ValueError: If axis is invalid or distance is out of bounds.
+            ArgumentRefusedError: ``'not_a_number'``, the distance is not a
+                finite number.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller or no such axis (see
                 ``_refuse_absent``); nothing was driven.
@@ -2128,8 +2133,7 @@ class MotionAPI:
         if axis not in _VALID_AXIS_NAMES:
             raise ValueError(f'Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}')
         self._refuse_absent('move_relative', axis)
-        if not isinstance(distance, (int, float)):
-            raise ValueError(f'Distance must be numeric, got {type(distance).__name__}')
+        refuse_unless_finite_number(distance, 'distance')
         if abs(distance) > MOTOR_POSITION_LIMIT:
             # Same refusal as the absolute path, reachable the same way.
             raise PositionOutOfRangeError(
@@ -2572,7 +2576,10 @@ class MotionAPI:
                 else ``'faulted'``), or was still moving
                 when ``timeout_s`` ran out (``'still_moving'``; its state is
                 left to its own move).
+            ArgumentRefusedError: ``'not_a_number'``, ``timeout_s`` is not a
+                finite number; a NaN deadline would end the wait at once.
         """
+        refuse_unless_finite_number(timeout_s, 'timeout_s')
         with self._axis_state_lock:
             moving = [
                 ax

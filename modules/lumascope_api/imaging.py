@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 import modules.common_utils as common_utils
+from modules.finite_number import refuse_unless_finite_number
 import modules.image_utils as image_utils
 from drivers.exceptions import HardwareError
 from lib import profile_trace
@@ -254,7 +255,9 @@ def cap_stored_value(stored: float, cap: float | None) -> AppliedCameraSetting:
 
     An unknown cap (no camera, or a driver that publishes none) narrows
     nothing: a missing bound is not a bound of zero, and inventing one here
-    would apply a limit no hardware asked for.
+    would apply a limit no hardware asked for. ``stored`` is a finite
+    number: its callers refuse any other, since ``nan <= cap`` is False and
+    NaN would be applied as the camera's maximum.
     """
     value = float(stored)
     if cap is None or value <= cap:
@@ -1438,8 +1441,11 @@ class ImagingAPI:
         undeclared end is not checked.
 
         Raises:
+            ArgumentRefusedError: ``'not_a_number'``, the request is not a
+                finite number, which no range admits.
             CameraSettingOutOfRangeError: The request is outside the range.
         """
+        refuse_unless_finite_number(requested, setting)
         value = float(requested)
         if (minimum is not None and value < minimum) or (maximum is not None and value > maximum):
             raise CameraSettingOutOfRangeError(
@@ -1473,6 +1479,8 @@ class ImagingAPI:
                 was removed during the write.
 
         Raises:
+            ArgumentRefusedError: ``'not_a_number'``, the gain is not a
+                finite number; nothing was sent to the camera.
             CameraSettingOutOfRangeError: The gain is outside the range the
                 camera declares; nothing was sent to it.
             CameraSettingRejected: A live driver confirmed it refused the
@@ -1518,6 +1526,8 @@ class ImagingAPI:
                 during the write.
 
         Raises:
+            ArgumentRefusedError: ``'not_a_number'``, the exposure is not a
+                finite number; nothing was sent to the camera.
             CameraSettingOutOfRangeError: The exposure is outside the range
                 the camera declares; nothing was sent to it.
             CameraSettingRejected: A live driver confirmed it refused the
@@ -2456,6 +2466,8 @@ class ImagingAPI:
             CameraSettingUnsupportedError: This camera has no black level
                 setting (``capabilities.camera_supports_black_level`` is
                 False). Nothing reached the camera.
+            ArgumentRefusedError: ``'not_a_number'``, the value is not a
+                finite number; nothing was sent to the camera.
             CameraSettingOutOfRangeError: The value is outside the range the
                 camera reports for its current pixel format; nothing was sent.
             CameraSettingRejected: The camera refused it, as a camera holding
@@ -3522,7 +3534,13 @@ class ImagingAPI:
         only the dispatch described on ``_dispatch_camera``. ``timeout_s``
         stays the content-gate retry budget the body reads; the executor
         wait is bounded separately and internally.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'``, a time is not a finite
+                number; NaN would make the body's drain deadline never pass.
         """
+        for name, value in (('timeout_s', timeout_s), ('sum_delay_s', sum_delay_s)):
+            refuse_unless_finite_number(value, name)
         # The executor wait is a liveness bound, not a budget, so it scales
         # with the work the caller declared: the content-gate retry budget
         # runs inside the body, and each summed frame costs an exposure plus
@@ -3982,7 +4000,17 @@ class ImagingAPI:
         pass-through would re-open the door this split closed.
 
         See ``_get_image_impl`` for the full argument contract.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'``, a time is not a finite
+                number.
         """
+        for name, value in (
+            ('timeout_s', timeout_s),
+            ('sum_delay_s', sum_delay_s),
+            ('new_capture_timeout_s', new_capture_timeout_s),
+        ):
+            refuse_unless_finite_number(value, name)
         return self._get_image_impl(
             force_to_8bit=force_to_8bit,
             timeout_s=timeout_s,
@@ -4398,7 +4426,12 @@ class ImagingAPI:
         stored value itself -- against this cap or against a widget's
         range -- is a second answerer, and the store it writes back is
         how a user's setting gets destroyed by connecting a smaller body.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'``, the gain is not a
+                finite number.
         """
+        refuse_unless_finite_number(stored_gain_db, 'stored_gain_db')
         return cap_stored_value(stored_gain_db, self.max_gain_db_cached)
 
     @api
@@ -4407,7 +4440,12 @@ class ImagingAPI:
 
         See ``applied_gain_db_for``; the same contract for the other
         quantity, so both travel the same path to hardware and to display.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'``, the exposure is not a
+                finite number.
         """
+        refuse_unless_finite_number(stored_exposure_ms, 'stored_exposure_ms')
         return cap_stored_value(stored_exposure_ms, self.max_exposure_ms_cached)
 
     @api
@@ -4845,7 +4883,10 @@ class ImagingAPI:
                 shown here.
             CameraSettingUnsupportedError: The camera has no hardware
                 auto-gain, so there is no target to set.
+            ArgumentRefusedError: ``'not_a_number'``, the target is not a
+                finite number.
         """
+        refuse_unless_finite_number(target_brightness, 'target_brightness')
         result = self._dispatch_camera(
             self._update_auto_gain_target_brightness_impl,
             'update_auto_gain_target_brightness',

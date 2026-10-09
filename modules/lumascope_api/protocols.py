@@ -34,6 +34,7 @@ from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
 import modules.common_utils as common_utils
+from modules.finite_number import refuse_unless_finite_number
 from modules.coord_transformations import CoordinateTransformer
 from modules.exceptions import (
     PositionOutOfRangeError,
@@ -418,14 +419,16 @@ class ProtocolsAPI:
         Raises:
             ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
                 has no Z axis. Logged and notified once.
-            PositionOutOfRangeError: ``z_um`` is NaN or infinite, or lies
-                outside Z's travel.
+            ArgumentRefusedError: ``'not_a_number'``, ``z_um`` is not a
+                finite number.
+            PositionOutOfRangeError: ``z_um`` lies outside Z's travel.
         """
         self._refuse_no_focus_axis(then)
+        refuse_unless_finite_number(z_um, 'z_um')
         z = float(z_um)
         limits = self._scope.motion.get_axis_limits('Z')
         low, high = (-math.inf, math.inf) if limits is None else (limits['min'], limits['max'])
-        if not (math.isfinite(z) and low <= z <= high):
+        if not low <= z <= high:
             raise PositionOutOfRangeError('Z', z, low, high)
         return z
 
@@ -566,6 +569,8 @@ class ProtocolsAPI:
             ProtocolRunRefusedError: ``range_um`` or ``step_size_um`` is not
                 greater than zero, the scope has no Z motor, or a slice falls
                 outside the Z travel. Nothing changes.
+            ArgumentRefusedError: ``'not_a_number'``, ``range_um`` or
+                ``step_size_um`` is not a finite number. Nothing changes.
             ConfigError: ``z_reference`` is not one of the three. Nothing
                 changes.
         """

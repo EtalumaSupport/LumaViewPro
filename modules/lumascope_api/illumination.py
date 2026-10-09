@@ -23,6 +23,7 @@ from drivers.null_ledboard import NullLEDBoard
 from lib import profile_trace
 from lvp_logger import logger
 from modules import common_utils
+from modules.finite_number import refuse_unless_finite_number
 from modules.exceptions import ConfigError, HardwareCommandRefusedError, MissingPart
 from modules.sequential_io_executor import IOTask
 from modules.api_surface import api, api_fields
@@ -663,6 +664,8 @@ class IlluminationAPI:
 
         Raises:
             ValueError: If channel or illumination_ma is out of range.
+            ArgumentRefusedError: ``'not_a_number'``, ``illumination_ma`` is
+                not a finite number.
             ConfigError: If a name that is no layer is given (see
                 ``_on_channel``).
             HardwareCommandRefusedError: ``'not_connected'`` with no LED
@@ -670,12 +673,9 @@ class IlluminationAPI:
                 model does not have. Nothing was sent.
         """
         channel = self._on_channel(channel, 'led_on')
+        refuse_unless_finite_number(illumination_ma, 'illumination_ma')
         led_max_ma = self._scope.capabilities.led_max_ma
-        if (
-            not isinstance(illumination_ma, (int, float))
-            or illumination_ma < 0
-            or illumination_ma > led_max_ma
-        ):
+        if illumination_ma < 0 or illumination_ma > led_max_ma:
             raise ValueError(f'LED current must be 0-{led_max_ma} mA, got {illumination_ma}')
         commanded_ma = self._driver.commanded_ma(illumination_ma)
 

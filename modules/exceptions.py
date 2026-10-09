@@ -2415,6 +2415,41 @@ class SessionClosingError(Refusal, Exception):
         self.activity = activity
 
 
+class ArgumentRefusedError(Refusal, ValueError):
+    """An argument the scope cannot act on: it breaks a fixed rule, whatever the scope's state.
+
+    Raised by the member that owns the rule, before anything is commanded
+    or stored, so every caller -- REST, the SDK, the GUI, a run's own
+    engine -- is refused alike. A ``ValueError``, as the bare raises it
+    replaces were, so a caller catching a bad argument keeps working.
+
+    Attributes:
+        reason: ``'not_a_number'`` -- a number was needed and the value is
+            not a finite one: NaN, an infinity, a ``bool`` or not a number
+            at all. Every comparison with NaN is False, so a range check
+            alone passes it.
+        argument: The name of the argument refused.
+        value: What was given, as given.
+    """
+
+    cause = RefusalCause.REQUEST
+    _WORDS: ClassVar[dict[str, tuple[str, str]]] = {
+        'not_a_number': (
+            'Not a Number',
+            '{argument} must be a finite number; {value!r} is not one.',
+        ),
+    }
+
+    def __init__(self, reason: str, *, argument: str, value: object):
+        if reason not in self._WORDS:
+            raise TypeError(f'ArgumentRefusedError has no words for the reason {reason!r}')
+        self.title, words = self._WORDS[reason]
+        super().__init__(words.format(argument=argument, value=value))
+        self.reason = reason
+        self.argument = argument
+        self.value = value
+
+
 class AccelerationLimitRefusedError(Refusal, ValueError):
     """An acceleration limit no board may be given was refused; nothing was commanded or stored.
 

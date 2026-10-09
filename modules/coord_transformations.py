@@ -10,6 +10,7 @@ All transforms use the labware dimensions and stage_offset (um) for
 the current plate mounting position.
 """
 
+from modules.finite_number import refuse_unless_finite_number
 import modules.labware as lw
 
 
@@ -45,7 +46,7 @@ class CoordinateTransformer:
         stage_offset: dict[str, float],
         sx: float,
         sy: float,
-    ):
+    ) -> tuple[float, float]:
         """Convert stage coordinates (um) to plate coordinates (mm).
 
         Args:
@@ -58,8 +59,12 @@ class CoordinateTransformer:
 
         Raises:
             NoLabwareSelectedError: If labware is None.
+            ArgumentRefusedError: ``'not_a_number'``, ``sx`` or ``sy`` is not
+                a finite number.
         """
         labware = _require_labware(labware)
+        for name, value in (('sx', sx), ('sy', sy)):
+            refuse_unless_finite_number(value, name)
         dim_max = labware.get_dimensions()
 
         px = dim_max['x'] - (stage_offset['x'] + sx) / 1000
@@ -86,6 +91,8 @@ class CoordinateTransformer:
 
         Raises:
             NoLabwareSelectedError: If labware is None.
+            ArgumentRefusedError: ``'not_a_number'``, ``px`` or ``py`` is not
+                a finite number.
 
         This is a pure transform and does NOT bound its input: callers
         that ENUMERATE candidate positions -- protocol validation, tile
@@ -97,10 +104,8 @@ class CoordinateTransformer:
         the enumerators do their own checking, and no user reads it.
         """
         labware = _require_labware(labware)
-        if not isinstance(px, (int, float)) or not isinstance(py, (int, float)):
-            raise ValueError(
-                f'Plate coordinates must be numeric, got ({type(px).__name__}, {type(py).__name__})'
-            )
+        for name, value in (('px', px), ('py', py)):
+            refuse_unless_finite_number(value, name)
 
         dim_max = labware.get_dimensions()
 

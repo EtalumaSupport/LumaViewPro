@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from lvp_logger import log_dir, logger, version
+from modules.finite_number import refuse_unless_finite_number
 from modules.api_surface import api
 from modules.exceptions import HardwareCommandRefusedError, MissingPart
 
@@ -282,7 +283,12 @@ class DiagnosticsAPI:
                 num_frames_requested, num_frames_received, num_frames_none,
                 num_frames_error, total_bytes, elapsed_seconds,
                 mb_per_second, fps_actual, frame_sizes, errors, passed.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'``, ``timeout_s`` is not a finite
+                number. Nothing reached the camera.
         """
+        refuse_unless_finite_number(timeout_s, 'timeout_s')
         results = {
             'num_frames_requested': int(num_frames),
             'num_frames_received': 0,
@@ -389,7 +395,14 @@ class DiagnosticsAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected.
+            ArgumentRefusedError: ``'not_a_number'``, a time is not a finite
+                number. Nothing reached the camera.
         """
+        for name, value in (
+            ('inter_cycle_delay_ms', inter_cycle_delay_ms),
+            ('slow_threshold_s', slow_threshold_s),
+        ):
+            refuse_unless_finite_number(value, name)
         bound_s = num_cycles * (self._GRAB_CYCLE_BOUND_S + max(0.0, inter_cycle_delay_ms) / 1000.0)
         return self._scope.imaging._dispatch_camera(
             self._run_grab_lifecycle_benchmark_impl,
@@ -622,7 +635,10 @@ class DiagnosticsAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected.
+            ArgumentRefusedError: ``'not_a_number'``, ``duration_s`` is not a finite
+                number. Nothing reached the camera.
         """
+        refuse_unless_finite_number(duration_s, 'duration_s')
         return self._scope.imaging._dispatch_camera(
             self._run_pylon_diagnostic_probe_impl,
             'run_pylon_diagnostic_probe',
@@ -1036,8 +1052,11 @@ class DiagnosticsAPI:
                 the handshake). Nothing was sent.
             HardwareError: The board did not complete the handshake; the
                 driver has already tried to bring it back to safe mode.
+            ArgumentRefusedError: ``'not_a_number'``, ``timeout_s`` is not a
+                finite number. Nothing was sent.
         """
         self._refuse_no_led_engineering_mode('enter_led_engineering_mode')
+        refuse_unless_finite_number(timeout_s, 'timeout_s')
         self._scope.motion._dispatch_motion(
             self._enter_led_engineering_mode_impl,
             'enter_led_engineering_mode',

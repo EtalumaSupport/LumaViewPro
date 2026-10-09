@@ -42,6 +42,7 @@ from modules import (
     path_utils,
     settings_paths,
 )
+from modules.finite_number import refuse_unless_finite_number
 from modules.activity_claim import (
     SCOPE_HOLDING_KINDS,
     ActivityClaim,
@@ -2043,6 +2044,8 @@ class ScopeSession:
             ProtocolRunRefusedError: ``range_um`` or ``step_size_um`` is not
                 greater than zero, the scope has no Z motor, or a slice falls
                 outside the Z travel. Nothing changes.
+            ArgumentRefusedError: ``'not_a_number'``, ``range_um`` or
+                ``step_size_um`` is not a finite number. Nothing changes.
             ConfigError: ``z_reference`` is not one of the three. Nothing
                 changes.
         """
@@ -3718,7 +3721,11 @@ class ScopeSession:
                 at the stored binning. Nothing is stored.
             CameraSettingRejected: The camera refused the frame. Nothing is
                 stored.
+            ArgumentRefusedError: ``'not_a_number'``, a side is not a finite
+                number. Nothing is stored.
         """
+        for side, value in (('width', width), ('height', height)):
+            refuse_unless_finite_number(value, side)
         factor = binning.binning_size_str_to_int(self.settings['binning']['size'])
         native = {'width': int(width) * factor, 'height': int(height) * factor}
         target = binning.native_to_displayed(

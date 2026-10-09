@@ -1,5 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+from modules.finite_number import refuse_unless_finite_number
 from modules.api_surface import api, api_fields
 
 
@@ -104,7 +105,13 @@ class WellPlate(LabWare):
         than half a pitch beyond the outer well centres, off the plate's
         wells. No shipped plate states a well size, so within the grid a
         position names its nearest well whether or not it is inside it.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'``, ``x`` or ``y`` is not a
+                finite number, which names no well.
         """
+        for name, value in (('x', x), ('y', y)):
+            refuse_unless_finite_number(value, name)
         if not self.has_wells():
             # Clipping to [0, -1] would fabricate index -1 for EVERY input
             # (rendered as label '@0' and a bogus well ring at plate
