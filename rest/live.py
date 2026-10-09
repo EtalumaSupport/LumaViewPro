@@ -10,8 +10,8 @@ One frame listener serves every watcher, attached while anyone watches. It
 keeps a copy of the newest frame and returns, on the camera's thread; each
 client encodes the newest frame when it is ready for one, so a slow client
 skips frames rather than falling behind, and the camera is never held up.
-Each part carries ``X-Frame-Ordinal``, the frame's number since the view
-began, so a client can tell what it skipped. A camera removed while
+Each part carries ``X-Frame-Ordinal``, a count of the frames received
+while anyone watched, never reset, so a client can tell what it skipped. A camera removed while
 watched leaves the stream holding: its listener is put back when the
 camera returns, and the frames resume.
 """
