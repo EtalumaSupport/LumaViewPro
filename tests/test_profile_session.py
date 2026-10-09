@@ -104,6 +104,26 @@ def _main_log(folder):
     return folder / 'logs' / 'LVP_Log' / 'lumaviewpro.log'
 
 
+def _evidence(pid, folder):
+    """What the profiler had to go on, read while the process lives, for a miss's message.
+
+    These tests failed once in a push suite (both on one xdist worker) and in
+    no run since, alone or under load; a miss names the process's start, every
+    banner line on disk and what the profiler parsed from it.
+    """
+    import psutil
+
+    lines = [f'process {pid} started {psutil.Process(pid).create_time():.3f}']
+    for path in sorted(_main_log(folder).parent.glob('lumaviewpro*')):
+        lines.append(f'{path.name}: {path.stat().st_size} bytes')
+        lines.append(
+            f'  parsed: {[(when, b.get("pid")) for when, b in profile_session._banners(path)]}'
+        )
+        text = path.read_text(errors='replace').splitlines()
+        lines += [f'  {line}' for line in text if '[LVP Main  ]' in line][:10]
+    return '\n'.join(lines)
+
+
 def _foreign_banner(pid, when):
     stamp = time.strftime('%m/%d/%Y %H:%M:%S.000', time.localtime(when))
     lines = [('Version', 'other'), ('PID', str(pid)), ('Git', 'other')]
@@ -124,9 +144,11 @@ def test_a_profile_names_the_build_its_process_launched_with(tmp_path, monkeypat
         artifact = json.loads(
             profile_session.profile(pid, 1, 50, 'probe', tmp_path / 'out', None).read_text()
         )
+        evidence = _evidence(pid, folder)
 
     assert artifact['manifest']['sampler'] == _sampler()
     build = artifact['manifest']['build']
+    assert build is not None, f'{artifact["manifest"]["build_identity_source"]}\n{evidence}'
     assert set(build) == {'version', 'built', 'commit_guid', 'build_id', 'runtime', 'pid', 'git'}
     assert build['pid'] == str(pid)
     assert build['version'] == (REPO / 'version.txt').read_text().splitlines()[0].strip()
@@ -138,7 +160,9 @@ def test_a_banner_rotated_into_a_backup_is_found_there(tmp_path):
 
     with _lumaviewpro(folder, 'rotated') as pid:
         found = profile_session._build_of(pid)
+        evidence = _evidence(pid, folder)
 
+    assert found['build'] is not None, f'{found["build_identity_source"]}\n{evidence}'
     assert found['build']['pid'] == str(pid)
     assert pathlib.Path(found['build_identity_source']).name == 'lumaviewpro.1.log'
 
