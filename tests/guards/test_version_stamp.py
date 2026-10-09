@@ -1,21 +1,26 @@
-"""version.txt has one writer, and a detached checkout keeps its branch line.
+"""version.txt has one writer, three lines, and names no branch.
 
-Two hooks stamp the file. Until 2026-09-20 they were two hand-kept copies:
-the pre-commit's asked git for the branch name with a command that prints
-the literal ``HEAD`` in a detached checkout, so the triage worktree stamped
-``HEAD`` onto the trunk; and the post-merge, unmanaged, wrote three lines
-into a four-line format and so dropped the commit id on every merge, then
-fired on every peer's pull because line 3 no longer matched a branch. Both
-scripts now embed one block, pinned here through the installer's symbols.
+The pre-commit hook stamps the file: the release, the commit timestamp and
+a random commit GUID. It named a branch on line 3 until 2026-10-08, and a
+commit made from a detached worktree, as every track's are, kept whatever
+name the worktree inherited, so `fx2/stage4` rode 30 of 40 trunk commits
+into every banner. A post-merge hook existed only to restamp that line and
+went with it.
+
+A clone runs the hook it has installed, not the one in the tree, so an old
+hook would go on writing four lines; the shape test below stops such a
+clone at its next commit and says how to update the hook.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
-from tools.install_hooks import _BRANCH_BLOCK, _HOOK_SCRIPT, _POST_MERGE_SCRIPT, _STAMP_BLOCK
+from tests.ast_seams import REPO_ROOT
+from tools.install_hooks import _HOOK_SCRIPT, _STAMP_BLOCK
 
 _WRITE = '> "$VERSION_FILE"'
 
@@ -28,23 +33,35 @@ _WRITE = '> "$VERSION_FILE"'
 # runs the hook it has installed, not the one in the tree.
 _CLEAN_ENV = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
 
+# A GUID the stamp makes: eight hex digits, or its fallback when neither
+# python3 nor openssl can make one.
+_GUID = re.compile(r'[0-9a-f]{8}|nogenuid')
 
-def test_both_hooks_embed_the_one_stamp_block():
+
+def test_the_hook_embeds_the_one_stamp_block():
     assert _STAMP_BLOCK in _HOOK_SCRIPT
-    assert _STAMP_BLOCK in _POST_MERGE_SCRIPT
 
 
 def test_nothing_writes_the_file_outside_the_block():
     assert _STAMP_BLOCK.count(_WRITE) == 1
-    for script in (_HOOK_SCRIPT, _POST_MERGE_SCRIPT):
-        assert script.count(_WRITE) == 1, 'a second writer of version.txt has appeared in a hook'
+    assert _HOOK_SCRIPT.count(_WRITE) == 1, (
+        'a second writer of version.txt has appeared in the hook'
+    )
 
 
-def test_the_block_does_not_ask_git_for_a_branch_it_cannot_name():
-    # `rev-parse --abbrev-ref HEAD` succeeds in a detached checkout and prints
-    # the literal HEAD; the fallback after it never fires.
-    assert 'rev-parse --abbrev-ref' not in _STAMP_BLOCK
-    assert 'rev-parse --abbrev-ref' not in _POST_MERGE_SCRIPT
+def test_the_block_asks_git_for_no_branch():
+    for asks in ('symbolic-ref', '@{u}', '--abbrev-ref'):
+        assert asks not in _STAMP_BLOCK
+
+
+def test_version_txt_has_the_three_line_shape():
+    lines = (REPO_ROOT / 'version.txt').read_text(encoding='utf-8-sig').splitlines()
+    assert len(lines) == 3 and re.fullmatch(r'\d{4}-\d\d-\d\d \d\d:\d\d', lines[1]), (
+        f'version.txt is {lines!r}, not release / timestamp / GUID. A four-line file '
+        f'was written by an out-of-date stamp hook: run python3 tools/install_hooks.py '
+        f'--install, then restage version.txt'
+    )
+    assert _GUID.fullmatch(lines[2])
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -53,13 +70,13 @@ def _git(repo: Path, *args: str) -> str:
     ).strip()
 
 
-def _repo_with_version_file(tmp_path: Path, branch_line: str) -> Path:
+def _repo_with_version_file(tmp_path: Path) -> Path:
     repo = tmp_path / 'repo'
     repo.mkdir()
     _git(repo, 'init', '-q', '-b', 'dev/x')
     _git(repo, 'config', 'user.email', 't@t')
     _git(repo, 'config', 'user.name', 't')
-    (repo / 'version.txt').write_text(f'1.0\n2000-01-01 00:00\n{branch_line}\n00000000\n')
+    (repo / 'version.txt').write_text('1.0\n2000-01-01 00:00\n00000000\n')
     _git(repo, 'add', 'version.txt')
     _git(repo, 'commit', '-q', '-m', 'seed')
     return repo
@@ -71,97 +88,31 @@ def _run_stamp(repo: Path) -> list[str]:
     return (repo / 'version.txt').read_text().splitlines()
 
 
-def test_a_detached_checkout_keeps_line_3_and_all_four_lines(tmp_path):
-    repo = _repo_with_version_file(tmp_path, 'dev/x')
+def _assert_stamped(lines: list[str]) -> None:
+    assert len(lines) == 3
+    assert lines[0] == '1.0'
+    assert re.fullmatch(r'\d{4}-\d\d-\d\d \d\d:\d\d', lines[1]) and lines[1] != '2000-01-01 00:00'
+    assert _GUID.fullmatch(lines[2]) and lines[2] != '00000000'
+
+
+def test_a_named_branch_stamps_three_lines(tmp_path):
+    repo = _repo_with_version_file(tmp_path)
+    _git(repo, 'checkout', '-q', '-b', 'feature/y')
+    _assert_stamped(_run_stamp(repo))
+
+
+def test_a_detached_checkout_stamps_three_lines(tmp_path):
+    repo = _repo_with_version_file(tmp_path)
     _git(repo, 'checkout', '-q', '--detach')
-    lines = _run_stamp(repo)
-    assert len(lines) == 4
-    assert lines[2] == 'dev/x'
-    assert lines[3] != '00000000'
+    _assert_stamped(_run_stamp(repo))
 
 
-def test_a_named_branch_stamps_its_own_name(tmp_path):
-    repo = _repo_with_version_file(tmp_path, 'dev/x')
-    _git(repo, 'checkout', '-q', '-b', 'feature/y')
-    lines = _run_stamp(repo)
-    assert len(lines) == 4
-    assert lines[2] == 'feature/y'
-
-
-def _run_post_merge(repo: Path) -> None:
-    subprocess.run(['bash', '-c', _POST_MERGE_SCRIPT], check=True, cwd=repo, env=_CLEAN_ENV)
-
-
-def test_a_fast_forward_pull_makes_no_commit(tmp_path):
-    # Under one trunk line 3 names the checkout that AUTHORED the last stamped
-    # commit, so after a fast-forward it routinely differs from this
-    # checkout's branch; that is not a merge to refresh.
-    repo = _repo_with_version_file(tmp_path, 'triage/short-lived')
-    before = _git(repo, 'rev-parse', 'HEAD')
-    _run_post_merge(repo)
-    assert _git(repo, 'rev-parse', 'HEAD') == before
-    assert (repo / 'version.txt').read_text().splitlines()[2] == 'triage/short-lived'
-
-
-def test_a_merge_commit_restamps_to_the_destination_branch(tmp_path):
-    repo = _repo_with_version_file(tmp_path, 'dev/x')
-    _git(repo, 'checkout', '-q', '-b', 'feature/y')
-    (repo / 'version.txt').write_text('1.0\n2000-01-01 00:00\nfeature/y\n11111111\n')
-    _git(repo, 'commit', '-q', '-am', 'on the feature')
-    _git(repo, 'checkout', '-q', 'dev/x')
-    (repo / 'other.txt').write_text('x\n')
-    _git(repo, 'add', 'other.txt')
-    _git(repo, 'commit', '-q', '-m', 'on the trunk')
-    _git(repo, 'merge', '-q', '--no-ff', '--no-edit', 'feature/y')
-    merge = _git(repo, 'rev-parse', 'HEAD')
-    _run_post_merge(repo)
-    assert _git(repo, 'rev-parse', 'HEAD') != merge
-    lines = (repo / 'version.txt').read_text().splitlines()
-    assert len(lines) == 4
-    assert lines[2] == 'dev/x'
-
-
-def _tracking_the_trunk_under_another_name(repo: Path, local: str) -> None:
-    """A worktree's shape: local branch `local`, upstream the remote trunk."""
+def test_a_branch_tracking_the_trunk_stamps_three_lines(tmp_path):
+    repo = _repo_with_version_file(tmp_path)
     origin = repo.parent / 'origin.git'
     _git(repo, 'init', '-q', '--bare', str(origin))
     _git(repo, 'remote', 'add', 'origin', str(origin))
     _git(repo, 'push', '-q', 'origin', 'dev/x')
-    _git(repo, 'checkout', '-q', '-b', local)
+    _git(repo, 'checkout', '-q', '-b', 'triage/shape-a-5.3')
     _git(repo, 'branch', '-q', '-u', 'origin/dev/x')
-
-
-def test_the_branch_block_is_the_one_source_of_the_name_in_both_hooks():
-    assert _STAMP_BLOCK.count(_BRANCH_BLOCK) == 1
-    assert _POST_MERGE_SCRIPT.count(_BRANCH_BLOCK) == 2
-    assert 'symbolic-ref --short' not in _POST_MERGE_SCRIPT.replace(_BRANCH_BLOCK, '')
-
-
-def test_a_branch_tracking_the_trunk_stamps_the_trunk_not_its_own_name(tmp_path):
-    repo = _repo_with_version_file(tmp_path, 'dev/x')
-    _tracking_the_trunk_under_another_name(repo, 'triage/shape-a-5.3')
-    lines = _run_stamp(repo)
-    assert len(lines) == 4
-    assert lines[2] == 'dev/x'
-
-
-def test_an_upstream_on_a_local_branch_stamps_that_branch(tmp_path):
-    repo = _repo_with_version_file(tmp_path, 'dev/x')
-    _git(repo, 'checkout', '-q', '-b', 'feature/y')
-    _git(repo, 'branch', '-q', '-u', 'dev/x')
-    assert _run_stamp(repo)[2] == 'dev/x'
-
-
-def test_a_merge_on_a_tracking_branch_restamps_to_the_trunk(tmp_path):
-    repo = _repo_with_version_file(tmp_path, 'dev/x')
-    _tracking_the_trunk_under_another_name(repo, 'triage/z')
-    _git(repo, 'checkout', '-q', '-b', 'feature/y')
-    (repo / 'version.txt').write_text('1.0\n2000-01-01 00:00\nfeature/y\n11111111\n')
-    _git(repo, 'commit', '-q', '-am', 'on the feature')
-    _git(repo, 'checkout', '-q', 'triage/z')
-    (repo / 'other.txt').write_text('x\n')
-    _git(repo, 'add', 'other.txt')
-    _git(repo, 'commit', '-q', '-m', 'on the tracking branch')
-    _git(repo, 'merge', '-q', '--no-ff', '--no-edit', 'feature/y')
-    _run_post_merge(repo)
-    assert (repo / 'version.txt').read_text().splitlines()[2] == 'dev/x'
+    _assert_stamped(_run_stamp(repo))

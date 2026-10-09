@@ -76,3 +76,20 @@ def test_a_profile_trace_names_the_one_readers_commit_and_whether_the_tree_was_c
 
     assert sha == revision and sha
     assert isinstance(dirty, bool)
+
+
+def test_the_banner_reads_the_commit_guid_from_line_3_and_names_no_branch(tmp_path):
+    (tmp_path / 'version.txt').write_text('4.0.0-x\n2026-10-09 00:00\nabcd1234\n')
+    code = (
+        'import json, logging, lvp_logger; lines = []; '
+        'handler = logging.Handler(); handler.emit = lambda r: lines.append(r.getMessage()); '
+        'lvp_logger.logger.addHandler(handler); '
+        f'lvp_logger.log_environment_banner({str(tmp_path)!r}, "4.0.0-x", []); '
+        'print(json.dumps(lines))'
+    )
+
+    lines = json.loads(_revision(code, REPO))
+
+    assert '[LVP Main  ] CommitGUID: abcd1234' in lines
+    assert '[LVP Main  ] Built:     2026-10-09 00:00' in lines
+    assert not [line for line in lines if 'Committed on' in line]

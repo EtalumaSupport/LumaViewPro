@@ -7,7 +7,7 @@ runs the mechanical CLAUDE.md rule checks before the commit lands.
 LVP-specific: the managed hook ALSO runs the guard gate, the no-quick-fix
 judge on the staged production change, judged whole, when a Claude Code session names one
 (COMMIT_JUDGE; a terminal commit and a merge commit are not judged),
-and bumps version.txt (timestamp + branch fields) after everything else
+and bumps version.txt (timestamp + commit GUID) after everything else
 passes, replacing the standalone version-bump hook that lived in LVP
 previously. Order is intentional: rule check first so a violation fails
 fast, the guards next, the paid judge after the free gates, and
@@ -50,36 +50,18 @@ from pathlib import Path
 
 _HOOK_MARKER = '# managed by tools/install_hooks.py (CLAUDE.md Rule 31)'
 
-# The branch a commit is GOING TO, for line 3 of version.txt. Every track
-# commits to one trunk, several from worktrees whose local branch carries
-# its own name and tracks the trunk; the local name stamped the trunk with
-# `triage/shape-a-5.3`, and a build's startup banner and every bench bundle
-# named it. So the upstream wins when there is one, with its remote prefix
-# dropped; a branch with no upstream stamps its own name; a detached
-# checkout has neither ($LOCAL empty), and each hook decides what that
-# means for it. Asked with --symbolic-full-name, never --abbrev-ref, which
-# prints the literal HEAD for a detached checkout and reads as a branch.
-_BRANCH_BLOCK = """LOCAL=$(git symbolic-ref --short -q HEAD 2>/dev/null || true)
-UPSTREAM=$(git rev-parse -q --symbolic-full-name '@{u}' 2>/dev/null || true)
-case "$UPSTREAM" in
-    refs/remotes/*) BRANCH=${UPSTREAM#refs/remotes/}; BRANCH=${BRANCH#*/} ;;
-    refs/heads/*) BRANCH=${UPSTREAM#refs/heads/} ;;
-    *) BRANCH=$LOCAL ;;
-esac
-"""
-
-# The one writer of version.txt. Both hooks that stamp the file embed this
-# block verbatim, so a change to the format lands in both by construction;
-# nothing else in either script writes the file. Expects $VERSION_FILE set
-# and present. A detached checkout has no branch name to offer, so line 3
-# keeps the value the checkout inherited from the tip it was cut at.
-_STAMP_BLOCK = f"""VERSION=$(head -1 "$VERSION_FILE")
+# The one writer of version.txt, embedded in the pre-commit hook; nothing
+# else in it writes the file. Expects $VERSION_FILE set and present. It
+# names no branch: a commit made from a detached worktree, as every track's
+# are, cannot know the branch it is going to, and a branch line kept the
+# name the worktree inherited (`fx2/stage4` on 30 of 40 trunk commits,
+# 2026-10-08). The GUID finds the commit, and the commit its branches.
+_STAMP_BLOCK = """VERSION=$(head -1 "$VERSION_FILE")
 TIMESTAMP=$(date "+%Y-%m-%d %H:%M")
-{_BRANCH_BLOCK}[ -z "$BRANCH" ] && BRANCH=$(sed -n '3p' "$VERSION_FILE")
 GUID=$(python3 -c "import uuid; print(uuid.uuid4().hex[:8])" 2>/dev/null \\
     || openssl rand -hex 4 2>/dev/null \\
     || echo "nogenuid")
-printf "%s\\n%s\\n%s\\n%s\\n" "$VERSION" "$TIMESTAMP" "$BRANCH" "$GUID" > "$VERSION_FILE"
+printf "%s\\n%s\\n%s\\n" "$VERSION" "$TIMESTAMP" "$GUID" > "$VERSION_FILE"
 git add "$VERSION_FILE"
 """
 
@@ -193,58 +175,33 @@ else
 fi
 
 {_JUDGE_STAGE}
-# version.txt refresh (LVP-specific). 4-line format:
+# version.txt refresh (LVP-specific). 3-line format:
 #   Line 1: release moniker (manual bump on promotion; path-safe)
 #   Line 2: commit timestamp (this hook rewrites)
-#   Line 3: branch name (this hook rewrites)
-#   Line 4: COMMIT GUID -- random per commit, embedded IN the commit
+#   Line 3: COMMIT GUID -- random per commit, embedded IN the commit
 #           that produces it. Sidesteps the SHA chicken-and-egg: the
 #           GUID does not need to match the resulting SHA; a unique
 #           tag per commit is enough for log triage. Lookup via:
 #               git log -S "<guid>" -- version.txt
-# The stamp block below is version.txt's only writer, embedded in this hook
-# and in post-merge alike. The BUILD ID lives in its own
+# The stamp block below is version.txt's only writer. The BUILD ID lives in its own
 # build_id.txt, written by scripts/appBuild/build.ps1, and identifies a
 # build event rather than a commit. The two shared this file until a
 # build-time rewrite left a byte-order mark on line 1 -- and line 1 is
 # not a diagnostic: it names the user's Documents data folder and is
 # stamped into every saved image's TIFF Software tag, so the mark cost
 # every image save until the writers were separated.
-# Lines 2+3 give triage "branch + timestamp" identity for bench bundles;
-# line 4 gives an exact commit lookup that works in any distribution
-# (ZIP, clone, installer alike) without depending on GitHub or git
-# archive substitution; build_id.txt separates "which build" from "which
-# commit", which line 4 alone cannot do -- rebuilding one SHA produces
-# identical lines 1-4, so builds that differ only in bundled inputs
+# Line 2 gives triage a timestamp for bench bundles; line 3 gives an
+# exact commit lookup that works in any distribution (ZIP, clone,
+# installer alike) without depending on GitHub or git archive
+# substitution; build_id.txt separates "which build" from "which
+# commit", which line 3 alone cannot do -- rebuilding one SHA produces
+# identical lines 1-3, so builds that differ only in bundled inputs
 # were previously indistinguishable in the banner.
 VERSION_FILE="$REPO_ROOT/version.txt"
 if [ -f "$VERSION_FILE" ]; then
 {_STAMP_BLOCK}else
     echo "pre-commit: version.txt absent on this branch -- skipping the version stamp" >&2
 fi
-"""
-
-# Refresh version.txt after a merge COMMIT so lines 2 and 3 name the
-# destination branch rather than the branch merged in: a merge commit does
-# not run pre-commit, so without this every promotion fixed line 3 by hand.
-# A fast-forward is not one: it merges nothing, the commits it brought in
-# were stamped by their own pre-commit, and line 3 names the checkout that
-# authored the last of them, which with every track committing to one
-# trunk is routinely another worktree or a short-lived branch. Restamping
-# after a fast-forward made a contentless commit on every peer's next pull.
-# A detached checkout exits too: the stamp would keep line 3 as it is, so
-# there is nothing to refresh, and refreshing there is what put HEAD on the
-# trunk. The refresh commit skips the hooks: it changes one generated file.
-_POST_MERGE_SCRIPT = f"""#!/usr/bin/env bash
-{_HOOK_MARKER}
-set -e
-REPO_ROOT=$(git rev-parse --show-toplevel)
-VERSION_FILE="$REPO_ROOT/version.txt"
-[ -f "$VERSION_FILE" ] || exit 0
-{_BRANCH_BLOCK}[ -z "$LOCAL" ] && exit 0
-git rev-parse -q --verify 'HEAD^2' >/dev/null 2>&1 || exit 0
-[ "$(sed -n '3p' "$VERSION_FILE")" = "$BRANCH" ] && exit 0
-{_STAMP_BLOCK}git commit -m "release: refresh version.txt after merge (branch=$BRANCH)" --no-verify
 """
 
 # Directories whose .py files are not subject to the rule check.
@@ -282,8 +239,20 @@ def _repo_root() -> Path:
 
 
 def _managed_hooks() -> list[tuple[Path, str]]:
-    hooks = _hooks_dir()
-    return [(hooks / 'pre-commit', _HOOK_SCRIPT), (hooks / 'post-merge', _POST_MERGE_SCRIPT)]
+    return [(_hooks_dir() / 'pre-commit', _HOOK_SCRIPT)]
+
+
+def _remove_retired_hooks() -> None:
+    """Remove a post-merge hook this tool installed, which no longer exists.
+
+    It restamped version.txt's branch line after a merge, and the file names
+    no branch now. Left installed, its old stamp would write the line back on
+    every merge. One this tool did not write is left alone.
+    """
+    hook = _hooks_dir() / 'post-merge'
+    if hook.exists() and _HOOK_MARKER in hook.read_text(encoding='utf-8', errors='replace'):
+        hook.unlink()
+        print(f'Removed the retired post-merge hook at {hook}')
 
 
 def install() -> int:
@@ -304,10 +273,10 @@ def install() -> int:
         hook.write_text(script, encoding='utf-8')
         hook.chmod(0o755)
         print(f'Installed {hook.name} hook at {hook}')
+    _remove_retired_hooks()
     print('  pre-commit delegates to tools/check_rules.py --staged, runs ruff on the index,')
     print('  runs tests/guards on an export of the index, judges the staged production')
     print('  change whole when the session sets COMMIT_JUDGE, then stamps version.txt.')
-    print('  post-merge restamps version.txt when a merge commit changed the branch it names.')
     print('  To bypass for one commit: git commit --no-verify')
     print('  To remove: tools/install_hooks.py --uninstall')
     return 0
@@ -330,6 +299,7 @@ def uninstall() -> int:
             continue
         hook.unlink()
         print(f'Removed {hook.name} hook at {hook}')
+    _remove_retired_hooks()
     return rc
 
 

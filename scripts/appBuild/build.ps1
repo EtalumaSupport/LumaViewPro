@@ -478,8 +478,8 @@ Remove-Item "$clone\.git*" -Recurse -Force -ErrorAction SilentlyContinue
 $ver_raw = (Get-Content "$clone\version.txt" -TotalCount 1).Trim()
 if ($ver_raw -match '^\S+') { $version = $matches[0] } else { Write-Host "ERROR: Can't parse version.txt"; Exit 1 }
 
-# Stamp a real BUILD identity. version.txt lines 2-4 are written by the
-# pre-commit hook and identify a COMMIT (line 4's "GUID" is random per
+# Stamp a real BUILD identity. version.txt lines 2-3 are written by the
+# pre-commit hook and identify a COMMIT (line 3's "GUID" is random per
 # commit, not per build), so every rebuild of one SHA produced banners
 # that were byte-identical -- three builds of f17cac2a on 2026-08-17 all
 # reported the same GUID, and the only way to tell them apart was an

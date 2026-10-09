@@ -640,7 +640,7 @@ def git_revision() -> str | None:
     #      .git present. Installer builds wipe .git so this returns
     #      nothing.
     # Either path that yields a real value wins; otherwise fall back to
-    # Branch + Built + CommitGUID for triage.
+    # Built + CommitGUID for triage.
     _git_hash = None
     try:
         with open(os.path.join(root, '.git_archival.txt')) as _af:
@@ -700,8 +700,8 @@ def log_environment_banner(
 
     # Two DIFFERENT identities, deliberately reported as two lines.
     #
-    # Lines 2-4 (timestamp, branch, GUID) are written by the pre-commit
-    # hook and identify a COMMIT -- the GUID is random per commit, not per
+    # Lines 2-3 (timestamp, GUID) are written by the pre-commit hook and
+    # identify a COMMIT -- the GUID is random per commit, not per
     # build. It was previously labelled "BuildGUID", which reads as a build
     # identity and is not one: three separate builds of one SHA produced
     # byte-identical banners, and telling them apart needed an install-log
@@ -717,17 +717,16 @@ def log_environment_banner(
     # every capture. A diagnostic writer does not share a file with a
     # path-critical string.
     #
-    # Line 3 names the branch the commit was stamped on (its upstream, or the
-    # local branch when it has none), not the branch the build came from: a
-    # commit made on a local branch and landed on the trunk unchanged keeps
-    # the local name. Hence "Committed on", never "Branch".
+    # The file names no branch: a commit made from a detached worktree, as
+    # every track's are, cannot know the branch it is going to, and a branch
+    # line kept whatever name the worktree inherited. The commit names its
+    # branches.
     # Triage chains:
     #   - `git log -S "<guid>" -- version.txt` finds the exact commit
     #     by GUID (works in any distribution).
-    #   - `git log --before=<Built>+1m <Committed on>` finds it by timestamp.
+    #   - `git log --before=<Built>+1m` finds it by timestamp.
     #   - `.git_archival.txt` carries the actual SHA in GitHub ZIPs.
     _built = ''
-    _branch = ''
     _commit_guid = ''
     _build_id = ''
     try:
@@ -736,9 +735,7 @@ def log_environment_banner(
             if len(_lines) >= 2:
                 _built = _lines[1].strip()
             if len(_lines) >= 3:
-                _branch = _lines[2].strip()
-            if len(_lines) >= 4:
-                _commit_guid = _lines[3].strip()
+                _commit_guid = _lines[2].strip()
     except Exception as _e:
         logger.debug(f'[LVP Main  ] version.txt not read from {install_path}: {_e}')
 
@@ -750,7 +747,6 @@ def log_environment_banner(
     except Exception as _e:
         logger.debug(f'[LVP Main  ] build_id.txt not read from {install_path}: {_e}')
     logger.info(f'[LVP Main  ] Built:     {_built or "unknown"}')
-    logger.info(f'[LVP Main  ] Committed on: {_branch or "unknown"}')
     logger.info(f'[LVP Main  ] CommitGUID: {_commit_guid or "unknown"}')
     # A missing build ID means two different things and they must not share
     # a message: an installed exe with no build ID was produced by a build
@@ -771,9 +767,7 @@ def log_environment_banner(
     logger.info(f'[LVP Main  ] Runtime:   {"installed exe" if lvp_installed else "source / dev"}')
 
     _git_hash = git_revision()
-    logger.info(
-        f'[LVP Main  ] Git:       {_git_hash or "unknown (use CommitGUID or Branch + Built)"}'
-    )
+    logger.info(f'[LVP Main  ] Git:       {_git_hash or "unknown (use CommitGUID or Built)"}')
 
     # debug_mode gates all DEBUG-level output (including the preview [PERF]
     # lines). State the resolved value AND which file it came from so a

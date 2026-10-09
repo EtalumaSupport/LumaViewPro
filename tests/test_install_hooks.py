@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.install_hooks import _HOOK_SCRIPT, _JUDGE_STAGE
+from tools.install_hooks import _HOOK_MARKER, _HOOK_SCRIPT, _JUDGE_STAGE, install
 
 # Inherited from a hook, GIT_INDEX_FILE and GIT_DIR point a git command in
 # a temporary repository at the repository being committed (one run of a
@@ -124,7 +124,7 @@ def repo(tmp_path: Path) -> _Repo:
     r.ok('init', '-q', '-b', 'main')
     r.ok('config', 'user.email', 't@t')
     r.ok('config', 'user.name', 't')
-    r.write('version.txt', '1.0\n2000-01-01 00:00\nmain\n00000000\n')
+    r.write('version.txt', '1.0\n2000-01-01 00:00\n00000000\n')
     r.write('modules/x.py', _CLEAN)
     r.write('docs/a.md', 'a\n')
     r.ok('add', 'version.txt', 'modules/x.py', 'docs/a.md')
@@ -226,3 +226,20 @@ def test_ih9_a_merge_concluded_by_hand_is_not_judged_and_says_so(repo):
     assert r.returncode == 0, r.stderr
     assert repo.judged_diff() is None
     assert _MERGE_BANNER in r.stderr
+
+
+@pytest.mark.parametrize('ours', [True, False])
+def test_installing_removes_the_retired_post_merge_it_wrote_and_no_other(repo, monkeypatch, ours):
+    # The post-merge hook restamped version.txt's branch line, which no longer
+    # exists; left installed, its old stamp would write the line back on every
+    # merge. One another tool wrote is not this installer's to remove.
+    for name in [k for k in os.environ if k.startswith('GIT_')]:
+        monkeypatch.delenv(name)
+    post_merge = repo.root / '.git' / 'hooks' / 'post-merge'
+    post_merge.write_text(f'#!/bin/sh\n{_HOOK_MARKER if ours else "# someone else"}\n')
+    monkeypatch.chdir(repo.root)
+
+    assert install() == 0
+
+    assert post_merge.exists() is not ours
+    assert (repo.root / '.git' / 'hooks' / 'pre-commit').read_text() == _HOOK_SCRIPT

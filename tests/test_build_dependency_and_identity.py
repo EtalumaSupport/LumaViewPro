@@ -11,7 +11,7 @@ Two defects these pin, both found on the 2026-08-17 Windows bench trip:
    success and an app failing every IDS connect with
    ``GENICAM_GENTLN_PATH environment variable not found``. Both silent.
 
-2. ``version.txt`` line 4 is written per COMMIT by the pre-commit hook but
+2. ``version.txt``'s GUID line is written per COMMIT by the pre-commit hook but
    was labelled ``BuildGUID``. Three builds of one SHA produced
    byte-identical banners, so a rebuild that changed only bundled inputs
    could not be told apart from its predecessor.
@@ -265,8 +265,8 @@ class TestBannerIdentityContract:
     same way for the same reason.
     """
 
-    def test_line_four_is_reported_as_a_commit_identity(self):
-        """Line 4 is a commit fingerprint and must not be labelled a build one.
+    def test_the_guid_line_is_reported_as_a_commit_identity(self):
+        """The GUID line is a commit fingerprint and must not be labelled a build one.
 
         The pre-commit hook that writes it says so itself: "random per
         commit". Labelling it BuildGUID is what let three builds of one
