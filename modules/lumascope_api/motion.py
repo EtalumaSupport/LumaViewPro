@@ -2395,7 +2395,7 @@ class MotionAPI:
         as that activity's work and takes no claim of its own.
         """
         impl, settle_windows = self._home_body(axis)
-        body, release_if_unrun, taking = self._claim_home(impl)
+        body, release_if_unrun, taking = self.claim_home(impl)
         try:
             with acting(taking):
                 self._dispatch_motion(
@@ -2430,7 +2430,7 @@ class MotionAPI:
                 ``home`` is refused.
         """
         impl, _ = self._home_body(axis)
-        body, release_if_unrun, taking = self._claim_home(impl)
+        body, release_if_unrun, taking = self.claim_home(impl)
         future: concurrent.futures.Future[None] = concurrent.futures.Future()
         # Marked running before anyone else holds it, so only the lane
         # settles it and a caller's cancel() cannot release the claim.
@@ -2459,8 +2459,13 @@ class MotionAPI:
             return self._home_impl, 1
         raise ValueError(f"Unknown home axis {axis!r}: expected 'Z', 'T', or 'ALL'")
 
-    def _claim_home(self, impl) -> tuple[Callable[[], None], Callable[[], None], Taking | None]:
+    def claim_home(
+        self, impl: Callable[[], None]
+    ) -> tuple[Callable[[], None], Callable[[], None], Taking | None]:
         """Take the scope for a home of ``impl``, or refuse this one.
+
+        ``impl`` is a home, or the Session's startup sequence, which holds the
+        scope as one home from its first move to its last.
 
         Returns the lane body, which runs ``impl`` and releases the claim when
         it ends; the release for a body the lane never ran: refused at

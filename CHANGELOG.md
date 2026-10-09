@@ -2,6 +2,17 @@
 
 ## 4.0.0 (in development)
 
+- **The window stays live through the startup home (SDK and GUI)**: new
+  `ScopeSession.begin_application_session()` starts the startup motion -- the home, the turret to
+  position 1, the simulator's sample plane -- and returns a Future at once;
+  `start_application_session()` is the same call waited for, and now refuses a call from an
+  executor's worker. The whole motion holds the scope as one home: every other request is refused
+  naming the home, and the controls lock until it ends. Before, the GUI waited for the motion on
+  its main thread, so the window could not draw for the whole home (about 20 s on an LS850, 40-90 s
+  on an LS720), and the scope was free between the home and the turret move, where a turret pick
+  was undone by the move to position 1. The GUI's after-start steps -- BF opening, the Z slider,
+  the settings and objective questions, the saved protocol, metrics -- run when the motion ends,
+  in the same order as before.
 - **A home no longer logs "Slow task" when it succeeds**: since a home began holding the scope,
   the lane judged every home against a single move's 5 s instead of the home's own 120 s.
 - **The live readouts are on a status line along the bottom of the window (GUI)**: Capture,

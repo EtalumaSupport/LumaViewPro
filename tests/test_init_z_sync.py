@@ -14,24 +14,21 @@ lives elsewhere -- that helper is exercised on every motion end in
 production and any breakage is caught by the existing motion tests.)
 """
 
-from pathlib import Path
+import ast
+
+from tests.ast_seams import find_def
 
 
 def test_complete_initialization_calls_z_sync():
     """Read ``lumaviewpro.py`` source and assert the init sync is wired up.
 
-    A static-source test is brittle but precisely targets the regression:
-    the bug was that the call was missing, so the test must fail when the
-    call is missing.
+    Read from the parsed function, so its body ends where the function
+    does: the bug was that the call was missing, so the test must fail when
+    the call is missing.
     """
-    repo_root = Path(__file__).resolve().parents[1]
-    src = (repo_root / 'lumaviewpro.py').read_text()
-
-    start = src.find('def complete_initialization')
-    assert start != -1, 'complete_initialization() not found in lumaviewpro.py'
-    end = src.find('\n        Clock.schedule_once(complete_initialization', start)
-    assert end != -1, 'complete_initialization() body boundary not found'
-    body = src[start:end]
+    init = find_def('lumaviewpro.py', 'complete_initialization', class_name='LumaViewProApp')
+    assert init is not None, 'complete_initialization() not found in lumaviewpro.py'
+    body = ast.unparse(init)
 
     assert "_handle_ui_update_for_axis('Z')" in body, (
         "complete_initialization() must call _handle_ui_update_for_axis('Z') "

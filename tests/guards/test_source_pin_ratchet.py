@@ -133,7 +133,6 @@ _FRAGILE_PIN = {
     'tests/test_fatal_abort_led_safety.py': 2,
     'tests/test_histogram_display_gating.py': 1,
     'tests/test_image_mode.py': 2,
-    'tests/test_init_z_sync.py': 1,
     'tests/test_installer_log_capture.py': 1,
     'tests/test_issue_629_zproj_picker.py': 1,
     'tests/test_issue_684_jpg_quality_row.py': 1,

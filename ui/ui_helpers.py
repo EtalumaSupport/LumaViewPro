@@ -532,19 +532,6 @@ def _home_settled(done, axis: str) -> None:
     run_reported(done.result, lambda: move_home_cb(axis), f'HOME_{axis}')
 
 
-def startup_home(axis: str) -> None:
-    """The startup home: waits for the home and raises as it does.
-
-    The window title says the scope is homing for its length, and the
-    axis is redrawn however the home ended.
-    """
-    set_title_event_text('Homing, please wait...')
-    try:
-        _app_ctx.ctx.scope.motion.home(axis)
-    finally:
-        move_home_cb(axis)
-
-
 # ============================================================================
 # Window Title Helpers
 # ============================================================================

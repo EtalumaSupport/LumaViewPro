@@ -495,10 +495,13 @@ class TestProvisionalResolutionReAsks:
     def test_the_provisional_resolution_re_asks(self):
         """Startup suppresses the question while settings are
         provisional; if the reset path did not re-ask, that install would
-        never be asked at all."""
-        on_start = find_def('lumaviewpro.py', 'on_start', class_name='LumaViewProApp')
-        assert on_start is not None
-        assert '_prompt_objective_if_needed' in direct_call_names(on_start)
+        never be asked at all. Startup asks once the startup motion has
+        ended, in on_start's continuation."""
+        after_start = find_def(
+            'lumaviewpro.py', 'after_the_startup_motion', class_name='LumaViewProApp'
+        )
+        assert after_start is not None
+        assert '_prompt_objective_if_needed' in direct_call_names(after_start)
 
         # The answer runs the retire through run_reported, and its redraw
         # is where a resolved state goes on to the objective question.

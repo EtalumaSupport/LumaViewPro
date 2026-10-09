@@ -171,7 +171,7 @@ class TestTheLaneNamesTheHome:
         s = build_scope(simulate=True, sim_model='LS850T', source_path='.', register_atexit=False)
         try:
             impl, _ = s.motion._home_body(axis)
-            body, release_if_unrun, _taking = s.motion._claim_home(impl)
+            body, release_if_unrun, _taking = s.motion.claim_home(impl)
             release_if_unrun()
             assert body.__name__ == impl.__name__
         finally:

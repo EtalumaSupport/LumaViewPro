@@ -157,6 +157,22 @@ class _ReusableTaskWaiter:
 # the work runs inline rather than waiting on the queue it is draining.
 _lane_worker = threading.local()
 
+# Which executor's worker this thread is, lane or not, set by the worker as
+# it starts. Asked by a member whose own work is queued on an executor and
+# waited for: called from a worker, that wait can be on the queue the worker
+# is draining, or on a lane its caller is holding.
+_executor_worker = threading.local()
+
+
+def refuse_blocking_on_a_worker(member: str) -> None:
+    """Raise if this thread is an executor's worker, before any wait is made."""
+    worker = getattr(_executor_worker, 'executor', None)
+    if worker is not None:
+        raise RuntimeError(
+            f'{member}: a blocking call from the {worker.executor_name} worker, which '
+            'its own work may queue behind; use the non-blocking form'
+        )
+
 
 # Set while the GUI's inline boundary runs a call on its own thread. That
 # thread draws the window, so a call that waits on a lane there freezes the
@@ -1266,6 +1282,7 @@ class SequentialIOExecutor:
 
     def _run_loop(self):
         my_generation = self._worker_generation
+        _executor_worker.executor = self
         if self.lane:
             _lane_worker.executor = self
         while True:

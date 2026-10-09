@@ -16,6 +16,7 @@ Usage
     session = ScopeSession.create(ScopeSession.load_user_settings(source_path), simulate=True)
 """
 
+import concurrent.futures
 import contextlib
 import copy
 import dataclasses
@@ -65,7 +66,7 @@ from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
 from modules.plugins import PLUGIN_API_LEVEL, PluginRegistry
 from modules.run_outcome import RunEnding
 from modules.scheduler import Scheduler, ThreadingTimerScheduler
-from modules.sequential_io_executor import IOTask, slow_task_budget
+from modules.sequential_io_executor import IOTask, refuse_blocking_on_a_worker, slow_task_budget
 from modules.api_surface import FilePath, api, api_fields
 
 # How long a diagnostic's end waits for a run it lent its claim to. The
@@ -79,6 +80,11 @@ DIAGNOSTIC_EXIT_RUN_IDLE_WAIT_S = 120.0
 # Module-level because the decorator runs at class-body time. Budget row:
 # support_report_slow_task_s in PERFORMANCE_BUDGETS.md.
 SUPPORT_REPORT_SLOW_TASK_S = 600.0
+
+# How long the startup motion may run before "Slow task" means anything: the
+# home's declared 120 s and the turret move's 15 s, the two motions it waits
+# for in turn (derived from those declarations, not measured whole).
+STARTUP_MOTION_SLOW_TASK_S = 135.0
 
 # How long shutdown lets a finished run's images finish writing before it
 # gives up on them and takes the file lane down. Budget row:
@@ -3779,21 +3785,21 @@ class ScopeSession:
         self._shut_down = True
 
     @api(in_process=True)
-    def start_application_session(
+    def begin_application_session(
         self,
         *,
         disable_homing: bool = False,
         home_fn: Callable[[str], object] | None = None,
         turret_fn: Callable[[int], object] | None = None,
-    ) -> None:
-        """Queue the standard startup home + turret-positioning sequence.
+    ) -> concurrent.futures.Future[None]:
+        """Start the standard startup motion without waiting for it; returns its Future.
 
         The one implementation of the startup motion for every host:
         the App's launch and its reconnect handler once open-coded the
         same ALL-axis home + turret-positioning pair, and the two
         copies drifted.
 
-        After this method returns, the io_executor has been told to:
+        The motion, in order:
 
         1. home ALL axes via ``move_home``. Firmware homes Z, T, X, Y in
            one routine; on Z-only boards it homes what it has and
@@ -3803,21 +3809,33 @@ class ScopeSession:
            to position 1; the active objective is then slot 1's
            assignment.
 
-        ``disable_homing=True`` skips BOTH steps: no startup motion on
-        any axis. The turret is left where it is, like the stage axes,
-        in no known slot -- positioning it without a
-        home would be an absolute move against a reference the caller
-        asked us not to establish. The skip is the requested behaviour,
-        so it is logged, not signalled.
+        3. on the simulator, place the stage at its sample plane.
+
+        The scope is the startup's from before this returns until the motion
+        ends, as it is a home's: every other request, from any client, is
+        refused naming the home, and the controls lock. So a turret pick made
+        meanwhile is refused rather than undone by step 2. Asked under a live
+        taking, the motion is that activity's work and takes nothing. The
+        claim is released before the Future settles, so a caller told the
+        motion has ended finds the scope free.
+
+        A failed home is reported (``report_outcome``) and ends the motion
+        without the turret move -- an absolute move against a reference the
+        home did not establish; the Future settles with None. A refusal that
+        is not for the hardware's state is a defect, and settles the Future
+        with it.
+
+        ``disable_homing=True`` skips every step: no startup motion on any
+        axis. The turret is left where it is, like the stage axes, in no
+        known slot -- positioning it without a home would be an absolute
+        move against a reference the caller asked us not to establish. The
+        skip is the requested behaviour, so it is logged, not signalled.
 
         A scope whose model has no motor board (``scope.motion_expected``
         False) has nothing to home, so it issues no startup motion either;
         nor does one whose motor board bring-up recorded as missing, which
-        bring-up's own report has already named.
-
-        Headless / REST callers can use this exact same call to apply
-        the standard startup orchestration without copy-pasting from
-        the App.
+        bring-up's own report has already named. A skip takes nothing and
+        returns a settled Future.
 
         Args:
             disable_homing: If True, issue no startup motion at all.
@@ -3826,21 +3844,23 @@ class ScopeSession:
             turret_fn: Callable taking a turret position. Defaults to
                 the motion API.
 
-        The two motion callables are injected the same way the metrics
-        scheduler is: the hosting environment supplies its own, and the
-        API default is what everything else gets. The Kivy app passes
-        its home wrapper, which sets the window title during the home,
-        and takes the API's turret move. Defaulting to the API instead
-        of importing the UI is what lets a headless caller run this at
-        all: a widget path reaches ``ctx.motion_settings``, which is
-        None until a widget tree exists.
+        Raises:
+            HardwareCommandRefusedError: ``'home_in_flight'`` or
+                ``'exclusive_activity_running'``: something already holds
+                the scope. Nothing was taken.
         """
+        settled: concurrent.futures.Future[None] = concurrent.futures.Future()
+        # Marked running before anyone else holds it, so only the lane
+        # settles it and a caller's cancel() cannot release the claim.
+        settled.set_running_or_notify_cancel()
         if disable_homing:
             logger.info('startup motion skipped: homing disabled; the turret is left where it is')
-            return
+            settled.set_result(None)
+            return settled
         if not self.scope.motion_expected:
             logger.info('startup motion skipped: this scope model has no motor board')
-            return
+            settled.set_result(None)
+            return settled
         from modules.lumascope_api.bring_up import MOTOR
 
         # Bring-up has already reported the missing board once, in its own
@@ -3848,13 +3868,63 @@ class ScopeSession:
         # connected" and show the same absence a second time.
         if self.scope.bring_up_record().part(MOTOR).missing:
             logger.info('startup motion skipped: the motor board did not come up at bring-up')
-            return
+            settled.set_result(None)
+            return settled
 
         if home_fn is None:
             home_fn = self.scope.motion.home
         if turret_fn is None:
             turret_fn = lambda position: self.scope.motion.move_turret(position)
 
+        @slow_task_budget(STARTUP_MOTION_SLOW_TASK_S)
+        def startup_motion() -> None:
+            self._startup_motion(home_fn, turret_fn)
+
+        # The whole motion is one home's taking, so no request lands between
+        # its moves; the diagnostics worker carries it, because the moves
+        # themselves wait on the io lane.
+        body, release_if_unrun, taking = self.scope.motion.claim_home(startup_motion)
+        try:
+            with acting(taking):
+                self.executor_bundle.diagnostics_executor.submit(
+                    IOTask(action=body), 'begin_application_session', waiter=settled
+                )
+        except BaseException:
+            release_if_unrun()
+            raise
+        settled.add_done_callback(lambda _settled: release_if_unrun())
+        return settled
+
+    @api(in_process=True)
+    def start_application_session(
+        self,
+        *,
+        disable_homing: bool = False,
+        home_fn: Callable[[str], object] | None = None,
+        turret_fn: Callable[[int], object] | None = None,
+    ) -> None:
+        """Run the standard startup motion, and wait for it.
+
+        ``begin_application_session``, waited for: returns when the startup
+        motion has ended and the scope is free, and raises what its Future
+        would. Headless / REST callers use this exact call to apply the
+        standard startup orchestration without copy-pasting from the App.
+
+        Raises:
+            RuntimeError: called from an executor's worker. The motion runs
+                on the diagnostics worker and waits on the io lane, so a
+                worker waiting for it can be waiting on itself.
+            HardwareCommandRefusedError: as ``begin_application_session``.
+        """
+        refuse_blocking_on_a_worker('start_application_session')
+        self.begin_application_session(
+            disable_homing=disable_homing, home_fn=home_fn, turret_fn=turret_fn
+        ).result()
+
+    def _startup_motion(
+        self, home_fn: Callable[[str], object], turret_fn: Callable[[int], object]
+    ) -> None:
+        """The startup motion's steps, run under its taking on the diagnostics worker."""
         # Wait for the home's result and honor it. Turret positioning is
         # an absolute move against the reference frame the home was
         # supposed to establish; running it after a failed home is the

@@ -35,7 +35,7 @@ from modules.app_environment import preload_camera_sdks
 
 preload_camera_sdks()
 
-import functools
+import concurrent.futures
 import threading
 
 import matplotlib
@@ -608,7 +608,6 @@ class LumaViewProApp(TooltipMixin, App):
         # (e.g., labware selection, stage offset changes)
         Clock.schedule_interval(ctx.stage.draw_labware, 1.0)
         Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 1.0)
-        Clock.schedule_once(functools.partial(ctx.image_settings.set_expanded_layer, 'BF'), 0.2)
 
         # Periodic current.json snapshot so a hard kill / crash still leaves a
         # recent runtime-state file for tech-support bundles (it is otherwise
@@ -714,8 +713,6 @@ class LumaViewProApp(TooltipMixin, App):
             # either way.
             ctx.image_settings.accordion_collapse()
 
-        Clock.schedule_once(complete_initialization, 0.3)
-
         if sim_walk is not None:
             from ui.sim_walk import SimWalk
 
@@ -737,55 +734,71 @@ class LumaViewProApp(TooltipMixin, App):
         load_autofocus_log_enable(source_path)
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
 
+        def after_the_startup_motion() -> None:
+            # Everything here followed the startup motion when it blocked
+            # this thread, and still does, in the same order, with the scope
+            # free: several of these do nothing while the scope is held.
+            move_home_cb('ALL')
+            ctx.image_settings.set_expanded_layer('BF')
+            complete_initialization(None)
+            ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state(prompt=False)
+
+            # Both startup questions may only fire once the session is up and
+            # the frame has rendered; each helper owns its own deferral. The
+            # settings question comes first -- while it is unresolved, every
+            # save is refused and the objective prompt suppresses itself.
+            self._ask_about_rejected_settings()
+            self._prompt_objective_if_needed()
+
+            # Objective and LEDs are set by scope.initialize() during load_settings();
+            # BF apply_settings fires from complete_initialization() -> accordion_collapse().
+
+            # Once-per-startup environment + dependency fingerprint. Pairs
+            # with the per-tick [PDH METRICS] / [BUFFER METRICS] surface so
+            # post-mortem can correlate a problem against the exact host
+            # state (OS, Python, Pylon SDK, Defender state, etc.) without
+            # the noise of repeating those facts every tick.
+            config_helpers.log_environment_once()
+
+            # The session owns the metrics lifecycle (it owns the session
+            # scheduler and restarts metrics on the new scope at
+            # every reconnect). Cadence is hourly in production and 60 s in
+            # engineering mode; settings.profiling.metrics_interval_s
+            # overrides both (gen2_depth + handle/thread counts are the
+            # signals worth sub-minute granularity on a short leak hunt).
+            ctx.session.start_metrics()
+
+            # The atexit emergency-shutdown hook is registered in Lumascope.__init__
+            # so every Lumascope user gets the same safety net automatically.
+
+            # Capture the settled startup footprint a few seconds after the
+            # start has finished, so the camera/UI have finished initializing.
+            # No-op unless the memory profiler is enabled.
+            from lib import memory_profile
+
+            Clock.schedule_once(lambda dt: memory_profile.snapshot('cold_start_done'), 5.0)
+
+        def startup_motion_settled(done: concurrent.futures.Future) -> None:
+            # A shutdown dropped the motion: the app is closing.
+            if done.cancelled() or isinstance(done.exception(), concurrent.futures.CancelledError):
+                return
+            # Raised here, on this thread, where the app's one exception
+            # handler takes it, as it took it from on_start when the motion
+            # blocked; a reported failed home settles with None.
+            done.result()
+            after_the_startup_motion()
+
         # ScopeSession owns startup orchestration so REST API, headless tools and
-        # the GUI all hit the same path.
-        # The GUI homes through the ui_helpers wrapper, which sets the window
-        # title during the home. The turret move is the Session's own API
-        # call, the same one a headless caller gets; the turret display then
-        # shows where the API says the turret is, including nowhere known
-        # when homing was skipped or failed.
-        from ui.ui_helpers import startup_home
+        # the GUI all hit the same path. The window draws and stays live while
+        # the startup motion runs; the scope is the motion's until it ends.
+        from ui.ui_helpers import move_home_cb, set_title_event_text
 
-        ctx.session.start_application_session(
-            disable_homing=disable_homing,
-            home_fn=startup_home,
+        started = ctx.session.begin_application_session(disable_homing=disable_homing)
+        if not started.done():
+            set_title_event_text('Homing, please wait...')
+        started.add_done_callback(
+            lambda done: Clock.schedule_once(lambda dt: startup_motion_settled(done), 0)
         )
-        ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state(prompt=False)
-
-        # Both startup questions may only fire once the session is up and
-        # the frame has rendered; each helper owns its own deferral. The
-        # settings question comes first -- while it is unresolved, every
-        # save is refused and the objective prompt suppresses itself.
-        self._ask_about_rejected_settings()
-        self._prompt_objective_if_needed()
-
-        # Objective and LEDs are set by scope.initialize() during load_settings();
-        # BF apply_settings fires from complete_initialization() -> accordion_collapse().
-
-        # Once-per-startup environment + dependency fingerprint. Pairs
-        # with the per-tick [PDH METRICS] / [BUFFER METRICS] surface so
-        # post-mortem can correlate a problem against the exact host
-        # state (OS, Python, Pylon SDK, Defender state, etc.) without
-        # the noise of repeating those facts every tick.
-        config_helpers.log_environment_once()
-
-        # The session owns the metrics lifecycle (it owns the session
-        # scheduler and restarts metrics on the new scope at
-        # every reconnect). Cadence is hourly in production and 60 s in
-        # engineering mode; settings.profiling.metrics_interval_s
-        # overrides both (gen2_depth + handle/thread counts are the
-        # signals worth sub-minute granularity on a short leak hunt).
-        ctx.session.start_metrics()
-
-        # The atexit emergency-shutdown hook is registered in Lumascope.__init__
-        # so every Lumascope user gets the same safety net automatically.
-
-        # Capture the settled startup footprint a few seconds after on_start so
-        # the camera/UI have finished initializing. No-op unless the memory
-        # profiler is enabled.
-        from lib import memory_profile
-
-        Clock.schedule_once(lambda dt: memory_profile.snapshot('cold_start_done'), 5.0)
 
         if getattr(sys, 'frozen', False):
             pyi_splash.close()
