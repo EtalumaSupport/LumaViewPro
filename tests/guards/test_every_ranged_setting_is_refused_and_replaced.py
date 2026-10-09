@@ -28,7 +28,8 @@ TEMPLATE = REPO_ROOT / 'data' / 'settings.json'
 
 # One value outside each range. The keys are asserted equal to ``_RANGES``'s:
 # the table mirrors the owner on purpose, and that assertion is what keeps
-# the mirror from drifting. ``*`` is any layer; the tests walk it as BF.
+# the mirror from drifting. ``*`` is any layer; the tests walk it as Blue, the
+# layer the template gives every block (a stimulation config among them).
 _OUT_OF_RANGE = {
     'motion.acceleration_max_pct': 500,
     'protocol.period': 0.001,
@@ -45,10 +46,17 @@ _OUT_OF_RANGE = {
     '*.illumination_ma': -1.0,
     '*.sum': 0,
     '*.video_config.fps': 0,
-    '*.video_config.duration': -5,
+    '*.video_config.duration': settings_paths.VIDEO_STEP_DURATION_S_MAX + 1,
+    '*.composite_brightness_threshold': 101.0,
+    '*.stim_config.frequency': settings_paths.STIM_FREQUENCY_HZ_RANGE[1] + 1,
+    '*.stim_config.pulse_width': settings_paths.STIM_PULSE_WIDTH_MS_RANGE[0] - 1,
+    '*.stim_config.pulse_count': settings_paths.STIM_PULSE_COUNT_RANGE[1] + 1,
+    '*.stim_config.illumination_ma': -1,
 }
 
-_CASES = sorted((pattern.replace('*', 'BF', 1), value) for pattern, value in _OUT_OF_RANGE.items())
+_CASES = sorted(
+    (pattern.replace('*', 'Blue', 1), value) for pattern, value in _OUT_OF_RANGE.items()
+)
 
 
 def test_the_table_names_every_range_the_writer_holds():

@@ -113,44 +113,6 @@ def get_layer_exposure_slider_max(camera_max_ms: float, layer: str) -> float:
     return config_helpers.layer_max_exposure_ms_for_ui(camera_max_ms, layer)
 
 
-def _live_imaging():
-    """The imaging surface of the LIVE scope, or None if no scope is built."""
-    return getattr(_live_scope(), 'imaging', None)
-
-
-def get_exposure_text_max() -> float | None:
-    """The typed exposure ceiling: the live camera's own cap, or None when no
-    camera can report one.
-
-    Every narrowing lives on the SLIDER; the box is the physical limit, so a
-    user who needs an exposure the slider's convenience range does not reach
-    can type it -- and a user on a body with a low cap cannot type past what
-    its sensor will honor. No layer branch, unlike illumination, where
-    over-driving an LED is a damage mode and the text bound is policy too.
-
-    Deliberately NOT camera_max_exposure_for_ui: that resolver substitutes the
-    no-camera default when the camera reports nothing, which is right for
-    SIZING a slider -- it needs some range to draw -- and wrong here. On a body
-    whose real cap is well under that default, a camera drop would silently
-    raise the typed ceiling and let the user store an exposure the sensor
-    clamps away. No camera, no ceiling; the caller falls back to the slider.
-    """
-    imaging = _live_imaging()
-    if imaging is None:
-        return None
-    return imaging.max_exposure_ms_cached
-
-
-def get_layer_illumination_text_max(layer: str) -> int | None:
-    """The illumination text-entry upper bound for ``layer``: BF alone may be
-    typed above its slider. None before the scope is built.
-    """
-    caps = _live_capabilities()
-    if caps is None:
-        return None
-    return config_helpers.layer_illumination_text_max_for_ui(caps, layer)
-
-
 def camera_autogain_supported() -> bool:
     """True when the connected camera has hardware auto-gain or auto-exposure.
 

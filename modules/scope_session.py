@@ -2269,13 +2269,23 @@ class ScopeSession:
                 (named), is set only by the installation, is not a setting,
                 or names a block; or ``value`` is not the setting's kind or
                 is outside its range (a ``protocol.period`` or
-                ``protocol.duration`` no protocol can run among them).
-                Nothing is written.
+                ``protocol.duration`` no protocol can run, and a layer's
+                illumination above the attached LED board's maximum, among
+                them). Nothing is written.
             ConfigError: these settings were never prepared from the
                 template and lack the block the path is in. Nothing is
                 written.
+
+        A layer's gain or exposure is stored as written, the person's
+        intent; a camera that cannot reach it is driven at its own limit
+        when the layer is applied (``ImagingAPI.applied_gain_db_for``).
         """
-        settings_paths.check_write(self.scope.settings_template, path, value)
+        settings_paths.check_write(
+            self.scope.settings_template,
+            path,
+            value,
+            led_max_ma=self.scope.capabilities.led_max_ma,
+        )
         with self.settings_lock:
             self._store_setting(path, value)
 

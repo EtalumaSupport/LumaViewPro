@@ -189,14 +189,6 @@ def test_slider_bound_is_the_cap_narrowed_by_transmitted_policy():
     assert config_helpers.layer_max_illumination_ma_for_ui(_fake_caps(1000), 'Red') == 1000
 
 
-def test_text_bound_lets_bf_alone_exceed_its_slider():
-    assert config_helpers.layer_illumination_text_max_for_ui(_fake_caps(840), 'BF') == 500
-    assert config_helpers.layer_illumination_text_max_for_ui(_fake_caps(840), 'PC') == 50
-    assert config_helpers.layer_illumination_text_max_for_ui(_fake_caps(840), 'Blue') == 840
-    # Never above what the board can be asked for.
-    assert config_helpers.layer_illumination_text_max_for_ui(_fake_caps(200), 'BF') == 200
-
-
 def _calls_in(fn_node) -> set[str]:
     """The dotted callee names inside one function body."""
     names = set()
@@ -242,10 +234,14 @@ def test_nothing_else_in_the_panel_writes_the_slider_bound():
     assert writers == ['set_layer_illumination_ranges'], writers
 
 
-def test_the_bf_text_bound_comes_from_the_getter_not_a_ui_constant():
+def test_the_text_box_carries_no_bound_of_its_own():
+    # The board's maximum is the writer's refusal (ScopeSession.update_settings
+    # hands check_write capabilities.led_max_ma); the box neither clips to a
+    # UI constant nor resolves a ceiling of its own.
     tree = parse_module('ui/layer_control.py')
     names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
     assert 'BF_MAX_ILLUMINATION' not in names
+    assert 'get_layer_illumination_text_max' not in names
     ill_text = find_def('ui/layer_control.py', 'ill_text', 'LayerControl')
     assert ill_text is not None
-    assert 'get_layer_illumination_text_max' in _calls_in(ill_text)
+    assert 'get_layer_illumination_text_max' not in _calls_in(ill_text)

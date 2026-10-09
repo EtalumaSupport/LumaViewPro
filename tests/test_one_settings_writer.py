@@ -153,6 +153,32 @@ def test_a_protocol_schedule_no_protocol_can_run_is_refused(session):
     assert session.settings['protocol']['period'] == before
 
 
+def test_a_layer_exposure_or_gain_above_the_camera_is_stored_as_the_intent(session):
+    # The camera's limit is the apply's to hold (applied_exposure_ms_for),
+    # with the stored value kept for a camera that can reach it.
+    assert session.scope.imaging.max_exposure_ms_cached == 1000.0
+    assert session.scope.imaging.max_gain_db_cached == 48.0
+    session.update_settings('Blue.exposure_ms', 1500.0)
+    session.update_settings('Blue.gain_db', 60.0)
+    assert session.settings['Blue']['exposure_ms'] == 1500.0
+    assert session.settings['Blue']['gain_db'] == 60.0
+
+
+@pytest.mark.parametrize('path', ['Blue.illumination_ma', 'Blue.stim_config.illumination_ma'])
+def test_a_layer_current_above_the_led_board_is_refused_naming_the_board(session, path):
+    # The board refuses to drive it and over-driving an LED is a damage
+    # mode, so the writer refuses it where the camera's limit is applied.
+    board_max = session.scope.capabilities.led_max_ma
+    assert board_max == 1000
+    before = session.get_settings_snapshot()
+    with pytest.raises(SettingRefusedError, match="LED board's maximum") as refused:
+        session.update_settings(path, board_max + 1)
+    assert (refused.value.reason, refused.value.path) == ('out_of_range', path)
+    assert session.get_settings_snapshot() == before
+    session.update_settings(path, board_max)
+    assert session.get_settings_snapshot() != before
+
+
 def test_the_sessions_own_model_write_is_not_refused(session):
     # select_model writes the setting the writer refuses to everyone else.
     model = session.scope.layer_identity.model

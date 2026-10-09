@@ -78,6 +78,14 @@ VIDEO_MAX_DURATION_S_RANGE: typing.Final = (1, 3600)
 JPG_QUALITY_RANGE: typing.Final = (1, 100)
 """The JPG encoder's quality, inclusive."""
 
+VIDEO_STEP_DURATION_S_MAX: typing.Final = 3600
+"""The longest video a protocol step records, in seconds."""
+
+STIM_FREQUENCY_HZ_RANGE: typing.Final = (0.5, 6.0)
+STIM_PULSE_WIDTH_MS_RANGE: typing.Final = (5, 25)
+STIM_PULSE_COUNT_RANGE: typing.Final = (1, 300)
+"""The stimulation ranges, as the layer panel's sliders have always held them."""
+
 
 def _refuse_outside(path: str, value: float, low: float, high: float) -> None:
     if not low <= value <= high:
@@ -155,13 +163,41 @@ def _positive(path: str, value: float) -> None:
     _refuse_below(path, value, 0, inclusive=False)
 
 
+def _video_step_duration(path: str, value: float) -> None:
+    if not 0 < value <= VIDEO_STEP_DURATION_S_MAX:
+        raise SettingRefusedError(
+            'out_of_range',
+            path,
+            f'it must be above 0 and at most {VIDEO_STEP_DURATION_S_MAX}, not {value!r}',
+        )
+
+
+def _composite_threshold(path: str, value: float) -> None:
+    _refuse_outside(path, value, 0, 100)
+
+
+def _stim_frequency(path: str, value: float) -> None:
+    _refuse_outside(path, value, *STIM_FREQUENCY_HZ_RANGE)
+
+
+def _stim_pulse_width(path: str, value: float) -> None:
+    _refuse_outside(path, value, *STIM_PULSE_WIDTH_MS_RANGE)
+
+
+def _stim_pulse_count(path: str, value: float) -> None:
+    _refuse_non_count(path, value)
+    _refuse_outside(path, value, *STIM_PULSE_COUNT_RANGE)
+
+
 # The range the writer owns for a setting: what any value of it must satisfy
 # whatever hardware is attached. A ceiling the attached hardware declares (a
-# camera's exposure or gain, an LED board's current) is the Session's to
-# apply at the write, not a range here. A member's setting is here too: its
-# range is held at load as well, though a write to it is refused for its
-# member before the range is read. ``*`` stands for any layer, as in
-# ``SETTINGS_WITH_A_MEMBER``. Each rule takes the concrete path and the value.
+# camera's exposure or gain, an LED board's current) is not a range here: the
+# stored value is the person's intent, and the apply drives the hardware at
+# its limit with the intent kept (``ImagingAPI.applied_gain_db_for`` and kin).
+# A member's setting is here too: its range is held at load as well, though a
+# write to it is refused for its member before the range is read. ``*`` stands
+# for any layer, as in ``SETTINGS_WITH_A_MEMBER``. Each rule takes the
+# concrete path and the value.
 _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     'motion.acceleration_max_pct': _acceleration,
     'protocol.period': _schedule,
@@ -178,7 +214,12 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     '*.illumination_ma': _non_negative,
     '*.sum': _refuse_non_count,
     '*.video_config.fps': _positive,
-    '*.video_config.duration': _positive,
+    '*.video_config.duration': _video_step_duration,
+    '*.composite_brightness_threshold': _composite_threshold,
+    '*.stim_config.frequency': _stim_frequency,
+    '*.stim_config.pulse_width': _stim_pulse_width,
+    '*.stim_config.pulse_count': _stim_pulse_count,
+    '*.stim_config.illumination_ma': _non_negative,
 }
 
 
@@ -242,19 +283,27 @@ def is_installation_only(path: str) -> bool:
     return path.split('.')[0] in INSTALLATION_ONLY
 
 
-def check_write(template: dict, path: str, value: object) -> None:
+def check_write(
+    template: dict, path: str, value: object, *, led_max_ma: float | None = None
+) -> None:
     """Refuse a write the store must not take; return when ``value`` may be stored at ``path``.
 
     ``template`` is the shipped ``settings.json``, which describes every
     setting there is. A leaf the template holds as null is one with no
-    shipped value; it takes any scalar.
+    shipped value; it takes any scalar. ``led_max_ma`` is the current the
+    attached LED board declares it can drive, or None with no board: a
+    layer's illumination above it is refused, since the board refuses to
+    drive it and over-driving an LED is a damage mode; a camera's limits
+    are not checked here, since the apply drives the camera at its limit
+    with the stored intent kept.
 
     Raises:
         SettingRefusedError: ``path`` is owned by a Session member (named),
             is set only by the installation's settings file, is not a
             setting, or names a block rather than one setting; or ``value``
             is not the setting's kind, or is outside its range (a protocol
-            period or duration no protocol can run among them).
+            period or duration no protocol can run, and an illumination
+            above the attached board's maximum, among them).
     """
     member = member_for(path)
     if member is not None:
@@ -275,6 +324,21 @@ def check_write(template: dict, path: str, value: object) -> None:
             'block', path, 'it is a block of settings; change each by its own path'
         )
     _refuse_kind_or_range(shipped, path, value)
+    if led_max_ma is not None and is_led_current(path) and value > led_max_ma:
+        raise SettingRefusedError(
+            'out_of_range',
+            path,
+            f"it must be at most {led_max_ma:g} mA, this LED board's maximum, not {value!r}",
+        )
+
+
+def is_led_current(path: str) -> bool:
+    """Whether ``path`` is a layer's illumination or stimulation current."""
+    layer, _, rest = path.partition('.')
+    return layer in common_utils.get_layers() and rest in (
+        'illumination_ma',
+        'stim_config.illumination_ma',
+    )
 
 
 def _refuse_kind_or_range(shipped: object, path: str, value: object) -> None:

@@ -572,7 +572,7 @@ _UI_ANSWERER_CALL_PIN = {
     'lumaviewpro.py': 1,
     'ui/advanced_settings.py': 2,
     'ui/image_settings.py': 5,
-    'ui/layer_control.py': 3,
+    'ui/layer_control.py': 1,
     'ui/microscope_settings.py': 4,
     'ui/motion_settings.py': 1,
     'ui/protocol_settings.py': 3,

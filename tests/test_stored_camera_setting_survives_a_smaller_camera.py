@@ -120,11 +120,14 @@ class TestTheGuiNeverNarrowsTheStore:
         }
         assert written == set(), f'the reconcile must not write the store; found {sorted(written)}'
 
-    def test_an_unedited_text_box_commits_nothing(self):
+    def test_a_text_box_narrows_nothing_and_commits_no_unedited_value(self):
         # The kv fires the text handlers on focus LOSS, not on edit, so a
         # click into a box and out again arrives with the untouched stored
-        # value. Clipping that to the widget's bound is how a preserved
-        # setting got destroyed by a stray click.
+        # value: the handler returns without committing when the parsed value
+        # equals the stored one. And a typed value is written as typed: the
+        # handler clips nothing to a slider's range or a widget ceiling; the
+        # writer refuses what is out of range and the apply caps what the
+        # camera cannot reach, with the intent kept.
         fn = _func(LAYER_CONTROL_PATH, '_validate_and_apply_text_input')
         clip_lines = [
             n.lineno
@@ -133,7 +136,7 @@ class TestTheGuiNeverNarrowsTheStore:
             and isinstance(n.func, ast.Attribute)
             and n.func.attr == 'clip'
         ]
-        assert clip_lines, 'expected the typed-value clip to still exist for edited input'
+        assert clip_lines == [], f'the handler must not narrow a typed value; clips at {clip_lines}'
         guard_lines = [
             n.lineno
             for n in ast.walk(fn)
@@ -145,10 +148,6 @@ class TestTheGuiNeverNarrowsTheStore:
         assert guard_lines, (
             '_validate_and_apply_text_input must return without committing when the '
             'parsed value already equals the stored one.'
-        )
-        assert min(guard_lines) < min(clip_lines), (
-            f'the no-edit return (line {min(guard_lines)}) must precede the clip '
-            f'(line {min(clip_lines)}), or an unedited box is still narrowed.'
         )
 
     def test_the_auto_gain_write_back_stores_the_apis_own_answer(self):

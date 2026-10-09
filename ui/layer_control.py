@@ -14,11 +14,7 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 from modules import gui_logger
-from modules.config_ui_getters import (
-    firmware_stim_supported,
-    get_exposure_text_max,
-    get_layer_illumination_text_max,
-)
+from modules.config_ui_getters import firmware_stim_supported
 from ui.ui_helpers import run_reported, submit_reported, typed_number
 
 logger = logging.getLogger('LVP.ui.layer_control')
@@ -155,12 +151,16 @@ class LayerControl(BoxLayout):
         settings_key: str,
         cast=float,
         settings_path: str | None = None,
-        value_max: float | None = None,
     ) -> bool:
-        """Shared validation for text input -> slider -> settings update.
+        """Hand a typed layer value to the settings writer; True when the store changed.
 
-        Parses text, clips to slider range, updates slider + text + settings,
-        and applies. Returns True on success, False on invalid input.
+        Parses the text and writes it through ``update_settings``. The Session
+        decides what is stored: it refuses a value outside the setting's range
+        (an illumination past the LED board's maximum among them), telling
+        the person, and stores a gain or exposure past the camera's limit as
+        the intent, which the apply drives at the limit. The box and its
+        slider then show what is stored, whatever the call did; the slider's
+        own range is display and never narrows what was typed.
 
         Args:
             text_id: Kivy widget id for the text input (e.g., 'gain_text')
@@ -169,15 +169,8 @@ class LayerControl(BoxLayout):
             cast: Type to cast the text value (float or int)
             settings_path: Dot-separated sub-path for nested settings
                           (e.g., 'video_config.duration' or 'stim_config.frequency')
-            value_max: Optional upper bound for the typed value when it should
-                       exceed the slider's own max -- the slider is a coarse
-                       quick-pick (e.g. video duration up to 60s) while the
-                       text box accepts a larger precise value (e.g. a
-                       multi-minute protocol video). The slider then pins at
-                       its own max; the setting + text keep the typed value.
         """
         settings = _app_ctx.ctx.settings
-        slider = self.ids[slider_id]
 
         # The log name is derived from the widget id rather than passed in:
         # every text box here is '<name>_text' and its slider twin already logs
@@ -195,23 +188,22 @@ class LayerControl(BoxLayout):
         # carry what the user actually typed rather than what we made of it.
         typed_text = self.ids[text_id].text
 
-        # Read once and share: the refusal path below restores it, and the
-        # no-edit check needs it. Two traversals of the same path drift.
-        if settings_path:
+        path = f'{self.layer}.{settings_path or settings_key}'
+
+        def stored_value():
             val = settings[self.layer]
-            for p in settings_path.split('.'):
+            for p in (settings_path or settings_key).split('.'):
                 val = val[p]
-        else:
-            val = settings[self.layer][settings_key]
+            return val
 
-        def put_back():
-            self._initializing = True
-            try:
-                self.ids[text_id].text = str(val)
-            finally:
-                self._initializing = False
+        def show_stored():
+            # The display half, read back from the store: what the writer
+            # kept, or left in place when it refused, is what the box and
+            # slider show.
+            self._show_value_on_widgets(slider_id, text_id, stored_value(), cast=cast)
 
-        raw = typed_number(typed_text, cast, put_back)
+        val = stored_value()
+        raw = typed_number(typed_text, cast, show_stored)
         if raw is None:
             # An unparseable entry is still a user action, and the reset above
             # would otherwise leave no trace of it. Both halves are recorded:
@@ -225,34 +217,26 @@ class LayerControl(BoxLayout):
         # The kv fires this handler on focus LOSS, not on edit
         # (`on_focus: if not self.focus: root.gain_text()`), so clicking into
         # a box and out again arrives here with the untouched stored value.
-        # Clipping it would rewrite the store with the widget's bound: a layer
-        # whose stored value legitimately sits above this camera's cap -- the
-        # user's intent, kept on purpose -- would be destroyed by a stray
-        # click, and the periodic flush would persist the loss. No edit, no
-        # commit; the box already shows the stored value.
+        # No edit, no commit; the box already shows the stored value.
         if raw == val:
             return False
 
-        upper = slider.max if value_max is None else value_max
-        clipped = cast(np.clip(raw, slider.min, upper))
-
-        _app_ctx.ctx.update_settings(f'{self.layer}.{settings_path or settings_key}', clipped)
-
-        # The settings write above is the commit; this is the display half.
-        self._show_value_on_widgets(slider_id, text_id, clipped, cast=cast)
+        run_reported(lambda: _app_ctx.ctx.update_settings(path, raw), show_stored, record_name)
+        stored = stored_value()
 
         # text_input (not slider): this is a typed commit, and the twin slider
         # emits SLIDER for the same setting, so sharing the verb would make a
         # drag and a keystroke indistinguishable in the bundle.
         gui_logger.text_input(record_name, typed_text)
 
-        # Only when clipping actually moved the value. The comparison is on the
-        # PARSED number, not the strings: '5' typed into a float box becomes
-        # 5.0, which is the same value and must not look like a correction.
-        if raw != clipped:
-            gui_logger.text_input(f'{record_name}_APPLIED', clipped)
+        # Only when the writer refused and left the stored value in place.
+        # The comparison is on the PARSED number, not the strings: '5' typed
+        # into a float box becomes 5.0, which is the same value and must not
+        # look like a correction.
+        if raw != stored:
+            gui_logger.text_input(f'{record_name}_APPLIED', stored)
 
-        return True
+        return stored != val
 
     def _init_ui(self, dt=0):
         ctx = _app_ctx.ctx
@@ -356,9 +340,6 @@ class LayerControl(BoxLayout):
             'ill_text',
             'ill_slider',
             'illumination_ma',
-            # Before the scope is built there is no bound to read, and the
-            # slider's own max is the only one there is.
-            value_max=get_layer_illumination_text_max(self.layer),
         ):
             return
         # Text-entry divergence trace for the > ~150 mA silent-fail
@@ -406,9 +387,6 @@ class LayerControl(BoxLayout):
             'duration',
             cast=int,
             settings_path='video_config.duration',
-            # Slider quick-picks up to 60s; the text box accepts longer
-            # protocol videos (no protocol cap) up to a 1-hour sanity bound.
-            value_max=3600,
         ):
             self.apply_settings()
 
@@ -496,15 +474,12 @@ class LayerControl(BoxLayout):
 
     def exp_text(self) -> None:
         logger.info('[LVP Main  ] LayerControl.exp_text()')
-        if self._validate_and_apply_text_input(
-            'exp_text',
-            'exp_slider',
-            'exposure_ms',
-            # The box is bounded by what the sensor can actually honor, not by
-            # the slider's manual range. With no camera to report a cap there
-            # is no honest ceiling, so the slider's bound is the only one.
-            value_max=get_exposure_text_max(),
-        ):
+        # The typed exposure is the layer's intent, stored as typed. The
+        # sensor's ceiling is applied where the value reaches the camera
+        # (ImagingAPI.applied_exposure_ms_for, under apply_exp_slider), with
+        # the intent kept, exactly as a value loaded from the file is; the
+        # box no longer carries a second copy of that ceiling.
+        if self._validate_and_apply_text_input('exp_text', 'exp_slider', 'exposure_ms'):
             self.apply_exp_slider()
 
     def stim_freq_slider(self):

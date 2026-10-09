@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Clicking into a layer's box and out again commits nothing.
+"""A layer's box commits what was typed, and nothing when nothing was typed.
 
 The kv fires every layer text handler on focus LOSS, not on edit, so a
 click in and out arrives with the box's text untouched. The shared text
@@ -8,6 +8,13 @@ value. The exposure and illumination boxes had their own handlers
 without that return, so a stray click clipped the stored value to the
 box's bound: a layer stored at 2000 ms, kept on purpose above the FX2's
 1000 ms cap, became 1000 ms, and the periodic flush persisted the loss.
+
+An edit is written as typed: the writer decides what is stored (it
+refuses a value outside the setting's range, and the box then shows what
+is stored), and the slider's own range narrows nothing. The handler used
+to clip the typed value to the slider's range, or to a widget ceiling,
+before the write, so the API's refusal was unreachable from the GUI and
+the store held a number the person did not type (Eric, 2026-10-08).
 """
 
 from types import SimpleNamespace
@@ -15,7 +22,7 @@ from types import SimpleNamespace
 import pytest
 
 import modules.app_context as _app_ctx
-import ui.layer_control as layer_control
+from modules.notification_center import notifications
 from ui.layer_control import LayerControl
 from tests.settings_fixtures import settings_writer
 
@@ -37,8 +44,6 @@ def _blue_layer(monkeypatch, *, exposure_ms, illumination_ma):
         'ctx',
         SimpleNamespace(settings=settings, update_settings=settings_writer(settings)),
     )
-    monkeypatch.setattr(layer_control, 'get_exposure_text_max', lambda: 1000.0)
-    monkeypatch.setattr(layer_control, 'get_layer_illumination_text_max', lambda layer: 150.0)
     layer = LayerControl.__new__(LayerControl)
     layer.layer = 'Blue'
     layer._initializing = False
@@ -73,11 +78,12 @@ def test_a_stored_value_above_the_bound_survives_a_click_in_and_out(
 @pytest.mark.parametrize(
     ('handler', 'text_id', 'key', 'typed', 'committed', 'applies'),
     [
-        ('exp_text', 'exp_text', 'exposure_ms', '1500', 1000.0, 'exposure'),
+        # Above the slider's 1000: stored as typed, the slider pins at its end.
+        ('exp_text', 'exp_text', 'exposure_ms', '1500', 1500.0, 'exposure'),
         ('ill_text', 'ill_text', 'illumination_ma', '42.5', 42.5, 'illumination'),
     ],
 )
-def test_an_edit_is_still_committed_and_applied(
+def test_an_edit_is_committed_as_typed_and_applied(
     monkeypatch, handler, text_id, key, typed, committed, applies
 ):
     layer, settings, applied = _blue_layer(monkeypatch, exposure_ms=500.0, illumination_ma=100.0)
@@ -86,4 +92,21 @@ def test_an_edit_is_still_committed_and_applied(
     getattr(layer, handler)()
 
     assert settings['Blue'][key] == committed
+    assert layer.ids[text_id].text == str(committed)
     assert applied == [applies]
+
+
+def test_an_edit_the_writer_refuses_is_not_stored_and_the_box_goes_back(monkeypatch):
+    reported = []
+    monkeypatch.setattr(
+        notifications, 'report_outcome', lambda exc, **kw: reported.append(type(exc).__name__)
+    )
+    layer, settings, applied = _blue_layer(monkeypatch, exposure_ms=500.0, illumination_ma=100.0)
+    layer.ids['exp_text'].text = '-5'
+
+    layer.exp_text()
+
+    assert settings['Blue']['exposure_ms'] == 500.0
+    assert layer.ids['exp_text'].text == '500.0'
+    assert reported == ['SettingRefusedError']
+    assert applied == []

@@ -286,8 +286,8 @@ def test_the_shared_helper_reports_a_correction_under_its_own_name():
         if isinstance(c.args[0], ast.JoinedStr) and '_APPLIED' in ast.unparse(c.args[0])
     ]
     assert len(applied) == 2, (
-        'expected exactly two _APPLIED emissions -- one for a rejected entry, one '
-        f'for a clipped one; found {len(applied)}'
+        'expected exactly two _APPLIED emissions -- one for an unparseable entry, one '
+        f'for an entry the writer refused; found {len(applied)}'
     )
 
     guarded = [
@@ -297,11 +297,11 @@ def test_the_shared_helper_reports_a_correction_under_its_own_name():
         and any('_APPLIED' in ast.unparse(c.args[0]) for c in _text_input_calls(n) if c.args)
     ]
     assert guarded, (
-        'the clipped-value line must be conditional; emitting it unconditionally '
+        'the correction line must be conditional; emitting it unconditionally '
         'would append a correction to every valid keystroke'
     )
     assert any(
-        isinstance(g.test, ast.Compare) and ast.unparse(g.test) == 'raw != clipped' for g in guarded
+        isinstance(g.test, ast.Compare) and ast.unparse(g.test) == 'raw != stored' for g in guarded
     ), 'the guard must compare the PARSED values -- string compare reports 5 -> 5.0 as a correction'
 
 
