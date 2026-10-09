@@ -9,7 +9,8 @@ encoded (``wire_encoding.encode``), so a value whose runtime type is not
 its annotation's -- a numpy scalar where the annotation says float, a list
 where it says tuple -- is caught here rather than by a client. Paths are
 named by their live-folder name where they are inside it, in either form
-the live folder is stored in.
+the live folder is stored in. An enum crosses as its name, a ``StrEnum`` as
+its value, an ``IntEnum`` included, though it is an int.
 """
 
 from __future__ import annotations
@@ -110,3 +111,19 @@ def test_a_path_inside_the_live_folder_is_named_in_either_form(tmp_path):
 
     outside = wire_encoding.encode(tmp_path, live_folder=real, handle=no_handle, job=no_handle)
     assert outside == {'name': None, 'host_path': str(tmp_path)}
+
+
+def test_an_int_enum_crosses_as_its_name_as_every_enum_but_a_str_enum_does(tmp_path):
+    from modules.notification_center import OutcomeKind, Severity
+
+    def no_handle(obj):
+        raise AssertionError(obj)
+
+    encoded = wire_encoding.encode(
+        {'severity': Severity.WARNING, 'kind': OutcomeKind.REFUSAL},
+        live_folder=tmp_path,
+        handle=no_handle,
+        job=no_handle,
+    )
+
+    assert encoded == {'severity': 'WARNING', 'kind': 'refusal'}

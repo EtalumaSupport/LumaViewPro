@@ -396,12 +396,14 @@ def encode(
     """
 
     def form(v: object) -> object:
-        if v is None or isinstance(v, (bool, int, float, str)):
-            return v
+        # An enum before a scalar: an IntEnum is an int, and would cross as
+        # its number where the rule above says its name.
         if isinstance(v, enum.StrEnum):
             return v.value
         if isinstance(v, enum.Enum):
             return v.name
+        if v is None or isinstance(v, (bool, int, float, str)):
+            return v
         if isinstance(v, datetime.timedelta):
             return v.total_seconds()
         if isinstance(v, (datetime.datetime, datetime.date)):
