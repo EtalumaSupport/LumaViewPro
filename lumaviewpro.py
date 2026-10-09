@@ -551,6 +551,10 @@ class LumaViewProApp(TooltipMixin, App):
             self.run_lockout = run_lockout
             self.controls_locked = False
         self.homing = homing_banner_shown(session)
+        gui_logger.display(
+            'CONTROLS_LOCKED', f'{locked} by={session.run_lockout_named if locked else None}'
+        )
+        gui_logger.display('HOMING_BANNER', self.homing)
         self._draw_run_controls()
         # The objective question is withheld while an activity holds the
         # scope; this edge is the one that fires when the hold ends, so the

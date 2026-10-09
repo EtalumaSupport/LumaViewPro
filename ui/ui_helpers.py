@@ -580,6 +580,7 @@ def set_title_event_text(text):
     write on a module-level CPython str/None -- atomic under GIL)."""
     global _title_event_text
     _title_event_text = text or None
+    gui_logger.display('TITLE_EVENT', _title_event_text)
 
 
 # The suffix the last video progress wrote, so its 'ended' clears only its
