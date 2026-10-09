@@ -531,7 +531,7 @@ def test_ui_export_done_restores_controls_on_every_terminal_path():
     ), 'self.busy = False must be the first statement of _export_done'
 
 
-def test_file_and_folder_selection_start_enhance_automatically():
+def test_a_selection_starts_enhance_through_one_member():
     source = (pathlib.Path(__file__).resolve().parents[1] / 'ui' / 'post_processing.py').read_text()
     tree = ast.parse(source)
     cls = next(
@@ -539,8 +539,6 @@ def test_file_and_folder_selection_start_enhance_automatically():
         for node in tree.body
         if isinstance(node, ast.ClassDef) and node.name == 'QuickEnhanceControls'
     )
-    for method in ('set_source_file', 'set_source_folder'):
-        body = next(
-            node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == method
-        )
-        assert '_start_export' in ast.get_source_segment(source, body)
+    members = {node.name: node for node in cls.body if isinstance(node, ast.FunctionDef)}
+    assert 'set_source_file' not in members and 'set_source_folder' not in members
+    assert 'self.export(' in ast.get_source_segment(source, members['set_source'])

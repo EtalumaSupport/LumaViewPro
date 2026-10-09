@@ -91,16 +91,49 @@ def test_non_macos_enhance_picker_uses_image_and_folder_labels():
     assert "text='Folder'" in body
 
 
-def test_enhance_picker_routes_files_and_folders_after_the_protocol_guard():
+def test_enhance_picker_hands_the_path_on_after_the_protocol_guard():
+    # Whether the path is a file, a folder or nothing is the API's question,
+    # asked where the build reads it: the picker hands the path on as chosen.
     body = _class_method_source(
         'ui/file_dialogs.py', 'FileOrFolderChooseBTN', 'on_selection_function'
     )
     guard_idx = body.find('session.run_lockout')
-    folder_idx = body.find('path.is_dir')
-    file_idx = body.find('path.is_file')
-    assert guard_idx != -1 and guard_idx < folder_idx < file_idx
-    assert 'set_source_folder' in body
-    assert 'set_source_file' in body
+    dispatch_idx = body.find('set_source(path)')
+    assert guard_idx != -1 and guard_idx < dispatch_idx
+    assert 'is_dir' not in body and 'is_file' not in body
+
+
+def test_a_target_that_is_not_there_is_refused_on_the_lane(tmp_path):
+    import threading
+
+    import pytest
+
+    from modules.exceptions import PostProcessingRefusedError
+    from modules.scope_session import ScopeSession
+    from tests.settings_fixtures import complete_settings
+
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path / 'live')), simulate=True
+    )
+    ran_on = []
+    real = session.post_processing._enhance
+
+    def recording(*args, **kwargs):
+        ran_on.append(threading.current_thread().name)
+        return real(*args, **kwargs)
+
+    try:
+        session.post_processing._enhance = recording
+        with pytest.raises(PostProcessingRefusedError) as caught:
+            session.post_processing.enhance(tmp_path / 'gone.tif')
+    finally:
+        session.shutdown()
+
+    assert caught.value.reason == 'unreadable'
+    assert 'gone.tif' in str(caught.value)
+    assert ran_on and ran_on[0] != threading.main_thread().name, (
+        'refused on the lane, not the caller'
+    )
 
 
 def test_enhance_progress_is_counted_and_each_saved_image_reaches_the_main_viewer(tmp_path):

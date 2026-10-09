@@ -242,6 +242,11 @@ class PostProcessingAPI:
         Returns:
             ``created``, one entry per derived file; ``output_folder``; and
             ``message``, the outcome in words.
+
+        Raises:
+            PostProcessingRefusedError: reason ``unreadable``, when there is
+                no file or folder at *target*.
+            PostProcessingFailedError: a file could not be enhanced.
         """
         return self._run(
             self._enhance,
@@ -364,6 +369,14 @@ class PostProcessingAPI:
             QuickEnhanceSettings,
         )
 
+        # Asked here, on the lane, where the target is read: a check before
+        # the queue could go stale while an earlier build runs.
+        if not target.is_dir() and not target.is_file():
+            raise PostProcessingRefusedError(
+                operation=QUICK_ENHANCE_OPERATION,
+                reason='unreadable',
+                message=f'There is no file or folder at {target} to enhance.',
+            )
         enhancer = QuickEnhancer()
         settings = QuickEnhanceSettings()
         if target.is_dir():

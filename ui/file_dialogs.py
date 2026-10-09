@@ -562,7 +562,7 @@ class FileChooseBTN(HoverBehavior, Button):
                 ctx.cell_count_content.set_preview_source_file(file=self.selection[0])
 
             elif self.context == 'load_quick_enhance_input_image':
-                ctx.quick_enhance_controls.set_source_file(file=self.selection[0])
+                ctx.quick_enhance_controls.set_source(self.selection[0])
 
             elif self.context == 'load_graphing_data':
                 ctx.graphing_controls.set_graphing_source(file=self.selection[0])
@@ -617,14 +617,7 @@ class FileOrFolderChooseBTN(HoverBehavior, Button):
                 'Stop or finish the protocol first, then retry.',
             )
             return
-        if path.is_dir():
-            ctx.quick_enhance_controls.set_source_folder(path)
-        elif path.is_file():
-            ctx.quick_enhance_controls.set_source_file(path)
-        else:
-            from modules.notification_center import notifications
-
-            notifications.warning('Enhance', 'Selection unavailable', f'Could not open: {path}')
+        ctx.quick_enhance_controls.set_source(path)
 
 
 class FolderChooseBTN(HoverBehavior, Button):
@@ -717,7 +710,7 @@ class FolderChooseBTN(HoverBehavior, Button):
         elif self.context == 'apply_zprojection_to_folder':
             ctx.zprojection_controls.run_zprojection(path=pathlib.Path(path))
         elif self.context == 'apply_quick_enhance_to_folder':
-            ctx.quick_enhance_controls.set_source_folder(path=pathlib.Path(path))
+            ctx.quick_enhance_controls.set_source(path)
         else:
             raise Exception(f'on_selection_function(): Unknown selection {self.context}')
 

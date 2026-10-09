@@ -893,7 +893,9 @@ pp.composite(folder)                         # output format and per-channel ble
 pp.video(folder, frames_per_sec=None,        # None: a recording plays at its own measured rate
          timestamp_overlay=False)
 pp.enhance(target)                           # Quick Enhance: one image, or every image in a folder;
-                                             # derived files are written beside their sources
+                                             # derived files are written beside their sources;
+                                             # PostProcessingRefusedError ('unreadable') when there
+                                             # is no file or folder at target
 pp.count_cells(folder, method=method_dict)   # writes results.csv into the folder
 
 def on_progress(percent, text):              # optional on every member: percent done, and a

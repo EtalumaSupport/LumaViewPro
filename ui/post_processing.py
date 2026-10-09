@@ -81,13 +81,9 @@ class QuickEnhanceControls(BoxLayout):
         super().__init__(**kwargs)
         _app_ctx.register_early('quick_enhance_controls', self)
 
-    def set_source_file(self, file) -> None:
-        self._start_export(pathlib.Path(file))
-
-    def set_source_folder(self, path) -> None:
-        self._start_export(pathlib.Path(path))
-
-    def _start_export(self, target: pathlib.Path) -> None:
+    def set_source(self, path) -> None:
+        """Enhance the image or folder at ``path``; the API says which it is."""
+        target = pathlib.Path(path)
         self.busy = True
         self.status_text = ''
         self.export(target)

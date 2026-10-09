@@ -1,8 +1,7 @@
 """CAPABILITY: Export enhanced (derived) copies of a capture, file or folder.
 
 GUI equivalent: Post-Processing > Enhance > Image / Folder, i.e.
-ui/post_processing.py:56 QuickEnhanceControls.set_source_file and
-ui/post_processing.py:59 set_source_folder.
+QuickEnhanceControls.set_source in ui/post_processing.py.
 
 Headless route under test: session.post_processing.enhance on one
 image and on the folder, over a folder a real headless capture produced.

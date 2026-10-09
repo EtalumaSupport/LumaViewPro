@@ -114,7 +114,7 @@ def test_postprocessing_funnel_blocks_during_protocol():
 def test_quick_enhance_image_funnel_blocks_during_protocol():
     """The FILE-choose funnel needs the same backstop as the folder funnel.
 
-    Picking a Quick Enhance input image lands in set_source_file, which sets
+    Picking a Quick Enhance input image lands in set_source, which sets
     the panel's ``busy`` flag BEFORE an executor put() that the file executor
     silently drops while a protocol owns it -- the preview callback then never
     fires, ``busy`` sticks True, and the kv binding disables the whole panel
@@ -129,7 +129,7 @@ def test_quick_enhance_image_funnel_blocks_during_protocol():
     )
     assert 'notifications.warning' in body
     guard_idx = body.replace(' ', '').find('session.run_lockout')
-    dispatch_idx = body.replace(' ', '').find('set_source_file')
+    dispatch_idx = body.replace(' ', '').find('quick_enhance_controls.set_source(')
     assert guard_idx != -1 and dispatch_idx != -1 and guard_idx < dispatch_idx, (
         'the protocol-running guard must run before the quick-enhance dispatch'
     )
