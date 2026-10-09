@@ -14,6 +14,7 @@ to `build.ps1`.
 |--------|---------|--------------------|
 | `LumaViewPro-<version>.msi` | Standalone LumaViewPro installer. It has minimal install UI and installs the LVP application folder, Start Menu shortcut, Desktop shortcut, environment variables, and app files. | Usually no. Use for internal testing, debugging, or cases where prerequisites are already handled separately. |
 | `LumaViewPro-<version>-setup.exe` | Main customer installer. This is the WiX Bundle with the full installer UI. It runs the LVP MSI and also chains the Basler Pylon USB driver installer and (when present) the IDS Peak runtime installer in one install flow. | Yes. This is the primary file to ship when building a release package. |
+| The build record: `build.log` (the console transcript), `pyinstaller_<version>_<time>.log` (PyInstaller's full DEBUG output: where every collected binary came from), `pip_freeze_<version>_<time>.txt` (every package and version the bundle was packed from), `pyinstaller_warn_*.txt` and `pyinstaller_*.toc` (what PyInstaller flagged, and what shipped) | What this build did, readable after the build's temporary folder is gone. The console shows PyInstaller at INFO and above; the DEBUG lines are in its log. | No. Keep it with the installer it describes. |
 
 The `-setup.exe` bundle is only created when both **required** dependencies
 are present: the Basler Pylon USB Camera Driver MSI and the Microsoft VC++

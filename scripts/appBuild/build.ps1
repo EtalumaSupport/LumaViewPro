@@ -50,7 +50,14 @@ $ErrorActionPreference = "Stop"
 # installs the dev file, so the test runner, linter and profiler sit in the
 # venv PyInstaller packs from, where any library's optional import can collect
 # one into the installer (scipy's and scikit-image's testers import pytest).
-$script_version = 5
+#
+# v6: PyInstaller's DEBUG output and the pip freeze are written to their own
+# files beside the warn file and TOCs, and the console shows PyInstaller at
+# INFO and above. v5 left them only in the transcript, and a second build in
+# one Windows PowerShell 5.1 window transcribed no native program's output,
+# so that build kept no record of what it packed or where each binary came
+# from.
+$script_version = 6
 
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
 $script_dir = Split-Path -Parent $PSCommandPath
@@ -676,12 +683,16 @@ if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: pip install failed"; Set-Location 
 & $venv_python -m PyInstaller --version
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: PyInstaller not available in build venv"; Set-Location $build_dir; Exit 1 }
 
-# The packing environment, versions included, into the transcript: the TOC
-# manifests name the files that shipped, and this is the one record of which
-# release of each package they came from.
-Write-Host "Build environment packages:"
-& $venv_python -m pip freeze
+# The packing environment, versions included: the TOC manifests name the
+# files that shipped, and this is the one record of which release of each
+# package they came from. Its own file in the output folder, because the
+# transcript does not reliably hold a native program's output.
+$freeze = & $venv_python -m pip freeze
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: pip freeze failed"; Set-Location $build_dir; Exit 1 }
+$freeze_file = Join-Path $output_dir "pip_freeze_${version}_$build_log_ts.txt"
+[System.IO.File]::WriteAllLines($freeze_file, [string[]]$freeze)
+Write-Host "Build environment packages ($freeze_file):"
+$freeze | ForEach-Object { Write-Host $_ }
 
 # Written last, once the environment is complete and recorded, so an install
 # that failed part-way is never taken for a finished one by the next build.
@@ -725,19 +736,38 @@ if ($fx2_libusb_dll) {
 } else {
     $env:FX2_LIBUSB_DLL = ""
 }
-# DEBUG level so the transcript names PyInstaller's binary-dependency
-# search directories -- the record of WHERE each collected DLL came
-# from. At WARN those lines are suppressed and a bad collected binary
-# (e.g. a stale C runtime scavenged from the build box) is
-# undiagnosable after the fact.
-& $venv_python -m PyInstaller --log-level DEBUG .\lumaviewpro.spec
-$pyi_exit = $LASTEXITCODE
+# DEBUG level so the record names PyInstaller's binary-dependency search
+# directories -- WHERE each collected DLL came from. At WARN those lines are
+# suppressed and a bad collected binary (e.g. a stale C runtime scavenged
+# from the build box) is undiagnosable after the fact.
+#
+# Every line goes to its own file in the output folder; the console shows
+# INFO and above. Written by this script, not left to the transcript, which
+# in a reused Windows PowerShell 5.1 window holds no native output. Stderr is
+# merged so PyInstaller's log reaches the file, which on 5.1 turns each line
+# into an error record: "Continue" keeps the first one from ending the build,
+# and the exit code decides.
+$pyi_log = Join-Path $output_dir "pyinstaller_${version}_$build_log_ts.log"
+$pyi_writer = New-Object System.IO.StreamWriter($pyi_log, $false, (New-Object System.Text.UTF8Encoding($false)))
+$ErrorActionPreference = "Continue"
+try {
+    & $venv_python -m PyInstaller --log-level DEBUG .\lumaviewpro.spec 2>&1 | ForEach-Object {
+        $line = "$_"
+        $pyi_writer.WriteLine($line)
+        if ($line -notmatch '^\d+ DEBUG: ' -and $line -notmatch '^\[DEBUG') { Write-Host $line }
+    }
+    $pyi_exit = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = "Stop"
+    $pyi_writer.Close()
+}
+Write-Host "PyInstaller log: $pyi_log"
 $env:FX2_LIBUSB_DLL = $null
 if ($pyi_exit -ne 0) { Write-Host "ERROR: PyInstaller failed"; Set-Location $build_dir; Exit 1 }
 
-# The transcript is the ONLY artifact that survives the _tmp cleanup, so
-# every freeze diagnostic must land in it (and a copy of the warn file
-# lands next to the build log). Losing the warn file cost a full client
+# Only the output folder survives the _tmp cleanup, so every freeze
+# diagnostic must land in it: the warn file is copied there and echoed into
+# the transcript. Losing the warn file cost a full client
 # round-trip diagnosing a module PyInstaller had flagged at build time.
 Write-Host "--- PyInstaller warn file ---"
 $warn_file = Get-ChildItem ".\build\lumaviewpro\warn-*.txt" -ErrorAction SilentlyContinue | Select-Object -First 1
