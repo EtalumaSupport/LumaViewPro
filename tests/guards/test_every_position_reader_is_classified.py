@@ -42,6 +42,7 @@ CLASSIFIED = {
     'modules/lumascope_api/runtime_state.py::RuntimeState.get_well_label': CAPTURE_METADATA,
     'modules/recording_frames.py::frame_fact': CAPTURE_METADATA,
     'modules/scope_session.py::ScopeSession.get_sequenced_capture_config': FEEDS_A_REFUSING_API,
+    'modules/scope_session.py::ScopeSession.status': DISPLAYS,
     'modules/protocol_step_runner.py::ProtocolStepRunner._grease_redist_w_pos': RUN,
     'ui/motion_settings.py::XYStageControl.get_xy_targets': DISPLAYS,
     'ui/shader.py::ShaderViewer._update_status_bar': DISPLAYS,

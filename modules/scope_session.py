@@ -69,6 +69,8 @@ from modules.exceptions import (
 )
 from modules.kivy_utils import UiDispatcher
 from modules.live_work import LiveWork, WorkItem
+from modules.lumascope_api import AxisPosition
+from modules.lumascope_api.bring_up import PartStatus
 from modules.lumascope_api.illumination import LedLease, LedTransition, LedTransitionCtx
 from modules.manual_capture import ManualCaptureController
 from modules.manual_recording import ManualRecordingController
@@ -213,6 +215,34 @@ class SavedFocus:
 
     z: float
     step_idx: int | None
+
+
+@api_fields('live_work', 'axes', 'parts', 'camera_streaming')
+@dataclasses.dataclass(frozen=True)
+class Status:
+    """What the scope is doing, in one read, for a client that has just connected.
+
+    Each field is read from its owner, one after another rather than under
+    one lock, so two fields can describe slightly different moments: an
+    axis can read HOMING in ``axes`` a moment before the home appears in
+    ``live_work``.
+
+    Attributes:
+        live_work: Everything the session is still doing
+            (``ScopeSession.live_work``).
+        axes: Each axis's state and position, None where the position is
+            not known (``MotionAPI.axis_positions``); um for X/Y/Z, the
+            slot for T.
+        parts: Which parts came up at bring-up, and why each that did not
+            (``ScopeSession.bring_up_record``).
+        camera_streaming: Whether the camera is grabbing frames, asked of
+            the camera itself (``ImagingAPI.is_streaming``).
+    """
+
+    live_work: LiveWork
+    axes: dict[str, AxisPosition]
+    parts: tuple[PartStatus, ...]
+    camera_streaming: bool
 
 
 @api_fields('engineering_mode', 'manual_capture', 'manual_recording', 'post_processing', 'scope')
@@ -633,6 +663,22 @@ class ScopeSession:
             work.append(WorkItem(live_work.STILL, 'A still being saved'))
         return LiveWork(
             work=tuple(work), closing=self.activity_claim.closing, closed=self._shut_down
+        )
+
+    @api
+    @property
+    def status(self) -> Status:
+        """What the scope is doing: its work, its axes, its parts and its camera, in one read.
+
+        The read a client makes first and polls as its health check. Each
+        field comes from its owner, one after another rather than under one
+        lock (``Status``); no field does serial I/O.
+        """
+        return Status(
+            live_work=self.live_work,
+            axes=self.scope.motion.axis_positions(),
+            parts=self.scope.bring_up_record().parts,
+            camera_streaming=self.scope.imaging.is_streaming(),
         )
 
     @contextlib.contextmanager

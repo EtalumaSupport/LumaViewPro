@@ -970,6 +970,11 @@ session.live_work                # everything the session is still doing, one re
                                  # zip, a still being saved; left counts frames, images or builds still to
                                  # finish, percent is a build's last progress; .closing while the close runs,
                                  # .closed once the session shut down
+session.status                   # what the scope is doing, one read, the first a client makes: Status(live_work,
+                                 # axes, parts, camera_streaming) -- live_work as above; axes as
+                                 # scope.motion.axis_positions(); parts as bring_up_record().parts;
+                                 # camera_streaming as scope.imaging.is_streaming(); each read from its owner in
+                                 # turn, not under one lock, so two fields can be a moment apart
 session.discard_close_drain()    # the escape from a wait on video frames: drop every queued frame of a recording's
                                  # file and a run's video; each file finishes with what was written
 
@@ -2580,6 +2585,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `start_application_session` (in-process)
 - `start_go_to_step`
 - `start_metrics` (in-process)
+- `status`
 - `stop_metrics` (in-process)
 - `unload_plugins` (in-process)
 - `update_settings`
@@ -3148,6 +3154,15 @@ Reached through `BringUpRecord.settings_set_aside`.
 
 - `path`
 - `reason`
+
+### Status
+
+Reached through `session.status`.
+
+- `axes`
+- `camera_streaming`
+- `live_work`
+- `parts`
 
 ### StepTargets
 
