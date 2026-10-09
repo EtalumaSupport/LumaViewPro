@@ -94,6 +94,8 @@ class LiveFolderPathRefusedError(Refusal, ValueError):
             carries a drive or a network share, or leads outside the live
             folder through ``..`` or a link. ``'capture_location_unusable'``
             -- the live folder itself is missing or not a folder.
+            ``'not_a_folder'`` -- a listing's name is a file or names
+            nothing.
         name: The name that was given.
     """
 

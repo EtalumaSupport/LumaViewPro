@@ -20,9 +20,11 @@ import concurrent.futures
 import contextlib
 import copy
 import dataclasses
+import datetime
 import json
 import os
 import pathlib
+import stat
 import threading
 import time
 import typing
@@ -118,8 +120,6 @@ _LAYER_SETTINGS_KEYS = (
 # imported function-locally to avoid a circular import. Declare it here
 # for the annotation without a runtime import.
 if TYPE_CHECKING:
-    import datetime
-
     from drivers.simulated_camera import SimulatedStall
     from modules.labware_loader import WellPlateLoader
     from modules.lumascope_api import Lumascope
@@ -243,6 +243,26 @@ class Status:
     axes: dict[str, AxisPosition]
     parts: tuple[PartStatus, ...]
     camera_streaming: bool
+
+
+@api_fields('name', 'kind', 'size', 'modified')
+@dataclasses.dataclass(frozen=True)
+class LiveFolderEntry:
+    """One file or folder in a live-folder listing.
+
+    Attributes:
+        name: Its full name under the live folder, ``/``-separated on every
+            host: what a path parameter, a download and a further listing
+            take.
+        kind: ``'file'`` or ``'folder'``.
+        size: Its size in bytes, as the file system reports it.
+        modified: When it was last modified, in local time with its offset.
+    """
+
+    name: str
+    kind: str
+    size: int
+    modified: datetime.datetime
 
 
 @api_fields('engineering_mode', 'manual_capture', 'manual_recording', 'post_processing', 'scope')
@@ -2400,6 +2420,50 @@ class ScopeSession:
                 'name relative to the live folder, such as ProtocolData/run1.',
             )
         return (root / name).resolve()
+
+    @api
+    def live_folder_listing(self, name: str = '.') -> tuple[LiveFolderEntry, ...]:
+        """What the folder ``name`` under the live folder holds, one level, sorted by name.
+
+        Each entry is named by its full name under the live folder,
+        ``/``-separated on every host, so it is taken as it is by any path
+        parameter, a download and a further listing. ``'.'`` lists the live
+        folder itself. An entry that is gone by the time it is read -- a
+        file a run renames into place, a link to nothing -- is not listed. A
+        link that leads outside the live folder is listed as what it leads
+        to, and refused where its name is used, as ``live_folder_path``
+        refuses it.
+
+        Raises:
+            LiveFolderPathRefusedError: as ``live_folder_path`` raises it;
+                ``'not_a_folder'``, ``name`` is a file or names nothing.
+        """
+        root = self.live_folder_path('.')
+        folder = self.live_folder_path(name)
+        if not folder.is_dir():
+            raise LiveFolderPathRefusedError(
+                'not_a_folder',
+                name,
+                f'{name!r} is not a folder in the live folder {root}. List a folder the '
+                "live folder's own listing names.",
+            )
+        entries = []
+        # By the name's text: a Windows path compares without case, so
+        # sorting the paths would order the same folder differently by host.
+        for child in sorted(folder.iterdir(), key=lambda path: path.name):
+            try:
+                found = child.stat()
+            except FileNotFoundError:
+                continue
+            entries.append(
+                LiveFolderEntry(
+                    name=child.relative_to(root).as_posix(),
+                    kind='folder' if stat.S_ISDIR(found.st_mode) else 'file',
+                    size=found.st_size,
+                    modified=datetime.datetime.fromtimestamp(found.st_mtime).astimezone(),
+                )
+            )
+        return tuple(entries)
 
     @api(in_process=True)
     def set_protocol_filepath(self, file_path: str) -> None:
