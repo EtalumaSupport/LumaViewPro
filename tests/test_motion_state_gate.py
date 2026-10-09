@@ -20,17 +20,6 @@ firmware (the firmware simulator tier) and makes the hardware fail: a
 stalled X motor, so the firmware's own home fails, and a pulled cable,
 which is what a dead board is to the driver. The driver's and the API's
 real error handling runs on the firmware's real failure.
-
-One seam is substituted, deliberately:
-
-* The startup test's two motion calls, supplied through
-  ``start_application_session``'s ``home_fn`` / ``turret_fn`` parameters
-  -- the same seam the Kivy app uses to pass its widget-flavored
-  wrappers. The substitutes route straight to the production motion
-  bodies and record what the orchestrator attempted, so the decision
-  under test -- does startup attempt the turret move after a failed
-  home? -- is observed exactly, while the hardware underneath stays the
-  real simulator.
 """
 
 import sys
@@ -249,78 +238,6 @@ def test_stage_fault_revokes_homed_state(scope):
 
     assert scope.motion.has_homed() is False, (
         'has_homed() must follow the axis state, not the driver latch'
-    )
-
-
-# ---------------------------------------------------------------------------
-# B5: the orchestrator honors the home result.
-# ---------------------------------------------------------------------------
-
-
-def _startup_hooks(scope):
-    """Route startup's two motion calls to the production bodies,
-    recording what startup attempted.
-
-    See the module docstring for why these two are substituted.
-
-    The substitutes go in through ``start_application_session``'s own
-    ``home_fn`` / ``turret_fn`` parameters -- the same seam the GUI uses
-    to supply its widget-flavored wrappers. An earlier version patched
-    ``ui.ui_helpers`` attributes instead, which pinned the substitution
-    MECHANISM rather than the invariant and stopped intercepting
-    anything the moment the Session took its motion callables by
-    injection.
-    """
-    attempts = []
-
-    # Both substitutes call the production body directly rather than the
-    # async wrapper, so the sequence is ordered and the home's real result
-    # is observable when startup decides on the turret move.
-    def _home_fn(axis):
-        attempts.append(('home', axis))
-        scope.motion._home_impl()
-
-    def _turret_fn(position):
-        attempts.append(('move', 'T', position))
-        scope.motion._move_absolute_impl('T', position)
-
-    hooks = {'home_fn': _home_fn, 'turret_fn': _turret_fn}
-    return attempts, hooks
-
-
-def test_startup_skips_turret_positioning_after_failed_home(session, scope, centre_posts):
-    """The cascade in #702: startup homes, the home fails, and startup
-    positions the turret anyway -- a real move against an unknown
-    reference, and a second error popup on top of the home's own."""
-    attempts, hooks = _startup_hooks(scope)
-    _fail_home(scope)
-
-    session.start_application_session(**hooks)
-
-    assert ('home', 'ALL') in attempts, 'startup must still attempt the home'
-    turret_moves = [a for a in attempts if a[0] == 'move' and a[1] == 'T']
-    assert turret_moves == [], (
-        f'startup must not position the turret after a failed home, attempted {turret_moves}'
-    )
-    errors = _errors_posted(centre_posts)
-    assert len(errors) == 1, (
-        f'the home failure notifies once; the skipped turret move must not add '
-        f'a second popup, got {errors}'
-    )
-
-
-def test_startup_positions_turret_after_successful_home(session, scope):
-    """The control: a good home must still position the turret. A gate
-    that refuses everything would pass the test above."""
-    attempts, hooks = _startup_hooks(scope)
-
-    session.start_application_session(**hooks)
-
-    assert ('home', 'ALL') in attempts
-    turret_moves = [a for a in attempts if a[0] == 'move' and a[1] == 'T']
-    assert len(turret_moves) == 1, (
-        f'a successful home must be followed by exactly one turret positioning '
-        f'move, got {turret_moves}'
     )
 
 

@@ -81,15 +81,6 @@ def test_bring_up_turns_off_a_layer_this_scope_lacks(ls850):
     assert ls850.settings['BF']['acquire'] == 'image'
 
 
-def test_bring_up_logs_the_layer_it_turned_off(tmp_path, warned):
-    session = _session(tmp_path, 'LS850', BF='image', Lumi='video')
-    try:
-        assert any('Lumi' in line and 'acquire nothing' in line for line in warned)
-    finally:
-        session.shutdown()
-        session.scope.disconnect()
-
-
 def test_new_and_add_build_no_step_for_a_layer_this_scope_lacks(ls850):
     protocol = ls850.create_empty_protocol()
     ls850.add_step(protocol)

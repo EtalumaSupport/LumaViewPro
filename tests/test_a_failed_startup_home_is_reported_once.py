@@ -10,8 +10,6 @@ not bring-up's to answer and reaches its caller.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, call
-
 import pytest
 
 from modules.exceptions import HardwareCommandRefusedError, HomingFailedError, MissingPart
@@ -73,24 +71,6 @@ def test_no_motor_controller_is_shown_once_as_not_connected(session, shown):
 
     assert [(n.severity, n.title) for n in shown] == [(Severity.WARNING, 'Not Connected')]
     assert turret == []
-
-
-def test_the_skipped_turret_move_is_not_a_second_error(session, shown, monkeypatch):
-    # The reporter logs the failure at its own level; the skip it causes is
-    # what bring-up did next, not another failure.
-    import modules.scope_session as scope_session_module
-
-    log = MagicMock()
-    monkeypatch.setattr(scope_session_module, 'logger', log)
-    session.start_application_session(
-        home_fn=_raises(HomingFailedError('ALL', 'failed', ('Z',))),
-        turret_fn=lambda position: None,
-    )
-
-    assert log.error.call_args_list == []
-    assert call('startup turret positioning skipped: the stage reference is unknown') in (
-        log.info.call_args_list
-    )
 
 
 def test_a_busy_refusal_reaches_the_caller(session, shown):

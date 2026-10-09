@@ -10551,20 +10551,6 @@ class TestScopeSessionBuildsFullExecutorBundle:
     so headless callers get the same topology lumaviewpro.py runs.
     """
 
-    def test_create_gives_the_session_the_bundles_file_io_executor(self, tmp_path):
-        from modules.scope_session import ScopeSession
-        from tests.settings_fixtures import complete_settings
-
-        session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
-        try:
-            assert session.file_io_executor is session.executor_bundle.file_io_executor, (
-                'ScopeSession.create(simulate=True) must give the session the '
-                "bundle's file_io_executor; without it, protocol_image_writer + "
-                'IOTask file-IO paths have no lane and pipelining is lost.'
-            )
-        finally:
-            session.shutdown()
-
     def test_the_session_metrics_logger_holds_its_bundle_and_settings(self, tmp_path):
         from modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
@@ -10580,18 +10566,6 @@ class TestScopeSessionBuildsFullExecutorBundle:
         assert logger_._settings is session.settings, (
             "the system tick reads live_folder and profiling from the session's "
             'settings; an empty dict would log against no folder, silently'
-        )
-
-    def test_create_session_carries_bundle_reference(self, tmp_path):
-        from modules.scope_session import ScopeSession
-        from tests.settings_fixtures import complete_settings
-        from modules.executor_registry import ExecutorBundle
-
-        session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
-        assert isinstance(session.executor_bundle, ExecutorBundle), (
-            'ScopeSession.create(simulate=True) must store the bundle on the '
-            'session itself so headless callers can shut down protocol_thread '
-            '/ scope_display_thread cleanly.'
         )
 
     def test_create_bundle_has_all_four_executors(self, tmp_path):

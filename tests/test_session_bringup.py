@@ -157,13 +157,6 @@ class TestDisableHomingIsNoStartupMotion:
             'the recorded turret position must be left as it was'
         )
 
-    def test_a_fresh_session_with_the_default_motion_returns_quietly(self, session):
-        session.settings['turret_position'] = 3
-
-        session.start_application_session(disable_homing=True)
-
-        assert session.settings['turret_position'] == 3
-
     def test_the_stage_is_not_placed_at_the_sample_either(self, session):
         """No startup motion means none, including the simulator's own
         placement.

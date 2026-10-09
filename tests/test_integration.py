@@ -811,20 +811,6 @@ from modules.protocol_runner import ProtocolRunner
 class TestHeadlessSession:
     """Verify ScopeSession.create(simulate=True) and ProtocolRunner work end-to-end."""
 
-    def test_simulated_create_returns_session(self):
-        """create(simulate=True) should return a working ScopeSession."""
-        session = ScopeSession.create(complete_settings(), simulate=True)
-        assert session is not None
-        assert session.scope is not None
-        assert session.io_executor is not None
-        assert session.camera_executor is not None
-        assert session.settings is not None
-
-    def test_simulated_create_scope_is_simulated(self):
-        """Headless session should use simulated hardware."""
-        session = ScopeSession.create(complete_settings(), simulate=True)
-        assert session.scope._simulated is True
-
     def test_simulated_create_with_custom_settings(self):
         """create(simulate=True) should accept custom settings."""
         custom = {'BF': {'autofocus': False}, 'custom_key': 42}

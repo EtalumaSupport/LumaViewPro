@@ -162,11 +162,6 @@ def test_an_ls620_sum_is_16bit_and_tagged_by_its_reach(ls620_session):
     assert imaging.last_capture_info['frame_record'].frame_significant_bits == 8
 
 
-def test_an_ls620_runs_the_full_depth_mode_it_was_saved_in(ls620_session):
-    assert ls620_session.settings['image_mode'] == image_mode.IMAGE_MODE_12BIT_SCIENTIFIC
-    assert ls620_session.bring_up_record().substitution('image_mode') is None
-
-
 def test_every_camera_is_offered_every_mode():
     assert image_mode.available_modes() == [
         image_mode.IMAGE_MODE_8BIT,

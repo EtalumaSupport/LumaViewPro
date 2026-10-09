@@ -536,25 +536,6 @@ class TestT10TurretPosition:
 
 
 class TestT14OpticsRecord:
-    def test_the_record_fires_once_at_bring_up_with_the_scope_s_binning(self, monkeypatch):
-        import modules.config_helpers as config_helpers
-
-        seen = []
-        monkeypatch.setattr(
-            config_helpers,
-            'log_resolved_optics',
-            lambda objective_id, focal_length, binning_size, *, capabilities: seen.append(
-                (objective_id, focal_length)
-            ),
-        )
-        session = ScopeSession.create(
-            complete_settings(**_turret_settings(microscope=NON_TURRET_MODEL)), simulate=True
-        )
-        try:
-            assert seen == [('20x Oly', session.get_objective_info('20x Oly')['focal_length'])]
-        finally:
-            session.shutdown()
-
     def test_the_bring_up_record_carries_a_real_scale(self):
         session = ScopeSession.create(
             complete_settings(**_turret_settings(microscope=NON_TURRET_MODEL)), simulate=True

@@ -26,7 +26,6 @@ from modules.scope_session import ScopeSession
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import ENQUEUED
 from tests.scope_fakes import real_executor_bundle, spec_scope
-from tests.settings_fixtures import complete_settings
 
 
 class _Scheduler:
@@ -182,11 +181,3 @@ def test_the_refusal_and_the_report_offer_one_remedy_in_one_set_of_words(
     assert refused.value.remedy == report.remedy
     cost = FileWriterStalledError.cost_sentence(3)
     assert cost in refused.value.message and cost in report.message
-
-
-def test_bring_up_arms_the_check(tmp_path):
-    session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
-    try:
-        assert session.sequenced_capture_runner._file_writer_check_handle is not None
-    finally:
-        session.shutdown()

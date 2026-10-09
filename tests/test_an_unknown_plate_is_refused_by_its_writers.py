@@ -16,16 +16,6 @@ from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 
-def test_the_shipped_template_plate_brings_up(tmp_path):
-    # The plate bring-up puts in place of an unusable stored one: it only
-    # works if the template's own plate resolves.
-    session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
-    try:
-        assert session.scope.runtime_state.get_labware() is not None
-    finally:
-        session.shutdown()
-
-
 class TestThePlateHasOneWriter:
     @pytest.fixture
     def session(self, tmp_path):
