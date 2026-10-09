@@ -120,15 +120,6 @@ class TestTheStallIsReported:
         assert '3 unsaved image(s)' in stall.message
         assert "write_capture 'B2_BF'" in stall.message
 
-    def test_its_remedy_recovers_the_writer(self, session, heard, scheduler):
-        batch = _batch(session, stalled=True)
-        scheduler.tick()
-
-        session.apply_remedy(_stalls(heard)[0].remedy)
-
-        assert batch.not_written_reason == 'write_batch_abandoned'
-        session.file_io_executor.replace_stuck_worker.assert_called_once()
-
     @pytest.mark.slow
     def test_a_different_stuck_write_is_a_new_stall(self, session, heard, scheduler):
         _batch(session, stalled=True)

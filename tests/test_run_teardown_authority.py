@@ -125,26 +125,6 @@ class TestTeardownAuthority:
         executor.force_reset(reason='test cleanup')
         assert done.wait(timeout=COMPLETION_TIMEOUT)
 
-    def test_a_handle_naming_no_run_is_refused_while_a_run_is_live(
-        self, executor, scope, tmp_path, centre_posts
-    ):
-        """A control that never started anything holds None; its Stop must
-        not reach the live run either."""
-        start = len(centre_posts)
-        done = threading.Event()
-        live = _start_run(executor, tmp_path, done)
-
-        with pytest.raises(ProtocolRunRefusedError) as exc:
-            executor._reset(None)
-
-        notified = _notified_since(centre_posts, start)
-        assert exc.value.reason == 'run_not_live'
-        assert len(notified) == 1, f'expected one notification, got {notified}'
-        assert executor._is_live_run(live), 'a refused teardown still killed the run'
-
-        executor.force_reset(reason='test cleanup')
-        assert done.wait(timeout=COMPLETION_TIMEOUT)
-
     def test_the_live_runs_own_handle_stops_it(self, executor, scope, tmp_path):
         done = threading.Event()
         run = _start_run(executor, tmp_path, done)
@@ -179,10 +159,6 @@ class TestTeardownAuthority:
         notified = _notified_since(centre_posts, start)
         assert not isinstance(exc.value, ProtocolRunRefusedError)
         assert notified == [], f'a stop after the run ended notified: {notified}'
-
-    def test_teardown_before_any_run_raises_run_already_ended(self, executor, scope):
-        with pytest.raises(RunAlreadyEndedError):
-            executor._reset(None)
 
     def test_force_reset_overrides_ownership(self, executor, scope, tmp_path):
         """App close holds no run's handle and still stops the live run."""

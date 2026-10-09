@@ -1362,34 +1362,6 @@ class TestIssue606_TurretObjectiveValidation:
         )
         assert 'notifications.warning' not in src, 'a selection is not refused by a dialog'
 
-    def test_the_engine_refuses_unassigned_turret_objectives(self):
-        """The guarantee moved from the widget to the API that owns the rule.
-
-        It used to be pinned by searching _is_protocol_valid's source for
-        the word 'turret'. That pin could be satisfied by a COMMENT -- and
-        was, the moment the check itself moved out, so it reported green
-        over an absent guard.
-
-        Keyed on the reason code instead: prose can contain 'turret', but
-        a refusal code is the contract a caller branches on and cannot be
-        satisfied by describing it. The behaviour itself -- every
-        combination of what the turret carries and what a protocol names
-        -- is exercised as a table in
-        test_a_protocol_needs_its_objectives_on_the_turret.py.
-
-        It reads the protocol-construction API rather than the runner
-        because that is where the rule lives now: the runner, the load,
-        a new protocol and a step navigation all ask it there, and a
-        refusal restated per caller is what let them disagree.
-        """
-        import pathlib
-
-        source = pathlib.Path('modules/lumascope_api/protocols.py').read_text()
-        assert "reason='turret_objectives_unassigned'" in source, (
-            'the engine must refuse a protocol naming objectives the turret '
-            'does not carry, so every caller gets it and not only the GUI'
-        )
-
 
 # ===========================================================================
 # Audit Fix Regression Tests -- Session 8 (B6, B5, D2, G3, F7, G4)

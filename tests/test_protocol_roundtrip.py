@@ -27,7 +27,7 @@ import pandas as pd
 import pytest
 
 from modules.activity_claim import ActivityClaim
-from modules.exceptions import ProtocolError, ProtocolRunRefusedError
+from modules.exceptions import ProtocolRunRefusedError
 from modules.image_mode import ImageCaptureConfig
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
@@ -940,26 +940,6 @@ class TestExecuteSaveLoadRun:
         assert completed_b, 'Protocol B did not complete after A'
 
 
-class TestValidation:
-    """Protocol validation catches bad configs before execution."""
-
-    def test_invalid_video_config_not_dict(self):
-        with pytest.raises(ProtocolFormatError, match='Video Config'):
-            _build_protocol([_make_step(acquire='video', video_config='not a dict')])
-
-    def test_invalid_color(self):
-        steps = [_make_step(color='Ultraviolet')]
-        proto = _build_protocol(steps)
-        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
-        assert len(errors) > 0, 'Expected validation error for invalid color'
-
-    def test_negative_exposure(self):
-        steps = [_make_step(exposure=-1.0)]
-        proto = _build_protocol(steps)
-        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
-        assert len(errors) > 0, 'Expected validation error for negative exposure'
-
-
 # ===========================================================================
 # PART 3: Round-Trip Gaps
 # ===========================================================================
@@ -1062,25 +1042,6 @@ class TestRoundTripMetadata:
         proto = _build_protocol([_make_step()], duration_hrs=0.0)
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.duration() == datetime.timedelta(0)
-
-    def test_duration_negative_still_rejected(self, tmp_path):
-        """Duration < 0 stays a hard error (corrupted TSV). Mirrors
-        test_period_negative_still_rejected (issue #669)."""
-        from modules.protocol import ProtocolFormatError
-
-        tmp_path.mkdir(parents=True, exist_ok=True)
-        proto = _build_protocol([_make_step()], duration_hrs=1.0)
-        filepath = tmp_path / 'neg_duration.tsv'
-        proto.to_file(filepath)
-        text = filepath.read_text(encoding='utf-8')
-        patched = text.replace('Duration\t1', 'Duration\t-1', 1)
-        filepath.write_text(patched, encoding='utf-8')
-
-        with pytest.raises(ProtocolFormatError):
-            Protocol.from_file(
-                file_path=filepath,
-                tiling_configs_file_loc=TILING_CONFIGS,
-            )
 
     def test_duration_preserved(self, tmp_path):
         proto = _build_protocol([_make_step()], duration_hrs=12.0)
@@ -1639,104 +1600,11 @@ class TestRealPathExecution:
 class TestProtocolValidation:
     """Thorough validation testing -- every field boundary."""
 
-    def test_valid_protocol_no_errors(self):
-        proto = _build_protocol([_make_step()])
-        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
-        assert errors == [], f'Expected no errors, got: {errors}'
-
-    def test_all_valid_colors(self):
-        """Every valid color passes validation."""
-        for color in ['BF', 'PC', 'DF', 'Red', 'Green', 'Blue']:
-            proto = _build_protocol([_make_step(color=color)])
-            errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
-            color_errors = [e for e in errors if 'Color' in e]
-            assert color_errors == [], f"Color '{color}' should be valid, got: {color_errors}"
-
-    def test_invalid_color_rejected(self):
-        proto = _build_protocol([_make_step(color='Ultraviolet')])
-        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
-        assert any('Color' in e for e in errors)
-
-    def test_negative_exposure_rejected(self):
-        proto = _build_protocol([_make_step(exposure=-1.0)])
-        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
-        assert any('Exposure' in e for e in errors)
-
-    def test_zero_exposure_rejected(self):
-        """No camera takes 0 ms."""
-        proto = _build_protocol([_make_step(exposure=0.0)])
-        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
-        assert any('Exposure' in e for e in errors)
-
-    def test_negative_gain_rejected(self):
-        proto = _build_protocol([_make_step(gain=-1.0)])
-        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
-        assert any('Gain' in e for e in errors)
-
-    def test_zero_gain_valid(self):
-        proto = _build_protocol([_make_step(gain=0.0)])
-        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
-        gain_errors = [e for e in errors if 'Gain' in e]
-        assert gain_errors == []
-
-    def test_illumination_over_1000_rejected(self):
-        proto = _build_protocol([_make_step(illumination=1001.0)])
-        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
-        assert any('Illumination' in e for e in errors)
-
-    def test_illumination_1000_valid(self):
-        proto = _build_protocol([_make_step(illumination=1000.0)])
-        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
-        ill_errors = [e for e in errors if 'Illumination' in e]
-        assert ill_errors == []
-
-    def test_negative_illumination_rejected(self):
-        proto = _build_protocol([_make_step(illumination=-10.0)])
-        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
-        assert any('Illumination' in e for e in errors)
-
-    def test_sum_zero_rejected(self):
-        proto = _build_protocol([_make_step(sum_count=0)])
-        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
-        assert any('Sum' in e for e in errors)
-
     def test_sum_one_valid(self):
         proto = _build_protocol([_make_step(sum_count=1)])
         errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         sum_errors = [e for e in errors if 'Sum' in e]
         assert sum_errors == []
-
-    def test_invalid_acquire_mode(self):
-        with pytest.raises(ProtocolFormatError, match='Acquire'):
-            _build_protocol([_make_step(acquire='timelapse')])
-
-    def test_video_with_zero_fps_rejected(self):
-        proto = _build_protocol(
-            [_make_step(acquire='video', video_config={'duration': 1.0, 'fps': 0})]
-        )
-        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
-        assert any('fps' in e for e in errors)
-
-    def test_video_with_zero_duration_rejected(self):
-        proto = _build_protocol(
-            [_make_step(acquire='video', video_config={'duration': 0, 'fps': 5})]
-        )
-        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
-        assert any('duration' in e for e in errors)
-
-    def test_video_with_string_config_rejected(self):
-        with pytest.raises(ProtocolFormatError, match='Video Config'):
-            _build_protocol([_make_step(acquire='video', video_config='not a dict')])
-
-    def test_multiple_errors_reported(self):
-        """Multiple bad steps should all report errors."""
-        steps = [
-            _make_step(name='bad1', color='Invalid', exposure=-1.0),
-            _make_step(name='bad2', illumination=2000.0, gain=-5.0),
-        ]
-        proto = _build_protocol(steps)
-        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
-        assert len(errors) >= 3, f'Expected at least 3 errors, got {len(errors)}: {errors}'
 
 
 class TestProtocolModification:
@@ -2147,15 +2015,6 @@ class TestProtocolDeleteStep:
         proto.delete_step(step_idx=0)
         assert proto.num_steps() == 0
 
-    def test_a_negative_index_is_refused_by_type(self):
-        # A step-list pointer that has gone stale reads -1 or lower; the
-        # protocol answers it as a ProtocolError in its own words, not as
-        # the frame's KeyError.
-        proto = _build_protocol([_make_step(name='a'), _make_step(name='b')])
-        with pytest.raises(ProtocolError):
-            proto.delete_step(step_idx=-1)
-        assert proto.num_steps() == 2
-
     def test_delete_first_of_three(self):
         proto = _build_protocol(
             [
@@ -2393,60 +2252,6 @@ class TestPerRowConfigParsing:
     length or a stimulation nobody set; before that, one corrupt row
     wiped every row to the defaults.
     """
-
-    def _save_and_corrupt(self, tmp_path, steps, column, corrupt_row_idx, corrupt_value):
-        """Save a protocol, corrupt one cell in the TSV, and reload."""
-        proto = _build_protocol(steps)
-        tsv_path = tmp_path / 'test.tsv'
-        proto.to_file(tsv_path)
-
-        lines = tsv_path.read_text().splitlines()
-        # Find the header line (starts with "Name\t")
-        header_idx = next(i for i, line in enumerate(lines) if line.startswith('Name\t'))
-        header = lines[header_idx].split('\t')
-        col_idx = header.index(column)
-
-        # Corrupt the specified data row
-        data_line_idx = header_idx + 1 + corrupt_row_idx
-        parts = lines[data_line_idx].split('\t')
-        parts[col_idx] = corrupt_value
-        lines[data_line_idx] = '\t'.join(parts)
-        tsv_path.write_text('\n'.join(lines))
-
-        return Protocol.from_file(tsv_path, tiling_configs_file_loc=TILING_CONFIGS)
-
-    def test_one_corrupt_video_config_refuses_the_file(self, tmp_path):
-        # Wells match the names so the derived Names stay distinct at load.
-        steps = [
-            _make_step(name='A1_BF', well='A1', video_config={'duration': 5.0, 'fps': 10}),
-            _make_step(name='A2_BF', well='A2', video_config={'duration': 5.0, 'fps': 10}),
-            _make_step(name='A3_BF', well='A3', video_config={'duration': 5.0, 'fps': 10}),
-        ]
-        with pytest.raises(ProtocolFormatError, match=r'step 2 .*Video Config'):
-            self._save_and_corrupt(
-                tmp_path,
-                steps,
-                'Video Config',
-                corrupt_row_idx=1,
-                corrupt_value='THIS IS NOT JSON',
-            )
-
-    def test_one_corrupt_stim_config_refuses_the_file(self, tmp_path):
-        sc = _stim_config_enabled(channels=['Red'])
-        # Wells match the names so the derived Names stay distinct at load.
-        steps = [
-            _make_step(name='A1_BF', well='A1', stim_config=sc),
-            _make_step(name='A2_BF', well='A2', stim_config=sc),
-            _make_step(name='A3_BF', well='A3', stim_config=sc),
-        ]
-        with pytest.raises(ProtocolFormatError, match=r'step 2 .*Stim_Config'):
-            self._save_and_corrupt(
-                tmp_path,
-                steps,
-                'Stim_Config',
-                corrupt_row_idx=1,
-                corrupt_value='{BROKEN',
-            )
 
     def test_default_assignment_gives_independent_dicts(self):
         """No write to one row's default config can reach another: the

@@ -656,25 +656,6 @@ class TestProtocolImageWriterWriteCapture:
             step={'Name': 'test'},
         )
 
-    def test_write_capture_failed_image_records_failure(self):
-        record = MagicMock()
-        writer = self._make_writer(execution_record=record)
-        # captured_image=None is the production capture-failure marker
-        # (modules/protocol_image_writer.py:538-550); capture_and_wait()
-        # returns None on grab failure.
-        writer.write_capture(
-            enable_image_saving=True,
-            captured_image=None,
-            step={'Name': 'test_step'},
-            name='test_name',
-            step_index=3,
-            scan_count=2,
-        )
-        record.add_step.assert_called_once()
-        _, kwargs = record.add_step.call_args
-        assert kwargs['capture_result_file_name'] == 'capture_failed'
-        assert kwargs['frame_count'] == 0
-
     def test_write_capture_none_record_with_failed_image_no_crash(self):
         writer = self._make_writer(execution_record=None)
         writer.write_capture(

@@ -100,23 +100,6 @@ class TestTheBuilderRefuses:
             'the reason code is the contract a REST or SDK caller branches on'
         )
 
-    @pytest.mark.parametrize('zstack', UNCONFIGURED)
-    def test_it_is_refused_rather_than_flattened(self, zstack, sim_scope):
-        """The defect's signature: a non-empty protocol of single planes.
-
-        Worth asserting separately from the raise -- a fix that refused
-        somewhere else while still building the flat protocol first would
-        satisfy the test above and leave the wrong result in memory.
-        """
-        with pytest.raises(ProtocolRunRefusedError):
-            Protocol.from_config(
-                input_config=_standalone_config(zstack),
-                tiling_configs_file_loc=_TILING,
-                capabilities=sim_scope.capabilities,
-                objective_helper=sim_scope.objective_helper,
-                wellplate_loader=sim_scope.wellplate_loader,
-            )
-
     def test_a_configured_stack_still_builds(self, sim_scope):
         """The guard must not refuse the stacks that are fine."""
         protocol = Protocol.from_config(

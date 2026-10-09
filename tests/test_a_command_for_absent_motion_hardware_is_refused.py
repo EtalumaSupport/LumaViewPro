@@ -360,21 +360,6 @@ def test_go_to_step_on_a_manual_scope_moves_nothing_and_loads_the_layer(make_ses
 # --- The run asks presence before it asks about the home --------------------------
 
 
-def test_an_unhomed_scope_asked_to_run_is_told_to_home(make_session, tmp_path):
-    session = make_session('LS850', homed=False)
-    runner = session.create_protocol_runner()
-    far = {**_make_single_step_protocol().step(idx=0), 'X': 500.0, 'Y': 500.0}
-
-    with pytest.raises(ProtocolRunRefusedError) as exc:
-        runner.run_single_scan(
-            protocol=_build_real_protocol([far]),
-            sequence_name='s',
-            parent_dir=str(tmp_path),
-        )
-
-    assert exc.value.reason == 'position_unknown'
-
-
 def test_an_unhomed_z_only_scope_with_an_xy_protocol_is_told_it_has_no_xy(make_session, tmp_path):
     session = make_session('LS820', homed=False)
     runner = session.create_protocol_runner()

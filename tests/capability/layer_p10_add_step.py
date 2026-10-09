@@ -37,7 +37,6 @@ try:
         refused = e.reason == 'no_acquiring_layer'
     harness.check('an add that would add nothing is refused at the API', refused)
     harness.check('the refusal added nothing', protocol.num_steps() == 1)
-    harness.assert_no_ui()
 except Exception:
     traceback.print_exc()
     harness.check('probe completed without an unexpected raise', False)

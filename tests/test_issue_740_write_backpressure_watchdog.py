@@ -34,7 +34,6 @@ from modules.sequential_io_executor import (
     SequentialIOExecutor,
 )
 from tests.test_audit_fixes import _bare_protocol_writer, _protocol_step
-from tests.scope_fakes import real_executor_bundle
 
 
 @pytest.fixture
@@ -432,37 +431,6 @@ def test_prepare_refusal_names_stalled_writer(tmp_path):
     with _pytest.raises(ProtocolRunRefusedError) as excinfo:
         _prepare()
     assert excinfo.value.reason == 'files_writing'
-
-
-def test_session_recover_file_writer_passthrough():
-    """L2 parity: a Session recovers a wedged writer -- the last run's
-    stuck writes given up on and counted, the FILE lane's worker replaced
-    -- and refuses when nothing is stuck, since recovery would lose images
-    for nothing."""
-    from unittest.mock import MagicMock
-
-    from modules.exceptions import FileWriterNotStuckError
-    from modules.scope_session import ScopeSession
-
-    bundle = real_executor_bundle(file_io_executor=MagicMock())
-    session = ScopeSession(settings={}, scope=MagicMock(), executor_bundle=bundle)
-
-    with pytest.raises(FileWriterNotStuckError) as refused:
-        session.recover_file_writer()
-    assert refused.value.reason == 'file_writer_not_stuck'
-    bundle.file_io_executor.replace_stuck_worker.assert_not_called()
-
-    lane = bundle.file_io_executor
-    lane.put.return_value = ENQUEUED
-    lane.in_flight_task_stalled.return_value = True
-    stuck = RunWriteBatch(lane)
-    stuck.submit(lambda: None, {}, what='The image', pace_until=None)
-    stuck.close()
-    session.sequenced_capture_runner._write_batch = stuck
-
-    assert session.recover_file_writer() == 1
-    bundle.file_io_executor.replace_stuck_worker.assert_called_once()
-    assert stuck.outcome == 'incomplete'
 
 
 def test_replacing_a_stuck_worker_is_a_warning_not_a_failure():

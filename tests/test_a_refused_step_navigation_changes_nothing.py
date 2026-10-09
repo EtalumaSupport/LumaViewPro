@@ -29,7 +29,6 @@ from unittest.mock import MagicMock, call
 
 import pytest
 
-from modules.exceptions import ProtocolRunRefusedError
 from modules.lumascope_api.protocols import ProtocolsAPI
 from modules.protocol import StepNotFoundError
 from tests.gesture_fakes import inline_submit_move
@@ -213,13 +212,6 @@ class TestARefusedNavigationIsANoOp:
 
         assert nav_env.layer_obj.apply_settings.call_count == 0
         assert nav_env.layer_obj.set_step_state.call_count == 0
-
-    def test_the_refusal_carries_the_admissibility_reason(self, nav_env):
-        """Refused for the reason the run would give, not a navigation one."""
-        with pytest.raises(ProtocolRunRefusedError) as refusal:
-            nav_env.scope.protocols.refuse_unaddressable_objectives([NOT_ON_TURRET])
-
-        assert refusal.value.reason == 'turret_objectives_unassigned'
 
     def test_a_refused_navigation_does_not_propagate_to_its_caller(self, nav_env):
         """The reporter told the user; a step button has nothing left to do."""

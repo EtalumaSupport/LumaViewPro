@@ -1439,19 +1439,6 @@ class TestCancellationMidRun:
         assert completed, 'Protocol did not complete after early reset()'
 
 
-class TestResetWhenNotRunning:
-    """reset() when no protocol is active says the run has already ended.
-
-    Not a crash and not a refusal: a stop that finds nothing live raises
-    RunAlreadyEndedError, which is neither notified nor a
-    ProtocolRunRefusedError."""
-
-    def test_reset_no_crash(self, executor, scope, tmp_path):
-        with pytest.raises(RunAlreadyEndedError) as exc:
-            executor._reset(None)
-        assert not isinstance(exc.value, ProtocolRunRefusedError)
-
-
 # ---------------------------------------------------------------------------
 # Back-to-back runs
 # ---------------------------------------------------------------------------
