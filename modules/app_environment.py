@@ -315,16 +315,27 @@ def _transcode_utf16_to_utf8(source: pathlib.Path, target: pathlib.Path) -> bool
 
 def capture_installer_logs(
     log_dir: str | pathlib.Path,
+    *,
+    installed: bool,
     temp_dir: str | pathlib.Path | None = None,
     max_files: int = _MAX_CAPTURED_INSTALLER_LOGS,
 ) -> list[str]:
-    """Copy the Windows installer's own logs into the application log folder.
+    """Move the Windows installer's own logs into the application log folder.
 
     The installer writes to the user TEMP directory, so a support bundle
     never carries them: an install that silently failed to replace a
     binary is then indistinguishable from an application defect. Windows
-    also sweeps TEMP on its own schedule, so the copy happens at every
+    also sweeps TEMP on its own schedule, so the capture happens at every
     startup rather than on request.
+
+    Each log is captured once: once its copy is complete the TEMP original
+    is deleted, so a later start, or the next version's fresh data folder,
+    never collects it again. A log that cannot be deleted (an install still
+    writing it) stays, is named in a warning, and is taken at a later start.
+
+    Only an installed build captures. The logs describe installs, and a run
+    from source logs into its checkout: capturing there would take an
+    install's log away from the installed build's folder.
 
     MSI's verbose log is UTF-16; it is transcoded to UTF-8 on the way in
     (see ``_transcode_utf16_to_utf8``), which halves what the user's
@@ -333,23 +344,27 @@ def capture_installer_logs(
     Args:
         log_dir: Application log folder; logs land in its ``install``
             subfolder.
+        installed: Whether this process is an installed build; a source
+            run captures nothing.
         temp_dir: Directory to scan. Defaults to the system temp folder.
         max_files: Newest-first cap, so a long-lived TEMP cannot turn
             startup into a large copy.
 
     Returns:
-        Names copied by THIS call. Files already captured are recognised
-        by modification time, so repeated startups converge; a log that
-        grew (an install still writing when the app started) is
+        Names copied by THIS call. A log still in TEMP that was already
+        captured is recognised by modification time and only deleted; one
+        that grew since (an install still writing when the app started) is
         recaptured. Timestamp rather than size, because a transcoded copy
         is never the size of its source -- and a same-size content change
         would slip past a size comparison anyway.
     """
+    copied: list[str] = []
+    if not installed:
+        return copied
     source_dir = (
         pathlib.Path(temp_dir) if temp_dir is not None else pathlib.Path(tempfile.gettempdir())
     )
     destination = pathlib.Path(log_dir) / 'install'
-    copied: list[str] = []
     try:
         candidates = [path for path in source_dir.glob(INSTALLER_LOG_PATTERN) if path.is_file()]
     except OSError as e:
@@ -360,15 +375,18 @@ def capture_installer_logs(
     for source in candidates[:max_files]:
         target = destination / source.name
         try:
-            if target.exists() and target.stat().st_mtime_ns == source.stat().st_mtime_ns:
-                continue
-            destination.mkdir(parents=True, exist_ok=True)
-            if not _transcode_utf16_to_utf8(source, target):
-                shutil.copy2(source, target)
+            if not (target.exists() and target.stat().st_mtime_ns == source.stat().st_mtime_ns):
+                destination.mkdir(parents=True, exist_ok=True)
+                if not _transcode_utf16_to_utf8(source, target):
+                    shutil.copy2(source, target)
+                copied.append(source.name)
         except OSError as e:
             _logger.warning(f'Could not capture installer log {source.name}: {e}')
             continue
-        copied.append(source.name)
+        try:
+            source.unlink()
+        except OSError as e:
+            _logger.warning(f'Installer log {source.name} captured but left in {source_dir}: {e}')
 
     if copied:
         _logger.info(f'Captured {len(copied)} installer log(s) into {destination}')
