@@ -37,6 +37,7 @@ import modules.common_utils as common_utils
 from modules.finite_number import refuse_unless_finite_number
 from modules.coord_transformations import CoordinateTransformer
 from modules.exceptions import (
+    ArgumentRefusedError,
     PositionOutOfRangeError,
     ProtocolRunRefusedError,
     ProtocolStepsInvalidNotice,
@@ -178,41 +179,59 @@ class ProtocolsAPI:
     def create_protocol(
         self,
         *,
-        config: dict | None = None,
         input_config: dict | None = None,
         empty_config: dict | None = None,
     ) -> Protocol:
         """Construct a Protocol in-memory.
 
-        Three modes (pass exactly one):
-          - config={...}: full config dict passed to Protocol() directly.
-          - input_config={...}: partial config (positions, layer_configs,
-            etc.); routed through Protocol.from_config which fills defaults.
+        Two sources (pass exactly one):
+          - input_config={...}: positions, layer_configs, the z-stack, the
+            tiling, the schedule and the frame; routed through
+            Protocol.from_config.
           - empty_config={...}: labware, period, duration, frame_dimensions
             and binning_size for an empty-steps protocol, which needs no
             objective; routed through Protocol.create_empty.
         tiling_configs_file_loc is resolved internally from the scope's data
-        folder.
+        folder. The configuration is judged whole before anything is built:
+        every key the build reads, present and of its kind.
 
         Args:
-            config: Full config dict, or None.
-            input_config: Partial config dict, or None.
-            empty_config: Empty-steps config dict, or None.
+            input_config: A protocol's configuration, or None.
+            empty_config: An empty protocol's configuration, or None.
 
         Returns:
             Protocol: Newly constructed Protocol instance.
 
         Raises:
-            ValueError: If exactly one of config/input_config/empty_config
-                was not provided.
+            ArgumentRefusedError: ``'protocol_source_ambiguous'``, not
+                exactly one source was given; ``'missing_key'``,
+                ``'wrong_kind'``, ``'not_a_number'``,
+                ``'zstack_reference_unknown'``, ``'acquire_mode_unknown'``
+                or ``'layer_unknown'``, a key of the configuration, named by
+                its path in ``argument``.
+            CatalogueNameRefusedError: the configuration names a plate or an
+                objective the installation's catalogues do not hold.
+            ProtocolRunRefusedError: the configuration cannot be built --
+                ``objective_not_given``, ``focus_not_given``,
+                ``overlap_out_of_range``, ``tiling_unknown``,
+                ``zstack_not_configured`` -- reported once.
         """
-        from modules.protocol import Protocol
+        from modules.protocol import Protocol, refuse_unless_buildable_config
 
-        provided = sum(1 for x in (config, input_config, empty_config) if x is not None)
-        if provided != 1:
-            raise ValueError(
-                'create_protocol(): pass exactly one of config=, input_config=, or empty_config='
+        sources = {'input_config': input_config, 'empty_config': empty_config}
+        given = [name for name, value in sources.items() if value is not None]
+        if len(given) != 1:
+            raise ArgumentRefusedError(
+                'protocol_source_ambiguous',
+                argument='input_config',
+                value=len(given),
+                offered=tuple(sources),
             )
+        refuse_unless_buildable_config(
+            input_config if input_config is not None else empty_config,
+            given[0],
+            empty=empty_config is not None,
+        )
         tcfg = self.tiling_configs_path()
         if input_config is not None:
             return Protocol.from_config(
@@ -222,17 +241,12 @@ class ProtocolsAPI:
                 objective_helper=self._scope.objective_helper,
                 wellplate_loader=self._scope.wellplate_loader,
             )
-        if empty_config is not None:
-            return Protocol.create_empty(
-                config=empty_config,
-                tiling_configs_file_loc=tcfg,
-                capabilities=self._scope.capabilities,
-                objective_helper=self._scope.objective_helper,
-                wellplate_loader=self._scope.wellplate_loader,
-            )
-        return Protocol(
+        return Protocol.create_empty(
+            config=empty_config,
             tiling_configs_file_loc=tcfg,
-            config=config,
+            capabilities=self._scope.capabilities,
+            objective_helper=self._scope.objective_helper,
+            wellplate_loader=self._scope.wellplate_loader,
         )
 
     def add_step(
@@ -573,8 +587,8 @@ class ProtocolsAPI:
                 outside the Z travel. Nothing changes.
             ArgumentRefusedError: ``'not_a_number'``, ``range_um`` or
                 ``step_size_um`` is not a finite number. Nothing changes.
-            ConfigError: ``z_reference`` is not one of the three. Nothing
-                changes.
+            ArgumentRefusedError: ``'zstack_reference_unknown'``,
+                ``z_reference`` is not one of the three. Nothing changes.
         """
         protocol.apply_zstacking(
             zstack_params={

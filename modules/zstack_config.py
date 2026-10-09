@@ -6,6 +6,11 @@ import modules.common_utils as common_utils
 from modules.exceptions import ConfigError
 
 
+# Where a stack sits against the Z it is built around: its top, its
+# centre or its bottom at that Z.
+Z_REFERENCES: tuple[str, ...] = ('top', 'center', 'bottom')
+
+
 class ZStackConfig:
     def __init__(
         self,

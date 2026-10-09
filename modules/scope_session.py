@@ -1733,9 +1733,10 @@ class ScopeSession:
 
         Raises:
             ProtocolRunRefusedError: reason ``no_acquiring_layer``, logged
-                and notified once.
-            ConfigError: the config cannot be assembled (the objective in
-                the light path is unknown; a z-stack with no extent).
+                and notified once; ``zstack_not_configured``, a z-stack with
+                no extent.
+            ObjectiveUnknownError: the objective in the light path is
+                unknown, so the config cannot be assembled.
             ProtocolScheduleRefusedError: ``period`` or ``duration`` is one no
                 protocol can run.
             AxisStateUnknownError: an acquiring layer has no saved focus, so
@@ -2076,8 +2077,8 @@ class ScopeSession:
                 outside the Z travel. Nothing changes.
             ArgumentRefusedError: ``'not_a_number'``, ``range_um`` or
                 ``step_size_um`` is not a finite number. Nothing changes.
-            ConfigError: ``z_reference`` is not one of the three. Nothing
-                changes.
+            ArgumentRefusedError: ``'zstack_reference_unknown'``,
+                ``z_reference`` is not one of the three. Nothing changes.
         """
         self.scope.protocols.apply_zstacking(
             protocol, range_um=range_um, step_size_um=step_size_um, z_reference=z_reference

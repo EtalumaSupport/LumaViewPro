@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, ClassVar, NoReturn
 
 from lvp_logger import logger
 from modules.exceptions import (
+    ArgumentRefusedError,
     ConfigError,
     DuplicateCaptureFilenamesNotice,
     FocusNotWrittenError,
@@ -31,9 +32,11 @@ from modules.notification_center import notifications
 
 import modules.common_utils as common_utils
 from modules.finite_number import is_finite_number, refuse_unless_finite_number
+from modules.layer_record import refuse_unknown_layer
+from modules.request_fields import key_path, refuse_unless_kind, required
 import modules.labware_loader as labware_loader
 from modules.tiling_config import TilingConfig
-from modules.zstack_config import ZStackConfig
+from modules.zstack_config import Z_REFERENCES, ZStackConfig
 from modules.coord_transformations import CoordinateTransformer
 from modules.api_surface import FilePath, api, api_fields
 
@@ -135,6 +138,145 @@ def _refuse_unless_tiling_offered(tiling_config: TilingConfig, tiling: str) -> N
             title='Tiling Not Available',
             message=f'"{tiling}" is not one of the tiling grids this installation offers.',
         )
+
+
+# What a layer's settings must hold for the build to make its step; a layer
+# that acquires nothing is read for its acquire mode only.
+_ACQUIRING_LAYER_KINDS: tuple[tuple[str, str, bool], ...] = (
+    ('focus', 'number', True),
+    ('autofocus', 'bool', False),
+    ('false_color', 'bool', False),
+    ('illumination_ma', 'number', False),
+    ('sum', 'whole', False),
+    ('gain_db', 'number', False),
+    ('auto_gain', 'bool', False),
+    ('exposure_ms', 'number', False),
+    ('video_config', 'dict', False),
+)
+
+
+def refuse_unless_buildable_config(config: object, argument: str, *, empty: bool) -> None:
+    """Refuse a client's protocol configuration the build cannot read, before anything is built.
+
+    Every key the build reads is judged here, present and of its kind,
+    whichever of them this build happens to reach: a one-tile or empty
+    build never reads the frame or the binning, so a check at the read
+    would leave them unjudged there. ``empty`` judges the five keys an
+    empty protocol takes. The schedule (``period``, ``duration``) is judged
+    by the protocol itself, as it is for a file.
+
+    Raises:
+        ArgumentRefusedError: ``'missing_key'``, ``'wrong_kind'``,
+            ``'not_a_number'``, ``'zstack_reference_unknown'``,
+            ``'acquire_mode_unknown'``, ``'layer_unknown'``; each names the
+            key's path inside ``argument``.
+    """
+    refuse_unless_kind(config, 'dict', argument)
+
+    def read(mapping, key, kind, path, *, nullable=False):
+        value = required(mapping, key, path)
+        refuse_unless_kind(value, kind, key_path(path, key), nullable=nullable)
+        return value
+
+    read(config, 'labware_id', 'str', argument)
+    required(config, 'period', argument)
+    required(config, 'duration', argument)
+    frame = read(config, 'frame_dimensions', 'dict', argument)
+    for side in ('width', 'height'):
+        read(frame, side, 'number', key_path(argument, 'frame_dimensions'))
+    read(config, 'binning_size', 'whole', argument)
+    if empty:
+        return
+
+    read(config, 'objective_id', 'str', argument, nullable=True)
+    read(config, 'tiling', 'str', argument)
+    if 'tiling_overlap_percent' in config:
+        refuse_unless_kind(
+            config['tiling_overlap_percent'], 'number', key_path(argument, 'tiling_overlap_percent')
+        )
+    read(config, 'stim_config', 'dict', argument)
+    if config.get('current_z') is not None:
+        refuse_unless_kind(config['current_z'], 'number', key_path(argument, 'current_z'))
+    if config.get('previous_well_z') is not None:
+        tuned_path = key_path(argument, 'previous_well_z')
+        tuned = config['previous_well_z']
+        refuse_unless_kind(tuned, 'dict', tuned_path)
+        for well, z in tuned.items():
+            refuse_unless_kind(z, 'number', key_path(tuned_path, well), nullable=True)
+
+    zstack = read(config, 'zstack_params', 'dict', argument)
+    if read(config, 'use_zstacking', 'bool', argument):
+        zstack_path = key_path(argument, 'zstack_params')
+        read(zstack, 'range', 'number', zstack_path)
+        read(zstack, 'step_size', 'number', zstack_path)
+        refuse_unless_zstack_reference(
+            required(zstack, 'z_reference', zstack_path), key_path(zstack_path, 'z_reference')
+        )
+
+    layers = read(config, 'layer_configs', 'dict', argument)
+    layers_path = key_path(argument, 'layer_configs')
+    for layer, layer_config in layers.items():
+        refuse_unknown_layer(layer, layers_path)
+        layer_path = key_path(layers_path, layer)
+        refuse_unless_kind(layer_config, 'dict', layer_path)
+        acquire = required(layer_config, 'acquire', layer_path)
+        if acquire is None:
+            continue
+        if not isinstance(acquire, str) or acquire not in Protocol.VALID_ACQUIRE_MODES:
+            raise ArgumentRefusedError(
+                'acquire_mode_unknown',
+                argument=key_path(layer_path, 'acquire'),
+                value=acquire,
+                offered=tuple(sorted(Protocol.VALID_ACQUIRE_MODES)),
+            )
+        for key, kind, nullable in _ACQUIRING_LAYER_KINDS:
+            read(layer_config, key, kind, layer_path, nullable=nullable)
+
+    positions = config.get('positions')
+    if positions is not None:
+        positions_path = key_path(argument, 'positions')
+        refuse_unless_kind(positions, 'list', positions_path)
+        for index, position in enumerate(positions):
+            position_path = key_path(positions_path, index)
+            refuse_unless_kind(position, 'dict', position_path)
+            read(position, 'x', 'number', position_path)
+            read(position, 'y', 'number', position_path)
+            read(position, 'z', 'number', position_path, nullable=True)
+            read(position, 'name', 'str', position_path)
+
+
+def refuse_unless_zstack_reference(reference: object, argument: str) -> None:
+    """Refuse a z-stack reference that is not one of ``Z_REFERENCES``.
+
+    Raises:
+        ArgumentRefusedError: ``'zstack_reference_unknown'``, naming
+            ``argument`` and offering the references.
+    """
+    if reference not in Z_REFERENCES:
+        raise ArgumentRefusedError(
+            'zstack_reference_unknown', argument=argument, value=reference, offered=Z_REFERENCES
+        )
+
+
+def _fill_factor_or_refuse(overlap_percent: object) -> float:
+    """The tile fill factor for ``overlap_percent``, or a refusal of the build.
+
+    One answer for both builds, a new protocol's grid and a grid over an
+    existing one. NaN passed the range test and built, and text or ``True``
+    was converted; each is ``not_a_number`` now.
+
+    Raises:
+        ArgumentRefusedError: ``'not_a_number'``.
+        ProtocolRunRefusedError: ``'overlap_out_of_range'``, outside 0-50.
+    """
+    refuse_unless_finite_number(overlap_percent, 'tiling_overlap_percent')
+    if not 0.0 <= overlap_percent <= 50.0:
+        _refuse_build(
+            reason='overlap_out_of_range',
+            title='Tile Overlap Out of Range',
+            message=f'The tile overlap must be 0 to 50 percent; {overlap_percent:g} is outside it.',
+        )
+    return TilingConfig.fill_factor_from_overlap_percent(overlap_percent)
 
 
 def _refuse_unless_zstack_has_extent(zstack_params: dict) -> None:
@@ -1979,12 +2121,13 @@ class Protocol:
                 ),
             )
 
+        # Judged before the one-tile return: an overlap no grid can take is
+        # refused whatever grid it came with.
+        fill_factor = _fill_factor_or_refuse(overlap_percent)
         if tiling == no_tiling:
             return
 
         limits = _axis_limits_or_refuse(axis_limits, ('X', 'Y'), what='a tile grid')
-
-        fill_factor = TilingConfig.fill_factor_from_overlap_percent(overlap_percent)
 
         # A copy: the focal-length column is working data for this build, and
         # the stored frame is the protocol's own.
@@ -2144,7 +2287,12 @@ class Protocol:
                 than zero, the scope has no Z motor, or a slice falls outside
                 the Z travel. Each is refused before any step changes, and
                 reported once.
+            ArgumentRefusedError: ``'zstack_reference_unknown'``, the
+                reference is not one of ``Z_REFERENCES``, refused before any
+                step changes -- on a protocol with no steps too, which never
+                reaches the slice positions that would read it.
         """
+        refuse_unless_zstack_reference(zstack_params['z_reference'], 'z_reference')
         _refuse_unless_zstack_has_extent(zstack_params)
 
         z_limits = _axis_limits_or_refuse(axis_limits, ('Z',), what='a z-stack')
@@ -2312,16 +2460,20 @@ class Protocol:
         single_tile = tiling_mxn['m'] == 1 and tiling_mxn['n'] == 1
         if objective_id is None:
             if acquiring or not single_tile:
-                raise ConfigError(
-                    'cannot build protocol steps or a tiling grid with no objective: '
-                    'the objective in the light path is unknown'
+                _refuse_build(
+                    reason='objective_not_given',
+                    title='No Objective Given',
+                    message=(
+                        'Protocol steps and a tiling grid need an objective, '
+                        'and the configuration names none.'
+                    ),
                 )
             focal_length = None
         else:
             objective = objective_helper.get_objective_info(objective_id=objective_id)
             focal_length = objective['focal_length']
 
-        fill_factor = TilingConfig.fill_factor_from_overlap_percent(tiling_overlap_percent)
+        fill_factor = _fill_factor_or_refuse(tiling_overlap_percent)
         tiles = tiling_config.get_tile_centers(
             config_label=tiling,
             focal_length=focal_length,
@@ -2414,9 +2566,13 @@ class Protocol:
                         elif current_z is not None:
                             z = current_z
                         else:
-                            raise ConfigError(
-                                f'No focus is saved for {layer_name} and the config '
-                                'names no current Z to image it at'
+                            _refuse_build(
+                                reason='focus_not_given',
+                                title='No Focus Given',
+                                message=(
+                                    f'No focus is saved for {layer_name} and the '
+                                    'configuration names no current Z to image it at.'
+                                ),
                             )
 
                         if zstack_slice is not None:

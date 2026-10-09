@@ -47,7 +47,6 @@ try:
 
     # --- protocol load / save --------------------------------------------
     print('scope.protocols.load_protocol:', hasattr(s.scope.protocols, 'load_protocol'))
-    proto = s.scope.protocols.create_protocol(config=None) if False else None
     from modules.protocol import Protocol
 
     print('Protocol.to_file present     :', hasattr(Protocol, 'to_file'))

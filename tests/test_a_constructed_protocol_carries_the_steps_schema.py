@@ -5,7 +5,7 @@ The steps setter already substitutes the canonical typed empty frame for
 any empty frame, so a protocol with no steps stays queryable after every
 mutation. Construction assigned the caller's config directly and skipped
 the setter, so a caller-supplied empty frame -- an L2 caller's
-``create_protocol(config=...)``, or the reader's own zero-row parse --
+``Protocol(config=...)``, or the reader's own zero-row parse --
 was stored as given: ``df[['X', 'Y']]`` raised KeyError on a frame with
 no columns, and a zero-row parse kept the CSV reader's untyped columns.
 
@@ -56,8 +56,3 @@ def _steps_without(column):
 def test_a_frame_missing_a_column_is_refused_at_construction():
     with pytest.raises(ProtocolError, match="'Label'"):
         Protocol(tiling_configs_file_loc=TILING_CONFIGS, config={'steps': _steps_without('Label')})
-
-
-def test_an_l2_config_missing_a_column_is_refused_by_the_api(scope):
-    with pytest.raises(ProtocolError, match="'Label'"):
-        scope.protocols.create_protocol(config={'steps': _steps_without('Label')})

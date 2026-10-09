@@ -11,7 +11,7 @@ and one tile needs no field of view, so it is built with none.
 
 import pytest
 
-from modules.exceptions import ConfigError, ObjectiveUnknownError
+from modules.exceptions import ObjectiveUnknownError, ProtocolRunRefusedError
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
@@ -55,7 +55,8 @@ def test_steps_are_never_built_without_an_objective(tmp_path):
         session.settings['BF']['acquire'] = 'image'
         config = session.get_sequenced_capture_config()
         config['objective_id'] = None
-        with pytest.raises(ConfigError, match='no objective'):
+        with pytest.raises(ProtocolRunRefusedError) as refused:
             session.scope.protocols.create_protocol(input_config=config)
+        assert refused.value.reason == 'objective_not_given'
     finally:
         session.shutdown()

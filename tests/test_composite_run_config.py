@@ -37,7 +37,7 @@ _POSITION = {'x': 1234.5, 'y': 678.9, 'z': 4321.0}
 _ALL_LAYERS = ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi')
 
 
-def _layer(acquire='none', focus=0.0):
+def _layer(acquire=None, focus=0.0):
     return {
         'acquire': acquire,
         'video_config': {},
@@ -58,7 +58,7 @@ def _settings(acquiring=(), sequenced_format=OUTPUT_FORMAT_TIFF, focus_by_layer=
     focus_by_layer = focus_by_layer or {}
     settings = {
         layer: _layer(
-            acquire='image' if layer in acquiring else 'none',
+            acquire='image' if layer in acquiring else None,
             focus=focus_by_layer.get(layer, 0.0),
         )
         for layer in _ALL_LAYERS

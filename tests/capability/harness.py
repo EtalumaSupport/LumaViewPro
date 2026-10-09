@@ -264,7 +264,7 @@ def headless_session(live_folder, acquiring=('BF', 'Blue'), **extra):
     for layer in common_utils.get_layers():
         overrides[layer] = {
             # 'image' / 'none' is the stored vocabulary; a bool reads as 'off'.
-            'acquire': 'image' if layer in acquiring else 'none',
+            'acquire': 'image' if layer in acquiring else None,
             'composite_brightness_threshold': 25,
         }
     overrides['turret_objectives'] = dict(TEST_TURRET_OBJECTIVES)

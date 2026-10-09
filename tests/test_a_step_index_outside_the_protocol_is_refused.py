@@ -107,7 +107,7 @@ def test_every_writer_takes_the_last_step(writer):
 
 
 def test_a_frame_with_its_own_index_is_written_by_position():
-    # A caller's frame (create_protocol(config=)) may carry any index. The
+    # A caller's frame (Protocol(config=...)) may carry any index. The
     # writers address a step by label and step() by position, so the frame
     # is renumbered 0..n-1 when it is taken, or index 1 passes the range
     # check and the write appends a row labelled 1.

@@ -19,7 +19,7 @@ import logging
 import pytest
 
 import modules.config_helpers as config_helpers
-from modules.exceptions import ConfigError, ProtocolRunRefusedError
+from modules.exceptions import ArgumentRefusedError, ProtocolRunRefusedError
 from modules.notification_center import notifications
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
@@ -197,8 +197,10 @@ class TestZStacking:
         protocol = _bf_steps_at(session, (10000,))
         before = _rows(protocol)
 
-        with pytest.raises(ConfigError, match='middle'):
+        with pytest.raises(ArgumentRefusedError) as refused:
             session.apply_zstacking(protocol, range_um=20.0, step_size_um=5.0, z_reference='middle')
+        assert refused.value.reason == 'zstack_reference_unknown'
+        assert refused.value.offered == ('top', 'center', 'bottom')
 
         assert _rows(protocol) == before
 

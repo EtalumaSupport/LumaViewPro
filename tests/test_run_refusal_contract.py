@@ -671,6 +671,18 @@ RUNNER_REFUSAL_COVERAGE = {
         'tests/test_a_tile_grid_is_the_protocols_to_refuse.py::'
         'test_a_grid_the_installation_does_not_offer_is_refused'
     ),
+    'objective_not_given': (
+        'tests/test_a_protocols_configuration_is_refused_at_the_door.py::'
+        'test_steps_with_no_objective_are_refused_and_reported_once'
+    ),
+    'focus_not_given': (
+        'tests/test_a_protocols_configuration_is_refused_at_the_door.py::'
+        'test_a_layer_with_no_focus_and_no_current_z_is_refused_and_reported_once'
+    ),
+    'overlap_out_of_range': (
+        'tests/test_a_protocols_configuration_is_refused_at_the_door.py::'
+        'test_an_overlap_outside_0_to_50_is_refused_and_reported_once'
+    ),
     'tiles_outside_travel': (
         'tests/test_a_build_outside_the_travel_is_refused.py::'
         'test_a_grid_with_a_tile_outside_the_travel_is_refused'

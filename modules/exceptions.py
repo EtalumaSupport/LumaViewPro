@@ -1160,6 +1160,9 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'positions_unreachable': RefusalCause.REQUEST,
         'layer_not_on_scope': RefusalCause.REQUEST,
         'objectives_require_turret': RefusalCause.REQUEST,
+        'objective_not_given': RefusalCause.REQUEST,
+        'focus_not_given': RefusalCause.REQUEST,
+        'overlap_out_of_range': RefusalCause.REQUEST,
     }
 
     def __init__(
@@ -2517,12 +2520,24 @@ class ArgumentRefusedError(Refusal, ValueError):
               not a channel number.
             - ``'illumination_out_of_range'`` -- an LED current outside
               ``limits``, 0 to the attached LED board's maximum, in mA.
+            - ``'missing_key'`` -- a dictionary argument lacks a key its
+              member reads; ``argument`` names the key's path.
+            - ``'wrong_kind'`` -- a value in a dictionary argument is not
+              of the kind its member reads (``kind``, in words).
+            - ``'protocol_source_ambiguous'`` -- not exactly one of the
+              protocol sources ``offered`` was given.
+            - ``'zstack_reference_unknown'`` -- a z-stack reference that is
+              not one of ``offered``.
+            - ``'acquire_mode_unknown'`` -- a layer's acquire mode that is
+              neither None nor one of ``offered``.
         argument: The name of the argument refused.
         value: What was given, as given.
         offered: The values the argument takes, where it takes a list;
             None otherwise.
         limits: The lowest and highest value the argument takes, where it
             takes a range that depends on the scope; None otherwise.
+        kind: The kind of value the argument takes, in words, for
+            ``'wrong_kind'``; None otherwise.
 
     ``argument``, ``offered`` and ``limits`` are published, so a REST
     problem carries them beside the words; the client already holds the
@@ -2575,6 +2590,26 @@ class ArgumentRefusedError(Refusal, ValueError):
             'LED Current Not Set',
             '{argument} must be from {low:g} to {high:g} mA on this LED board; {value!r} is outside it.',
         ),
+        'missing_key': (
+            'Value Missing',
+            '{argument} is required and was not given.',
+        ),
+        'wrong_kind': (
+            'Wrong Kind of Value',
+            '{argument} must be {kind}; {value!r} is not.',
+        ),
+        'protocol_source_ambiguous': (
+            'Protocol Source Ambiguous',
+            'Pass exactly one of {offered}; {value} were given.',
+        ),
+        'zstack_reference_unknown': (
+            'Not a Z-Stack Reference',
+            '{argument} must be one of {offered}; {value!r} is not one.',
+        ),
+        'acquire_mode_unknown': (
+            'Not an Acquire Mode',
+            '{argument} must be None or one of {offered}; {value!r} is neither.',
+        ),
     }
 
     def __init__(
@@ -2585,6 +2620,7 @@ class ArgumentRefusedError(Refusal, ValueError):
         value: object,
         offered: tuple[str | int, ...] | None = None,
         limits: tuple[float, float] | None = None,
+        kind: str | None = None,
     ):
         if reason not in self._WORDS:
             raise TypeError(f'ArgumentRefusedError has no words for the reason {reason!r}')
@@ -2597,6 +2633,10 @@ class ArgumentRefusedError(Refusal, ValueError):
             raise TypeError(
                 f'ArgumentRefusedError({reason!r}) takes limits exactly when its words name them'
             )
+        if ('{kind}' in words) != (kind is not None):
+            raise TypeError(
+                f'ArgumentRefusedError({reason!r}) takes a kind exactly when its words name it'
+            )
         low, high = limits or (None, None)
         super().__init__(
             words.format(
@@ -2605,6 +2645,7 @@ class ArgumentRefusedError(Refusal, ValueError):
                 offered=', '.join(str(o) for o in offered or ()),
                 low=low,
                 high=high,
+                kind=kind,
             )
         )
         self.reason = reason
@@ -2612,6 +2653,7 @@ class ArgumentRefusedError(Refusal, ValueError):
         self.value = value
         self.offered = offered
         self.limits = limits
+        self.kind = kind
 
 
 class AccelerationLimitRefusedError(Refusal, ValueError):
