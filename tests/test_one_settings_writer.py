@@ -8,6 +8,7 @@ value is the wrong kind or out of the setting's range. A REST caller, a script a
 checks, because they all reach the same member.
 """
 
+import math
 import threading
 
 import numpy as np
@@ -58,6 +59,11 @@ def test_a_leaf_with_no_shipped_value_takes_a_number(session):
         ('video.max_fps', True, 'wrong_kind'),
         ('video.max_fps', np.float64(30.0), 'wrong_kind'),
         ('stage.plate_bottom_z_estimate', [1], 'wrong_kind'),
+        # NaN and an infinity are not numbers to the writer, ranged or not:
+        # every range compares, and a comparison with NaN passes.
+        ('zstack.range', math.nan, 'wrong_kind'),
+        ('zstack.range', math.inf, 'wrong_kind'),
+        ('stage.plate_bottom_z_estimate', math.nan, 'wrong_kind'),
         ('video.max_fps', 201, 'out_of_range'),
         ('video.max_duration_seconds', 0, 'out_of_range'),
         ('tiling_overlap_percent', 75.0, 'out_of_range'),

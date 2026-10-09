@@ -10,6 +10,7 @@ what a write could have stored.
 
 import json
 import logging
+import math
 import pathlib
 import shutil
 
@@ -43,6 +44,9 @@ def _prepare(tmp_path, edit):
         ('motion', 'acceleration_max_pct', 500),
         ('motion', 'acceleration_max_pct', '50'),
         ('protocol', 'period', 0.001),
+        # A leaf with no range is held to its kind too, an infinity not a number.
+        ('zstack', 'step_size', math.inf),
+        ('scale_bar', 'enabled', 'yes'),
     ],
 )
 def test_that_key_alone_takes_the_shipped_value_and_is_told(tmp_path, section, key, saved):
@@ -59,6 +63,21 @@ def test_that_key_alone_takes_the_shipped_value_and_is_told(tmp_path, section, k
     (notice,) = told
     assert notice.replacements == [(f'{section}.{key}', saved, shipped[section][key])]
     assert notice.reason == 'stored_setting_replaced'
+
+
+def test_a_stored_nan_is_replaced_and_told(tmp_path):
+    shipped = json.loads(TEMPLATE.read_text())
+
+    def edit(current):
+        current['zstack']['range'] = math.nan
+
+    settings, told = _prepare(tmp_path, edit)
+
+    assert settings['zstack']['range'] == shipped['zstack']['range']
+    (notice,) = told
+    ((path, saved, replaced_by),) = notice.replacements
+    assert (path, replaced_by) == ('zstack.range', shipped['zstack']['range'])
+    assert math.isnan(saved)
 
 
 def test_every_value_one_load_replaced_is_in_one_notice(tmp_path):

@@ -14,7 +14,7 @@ import platform
 import re
 import threading
 import time as _time
-from typing import TYPE_CHECKING, ClassVar, Protocol
+from typing import TYPE_CHECKING, ClassVar, Final, Protocol
 
 import numpy as np
 import psutil
@@ -403,15 +403,19 @@ def resolve_step_rename(raw_text: str) -> str | None:
     return raw_text if raw_text.strip() else None
 
 
-def convert_zstack_reference_position_setting_to_config(text_label: str) -> str:
-    LABEL_MAP = {
-        'Current Position at Top': 'top',
-        'Current Position at Center': 'center',
-        'Current Position at Bottom': 'bottom',
-    }
+# The z-stack position labels the settings store, each with the reference a
+# stack is built from. The one vocabulary: the settings writer refuses any
+# other label (``settings_paths``), and the reader below converts them.
+ZSTACK_POSITION_LABELS: Final[dict[str, str]] = {
+    'Current Position at Top': 'top',
+    'Current Position at Center': 'center',
+    'Current Position at Bottom': 'bottom',
+}
 
-    if text_label in LABEL_MAP:
-        return LABEL_MAP[text_label]
+
+def convert_zstack_reference_position_setting_to_config(text_label: str) -> str:
+    if text_label in ZSTACK_POSITION_LABELS:
+        return ZSTACK_POSITION_LABELS[text_label]
 
     # ConfigError, not a bare Exception: this refusal now reaches the settings
     # lane as well as the widget lane, and REST middleware can only map the

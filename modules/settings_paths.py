@@ -12,13 +12,16 @@ it.
 
 from __future__ import annotations
 
+import copy
+import logging
 import typing
 
 import modules.binning as binning
 import modules.common_utils as common_utils
 from modules.exceptions import ConfigError, SettingRefusedError, StoredSettingReplacedNotice
 from modules.image_mode import VALID_LIVE_OUTPUT_FORMATS, VALID_SEQUENCED_OUTPUT_FORMATS
-from modules.lumascope_api._constants import refuse_acceleration_pct
+from modules.finite_number import is_finite_number
+from modules.lumascope_api._constants import SIMULATOR_TIERS, refuse_acceleration_pct
 from modules.protocol import ProtocolScheduleRefusedError, schedule_from_units
 from modules.tiling_config import TilingConfig
 
@@ -154,6 +157,23 @@ def _sequenced_format(path: str, value: str) -> None:
     _refuse_unknown_format(path, value, VALID_SEQUENCED_OUTPUT_FORMATS)
 
 
+def _zstack_position(path: str, value: str) -> None:
+    _refuse_unknown_format(path, value, frozenset(common_utils.ZSTACK_POSITION_LABELS))
+
+
+def _simulator_tier(path: str, value: str) -> None:
+    _refuse_unknown_format(path, value, frozenset(SIMULATOR_TIERS))
+
+
+def _log_level(path: str, value: str) -> None:
+    # A level's name in any case: the reader upper-cases it (Eric, 2026-10-09).
+    levels = logging.getLevelNamesMapping()
+    if value.upper() not in levels:
+        raise SettingRefusedError(
+            'out_of_range', path, f'{value!r} is not a log level: {", ".join(sorted(levels))}'
+        )
+
+
 def _video_max_fps(path: str, value: float) -> None:
     _refuse_outside(path, value, 0, VIDEO_MAX_FPS_LIMIT)
 
@@ -211,6 +231,9 @@ def _stim_pulse_count(path: str, value: float) -> None:
 # concrete path and the value.
 _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     'binning.size': _binning_label,
+    'simulator_tier': _simulator_tier,
+    'zstack.position': _zstack_position,
+    'logging.default.level': _log_level,
     'motion.acceleration_max_pct': _acceleration,
     'protocol.period': _schedule,
     'protocol.duration': _schedule,
@@ -244,25 +267,15 @@ def _range_for(path: str) -> typing.Callable[[str, typing.Any], None] | None:
     return rule
 
 
-def _ranged_paths(settings: dict) -> list[str]:
-    """Every concrete path ``_RANGES`` covers in ``settings``, the layers expanded."""
-    layers = [layer for layer in common_utils.get_layers() if isinstance(settings.get(layer), dict)]
-    paths = []
-    for pattern in _RANGES:
-        if pattern.startswith('*.'):
-            paths.extend(f'{layer}.{pattern[2:]}' for layer in layers)
-        else:
-            paths.append(pattern)
-    return paths
-
-
 def _kind(value: object) -> str:
     # bool first: True is an int. Exact types, so a numpy scalar -- a float
-    # subclass that json cannot save -- is its own kind and refused.
+    # subclass that json cannot save -- is its own kind and refused. NaN and
+    # an infinity are their own kind: every range compares, and a comparison
+    # with NaN passes, so a leaf with no range would take them as numbers.
     if type(value) is bool:
         return 'bool'
     if type(value) in (int, float):
-        return 'number'
+        return 'number' if is_finite_number(value) else 'non-finite number'
     if type(value) is str:
         return 'string'
     if type(value) is list:
@@ -365,22 +378,34 @@ def _refuse_kind_or_range(shipped: object, path: str, value: object) -> None:
         rule(path, value)
 
 
+def _leaf_paths(block: dict, prefix: str = '') -> typing.Iterator[tuple[str, object]]:
+    """Every setting in ``block`` that is not itself a block, as (dotted path, value)."""
+    for key, value in block.items():
+        path = f'{prefix}{key}'
+        if isinstance(value, dict):
+            yield from _leaf_paths(value, f'{path}.')
+        else:
+            yield path, value
+
+
 def replace_refused_stored_values(
     settings: dict, template: dict
 ) -> StoredSettingReplacedNotice | None:
     """Replace each stored value the writer would refuse with the shipped one.
 
-    The load's half of the writer's ranges: a file written before a range
-    was held, or edited by hand, can hold a value no write could store. That
-    key alone takes the template's value, in the settings the app runs on and
-    so in the file at its next save; every other setting stays the person's.
+    The load's half of the writer: a file written before a rule was held,
+    or edited by hand, can hold a value no write could store -- of the wrong
+    kind, NaN, or outside a range. Every setting the template holds is
+    checked by the writer's own rule, so the two hold one rule. That key
+    alone takes the template's value, in the settings the app runs on and so
+    in the file at its next save; every other setting stays the person's.
 
     Returns:
         One notice naming every replaced value, for the Session to report
         once a host can hear it; None when nothing was replaced.
     """
     replaced = []
-    for path in _ranged_paths(settings):
+    for path, shipped in _leaf_paths(template):
         *parents, leaf = path.split('.')
         stored = settings
         for segment in parents:
@@ -389,12 +414,9 @@ def replace_refused_stored_values(
                 break
         if not isinstance(stored, dict) or leaf not in stored:
             continue
-        shipped = template
-        for segment in path.split('.'):
-            shipped = shipped[segment]
         try:
             _refuse_kind_or_range(shipped, path, stored[leaf])
         except SettingRefusedError:
             replaced.append((path, stored[leaf], shipped))
-            stored[leaf] = shipped
+            stored[leaf] = copy.deepcopy(shipped)
     return StoredSettingReplacedNotice(replaced) if replaced else None

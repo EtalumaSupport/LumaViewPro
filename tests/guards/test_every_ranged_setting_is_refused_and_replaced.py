@@ -32,6 +32,9 @@ TEMPLATE = REPO_ROOT / 'data' / 'settings.json'
 # layer the template gives every block (a stimulation config among them).
 _OUT_OF_RANGE = {
     'binning.size': '2x4',
+    'simulator_tier': 'warp',
+    'zstack.position': 'Current Position at Middle',
+    'logging.default.level': 'loud',
     'motion.acceleration_max_pct': 500,
     'protocol.period': 0.001,
     'protocol.duration': -1,
