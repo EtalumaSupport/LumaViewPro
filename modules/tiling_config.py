@@ -40,7 +40,7 @@ def _split_row_col(tile_label: str) -> tuple[str, int]:
     return letters, int(tile_label[len(letters) :])
 
 
-@api_fields('available', 'default')
+@api_fields('available', 'default', record=True)
 class TilingConfig:
     """The tiling grids an installation offers, read from its tiling.json.
 

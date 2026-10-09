@@ -45,6 +45,9 @@ FIELDS_ATTRIBUTE = '_lvp_api_fields'
 # The attribute, and the dataclass field metadata key, an event's record is
 # declared under.
 EVENT_ATTRIBUTE = '_lvp_api_event'
+# The attribute a class that is not a dataclass or NamedTuple declares
+# itself a record under.
+RECORD_ATTRIBUTE = '_lvp_api_record'
 
 API = 'api'
 IN_PROCESS = 'in_process'
@@ -89,16 +92,22 @@ def api[M](
     return mark(member)
 
 
-def api_fields[C: type](*names: str) -> Callable[[C], C]:
+def api_fields[C: type](*names: str, record: bool = False) -> Callable[[C], C]:
     """Name a class's published data attributes, one by one.
 
     Instance attributes, class constants, and dataclass or NamedTuple
     fields alike. A field added to the class later is published only by
     adding its name here.
+
+    A dataclass or NamedTuple is a record: it crosses a wire as its data,
+    and has no address there. Any other class that does is declared with
+    ``record=True``; one that is not crosses as a handle to a live object.
     """
 
     def publish(cls: C) -> C:
         setattr(cls, FIELDS_ATTRIBUTE, tuple(names))
+        if record:
+            setattr(cls, RECORD_ATTRIBUTE, True)
         return cls
 
     return publish
@@ -133,3 +142,12 @@ def field_event(cls: type, name: str) -> type | None:
         if field.name == name:
             return field.metadata.get(EVENT_ATTRIBUTE)
     return None
+
+
+def is_record(cls: type) -> bool:
+    """Whether *cls* crosses a wire as its data: a dataclass, a NamedTuple, or declared one."""
+    return (
+        dataclasses.is_dataclass(cls)
+        or (issubclass(cls, tuple) and hasattr(cls, '_fields'))
+        or vars(cls).get(RECORD_ATTRIBUTE, False)
+    )

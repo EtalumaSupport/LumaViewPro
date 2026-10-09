@@ -20,7 +20,7 @@ class Slide(LabWare):
         self.covered = True
 
 
-@api_fields('config')
+@api_fields('config', record=True)
 class WellPlate(LabWare):
     """A class that stores and computes actions for wellplate labware"""
 
