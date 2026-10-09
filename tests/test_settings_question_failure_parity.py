@@ -42,6 +42,7 @@ FunctionDef from the file and supplies only the module globals it closes
 over, so the production body runs verbatim.
 """
 
+import pathlib
 import ast
 import json
 import logging
@@ -564,11 +565,13 @@ class TestTheSaveRefusalIsAudible:
 
         def _retire():
             calls.append(True)
-            return '/data/current.json.rejected-20260831-120000'
+            return pathlib.Path('/data/current.json.rejected-20260831-120000')
 
         monkeypatch.setattr(settings_init, 'retire_rejected_current_json', _retire)
 
-        assert session.retire_rejected_settings() == '/data/current.json.rejected-20260831-120000'
+        assert session.retire_rejected_settings() == pathlib.Path(
+            '/data/current.json.rejected-20260831-120000'
+        )
         assert calls == [True]
 
     def test_a_provisional_save_raises(self, session, monkeypatch, tmp_path, untouched):

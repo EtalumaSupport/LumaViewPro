@@ -75,7 +75,7 @@ def test_every_part_of_the_session_reads_the_scopes_catalogues(tmp_path):
         assert session.autofocus_runner._scope is scope
         assert session.sequenced_capture_runner._scope is scope
         assert session.select_labware(EXTRA_PLATE) is not None
-        assert session.source_path == str(root)
+        assert session.source_path == root
         assert scope.protocols.tiling_configs_path() == root / 'data' / 'tiling.json'
     finally:
         _shut(session)
@@ -191,7 +191,7 @@ class TestTheSessionsFolderIsTheScopes:
         scope = Lumascope(simulate=True, warn_pre_release=False, source_path=root)
         session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), scope=scope)
         try:
-            assert session.source_path == str(root)
+            assert session.source_path == root
             assert session.objective_helper is scope.objective_helper
         finally:
             session.shutdown()
@@ -202,6 +202,6 @@ class TestTheSessionsFolderIsTheScopes:
             complete_settings(live_folder=str(tmp_path)), simulate=True, warn_pre_release=False
         )
         try:
-            assert session.source_path == str(get_source_root(None))
+            assert session.source_path == get_source_root(None)
         finally:
             _shut(session)

@@ -49,6 +49,7 @@ the ending rather than a word chosen before the last fact arrived.
 from __future__ import annotations
 
 import dataclasses
+import pathlib
 import threading
 import uuid
 from collections.abc import Callable
@@ -252,10 +253,10 @@ class RunOutcome:
     title: str
     message: str
     merged: bool
-    artifact_path: str | None
+    artifact_path: pathlib.Path | None
     merge_reason: str
     af_data_saved: bool
-    af_data_path: str | None
+    af_data_path: pathlib.Path | None
     af_focus_z_um: float | None
     captures: CaptureTally | None
     cleanup_failures: tuple[str, ...] | None
@@ -267,11 +268,11 @@ class RunOutcome:
         ending: RunEnding,
         *,
         merged: bool,
-        artifact_path: str | None,
+        artifact_path: pathlib.Path | None,
         merge_reason: str,
         captures: CaptureTally | None,
         cleanup_failures: tuple[str, ...] | None,
-        af_data_path: str | None = None,
+        af_data_path: pathlib.Path | None = None,
         af_focus_z_um: float | None = None,
         focus_written: bool | None = None,
     ) -> RunOutcome:
@@ -318,7 +319,7 @@ class PendingRunOutcome:
         self._token: str | None = None
         self._ending: RunEnding | None = None
         self._outcome: RunOutcome | None = None
-        self._af_data_path: str | None = None
+        self._af_data_path: pathlib.Path | None = None
         self._af_focus_z_um: float | None = None
         self._captures: CaptureTally | None = None
         self._cleanup_failures: tuple[str, ...] | None = None
@@ -332,7 +333,7 @@ class PendingRunOutcome:
         with self._lock:
             return self._state
 
-    def record_autofocus_data(self, path: str | None) -> None:
+    def record_autofocus_data(self, path: pathlib.Path | None) -> None:
         """Record the characterization file this run wrote, if any.
 
         Held here rather than passed to a resolver because a run can
@@ -480,7 +481,7 @@ class PendingRunOutcome:
         token: str,
         *,
         merged: bool,
-        artifact_path: str | None,
+        artifact_path: pathlib.Path | None,
         merge_reason: str,
     ) -> bool:
         """Record what the merge produced. Only the arming token holder may.

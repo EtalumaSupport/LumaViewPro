@@ -29,6 +29,7 @@ no startup motion).
 
 from __future__ import annotations
 
+import pathlib
 import threading
 
 import pytest
@@ -108,7 +109,7 @@ class TestCreateHeadlessComposesARealSession:
         )
 
     def test_source_path_is_registered(self, headless_session):
-        assert headless_session.source_path == '.'
+        assert headless_session.source_path == pathlib.Path('.')
 
     def test_settings_is_a_dict(self, headless_session):
         """Resolved from current.json, then settings.json, then empty.

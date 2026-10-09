@@ -242,8 +242,8 @@ class TestOutcomeReportsDeliveredAutofocusData:
         assert outcome.af_data_saved is True, (
             'an AF run asked to save characterization data must report that it did'
         )
-        assert outcome.af_data_path is not None
-        written = pathlib.Path(outcome.af_data_path)
+        assert isinstance(outcome.af_data_path, pathlib.Path), outcome.af_data_path
+        written = outcome.af_data_path
         # Reading the file is the assertion: a path that merely exists as
         # a string, or one naming the eagerly-created folder, is the exact
         # answer this field exists to replace.
@@ -291,10 +291,10 @@ class TestTheTwoFieldsCannotDisagree:
             merge_reason='',
             captures=None,
             cleanup_failures=None,
-            af_data_path='/tmp/a.csv',
+            af_data_path=pathlib.Path('/tmp/a.csv'),
         )
         assert outcome.af_data_saved is True
-        assert outcome.af_data_path == '/tmp/a.csv'
+        assert outcome.af_data_path == pathlib.Path('/tmp/a.csv')
 
     def test_no_path_makes_it_unsaved(self):
         outcome = RunOutcome.from_ending(
@@ -315,21 +315,21 @@ class TestEverySettlePathCarriesTheRecordedData:
 
     def test_cleanups_resolver_carries_it(self):
         pending = PendingRunOutcome()
-        pending.record_autofocus_data('/tmp/af.csv')
+        pending.record_autofocus_data(pathlib.Path('/tmp/af.csv'))
         assert pending.resolve_if_pending(_ending()) is True
         outcome = pending.wait(timeout_s=1.0)
-        assert (outcome.af_data_saved, outcome.af_data_path) == (True, '/tmp/af.csv')
+        assert (outcome.af_data_saved, outcome.af_data_path) == (True, pathlib.Path('/tmp/af.csv'))
 
     def test_teardowns_force_resolve_carries_it(self):
         pending = PendingRunOutcome()
-        pending.record_autofocus_data('/tmp/af.csv')
+        pending.record_autofocus_data(pathlib.Path('/tmp/af.csv'))
         assert pending.force_resolve('shutdown', fallback=_ending('failed')) is True
         outcome = pending.wait(timeout_s=1.0)
-        assert (outcome.af_data_saved, outcome.af_data_path) == (True, '/tmp/af.csv')
+        assert (outcome.af_data_saved, outcome.af_data_path) == (True, pathlib.Path('/tmp/af.csv'))
 
     def test_the_merge_threads_resolver_carries_it(self):
         pending = PendingRunOutcome()
-        pending.record_autofocus_data('/tmp/af.csv')
+        pending.record_autofocus_data(pathlib.Path('/tmp/af.csv'))
         token = pending.arm(_ending())
         assert token is not None
         assert (
@@ -337,7 +337,7 @@ class TestEverySettlePathCarriesTheRecordedData:
             is True
         )
         outcome = pending.wait(timeout_s=1.0)
-        assert (outcome.af_data_saved, outcome.af_data_path) == (True, '/tmp/af.csv')
+        assert (outcome.af_data_saved, outcome.af_data_path) == (True, pathlib.Path('/tmp/af.csv'))
         assert outcome.merged is True
 
     def test_a_run_that_records_nothing_reports_nothing(self):

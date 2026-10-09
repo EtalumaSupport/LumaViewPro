@@ -2158,7 +2158,7 @@ class SequencedCaptureRunner:
             # a run whose autofocus never fired reads None.
             if self._autofocus_runner is not None:
                 af_path = self._autofocus_runner.saved_data_path()
-                outcome.record_autofocus_data(str(af_path) if af_path is not None else None)
+                outcome.record_autofocus_data(af_path)
                 # Only a standalone autofocus run has one focus to report;
                 # the sweep clears its result per run, so a sweep that chose
                 # none reads None here rather than an earlier run's focus.
@@ -2457,7 +2457,7 @@ class SequencedCaptureRunner:
             paths = result.get('artifact_paths') or []
             if paths:
                 logger.info(f'[{self.LOGGER_NAME}] Composite saved: {paths[0]}')
-                _settle(None, artifact_path=paths[0], merge_reason='')
+                _settle(None, artifact_path=pathlib.Path(paths[0]), merge_reason='')
             else:
                 _fail('merge_failed', 'The merge finished without producing a composite file.')
 

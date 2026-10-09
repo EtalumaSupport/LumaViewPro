@@ -705,7 +705,7 @@ def fall_back_to_template(logger: logging.Logger, lvp_appdata: str, reason: str)
     rejected_current_json = (current_path, reason)
 
 
-def retire_rejected_current_json() -> str | None:
+def retire_rejected_current_json() -> pathlib.Path | None:
     """Move the unusable current.json aside so a fresh one can take its place.
 
     Renamed, never deleted: it is the user's only copy of their
@@ -725,7 +725,7 @@ def retire_rejected_current_json() -> str | None:
         return None
     path, _reason = rejected_current_json
     stamp = time.strftime('%Y%m%d-%H%M%S')
-    retired = f'{path}.rejected-{stamp}'
+    retired = pathlib.Path(f'{path}.rejected-{stamp}')
     try:
         os.replace(path, retired)
     except OSError as e:

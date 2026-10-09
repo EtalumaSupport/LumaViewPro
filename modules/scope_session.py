@@ -490,7 +490,7 @@ class ScopeSession:
 
     @api
     @property
-    def source_path(self) -> str:
+    def source_path(self) -> pathlib.Path:
         """The data folder this session runs on: its scope's, never a copy."""
         return self.scope.source_path
 
@@ -2862,7 +2862,9 @@ class ScopeSession:
         from modules.lumascope_api.bring_up import SettingsSetAside
 
         rejected = settings_init.rejected_current_json
-        set_aside = None if rejected is None else SettingsSetAside(*rejected)
+        set_aside = (
+            None if rejected is None else SettingsSetAside(pathlib.Path(rejected[0]), rejected[1])
+        )
         return dataclasses.replace(self.scope.bring_up_record(), settings_set_aside=set_aside)
 
     @api
@@ -3055,7 +3057,7 @@ class ScopeSession:
         return settings_init.settings_are_provisional()
 
     @api
-    def retire_rejected_settings(self) -> 'str | None':
+    def retire_rejected_settings(self) -> pathlib.Path | None:
         """Resolve the provisional-settings state: retire the rejected file.
 
         Moves the unusable current.json aside (renamed, never deleted --

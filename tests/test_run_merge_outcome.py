@@ -23,6 +23,7 @@ second-cleanup-pass row is the one that matters most: a two-state design
 reports 'failed' over the real merge result on every successful run.
 """
 
+import pathlib
 import threading
 
 from modules.run_outcome import (
@@ -42,7 +43,7 @@ _ARTIFACT = '/runs/1/Composite/A1_Composite_1.tiff'
 
 
 def _record_merge(outcome, token, path=_ARTIFACT):
-    return outcome.resolve(token, merged=True, artifact_path=path, merge_reason='')
+    return outcome.resolve(token, merged=True, artifact_path=pathlib.Path(path), merge_reason='')
 
 
 class TestArming:
@@ -132,7 +133,7 @@ class TestMergeThreadResolver:
         assert _record_merge(outcome, token, '/runs/1/c.tiff') is True
         settled = outcome.wait(timeout_s=0.1)
         assert settled.merged is True
-        assert settled.artifact_path == '/runs/1/c.tiff'
+        assert settled.artifact_path == pathlib.Path('/runs/1/c.tiff')
 
     def test_the_token_holder_can_record_a_typed_failure(self):
         outcome = PendingRunOutcome()
@@ -174,7 +175,7 @@ class TestMergeThreadResolver:
         token = outcome.arm(_COMPLETED)
         _record_merge(outcome, token, '/first.tiff')
         assert _record_merge(outcome, token, '/second.tiff') is False
-        assert outcome.wait(timeout_s=0.1).artifact_path == '/first.tiff'
+        assert outcome.wait(timeout_s=0.1).artifact_path == pathlib.Path('/first.tiff')
 
 
 class TestTeardownResolver:
@@ -212,7 +213,7 @@ class TestTeardownResolver:
         token = outcome.arm(_COMPLETED)
         _record_merge(outcome, token, '/done.tiff')
         assert outcome.force_resolve('shutdown', fallback=_SHUTDOWN) is False
-        assert outcome.wait(timeout_s=0.1).artifact_path == '/done.tiff'
+        assert outcome.wait(timeout_s=0.1).artifact_path == pathlib.Path('/done.tiff')
 
 
 class TestWaiting:
@@ -239,7 +240,7 @@ class TestWaiting:
         threading.Timer(0.05, lambda: _record_merge(outcome, token, '/late.tiff')).start()
 
         settled = outcome.wait(timeout_s=5.0)
-        assert settled is not None and settled.artifact_path == '/late.tiff'
+        assert settled is not None and settled.artifact_path == pathlib.Path('/late.tiff')
 
 
 def _race_three_resolvers() -> tuple[int, str]:

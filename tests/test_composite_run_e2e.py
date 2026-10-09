@@ -154,8 +154,10 @@ class TestCompositeRunEndToEnd:
 
         artifact = runner.run_composite(sequence_name='e2e', parent_dir=str(tmp_path)).artifact_path
 
-        assert artifact, 'run_composite returned no path for a run that succeeded'
-        path = pathlib.Path(artifact)
+        assert isinstance(artifact, pathlib.Path), (
+            f'run_composite returned {artifact!r}, not a path, for a run that succeeded'
+        )
+        path = artifact
         assert path.exists(), (
             f'run_composite reported {path}, which does not exist -- the '
             f"return is the caller's only evidence the merge produced anything"

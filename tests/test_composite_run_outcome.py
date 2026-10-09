@@ -14,6 +14,7 @@ that stage has a target it must satisfy, rather than being declared done
 against a surface nobody asserted.
 """
 
+import pathlib
 from unittest.mock import MagicMock
 
 import pytest
@@ -114,10 +115,12 @@ class TestCompositeOutcomeIsObservable:
 
     def test_run_composite_returns_the_merged_artifact_path(self):
         runner = self._runner_whose_run(
-            self._COMPLETED, merged=True, artifact_path='/runs/1/A1_Composite_1.tiff'
+            self._COMPLETED, merged=True, artifact_path=pathlib.Path('/runs/1/A1_Composite_1.tiff')
         )
 
-        assert runner.run_composite().artifact_path == '/runs/1/A1_Composite_1.tiff', (
+        assert runner.run_composite().artifact_path == pathlib.Path(
+            '/runs/1/A1_Composite_1.tiff'
+        ), (
             'an L2 caller must learn WHERE the merged composite landed; '
             'returning nothing makes a missing artifact indistinguishable '
             'from a successful merge'

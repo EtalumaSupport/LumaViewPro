@@ -10,6 +10,7 @@ from these facts once, through the reporter, and this is what stays behind.
 
 from __future__ import annotations
 
+import pathlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from modules.api_surface import api, api_fields
@@ -104,7 +105,7 @@ class SettingsSetAside:
     save over the file until the person decides what happens to it.
     """
 
-    path: str
+    path: pathlib.Path
     reason: str
 
 

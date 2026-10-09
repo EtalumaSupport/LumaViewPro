@@ -3,6 +3,7 @@
 
 import copy
 import dataclasses
+import pathlib
 import sys
 import warnings
 
@@ -269,8 +270,7 @@ class Lumascope:
         """
         from modules import labware_loader, layer_record, objectives_loader
 
-        # A string, the type the session's source_path has always had.
-        self.source_path = str(source_path)
+        self.source_path = pathlib.Path(source_path)
         self.wellplate_loader = labware_loader.WellPlateLoader(source_path=source_path)
         self.objective_helper = objectives_loader.ObjectiveLoader(source_path=source_path)
         # Kept so a refusal of one of its rows names the file it came from.

@@ -15,6 +15,7 @@ machine does not have.
 from __future__ import annotations
 
 import ast
+import pathlib
 
 import pytest
 
@@ -393,7 +394,7 @@ class TestTheSettingsFileSetAside:
                 settings_init, 'rejected_current_json', ('/x/data/current.json', 'not valid JSON')
             )
             assert session.bring_up_record().settings_set_aside == SettingsSetAside(
-                '/x/data/current.json', 'not valid JSON'
+                pathlib.Path('/x/data/current.json'), 'not valid JSON'
             )
         finally:
             session.shutdown()
