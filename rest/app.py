@@ -23,6 +23,8 @@ import contextlib
 import dataclasses
 import datetime
 import inspect
+import logging
+import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from concurrent.futures import Future
@@ -43,6 +45,10 @@ from rest.jobs import RETRY_AFTER_S as JOB_RETRY_AFTER_S
 from rest.jobs import JobRegistry, Progress, Wait
 from rest.problems import Answer, ServerRefusedError
 from rest.routes import Route, routes
+
+# The REST log: a child of lvp_logger's logger, whose REST handler keeps
+# only the records marked api_request.
+_request_log = logging.getLogger('lvp_logger.rest')
 
 VERSION = 'v1'
 PREFIX = f'/api/{VERSION}'
@@ -201,21 +207,36 @@ def _add_handle_routes(
 
 
 async def _identify_and_admit(
-    request: fastapi.Request, call_next: Callable[[fastapi.Request], Awaitable[object]]
-) -> object:
-    """Give the request its id, and refuse a body that is not JSON before any route reads it."""
-    request.state.request_id = str(uuid.uuid4())
+    request: fastapi.Request, call_next: Callable[[fastapi.Request], Awaitable[fastapi.Response]]
+) -> fastapi.Response:
+    """Give the request its id, refuse a body that is not JSON before any route reads it, and log it.
+
+    Every answer carries the id as ``X-Request-ID`` (a problem also as its
+    ``instance``), and the REST log has one line per request under it. A
+    stream's line is written when its headers are sent.
+    """
+    request_id = str(uuid.uuid4())
+    request.state.request_id = request_id
     request.state.requested = datetime.datetime.now().astimezone()
+    started = time.perf_counter()
     media = request.headers.get('content-type', '').split(';')[0].strip().lower()
     has_body = request.headers.get('content-length', '0') != '0' or (
         'transfer-encoding' in request.headers
     )
     if has_body and media and media != 'application/json' and not media.endswith('+json'):
-        return problems.refused_by_server(
+        response = problems.refused_by_server(
             problems.unsupported_media_type(f'A body is JSON (application/json), not {media}.'),
-            request.state.request_id,
+            request_id,
         ).response()
-    return await call_next(request)
+    else:
+        response = await call_next(request)
+    response.headers['X-Request-ID'] = request_id
+    _request_log.info(
+        f'[{request_id}] {request.method} {request.url.path} -> {response.status_code} '
+        f'in {(time.perf_counter() - started) * 1000:.1f} ms',
+        extra={'api_request': True, 'request_id': request_id},
+    )
+    return response
 
 
 async def _refused(request: fastapi.Request, refusal: ServerRefusedError) -> JSONResponse:
