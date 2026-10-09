@@ -43,7 +43,14 @@ $ErrorActionPreference = "Stop"
 # v4: the clone's commit is written into .git_archival.txt, which the release
 # spec bundles, so the installed banner's Git: line names the commit through
 # LVP's one reader. A v3 build of this branch ships with Git: unknown.
-$script_version = 4
+#
+# v5: the venv is built from requirements-build.txt (the app's requirements
+# plus the pinned PyInstaller and its hooks), no longer requirements-dev.txt,
+# and a cached venv is rebuilt when the branch's requirements change. v4
+# installs the dev file, so the test runner, linter and profiler sit in the
+# venv PyInstaller packs from, where any library's optional import can collect
+# one into the installer (scipy's and scikit-image's testers import pytest).
+$script_version = 5
 
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
 $script_dir = Split-Path -Parent $PSCommandPath
@@ -605,46 +612,80 @@ Rename-Item $clone $product
 # Create build venv and install dependencies
 # ---------------------------------------------------------------------------
 Write-Phase "Build Environment"
-$recreate_build_env = $BuildType -eq "Release"
 
-if ($recreate_build_env -and (Test-Path $venv)) {
-    Write-Host "Removing cached build environment for release build..."
-    Remove-Item $venv -Recurse -Force
+# What the venv is built from. A branch older than requirements-build.txt
+# pins PyInstaller in its dev file, so it is built from that, as it always was.
+if (Test-Path "$src\requirements-build.txt") {
+    $requirements_file = "$src\requirements-build.txt"
+} elseif (Test-Path "$src\requirements-dev.txt") {
+    $requirements_file = "$src\requirements-dev.txt"
+    Write-Host "This branch has no requirements-build.txt; installing its requirements-dev.txt, as builds of it always have."
+} else {
+    Write-Host "ERROR: this branch has neither requirements-build.txt nor requirements-dev.txt, so nothing pins PyInstaller."
+    Set-Location $build_dir
+    Exit 1
 }
 
-$venv_python = Join-Path $venv "Scripts\python.exe"
-$venv_exists = Test-Path $venv_python
+# A cached venv is reused only if it was built from these requirements:
+# pip install -r adds and changes packages but never removes one, so a venv
+# kept across a requirements change keeps everything the old ones installed.
+# The stamp names every requirements*.txt at the branch root, not only the
+# files the install reads, because following -r lines here would be a second
+# requirements parser; the cost is a rebuild when only the dev file changes.
+$stamp_file = Join-Path $venv "lvp_requirements.stamp"
+$stamp_lines = @("python $($python.Version) $($python.Executable)")
+foreach ($req in Get-ChildItem "$src\requirements*.txt" | Sort-Object Name) {
+    $stamp_lines += "$($req.Name) $((Get-FileHash $req.FullName -Algorithm SHA256).Hash)"
+}
+$stamp = $stamp_lines -join "`n"
 
-if (-not $venv_exists) {
-    Write-Host "Creating build venv..."
+$venv_python = Join-Path $venv "Scripts\python.exe"
+$recreate_reason = if ($BuildType -eq "Release") {
+    "release build"
+} elseif (-not (Test-Path $venv_python)) {
+    "no cached environment"
+} elseif (-not (Test-Path $stamp_file)) {
+    "the cached environment records no requirements"
+} elseif ([System.IO.File]::ReadAllText($stamp_file) -ne $stamp) {
+    "this branch's requirements differ from the cached environment's"
+} else {
+    $null
+}
+
+if ($recreate_reason) {
+    if (Test-Path $venv) {
+        Write-Host "Removing cached build environment..."
+        Remove-Item $venv -Recurse -Force
+    }
+    Write-Host "Creating build venv: $recreate_reason"
     & $python.Command @($python.Args + @("-m", "venv", $venv))
     if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Failed to create venv"; Exit 1 }
 } else {
-    Write-Host "Reusing cached build environment: $venv"
+    Write-Host "Reusing cached build environment, built from these requirements: $venv"
 }
-
-$venv_python = Join-Path $venv "Scripts\python.exe"
 
 Write-Host "Upgrading pip..."
 & $venv_python -m pip install --upgrade pip --quiet
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Failed to upgrade pip in build venv"; Set-Location $build_dir; Exit 1 }
 
-if (Test-Path "$src\requirements-dev.txt") {
-    Write-Host "Installing build dependencies..."
-    & $venv_python -m pip install -r "$src\requirements-dev.txt"
-} else {
-    Write-Host "Installing runtime dependencies..."
-    & $venv_python -m pip install -r "$src\requirements.txt"
-    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: pip install failed"; Set-Location $build_dir; Exit 1 }
-
-    Write-Host "Installing PyInstaller..."
-    & $venv_python -m pip install pyinstaller
-}
+Write-Host "Installing build dependencies from $(Split-Path -Leaf $requirements_file)..."
+& $venv_python -m pip install -r $requirements_file
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: pip install failed"; Set-Location $build_dir; Exit 1 }
 
 # Verify PyInstaller is available
 & $venv_python -m PyInstaller --version
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: PyInstaller not available in build venv"; Set-Location $build_dir; Exit 1 }
+
+# The packing environment, versions included, into the transcript: the TOC
+# manifests name the files that shipped, and this is the one record of which
+# release of each package they came from.
+Write-Host "Build environment packages:"
+& $venv_python -m pip freeze
+if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: pip freeze failed"; Set-Location $build_dir; Exit 1 }
+
+# Written last, once the environment is complete and recorded, so an install
+# that failed part-way is never taken for a finished one by the next build.
+[System.IO.File]::WriteAllText($stamp_file, $stamp)
 
 # ---------------------------------------------------------------------------
 # Build EXE

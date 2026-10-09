@@ -1,7 +1,8 @@
 # Development and testing dependencies (not needed in production)
 # Install with: pip install -r requirements-dev.txt
 
--r requirements.txt
+# The build file includes requirements.txt and pins PyInstaller.
+-r requirements-build.txt
 
 # A pin's job is to make CI run what local verification actually ran. This one
 # had drifted a full major behind the interpreter that produces every green
@@ -15,7 +16,6 @@ pytest==9.0.2
 # without it pytest refuses the command line. Without `-n` the option is
 # inert and the suite runs serially.
 pytest-xdist==3.8.0
-pyinstaller==6.19.0
 
 # Linter + formatter. PINNED EXACTLY, and the pin is load-bearing: ruff
 # changes its rule set and its formatting between releases, so a floating

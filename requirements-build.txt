@@ -1,0 +1,15 @@
+# The Windows build's environment: what the app needs, plus the packer.
+# scripts/appBuild/build.ps1 installs this file and nothing else, so no
+# test runner, linter or profiler sits in the venv PyInstaller packs from.
+# A package installed there can be collected into the installer through any
+# library's optional import (scipy and scikit-image import pytest inside a
+# function), so this file is the one place PyInstaller and its hooks are
+# pinned; requirements-dev.txt includes it.
+
+-r requirements.txt
+
+pyinstaller==6.19.0
+# The hooks decide what PyInstaller collects for scikit-image, pypylon, av and
+# others; PyInstaller requires only >=2026.0, so unpinned, two builds of the
+# same commit could pack different files.
+pyinstaller-hooks-contrib==2026.8

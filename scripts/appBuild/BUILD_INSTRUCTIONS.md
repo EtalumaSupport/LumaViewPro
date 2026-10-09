@@ -60,7 +60,10 @@ intentionally has minimal UI, and the customer-facing install UI lives in
 the WiX Bundle `-setup.exe`. v6 is the only supported lane.
 
 `build.ps1` manages its own build virtual environment and installs
-`requirements-dev.txt`. Do not install PyInstaller globally for this build.
+`requirements-build.txt`: the app's requirements plus PyInstaller and its
+hooks, both pinned, and nothing else, since anything installed there can be
+packed into the installer.
+Do not install PyInstaller globally for this build.
 
 ### 2. Create A Build Folder
 
@@ -302,7 +305,9 @@ The script asks for:
 
 1. Build directory: normally keep the current folder.
 2. Package type:
-   - `Dev` reuses cached `buildvenv` for faster repeat builds.
+   - `Dev` reuses cached `buildvenv` for faster repeat builds, and rebuilds
+     it when the branch's `requirements*.txt` differ from the ones it was
+     built from (the log says why).
    - `Release` deletes and recreates `buildvenv` for a clean package.
 3. Branch to build. The interactive picker offers:
    - `[1] 4.0.0-beta` — current shipping beta line
