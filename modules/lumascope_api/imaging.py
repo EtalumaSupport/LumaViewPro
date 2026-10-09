@@ -1243,16 +1243,23 @@ class ImagingAPI:
     # would be right.
     _CAMERA_WRITE_TIMEOUT_S = 5.0
 
-    # The geometry class (frame size, pixel format, binning) is slower
-    # than a value write: a large-frame resize on a Pylon body has been
-    # measured near 11 s, and the dispatcher's wait bounds QUEUE TIME
-    # plus execution -- a geometry write queued behind another one must
-    # not time out while both are healthy. The bound stays a liveness
-    # verdict, not a budget: `fut.result` ABANDONS on timeout without
-    # cancelling, so a timed-out write still lands later and the caller's
-    # view of the camera diverges -- which is why this must be sized so a
-    # healthy write can never hit it.
+    # A command whose body may stop and restart the grab is slower than a
+    # value write: a grab restart on a Pylon body has been measured at 11 s
+    # (frame size, pixel format, and on Pylon the conversion-gain mode and
+    # line-noise reduction too), and the dispatcher's wait bounds QUEUE TIME
+    # plus execution -- a restart queued behind another one must not time
+    # out while both are healthy. Such a command takes this bound once per
+    # restart it may make. The bound stays a liveness verdict, not a
+    # budget: `fut.result` ABANDONS on timeout without cancelling, so a
+    # timed-out write still lands later and the caller's view of the camera
+    # diverges -- which is why this must be sized so a healthy write can
+    # never hit it.
     _CAMERA_GEOMETRY_TIMEOUT_S = 30.0
+
+    # A restore may restart the grab three times (binning, frame size, pixel
+    # format) and then writes the black level, gain, exposure and the
+    # auto-gain arm.
+    _CAMERA_RESTORE_TIMEOUT_S = 3 * _CAMERA_GEOMETRY_TIMEOUT_S + 4 * _CAMERA_WRITE_TIMEOUT_S
 
     # The capture bound is wider, and it is a BASE: a dispatched capture
     # legitimately spends time draining stale frames before it returns, and
@@ -2175,7 +2182,7 @@ class ImagingAPI:
             self._set_conversion_gain_mode_impl,
             'set_conversion_gain_mode',
             args=(mode,),
-            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+            timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
         )
 
     def _set_conversion_gain_mode_impl(self, mode: str) -> bool:
@@ -2230,7 +2237,7 @@ class ImagingAPI:
             self._set_line_noise_reduction_impl,
             'set_line_noise_reduction',
             args=(enabled,),
-            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+            timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
         )
 
     def _set_line_noise_reduction_impl(self, enabled: bool) -> bool:
@@ -4458,7 +4465,7 @@ class ImagingAPI:
             self._restore_camera_state_impl,
             'restore_camera_state',
             args=(snapshot,),
-            timeout_s=3 * self._CAMERA_WRITE_TIMEOUT_S,
+            timeout_s=self._CAMERA_RESTORE_TIMEOUT_S,
             satisfied_when_absent=_DECIDED_IN_BODY,
         )
 
