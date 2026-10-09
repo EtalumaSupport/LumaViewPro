@@ -12,11 +12,10 @@ and code that calls it is unsupported.
 
 ## PRE-RELEASE API
 
-The Lumascope SDK API documented in this file is **subject to breaking changes** in 4.1 / 4.1.5 / 4.2. Specifically:
+The Lumascope SDK API documented in this file is **subject to breaking changes** until `4.0.0` ships. What this document describes is on the trunk now: the `ScopeSession` entry point and the scope's sub-APIs (`scope.motion`, `scope.illumination`, `scope.imaging`, `scope.diagnostics`, `scope.capabilities`, `scope.runtime_state`, `scope.protocols`). What is still fluid:
 
-- 4.1.5 ships the sub-API decomposition (Wave 7): hardware-direct methods on `Lumascope` move to sub-APIs (`scope.motion.*`, `scope.illumination.*`, `scope.imaging.*`, `scope.diagnostics.*`, `scope.capabilities.*`). The `Lumascope` class becomes a thin facade; L2 entry point shifts to `ScopeSession`.
-- 4.2 ships the capability + wire contract changes that may rename or restructure protocol-level surfaces.
-- The REST endpoint convention is **deferred** to a dedicated design session; do not assume current shapes are final.
+- The REST surface: no server exists yet (see "REST surface reference"); its endpoint shapes, its job and event forms, and how each value crosses the wire are being designed and will be documented here when they ship.
+- Protocol-level surfaces may still be renamed or restructured as the wire forms settle.
 
 If you are using this API before stabilization, **contact Etaluma support** so we know to consult you before structural changes. Internal LumaViewPro use does not trigger this requirement.
 
@@ -78,7 +77,7 @@ Pick the layer that fits your use case:
 |---|---|---|---|
 | **REST surface** | HTTP (JSON) | Any | External apps, cross-language control |
 | **ScopeSession session layer** | Python | Python | Headless scripts, automation, tests |
-| **Lumascope + sub-APIs** | Python | Python | Full hardware control, custom applications |
+| **The scope's sub-APIs** (`session.scope.motion`, `.illumination`, `.imaging`, ...) | Python | Python | Direct hardware control inside a session: a plugin, or an application built on `ScopeSession` |
 
 The remainder of this document is organized as the sub-API reference (one section per sub-API), then the modules layer, plugin platform pointers, REST surface, and finally practical patterns + appendices.
 
@@ -275,15 +274,15 @@ GUI-free session container. All hardware commands route through executor threads
 For **real hardware** with settings loaded from disk:
 
 ```python
-import modules.settings_init as settings_init
-from lvp_logger import logger
 from modules.scope_session import ScopeSession
 
-# Takes a logger and the appdata DIRECTORY; reads data/current.json
-# itself (settings.json is the corrupt-file fallback + defaults-merge
-# source) and populates the module-global settings dict.
-settings_init.load_lvp_settings(logger, '.')
-session = ScopeSession.create(settings=settings_init.settings, source_path='.')
+# The user's configuration, prepared as the GUI prepares it: data/current.json
+# read, checked against the shipped data/settings.json template, repaired and
+# merged with the keys newer releases added. A root with no usable settings
+# is refused (ConfigError), never quietly replaced by the template: a script
+# has nobody to ask.
+settings = ScopeSession.load_user_settings('.')
+session = ScopeSession.create(settings=settings, source_path='.')
 
 session.source_path                       # the scope's data folder (source_path above)
 session.scope.wellplate_loader            # the scope's labware catalogue
@@ -1445,7 +1444,7 @@ scope.illumination.ch2color(0)                         # 'Blue'
 
 ### State queries — read from the API, never the driver
 
-Lumascope holds the authoritative LED state in an internal cache. The API layer's `get_led_state()` / `get_led_states()` read from that cache. **Never call the driver's state methods directly** — for FX2 scopes the driver is a pure command translator and its state queries return sentinels.
+`scope.illumination` (`IlluminationAPI`) holds the authoritative LED state; its `get_led_state()` / `get_led_states()` read from that store. **Never call the driver's state methods directly** — for FX2 scopes the driver is a pure command translator and its state queries return sentinels.
 
 ```python
 scope.illumination.get_led_state('Blue')               # {'enabled': True, 'illumination_ma': 200} when on; {'enabled': False, 'illumination_ma': None} when off

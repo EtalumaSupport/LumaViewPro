@@ -57,10 +57,6 @@ def _restore_settings_globals():
     an example's printed frame geometry, and whether it comes up at all,
     varies by whose checkout runs it. A customer SHOULD see their own
     configuration; the smoke corpus should not.
-
-    ``protocol_execution.py`` reads the settings file itself rather than
-    taking the globals, so the pin does not reach it -- pre-existing, and
-    the reason that example is not disk-independent here.
     """
     module = sys.modules.get('modules.settings_init')
     saved = {

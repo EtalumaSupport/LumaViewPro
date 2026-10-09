@@ -24,7 +24,6 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 #               mocks the test conftest installs before collection
 # The sys.path line serves the standalone form; in-suite it is a no-op.
 
-from modules.lumascope_api import Lumascope
 from modules.scope_session import ScopeSession
 
 
@@ -77,34 +76,17 @@ def build_protocol_config():
 
 
 def main():
-    # Real settings: the documented loader reads data/current.json (falling
-    # back to the shipped template) and validates it. A hand-built dict has
-    # to carry at least 'frame' and 'objective_id', or the bring-up refuses.
-    import modules.settings_init as settings_init
-    from lvp_logger import logger
+    # The user's configuration, prepared as the GUI prepares it (read,
+    # checked against the shipped template, repaired, merged). A root with
+    # no usable settings is refused, never quietly replaced by the template.
+    settings = ScopeSession.load_user_settings('.')
 
-    settings_init.load_lvp_settings(logger, '.')
-    settings = settings_init.settings
-    settings['live_folder'] = str(pathlib.Path('./capture').resolve())
-
-    # Create scope in simulate mode, on the same data folder the settings
-    # came from: the scope reads the labware and objective catalogues there,
-    # and the session takes its folder from the scope. The simulated motor
-    # board reports the model it is declared with, so declaring the
-    # settings' model keeps the bring-up's model check silent -- it has
-    # nothing to correct.
-    scope = Lumascope(simulate=True, configured_model=settings['microscope'], source_path='.')
-    print('Scope initialized (simulate=True)')
-
-    # Create a ScopeSession -- the GUI-independent state container. The
-    # factory starts the executor lanes. We built the scope ourselves, so the
-    # bring-up is ours: configure it from the settings, then start the camera
-    # feed (connect() leaves the camera configured but not grabbing). A
-    # session whose scope the factory built gets both steps for free.
-    session = ScopeSession.create(settings=settings, scope=scope)
-    session.configure_scope()
-    scope.imaging.start_streaming()
-    print('Session created, scope configured')
+    # The factory is the one door to a scope: it wires the simulated
+    # drivers on the installation's data folder, configures the scope from
+    # the settings, starts the camera feed and the executor lanes.
+    session = ScopeSession.create(settings, simulate=True)
+    session.set_live_folder(str(pathlib.Path('./capture').resolve()))
+    print('Session created, scope configured (simulate=True)')
 
     # Build the protocol configuration
     config = build_protocol_config()
@@ -123,7 +105,7 @@ def main():
     #
     #   # The scope resolves data/tiling.json and hands the protocol its
     #   # labware and objective catalogues.
-    #   protocol = scope.protocols.create_protocol(input_config=config)
+    #   protocol = session.scope.protocols.create_protocol(input_config=config)
     #
     #   # The run captures in the session's image mode
     #   # (session.set_image_mode(...) chooses it).
@@ -159,11 +141,8 @@ def main():
     print('\nProtocol setup complete (not executed in simulate-only example)')
     print('See comments in source for full execution flow')
 
-    # Clean up. The scope was ours, so the disconnect is ours: session
-    # shutdown leaves a caller-passed scope alone. A factory-built scope is
-    # disconnected by session.shutdown() itself.
+    # Clean up: the factory built the scope, so shutdown disconnects it.
     session.shutdown()
-    scope.disconnect()
     print('Scope disconnected')
 
 
