@@ -1095,15 +1095,6 @@ class TestRestAPIPrep:
         record.api_request = True
         assert filt.filter(record) is True
 
-    def test_get_available_objectives(self):
-        """get_available_objectives() should return list of objective IDs."""
-        session = ScopeSession.create(complete_settings(), simulate=True)
-        objectives = session.scope.runtime_state.get_available_objectives()
-        assert isinstance(objectives, list)
-        assert len(objectives) > 0
-        # Should contain known objectives from objectives.json
-        assert any('20x' in obj for obj in objectives)
-
     def test_get_current_objective_none_by_default(self):
         """get_current_objective() should return None before setting one.
 

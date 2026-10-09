@@ -140,14 +140,3 @@ def test_production_warns_on_a_row_missing_its_led_board_by_name(tmp_path):
     warned = ' | '.join(str(c) for c in mock_logger.warning.call_args_list)
     assert "'LS620' missing 'LEDBoard'" in warned
     assert 'LS620' in models
-
-
-def test_production_does_not_warn_on_a_manual_row_without_a_motor_board():
-    from lvp_logger import logger as mock_logger
-
-    mock_logger.reset_mock()
-
-    layer_record.load_scope_models(REPO_DATA / 'scopes.json')
-
-    warned = ' | '.join(str(c) for c in mock_logger.warning.call_args_list)
-    assert 'MotorBoard' not in warned

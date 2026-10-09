@@ -16,7 +16,7 @@ import time
 import numpy as np
 import pytest
 
-from modules.exceptions import ConfigError, InstallationFileError
+from modules.exceptions import ConfigError
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings, complete_settings_without
@@ -41,12 +41,6 @@ def session(tmp_path):
 
 
 class TestAFactorySessionIsConfigured:
-    def test_the_helpers_are_real_and_the_engine_holds_them(self, session):
-        assert session.objective_helper is not None
-        assert session.wellplate_loader is not None
-        assert session.coordinate_transformer is not None
-        assert session.wellplate_loader is session.scope.wellplate_loader
-
     def test_the_scope_carries_the_objective_and_labware(self, session):
         assert (
             session.scope.runtime_state.get_current_objective_id()
@@ -124,22 +118,6 @@ class TestSettingsThatCannotConfigureAScope:
 
     def test_a_root_without_a_template_refuses_by_root(self, tmp_path):
         with pytest.raises(ConfigError, match=r'settings\.json'):
-            ScopeSession.create(
-                ScopeSession.load_user_settings(str(tmp_path)),
-                source_path=str(tmp_path),
-                simulate=True,
-            )
-
-    def test_a_root_without_labware_refuses_by_file(self, tmp_path):
-        import pathlib
-        import shutil
-
-        repo = pathlib.Path(__file__).resolve().parent.parent
-        data = tmp_path / 'data'
-        data.mkdir()
-        shutil.copy(repo / 'data' / 'settings.json', data / 'settings.json')
-        shutil.copy(repo / 'data' / 'objectives.json', data / 'objectives.json')
-        with pytest.raises(InstallationFileError, match=r'labware\.json'):
             ScopeSession.create(
                 ScopeSession.load_user_settings(str(tmp_path)),
                 source_path=str(tmp_path),

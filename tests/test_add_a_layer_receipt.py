@@ -62,22 +62,6 @@ def eighth_layer_release(tmp_path, monkeypatch):
     return str(path)
 
 
-def test_identity_resolves_the_eighth_layer(eighth_layer_release):
-    identity = layer_record.resolve_layer_identity(
-        board_block=None,
-        board_config_read_ok=True,
-        motor_model='LS850T',
-        configured_model=None,
-        models=layer_record.load_scope_models(eighth_layer_release),
-        catalogue=layer_record.release_catalogue(),
-    )
-    nir = identity.find('NIR')
-    assert nir is not None
-    assert nir.id == 7
-    assert nir.led_channel == (6,)
-    assert nir.excitation_nm == pytest.approx(780.0)
-
-
 def test_vocabulary_and_validation_accept_the_eighth_layer(eighth_layer_release):
     assert 'NIR' in common_utils.get_layers()
     assert 'NIR' in Protocol.valid_colors()

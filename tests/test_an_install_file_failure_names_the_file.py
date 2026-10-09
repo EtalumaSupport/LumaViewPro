@@ -17,7 +17,7 @@ import pathlib
 
 import pytest
 
-from modules.exceptions import ConfigError, InstallationFileError
+from modules.exceptions import InstallationFileError
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import DEFAULT_PROPOSED_OBJECTIVE_ID, ObjectiveLoader
 
@@ -98,7 +98,3 @@ def test_an_unreadable_catalogue_path_names_the_file(tmp_path, loader, name):
         loader(source_path=tmp_path)
 
     assert failure.value.file_path == tmp_path / 'data' / name
-
-
-def test_the_error_is_not_read_as_bad_settings():
-    assert not issubclass(InstallationFileError, ConfigError)

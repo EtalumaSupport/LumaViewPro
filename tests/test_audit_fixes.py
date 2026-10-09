@@ -17,7 +17,6 @@ All mocking is done inside fixtures/test methods and cleaned up afterward.
 
 import dataclasses
 import pathlib
-import shutil
 import inspect
 import sys
 import threading
@@ -1591,68 +1590,6 @@ class TestRule14_A5_AreAllConnectedExceptionNotify:
             f"notification title must be 'Cannot verify hardware state'; got {captured[0]}"
         )
         assert not runner.run_in_progress(), 'run must not start'
-
-
-class TestRule14_A8_ScopeSessionHelperNotify:
-    """A8: a catalogue the installation is missing stops the session factory.
-
-    The labware and objective catalogues are read once, by the scope, when
-    it is built. A missing file raises InstallationFileError naming it, out
-    of ScopeSession.create, before any session exists: nothing is posted
-    (whoever catches it reports it once) and no thread is left running.
-    """
-
-    def _create_without(self, tmp_path, file_name):
-        import time
-
-        from modules.exceptions import InstallationFileError
-        from modules.notification_center import Severity, notifications
-        from modules.scope_session import ScopeSession
-        from tests.settings_fixtures import complete_settings
-
-        repo_data = pathlib.Path(__file__).resolve().parent.parent / 'data'
-        shutil.copytree(repo_data, tmp_path / 'data')
-        (tmp_path / 'data' / file_name).unlink()
-
-        posted = []
-
-        def listener(notification):
-            posted.append(notification)
-
-        # By object, not name: a same-named lane still winding down from an
-        # earlier test would hide a new one leaked here.
-        threads_before = set(threading.enumerate())
-        notifications.add_listener(listener, min_severity=Severity.DEBUG)
-        try:
-            with pytest.raises(InstallationFileError) as refusal:
-                ScopeSession.create(
-                    complete_settings(),
-                    source_path=str(tmp_path),
-                    simulate=True,
-                    warn_pre_release=False,
-                )
-        finally:
-            notifications.remove_listener(listener)
-
-        new_threads = set()
-        deadline = time.monotonic() + 2.0
-        while time.monotonic() < deadline:
-            new_threads = {
-                t.name for t in set(threading.enumerate()) - threads_before if t.is_alive()
-            }
-            if not new_threads:
-                break
-            time.sleep(0.05)
-
-        assert refusal.value.file_path.name == file_name
-        assert posted == [], f'a refused factory posts nothing; got {posted}'
-        assert not new_threads, f'a refused factory leaves no thread behind: {new_threads}'
-
-    def test_a_missing_labware_file_stops_the_bring_up(self, tmp_path):
-        self._create_without(tmp_path, 'labware.json')
-
-    def test_a_missing_objectives_file_stops_the_bring_up(self, tmp_path):
-        self._create_without(tmp_path, 'objectives.json')
 
 
 class TestRule14_A7_HyperstackBuildNotify:

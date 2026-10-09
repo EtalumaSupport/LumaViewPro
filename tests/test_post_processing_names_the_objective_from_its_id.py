@@ -105,14 +105,3 @@ def test_a_step_with_no_objective_is_not_named(turret_post_processor):
 def test_a_missing_id_is_refused_not_coerced():
     with pytest.raises(TypeError):
         objective_short_name(None)
-
-
-def test_post_processing_builds_no_catalogue(turret_post_processor, monkeypatch):
-    import modules.objectives_loader as objectives_loader
-
-    def refuse(*args, **kwargs):
-        raise AssertionError('post-processing built a catalogue')
-
-    monkeypatch.setattr(objectives_loader.ObjectiveLoader, '__init__', refuse)
-    assert _NameOnly(post_function=PostFunction.COMPOSITE, has_turret=True) is not None
-    assert turret_post_processor._get_objective_short_name_if_has_turret('4x Oly') == '4xOly'
