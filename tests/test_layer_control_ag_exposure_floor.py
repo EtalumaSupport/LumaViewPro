@@ -1,36 +1,25 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Regression tests for the AG-feedback exposure floor stored on leaving auto-gain.
 
-Bug
----
 When auto-gain runs on a bright transmitted sample (BF/PC/DF), the Pylon
-camera can drive ExposureTime to its physical minimum (~30 us = 0.030 ms
-on common sensors). update_auto_gain_cb then reads that value via
-get_exposure_ms() and writes it to settings[layer]['exposure_ms'] without an
-appropriate floor:
+camera can drive ExposureTime to its physical minimum (~30 us = 0.030 ms on
+common sensors). Leaving auto-gain stores the exposure the lock measured;
+stored raw, 0.030 ms re-fired set_exposure_ms's unit-confusion warning on
+every later apply (recurring spam in a beta tester's logs), while the
+fluorescence and luminescence layers already took a 1.0 ms floor.
 
-- Fluorescence + luminescence already get a 1.0 ms floor via
-  FLUORESCENCE_MIN_EXPOSURE_MS in the original conditional.
-- Transmitted (BF/PC/DF) had NO conditional floor; the slider's .kv
-  default min is 0.01 ms, so np.clip(0.030, 0.01, max) returned 0.030.
-- The 0.030 ms write then fires set_exposure_ms's <0.1 ms
-  "Value should be in milliseconds" WARNING on every subsequent
-  apply_settings (visible in the beta tester's beta9 logs as recurring spam).
-
-Fix
----
-Add TRANSMITTED_MIN_EXPOSURE_MS = 0.1 (matching set_exposure_ms's
-internal warning gate) and apply it via an else branch on the existing
-get_image_layers conditional. Live AG output to the camera is untouched
-(the floor applies only to the settings write-back).
+The floor is the API's decision: ``stored_exposure_after_lock`` applies the
+per-class floor in ``config_helpers.DEFAULT_AG_AE_MIN_EXPOSURE_MS`` to the
+STORED value and the lock result carries it, so a GUI and a REST caller
+store the same thing. Live AG output to the camera is untouched.
 
 Test approach
 -------------
-- Structural lock (source-level): the store applies no floor of its own.
+- Structural lock (source-level): the Session member applies no floor of
+  its own; it stores what the lock carries.
 - Behavioral: turn auto-gain off through ScopeSession.set_layer_auto_gain
-  with sub-floor exp values; assert settings store the floored value, not
-  the raw value. (The write-back moved from the GUI's toggle callback to
-  that Session member.)
+  with sub-floor exposures; assert the store holds the floored value, not
+  the raw one.
 """
 
 from __future__ import annotations
@@ -54,10 +43,9 @@ class TestExposureFloorSourceStructure:
     """Source-level lock on the AG-feedback floor logic in
     ScopeSession.set_layer_auto_gain."""
 
-    def test_transmitted_floor_is_the_warning_gate(self):
-        """The transmitted class floor lives beside the AG/AE ceiling in
-        config_helpers and equals set_exposure_ms's <0.1 ms warning gate;
-        changing it changes which AG-feedback values fire the warning."""
+    def test_the_per_class_floors_live_beside_the_ag_ae_ceiling(self):
+        """The floors live beside the AG/AE ceiling in config_helpers: 0.1 ms
+        for the transmitted class, 1.0 ms for fluorescence and luminescence."""
         assert config_helpers.DEFAULT_AG_AE_MIN_EXPOSURE_MS['transmitted'] == 0.1
         assert config_helpers.DEFAULT_AG_AE_MIN_EXPOSURE_MS['fluorescence'] == 1.0
         assert config_helpers.DEFAULT_AG_AE_MIN_EXPOSURE_MS['luminescence'] == 1.0
@@ -150,9 +138,7 @@ class TestExposureFloorBehavior:
     )
     def test_blue_ag_feedback_floored_to_fluorescence_min(self, raw_exp_ms, expected_floor):
         """For Blue (fluorescence), AG-feedback exp values < 1 ms must be
-        floored to 1.0 (FLUORESCENCE_MIN_EXPOSURE_MS). Pre-existing
-        behavior; this test locks it against accidental regression
-        during the transmitted-floor refactor."""
+        floored to 1.0, the fluorescence class floor."""
         settings = {'Blue': {'exposure_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}}
 
         _leave(settings, 'Blue', _lock('Blue', 0.0, raw_exp_ms))
@@ -160,7 +146,7 @@ class TestExposureFloorBehavior:
         stored = settings['Blue']['exposure_ms']
         assert stored == expected_floor, (
             f'Blue AG-feedback raw_exp={raw_exp_ms}ms should floor to '
-            f'{expected_floor}ms (FLUORESCENCE_MIN_EXPOSURE_MS), '
+            f'{expected_floor}ms (the fluorescence class floor), '
             f'got {stored}ms.'
         )
 

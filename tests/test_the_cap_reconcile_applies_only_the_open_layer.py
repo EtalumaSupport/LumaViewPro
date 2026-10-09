@@ -14,19 +14,19 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import modules.app_context as _app_ctx
-from modules.lumascope_api.imaging import AppliedCameraSetting
+from modules.lumascope_api.imaging import cap_stored_value
 
 _CAP_DB = 24.0
 
 
 def _applied_gain(stored):
-    return AppliedCameraSetting(
-        stored=stored, applied=min(stored, _CAP_DB), capped=stored > _CAP_DB
-    )
+    # The API's own cap rule over a camera whose gain ceiling is _CAP_DB.
+    return cap_stored_value(stored, _CAP_DB)
 
 
 def _applied_exposure(stored):
-    return AppliedCameraSetting(stored=stored, applied=stored, capped=False)
+    # No exposure ceiling: nothing is capped.
+    return cap_stored_value(stored, None)
 
 
 def _reconcile(monkeypatch, *, opened, capped):

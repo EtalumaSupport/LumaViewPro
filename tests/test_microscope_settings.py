@@ -13,15 +13,18 @@ zeros back to disk, corrupting the settings file for future sessions.
 
 Structural fix (4.1): `ImagingAPI.max_exposure_ms_cached` now returns `None`
 (not 0.0) when no camera is connected, so callers can distinguish
-"camera missing" from a real driver value. `load_settings` falls back to
-`DEFAULT_MAX_EXPOSURE_MS` with `scope.imaging.max_exposure_ms_cached or DEFAULT`.
+"camera missing" from a real driver value. The exposure slider's range is
+sized through `camera_max_exposure_for_ui`, which substitutes
+`DEFAULT_MAX_EXPOSURE_MS` only for `None`: a slider needs some range to draw,
+and a cap of 0 is a cap, not a missing one.
 """
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
-from modules.config_helpers import DEFAULT_MAX_EXPOSURE_MS
+from modules.config_helpers import DEFAULT_MAX_EXPOSURE_MS, camera_max_exposure_for_ui
 from tests.scope_fakes import build_scope
 
 
@@ -82,27 +85,16 @@ class TestCameraMaxExposureContract:
         assert isinstance(scope.imaging.max_exposure_ms_cached, float)
 
 
-class TestLoadSettingsFallback:
-    """Regression for #616: load_settings must fall back when no camera."""
+class TestTheSliderRangeWithNoCamera:
+    """Regression for #616: the slider's range comes from the one UI resolver."""
 
-    def test_default_constant_pinned(self):
-        """Pin the default so a refactor can't silently change it."""
-        assert DEFAULT_MAX_EXPOSURE_MS == 1000.0
-
-    def test_none_falls_back_to_default(self):
-        """The `value or DEFAULT` pattern must yield DEFAULT for None."""
-        value = None
-        assert (value or DEFAULT_MAX_EXPOSURE_MS) == DEFAULT_MAX_EXPOSURE_MS
-
-    def test_zero_falls_back_to_default(self):
-        """Defensive: 0.0 in cache (shouldn't happen post-fix) still safe."""
-        value = 0.0
-        assert (value or DEFAULT_MAX_EXPOSURE_MS) == DEFAULT_MAX_EXPOSURE_MS
-
-    def test_valid_value_overrides_default(self):
-        """Real camera value must pass through, not get replaced."""
-        value = 500.0
-        assert (value or DEFAULT_MAX_EXPOSURE_MS) == 500.0
+    @pytest.mark.parametrize(
+        ('cached', 'expected'),
+        [(None, DEFAULT_MAX_EXPOSURE_MS), (500.0, 500.0), (0.0, 0.0)],
+    )
+    def test_only_a_missing_cap_takes_the_default(self, cached, expected):
+        imaging = SimpleNamespace(max_exposure_ms_cached=cached)
+        assert camera_max_exposure_for_ui(imaging) == expected
 
 
 class TestCoalescingApplier:

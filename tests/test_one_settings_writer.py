@@ -19,7 +19,6 @@ from modules.exceptions import (
     Refusal,
     SettingRefusedError,
 )
-from modules.protocol import ProtocolScheduleRefusedError
 from modules.scope_session import ScopeSession
 from tests.installation_fixtures import copy_installation_files
 from tests.settings_fixtures import complete_settings
@@ -145,9 +144,11 @@ def test_a_live_folder_no_file_system_can_name_is_refused(session):
 
 
 def test_a_protocol_schedule_no_protocol_can_run_is_refused(session):
+    # The protocol's own range, refused in the writer's one vocabulary.
     before = session.settings['protocol']['period']
-    with pytest.raises(ProtocolScheduleRefusedError):
+    with pytest.raises(SettingRefusedError) as refused:
         session.update_settings('protocol.period', 0.001)
+    assert (refused.value.reason, refused.value.path) == ('out_of_range', 'protocol.period')
     assert session.settings['protocol']['period'] == before
 
 

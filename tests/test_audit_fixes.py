@@ -1886,7 +1886,7 @@ class TestSetBinningSizeReturnsBool:
     method dropped the driver's True return and implicitly returned None;
     char-tool's `if not ok:` check then misreported every successful binning
     op as a failure. This test pins the contract: capture-and-return on the
-    success path, return False on exception.
+    success path; a camera that refuses the size raises CameraSettingRejected.
     """
 
     def test_set_binning_size_has_bool_return_annotation(self):
@@ -8362,11 +8362,11 @@ class TestPylonPublicMethodAnnotationsAndDocstrings:
 class TestManualVideoSpinners:
     """Issue #633 Stage 2D: video FPS + duration UI binding.
 
-    Static-source assertions: kv ID + handlers exist, record_init reads
-    via .get with defaults, and max_fps == 0 maps to
-    _user_requested_fps_limit = False (so a fresh install no longer
-    fires 'FPS budget exceeded' at every >25ms exposure -- the Stage 2C
-    regression that this stage closes).
+    Static-source assertions: the kv ids and their handlers exist, and the
+    Advanced Settings modal pushes the stored video values into its widgets
+    when it opens (a fresh install, max_fps 0, must not fire 'FPS budget
+    exceeded' at every >25ms exposure -- the Stage 2C regression that this
+    stage closes).
     """
 
     def _kv_text(self):
@@ -8404,7 +8404,7 @@ class TestManualVideoSpinners:
         assert 'id: video_max_duration_input' in kv, (
             'ui/advanced_settings.py must define a TextInput with id '
             'video_max_duration_input bound to '
-            "settings['video']['max_duration']."
+            "settings['video']['max_duration_seconds']."
         )
         assert 'root.update_video_max_duration()' in kv, (
             'video_max_duration_input must call root.update_video_max_duration() on edit.'
@@ -8446,7 +8446,7 @@ class TestManualVideoSpinners:
         )
         assert 'video_max_duration_input' in body, (
             'AdvancedSettings.on_open must push '
-            "settings['video']['max_duration'] into the "
+            "settings['video']['max_duration_seconds'] into the "
             'video_max_duration_input widget when the modal opens.'
         )
 

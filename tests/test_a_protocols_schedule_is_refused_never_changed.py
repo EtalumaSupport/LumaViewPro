@@ -26,7 +26,7 @@ import pytest
 
 import modules.config_helpers as config_helpers
 from modules import settings_init
-from modules.exceptions import ConfigError, Refusal
+from modules.exceptions import ConfigError, Refusal, SettingRefusedError
 from modules.protocol import Protocol, ProtocolScheduleRefusedError, schedule_from_units
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -253,9 +253,12 @@ class TestTheSession:
     def test_a_stored_default_out_of_range_is_refused_and_the_store_unchanged(self, session):
         before = dict(session.settings['protocol'])
 
-        with pytest.raises(ProtocolScheduleRefusedError):
+        # The writer's one refusal, carrying the protocol's own words.
+        with pytest.raises(SettingRefusedError) as refused:
             session.update_settings('protocol.period', 0.005)
 
+        assert refused.value.reason == 'out_of_range'
+        assert isinstance(refused.value.__cause__, ProtocolScheduleRefusedError)
         assert session.settings['protocol'] == before
 
     def test_a_runnable_stored_default_is_written(self, session):

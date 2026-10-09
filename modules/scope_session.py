@@ -2267,12 +2267,11 @@ class ScopeSession:
             SettingRefusedError: ``path`` is owned by a Session member
                 (named), is set only by the installation, is not a setting,
                 or names a block; or ``value`` is not the setting's kind or
-                is outside its range. Nothing is written.
+                is outside its range (a ``protocol.period`` or
+                ``protocol.duration`` no protocol can run among them).
+                Nothing is written.
             ConfigError: these settings were never prepared from the
                 template and lack the block the path is in. Nothing is
-                written.
-            ProtocolScheduleRefusedError: a ``protocol.period`` or
-                ``protocol.duration`` no protocol can run. Nothing is
                 written.
         """
         settings_paths.check_write(self.scope.settings_template, path, value)

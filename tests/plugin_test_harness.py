@@ -23,8 +23,9 @@ and has only what a session has:
     ctx.post_processing      -- mocked post-processing builds
     ctx.engineering_mode     -- False
     ctx.no_engineering       -- False
-    ctx.get_settings_snapshot() -- a copy of the settings, empty to begin with
-    ctx.update_settings      -- mocked
+    ctx.get_settings_snapshot() -- a copy of the settings, the shipped template to begin with
+    ctx.update_settings      -- the Session's own check against the shipped template, then the
+                                store, so a write the Session would refuse is refused here too
 
 A plugin that reaches for anything else a session does not have fails
 here as it would in LumaViewPro. The mocks are intentionally minimal:
@@ -48,6 +49,7 @@ from modules.plugins import (
     PluginRegistrationError,
     ProcessorResult,
 )
+from tests.settings_fixtures import complete_settings, settings_writer
 
 
 __all__ = [
@@ -66,9 +68,9 @@ def _make_ctx() -> types.SimpleNamespace:
     ctx.post_processing = MagicMock(name='post_processing')
     ctx.engineering_mode = False
     ctx.no_engineering = False
-    settings: dict = {}
+    settings = complete_settings()
     ctx.get_settings_snapshot = lambda: copy.deepcopy(settings)
-    ctx.update_settings = MagicMock(name='update_settings')
+    ctx.update_settings = settings_writer(settings)
     # live_processing registry needs scope wired (PluginRegistry.load does
     # this in production; tests use the harness without loading, so do it
     # here). Tests that need an unbound registry can reset

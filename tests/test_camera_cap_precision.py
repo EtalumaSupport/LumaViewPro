@@ -7,11 +7,11 @@ fixed increment, deliberately: inventing a step would narrow a range the
 camera did not narrow, and a test in test_pylon_published_ranges.py pins that
 behaviour.
 
-Raw, that value becomes the gain slider's maximum, the ceiling a typed entry
-is clamped to, and -- when a layer's stored gain is reconciled down to the cap
--- the number written into the store. Observed on a Basler daA3840-45um:
-typing 5757 into the gain box applied 48.00000004350822, which is what reaches
-current.json and the box.
+Raw, that value becomes the gain slider's maximum and the number a layer's
+stored gain is applied as when the camera cannot reach it (the store itself
+keeps the request). Observed on a Basler daA3840-45um: typing 5757 into the
+gain box applied 48.00000004350822, which is what reached current.json and
+the box.
 
 camera_max_gain_for_ui is the single point the whole chain passes through, so
 it is where the value is normalised, at the precision the existing owner

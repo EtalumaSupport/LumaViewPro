@@ -103,12 +103,24 @@ def _acceleration(value: float) -> None:
         raise SettingRefusedError('out_of_range', 'motion.acceleration_max_pct', str(e)) from e
 
 
+def _schedule(key: str) -> typing.Callable[[typing.Any], None]:
+    path = f'protocol.{key}'
+
+    def rule(value: object) -> None:
+        try:
+            schedule_from_units(key, value)
+        except ProtocolScheduleRefusedError as e:
+            raise SettingRefusedError('out_of_range', path, str(e)) from e
+
+    return rule
+
+
 # A member's setting is here too: its range is held at load as well, though
 # a write to it is refused for its member before the range is read.
 _RANGES: typing.Final[dict[str, typing.Callable[[typing.Any], None]]] = {
     'motion.acceleration_max_pct': _acceleration,
-    'protocol.period': lambda value: schedule_from_units('period', value),
-    'protocol.duration': lambda value: schedule_from_units('duration', value),
+    'protocol.period': _schedule('period'),
+    'protocol.duration': _schedule('duration'),
     'tiling_overlap_percent': _overlap,
     'image_output_format.live': lambda value: _refuse_unknown_format(
         'image_output_format.live', value, VALID_LIVE_OUTPUT_FORMATS
@@ -173,9 +185,8 @@ def check_write(template: dict, path: str, value: object) -> None:
         SettingRefusedError: ``path`` is owned by a Session member (named),
             is set only by the installation's settings file, is not a
             setting, or names a block rather than one setting; or ``value``
-            is not the setting's kind, or is outside its range.
-        ProtocolScheduleRefusedError: a protocol period or duration no
-            protocol can run.
+            is not the setting's kind, or is outside its range (a protocol
+            period or duration no protocol can run among them).
     """
     member = member_for(path)
     if member is not None:
@@ -239,7 +250,7 @@ def replace_refused_stored_values(
             shipped = shipped[segment]
         try:
             _refuse_kind_or_range(shipped, path, stored[leaf])
-        except (SettingRefusedError, ProtocolScheduleRefusedError):
+        except SettingRefusedError:
             replaced.append((path, stored[leaf], shipped))
             stored[leaf] = shipped
     return StoredSettingReplacedNotice(replaced) if replaced else None

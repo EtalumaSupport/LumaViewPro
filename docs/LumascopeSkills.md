@@ -427,13 +427,11 @@ nothing is written. Its `reason` says why:
 | `not_a_setting` | no setting has the path |
 | `block` | the path names a block of settings (`'video'`); each is written by its own path |
 | `wrong_kind` | the value is not the kind the setting holds: true/false, a number (int or float), text, or a list. A setting shipped as `null` takes any single value. A numpy scalar is refused: convert it with `float()` or `int()` |
-| `out_of_range` | `video.max_fps` outside 0 to 200 (0 is no cap); `video.max_duration_seconds` outside 1 to 3600; `tiling_overlap_percent` outside 0 to 50; `image_output_format.live` / `.sequenced` not a format the writer takes |
+| `out_of_range` | `video.max_fps` outside 0 to 200 (0 is no cap); `video.max_duration_seconds` outside 1 to 3600; `tiling_overlap_percent` outside 0 to 50; `image_output_format.live` / `.sequenced` not a format the writer takes; `protocol.period` (minutes) or `protocol.duration` (hours) one a protocol cannot run, the protocol's own range (below) |
 
-`protocol.period` (minutes) and `protocol.duration` (hours) are the
-schedule a new protocol starts from, held to the protocol's own range
-(below): one a protocol cannot run raises `ProtocolScheduleRefusedError`
-and nothing is written. A `current.json` written before the range was
-enforced can hold one.
+`protocol.period` and `protocol.duration` are the schedule a new protocol
+starts from. A `current.json` written before the range was enforced can
+hold one.
 
 At start-up, a stored value the writer would refuse -- the wrong kind, or
 outside a range above, a protocol schedule, a `motion.acceleration_max_pct`
