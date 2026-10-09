@@ -90,6 +90,13 @@ def test_a_call_past_the_clients_wait_is_a_job_that_ends_in_its_answer(client, h
     assert ended.json()['ended'] is not None
 
 
+@pytest.mark.parametrize('prefer', ['wait=3; note=x', 'wait="3"', 'respond-async, wait=3'])
+def test_a_wait_is_read_in_every_form_rfc_7240_writes(client, prefer):
+    answered = client.get('/api/v1/app_version', headers={'Prefer': prefer})
+
+    assert answered.headers['Preference-Applied'] == 'wait=3'
+
+
 def test_a_call_inside_the_wait_is_answered_and_the_wait_is_capped(client):
     answered = client.get('/api/v1/app_version', headers={'Prefer': 'wait=999'})
 
@@ -168,6 +175,33 @@ def test_a_call_past_the_live_limit_is_refused_before_it_runs(client, held, monk
     assert (refused.status_code, refused.json()['reason']) == (503, 'overloaded')
     assert refused.headers['Retry-After'] == str(rest.jobs.RETRY_AFTER_S)
     assert held.calls == []
+
+
+def test_a_call_that_hands_out_a_job_is_refused_while_the_limit_of_jobs_runs(client, monkeypatch):
+    first = client.post('/api/v1/scope/motion/start_home').json()
+    monkeypatch.setattr(rest.jobs, 'LIVE_LIMIT', 1)
+
+    refused = client.post('/api/v1/scope/motion/start_home')
+    # A call that hands out no job is not refused for running jobs.
+    answered = client.get('/api/v1/app_version')
+
+    assert (refused.status_code, refused.json()['reason']) == (503, 'overloaded')
+    assert answered.status_code == 200
+    client.get(f'/api/v1/jobs/{first["id"]}', headers={'Prefer': 'wait=30'})
+
+
+def test_a_finished_job_past_the_count_bound_is_let_go(client, held, monkeypatch):
+    monkeypatch.setattr(rest.jobs, 'FINISHED_LIMIT', 1)
+    held.set()
+    oldest = client.post('/api/v1/scope/illumination/leds_off', headers={'Prefer': 'wait=0'})
+    client.get(oldest.headers['Location'], headers={'Prefer': 'wait=10'})
+    newer = client.post('/api/v1/scope/illumination/leds_off', headers={'Prefer': 'wait=0'})
+    client.get(newer.headers['Location'], headers={'Prefer': 'wait=10'})
+
+    client.post('/api/v1/scope/illumination/leds_off', headers={'Prefer': 'wait=0'})
+
+    assert client.get(oldest.headers['Location']).status_code == 404
+    assert client.get(newer.headers['Location']).status_code == 200
 
 
 def test_many_clients_waiting_on_a_job_hold_nothing_a_new_call_needs(client, held):

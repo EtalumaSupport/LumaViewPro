@@ -15,8 +15,8 @@ has ended, ``result`` or ``error``: ``status`` goes ``pending`` ->
 report of how far it has got, and ``error`` is the problem the call ended
 in. Reading a failed job is 200: the read succeeded. There is no generic
 cancel: each activity that can be stopped has its own member. A finished
-job is kept until a client forgets it, or until the count or age bound
-passes it.
+job is kept until a client forgets it, or until a new job finds it past
+the count or age bound.
 """
 
 from __future__ import annotations
@@ -64,9 +64,11 @@ class Wait:
     def of(cls, prefer: str | None) -> Wait:
         """The wait a ``Prefer`` header asks for; a preference not understood is ignored (RFC 7240)."""
         for token in (prefer or '').split(','):
-            name, _, value = token.strip().partition('=')
-            if name.strip().lower() == 'wait' and value.strip().isdigit():
-                return cls(min(float(value.strip()), WAIT_CAP_S), True)
+            # A preference's own parameters follow ';', and its value may be quoted.
+            name, _, value = token.split(';')[0].strip().partition('=')
+            value = value.strip().strip('"')
+            if name.strip().lower() == 'wait' and value.isdigit():
+                return cls(min(float(value), WAIT_CAP_S), True)
         return cls(WAIT_DEFAULT_S, False)
 
     def headers(self) -> dict[str, str]:
@@ -197,7 +199,12 @@ class JobRegistry:
                     self._live_calls -= 1
             loop.call_soon_threadsafe(settle, answer)
 
-        threading.Thread(target=run, name=f'rest {name}').start()
+        try:
+            threading.Thread(target=run, name=f'rest {name}').start()
+        except BaseException:
+            with self._lock:
+                self._live_calls -= 1
+            raise
         return answered
 
     def adopt(

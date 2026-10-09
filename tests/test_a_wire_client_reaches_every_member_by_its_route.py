@@ -192,5 +192,9 @@ def test_a_call_that_ends_its_thread_is_answered_as_a_fault(session, monkeypatch
         raise SystemExit(3)
 
     monkeypatch.setattr(session.scope.illumination, 'leds_off', leaves)
-    with TestClient(build_app(session), raise_server_exceptions=False) as client:
-        assert client.post('/api/v1/scope/illumination/leds_off').status_code == 500
+    with TestClient(build_app(session)) as client:
+        answer = client.post('/api/v1/scope/illumination/leds_off')
+
+    assert answer.status_code == 500
+    assert answer.headers['content-type'] == 'application/problem+json'
+    assert (answer.json()['kind'], answer.json()['title']) == ('fault', 'RuntimeError')

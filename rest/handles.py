@@ -6,7 +6,7 @@ protocol runner -- crosses the wire as ``{"handle": <id>, "type": <class
 name>}``; its members are at ``/api/v1/handles/<type>/<id>/<member>``, and
 a client passes it as an argument by its id. One object has one id, so
 two clients handed the same run hold the same id. An id stays until a
-client forgets it or the session closes; forgetting an id lets go of the
+client forgets it; forgetting an id lets go of the
 id, never of the object: a run goes on, and its stop is its own member.
 """
 

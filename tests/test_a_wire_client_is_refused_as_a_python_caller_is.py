@@ -156,6 +156,15 @@ def test_a_refusals_remedy_is_sent_as_the_record_apply_remedy_takes(client, sess
         (lambda c: c.post('/api/v1/handles/Protocol/9/num_steps'), 404, 'not_found'),
         (lambda c: c.get('/api/v1/status?verbose=1'), 422, 'invalid_request'),
         (
+            lambda c: c.post(
+                '/api/v1/scope/illumination/led_on',
+                content=b'{"channel": "\xff\xfe"}',
+                headers={'content-type': 'application/json'},
+            ),
+            422,
+            'invalid_request',
+        ),
+        (
             lambda c: c.post('/api/v1/scope/illumination/led_on', json={'channel': 'Red'}),
             422,
             'invalid_request',
@@ -175,6 +184,7 @@ def test_a_refusals_remedy_is_sent_as_the_record_apply_remedy_takes(client, sess
         'wrong method',
         'no handle',
         'a query string',
+        'a body that is not text',
         'a missing argument',
         'not JSON',
     ],
@@ -186,6 +196,42 @@ def test_the_servers_own_answers_carry_their_own_reasons(client, reported, ask, 
     assert (body['kind'], body['reason']) == ('refusal', reason)
     # Nothing reached a member, so there is no outcome to report.
     assert reported == []
+
+
+def test_a_cancel_that_declares_no_cause_is_409(client, session, monkeypatch):
+    from concurrent.futures import CancelledError
+
+    def cancelled():
+        raise CancelledError()
+
+    monkeypatch.setattr(session.scope.illumination, 'leds_off', cancelled)
+
+    body = _problem(client.post('/api/v1/scope/illumination/leds_off'), 409)
+
+    assert body['kind'] == 'quiet'
+
+
+def test_a_call_the_server_cannot_start_is_a_fault_and_holds_no_count(client, monkeypatch):
+    import threading
+
+    import rest.jobs
+
+    def cannot(_self):
+        raise RuntimeError("can't start new thread")
+
+    # The answer is what is under test, so the client does not re-raise it.
+    with (
+        TestClient(client.app, raise_server_exceptions=False) as fresh,
+        monkeypatch.context() as patch,
+    ):
+        patch.setattr(threading.Thread, 'start', cannot)
+        failed = fresh.get('/api/v1/app_version')
+
+    body = _problem(failed, 500)
+    assert (body['kind'], body['detail']) == ('fault', "can't start new thread")
+    # The failed start left no call counted: one call still fits under a limit of one.
+    monkeypatch.setattr(rest.jobs, 'LIVE_LIMIT', 1)
+    assert client.get('/api/v1/app_version').status_code == 200
 
 
 def test_an_invalid_body_names_each_argument_that_does_not_fit(client):

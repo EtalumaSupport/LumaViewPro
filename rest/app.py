@@ -35,7 +35,8 @@ from modules.protocol_runner import ProtocolRunner
 from modules.scope_session import ScopeSession
 from rest import problems
 from rest.handles import HandleRegistry
-from rest.jobs import RETRY_AFTER_S, JobRegistry, Progress, Wait
+from rest.jobs import RETRY_AFTER_S as JOB_RETRY_AFTER_S
+from rest.jobs import JobRegistry, Progress, Wait
 from rest.problems import Answer, ServerRefusedError
 from rest.routes import Route, routes
 
@@ -69,6 +70,7 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     app.add_exception_handler(ServerRefusedError, _refused)
     app.add_exception_handler(RequestValidationError, _body_does_not_fit)
     app.add_exception_handler(StarletteHTTPException, _routing_refused)
+    app.add_exception_handler(Exception, _failed)
 
     # The session's one protocol runner is every client's: its id is kept.
     registry = HandleRegistry(kept=lambda obj: isinstance(obj, ProtocolRunner))
@@ -169,14 +171,22 @@ async def _body_does_not_fit(
 
 
 async def _routing_refused(request: fastapi.Request, error: StarletteHTTPException) -> JSONResponse:
-    """A path no route answers (404), or a method its route does not (405)."""
+    """What the framework itself refused, by its status: a path no route answers (404), a
+    method its route does not (405), or a request it could not read (any other 4xx)."""
     if error.status_code == 405:
         refusal = problems.method_not_allowed(
             f'{request.url.path} does not answer {request.method}.'
         )
-    else:
+    elif error.status_code == 404:
         refusal = problems.not_found(f'No route answers {request.url.path}.')
+    else:
+        refusal = problems.invalid_request(str(error.detail))
     return problems.refused_by_server(refusal, request.state.request_id).response()
+
+
+async def _failed(request: fastapi.Request, error: Exception) -> JSONResponse:
+    """The server's own failure, answered as the fault problem it is rather than as bare text."""
+    return problems.answered_by_member(error, request.state.request_id).response()
 
 
 def _add(
@@ -258,7 +268,7 @@ def _add(
             status_code=202,
             headers={
                 'Location': f'{PREFIX}/jobs/{job.id}',
-                'Retry-After': str(RETRY_AFTER_S),
+                'Retry-After': str(JOB_RETRY_AFTER_S),
                 **wait.headers(),
             },
         )
