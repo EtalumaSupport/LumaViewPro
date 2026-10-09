@@ -145,11 +145,6 @@ class TestHatchesAndBoundaries:
             -98520.0
         )
 
-    def test_plate_frame_is_refused_for_z(self, motion):
-        """Z is stored and commanded in stage um; it has no plate frame."""
-        with pytest.raises(ValueError, match='X and Y'):
-            motion._plate_target_to_stage('Z', 5.0, ignore_limits=False)
-
     def test_missing_stage_offset_refuses_legibly(self):
         """A scope no session bound has no offset; that must not be a TypeError."""
         from modules.exceptions import ConfigError

@@ -17,6 +17,7 @@ from modules.exceptions import AxisStateUnknownError
 from modules.lumascope_api import AxisState
 from modules.notification_center import Severity
 from tests.scope_fakes import build_scope, home_sim_scope
+from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 
 
 @pytest.fixture
@@ -89,11 +90,15 @@ def test_a_gesture_is_refused_once_for_every_unknown_axis(unhomed_scope, centre_
     ]
 
 
-def test_an_axis_the_scope_does_not_have_is_not_asked_about(unhomed_scope):
-    with pytest.raises(AxisStateUnknownError) as excinfo:
-        unhomed_scope.motion.refuse_unknown_positions(
-            ('X', 'Q'), recording=False, then='move the stage'
-        )
+def test_an_axis_the_scope_does_not_have_is_not_asked_about(tmp_path):
+    session = _session(tmp_path, 'LS850', homed=False)
+    try:
+        with pytest.raises(AxisStateUnknownError) as excinfo:
+            session.scope.motion.refuse_unknown_positions(
+                ('X', 'T'), recording=False, then='move the stage'
+            )
+    finally:
+        session.shutdown()
 
     assert list(excinfo.value.axes) == ['X']
 

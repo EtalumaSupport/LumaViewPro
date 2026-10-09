@@ -97,11 +97,6 @@ class TestMotorDriverDiagnosticGating:
         )
         assert motor.read_drv_status('X') is None
 
-    def test_read_drv_status_invalid_axis_raises(self):
-        motor = _make_motor_with_responses({})
-        with pytest.raises(ValueError):
-            motor.read_drv_status('Q')
-
     def test_read_fanspeed_unsupported_returns_none(self):
         motor = _make_motor_with_responses(
             {
@@ -130,11 +125,6 @@ class TestMotorDriverDiagnosticGating:
     def test_set_fan_duty_supported_returns_none(self):
         motor = _make_motor_with_responses({'FAN:50': 'OK'})
         assert motor.set_fan_duty(50) is None
-
-    def test_set_fan_duty_invalid_value_raises(self):
-        motor = _make_motor_with_responses({})
-        with pytest.raises(ValueError):
-            motor.set_fan_duty(150)
 
 
 # ---------------------------------------------------------------------------

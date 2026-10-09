@@ -778,13 +778,11 @@ class MotorBoard(SerialBoard):
         pass and all exit paths.
 
         Args:
-            axis: Axis name ("X", "Y", "Z", "T").
+            axis: Axis name ("X", "Y", "Z", "T"), which the motion API has
+                checked.
             enabled: True for precise positioning (the resting default),
                 False for the loose threshold used during AF coarse.
         """
-        if axis not in self._VSTOP_ADDR:
-            logger.warning(f'[XYZ Class ] set_precision_mode: invalid axis {axis}')
-            return
         vstop = self._VSTOP_PRECISION if enabled else self._VSTOP_LOW_PRECISION
         addr = self._VSTOP_ADDR[axis]
         self.spi_write(axis, addr, str(vstop))
@@ -1678,11 +1676,9 @@ class MotorBoard(SerialBoard):
 
         Returns the raw 32-bit register value as int (caller decodes
         bits), or None if firmware does not support DRVSTAT_<axis>.
-        Axis must be one of 'X', 'Y', 'Z', 'T'.
+        ``axis`` is one of 'X', 'Y', 'Z', 'T', which the diagnostics API
+        has checked.
         """
-        axis = axis.upper()
-        if axis not in ('X', 'Y', 'Z', 'T'):
-            raise ValueError(f'Invalid axis: {axis!r}')
         raw = self._diagnostic_query(f'DRVSTAT_{axis}')
         if raw is None:
             return None
@@ -1713,13 +1709,13 @@ class MotorBoard(SerialBoard):
         Support is ``supports_fan``'s answer, asked before this is called,
         so an ``ERROR`` reply here is a fault, not "unsupported".
 
+        ``duty_pct`` is a number from 0 to 100, which the diagnostics API
+        has checked.
+
         Raises:
-            ValueError: ``duty_pct`` is outside 0..100.
             HardwareError: The board answered with an error, or did not
                 answer.
         """
-        if not 0 <= duty_pct <= 100:
-            raise ValueError(f'Fan duty must be 0..100, got {duty_pct}')
         resp = self.exchange_command(f'FAN:{duty_pct}')
         if resp is None:
             raise HardwareError(f'FAN:{duty_pct}: no response from motor board')

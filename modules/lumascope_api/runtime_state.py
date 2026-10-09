@@ -35,12 +35,16 @@ from typing import TYPE_CHECKING
 
 import modules.coord_transformations as coord_transformations
 from lvp_logger import logger
-from modules.exceptions import ConfigError, ObjectiveUnknownError
+from modules.exceptions import ArgumentRefusedError, ConfigError, ObjectiveUnknownError
 from modules.api_surface import api
 
 if TYPE_CHECKING:
     from modules.labware import WellPlate
     from modules.lumascope_api._lumascope import Lumascope
+
+
+# The axes a plate coordinate is defined for: the plate lies in X and Y.
+_PLATE_AXES = ('X', 'Y')
 
 
 class RuntimeState:
@@ -330,9 +334,15 @@ class RuntimeState:
         each stage coordinate depends only on its own plate coordinate --
         so the unused argument below is inert, not a placeholder standing
         in for a value the caller should have supplied.
+
+        Raises:
+            ArgumentRefusedError: ``'plate_frame_axis'``, ``axis`` is not
+                'X' or 'Y'.
         """
-        if axis not in ('X', 'Y'):
-            raise ValueError(f'Plate coordinates are defined for X and Y, got {axis!r}')
+        if axis not in _PLATE_AXES:
+            raise ArgumentRefusedError(
+                'plate_frame_axis', argument='axis', value=axis, offered=_PLATE_AXES
+            )
 
         sx, sy = self._coordinate_transformer.plate_to_stage(
             labware=self.get_labware(),

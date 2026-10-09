@@ -515,7 +515,6 @@ def move_home(axis: str):
     if _user_motion_locked(axis):
         return
     ctx = _app_ctx.ctx
-    axis = axis.upper()
 
     def start() -> None:
         ctx.scope.motion.start_home(axis).add_done_callback(

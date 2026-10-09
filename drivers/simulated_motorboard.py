@@ -1215,10 +1215,11 @@ class SimulatedMotorBoard:
                 or ``None`` if the axis has no configured limits.
 
         Raises:
-            Exception: ``axis`` is not a supported axis at all.
+            HardwareError: ``axis`` is not a supported axis at all, as the
+                real board's driver raises.
         """
         if axis not in self.axes_config:
-            raise Exception(f'Unsupported axis ({axis})')
+            raise HardwareError(f'Unsupported axis ({axis})')
         if 'limits' not in self.axes_config[axis]:
             return None
         return self.axes_config[axis]['limits']
@@ -1383,9 +1384,6 @@ class SimulatedMotorBoard:
 
     def read_drv_status(self, axis: str) -> int | None:
         """Simulated TMC5072 DRV_STATUS register -- returns 0 (no fault flags)."""
-        axis = axis.upper()
-        if axis not in ('X', 'Y', 'Z', 'T'):
-            raise ValueError(f'Invalid axis: {axis!r}')
         return 0
 
     def read_fanspeed(self) -> int | None:
@@ -1393,9 +1391,7 @@ class SimulatedMotorBoard:
         return 1200
 
     def set_fan_duty(self, duty_pct: int) -> None:
-        """Simulated fan PWM duty -- accepts any valid 0..100 setting."""
-        if not 0 <= duty_pct <= 100:
-            raise ValueError(f'Fan duty must be 0..100, got {duty_pct}')
+        """Simulated fan PWM duty -- takes the 0..100 the diagnostics API has checked."""
 
     def wait_for_position(self, axis: str, timeout: float = 5.0) -> bool:
         """Simulated wait -- position is always reached instantly.

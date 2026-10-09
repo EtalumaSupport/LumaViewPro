@@ -18,7 +18,8 @@ import numpy as np
 from lvp_logger import log_dir, logger, version
 from modules.finite_number import refuse_unless_finite_number
 from modules.api_surface import ProgressCallback, api
-from modules.exceptions import HardwareCommandRefusedError, MissingPart
+from modules.exceptions import ArgumentRefusedError, HardwareCommandRefusedError, MissingPart
+from modules.lumascope_api._constants import refuse_unknown_axis
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
@@ -969,7 +970,12 @@ class DiagnosticsAPI:
 
         Returns the raw register value as int (caller decodes bits),
         or None when the firmware does not implement DRVSTAT_<axis>.
+
+        Raises:
+            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
+                name; nothing was read.
         """
+        refuse_unknown_axis(axis)
         drv = getattr(self._scope, '_motion_driver', None)
         if drv is None or not hasattr(drv, 'read_drv_status'):
             return None
@@ -996,11 +1002,17 @@ class DiagnosticsAPI:
                 controller) or ``'axis_absent'``: ``MissingPart.MOTORS`` on a
                 manual scope, ``MissingPart.FAN_CONTROL`` for a controller
                 without fan control. Nothing was sent.
+            ArgumentRefusedError: ``'not_a_number'``, ``duty_pct`` is not a
+                finite number (a ``bool`` included); ``'fan_duty_out_of_range'``,
+                it is outside 0..100. Asked after the hardware, before
+                anything is sent.
             HardwareError: The board answered the write with an error, or
                 did not answer.
-            ValueError: ``duty_pct`` is outside 0..100.
         """
         self._scope.motion._refuse_absent('set_motor_fan_duty')
+        refuse_unless_finite_number(duty_pct, 'duty_pct')
+        if not 0 <= duty_pct <= 100:
+            raise ArgumentRefusedError('fan_duty_out_of_range', argument='duty_pct', value=duty_pct)
         self._scope.motion._dispatch_motion(
             self._set_motor_fan_duty_impl,
             'set_motor_fan_duty',

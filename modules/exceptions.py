@@ -2415,7 +2415,7 @@ class SessionClosingError(Refusal, Exception):
         self.activity = activity
 
 
-@api_fields('argument')
+@api_fields('argument', 'offered')
 class ArgumentRefusedError(Refusal, ValueError):
     """An argument the scope cannot act on: it breaks a fixed rule, whatever the scope's state.
 
@@ -2425,34 +2425,87 @@ class ArgumentRefusedError(Refusal, ValueError):
     replaces were, so a caller catching a bad argument keeps working.
 
     Attributes:
-        reason: ``'not_a_number'`` -- a number was needed and the value is
-            not a finite one: NaN, an infinity, a ``bool`` or not a number
-            at all. Every comparison with NaN is False, so a range check
-            alone passes it.
+        reason: One of:
+
+            - ``'not_a_number'`` -- a number was needed and the value is
+              not a finite one: NaN, an infinity, a ``bool`` or not a
+              number at all. Every comparison with NaN is False, so a
+              range check alone passes it.
+            - ``'axis_unknown'`` -- the name is not one of the axis names
+              the member takes (``offered``). Names are exact: ``'x'`` is
+              not ``'X'``. An axis this model lacks is a name, and is
+              refused as absent hardware, not here.
+            - ``'turret_moves_by_slot'`` -- the turret was given to a
+              generic mover; it moves only by slot, through
+              ``move_turret``.
+            - ``'frame_unknown'`` -- a position frame that is not one of
+              ``offered``.
+            - ``'plate_frame_axis'`` -- a plate coordinate for an axis the
+              plate frame does not define (``offered``: X and Y).
+            - ``'fan_duty_out_of_range'`` -- a fan duty outside 0 to 100
+              percent.
         argument: The name of the argument refused.
         value: What was given, as given.
+        offered: The values the argument takes, where it takes a list;
+            None otherwise.
 
-    ``argument`` is published, so a REST problem carries it beside the
-    words; the client already holds the value it sent.
+    ``argument`` and ``offered`` are published, so a REST problem carries
+    them beside the words; the client already holds the value it sent.
     """
 
     argument: str
+    offered: tuple[str, ...] | None
     cause = RefusalCause.REQUEST
     _WORDS: ClassVar[dict[str, tuple[str, str]]] = {
         'not_a_number': (
             'Not a Number',
             '{argument} must be a finite number; {value!r} is not one.',
         ),
+        'axis_unknown': (
+            'Not an Axis',
+            '{argument} must be one of {offered}; {value!r} is not one.',
+        ),
+        'turret_moves_by_slot': (
+            'Turret Moves by Slot',
+            'The turret moves only through move_turret(slot), which parks Z first '
+            'and records the slot in the light path; {argument} {value!r} is not taken here.',
+        ),
+        'frame_unknown': (
+            'Not a Position Frame',
+            '{argument} must be one of {offered}; {value!r} is not one.',
+        ),
+        'plate_frame_axis': (
+            'Not a Plate Axis',
+            'Plate coordinates are defined for {offered} only; {argument} {value!r} is not one of them.',
+        ),
+        'fan_duty_out_of_range': (
+            'Fan Duty Not Changed',
+            '{argument} is a percentage from 0 to 100; {value!r} is outside it.',
+        ),
     }
 
-    def __init__(self, reason: str, *, argument: str, value: object):
+    def __init__(
+        self,
+        reason: str,
+        *,
+        argument: str,
+        value: object,
+        offered: tuple[str, ...] | None = None,
+    ):
         if reason not in self._WORDS:
             raise TypeError(f'ArgumentRefusedError has no words for the reason {reason!r}')
         self.title, words = self._WORDS[reason]
-        super().__init__(words.format(argument=argument, value=value))
+        if ('{offered}' in words) != (offered is not None):
+            raise TypeError(
+                f'ArgumentRefusedError({reason!r}) takes offered values exactly when its words name them'
+            )
+        super().__init__(
+            words.format(argument=argument, value=value, offered=', '.join(offered or ()))
+        )
         self.reason = reason
         self.argument = argument
         self.value = value
+        self.offered = offered
 
 
 class AccelerationLimitRefusedError(Refusal, ValueError):

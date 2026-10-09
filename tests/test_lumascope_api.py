@@ -726,15 +726,6 @@ class TestPerAxisDictsFromDriver:
         assert scope.motion._axis_state == {}
         assert scope.motion._arrival_events == {}
 
-    def test_move_with_invalid_axis_name_still_raises(self):
-        """Input sanity check still rejects non-axis names. _VALID_AXIS_NAMES
-        is the input vocabulary; axes_present() is the capability query."""
-        scope = build_scope(simulate=True)
-        with pytest.raises(ValueError, match=r'Axis must be one of'):
-            scope.motion.move_absolute('Q', 0)
-        with pytest.raises(ValueError, match=r'Axis must be one of'):
-            scope.motion.move_relative('Q', 0)
-
     def test_no_hardcoded_VALID_AXES_constant(self):
         """The misnamed `VALID_AXES` class constant has been deleted.
         It implied "what axes are available" but actually meant "what

@@ -108,11 +108,12 @@ class TestSimulatedMotorBoardReturnsSentinelForNoLimits:
             assert limits is not None
             assert 'min' in limits and 'max' in limits
 
-    def test_unsupported_axis_still_raises(self):
+    def test_unsupported_axis_raises_as_the_real_driver_does(self):
+        from drivers.exceptions import HardwareError
         from drivers.simulated_motorboard import SimulatedMotorBoard
 
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
-        with pytest.raises(Exception):  # noqa: B017 -- deliberately asserts some exception is raised for an invalid axis
+        with pytest.raises(HardwareError, match='Unsupported axis'):
             board.get_axis_limits('Q')
 
 

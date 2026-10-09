@@ -23,6 +23,7 @@ from __future__ import annotations
 import pytest
 
 from modules.exceptions import (
+    ArgumentRefusedError,
     HardwareCommandRefusedError,
     MissingPart,
     ProtocolRunRefusedError,
@@ -171,10 +172,12 @@ def test_a_scope_with_no_turret_names_the_turret(make_session, monkeypatch):
 
 
 @pytest.mark.parametrize('model', EVERY_MODEL)
-def test_a_name_that_is_no_axis_stays_a_value_error(make_session, model):
+def test_a_name_that_is_no_axis_is_refused_before_the_hardware_is_asked(make_session, model):
+    """A name that is no axis is the request's fault on every model, a manual one included."""
     scope = make_session(model).scope
-    with pytest.raises(ValueError, match='Axis must be one of'):
+    with pytest.raises(ArgumentRefusedError) as refused:
         scope.motion.move_absolute('Q', 0)
+    assert refused.value.reason == 'axis_unknown'
 
 
 # --- A controller out of reach --------------------------------------------------

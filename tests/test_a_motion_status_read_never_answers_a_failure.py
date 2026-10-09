@@ -96,13 +96,6 @@ def test_every_switch_with_a_pulled_cable_is_refused(make_session, monkeypatch):
     assert refusal.reason == 'not_connected'
 
 
-@pytest.mark.parametrize('member', ['get_target_status', 'get_limit_switch_status'])
-def test_a_name_that_is_no_axis_is_a_value_error(make_session, member):
-    scope = make_session('LS850').scope
-    with pytest.raises(ValueError, match='Axis must be one of'):
-        _status_reads(scope.motion, 'Q')[member]()
-
-
 # --- A board that does not answer -----------------------------------------------------
 
 

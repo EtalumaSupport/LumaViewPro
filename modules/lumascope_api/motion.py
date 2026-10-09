@@ -42,6 +42,7 @@ from lib import profile_trace
 from lvp_logger import logger
 from modules.finite_number import refuse_unless_finite_number
 from modules.exceptions import (
+    ArgumentRefusedError,
     AxisStateUnknownError,
     HardwareCommandRefusedError,
     HomingFailedError,
@@ -85,6 +86,14 @@ _TURRET_MOVE_SLOW_TASK_S = 15.0
 # downward Z move (the arrival plan's bench row).
 OVERSHOOT_LEG_TIMEOUT_S = 15.0
 
+# The frames an absolute target is given in: stage microns, or plate mm
+# from the plate's top-left (``MotionAPI._plate_target_to_stage``).
+POSITION_FRAMES = ('stage', 'plate')
+
+# What a home takes: Z, the turret, or every axis the board has. X and Y
+# home only with the rest.
+HOME_AXES = ('Z', 'T', 'ALL')
+
 # Match _lumascope.py's module-level _api_log channel so relocated
 # bodies log to the same handler chain.
 _api_log = _logging.getLogger('LVP.api')
@@ -95,9 +104,9 @@ from modules.lumascope_api._constants import (
     MOTOR_POSITION_LIMIT,
     TURRET_SLOT_MAX,
     TURRET_SLOT_MIN,
-    _VALID_AXIS_NAMES,
     is_turret_slot,
     refuse_acceleration_pct,
+    refuse_unknown_axis,
 )
 from modules.api_surface import api, api_fields
 
@@ -446,8 +455,12 @@ class MotionAPI:
 
         Returns:
             bool: True when *axis* is IDLE or MOVING; False when it is
-            UNKNOWN or HOMING.
+            UNKNOWN or HOMING, or an axis this scope does not have.
+
+        Raises:
+            ArgumentRefusedError: ``'axis_unknown'``, *axis* is no axis name.
         """
+        refuse_unknown_axis(axis)
         with self._axis_state_lock:
             state = self._axis_state.get(axis)
         return self._position_known(state)
@@ -592,7 +605,7 @@ class MotionAPI:
         return self._driver.interlocks()
 
     @staticmethod
-    def _refuse_turret_on_generic_door(axis: str, member: str) -> None:
+    def _refuse_turret_on_generic_door(axis: str) -> None:
         """Refuse T at a public generic mover; the turret moves only by slot.
 
         A turret moved by a generic door skips the Z park that keeps the
@@ -601,13 +614,11 @@ class MotionAPI:
         is the one door that does both.
 
         Raises:
-            ValueError: ``axis`` is ``'T'``.
+            ArgumentRefusedError: ``'turret_moves_by_slot'``, ``axis`` is
+                ``'T'``.
         """
         if axis == 'T':
-            raise ValueError(
-                f'{member} does not move the turret: use move_turret(slot), which parks '
-                f'Z first and records the slot in the light path'
-            )
+            raise ArgumentRefusedError('turret_moves_by_slot', argument='axis', value=axis)
 
     def _refuse_absent(self, member: str, axis: str | None = None) -> None:
         """Refuse a command for motion hardware this scope does not have.
@@ -757,11 +768,15 @@ class MotionAPI:
                 bookmark'``).
 
         Raises:
+            ArgumentRefusedError: ``'axis_unknown'``, a name in *axes* is
+                no axis name.
             AxisStateUnknownError: Naming every refused axis. Reported once
                 through the one reporter before it is raised, so a caller
                 that reports it again shows nothing more.
         """
         wanted = set(axes)
+        for axis in wanted:
+            refuse_unknown_axis(axis)
         with self._axis_state_lock:
             states = {axis: s for axis, s in self._axis_state.items() if axis in wanted}
         refused = {
@@ -1262,16 +1277,13 @@ class MotionAPI:
         ``move_relative`` takes for that axis.
 
         Raises:
+            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is not 'X',
+                'Y' or 'Z': the turret has no jog.
             ObjectiveUnknownError: The objective in the light path is
                 unknown; no step is guessed, so nothing should move.
-            ValueError: ``axis`` is not 'X', 'Y' or 'Z'.
         """
-        if axis == 'Z':
-            kind = 'z'
-        elif axis in ('X', 'Y'):
-            kind = 'xy'
-        else:
-            raise ValueError(f"jog_step: axis must be 'X', 'Y' or 'Z', got {axis!r}")
+        refuse_unknown_axis(axis, ('X', 'Y', 'Z'))
+        kind = 'z' if axis == 'Z' else 'xy'
         _, objective = self._scope.runtime_state.resolve_current_objective()
         return objective[f'{kind}_{"coarse" if coarse else "fine"}']
 
@@ -1295,10 +1307,13 @@ class MotionAPI:
             installed or for an axis this scope does not have.
 
         Raises:
+            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
+                name.
             HardwareCommandRefusedError: ``'not_connected'``, the installed
                 motor controller is not connected (its cable pulled).
             HardwareError: the controller did not report the position.
         """
+        refuse_unknown_axis(axis)
         if not self._has_position(axis):
             return None
         self._refuse_absent('get_actual_position')
@@ -1318,11 +1333,13 @@ class MotionAPI:
             enabled: True for precise positioning, False for speed.
 
         Raises:
-            ValueError: ``axis`` is not an axis name.
+            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
+                name; nothing was sent.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller or no such axis (see
                 ``_refuse_absent``); nothing was sent.
         """
+        refuse_unknown_axis(axis)
         return self._dispatch_motion(
             self._set_precision_mode_impl,
             'set_precision_mode',
@@ -1331,8 +1348,6 @@ class MotionAPI:
         )
 
     def _set_precision_mode_impl(self, axis: str, enabled: bool) -> None:
-        if axis not in _VALID_AXIS_NAMES:
-            raise ValueError(f'Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}')
         self._refuse_absent('set_precision_mode', axis)
         self._driver.set_precision_mode(axis, enabled)
 
@@ -1347,7 +1362,8 @@ class MotionAPI:
             False when it reports the axis short of it.
 
         Raises:
-            ValueError: ``axis`` is not an axis name.
+            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
+                name.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller or no such axis (see
                 ``_refuse_absent``); nothing was sent.
@@ -1355,8 +1371,7 @@ class MotionAPI:
                 failed is not "short of the target", so it is never
                 answered as False.
         """
-        if axis not in _VALID_AXIS_NAMES:
-            raise ValueError(f'Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}')
+        refuse_unknown_axis(axis)
         self._refuse_absent('get_target_status', axis)
         return self._driver.target_status(axis)
 
@@ -1377,14 +1392,14 @@ class MotionAPI:
             engaged, 0 when clear, and -1 when the state could not be read.
 
         Raises:
-            ValueError: ``axis`` is not an axis name.
+            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
+                name.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller or no such axis (see
                 ``_refuse_absent``); a switch the scope does not have is
                 never answered as clear.
         """
-        if axis not in _VALID_AXIS_NAMES:
-            raise ValueError(f'Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}')
+        refuse_unknown_axis(axis)
         self._refuse_absent('get_limit_switch_status', axis)
         return self._driver.limit_switch_status(axis=axis)
 
@@ -1499,8 +1514,14 @@ class MotionAPI:
             axis: Axis name ("X", "Y", "Z", "T").
 
         Returns:
-            str: One of AxisState.UNKNOWN, IDLE, MOVING, HOMING.
+            str: One of AxisState.UNKNOWN, IDLE, MOVING, HOMING; UNKNOWN for
+            an axis this scope does not have.
+
+        Raises:
+            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
+                name.
         """
+        refuse_unknown_axis(axis)
         with self._axis_state_lock:
             return self._axis_state.get(axis, AxisState.UNKNOWN)
 
@@ -1574,7 +1595,12 @@ class MotionAPI:
             refused against), or ``None`` if the axis has no configured
             limits (typical for the turret T axis). Callers must handle
             the None case.
+
+        Raises:
+            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
+                name.
         """
+        refuse_unknown_axis(axis)
         return self._driver.get_axis_limits(axis=axis)
 
     @slow_task_budget(_HOMING_SLOW_TASK_S)
@@ -1796,6 +1822,10 @@ class MotionAPI:
             float | dict | None: Position in um for a single axis, or a dict
                 of the axes that have one. None for an axis with no hardware
                 behind it (see ``_has_position``).
+
+        Raises:
+            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is neither
+                None nor an axis name.
         """
         if axis is None:
             return {
@@ -1803,6 +1833,7 @@ class MotionAPI:
                 for ax in self._scope.capabilities.axes
                 if self._has_position(ax)
             }
+        refuse_unknown_axis(axis)
         if not self._has_position(axis):
             return None
         with self._axis_state_lock:
@@ -1835,6 +1866,10 @@ class MotionAPI:
                 of the axes that have one. None for an axis with no hardware
                 behind it (see ``_has_position``); a present axis keeps its
                 number, its reference lost or not.
+
+        Raises:
+            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is neither
+                None nor an axis name.
         """
         if axis is None:
             return {
@@ -1842,6 +1877,7 @@ class MotionAPI:
                 for ax in self._scope.capabilities.axes
                 if self._has_position(ax)
             }
+        refuse_unknown_axis(axis)
         if not self._has_position(axis):
             return None
         return self._read_position_cache(axis)
@@ -1873,9 +1909,6 @@ class MotionAPI:
         does: it is one bound expressed in two units, and a hatch that
         stopped working when the caller changed frames would be a trap.
         """
-        if axis not in ('X', 'Y'):
-            raise ValueError(f"frame='plate' applies to the X and Y axes, got {axis!r}")
-
         key = axis.lower()
         stage_position = self._scope.runtime_state.plate_to_stage_axis(axis=axis, plate_mm=plate_mm)
 
@@ -1924,10 +1957,12 @@ class MotionAPI:
                 recovery paths only -- see ``_pre_drive``.
 
         Raises:
-            ValueError: If axis is invalid.
-            ArgumentRefusedError: ``'not_a_number'``, the position is not a
-                finite number; refused before any limit, the safety limit on
-                the ``ignore_limits`` path included.
+            ArgumentRefusedError: ``'plate_frame_axis'``, a plate target for
+                Z, from the plate's owner; ``'not_a_number'``, the position
+                is not a finite number, refused before any limit, the safety
+                limit on the ``ignore_limits`` path included. A name that is
+                no axis and a frame that is no frame are the doors' (see
+                ``_start``); the internal callers pass literals.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller or no such axis (see
                 ``_refuse_absent``); nothing was driven.
@@ -1942,15 +1977,11 @@ class MotionAPI:
             MoveNotCompletedError: ``'driver_failed'``, the board did not
                 take the command.
         """
-        if axis not in _VALID_AXIS_NAMES:
-            raise ValueError(f'Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}')
         self._refuse_absent('move_absolute', axis)
         refuse_unless_finite_number(position, 'position')
 
         if frame == 'plate':
             position = self._plate_target_to_stage(axis, position, ignore_limits=ignore_limits)
-        elif frame != 'stage':
-            raise ValueError(f"frame must be 'stage' or 'plate', got {frame!r}")
 
         # Refuse a target beyond the axis's travel; this is the only travel
         # check, the drivers have none. A move stopped short at a limit
@@ -2111,9 +2142,11 @@ class MotionAPI:
             overshoot_enabled: Allow Z overshoot for backlash compensation.
 
         Raises:
-            ValueError: If axis is invalid or distance is out of bounds.
             ArgumentRefusedError: ``'not_a_number'``, the distance is not a
-                finite number.
+                finite number. A name that is no axis is the doors' (see
+                ``_start``).
+            PositionOutOfRangeError: The distance is beyond the safety
+                limit.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller or no such axis (see
                 ``_refuse_absent``); nothing was driven.
@@ -2130,8 +2163,6 @@ class MotionAPI:
         turret-safety Z-park, which is an absolute move. A hatch with no
         caller is just an opt-out waiting to be reached for.
         """
-        if axis not in _VALID_AXIS_NAMES:
-            raise ValueError(f'Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}')
         self._refuse_absent('move_relative', axis)
         refuse_unless_finite_number(distance, 'distance')
         if abs(distance) > MOTOR_POSITION_LIMIT:
@@ -2256,13 +2287,28 @@ class MotionAPI:
         )
 
     def _start(self, member: str, body, axis: str, target: float, **kwargs) -> MoveInFlight:
-        """Start one X, Y or Z move through ``member``: refuse the turret, then command it on the lane.
+        """Start one X, Y or Z move through ``member``: refuse what no scope can act on, then command it on the lane.
 
-        The lane carries only the command -- the body's checks, the board
-        write and the MOVING transition -- so its bound is the command's
-        alone; the wait for arrival is the handle's, in the caller's thread.
+        A name that is no axis, the turret, and a frame that is no frame
+        are refused here, at the door, so a caller is told so whatever the
+        scope is doing -- not refused first for a home in flight or a shut
+        lane. The lane carries only the command -- the body's checks, the
+        board write and the MOVING transition -- so its bound is the
+        command's alone; the wait for arrival is the handle's, in the
+        caller's thread.
+
+        Raises:
+            ArgumentRefusedError: ``'axis_unknown'``,
+                ``'turret_moves_by_slot'`` or ``'frame_unknown'``; nothing
+                was submitted.
         """
-        self._refuse_turret_on_generic_door(axis, member)
+        refuse_unknown_axis(axis)
+        self._refuse_turret_on_generic_door(axis)
+        frame = kwargs.get('frame', 'stage')
+        if frame not in POSITION_FRAMES:
+            raise ArgumentRefusedError(
+                'frame_unknown', argument='frame', value=frame, offered=POSITION_FRAMES
+            )
         return self._dispatch_motion(
             body,
             member,
@@ -2389,7 +2435,8 @@ class MotionAPI:
                 board has; the firmware routine homes Z, then T, then X/Y.
 
         Raises:
-            ValueError: on an unknown axis.
+            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is not
+                ``'Z'``, ``'T'`` or ``'ALL'``; nothing was asked of the scope.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller, or no Z or turret to
                 home (see ``_refuse_absent``); or ``'exclusive_activity_running'``,
@@ -2437,7 +2484,8 @@ class MotionAPI:
         with what ``home`` would have returned or raised.
 
         Raises:
-            ValueError: on an unknown axis.
+            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is not
+                ``'Z'``, ``'T'`` or ``'ALL'``; nothing was asked of the scope.
             HardwareCommandRefusedError: ``'home_in_flight'``, while a home
                 asked earlier has not ended; or the home was refused as
                 ``home`` is refused.
@@ -2463,14 +2511,12 @@ class MotionAPI:
 
     def _home_body(self, axis: str) -> tuple[Callable[[], None], int]:
         """The home body for ``axis`` and how many settle windows bound its wait."""
-        a = axis.upper()
-        if a == 'Z':
+        refuse_unknown_axis(axis, HOME_AXES)
+        if axis == 'Z':
             return self._zhome_impl, 1
-        if a == 'T':
+        if axis == 'T':
             return self._home_turret_impl, 3
-        if a == 'ALL':
-            return self._home_impl, 1
-        raise ValueError(f"Unknown home axis {axis!r}: expected 'Z', 'T', or 'ALL'")
+        return self._home_impl, 1
 
     def claim_home(
         self, impl: Callable[[], None]

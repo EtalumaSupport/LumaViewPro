@@ -295,10 +295,6 @@ class TestLedOnValidation:
 class TestMoveAbsolutePositionValidation:
     """Verify move_absolute() rejects bad inputs."""
 
-    def test_rejects_invalid_axis(self, sim_scope):
-        with pytest.raises(ValueError, match='Axis'):
-            sim_scope.motion.move_absolute(axis='Q', position=100)
-
     def test_rejects_position_above_limit(self, sim_scope):
         from modules.lumascope_api import Lumascope
 

@@ -147,6 +147,18 @@ def test_a_refusal_carries_the_fields_its_type_publishes(client, session, monkey
     assert (body['reason'], body['argument']) == ('not_a_number', 'illumination_ma')
 
 
+def test_a_name_that_is_no_axis_answers_with_the_names_the_member_takes(client):
+    body = _problem(
+        client.post('/api/v1/scope/motion/move_absolute', json={'axis': 'x', 'position': 0}), 422
+    )
+
+    assert (body['reason'], body['argument'], body['offered']) == (
+        'axis_unknown',
+        'axis',
+        ['X', 'Y', 'Z', 'T'],
+    )
+
+
 def test_a_refusals_remedy_is_sent_as_the_record_apply_remedy_takes(client, session, monkeypatch):
     remedy = Remedy('recover_file_writer', 'Recover', 'Wait')
     refusal = LiveFolderPathRefusedError('outside_live_folder', 'x', 'Not there.')
