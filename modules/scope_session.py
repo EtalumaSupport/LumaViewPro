@@ -3011,6 +3011,18 @@ class ScopeSession:
         return version or None
 
     @api
+    @property
+    def app_runtime(self) -> path_utils.AppRuntime:
+        """How the application was launched: ``source``, ``bundle`` or ``installed``.
+
+        ``source``: Python running a checkout or pip install. ``bundle``: a
+        packaged build the installer did not install. ``installed``: a
+        packaged build in the folder the installer wrote, whose data lives in
+        the user's Documents folder.
+        """
+        return path_utils.app_runtime()
+
+    @api
     def plugin_health(self) -> 'PluginHealth | None':
         """The loaded plugins, the ones that did not load, and their runtime errors.
 

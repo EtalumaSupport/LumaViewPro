@@ -1130,6 +1130,7 @@ health.not_loaded                  # PluginNotLoaded(name, version, reason) for 
 
 session.plugin_api_level           # int: what this host does that a plugin may rely on ("Plugin API level")
 session.app_version                # the application's version, '4.0.0-beta36'; None where the build has none
+session.app_runtime                # how it was launched: 'source' (Python, a checkout or pip install), 'bundle' (a packaged build not installed) or 'installed'
 ```
 
 The full report holds the scope for a diagnostic around its hardware steps
@@ -2675,6 +2676,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `apply_remedy`
 - `apply_tiling`
 - `apply_zstacking`
+- `app_runtime`
 - `app_version`
 - `assign_turret_objective`
 - `begin_application_session` (in-process)

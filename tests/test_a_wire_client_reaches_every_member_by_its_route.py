@@ -12,6 +12,8 @@ name outside the live folder is refused before the member runs.
 
 from __future__ import annotations
 
+import enum
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -47,7 +49,8 @@ def _wire_routes(session) -> set[tuple[str, str]]:
 
     Walked from the marks and the live objects, not from the annotations the
     server reads: a read that holds a live object with members of its own is
-    a sub-object, every other read a ``GET``, every marked method a ``POST``.
+    a sub-object, every other read a ``GET`` (an enum is a value, wherever it
+    is declared), every marked method a ``POST``.
     """
     found = set()
 
@@ -64,7 +67,11 @@ def _wire_routes(session) -> set[tuple[str, str]]:
                     found.add(('post', f'{prefix}/{name}'))
         for name in reads:
             value = getattr(obj, name)
-            if type(value).__module__.startswith('modules') and not is_record(type(value)):
+            if (
+                type(value).__module__.startswith('modules')
+                and not is_record(type(value))
+                and not isinstance(value, enum.Enum)
+            ):
                 walk(value, f'{prefix}/{name}')
             else:
                 found.add(('get', f'{prefix}/{name}'))
@@ -94,6 +101,7 @@ def test_the_versions_are_answered_unversioned(client):
 
 def test_a_read_answers_its_encoded_value(client, session):
     assert client.get('/api/v1/app_version').json() == session.app_version
+    assert client.get('/api/v1/app_runtime').json() == 'source'
     assert client.get('/api/v1/engineering_mode').json() is False
     assert set(client.get('/api/v1/status').json()) == {
         'live_work',
