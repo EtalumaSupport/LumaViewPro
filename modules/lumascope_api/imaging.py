@@ -547,6 +547,25 @@ class _BudgetedHandler:
         )
 
 
+@api_fields('setting', 'value')
+@dataclasses.dataclass(frozen=True)
+class CameraChanged:
+    """A camera event: the setting changed, ``'gain'`` or ``'exposure'``, and its new value."""
+
+    setting: str
+    value: float
+
+
+@api_fields('image', 'timestamp', 'chunks')
+@dataclasses.dataclass(frozen=True)
+class FrameDelivered:
+    """A frame the camera delivered: the image, when it arrived, its chunk data when the camera sends any."""
+
+    image: np.ndarray
+    timestamp: datetime.datetime
+    chunks: dict | None
+
+
 class ImagingAPI:
     """Imaging sub-API. Owns camera setters/getters/orchestration plus
     camera state slots (cache, frame_buffer, scale_bar, listeners,
@@ -5343,7 +5362,7 @@ class ImagingAPI:
         )
 
     # --- Frame-flow listeners ---
-    @api
+    @api(event=CameraChanged)
     def add_camera_listener(self, listener: Callable[[str, float], None]) -> None:
         """Register a callback for camera setting changes.
 
@@ -5376,7 +5395,7 @@ class ImagingAPI:
             except ValueError:
                 pass
 
-    @api
+    @api(event=FrameDelivered)
     def add_frame_listener(
         self,
         cb: Callable[[np.ndarray, datetime.datetime, dict | None], None],

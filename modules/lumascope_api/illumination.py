@@ -25,7 +25,7 @@ from lvp_logger import logger
 from modules import common_utils
 from modules.exceptions import ConfigError, HardwareCommandRefusedError, MissingPart
 from modules.sequential_io_executor import IOTask
-from modules.api_surface import api
+from modules.api_surface import api, api_fields
 
 if TYPE_CHECKING:
     from modules.activity_claim import Taking
@@ -444,6 +444,16 @@ def resolve_end_state(
             original_led_states, color2ch, drop_nonpositive=False
         )
     return None, frozenset()
+
+
+@api_fields('channel', 'on', 'illumination_ma')
+@dataclass(frozen=True)
+class LedChanged:
+    """An LED event: the channel, whether it is lit, and its current in mA."""
+
+    channel: str
+    on: bool
+    illumination_ma: float
 
 
 class IlluminationAPI:
@@ -1496,7 +1506,7 @@ class IlluminationAPI:
         return self._driver.color2ch(color)
 
     # --- Listeners ---
-    @api
+    @api(event=LedChanged)
     def add_led_listener(self, listener: Callable[[str, bool, float], None]) -> None:
         """Register a callback for LED state changes.
 

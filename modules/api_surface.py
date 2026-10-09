@@ -17,9 +17,20 @@ Python) uses it like any other.
 A parameter that takes a file-system path is annotated ``FilePath``, so a
 wire client can tell a path from a string.
 
+An event declares its record where it is delivered: a listener member as
+``@api(event=Record)``, a ``RunEvents`` field through
+``event_metadata(Record)``.
+The record is published, its fields name the callback's arguments in
+order, and a host that carries the event elsewhere -- the REST server's
+stream -- builds the record from the arguments, so no second table of
+each signature exists. A callback with one argument that is itself a
+record declares that record; a callback with no arguments declares the
+record its host reads when the event is sent.
+
 No project imports: every module that declares API imports this one.
 """
 
+import dataclasses
 import os
 from collections.abc import Callable
 
@@ -31,6 +42,9 @@ MARK_ATTRIBUTE = '_lvp_api'
 # read from the class's own namespace so a subclass publishes only what it
 # names itself.
 FIELDS_ATTRIBUTE = '_lvp_api_fields'
+# The attribute, and the dataclass field metadata key, an event's record is
+# declared under.
+EVENT_ATTRIBUTE = '_lvp_api_event'
 
 API = 'api'
 IN_PROCESS = 'in_process'
@@ -54,14 +68,20 @@ def _function_of(member: object) -> object:
     return member
 
 
-def api[M](member: M | None = None, *, in_process: bool = False) -> M | Callable[[M], M]:
+def api[M](
+    member: M | None = None, *, in_process: bool = False, event: type | None = None
+) -> M | Callable[[M], M]:
     """Mark a member as API; used bare (``@api``) or as ``@api(in_process=True)``.
 
+    ``event`` is the record of the event a listener member delivers.
     Goes outermost in a decorator stack and returns the member unchanged.
     """
 
     def mark(target: M) -> M:
-        setattr(_function_of(target), MARK_ATTRIBUTE, IN_PROCESS if in_process else API)
+        function = _function_of(target)
+        setattr(function, MARK_ATTRIBUTE, IN_PROCESS if in_process else API)
+        if event is not None:
+            setattr(function, EVENT_ATTRIBUTE, event)
         return target
 
     if member is None:
@@ -92,3 +112,24 @@ def mark_of(member: object) -> str | None:
 def fields_of(cls: type) -> tuple[str, ...]:
     """The data attributes *cls* itself publishes."""
     return vars(cls).get(FIELDS_ATTRIBUTE, ())
+
+
+def event_metadata(record: type) -> dict[str, type]:
+    """The field metadata declaring that a ``RunEvents`` handler field delivers ``record``'s event.
+
+    Given as ``dataclasses.field(default=None, metadata=event_metadata(Record))``.
+    """
+    return {EVENT_ATTRIBUTE: record}
+
+
+def event_of(member: object) -> type | None:
+    """The record a listener member declares, or None."""
+    return getattr(_function_of(member), EVENT_ATTRIBUTE, None)
+
+
+def field_event(cls: type, name: str) -> type | None:
+    """The record a dataclass's handler field declares, or None."""
+    for field in dataclasses.fields(cls):
+        if field.name == name:
+            return field.metadata.get(EVENT_ATTRIBUTE)
+    return None

@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from modules.api_surface import api_fields
+from modules.api_surface import api_fields, event_metadata
 from modules.kivy_utils import schedule_ui
 
 if TYPE_CHECKING:
@@ -45,6 +45,63 @@ class VideoProgress:
     elapsed_s: float | None = None
     total_s: float | None = None
     percent: float | None = None
+
+
+@api_fields('scan_number', 'scans_remaining', 'interval')
+@dataclasses.dataclass(frozen=True)
+class ScanStarted:
+    """A ``scan_started`` event: the scan's 1-based number, the scans left with it, the period."""
+
+    scan_number: int
+    scans_remaining: int
+    interval: datetime.timedelta
+
+
+@api_fields('scan_number', 'scans_remaining', 'interval')
+@dataclasses.dataclass(frozen=True)
+class ScanEnded:
+    """A ``scan_ended`` event: the scan's 1-based number, the scans left after it, the period."""
+
+    scan_number: int
+    scans_remaining: int
+    interval: datetime.timedelta
+
+
+@api_fields('step_idx')
+@dataclasses.dataclass(frozen=True)
+class StepStarted:
+    """A ``step_started`` event: the index of the step beginning."""
+
+    step_idx: int
+
+
+@api_fields('image', 'frames_summed', 'frame_significant_bits')
+@dataclasses.dataclass(frozen=True)
+class FrameCaptured:
+    """A ``frame_captured`` event: the frame as its file gets it, how many summed, its bits."""
+
+    image: np.ndarray
+    frames_summed: int
+    frame_significant_bits: int
+
+
+@api_fields('outcome', 'run_dir', 'protocol')
+@dataclasses.dataclass(frozen=True)
+class RunEnded:
+    """A ``run_ended`` event: the outcome, the run's folder (None when it saved nothing), its protocol."""
+
+    outcome: RunOutcome
+    run_dir: pathlib.Path | None
+    protocol: Protocol
+
+
+@api_fields('run_dir', 'files')
+@dataclasses.dataclass(frozen=True)
+class FilesWritten:
+    """A ``files_written`` event: the run's folder, and ``'written'`` or ``'incomplete'``."""
+
+    run_dir: pathlib.Path | None
+    files: str
 
 
 @api_fields(
@@ -92,15 +149,33 @@ class RunEvents:
         files_written: ``(run_dir, files)`` once the run's last image write
             has landed: ``files`` is ``'written'``, or ``'incomplete'`` when
             some of its images are not on disk.
+
+    Each field declares its event's record (``ScanStarted``, ...), whose
+    fields name the handler's arguments in order; a host that carries the
+    event elsewhere builds the record from them.
     """
 
-    scan_started: Callable[[int, int, datetime.timedelta], object] | None = None
-    scan_ended: Callable[[int, int, datetime.timedelta], object] | None = None
-    step_started: Callable[[int], object] | None = None
-    frame_captured: Callable[[np.ndarray, int, int], object] | None = None
-    video_progress: Callable[[VideoProgress], object] | None = None
-    run_ended: Callable[[RunOutcome, pathlib.Path | None, Protocol], object] | None = None
-    files_written: Callable[[pathlib.Path | None, str], object] | None = None
+    scan_started: Callable[[int, int, datetime.timedelta], object] | None = dataclasses.field(
+        default=None, metadata=event_metadata(ScanStarted)
+    )
+    scan_ended: Callable[[int, int, datetime.timedelta], object] | None = dataclasses.field(
+        default=None, metadata=event_metadata(ScanEnded)
+    )
+    step_started: Callable[[int], object] | None = dataclasses.field(
+        default=None, metadata=event_metadata(StepStarted)
+    )
+    frame_captured: Callable[[np.ndarray, int, int], object] | None = dataclasses.field(
+        default=None, metadata=event_metadata(FrameCaptured)
+    )
+    video_progress: Callable[[VideoProgress], object] | None = dataclasses.field(
+        default=None, metadata=event_metadata(VideoProgress)
+    )
+    run_ended: Callable[[RunOutcome, pathlib.Path | None, Protocol], object] | None = (
+        dataclasses.field(default=None, metadata=event_metadata(RunEnded))
+    )
+    files_written: Callable[[pathlib.Path | None, str], object] | None = dataclasses.field(
+        default=None, metadata=event_metadata(FilesWritten)
+    )
 
 
 def _report(event: str, ex: Exception) -> None:

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import contextlib
+import dataclasses
 import functools
 import logging as _logging
 import threading
@@ -189,6 +190,15 @@ class MoveInFlight:
                 took the axis before it arrived.
         """
         self._motion._await_move(self.axis, self._move)
+
+
+@api_fields('axis', 'at')
+@dataclasses.dataclass(frozen=True)
+class PositionChanged:
+    """A position event: the axis, and its state and position as ``axis_positions`` answers."""
+
+    axis: str
+    at: AxisPosition
 
 
 class MotionAPI:
@@ -1493,7 +1503,7 @@ class MotionAPI:
         with self._axis_state_lock:
             return self._axis_state.get(axis, AxisState.UNKNOWN)
 
-    @api
+    @api(event=PositionChanged)
     def add_position_listener(self, listener: Callable[[str, AxisPosition], None]) -> None:
         """Register a callback for position/state changes on any axis.
 

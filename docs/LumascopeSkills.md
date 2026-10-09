@@ -1837,14 +1837,16 @@ scope.imaging.remove_frame_listener(on_frame)
 
 The six listener families each pass a different callback signature -- register a callable matching the row for the listener you subscribe to:
 
-| Listener | Register via | Callback signature |
-|---|---|---|
-| Motion / position | `scope.motion.add_position_listener` | `on_position(axis: str, at: AxisPosition)` |
-| LED / illumination | `scope.illumination.add_led_listener` | `on_led(channel: str, enabled: bool, illumination_ma: float)` |
-| Camera params | `scope.imaging.add_camera_listener` | `on_camera(param: str, value: float)` |
-| Live frame | `scope.imaging.add_frame_listener` | `on_frame(image, timestamp, chunks)` |
-| Run state | `session.add_run_state_listener` | `on_run_state()` -- no payload; re-read the session derivations (see Run state and locks above) |
-| Outcomes | `ScopeSession.create(outcome_listener=...)` or `session.add_outcome_listener` | `on_outcome(n)` -- one `Notification` (see Outcomes above) |
+| Listener | Register via | Callback signature | Event record |
+|---|---|---|---|
+| Motion / position | `scope.motion.add_position_listener` | `on_position(axis: str, at: AxisPosition)` | `PositionChanged(axis, at)` |
+| LED / illumination | `scope.illumination.add_led_listener` | `on_led(channel: str, enabled: bool, illumination_ma: float)` | `LedChanged(channel, on, illumination_ma)` |
+| Camera params | `scope.imaging.add_camera_listener` | `on_camera(param: str, value: float)` | `CameraChanged(setting, value)` |
+| Live frame | `scope.imaging.add_frame_listener` | `on_frame(image, timestamp, chunks)` | `FrameDelivered(image, timestamp, chunks)` |
+| Run state | `session.add_run_state_listener` | `on_run_state()` -- no payload; re-read the session derivations (see Run state and locks above) | `LiveWork`, read as the event is sent |
+| Outcomes | `ScopeSession.create(outcome_listener=...)` or `session.add_outcome_listener` | `on_outcome(n)` -- one `Notification` (see Outcomes above) | `Notification` itself |
+
+Each event declares its record, published in the reference below: its fields name the callback's arguments in order, so a host that carries an event elsewhere (the REST server's stream) builds the record from the arguments rather than keeping its own table of signatures. A run's events do the same: `RunEvents.scan_started` delivers `ScanStarted(scan_number, scans_remaining, interval)`, `scan_ended` `ScanEnded(...)`, `step_started` `StepStarted(step_idx)`, `frame_captured` `FrameCaptured(image, frames_summed, frame_significant_bits)`, `video_progress` the `VideoProgress` it passes, `run_ended` `RunEnded(outcome, run_dir, protocol)`, `files_written` `FilesWritten(run_dir, files)`. Callbacks keep their signatures; a Python caller need not build any record.
 
 The four `scope.*` listeners each have a matching `remove_*_listener(callback)`. The frame listener additionally takes a `name=` kwarg and carries the don't-mutate + 24 ms budget contract documented above; the other three are lightweight state-change notifications.
 
@@ -3003,6 +3005,13 @@ Reached through returned by `session.bring_up_record`.
 - `substitution`
 - `substitutions`
 
+### CameraChanged
+
+Reached through the event `scope.imaging.add_camera_listener` delivers.
+
+- `setting`
+- `value`
+
 ### CaptureTally
 
 Reached through `RunOutcome.captures`.
@@ -3028,6 +3037,29 @@ Reached through each item of `CaptureTally.failed`.
 - `step_index`
 - `step_name`
 
+### FilesWritten
+
+Reached through the event `RunEvents.files_written` delivers.
+
+- `files`
+- `run_dir`
+
+### FrameCaptured
+
+Reached through the event `RunEvents.frame_captured` delivers.
+
+- `frame_significant_bits`
+- `frames_summed`
+- `image`
+
+### FrameDelivered
+
+Reached through the event `scope.imaging.add_frame_listener` delivers.
+
+- `chunks`
+- `image`
+- `timestamp`
+
 ### HeldClaim
 
 Reached through returned by `session.diagnostic_claim`.
@@ -3044,6 +3076,14 @@ Reached through returned by `scope.layer_identity.find` and `layers`.
 - `id`
 - `key_name`
 - `led_channel`
+
+### LedChanged
+
+Reached through the event `scope.illumination.add_led_listener` delivers.
+
+- `channel`
+- `illumination_ma`
+- `on`
 
 ### LiveFolderEntry
 
@@ -3150,6 +3190,13 @@ Reached through `NamespaceHealth.loaded`.
 - `namespace`
 - `version`
 
+### PositionChanged
+
+Reached through the event `scope.motion.add_position_listener` delivers.
+
+- `at`
+- `axis`
+
 ### ProtocolSizeAdvisory
 
 Reached through returned by `session.protocol_size_advisory` and `Protocol.size_advisory`.
@@ -3165,6 +3212,14 @@ Reached through `Notification.remedy`; passed to `session.apply_remedy`.
 - `cancel_text`
 - `confirm_text`
 - `member`
+
+### RunEnded
+
+Reached through the event `RunEvents.run_ended` delivers.
+
+- `outcome`
+- `protocol`
+- `run_dir`
 
 ### RunFiles
 
@@ -3182,6 +3237,22 @@ Reached through returned by `session.save_focus`.
 - `step_idx`
 - `z`
 
+### ScanEnded
+
+Reached through the event `RunEvents.scan_ended` delivers.
+
+- `interval`
+- `scan_number`
+- `scans_remaining`
+
+### ScanStarted
+
+Reached through the event `RunEvents.scan_started` delivers.
+
+- `interval`
+- `scan_number`
+- `scans_remaining`
+
 ### SettingsSetAside
 
 Reached through `BringUpRecord.settings_set_aside`.
@@ -3197,6 +3268,12 @@ Reached through `session.status`.
 - `camera_streaming`
 - `live_work`
 - `parts`
+
+### StepStarted
+
+Reached through the event `RunEvents.step_started` delivers.
+
+- `step_idx`
 
 ### StepTargets
 

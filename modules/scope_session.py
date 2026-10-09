@@ -75,6 +75,7 @@ from modules.lumascope_api import AxisPosition
 from modules.lumascope_api.bring_up import PartStatus
 from modules.lumascope_api.illumination import LedLease, LedTransition, LedTransitionCtx
 from modules.manual_capture import ManualCaptureController
+from modules.notification_center import Notification
 from modules.manual_recording import ManualRecordingController
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
 from modules.plugins import PLUGIN_API_LEVEL, PluginRegistry
@@ -126,7 +127,6 @@ if TYPE_CHECKING:
     from modules.lumascope_api.bring_up import BringUpRecord
     from modules.lumascope_api.imaging import AutoGainLock
     from modules.lumascope_api.motion import MoveInFlight
-    from modules.notification_center import Notification
     from modules.objectives_loader import ObjectiveLoader
     from modules.protocol import Protocol, ProtocolSizeAdvisory
     from modules.lumascope_api.protocols import StepTargets
@@ -823,7 +823,7 @@ class ScopeSession:
         motion available on a scope that has no stage."""
         return self.scope.capabilities.has_xy_stage and not self.run_lockout
 
-    @api
+    @api(event=LiveWork)
     def add_run_state_listener(self, listener: Callable[[], None]) -> None:
         """Register a run-state transition listener and level-sync it.
 
@@ -858,7 +858,7 @@ class ScopeSession:
             except Exception as ex:
                 notifications.report_outcome(ex, solicited=False, category='Run State')
 
-    @api
+    @api(event=Notification)
     def add_outcome_listener(self, listener: Callable[['Notification'], None]) -> None:
         """Hear every outcome the scope reports from now on.
 
