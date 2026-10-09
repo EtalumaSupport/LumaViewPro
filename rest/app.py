@@ -10,30 +10,33 @@ encoded on that thread, since each may read the scope or the disk.
 The Session's members are at ``/api/v1/<member>``; a live object a client
 was handed has its members at ``/api/v1/handles/<type>/<id>/<member>``
 (``rest.handles``). A call that outlives what its client will wait is a
-job (``rest.jobs``), and every answer that is not a result is a problem
-(``rest.problems``).
+job (``rest.jobs``), every answer that is not a result is a problem
+(``rest.problems``), and what the scope tells its listeners is one event
+stream (``rest.events``).
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import datetime
 import inspect
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from concurrent.futures import Future
 
 import fastapi
 import pydantic
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from modules import wire_encoding
 from modules.protocol_runner import ProtocolRunner
 from modules.scope_session import ScopeSession
 from rest import problems
+from rest.events import EventStream
 from rest.handles import HandleRegistry
 from rest.jobs import RETRY_AFTER_S as JOB_RETRY_AFTER_S
 from rest.jobs import JobRegistry, Progress, Wait
@@ -51,14 +54,33 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     """The application serving *session*'s wire members under ``/api/v1/``.
 
     The OpenAPI description is at ``/api/v1/openapi.json`` and the
-    interactive reference at ``/docs``.
+    interactive reference at ``/docs``. The event stream hears the scope
+    while the application is served, from its startup to its shutdown.
     """
+    # The session's one protocol runner is every client's: its id is kept.
+    registry = HandleRegistry(kept=lambda obj: isinstance(obj, ProtocolRunner))
+    handed_out = wire_encoding.handed_out(
+        ScopeSession, wire_encoding.project_classes(), wire_encoding.project_aliases()
+    )
+    stream = EventStream(
+        session, lambda value: _encoded_event(session, registry, value), handed_out
+    )
+
+    @contextlib.asynccontextmanager
+    async def served(_app: fastapi.FastAPI) -> AsyncIterator[None]:
+        stream.open(asyncio.get_running_loop())
+        try:
+            yield
+        finally:
+            stream.close()
+
     app = fastapi.FastAPI(
         title='Lumascope',
         version=session.app_version or 'unknown',
         openapi_url=f'{PREFIX}/openapi.json',
         docs_url='/docs',
         redoc_url=None,
+        lifespan=served,
     )
 
     async def versions() -> dict[str, list[str]]:
@@ -72,24 +94,48 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     app.add_exception_handler(StarletteHTTPException, _routing_refused)
     app.add_exception_handler(Exception, _failed)
 
-    # The session's one protocol runner is every client's: its id is kept.
-    registry = HandleRegistry(kept=lambda obj: isinstance(obj, ProtocolRunner))
-    handed_out = wire_encoding.handed_out(
-        ScopeSession, wire_encoding.project_classes(), wire_encoding.project_aliases()
-    )
     jobs = JobRegistry()
     _add_handle_routes(app, registry, handed_out)
     _add_job_routes(app, jobs)
+    _add_event_route(app, stream)
     session_routes = routes(ScopeSession, handed_out=handed_out)
     shadowed = {r.path.split('/')[0] for r in session_routes} & SERVER_SEGMENTS
     if shadowed:
         raise TypeError(f"Session members {sorted(shadowed)} are named as the server's own routes")
     for route in session_routes:
-        _add(app, session, registry, jobs, route)
+        _add(app, session, registry, jobs, stream, route)
     for cls in sorted(handed_out, key=lambda c: c.__name__):
         for route in routes(cls, handed_out=handed_out):
-            _add(app, session, registry, jobs, route)
+            _add(app, session, registry, jobs, stream, route)
     return app
+
+
+def _encoded_event(session: ScopeSession, registry: HandleRegistry, value: object) -> object:
+    """An event's value in its wire form; an event carries no running call."""
+
+    def no_job(future: object) -> object:
+        raise wire_encoding.NoWireFormError(type(future).__name__)
+
+    return wire_encoding.encode(
+        value, live_folder=session.get_setting('live_folder'), handle=registry.mint, job=no_job
+    )
+
+
+def _add_event_route(app: fastapi.FastAPI, stream: EventStream) -> None:
+    async def events(request: fastapi.Request) -> StreamingResponse:
+        """Every event the scope sends, as ``text/event-stream``: first ``status``, then each as it happens.
+
+        A client that reconnects with ``Last-Event-ID`` is sent what it
+        missed, or ``reset`` and ``status`` once that is no longer held.
+        """
+        _refuse_query(request)
+        return StreamingResponse(
+            stream.read(request.headers.get('last-event-id')),
+            media_type='text/event-stream',
+            headers={'Cache-Control': 'no-cache'},
+        )
+
+    app.add_api_route(f'{PREFIX}/events', events, methods=['GET'], tags=['events'])
 
 
 def _add_handle_routes(
@@ -194,6 +240,7 @@ def _add(
     session: ScopeSession,
     registry: HandleRegistry,
     jobs: JobRegistry,
+    stream: EventStream,
     route: Route,
 ) -> None:
     doc = inspect.cleandoc(route.member.doc)
@@ -300,7 +347,18 @@ def _add(
             }
             if member.progress is not None:
                 arguments[member.progress] = progress
-            return getattr(owner, member.name)(**arguments)
+            if member.run_events is None:
+                return getattr(owner, member.name)(**arguments)
+            # The run's events name it once the call has handed it out.
+            tag = stream.run_events()
+            arguments[member.run_events] = tag.events()
+            try:
+                value = getattr(owner, member.name)(**arguments)
+            except BaseException:
+                tag.settle(None)
+                raise
+            tag.settle(registry.mint(value) if member.hands_out and value is not None else None)
+            return value
 
         return await answer(request, handle_id, invoke)
 

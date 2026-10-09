@@ -504,6 +504,8 @@ class WireMember:
             ``Future``), which a host hands out as a job.
         progress: The parameter a host fills with its own ``ProgressCallback``
             to hear how far the call has got; None when it takes none.
+        run_events: The parameter a host fills with its own ``RunEvents`` to
+            hear the run the call starts; None when it takes none.
     """
 
     name: str
@@ -514,6 +516,7 @@ class WireMember:
     hands_out: bool = False
     returns_job: bool = False
     progress: str | None = None
+    run_events: str | None = None
 
 
 def _alternatives(text: str) -> list[ast.AST]:
@@ -660,6 +663,7 @@ def wire_members(
         function = inspect.unwrap(getattr(member, '__func__', member))
         parameters = []
         progress = None
+        run_events = None
         for p in inspect.signature(function).parameters.values():
             if p.name in ('self', 'cls'):
                 continue
@@ -678,6 +682,8 @@ def wire_members(
             if not alternatives:
                 if 'ProgressCallback' in _names(text):
                     progress = p.name
+                elif 'RunEvents' in _names(text):
+                    run_events = p.name
                 continue
             parameters.append(
                 WireParameter(p.name, alternatives, required, None if required else p.default)
@@ -692,6 +698,7 @@ def wire_members(
                 hands_out=_hands_out(returns, handed_out, aliases),
                 returns_job=_returns_job(returns, aliases),
                 progress=progress,
+                run_events=run_events,
             )
         )
     members += [
