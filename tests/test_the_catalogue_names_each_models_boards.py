@@ -24,7 +24,7 @@ from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
 from drivers.tmcm6110 import Tmcm6110Board
 from modules import layer_record
-from modules.exceptions import InstallationFileError
+from modules.exceptions import ArgumentRefusedError, InstallationFileError
 from tests.scope_fakes import build_scope
 
 REPO_DATA = pathlib.Path(__file__).resolve().parents[1] / 'data'
@@ -97,8 +97,9 @@ def test_a_row_naming_an_fx2_with_motor_axes_gets_the_fx2_and_a_motor_board(tmp_
 def test_a_row_naming_an_fx2_with_motor_axes_refuses_a_simulated_camera_stall(tmp_path):
     root = _folder(tmp_path, 'LS850', _set('LEDBoard', 'FX2'))
 
-    with pytest.raises(ValueError, match='simulated with an FX2'):
+    with pytest.raises(ArgumentRefusedError) as refused:
         _scope('LS850', source_path=str(root), sim_camera_stall=SimulatedStall(0.0, 1.0))
+    assert refused.value.reason == 'needs_simulated_camera'
 
 
 @pytest.mark.parametrize(

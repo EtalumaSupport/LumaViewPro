@@ -18,6 +18,7 @@ import pytest
 
 import modules.sequenced_capture_runner as runner_module
 from drivers.simulated_camera import SimulatedStall
+from modules.exceptions import ArgumentRefusedError
 from modules.protocol_image_writer import RunWriteBatch
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import build_scope
@@ -40,20 +41,28 @@ def _held(session) -> bool:
 
 class TestAStallIsRefusedWhereItCannotHappen:
     def test_a_real_session_refuses_a_file_stall(self, tmp_path):
-        with pytest.raises(ValueError, match='sim_file_stall needs a simulated scope'):
+        with pytest.raises(ArgumentRefusedError) as refused:
             ScopeSession.create(
                 complete_settings(live_folder=str(tmp_path)),
                 simulate=False,
                 sim_file_stall=SimulatedStall(0.0, 1.0),
             )
+        assert (refused.value.reason, refused.value.argument) == (
+            'needs_simulated_scope',
+            'sim_file_stall',
+        )
 
     def test_a_session_refuses_a_file_stall_beside_a_scope_it_was_given(self):
         scope = build_scope(simulate=True)
         try:
-            with pytest.raises(ValueError, match='sim_file_stall is refused beside a scope'):
+            with pytest.raises(ArgumentRefusedError) as refused:
                 ScopeSession.create(
                     complete_settings(), scope=scope, sim_file_stall=SimulatedStall(0.0, 1.0)
                 )
+            assert (refused.value.reason, refused.value.argument) == (
+                'refused_beside_scope',
+                'sim_file_stall',
+            )
         finally:
             scope.disconnect()
 

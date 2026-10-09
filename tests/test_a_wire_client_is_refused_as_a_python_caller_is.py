@@ -160,6 +160,26 @@ def test_a_name_that_is_no_axis_answers_with_the_names_the_member_takes(client):
     )
 
 
+@pytest.mark.parametrize(
+    ('route', 'body', 'reason', 'names'),
+    [
+        ('get_setting', {'path': 'bogus'}, 'not_a_setting', 'path'),
+        ('set_layer_acquire', {'layer': 'BF', 'mode': 'bogus'}, 'out_of_range', 'BF.acquire'),
+        ('set_image_mode', {'mode': 'bogus'}, 'out_of_range', 'image_mode'),
+    ],
+)
+def test_a_session_argument_its_member_refuses_is_422_and_changes_nothing(
+    client, session, route, body, reason, names
+):
+    before = session.get_settings_snapshot()
+
+    answer = _problem(client.post(f'/api/v1/{route}', json=body), 422)
+
+    assert answer['reason'] == reason
+    assert answer['detail'].startswith(names)
+    assert session.get_settings_snapshot() == before
+
+
 def test_a_refusals_remedy_is_sent_as_the_record_apply_remedy_takes(client, session, monkeypatch):
     remedy = Remedy('recover_file_writer', 'Recover', 'Wait')
     refusal = LiveFolderPathRefusedError('outside_live_folder', 'x', 'Not there.')

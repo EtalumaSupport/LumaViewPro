@@ -14,7 +14,7 @@ import ast
 
 import pytest
 
-from modules.exceptions import ArgumentRefusedError, ConfigError
+from modules.exceptions import ArgumentRefusedError, SettingRefusedError
 from tests.ast_seams import REPO_ROOT
 from tests.test_loading_a_protocol_puts_the_scope_on_its_plate import (  # noqa: F401 -- pytest fixture
     session,
@@ -56,13 +56,15 @@ class TestTheSessionSetsTheMode:
 
         assert 'Infrared' not in session.settings
 
-    @pytest.mark.parametrize('mode', ['still', 'none', '', 'Image'])
+    # A list cannot be looked up in the vocabulary; it is refused, not a TypeError.
+    @pytest.mark.parametrize('mode', ['still', 'none', '', 'Image', ['image']])
     def test_an_unknown_mode_is_refused_and_nothing_changes(self, session, mode):
         before = session.settings['BF']['acquire']
 
-        with pytest.raises(ConfigError):
+        with pytest.raises(SettingRefusedError) as refused:
             session.set_layer_acquire('BF', mode)
 
+        assert (refused.value.reason, refused.value.path) == ('out_of_range', 'BF.acquire')
         assert session.settings['BF']['acquire'] == before
 
 

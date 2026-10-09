@@ -47,6 +47,7 @@ from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
 from drivers.registry import DriverNotLiveError, motor_registry, led_registry, camera_registry
 import modules.binning as binning
 from modules.exceptions import (
+    ArgumentRefusedError,
     BinningSubstitutedNotice,
     InstallationFileError,
     FrameRefittedNotice,
@@ -560,11 +561,14 @@ class Lumascope:
                 on real hardware and on a model simulated with an FX2.
 
         Raises:
-            ValueError: ``sim_camera_stall`` given for a scope whose camera is
-                not the simulated camera.
+            ArgumentRefusedError: ``'needs_simulated_scope'`` or
+                ``'needs_simulated_camera'``, ``sim_camera_stall`` given for
+                a scope whose camera is not the simulated camera.
         """
         if sim_camera_stall is not None and not simulate:
-            raise ValueError('a simulated camera stall needs a simulated scope (simulate=True)')
+            raise ArgumentRefusedError(
+                'needs_simulated_scope', argument='sim_camera_stall', value=sim_camera_stall
+            )
         if warn_pre_release:
             _fire_pre_release_warning()
         self._fx2_debug_wire = fx2_debug_wire
@@ -586,9 +590,8 @@ class Lumascope:
             sim_axes = model_axes(self._scope_models, model)
             sim_led_board, sim_motor_board = self._simulated_boards(model, sim_axes)
             if sim_camera_stall is not None and sim_led_board == 'FX2':
-                raise ValueError(
-                    f'a simulated camera stall needs the simulated camera, and {model} is '
-                    'simulated with an FX2'
+                raise ArgumentRefusedError(
+                    'needs_simulated_camera', argument='sim_camera_stall', value=sim_camera_stall
                 )
         else:
             # Whether the selected model is a manual scope, so a probe that

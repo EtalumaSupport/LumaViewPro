@@ -54,6 +54,7 @@ from modules.activity_claim import (
 from modules.common_utils import CustomJSONizer
 from modules.exceptions import (
     HARDWARE_STATE_REASONS,
+    ArgumentRefusedError,
     CameraSettingUnsupportedError,
     ConfigError,
     DiagnosticRefusedError,
@@ -981,31 +982,36 @@ class ScopeSession:
                 ``add_outcome_listener`` says what it receives. A factory
                 that raises takes it back; otherwise the session's
                 ``shutdown()`` does.
+
+        Raises:
+            ArgumentRefusedError: ``'refused_beside_scope'``, ``source_path``,
+                ``sim_camera_stall`` or ``sim_file_stall`` given beside
+                ``scope``: the folder and the camera's stall are the scope's,
+                given to ``Lumascope(source_path=..., sim_camera_stall=...)``
+                when it is built, and the file stall simulates the drive a
+                scope this factory builds saves to. ``'needs_simulated_scope'``,
+                ``sim_file_stall`` or ``sim_camera_stall`` without
+                ``simulate``: a real scope's file lane writes to a real drive,
+                and only the simulated camera stalls.
+                ``'needs_simulated_camera'``, ``sim_camera_stall`` for a model
+                simulated with an FX2.
         """
         from modules.lumascope_api._lumascope import _fire_pre_release_warning
         from modules.path_utils import get_source_root
 
-        if scope is not None and source_path is not None:
-            raise ValueError(
-                'ScopeSession.create: source_path is refused beside a scope -- the '
-                'session reads its data folder and catalogues from the scope, so pass '
-                'the folder to Lumascope(source_path=...) instead'
-            )
-        if scope is not None and sim_camera_stall is not None:
-            raise ValueError(
-                'ScopeSession.create: sim_camera_stall is refused beside a scope -- the '
-                'stall is set on the camera when the scope is built, so pass it to '
-                'Lumascope(sim_camera_stall=...) instead'
-            )
-        if sim_file_stall is not None and scope is not None:
-            raise ValueError(
-                'ScopeSession.create: sim_file_stall is refused beside a scope -- it '
-                'simulates the drive a scope this factory builds saves to'
-            )
+        if scope is not None:
+            for argument, value in (
+                ('source_path', source_path),
+                ('sim_camera_stall', sim_camera_stall),
+                ('sim_file_stall', sim_file_stall),
+            ):
+                if value is not None:
+                    raise ArgumentRefusedError(
+                        'refused_beside_scope', argument=argument, value=value
+                    )
         if sim_file_stall is not None and not simulate:
-            raise ValueError(
-                'ScopeSession.create: sim_file_stall needs a simulated scope -- a real '
-                "scope's file lane writes to a real drive"
+            raise ArgumentRefusedError(
+                'needs_simulated_scope', argument='sim_file_stall', value=sim_file_stall
             )
         if warn_pre_release:
             _fire_pre_release_warning()
@@ -1168,9 +1174,13 @@ class ScopeSession:
         refused for the missing argument instead of quietly configured
         from whatever is on disk.
 
+        In a process that has already prepared its settings (the GUI's),
+        those are answered and ``source_path`` is not read.
+
         Raises:
-            ConfigError: ``source_path`` holds neither settings file, or the
-                user's ``current.json`` is unusable.
+            ArgumentRefusedError: ``'not_an_installation'``, ``source_path``
+                holds neither settings file.
+            SettingsFileError: the user's ``current.json`` is unusable.
             InstallationFileError: the installation's own ``scopes.json``,
                 whose layer vocabulary the settings are checked against, or
                 its ``settings.json`` template, is missing or unusable.
@@ -1198,9 +1208,8 @@ class ScopeSession:
                 logger, source_path, fall_back_to_template=False
             )
         except FileNotFoundError as e:
-            raise ConfigError(
-                f'no data/settings.json under {source_path!r}: not an LVP '
-                'installation root; pass source_path or run from one'
+            raise ArgumentRefusedError(
+                'not_an_installation', argument='source_path', value=source_path
             ) from e
         return settings
 
@@ -1582,16 +1591,16 @@ class ScopeSession:
         Raises:
             ArgumentRefusedError: ``'layer_unknown'`` or
                 ``'no_layer_selected'``, ``layer`` is not a layer.
-            ConfigError: ``mode`` is not ``'image'``, ``'video'`` or None,
-                or this scope's layers could not be resolved.
+            SettingRefusedError: ``'out_of_range'``, ``mode`` is not
+                ``'image'``, ``'video'`` or None.
+            ConfigError: this scope's layers could not be resolved.
             HardwareCommandRefusedError: ``'axis_absent'``, ``mode`` is not
                 None and this scope does not have ``layer``.
             Nothing is changed on any refusal. Setting a layer to acquire
             nothing is always admitted.
         """
         refuse_unknown_layer(layer)
-        if mode not in ('image', 'video', None):
-            raise ConfigError(f"acquire mode {mode!r} is not 'image', 'video' or None")
+        settings_paths.refuse_outside_range(f'{layer}.acquire', mode)
         if mode is not None:
             self.scope.layer_identity.refuse_unless_on_scope(
                 layer, 'set_layer_acquire', then='be set to acquire'
@@ -2340,13 +2349,14 @@ class ScopeSession:
         and the Session's members do).
 
         Raises:
-            ConfigError: The settings have no value at ``path``.
+            ArgumentRefusedError: ``'not_a_setting'``, the settings have no
+                value at ``path``.
         """
         with self.settings_lock:
             value = self.settings
             for segment in path.split('.'):
                 if not isinstance(value, dict) or segment not in value:
-                    raise ConfigError(f'the settings have no {path!r}')
+                    raise ArgumentRefusedError('not_a_setting', argument='path', value=path)
                 value = value[segment]
             return copy.deepcopy(value)
 
@@ -3675,7 +3685,8 @@ class ScopeSession:
         the mode is stored and bring-up applies it.
 
         Raises:
-            ConfigError: ``mode`` is not an image mode. Nothing is stored.
+            SettingRefusedError: ``'out_of_range'``, ``mode`` is not an image
+                mode. Nothing is applied or stored.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, when it went away between the format query and the
                 apply. Nothing is stored.
@@ -3683,6 +3694,7 @@ class ScopeSession:
                 stored, so captures are never tagged with a depth the camera
                 is not delivering.
         """
+        settings_paths.refuse_outside_range('image_mode', mode)
         capture_depth = image_mode.resolve_image_mode(mode)['capture_depth']
         imaging = self.scope.imaging
         target = image_mode.select_capture_pixel_format(

@@ -19,10 +19,10 @@ import pytest
 from modules.exceptions import (
     CameraSettingRejected,
     CameraSettingUnsupportedError,
-    ConfigError,
     HardwareCommandRefusedError,
     MissingPart,
     Refusal,
+    SettingRefusedError,
 )
 
 
@@ -326,12 +326,17 @@ class TestTheImageMode:
         assert caught.value.reason == 'not_connected'
         assert session.settings['image_mode'] == before
 
-    def test_an_unknown_mode_stores_nothing(self, session):
+    # A dict cannot be looked up in the vocabulary; it is refused, not a TypeError.
+    @pytest.mark.parametrize('mode', ['16bit', {}])
+    def test_an_unknown_mode_is_refused_and_nothing_is_applied_or_stored(self, session, mode):
         before = session.settings['image_mode']
+        pixel_format = session.scope.imaging.pixel_format_cached
 
-        with pytest.raises(ConfigError):
-            session.set_image_mode('16bit')
+        with pytest.raises(SettingRefusedError) as refused:
+            session.set_image_mode(mode)
+        assert (refused.value.reason, refused.value.path) == ('out_of_range', 'image_mode')
         assert session.settings['image_mode'] == before
+        assert session.scope.imaging.pixel_format_cached == pixel_format
 
 
 class TestTheCameraToggles:

@@ -333,11 +333,11 @@ from modules.scope_session import ScopeSession
 session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
 ```
 
-`simulate=` is the one choice between simulated and real hardware, the same for every host: `simulate=True` wires up simulated drivers, `simulate=False` (the default) finds the real ones. Either way the factory configures the scope from settings and releases the start gate, so the session it returns can capture and save. `ScopeSession.load_user_settings(source_path)` reads the user's configuration the way the GUI does (`current.json`, then the shipped template); `source_path` must be an LVP installation root (a `data/` directory with `settings.json`), otherwise it raises `ConfigError` naming the root. It checks the settings against the release's layer vocabulary, so an unusable `scopes.json` in the installation's own folder raises `InstallationFileError` naming it. Settings are a required argument of `create`, never read from disk behind your back: pass `load_user_settings(...)` or your own dict.
+`simulate=` is the one choice between simulated and real hardware, the same for every host: `simulate=True` wires up simulated drivers, `simulate=False` (the default) finds the real ones. Either way the factory configures the scope from settings and releases the start gate, so the session it returns can capture and save. `ScopeSession.load_user_settings(source_path)` reads the user's configuration the way the GUI does (`current.json`, then the shipped template); `source_path` must be an LVP installation root (a `data/` directory with `settings.json`), otherwise it raises `ArgumentRefusedError` (`not_an_installation`) naming the root; a `current.json` it cannot use raises `SettingsFileError`. In a process that has already prepared its settings -- the GUI's -- those are answered and `source_path` is not read. It checks the settings against the release's layer vocabulary, so an unusable `scopes.json` in the installation's own folder raises `InstallationFileError` naming it. Settings are a required argument of `create`, never read from disk behind your back: pass `load_user_settings(...)` or your own dict.
 
-A simulated scope can also show a stalled camera stream: pass `sim_camera_stall=SimulatedStall(after_s=30, for_s=20)` (from `drivers.simulated_camera`) to `create`, and 30 s after the scope is built the simulated camera stops delivering frames for 20 s while it stays connected and streaming, as a real camera's link can. The GUI takes the same stall as a launch argument beside `--simulate`: `--sim-camera-stall=30,20`. It is refused on real hardware, beside a scope you built yourself (pass it to `Lumascope(sim_camera_stall=...)` instead), and on a model simulated with an FX2 (LS620, LS560), whose camera is not the simulated one.
+A simulated scope can also show a stalled camera stream: pass `sim_camera_stall=SimulatedStall(after_s=30, for_s=20)` (from `drivers.simulated_camera`) to `create`, and 30 s after the scope is built the simulated camera stops delivering frames for 20 s while it stays connected and streaming, as a real camera's link can. The GUI takes the same stall as a launch argument beside `--simulate`: `--sim-camera-stall=30,20`. It is refused on real hardware (`ArgumentRefusedError`, `needs_simulated_scope`), beside a scope you built yourself (`refused_beside_scope`; pass it to `Lumascope(sim_camera_stall=...)` instead), and on a model simulated with an FX2 (LS620, LS560), whose camera is not the simulated one (`needs_simulated_camera`). A `source_path` beside a scope you built is refused the same way (`refused_beside_scope`).
 
-A simulated session can likewise show a save drive that stops answering: pass `sim_file_stall=SimulatedStall(after_s=60, for_s=120)` to `create`, and 60 s after bring-up the session's file lane is held for 120 s by one write that does not return (`simulated_stuck_write`). A run that ends while its files wait behind it is reported as a stalled file writer (`FileWriterStalledError`) once the write has been stuck for 30 s, with the recovery as its remedy. The GUI takes it as `--sim-file-stall=60,120` beside `--simulate`. It is refused on real hardware and beside a scope you built yourself.
+A simulated session can likewise show a save drive that stops answering: pass `sim_file_stall=SimulatedStall(after_s=60, for_s=120)` to `create`, and 60 s after bring-up the session's file lane is held for 120 s by one write that does not return (`simulated_stuck_write`). A run that ends while its files wait behind it is reported as a stalled file writer (`FileWriterStalledError`) once the write has been stuck for 30 s, with the recovery as its remedy. The GUI takes it as `--sim-file-stall=60,120` beside `--simulate`. It is refused on real hardware (`ArgumentRefusedError`, `needs_simulated_scope`) and beside a scope you built yourself (`refused_beside_scope`).
 
 ### Application startup sequence
 
@@ -357,7 +357,7 @@ The scope is the startup's from before `begin_application_session()` returns unt
 The image mode, the binning and the frame each have one writer, on the Session: it applies the setting to the camera and stores it in the settings only once the camera took it. A refusal or a rejection leaves the store as it was, so the settings never describe a camera state that is not in force. Call them from the camera's own lane or any thread; each waits for the camera.
 
 ```python
-session.set_image_mode('12bit_scientific')   # stored once the camera took it; ConfigError for an unknown mode;
+session.set_image_mode('12bit_scientific')   # stored once the camera took it; SettingRefusedError (out_of_range) for an unknown mode;
                                              # CameraSettingRejected if the camera refuses the format
 session.set_binning_size(2)                  # the delivered frame {'width', 'height'}; the framed
                                              # region is kept and divided by the new factor.
@@ -388,7 +388,7 @@ session.set_protocol_filepath('/data/plate.tsv')  # the protocol the next start 
 session.live_folder_path('ProtocolData/run1')  # a wire caller's name -> its absolute path inside the live folder; LiveFolderPathRefusedError when it leaves
 session.live_folder_listing('ProtocolData')    # one level of the live folder: LiveFolderEntry(name, kind, size, modified) each, by its full name
 snapshot = session.get_settings_snapshot()     # a consistent copy, taken under the lock
-session.get_setting('stage_offset')           # a copy of one setting, by its dotted path; ConfigError when absent
+session.get_setting('stage_offset')           # a copy of one setting, by its dotted path; ArgumentRefusedError (not_a_setting) when absent
 session.scope.settings_template                # every setting there is, with its shipped value
 session.set_high_conversion_gain(True)        # the camera takes it, then it is stored; a raise: neither (below)
 session.set_line_noise_reduction(True)        # likewise for the line-noise filter
@@ -440,15 +440,16 @@ At start-up, every stored setting is held to the writer's rule, and a value
 it would refuse -- the wrong kind (NaN included) on any setting, or outside
 a range above, a protocol schedule, a `motion.acceleration_max_pct`
 outside 1 to 100, a `binning.size` that is not a positive square `NxN` label,
-an `objective_id` the catalogue lacks on a scope with no turret, or a plate the
+an `image_mode` that is not an image mode, a layer's `acquire` that is not
+`'image'`, `'video'` or null, an `objective_id` the catalogue lacks on a scope with no turret, or a plate the
 catalogue cannot resolve -- is replaced for
 that key alone by the shipped value, and the session reports one notice
 `stored_setting_replaced` once the scope is brought up (or once its bring-up
 fails), naming each replaced setting, its saved value and the one now in its
 place (`replacements`: a list of `(path, saved, used)`).
 A settings dict handed straight to `ScopeSession.create` holding an
-acceleration limit outside 1 to 100 is refused with `ConfigError` before
-anything is commanded.
+acceleration limit outside 1 to 100 is refused with `SettingRefusedError`
+(`out_of_range`, a `ConfigError`) before anything is commanded.
 
 `set_live_folder(folder)` stores the live folder as it is at start-up: a
 folder given relative to the installation is made absolute, and the folder
@@ -777,7 +778,7 @@ grids.available             # ('1x1', '2x2', '3x3', ...)
 grids.default               # '1x1'
 ```
 
-**Choosing what each layer captures.** `session.set_layer_acquire(layer, mode)` sets whether a layer captures an image (`'image'`), a video (`'video'`) or nothing (None), as the GUI's acquire toggle does; the layers set to acquire are the ones `new_protocol` and `add_step` build steps for and a composite merges. A layer set to acquire stops stimulating. A name that is no layer raises `ArgumentRefusedError` (`layer_unknown`), an unknown mode `ConfigError`, and `'image'` or `'video'` for a layer this scope does not have `HardwareCommandRefusedError` (`axis_absent`), each changing nothing (`scope.layer_identity`); setting any layer to acquire nothing is always accepted. A saved setting that has such a layer acquiring -- one written on another model -- is set to acquire nothing when the session comes up, and the change is logged.
+**Choosing what each layer captures.** `session.set_layer_acquire(layer, mode)` sets whether a layer captures an image (`'image'`), a video (`'video'`) or nothing (None), as the GUI's acquire toggle does; the layers set to acquire are the ones `new_protocol` and `add_step` build steps for and a composite merges. A layer set to acquire stops stimulating. A name that is no layer raises `ArgumentRefusedError` (`layer_unknown`), an unknown mode `SettingRefusedError` (`out_of_range`), and `'image'` or `'video'` for a layer this scope does not have `HardwareCommandRefusedError` (`axis_absent`), each changing nothing (`scope.layer_identity`); setting any layer to acquire nothing is always accepted. A saved setting that has such a layer acquiring -- one written on another model -- is set to acquire nothing when the session comes up, and the change is logged.
 
 ```python
 session.set_layer_acquire('BF', 'image')
@@ -1049,7 +1050,7 @@ record = session.bring_up_record()         # modules.lumascope_api.bring_up.Brin
 for part in record.parts:                  # 'motor', 'led', 'camera', in that order
     print(part.part, part.up, part.expected, part.cause, part.detail)
 record.missing                             # the parts this scope's model has and lacks
-record.part('led').cause                   # None, or why: 'not_detected', 'port_in_use', 'not_responding',
+record.part('led').cause                   # ArgumentRefusedError (part_unknown) for a name not in parts; None, or why: 'not_detected', 'port_in_use', 'not_responding',
                                            # 'connect_failed', 'no_driver'; for the camera 'camera_in_use',
                                            # 'camera_port_in_use', 'camera_not_detected', 'camera_not_initialized';
                                            # on an LED board that came up, 'safety_off_failed'
@@ -1749,7 +1750,7 @@ session.set_binning_size(2)
 # typed raise -- a dropped return cannot silently record a rejected apply.
 scope.imaging.get_binning_size()                   # always >= 1 (last-known-good on failed read)
 scope.capabilities.camera_binning_sizes            # e.g. (1, 2, 4)
-session.set_image_mode('12bit')                    # the camera's pixel format for the mode; raises CameraSettingRejected on refusal
+session.set_image_mode('12bit_scientific')         # the camera's pixel format for the mode; raises CameraSettingRejected on refusal
 scope.capabilities.camera_pixel_formats            # e.g. ('Mono8', 'Mono12')
 
 

@@ -14,6 +14,7 @@ import pathlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from modules.api_surface import api, api_fields
+from modules.exceptions import ArgumentRefusedError
 
 if TYPE_CHECKING:
     from modules.settings_init import SettingValue
@@ -120,11 +121,21 @@ class BringUpRecord:
 
     @api(in_process=True)
     def part(self, name: str) -> PartStatus:
-        """The status of ``name``; KeyError when this record has no such part."""
+        """The status of ``name``.
+
+        Raises:
+            ArgumentRefusedError: ``'part_unknown'``, this record has no part
+                ``name``.
+        """
         for status in self.parts:
             if status.part == name:
                 return status
-        raise KeyError(name)
+        raise ArgumentRefusedError(
+            'part_unknown',
+            argument='name',
+            value=name,
+            offered=tuple(status.part for status in self.parts),
+        )
 
     @api
     @property

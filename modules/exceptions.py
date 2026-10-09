@@ -981,9 +981,11 @@ class SettingsSaveRefusedError(Refusal, ConfigError):
 class SettingRefusedError(Refusal, ConfigError):
     """A settings write was refused; nothing was written.
 
-    Raised by ``ScopeSession.update_settings`` and ``set_live_folder``. A
-    caller that maps refusals to responses branches on ``reason``; a person
-    reads the message.
+    Raised by ``ScopeSession.update_settings`` and ``set_live_folder``, by
+    the members that own a ranged setting (``set_layer_acquire``,
+    ``set_image_mode``) and by a settings dict handed to a session, through
+    ``settings_paths.refuse_outside_range``. A caller that maps refusals to
+    responses branches on ``reason``; a person reads the message.
 
     Attributes:
         reason: ``'has_member'`` -- the setting is changed by its own
@@ -1003,7 +1005,8 @@ class SettingRefusedError(Refusal, ConfigError):
     title = 'Setting Not Changed'
 
     def __init__(self, reason: str, path: str, detail: str, *, member: str | None = None):
-        super().__init__(f'{path} was not changed: {detail}.')
+        # A detail may be another refusal's whole sentence, its period included.
+        super().__init__(f'{path} was not changed: {detail.removesuffix(".")}.')
         self.reason = reason
         self.path = path
         self.member = member
@@ -2530,6 +2533,22 @@ class ArgumentRefusedError(Refusal, ValueError):
               not one of ``offered``.
             - ``'acquire_mode_unknown'`` -- a layer's acquire mode that is
               neither None nor one of ``offered``.
+            - ``'not_a_setting'`` -- a dotted path that names no setting.
+              The same fact a write is refused for as
+              ``SettingRefusedError('not_a_setting')``; this type says a
+              read asked it.
+            - ``'refused_beside_scope'`` -- an argument that applies only
+              to a scope a session's factory builds, given with a scope
+              already built.
+            - ``'needs_simulated_scope'`` -- an argument that exists only
+              on a simulated scope, given for a real one.
+            - ``'needs_simulated_camera'`` -- an argument that exists only
+              on the simulated camera, given for a model simulated with
+              an FX2.
+            - ``'not_an_installation'`` -- a folder that holds neither
+              settings file, so it is not an LVP installation root.
+            - ``'part_unknown'`` -- a part name that is not one of
+              ``offered``, the parts the record holds.
         argument: The name of the argument refused.
         value: What was given, as given.
         offered: The values the argument takes, where it takes a list;
@@ -2609,6 +2628,32 @@ class ArgumentRefusedError(Refusal, ValueError):
         'acquire_mode_unknown': (
             'Not an Acquire Mode',
             '{argument} must be None or one of {offered}; {value!r} is neither.',
+        ),
+        'not_a_setting': (
+            'Not a Setting',
+            '{argument} names no setting; {value!r} is not a dotted path to one.',
+        ),
+        'refused_beside_scope': (
+            'Not Taken Beside a Scope',
+            '{argument} is refused beside a scope you built: it applies only to a scope '
+            'this factory builds.',
+        ),
+        'needs_simulated_scope': (
+            'Needs a Simulated Scope',
+            '{argument} needs a simulated scope (simulate=True).',
+        ),
+        'needs_simulated_camera': (
+            'Needs the Simulated Camera',
+            '{argument} needs the simulated camera; this model is simulated with an FX2.',
+        ),
+        'not_an_installation': (
+            'Not an Installation',
+            '{argument} is not an LVP installation root: {value!r} holds neither '
+            'data/current.json nor data/settings.json.',
+        ),
+        'part_unknown': (
+            'Not a Part',
+            '{argument} must be one of {offered}; {value!r} is not one.',
         ),
     }
 

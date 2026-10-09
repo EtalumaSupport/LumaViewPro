@@ -429,7 +429,12 @@ def migrate_settings_dict(settings: dict) -> bool:
         True if image_mode was set or a legacy key was removed.
     """
     had_legacy = 'use_full_pixel_depth' in settings or 'false_color_16bit' in settings
-    needs_mode = settings.get('image_mode') not in _MODE_TABLE
+    # The legacy keys, where present, are the person's choice. Without them a
+    # mode present but unknown is the writer's rule to replace and report
+    # after the merge, not a migration to coerce here.
+    needs_mode = 'image_mode' not in settings or (
+        had_legacy and settings['image_mode'] not in _MODE_TABLE
+    )
     if not had_legacy and not needs_mode:
         return False
     if needs_mode:

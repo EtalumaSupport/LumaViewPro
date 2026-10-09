@@ -5,11 +5,9 @@ from dataclasses import dataclass
 import modules.binning as binning
 import modules.image_mode as image_mode
 import modules.layer_record as layer_record
+import modules.settings_paths as settings_paths
 from modules.exceptions import ConfigError
-from modules.lumascope_api._constants import (
-    is_turret_slot,
-    refuse_acceleration_pct,
-)
+from modules.lumascope_api._constants import is_turret_slot
 from lvp_logger import logger
 
 
@@ -98,10 +96,12 @@ class ScopeInitConfig:
                 motors at a limit nobody chose, and the scope reads the turret
                 map and the scale bar from the settings at every use, so one
                 missing would fail every objective read or capture rather
-                than once, here. A present one no board may be
-                given is refused too, before bring-up commands anything: a
-                dict handed to a session never went through the load that
-                replaces such a value.
+                than once, here.
+            SettingRefusedError: ``'out_of_range'``, the acceleration limit
+                is one no board may be given -- refused before bring-up
+                commands anything, by the rule the load replaces such a
+                value by: a dict handed to a session never went through the
+                load.
         """
         required = ('frame', 'binning', 'stage_offset', 'turret_objectives', 'scale_bar', 'motion')
         if not turreted:
@@ -117,10 +117,7 @@ class ScopeInitConfig:
                 'a factory-built session needs them, a file-sourced one has them'
             )
         acceleration_pct = settings['motion']['acceleration_max_pct']
-        try:
-            refuse_acceleration_pct(acceleration_pct)
-        except ValueError as e:
-            raise ConfigError(f'settings cannot configure a scope: {e}') from e
+        settings_paths.refuse_outside_range('motion.acceleration_max_pct', acceleration_pct)
         binning_size = binning.binning_size_str_to_int(text=settings['binning']['size'])
         expects_motion = layer_record.entry_expects_motion(scope_config)
         preferred_turret_slot = settings.get('turret_position')

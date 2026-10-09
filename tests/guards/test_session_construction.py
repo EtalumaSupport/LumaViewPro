@@ -400,11 +400,15 @@ class TestOneSessionFactory:
         self, monkeypatch, tmp_path
     ):
         import modules.settings_init as settings_init
-        from modules.exceptions import ConfigError
+        from modules.exceptions import ArgumentRefusedError
 
         # No settings loaded in this process: the resolver, not the store,
         # answers.
         monkeypatch.setattr(settings_init, 'settings', None)
 
-        with pytest.raises(ConfigError, match='not an LVP installation root'):
+        with pytest.raises(ArgumentRefusedError) as refused:
             ScopeSession.load_user_settings(str(tmp_path))
+        assert (refused.value.reason, refused.value.argument) == (
+            'not_an_installation',
+            'source_path',
+        )

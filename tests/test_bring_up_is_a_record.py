@@ -17,6 +17,8 @@ from __future__ import annotations
 import ast
 import pathlib
 
+import pytest
+
 import modules.lumascope_api._lumascope as lumascope_module
 import modules.settings_init as settings_init
 from drivers.null_ledboard import NullLEDBoard
@@ -24,6 +26,7 @@ from drivers.null_motorboard import NullMotionBoard
 from drivers.registry import DriverFallback
 from drivers.simulated_camera import SimulatedCamera
 from modules.exceptions import (
+    ArgumentRefusedError,
     BinningSubstitutedNotice,
     CameraNotAvailableError,
     LedBoardUnavailableError,
@@ -31,7 +34,14 @@ from modules.exceptions import (
     NoHardwareDetectedNotice,
     PartialHardwareError,
 )
-from modules.lumascope_api.bring_up import CAMERA, LED, MOTOR, SettingsSetAside
+from modules.lumascope_api.bring_up import (
+    CAMERA,
+    LED,
+    MOTOR,
+    BringUpRecord,
+    PartStatus,
+    SettingsSetAside,
+)
 from modules.notification_center import OutcomeKind
 from modules.scope_session import ScopeSession
 from tests.ast_seams import find_def
@@ -205,6 +215,26 @@ class TestASimulatedScopeReportsNothing:
             assert centre_posts == []
         finally:
             s.shutdown()
+
+
+class TestAPartIsAskedByName:
+    def test_a_name_the_record_lacks_is_refused_offering_its_parts(self):
+        record = BringUpRecord(
+            parts=(
+                PartStatus(MOTOR, up=True),
+                PartStatus(LED, up=True),
+                PartStatus(CAMERA, up=True),
+            )
+        )
+        assert record.part(LED).part == LED
+
+        with pytest.raises(ArgumentRefusedError) as refused:
+            record.part('MOTOR')
+        assert (refused.value.reason, refused.value.argument, refused.value.offered) == (
+            'part_unknown',
+            'name',
+            (MOTOR, LED, CAMERA),
+        )
 
 
 class TestASimulatedManualScope:

@@ -11,7 +11,7 @@ those expectations is pinned in `tests/test_bring_up_is_a_record.py`.
 
 import pytest
 
-from modules.exceptions import ConfigError
+from modules.exceptions import ConfigError, SettingRefusedError
 from modules.scope_init_config import ScopeInitConfig
 from modules.lumascope_api._constants import ACCELERATION_PCT_MAX
 from tests.scope_fakes import build_scope
@@ -168,8 +168,14 @@ class TestAccelerationBound:
     @pytest.mark.parametrize('stored', [ACCELERATION_PCT_MAX + 400, 0, -3, '50', '', None, True])
     def test_a_stored_value_no_board_may_take_is_refused(self, stored):
         settings = {**_BASE_SETTINGS, 'motion': {'acceleration_max_pct': stored}}
-        with pytest.raises(ConfigError, match='acceleration limit'):
+        with pytest.raises(SettingRefusedError) as refused:
             ScopeInitConfig.from_settings(settings, turreted=False)
+        assert (refused.value.reason, refused.value.path) == (
+            'out_of_range',
+            'motion.acceleration_max_pct',
+        )
+        # Its words are the acceleration owner's sentence, ended once.
+        assert str(refused.value).endswith('from 1 to 100.')
 
     def test_an_in_range_value_is_carried(self):
         settings = {**_BASE_SETTINGS, 'motion': {'acceleration_max_pct': 50}}

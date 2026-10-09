@@ -19,10 +19,14 @@ import typing
 import modules.binning as binning
 import modules.common_utils as common_utils
 from modules.exceptions import ConfigError, SettingRefusedError, StoredSettingReplacedNotice
-from modules.image_mode import VALID_LIVE_OUTPUT_FORMATS, VALID_SEQUENCED_OUTPUT_FORMATS
+from modules.image_mode import (
+    VALID_LIVE_OUTPUT_FORMATS,
+    VALID_SEQUENCED_OUTPUT_FORMATS,
+    available_modes,
+)
 from modules.finite_number import is_finite_number
 from modules.lumascope_api._constants import SIMULATOR_TIERS, refuse_acceleration_pct
-from modules.protocol import ProtocolScheduleRefusedError, schedule_from_units
+from modules.protocol import Protocol, ProtocolScheduleRefusedError, schedule_from_units
 from modules.tiling_config import TilingConfig
 
 # A setting changed by its own Session member, because the member does more
@@ -111,8 +115,10 @@ def _refuse_non_count(path: str, value: float) -> None:
         )
 
 
-def _refuse_unknown_format(path: str, value: str, formats: frozenset) -> None:
-    if value not in formats:
+def _refuse_unknown_format(path: str, value: object, formats: frozenset) -> None:
+    # The kind first: a member asks this rule before any kind check, and an
+    # unhashable value would fail the membership test as a bare TypeError.
+    if not isinstance(value, str) or value not in formats:
         raise SettingRefusedError(
             'out_of_range', path, f'{value!r} is not one of {", ".join(sorted(formats))}'
         )
@@ -163,6 +169,21 @@ def _zstack_position(path: str, value: str) -> None:
 
 def _simulator_tier(path: str, value: str) -> None:
     _refuse_unknown_format(path, value, frozenset(SIMULATOR_TIERS))
+
+
+def _image_mode(path: str, value: str) -> None:
+    _refuse_unknown_format(path, value, frozenset(available_modes()))
+
+
+def _acquire(path: str, value: str | None) -> None:
+    # None is a layer that acquires nothing.
+    modes = Protocol.VALID_ACQUIRE_MODES
+    if value is not None and not (isinstance(value, str) and value in modes):
+        raise SettingRefusedError(
+            'out_of_range',
+            path,
+            f'it must be None or one of {", ".join(sorted(modes))}, not {value!r}',
+        )
 
 
 def _log_level(path: str, value: str) -> None:
@@ -233,6 +254,7 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     'binning.size': _binning_label,
     'simulator_tier': _simulator_tier,
     'zstack.position': _zstack_position,
+    'image_mode': _image_mode,
     'logging.default.level': _log_level,
     'motion.acceleration_max_pct': _acceleration,
     'protocol.period': _schedule,
@@ -244,6 +266,7 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     'video.max_duration_seconds': _video_max_duration,
     'jpg_quality': _jpg_quality,
     'live_view_fps': _non_negative,
+    '*.acquire': _acquire,
     '*.exposure_ms': _positive,
     '*.gain_db': _non_negative,
     '*.illumination_ma': _non_negative,
@@ -265,6 +288,20 @@ def _range_for(path: str) -> typing.Callable[[str, typing.Any], None] | None:
         if rest and layer in common_utils.get_layers():
             rule = _RANGES.get(f'*.{rest}')
     return rule
+
+
+def refuse_outside_range(path: str, value: object) -> None:
+    """Refuse ``value`` for the setting at ``path`` by the rule the writer and the load hold.
+
+    For a caller that stores a ranged setting without the writer: a Session
+    member that owns its setting, and a settings dict handed to a session,
+    which never went through the load. ``path`` is a setting with a range.
+
+    Raises:
+        SettingRefusedError: ``'out_of_range'``, the value is outside the
+            setting's range.
+    """
+    _range_for(path)(path, value)
 
 
 def _kind(value: object) -> str:

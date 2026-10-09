@@ -5,7 +5,8 @@ It writes one setting, named by its dotted path, under the lock -- or it
 refuses, naming why, and writes nothing: the path is not a setting, names a
 block, belongs to a Session member, is set only by the installation, or the
 value is the wrong kind or out of the setting's range. A REST caller, a script and the GUI all reach the same
-checks, because they all reach the same member.
+checks, because they all reach the same member. Its read by path,
+``get_setting``, refuses a path that names no setting.
 """
 
 import math
@@ -16,6 +17,7 @@ import pytest
 
 from modules.exceptions import (
     AccelerationLimitRefusedError,
+    ArgumentRefusedError,
     CameraSettingRejected,
     HardwareCommandRefusedError,
     Refusal,
@@ -212,6 +214,17 @@ def test_a_snapshot_never_sees_a_write_half_done(session):
         stop.set()
         writer.join()
     assert torn == []
+
+
+@pytest.mark.parametrize('path', ['bogus', 'BF.bogus', 'BF.gain_db.deeper', ''])
+def test_a_read_of_a_path_that_names_no_setting_is_refused_naming_it(session, path):
+    with pytest.raises(ArgumentRefusedError) as refused:
+        session.get_setting(path)
+    assert (refused.value.reason, refused.value.argument, refused.value.value) == (
+        'not_a_setting',
+        'path',
+        path,
+    )
 
 
 def test_a_relative_live_folder_is_stored_absolute_and_created(tmp_path):

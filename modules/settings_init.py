@@ -332,9 +332,10 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
 
     Distinct from the default merge, which only ADDS absent keys. These
     keys are PRESENT and hold something the app would misread: a retired
-    spinner label, a per-layer acquire mode that is neither of the two the
-    capture code branches on, a video config written as null. The merge
-    cannot see any of them, because nothing is missing.
+    spinner label, a video config written as null. The merge cannot see any
+    of them, because nothing is missing. A value outside a setting's range
+    is not repaired here: the writer's own rule replaces it after the merge
+    and reports it (``settings_paths.replace_refused_stored_values``).
 
     Returns:
         True when at least one value was repaired.
@@ -384,12 +385,6 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
         layer_settings = settings_dict.get(layer)
         if not isinstance(layer_settings, dict):
             continue
-
-        # The capture path branches on exactly 'image' and 'video'; anything
-        # else has to mean "do not acquire", or it falls through both.
-        if layer_settings.get('acquire') not in ('image', 'video', None):
-            layer_settings['acquire'] = None
-            changed = True
 
         video_config = layer_settings.get('video_config')
         if not isinstance(video_config, dict):

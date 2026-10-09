@@ -23,7 +23,7 @@ import time
 
 import pytest
 
-from modules.exceptions import InstallationFileError
+from modules.exceptions import ArgumentRefusedError, InstallationFileError
 from modules.lumascope_api import Lumascope
 from modules.notification_center import Severity, notifications
 from modules.path_utils import get_source_root
@@ -181,8 +181,12 @@ class TestTheSessionsFolderIsTheScopes:
     def test_a_folder_beside_a_callers_scope_is_refused(self, tmp_path):
         scope = Lumascope(simulate=True, warn_pre_release=False, source_path=REPO_ROOT)
         try:
-            with pytest.raises(ValueError, match='source_path is refused beside a scope'):
+            with pytest.raises(ArgumentRefusedError) as refused:
                 ScopeSession.create(complete_settings(), source_path=tmp_path, scope=scope)
+            assert (refused.value.reason, refused.value.argument) == (
+                'refused_beside_scope',
+                'source_path',
+            )
         finally:
             scope.disconnect()
 

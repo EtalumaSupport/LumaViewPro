@@ -318,6 +318,27 @@ def test_migrate_settings_dict_noop_when_already_migrated():
     assert settings == {'image_mode': '8bit'}
 
 
+@pytest.mark.parametrize('stored', ['bogus', None])
+def test_an_unusable_mode_beside_the_legacy_keys_takes_the_choice_they_hold(stored):
+    """The legacy keys are the person's choice; an unusable image_mode beside
+    them is derived from them, not left for the load to reset to the shipped one."""
+    from modules.image_mode import migrate_settings_dict
+
+    settings = {'image_mode': stored, 'use_full_pixel_depth': True}
+    assert migrate_settings_dict(settings) is True
+    assert settings == {'image_mode': '12bit_scientific'}
+
+
+def test_an_unknown_mode_with_no_legacy_keys_is_left_for_the_load_to_replace():
+    """With nothing to derive a choice from, the migration leaves the value to
+    the writer's rule, which replaces and reports it after the merge."""
+    from modules.image_mode import migrate_settings_dict
+
+    settings = {'image_mode': 'bogus'}
+    assert migrate_settings_dict(settings) is False
+    assert settings == {'image_mode': 'bogus'}
+
+
 # ---------------------------------------------------------------------------
 # Save encoding: 12-bit scaled (MSB-aligned, lossless, recoverable)
 # ---------------------------------------------------------------------------

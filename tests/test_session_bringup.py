@@ -16,7 +16,7 @@ import time
 import numpy as np
 import pytest
 
-from modules.exceptions import ConfigError
+from modules.exceptions import ArgumentRefusedError, ConfigError
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings, complete_settings_without
@@ -117,12 +117,13 @@ class TestSettingsThatCannotConfigureAScope:
             s.scope.disconnect()
 
     def test_a_root_without_a_template_refuses_by_root(self, tmp_path):
-        with pytest.raises(ConfigError, match=r'settings\.json'):
+        with pytest.raises(ArgumentRefusedError) as refused:
             ScopeSession.create(
                 ScopeSession.load_user_settings(str(tmp_path)),
                 source_path=str(tmp_path),
                 simulate=True,
             )
+        assert (refused.value.reason, refused.value.value) == ('not_an_installation', str(tmp_path))
 
 
 class TestARefusingFactoryLeavesNothingBehind:
