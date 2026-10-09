@@ -2,6 +2,11 @@
 
 ## 4.0.0 (in development)
 
+- **The support report no longer runs the hardware serial benchmarks in a second process**: its
+  step 18 ran `tests/test_hardware_serial.py --run-hardware`, which opened its own LED and motor
+  boards outside the report's session: beside a running LumaViewPro it shared the port (macOS) or
+  could not open it (Windows), and a report made on a simulated session drove whatever scope was
+  plugged in. The report's serial latency is its step 7, on the session's own drivers.
 - **The window stays live through the startup home (SDK and GUI)**: new
   `ScopeSession.begin_application_session()` starts the startup motion -- the home, the turret to
   position 1, the simulator's sample plane -- and returns a Future at once;

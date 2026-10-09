@@ -1694,10 +1694,6 @@ class TechSupportReport:
             cb(71, 'Collecting video recording receipts...')
             self._step_video_receipts(tmp)
 
-            # 18. Hardware serial tests (pytest)  (72-80%)
-            cb(73, 'Running hardware serial tests...')
-            self._step_hardware_tests(tmp)
-
             # 19. Bandwidth test (optional)  (80-94%)
             if include_bw and self._camera_active():
                 cb(81, 'Running camera bandwidth test (this takes a while)...')
@@ -2564,61 +2560,6 @@ class TechSupportReport:
                 (d / f'{i:02d}_{rec.name}_ERROR.txt').write_text(f'Receipt failed: {e}\n')
         (d / '_index.txt').write_text('\n'.join(index_lines))
         self._meta['video_receipts'] = meta_rows
-
-    def _step_hardware_tests(self, tmp):
-        """Run test_hardware_serial.py with --run-hardware.
-
-        This runs the real serial benchmarks: exchange_command latency,
-        LED on/off cycles, position query throughput, rapid STATUS queries,
-        INFO response validation, etc. These directly exercise the actual
-        hardware and will reveal communication problems.
-
-        We intentionally skip simulation tests (test_simulators,
-        test_serial_safety, test_scope_api, etc.) because those verify
-        the test infrastructure, not the customer's hardware.
-        """
-        d = tmp / 'test_results'
-        d.mkdir()
-
-        app_root = _get_app_root()
-        tests_dir = app_root / 'tests'
-
-        if not tests_dir.is_dir():
-            (d / 'skipped.txt').write_text('Tests directory not found.\n')
-            return
-
-        test_file = tests_dir / 'test_hardware_serial.py'
-        if not test_file.exists():
-            (d / 'skipped.txt').write_text('test_hardware_serial.py not found.\n')
-            return
-
-        try:
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    '-m',
-                    'pytest',
-                    str(test_file),
-                    '--run-hardware',
-                    '-v',
-                    '--tb=short',
-                    '-q',
-                ],
-                capture_output=True,
-                text=True,
-                timeout=180,
-                cwd=str(app_root),
-            )
-            with open(d / 'test_hardware_serial.txt', 'w') as f:
-                f.write('test_hardware_serial.py (--run-hardware)\n')
-                f.write(f'Return code: {result.returncode}\n\n')
-                f.write(result.stdout)
-                if result.stderr:
-                    f.write(f'\nSTDERR:\n{result.stderr}')
-        except subprocess.TimeoutExpired:
-            (d / 'test_hardware_serial.txt').write_text('TIMED OUT after 180s\n')
-        except Exception as e:
-            (d / 'test_hardware_serial.txt').write_text(f'Error: {e}\n')
 
     def _step_bandwidth(self, tmp, cb):
         d = tmp / 'bandwidth_test'
