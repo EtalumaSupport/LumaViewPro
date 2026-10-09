@@ -1107,6 +1107,7 @@ health.namespaces                  # each namespace's NamespaceHealth: loaded, l
 health.not_loaded                  # PluginNotLoaded(name, version, reason) for each that did not load
 
 session.plugin_api_level           # int: what this host does that a plugin may rely on ("Plugin API level")
+session.app_version                # the application's version, '4.0.0-beta36'; None where the build has none
 ```
 
 The full report holds the scope for a diagnostic around its hardware steps
@@ -2508,6 +2509,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `apply_remedy`
 - `apply_tiling`
 - `apply_zstacking`
+- `app_version`
 - `assign_turret_objective`
 - `begin_application_session` (in-process)
 - `bring_up_record`

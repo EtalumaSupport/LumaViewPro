@@ -2908,6 +2908,18 @@ class ScopeSession:
             )
 
     @api
+    @property
+    def app_version(self) -> str | None:
+        """The application's version, ``4.0.0-beta36``; None where the build has none.
+
+        ``version.txt``'s first line, through its one reader. A build with no
+        readable ``version.txt`` answers None rather than a name it does not
+        have.
+        """
+        version, _build_timestamp = path_utils.read_version()
+        return version or None
+
+    @api
     def plugin_health(self) -> 'PluginHealth | None':
         """The loaded plugins, the ones that did not load, and their runtime errors.
 
