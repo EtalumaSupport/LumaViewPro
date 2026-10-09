@@ -5,7 +5,9 @@
 or ``about:blank`` for an outcome that declares no reason), ``title``,
 ``detail``, ``status``, ``instance`` (``urn:uuid:<request id>``), and the
 members a client branches on: ``kind`` (``OutcomeKind``'s value),
-``reason`` and ``remedy``.
+``reason`` and ``remedy``. Beside them, a member's outcome carries each
+field its type publishes (``@api_fields``), such as the name of a refused
+argument, so a client corrects its request without reading the words.
 
 A member's outcome is read as every host reads it
 (``notification_center.outcome_of``), so a wire client is refused in the
@@ -28,6 +30,7 @@ import dataclasses
 from fastapi.responses import JSONResponse
 
 from modules import notification_center
+from modules.api_surface import fields_of
 from modules.exceptions import RefusalCause
 from modules.notification_center import OutcomeKind, outcome_of
 from rest.routes import wire_form
@@ -173,7 +176,17 @@ def answered_by_member(exception: Exception, request_id: str) -> Answer:
         reason=outcome.reason or None,
         remedy=wire_form(outcome.remedy),
     )
-    return Answer(status, body)
+    return Answer(status, {**_published(exception), **body})
+
+
+def _published(exception: Exception) -> dict[str, object]:
+    """Each field *exception*'s type publishes, in its wire form."""
+    found: dict[str, object] = {}
+    for klass in type(exception).__mro__:
+        for name in fields_of(klass):
+            if name not in found:
+                found[name] = wire_form(getattr(exception, name))
+    return found
 
 
 def _problem(

@@ -2980,6 +2980,12 @@ Reached through returned by `scope.imaging`'s `applied_*_for` members.
 - `capped`
 - `stored`
 
+### ArgumentRefusedError
+
+Reached through a REST problem, whose members carry it.
+
+- `argument`
+
 ### AutoGainLock
 
 Reached through returned by `session.set_layer_auto_gain` and `scope.imaging.lock_auto_gain`.

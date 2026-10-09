@@ -5,7 +5,8 @@ Every answer that is not a result is an RFC 9457 problem
 (``application/problem+json``): ``type`` names the reason
 (``urn:lumascope:problem:<reason>``, or ``about:blank`` with none), ``title``
 and ``detail`` are the outcome's own, ``instance`` names the request, and
-``kind``, ``reason`` and ``remedy`` are what a client branches on. A
+``kind``, ``reason`` and ``remedy`` are what a client branches on, beside
+the fields the outcome's type publishes (a refused argument's name). A
 member's outcome is read as every host reads it (``outcome_of``) and
 reported once, to the log only: the problem is the answer. A refusal is 422
 when the request as sent cannot succeed and 409 when the scope's state
@@ -21,7 +22,12 @@ import re
 import pytest
 from fastapi.testclient import TestClient
 
-from modules.exceptions import LiveFolderPathRefusedError, Remedy, RunAlreadyEndedError
+from modules.exceptions import (
+    ArgumentRefusedError,
+    LiveFolderPathRefusedError,
+    Remedy,
+    RunAlreadyEndedError,
+)
 from modules.scope_session import ScopeSession
 from rest.app import build_app
 from tests.settings_fixtures import complete_settings
@@ -127,6 +133,18 @@ def test_a_quiet_outcome_answers_by_its_cause_and_says_it_is_quiet(client, sessi
         'run_already_ended',
         'The run has already ended.',
     )
+
+
+def test_a_refusal_carries_the_fields_its_type_publishes(client, session, monkeypatch):
+    def refused():
+        raise ArgumentRefusedError('not_a_number', argument='illumination_ma', value='bright')
+
+    monkeypatch.setattr(session.scope.illumination, 'leds_off', refused)
+
+    body = _problem(client.post('/api/v1/scope/illumination/leds_off'), 422)
+
+    # A client corrects the request from the fields, not the words.
+    assert (body['reason'], body['argument']) == ('not_a_number', 'illumination_ma')
 
 
 def test_a_refusals_remedy_is_sent_as_the_record_apply_remedy_takes(client, session, monkeypatch):

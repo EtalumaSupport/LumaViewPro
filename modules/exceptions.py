@@ -2415,6 +2415,7 @@ class SessionClosingError(Refusal, Exception):
         self.activity = activity
 
 
+@api_fields('argument')
 class ArgumentRefusedError(Refusal, ValueError):
     """An argument the scope cannot act on: it breaks a fixed rule, whatever the scope's state.
 
@@ -2430,8 +2431,12 @@ class ArgumentRefusedError(Refusal, ValueError):
             alone passes it.
         argument: The name of the argument refused.
         value: What was given, as given.
+
+    ``argument`` is published, so a REST problem carries it beside the
+    words; the client already holds the value it sent.
     """
 
+    argument: str
     cause = RefusalCause.REQUEST
     _WORDS: ClassVar[dict[str, tuple[str, str]]] = {
         'not_a_number': (
