@@ -131,13 +131,66 @@ class OutcomeKind(StrEnum):
     A string enum, so the value crosses a wire as itself. ``UNCLASSIFIED``
     is a post made straight to the centre rather than through the
     reporter: its kind was never declared, so the record says so rather
-    than guessing from its severity.
+    than guessing from its severity. ``QUIET`` is never delivered to a
+    listener, since a quiet outcome is never shown; it is the kind a caller
+    that receives one as its answer reads.
     """
 
     REFUSAL = 'refusal'
     FAULT = 'fault'
     NOTICE = 'notice'
+    QUIET = 'quiet'
     UNCLASSIFIED = 'unclassified'
+
+
+@dataclass(frozen=True)
+class Outcome:
+    """What an exception's type says it is, read once for every host that answers it.
+
+    Attributes:
+        kind: A refusal, a notice, a quiet outcome or a fault.
+        title: The heading its type declares; None for a fault whose type
+            declares none, which each host names in its own way.
+        words: Its own words, or a sentence saying they could not be written.
+        for_person: Whether ``words`` are written for the person: a
+            refusal's, a notice's, a quiet outcome's, and a fault's whose type
+            writes them so. Any other fault's are a developer's.
+        reason: Its machine-readable code; empty when its type declares none.
+        remedy: The one action that answers it, when it has one.
+        fatal: A fault that ends what was running.
+    """
+
+    kind: OutcomeKind
+    title: str | None
+    words: str
+    for_person: bool
+    reason: str
+    remedy: Remedy | None
+    fatal: bool
+
+
+def outcome_of(exception: BaseException) -> Outcome:
+    """What *exception* is, as its type says: the one reading of an outcome's kind and words."""
+    # Quiet first: a quiet outcome is never shown, whatever else its type is.
+    if isinstance(exception, (Quiet, CancelledError)):
+        kind = OutcomeKind.QUIET
+    elif isinstance(exception, Refusal):
+        kind = OutcomeKind.REFUSAL
+    elif isinstance(exception, Notice):
+        kind = OutcomeKind.NOTICE
+    else:
+        kind = OutcomeKind.FAULT
+    words = _outcome_words(exception)
+    fault = kind == OutcomeKind.FAULT
+    return Outcome(
+        kind=kind,
+        title=getattr(exception, 'title', None) or None,
+        words=words,
+        for_person=not fault or (isinstance(exception, _TYPED_FAULTS) and bool(words)),
+        reason=getattr(exception, 'reason', None) or '',
+        remedy=getattr(exception, 'remedy', None),
+        fatal=fault and bool(getattr(exception, 'fatal', False)),
+    )
 
 
 # One id per outcome: an outcome reported muted and later shown is one
@@ -570,9 +623,10 @@ class NotificationCenter:
         leaves the object unshown, for a later report to show. The listeners
         hear both deliveries, under the one ``outcome_id`` the object keeps.
         """
-        refusal = isinstance(exception, Refusal)
-        notice = isinstance(exception, Notice)
-        quiet = isinstance(exception, (Quiet, CancelledError))
+        outcome = outcome_of(exception)
+        refusal = outcome.kind == OutcomeKind.REFUSAL
+        notice = outcome.kind == OutcomeKind.NOTICE
+        quiet = outcome.kind == OutcomeKind.QUIET
         # Check-and-mark only: notify() takes this same lock, so logging and
         # notifying happen after it is released.
         with self._lock:
@@ -588,8 +642,8 @@ class NotificationCenter:
                 setattr(exception, _ID_MARK, outcome_id)
 
         type_name = type(exception).__name__
-        words = _outcome_words(exception)
-        reason = getattr(exception, 'reason', None) or ''
+        words = outcome.words
+        reason = outcome.reason
         if do_log:
             if quiet:
                 _outcome_logger.info(f'[{category}] {type_name}: {words}')
@@ -607,7 +661,7 @@ class NotificationCenter:
                 )
         if not do_show:
             return
-        remedy = getattr(exception, 'remedy', None)
+        remedy = outcome.remedy
         if refusal:
             _log_display_line(Severity.WARNING, category, exception.title, words, reason)
             delivered = self._deliver(
@@ -637,9 +691,9 @@ class NotificationCenter:
                 outcome_id=outcome_id,
             )
         else:
-            body = words if isinstance(exception, _TYPED_FAULTS) and words else _UNTYPED_FAULT_BODY
-            title = getattr(exception, 'title', None) or fault_title
-            fatal = bool(getattr(exception, 'fatal', False))
+            body = words if outcome.for_person else _UNTYPED_FAULT_BODY
+            title = outcome.title or fault_title
+            fatal = outcome.fatal
             # The fault's one line is the reporter's, written above.
             delivered = self._deliver(
                 Severity.CRITICAL if fatal else Severity.ERROR,

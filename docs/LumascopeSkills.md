@@ -1020,7 +1020,7 @@ Each call carries one `Notification` (`modules.notification_center`):
 
 | Field | Meaning |
 |---|---|
-| `kind` | `OutcomeKind`, a string enum: `'refusal'` (declined; nothing broke), `'fault'` (something failed), `'notice'` (information; nothing failed), or `'unclassified'` (a notification posted without declaring its kind; these are being moved to declared kinds) |
+| `kind` | `OutcomeKind`, a string enum: `'refusal'` (declined; nothing broke), `'fault'` (something failed), `'notice'` (information; nothing failed), or `'unclassified'` (a notification posted without declaring its kind; these are being moved to declared kinds). A fifth, `'quiet'` (nothing failed and nothing was declined, such as a stop sent to a run that has already ended), is never delivered here, because a quiet outcome is never shown; a caller that receives one as its answer reads it from the exception's type (`notification_center.outcome_of`) |
 | `title`, `message` | The heading and the sentence, written for the person |
 | `reason` | The outcome's machine-readable code, stable enough to branch on (a refusal's, a fault's or a notice's). Every refusal declares one (`tests/guards/test_every_refusal_states_its_reason.py`); empty for a fault or notice that declares none |
 | `remedy` | A `Remedy` when the outcome has one action that answers it: `session.apply_remedy(n.remedy)` takes it |
