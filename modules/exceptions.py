@@ -429,6 +429,36 @@ class StoredSettingReplacedNotice(Notice, Exception):  # noqa: N818 -- a notice,
         self.replacements = replacements
 
 
+class LayerSettingCappedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """Saved layer gains or exposures above this camera's range; each runs at the camera's limit.
+
+    The saved value is the person's intent and is kept: a camera that can
+    reach it applies it again. One notice names every capped layer value
+    one bring-up found, as ``StoredSettingReplacedNotice`` names every
+    replaced one, since the notification centre shows one notice of a kind
+    at a time.
+
+    Attributes:
+        capped: ``(layer, setting, stored, applied)`` for each capped value:
+            the layer, ``'gain_db'`` or ``'exposure_ms'``, the saved value
+            and the camera's limit it runs at.
+    """
+
+    title = "Saved layer settings above the camera's range"
+    reason = 'layer_setting_capped'
+
+    def __init__(self, capped: list[tuple[str, str, float, float]]):
+        listed = '; '.join(
+            f'{layer} {setting} {stored!r} runs at {applied!r}'
+            for layer, setting, stored, applied in capped
+        )
+        super().__init__(
+            'This camera cannot reach these saved layer settings, so each runs at the '
+            f"camera's limit; the saved value is kept for a camera that can: {listed}."
+        )
+        self.capped = capped
+
+
 class ProtocolError(Exception):
     """Protocol file parsing, validation, or execution error."""
 

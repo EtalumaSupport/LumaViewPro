@@ -2644,7 +2644,38 @@ class ScopeSession:
             logger.info(
                 '[Session  ] objective at bring-up: unknown until the turret is in a known slot'
             )
+        self._tell_capped_layers()
         self._apply_bring_up_layer()
+
+    def _tell_capped_layers(self) -> None:
+        """Tell, as one notice, every saved layer gain or exposure the attached camera cannot reach.
+
+        A saved layer value above the camera's range is kept as saved and
+        applied at the camera's limit (``ImagingAPI.applied_gain_db_for``
+        and kin); each apply logs it, and this is where the person is told,
+        once per bring-up for every capped layer at once. With no camera
+        the cache declares no limit, so nothing is capped and nothing is
+        told.
+        """
+        imaging = self.scope.imaging
+        capped: list[tuple[str, str, float, float]] = []
+        with self.settings_lock:
+            for record in self.scope.layer_identity.layers:
+                layer = record.key_name
+                gain = imaging.applied_gain_db_for(self.settings[layer]['gain_db'])
+                if gain.capped:
+                    capped.append((layer, 'gain_db', gain.stored, gain.applied))
+                exposure = imaging.applied_exposure_ms_for(self.settings[layer]['exposure_ms'])
+                if exposure.capped:
+                    capped.append((layer, 'exposure_ms', exposure.stored, exposure.applied))
+        if not capped:
+            return
+        from modules.exceptions import LayerSettingCappedNotice
+        from modules.notification_center import notifications
+
+        notifications.report_outcome(
+            LayerSettingCappedNotice(capped), solicited=False, category='Camera'
+        )
 
     def _apply_bring_up_layer(self) -> None:
         """Put BF's stored camera settings on the camera, as the GUI opens on BF.
