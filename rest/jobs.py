@@ -25,6 +25,7 @@ import asyncio
 import dataclasses
 import datetime
 import threading
+import time
 from collections.abc import Callable
 from concurrent.futures import Future
 
@@ -152,6 +153,8 @@ class JobRegistry:
         self._jobs: dict[str, Job] = {}
         self._next = 1
         self._live_calls = 0
+        # The calls' threads, each until it has ended, so the server's close can join them.
+        self._threads: set[threading.Thread] = set()
 
     def admit(self, *, returns_job: bool) -> None:
         """Refuse a call while the live limit is held, before it runs.
@@ -197,15 +200,29 @@ class JobRegistry:
             finally:
                 with self._lock:
                     self._live_calls -= 1
+                    self._threads.discard(threading.current_thread())
             loop.call_soon_threadsafe(settle, answer)
 
+        thread = threading.Thread(target=run, name=f'rest {name}')
+        with self._lock:
+            self._threads.add(thread)
         try:
-            threading.Thread(target=run, name=f'rest {name}').start()
+            thread.start()
         except BaseException:
             with self._lock:
                 self._live_calls -= 1
+                self._threads.discard(thread)
             raise
         return answered
+
+    def join(self, timeout_s: float) -> list[str]:
+        """Wait up to *timeout_s* for every call's thread to end; the names of those still running."""
+        deadline = time.monotonic() + timeout_s
+        with self._lock:
+            threads = list(self._threads)
+        for thread in threads:
+            thread.join(max(0.0, deadline - time.monotonic()))
+        return [t.name for t in threads if t.is_alive()]
 
     def adopt(
         self,

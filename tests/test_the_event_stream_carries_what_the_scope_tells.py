@@ -7,7 +7,9 @@ each name the run by its handle, its first ones included, which can come
 before the call that started it returns; an outcome is on the stream only
 when nobody asked for it, once per ``outcome_id``; a reconnect with
 ``Last-Event-ID`` is sent what it missed, or ``reset`` and ``status`` once
-that is no longer held; a quiet stream carries a comment.
+that is no longer held; a quiet stream carries a comment; a stream that
+has closed hears nothing more; ``closing`` is the last event of every
+stream, and the only one of a stream begun after it.
 
 Read from a real uvicorn server: a stream never ends, and only a socket
 lets a client stop reading one.
@@ -47,9 +49,9 @@ def session(live):
 
 
 @contextlib.contextmanager
-def _serving(session):
+def _serving(session, app=None):
     server = uvicorn.Server(
-        uvicorn.Config(build_app(session), host='127.0.0.1', port=0, log_level='warning')
+        uvicorn.Config(app or build_app(session), host='127.0.0.1', port=0, log_level='warning')
     )
     thread = threading.Thread(target=server.run)
     thread.start()
@@ -59,6 +61,7 @@ def _serving(session):
             thread.join(0.01)
         port = server.servers[0].sockets[0].getsockname()[1]
         with httpx.Client(base_url=f'http://127.0.0.1:{port}', timeout=10) as client:
+            client.server = server
             yield client
     finally:
         server.should_exit = True
@@ -244,3 +247,43 @@ def test_a_quiet_stream_carries_a_comment(client, monkeypatch):
         quiet = stream.next()
 
     assert quiet == {'comment': 'keepalive'}
+
+
+def test_a_stream_that_has_closed_hears_nothing_more(session):
+    # Served twice: a stream still hearing after its first close would send
+    # each event of the second serving twice.
+    app = build_app(session)
+    with _serving(session, app):
+        pass
+    with _serving(session, app) as client, _reading(client) as stream:
+        stream.until('status')
+        client.post(
+            '/api/v1/scope/illumination/led_on',
+            json={'channel': 'Blue', 'illumination_ma': 10.0},
+        )
+        first = stream.until('led')[-1]
+        client.post('/api/v1/scope/illumination/led_off', json={'channel': 'Blue'})
+        second = stream.until('led')[-1]
+
+    assert first['data']['on'] is True
+    assert second['data']['on'] is False
+
+
+def test_closing_is_the_last_event_of_every_stream_and_of_one_begun_after(session):
+    app = build_app(session)
+    with _serving(session, app) as client:
+        with client.stream('GET', '/api/v1/events') as response:
+            stream = _Stream(response)
+            stream.until('status')
+            loop = client.server.servers[0].get_loop()
+            loop.call_soon_threadsafe(app.state.closing.finish)
+            last = stream.until('closing')[-1]
+            with pytest.raises(AssertionError, match='the stream ended'):
+                stream.next()
+        with _reading(client) as late:
+            only = late.next()
+            with pytest.raises(AssertionError, match='the stream ended'):
+                late.next()
+
+    assert last['data'] == {}
+    assert (only['event'], only['id']) == ('closing', last['id'])

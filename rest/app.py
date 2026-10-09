@@ -57,12 +57,39 @@ PREFIX = f'/api/{VERSION}'
 SERVER_SEGMENTS = frozenset({'handles', 'jobs', 'events', 'files', 'live', 'live.jpg'})
 
 
+class Closing:
+    """The server's close, as the application takes part in it (``rest.server``).
+
+    Once it has begun, a member asked is refused ``server_closing``; jobs,
+    handles, files and the stream are still served, so a client can read
+    what the close finishes.
+    """
+
+    def __init__(self, stream: EventStream, jobs: JobRegistry) -> None:
+        self._stream = stream
+        self._jobs = jobs
+        self.begun = False
+
+    def begin(self) -> None:
+        """Refuse every member asked from now on."""
+        self.begun = True
+
+    def finish(self) -> None:
+        """Send ``closing`` on every stream and end it. Called on the server's loop."""
+        self._stream.finish()
+
+    def join_jobs(self, timeout_s: float) -> list[str]:
+        """Wait up to *timeout_s* for the calls' threads; the names of those still running."""
+        return self._jobs.join(timeout_s)
+
+
 def build_app(session: ScopeSession) -> fastapi.FastAPI:
     """The application serving *session*'s wire members under ``/api/v1/``.
 
     The OpenAPI description is at ``/api/v1/openapi.json`` and the
     interactive reference at ``/docs``. The event stream hears the scope
     while the application is served, from its startup to its shutdown.
+    Its close is ``app.state.closing``.
     """
     # The session's one protocol runner is every client's: its id is kept.
     registry = HandleRegistry(kept=lambda obj: isinstance(obj, ProtocolRunner))
@@ -102,6 +129,8 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     app.add_exception_handler(Exception, _failed)
 
     jobs = JobRegistry()
+    closing = Closing(stream, jobs)
+    app.state.closing = closing
     _add_handle_routes(app, registry, handed_out)
     _add_job_routes(app, jobs)
     _add_event_route(app, stream)
@@ -111,10 +140,10 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     if shadowed:
         raise TypeError(f"Session members {sorted(shadowed)} are named as the server's own routes")
     for route in session_routes:
-        _add(app, session, registry, jobs, stream, route)
+        _add(app, session, registry, jobs, stream, closing, route)
     for cls in sorted(handed_out, key=lambda c: c.__name__):
         for route in routes(cls, handed_out=handed_out):
-            _add(app, session, registry, jobs, stream, route)
+            _add(app, session, registry, jobs, stream, closing, route)
     return app
 
 
@@ -284,6 +313,7 @@ def _add(
     registry: HandleRegistry,
     jobs: JobRegistry,
     stream: EventStream,
+    closing: Closing,
     route: Route,
 ) -> None:
     doc = inspect.cleandoc(route.member.doc)
@@ -310,6 +340,8 @@ def _add(
     ) -> JSONResponse:
         """Run the call on its own thread; answer it, or hand out its job when it outlives the wait."""
         _refuse_query(request)
+        if closing.begun:
+            raise problems.server_closing()
         if member.hands_out:
             registry.admit()
         jobs.admit(returns_job=member.returns_job)

@@ -19,8 +19,9 @@ cancel) is 409. A fault is 500.
 
 The server's own answers carry their own reasons, kind ``refusal``:
 ``invalid_request`` 422, ``not_found`` 404, ``method_not_allowed`` 405,
-``unsupported_media_type`` 415, ``overloaded`` 503, and ``handle_shared``
-409 for an id every client shares.
+``unsupported_media_type`` 415, ``overloaded`` 503, ``server_closing`` 503
+for a member asked while the server closes, and ``handle_shared`` 409 for
+an id every client shares.
 """
 
 from __future__ import annotations
@@ -134,6 +135,16 @@ def overloaded(detail: str, retry_after_s: int) -> ServerRefusedError:
     """More is held than the server keeps; asking again later may succeed."""
     return ServerRefusedError(
         503, 'overloaded', 'Overloaded', detail, headers={'Retry-After': str(retry_after_s)}
+    )
+
+
+def server_closing() -> ServerRefusedError:
+    """A member asked while the server closes: it will not be answered again."""
+    return ServerRefusedError(
+        503,
+        'server_closing',
+        'Server Closing',
+        'The server is closing: it finishes what is under way, then exits.',
     )
 
 

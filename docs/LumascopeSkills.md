@@ -2260,7 +2260,7 @@ Start it from the installation's folder:
 python -m rest --simulate      # the simulated scope; omit --simulate for the attached hardware
 ```
 
-It brings the scope up as LumaViewPro does -- the user's settings, the startup home, the plugins -- and serves on `127.0.0.1` at the port in `rest_api.port` (shipped 8000), printing the URL. It takes the same single-instance lock as LumaViewPro, so it will not start while LumaViewPro or another server drives the scope. A failed startup home is reported in the log and the server still serves, so a client can home again. Ctrl-C stops it once its clients have disconnected, and closes the session. It runs from a source or pip install; the packaged LumaViewPro application does not start it.
+It brings the scope up as LumaViewPro does -- the user's settings, the startup home, the plugins -- and serves on `127.0.0.1` at the port in `rest_api.port` (shipped 8000), printing the URL. It takes the same single-instance lock as LumaViewPro, so it will not start while LumaViewPro or another server drives the scope. A failed startup home is reported in the log and the server still serves, so a client can home again. Ctrl-C or SIGTERM closes it with its clients connected: a new connection is refused, and a member asked on an open one is refused (`503`, `server_closing`), while jobs, handles, files and the event stream are still served; the session closes, and the stream carries what that close reports -- a run's end, the LEDs turned off -- then `closing`, and ends; the process exits `0`, or `1` when the session did not close cleanly. A second signal while it closes is logged and changes nothing. It runs from a source or pip install; the packaged LumaViewPro application does not start it.
 
 To serve a session your own program has brought up, the server is an application (`rest.app.build_app`) served with uvicorn:
 
@@ -2323,7 +2323,7 @@ Every answer that is not a result is an RFC 9457 problem, `application/problem+j
 | `500` | A fault: the call failed. |
 | `404` | `not_found`: no such route, handle, job or file. |
 | `405` / `415` | `method_not_allowed`; `unsupported_media_type` (a body that is not JSON). |
-| `503` | `overloaded`, with `Retry-After`. |
+| `503` | `overloaded`, with `Retry-After`; `server_closing`, while the server closes, with no `Retry-After`: it will not answer again. |
 
 ### The event stream
 
@@ -2338,7 +2338,7 @@ Every answer that is not a result is an RFC 9457 problem, `application/problem+j
 | `outcome` | `Notification`: an outcome nobody asked for, once per `outcome_id` (one a request was refused with is its answer's problem) |
 | `scan_started`, `scan_ended`, `step_started`, `video_progress`, `run_ended`, `files_written` | The run event's record (`ScanStarted`, ...), with `run`, the handle of the run that sent it (`null` for `run_composite`, which hands out no handle). `run_ended` leaves out the run's own copy of its protocol. |
 
-A client that reconnects with `Last-Event-ID` is sent the events it missed; once more than 1024 events have passed, it is sent `reset` and then `status` instead. A comment is sent every 15 s on a quiet stream.
+A client that reconnects with `Last-Event-ID` is sent the events it missed; once more than 1024 events have passed, it is sent `reset` and then `status` instead. A comment is sent every 15 s on a quiet stream. When the server closes, the last event is `closing` (data `{}`) and the stream ends; a stream opened after it is sent only `closing`.
 
 ### Files
 

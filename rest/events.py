@@ -13,7 +13,8 @@ The first event is ``status``, the ``Status`` record, with the current
 ``id:``; ``id:`` is a sequence number. A client that reconnects with
 ``Last-Event-ID`` is sent what it missed from a bounded buffer, or, once the
 buffer has moved past it, ``reset`` and then ``status``. A comment is sent
-every ``KEEPALIVE_S`` so a quiet stream is not taken for a dead one.
+every ``KEEPALIVE_S`` so a quiet stream is not taken for a dead one. When
+the server closes, the last event is ``closing`` and the stream ends.
 """
 
 from __future__ import annotations
@@ -80,6 +81,8 @@ class EventStream:
         self._wake: asyncio.Event | None = None
         self._outcomes: collections.OrderedDict[int, None] = collections.OrderedDict()
         self._removals: list[Callable[[], None]] = []
+        # The id of the ``closing`` event, once the server has finished the stream.
+        self._closing_seq: int | None = None
 
     def open(self, loop: asyncio.AbstractEventLoop) -> None:
         """Start hearing every listener member's events, on *loop*."""
@@ -103,6 +106,15 @@ class EventStream:
         for remove in self._removals:
             remove()
         self._removals.clear()
+
+    def finish(self) -> None:
+        """Send ``closing`` to every reader, and end each read: the server is closing.
+
+        Called on the server's loop. A read begun afterwards is sent
+        ``closing`` and ends.
+        """
+        self._append('closing', '{}')
+        self._closing_seq = self._seq
 
     def run_events(self) -> RunTag:
         """The handlers a run call's ``events`` is filled with, tagged once its run is known."""
@@ -167,6 +179,9 @@ class EventStream:
         """The stream one client reads, from where *last_event_id* left it."""
         sent = _resume_from(last_event_id)
         if sent is None or not self._holds_after(sent):
+            if self._closing_seq is not None:
+                yield _frame('closing', '{}', self._closing_seq)
+                return
             if sent is not None:
                 yield _frame('reset', '{}', self._seq)
             sent = self._seq
@@ -176,6 +191,9 @@ class EventStream:
             missed = [e for e in self._buffer if e.seq > sent]
             if missed and missed[0].seq > sent + 1:
                 # The buffer moved past this client while it read slowly.
+                if self._closing_seq is not None:
+                    yield _frame('closing', '{}', self._closing_seq)
+                    return
                 yield _frame('reset', '{}', self._seq)
                 sent = self._seq
                 status = await asyncio.to_thread(lambda: self._session.status)
@@ -184,6 +202,8 @@ class EventStream:
             for event in missed:
                 yield _frame(event.name, event.data, event.seq)
                 sent = event.seq
+                if event.seq == self._closing_seq:
+                    return
             if missed:
                 continue
             try:
