@@ -91,10 +91,6 @@ class TestSettingsThatCannotConfigureAScope:
         with pytest.raises(ConfigError, match='binning'):
             ScopeSession.create(complete_settings_without('binning'), simulate=True)
 
-    def test_missing_objective_refuses_by_key(self):
-        with pytest.raises(ConfigError, match='objective_id'):
-            ScopeSession.create(complete_settings_without('objective_id'), simulate=True)
-
     def test_a_turret_scope_needs_no_stored_objective(self, tmp_path):
         """On a turret scope the objective is the slot's assignment; a stored
         id names nothing, so its absence is not a reason to refuse."""
@@ -105,10 +101,6 @@ class TestSettingsThatCannotConfigureAScope:
             simulate=True,
         )
         session.shutdown()
-
-    def test_an_unshipped_objective_refuses_by_value(self):
-        with pytest.raises(ConfigError, match='banana'):
-            ScopeSession.create(complete_settings(objective_id='banana'), simulate=True)
 
     def test_string_turret_keys_are_normalized_and_slot_one_answers(self, tmp_path):
         """A caller dict carries JSON string keys; the file pipeline never saw

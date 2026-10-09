@@ -1089,9 +1089,10 @@ class LumaViewProApp(TooltipMixin, App):
             )
 
         # A stored value the settings store cannot configure a scope
-        # from -- a malformed binning label, a missing frame -- reaches
-        # here as ConfigError, and there is nothing above build() to
-        # catch it, so without this the app does not launch at all. Come
+        # from -- a key the shipped template lacks, a shipped objective the
+        # installation's catalogue does not hold -- reaches here as
+        # ConfigError, and there is nothing above build() to catch it, so
+        # without this the app does not launch at all. Come
         # up on the shipped template instead, the same recovery
         # settings_init already runs for an unreadable current.json.
         # The user's file is NOT repaired: a value we cannot interpret

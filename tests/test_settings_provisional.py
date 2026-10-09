@@ -306,11 +306,13 @@ class TestShapeValidation:
 class TestALateRejectionGetsTheSamePolicy:
     """A value that parses and is still unusable arrives AFTER the load.
 
-    prepare_settings can only reject what it can see: a file that will not
-    parse, or containers of the wrong kind. A binning label naming no
-    factor the arithmetic accepts survives all of that and is only found
-    when something tries to configure a scope from it -- so the recovery
-    needs a second trigger, running the same policy.
+    prepare_settings rejects what it can see: a file that will not parse,
+    containers of the wrong kind, and a stored value outside a range the
+    writer holds, replaced for its key alone. A ConfigError bring-up still
+    raises for a prepared file (a key the shipped template lacks, an
+    installation whose shipped objective is not in its catalogue) reaches
+    the host, so the recovery has a second trigger running the same policy;
+    the reason strings below are samples of that trigger's message.
     """
 
     def test_the_store_is_mutated_in_place_not_rebound(self, appdata):

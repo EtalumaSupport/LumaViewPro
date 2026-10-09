@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import typing
 
+import modules.binning as binning
 import modules.common_utils as common_utils
-from modules.exceptions import SettingRefusedError, StoredSettingReplacedNotice
+from modules.exceptions import ConfigError, SettingRefusedError, StoredSettingReplacedNotice
 from modules.image_mode import VALID_LIVE_OUTPUT_FORMATS, VALID_SEQUENCED_OUTPUT_FORMATS
 from modules.lumascope_api._constants import refuse_acceleration_pct
 from modules.protocol import ProtocolScheduleRefusedError, schedule_from_units
@@ -121,6 +122,16 @@ def _overlap(path: str, value: float) -> None:
         raise SettingRefusedError('out_of_range', path, str(e)) from e
 
 
+def _binning_label(path: str, value: str) -> None:
+    # A label is arithmetic (a positive square ``NxN``), judged here before
+    # bring-up parses it: parsed there, one malformed label dropped the
+    # whole file for the shipped template.
+    try:
+        binning.binning_size_str_to_int(text=value)
+    except ConfigError as e:
+        raise SettingRefusedError('out_of_range', path, str(e)) from e
+
+
 def _acceleration(path: str, value: float) -> None:
     try:
         refuse_acceleration_pct(value)
@@ -199,6 +210,7 @@ def _stim_pulse_count(path: str, value: float) -> None:
 # for any layer, as in ``SETTINGS_WITH_A_MEMBER``. Each rule takes the
 # concrete path and the value.
 _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
+    'binning.size': _binning_label,
     'motion.acceleration_max_pct': _acceleration,
     'protocol.period': _schedule,
     'protocol.duration': _schedule,

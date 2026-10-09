@@ -275,15 +275,16 @@ class TestT8ObjectiveQuestion:
         assert question.turret_position == 2
         assert question.proposed == DEFAULT_PROPOSED_OBJECTIVE_ID
 
-    def test_a_stored_id_outside_the_catalogue_is_refused_at_bring_up(self, sessions):
+    def test_a_stored_id_outside_the_catalogue_is_replaced_at_bring_up(self, sessions):
         # '4' is a prefix of '4x Oly'. The catalogue loader used to bind a
         # partial id to its first prefix match, so this state was
         # constructible and the question had to cope with it; the loader now
-        # refuses anything but an exact key, so it is refused before any
-        # session exists -- on a scope with no turret, the one kind whose
-        # bring-up reads the stored id.
-        with pytest.raises(ConfigError, match="unknown objective '4'"):
-            sessions(**_turret_settings(microscope=NON_TURRET_MODEL, objective_id='4'))
+        # refuses anything but an exact key, and bring-up replaces a stored
+        # id that is not one with the shipped objective -- on a scope with no
+        # turret, the one kind whose bring-up reads the stored id -- so no
+        # session ever holds it.
+        session = sessions(**_turret_settings(microscope=NON_TURRET_MODEL, objective_id='4'))
+        assert session.settings['objective_id'] == session.scope.settings_template['objective_id']
 
     def test_a_turreted_bring_up_does_not_read_the_stored_id(self, sessions):
         # The objective is the slot's assignment; a stored id is not consulted.
@@ -440,11 +441,13 @@ class TestT10SelectObjective:
     def test_the_held_id_is_always_a_key(self, sessions):
         # This used to construct a session holding the prefix id '4' and
         # assert that re-selecting it was refused rather than read as "no
-        # change". That state is no longer constructible: bring-up refuses a
-        # stored id that is not an exact key, so the "no change" branch can
-        # only ever compare a key against a key.
-        with pytest.raises(ConfigError, match="unknown objective '4'"):
-            sessions(**_turret_settings(microscope=NON_TURRET_MODEL, objective_id='4'))
+        # change". That state is no longer constructible: bring-up replaces a
+        # stored id that is not an exact key with the shipped objective, so
+        # the "no change" branch can only ever compare a key against a key.
+        plain = sessions(**_turret_settings(microscope=NON_TURRET_MODEL, objective_id='4'))
+        assert plain.scope.runtime_state.get_current_objective_id() in (
+            plain.objective_helper.get_objectives_list()
+        )
         session = _at_slot(sessions(**_turret_settings()), 1)
         held = session.scope.runtime_state.get_current_objective_id()
         assert held in session.objective_helper.get_objectives_list()
@@ -622,6 +625,10 @@ _ALLOWED_WRITERS = {
     ('modules/scope_session.py', 'ScopeSession.assign_turret_objective'),
     ('modules/scope_session.py', 'ScopeSession.clear_turret_objective'),
     ('modules/scope_session.py', 'ScopeSession.confirm_objective'),
+    # Bring-up's replacement of a stored id the catalogue lacks, before the
+    # scope is initialized: there is no runtime state yet to write beside
+    # the store, and initialize reads the stored id.
+    ('modules/scope_session.py', 'ScopeSession._replace_an_unknown_stored_objective'),
     # These two write a snapshot copy, not the store; the census matches the
     # subscript shape and cannot tell a copy from the live dict.
     ('modules/scope_session.py', 'ScopeSession.capture_settings_snapshot'),

@@ -2652,6 +2652,42 @@ class ScopeSession:
         )
         return [('protocol.labware', stored, shipped)]
 
+    def _replace_an_unknown_stored_objective(self) -> list[tuple[str, object, object]]:
+        """Replace a stored objective id the catalogue does not hold with the shipped one.
+
+        On a scope with no turret the stored id is the objective, read at
+        bring-up and stamped as the scale of every capture, so an id that
+        names no catalogue objective is replaced here, where the catalogue
+        is first available, as the plate is. Refusing it instead brought the
+        GUI up on the shipped template, dropping every other stored setting
+        for one id. A turreted scope does not read the stored id: its
+        objective is the slot's assignment, and an unknown assignment is the
+        objective question's.
+
+        Returns:
+            ``[('objective_id', stored, shipped)]`` when replaced, else ``[]``.
+        """
+        if self.scope_has_turret():
+            return []
+        stored = self.settings.get('objective_id')
+        try:
+            self.objective_helper.get_objective_info(objective_id=stored)
+        except ConfigError:
+            pass
+        else:
+            return []
+        shipped = self.scope.settings_template['objective_id']
+        # Stored, not selected: the scope is not initialized yet, so there is
+        # no runtime state to write beside the store; ``initialize`` reads
+        # the stored id, as it does the model stored above.
+        with self.settings_lock:
+            self._store_setting('objective_id', shipped)
+        logger.info(
+            f'[Session  ] stored objective {stored!r} replaced by {shipped!r}: '
+            'the catalogue has no such objective'
+        )
+        return [('objective_id', stored, shipped)]
+
     def configure_scope(self) -> None:
         """Configure the scope from this session's settings -- the bring-up.
 
@@ -2731,6 +2767,7 @@ class ScopeSession:
         scope_config = scope_models.get(self.settings.get('microscope'))
         # Before anything is commanded: every well position is computed on it.
         replaced.extend(self._replace_an_unresolvable_stored_plate())
+        replaced.extend(self._replace_an_unknown_stored_objective())
         config = ScopeInitConfig.from_settings(
             self.settings,
             scope_config=scope_config,

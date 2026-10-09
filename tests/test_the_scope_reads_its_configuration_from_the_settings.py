@@ -116,12 +116,6 @@ def test_a_second_session_leaves_the_scope_reading_the_first(session):
 
 
 class TestBringUpRefusesWhatItCannotActOn:
-    def test_an_unknown_stored_objective(self, tmp_path):
-        settings = complete_settings(live_folder=str(tmp_path))
-        settings['objective_id'] = 'NOT_AN_OBJECTIVE'
-        with pytest.raises(ConfigError, match='NOT_AN_OBJECTIVE'):
-            ScopeSession.create(settings, simulate=True)
-
     @pytest.mark.parametrize('key', ['scale_bar', 'turret_objectives'])
     def test_a_missing_key(self, tmp_path, key):
         settings = complete_settings(live_folder=str(tmp_path))

@@ -31,6 +31,7 @@ TEMPLATE = REPO_ROOT / 'data' / 'settings.json'
 # the mirror from drifting. ``*`` is any layer; the tests walk it as Blue, the
 # layer the template gives every block (a stimulation config among them).
 _OUT_OF_RANGE = {
+    'binning.size': '2x4',
     'motion.acceleration_max_pct': 500,
     'protocol.period': 0.001,
     'protocol.duration': -1,
