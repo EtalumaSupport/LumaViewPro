@@ -44,6 +44,7 @@ from modules.exceptions import (
     ProtocolError,
     Quiet,
     Refusal,
+    RefusalCause,
     Remedy,
     ScopeDisconnectError,
     SupportReportNotSavedError,
@@ -158,6 +159,9 @@ class Outcome:
         reason: Its machine-readable code; empty when its type declares none.
         remedy: The one action that answers it, when it has one.
         fatal: A fault that ends what was running.
+        cause: Whether the same request could succeed later, as a refusal's
+            or a quiet outcome's type declares (``RefusalCause``); None for a
+            fault, a notice, and a by-contract cancel, which declares none.
     """
 
     kind: OutcomeKind
@@ -167,6 +171,7 @@ class Outcome:
     reason: str
     remedy: Remedy | None
     fatal: bool
+    cause: RefusalCause | None = None
 
 
 def outcome_of(exception: BaseException) -> Outcome:
@@ -190,7 +195,15 @@ def outcome_of(exception: BaseException) -> Outcome:
         reason=getattr(exception, 'reason', None) or '',
         remedy=getattr(exception, 'remedy', None),
         fatal=fault and bool(getattr(exception, 'fatal', False)),
+        cause=_cause_of(exception) if kind in (OutcomeKind.REFUSAL, OutcomeKind.QUIET) else None,
     )
+
+
+def _cause_of(exception: BaseException) -> RefusalCause | None:
+    # A fault's ``cause`` can be something else entirely (the OSError behind
+    # an unreadable file), so only a declared RefusalCause is one.
+    cause = getattr(exception, 'cause', None)
+    return cause if isinstance(cause, RefusalCause) else None
 
 
 # One id per outcome: an outcome reported muted and later shown is one

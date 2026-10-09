@@ -309,6 +309,7 @@ class TestEveryHostReadsAnOutcomeAlike:
         from modules.exceptions import (
             CaptureError,
             LiveFolderPathRefusedError,
+            RefusalCause,
             RunAlreadyEndedError,
             SingleScanNotice,
         )
@@ -328,14 +329,20 @@ class TestEveryHostReadsAnOutcomeAlike:
             'outside_live_folder',
             'Not there.',
         )
-        assert (notice.kind, notice.reason) == (OutcomeKind.NOTICE, 'single_scan')
-        assert quiet.kind == OutcomeKind.QUIET
+        assert refusal.cause == RefusalCause.REQUEST
+        assert (notice.kind, notice.reason, notice.cause) == (
+            OutcomeKind.NOTICE,
+            'single_scan',
+            None,
+        )
+        assert (quiet.kind, quiet.cause) == (OutcomeKind.QUIET, RefusalCause.REQUEST)
         assert quiet.for_person
-        assert (typed.kind, typed.title, typed.reason, typed.for_person) == (
+        assert (typed.kind, typed.title, typed.reason, typed.for_person, typed.cause) == (
             OutcomeKind.FAULT,
             'Capture Failed',
             'no_frame',
             True,
+            None,
         )
         # A fault whose type writes no words for the person, and no title:
         # each host says so in its own way.

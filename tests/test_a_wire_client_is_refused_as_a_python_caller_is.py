@@ -7,9 +7,11 @@ Every answer that is not a result is an RFC 9457 problem
 and ``detail`` are the outcome's own, ``instance`` names the request, and
 ``kind``, ``reason`` and ``remedy`` are what a client branches on. A
 member's outcome is read as every host reads it (``outcome_of``) and
-reported once, to the log only: the problem is the answer. Every refusal is
-409 and a fault 500 until each refusal declares its cause. The server's own
-answers -- no such route, method, handle or body -- carry their own reasons.
+reported once, to the log only: the problem is the answer. A refusal is 422
+when the request as sent cannot succeed and 409 when the scope's state
+refused it, as its type declares, so a client retries only a 409; a fault is
+500. The server's own answers -- no such route, method, handle or body --
+carry their own reasons.
 """
 
 from __future__ import annotations
@@ -71,7 +73,8 @@ def test_a_refusal_is_the_python_callers_refusal_and_is_logged_once(client, sess
     with pytest.raises(LiveFolderPathRefusedError) as python:
         session.live_folder_path('../outside')
 
-    body = _problem(client.post('/api/v1/make_logs_zip', json={'output_dir': '../outside'}), 409)
+    # The request as sent can never succeed: 422.
+    body = _problem(client.post('/api/v1/make_logs_zip', json={'output_dir': '../outside'}), 422)
 
     assert body['type'] == 'urn:lumascope:problem:outside_live_folder'
     assert (body['title'], body['detail']) == (python.value.title, str(python.value))
@@ -83,6 +86,15 @@ def test_a_refusal_is_the_python_callers_refusal_and_is_logged_once(client, sess
     ((exception, how),) = reported
     assert isinstance(exception, LiveFolderPathRefusedError)
     assert how == {'solicited': True, 'category': 'REST', 'log_only': True}
+
+
+def test_a_refusal_the_scopes_state_gave_is_409(client, live):
+    # An unplugged drive: the same request succeeds once it is back.
+    live.rmdir()
+
+    body = _problem(client.post('/api/v1/make_logs_zip', json={'output_dir': 'reports'}), 409)
+
+    assert body['reason'] == 'capture_location_unusable'
 
 
 def test_a_fault_is_500_titled_by_its_class_in_its_own_words(client, session, monkeypatch):
@@ -101,15 +113,20 @@ def test_a_fault_is_500_titled_by_its_class_in_its_own_words(client, session, mo
     assert (body['kind'], body['reason']) == ('fault', None)
 
 
-def test_a_quiet_outcome_is_409_and_says_it_is_quiet(client, session, monkeypatch):
+def test_a_quiet_outcome_answers_by_its_cause_and_says_it_is_quiet(client, session, monkeypatch):
     def ended():
         raise RunAlreadyEndedError('The run has already ended.')
 
     monkeypatch.setattr(session.scope.illumination, 'leds_off', ended)
 
-    body = _problem(client.post('/api/v1/scope/illumination/leds_off'), 409)
+    # An ended run's handle never names a live run again: the request's.
+    body = _problem(client.post('/api/v1/scope/illumination/leds_off'), 422)
 
-    assert (body['kind'], body['detail']) == ('quiet', 'The run has already ended.')
+    assert (body['kind'], body['reason'], body['detail']) == (
+        'quiet',
+        'run_already_ended',
+        'The run has already ended.',
+    )
 
 
 def test_a_refusals_remedy_is_sent_as_the_record_apply_remedy_takes(client, session, monkeypatch):
@@ -122,7 +139,7 @@ def test_a_refusals_remedy_is_sent_as_the_record_apply_remedy_takes(client, sess
 
     monkeypatch.setattr(session.scope.illumination, 'leds_off', refuses)
 
-    body = _problem(client.post('/api/v1/scope/illumination/leds_off'), 409)
+    body = _problem(client.post('/api/v1/scope/illumination/leds_off'), 422)
 
     assert body['remedy'] == {
         'member': 'recover_file_writer',

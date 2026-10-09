@@ -9,9 +9,11 @@ members a client branches on: ``kind`` (``OutcomeKind``'s value),
 
 A member's outcome is read as every host reads it
 (``notification_center.outcome_of``), so a wire client is refused in the
-words and with the reason a Python caller is. Every refusal is 409 and a
-fault 500 until each refusal declares whether the request or the scope's
-state refused it.
+words and with the reason a Python caller is. A refusal or quiet outcome is
+422 when the request as sent cannot succeed on this scope and 409 when the
+scope's state refused it, as its type declares (``RefusalCause``), so a
+client retries only a 409; one that declares no cause (a by-contract
+cancel) is 409. A fault is 500.
 
 The server's own answers carry their own reasons, kind ``refusal``:
 ``invalid_request`` 422, ``not_found`` 404, ``method_not_allowed`` 405,
@@ -26,20 +28,18 @@ import dataclasses
 from fastapi.responses import JSONResponse
 
 from modules import notification_center
+from modules.exceptions import RefusalCause
 from modules.notification_center import OutcomeKind, outcome_of
 from rest.routes import wire_form
 
 MEDIA_TYPE = 'application/problem+json'
 TYPE_PREFIX = 'urn:lumascope:problem:'
 
-# What each kind of outcome a member raises answers. A notice is reported,
-# never raised, so one raised is a defect and answers as a fault does.
-_STATUS = {
-    OutcomeKind.REFUSAL: 409,
-    OutcomeKind.QUIET: 409,
-    OutcomeKind.FAULT: 500,
-    OutcomeKind.NOTICE: 500,
-}
+# What each cause of a refusal or quiet outcome answers.
+_CAUSE_STATUS = {RefusalCause.REQUEST: 422, RefusalCause.STATE: 409, None: 409}
+# What a fault answers. A notice is reported, never raised, so one raised is
+# a defect and answers as a fault does.
+_FAULT_STATUS = 500
 
 
 @dataclasses.dataclass(frozen=True)
@@ -159,7 +159,10 @@ def answered_by_member(exception: Exception, request_id: str) -> Answer:
         exception, solicited=True, category='REST', log_only=True
     )
     outcome = outcome_of(exception)
-    status = _STATUS[outcome.kind]
+    if outcome.kind in (OutcomeKind.REFUSAL, OutcomeKind.QUIET):
+        status = _CAUSE_STATUS[outcome.cause]
+    else:
+        status = _FAULT_STATUS
     body = _problem(
         type_=TYPE_PREFIX + outcome.reason if outcome.reason else 'about:blank',
         title=outcome.title or type(exception).__name__,

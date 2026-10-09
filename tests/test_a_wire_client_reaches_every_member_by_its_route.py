@@ -182,7 +182,7 @@ def test_a_path_argument_is_a_live_folder_name_and_reaches_the_member_resolved(c
 def test_a_path_outside_the_live_folder_is_refused_before_the_member_runs(client, tmp_path):
     refused = client.post('/api/v1/make_logs_zip', json={'output_dir': '../outside'})
 
-    assert refused.status_code == 409
+    assert refused.status_code == 422
     assert refused.json()['reason'] == 'outside_live_folder'
     assert not (tmp_path / 'outside').exists()
 
