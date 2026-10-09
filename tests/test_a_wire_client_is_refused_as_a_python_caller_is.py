@@ -161,22 +161,38 @@ def test_a_name_that_is_no_axis_answers_with_the_names_the_member_takes(client):
 
 
 @pytest.mark.parametrize(
-    ('route', 'body', 'reason', 'names'),
+    ('route', 'body', 'reason', 'published'),
     [
-        ('get_setting', {'path': 'bogus'}, 'not_a_setting', 'path'),
-        ('set_layer_acquire', {'layer': 'BF', 'mode': 'bogus'}, 'out_of_range', 'BF.acquire'),
-        ('set_image_mode', {'mode': 'bogus'}, 'out_of_range', 'image_mode'),
+        ('get_setting', {'path': 'bogus'}, 'not_a_setting', {'argument': 'path'}),
+        (
+            'set_layer_acquire',
+            {'layer': 'BF', 'mode': 'bogus'},
+            'out_of_range',
+            {'path': 'BF.acquire', 'member': None},
+        ),
+        (
+            'set_image_mode',
+            {'mode': 'bogus'},
+            'out_of_range',
+            {'path': 'image_mode', 'member': None},
+        ),
+        (
+            'update_settings',
+            {'path': 'image_mode', 'value': '8bit'},
+            'has_member',
+            {'path': 'image_mode', 'member': 'set_image_mode'},
+        ),
     ],
 )
-def test_a_session_argument_its_member_refuses_is_422_and_changes_nothing(
-    client, session, route, body, reason, names
+def test_a_session_argument_its_member_refuses_is_422_names_it_and_changes_nothing(
+    client, session, route, body, reason, published
 ):
     before = session.get_settings_snapshot()
 
     answer = _problem(client.post(f'/api/v1/{route}', json=body), 422)
 
     assert answer['reason'] == reason
-    assert answer['detail'].startswith(names)
+    assert {name: answer[name] for name in published} == published
     assert session.get_settings_snapshot() == before
 
 

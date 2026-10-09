@@ -978,6 +978,7 @@ class SettingsSaveRefusedError(Refusal, ConfigError):
         self.file = file
 
 
+@api_fields('path', 'member')
 class SettingRefusedError(Refusal, ConfigError):
     """A settings write was refused; nothing was written.
 
@@ -999,8 +1000,13 @@ class SettingRefusedError(Refusal, ConfigError):
         path: The dotted path that was written.
         member: The member that changes the setting, for ``'has_member'``;
             otherwise None.
+
+    ``path`` and ``member`` are published, so a REST problem names the
+    setting refused, and the member to call instead, beside the words.
     """
 
+    path: str
+    member: str | None
     cause = RefusalCause.REQUEST
     title = 'Setting Not Changed'
 

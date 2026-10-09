@@ -421,7 +421,9 @@ setting by its keys joined with dots (`'BF.sum'`, `'zstack.step_size'`,
 `'video.max_fps'`); the settings that exist, and the kind each holds,
 are `session.scope.settings_template`. The write is taken under the lock,
 or refused with `SettingRefusedError` (from `modules.exceptions`) and
-nothing is written. Its `reason` says why:
+nothing is written. It carries the refused setting's `path`, and for
+`has_member` the `member` to call instead; a REST problem carries both.
+Its `reason` says why:
 
 | `reason` | Refused when |
 |---|---|
@@ -3464,6 +3466,13 @@ Reached through the event `RunEvents.scan_started` delivers.
 - `interval`
 - `scan_number`
 - `scans_remaining`
+
+### SettingRefusedError
+
+Reached through a REST problem, whose members carry it.
+
+- `member`
+- `path`
 
 ### SettingsSetAside
 
