@@ -590,4 +590,12 @@ class VideoBuilder(ProtocolPostProcessor):
                 artifact_paths=[str(result['actual_output_file_loc'])],
                 output_root=str(path),
             )
-        return {'status': True, 'message': 'Success'}
+        # What a protocol folder's build answers: the file it made, where it
+        # landed, so a caller is told the video and not only that it worked.
+        return {
+            'status': True,
+            'message': 'Success.',
+            'new_count': 1,
+            'output_root': str(path),
+            'artifact_paths': [str(result['actual_output_file_loc'])],
+        }

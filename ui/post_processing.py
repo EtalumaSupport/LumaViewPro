@@ -22,6 +22,7 @@ from kivy.uix.popup import Popup
 
 from ui.progress_popup import show_popup
 from modules import gui_logger
+from modules.post_processing_api import BuildResult
 from modules.stitcher import Stitcher
 import modules.zprojector as zprojector
 import modules.graph_analysis as graph_analysis
@@ -63,8 +64,9 @@ def _run_build(build, popup, label: str, on_done=None) -> None:
             popup.dismiss()
             return
         popup.progress = 100
-        popup.text = result['message']
-        Clock.schedule_once(lambda dt: popup.dismiss(), 5 if result.get('degraded') else 2)
+        popup.text = result.message
+        degraded = isinstance(result, BuildResult) and bool(result.degraded_outputs)
+        Clock.schedule_once(lambda dt: popup.dismiss(), 5 if degraded else 2)
 
     submit_reported(_build, _show, label, lane=_app_ctx.ctx.session.post_processing.lane)
 
@@ -125,8 +127,8 @@ class QuickEnhanceControls(BoxLayout):
         if result is None:
             self.status_text = ''
             return
-        self.last_output_folder = str(result['output_folder'])
-        self.status_text = result['message']
+        self.last_output_folder = str(result.output_folder)
+        self.status_text = result.message
 
 
 class StitchControls(BoxLayout):

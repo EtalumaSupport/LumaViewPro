@@ -31,7 +31,7 @@ def _built_rate(tmp_path, frames_per_sec):
 
     def _capture(self, path, df, frames_per_sec, **kwargs):
         captured['fps'] = frames_per_sec
-        return {'status': True}
+        return {'status': True, 'actual_output_file_loc': path / f'{path.name}.mp4'}
 
     with patch.object(VideoBuilder, '_create_video', _capture):
         builder = VideoBuilder(has_turret=False)

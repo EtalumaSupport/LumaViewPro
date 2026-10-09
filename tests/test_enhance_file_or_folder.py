@@ -170,8 +170,8 @@ def test_enhance_completion_hides_the_derived_output_path(tmp_path):
 
     result = PostProcessingAPI._enhance(source, None, None)
 
-    assert result['message'] == 'Enhance complete.'
-    assert str(tmp_path) not in result['message']
+    assert result.message == 'Enhance complete.'
+    assert str(tmp_path) not in result.message
 
 
 def test_the_mode_router_keeps_a_stitcher_for_every_mode():

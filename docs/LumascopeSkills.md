@@ -920,7 +920,7 @@ def on_progress(percent, text):              # optional on every member: percent
 pp.stitch(folder, on_progress=on_progress)
 ```
 
-Each member blocks until its build finishes and returns a dict whose `message` says what was made, in words written for a person. It raises `PostProcessingRefusedError` (`modules.exceptions`) when the folder cannot yield the output (no images, no groups the build can combine, or a setting it cannot use: an unknown stitch mode or projection method, a playback rate below 1). A build stays inside the folder it was given: a run record that is malformed, or that names its protocol outside the run folder, or a run protocol with a step cell that is neither blank nor its column's type, is refused as `protocol_data_unreadable`, its message saying which; a post-processing record the build cannot read is moved aside as `protocol_post_record.tsv.unreadable` (`.unreadable_001` and on when that name is taken, so no earlier copy is replaced) and a new record is started; a protocol whose steps would name an output outside the folder is refused as `output_outside_folder` before any output is written. It raises `PostProcessingFailedError` when the build did not produce everything asked of it; its `produced_paths` lists what was written. A cell count refuses a folder with nothing it could read before touching `results.csv`, and replaces an existing `results.csv` only with a complete new one.
+Each member blocks until its build finishes and returns a published record whose `message` says what was made, in words written for a person: `stitch`, `zproject`, `composite` and `video` return a `BuildResult` -- `new_count`, the files made; `output_root`, the folder; `artifact_paths`, each file made, where it landed; `degraded_outputs`, a `DegradedOutput(path, algorithm, fallback_from, fallback_reason)` for each file a fallback algorithm made -- a video built from a manual recording names its file as a protocol folder's build does; `enhance` returns an `EnhanceResult` -- `output_folder`, and `created`, an `EnhancedFile(source_path, output_path, recipe_path)` for each derived file; `count_cells` returns a `CellCountResult` -- `results_path` and `counted`, the images counted. Every path in them is a `pathlib.Path`. It raises `PostProcessingRefusedError` (`modules.exceptions`) when the folder cannot yield the output (no images, no groups the build can combine, or a setting it cannot use: an unknown stitch mode or projection method, a playback rate below 1). A build stays inside the folder it was given: a run record that is malformed, or that names its protocol outside the run folder, or a run protocol with a step cell that is neither blank nor its column's type, is refused as `protocol_data_unreadable`, its message saying which; a post-processing record the build cannot read is moved aside as `protocol_post_record.tsv.unreadable` (`.unreadable_001` and on when that name is taken, so no earlier copy is replaced) and a new record is started; a protocol whose steps would name an output outside the folder is refused as `output_outside_folder` before any output is written. It raises `PostProcessingFailedError` when the build did not produce everything asked of it; its `produced_paths` lists what was written. A cell count refuses a folder with nothing it could read before touching `results.csv`, and replaces an existing `results.csv` only with a complete new one.
 
 A cell-count method is a dict; start from `modules.post_processing.default_cell_count_method()` (a new copy on every call; the method LumaViewPro's panel starts from) and change what you need:
 
@@ -3005,6 +3005,16 @@ Reached through returned by `session.bring_up_record`.
 - `substitution`
 - `substitutions`
 
+### BuildResult
+
+Reached through returned by `session.post_processing.stitch`, `zproject`, `composite` and `video`.
+
+- `artifact_paths`
+- `degraded_outputs`
+- `message`
+- `new_count`
+- `output_root`
+
 ### CameraChanged
 
 Reached through the event `scope.imaging.add_camera_listener` delivers.
@@ -3021,12 +3031,45 @@ Reached through `RunOutcome.captures`.
 - `failed`
 - `missing`
 
+### CellCountResult
+
+Reached through returned by `session.post_processing.count_cells`.
+
+- `counted`
+- `message`
+- `results_path`
+
+### DegradedOutput
+
+Reached through each item of `BuildResult.degraded_outputs`.
+
+- `algorithm`
+- `fallback_from`
+- `fallback_reason`
+- `path`
+
 ### DeliveredRate
 
 Reached through returned by `scope.imaging.get_delivered_rate`.
 
 - `bytes_per_s`
 - `frames_per_s`
+
+### EnhanceResult
+
+Reached through returned by `session.post_processing.enhance`.
+
+- `created`
+- `message`
+- `output_folder`
+
+### EnhancedFile
+
+Reached through each item of `EnhanceResult.created`.
+
+- `output_path`
+- `recipe_path`
+- `source_path`
 
 ### FailedCapture
 

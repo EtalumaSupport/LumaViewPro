@@ -13,12 +13,14 @@ through ``shutdown`` alone, as a script or the REST server calls it.
 """
 
 import datetime
+import pathlib
 import threading
 import time
 
 import pytest
 
 from modules.exceptions import PluginProcessorSkippedError, SessionClosingError
+from modules.post_processing_api import BuildResult
 
 SETTLE_S = 30.0
 
@@ -168,10 +170,16 @@ def test_a_running_and_a_queued_build_both_finish(sim_session, tmp_path):
 
     def slow(folder, *, on_progress):
         time.sleep(0.5)
-        return {'message': f'built {folder}'}
+        return BuildResult(
+            message=f'built {folder}',
+            new_count=0,
+            output_root=pathlib.Path(folder),
+            artifact_paths=(),
+            degraded_outputs=(),
+        )
 
     def build(name):
-        results[name] = post._run(slow, 'stitch', name)
+        results[name] = post._run(slow, 'stitch', name).message
 
     threads = [threading.Thread(target=build, args=(name,)) for name in ('a', 'b')]
     threads[0].start()
@@ -181,7 +189,7 @@ def test_a_running_and_a_queued_build_both_finish(sim_session, tmp_path):
 
     sim_session.shutdown()
 
-    assert results == {'a': {'message': 'built a'}, 'b': {'message': 'built b'}}
+    assert results == {'a': 'built a', 'b': 'built b'}
     for thread in threads:
         thread.join(SETTLE_S)
 

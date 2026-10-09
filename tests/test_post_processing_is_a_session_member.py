@@ -17,6 +17,7 @@ import pytest
 
 import modules.sequential_io_executor as sie
 from modules.exceptions import PostProcessingRefusedError
+from modules.post_processing_api import CellCountResult
 
 
 @pytest.fixture
@@ -37,7 +38,13 @@ def _spy_build(monkeypatch, cls, method_name):
         seen.update(kwargs, path=path)
         seen['lane'] = getattr(sie._lane_worker, 'executor', None)
         seen['has_turret'] = self._has_turret
-        return {'status': True, 'message': 'Success.'}
+        return {
+            'status': True,
+            'message': 'Success.',
+            'new_count': 0,
+            'output_root': str(path),
+            'artifact_paths': [],
+        }
 
     monkeypatch.setattr(cls, method_name, record)
     return seen
@@ -78,7 +85,8 @@ def test_a_build_runs_on_its_lane_with_the_installations_tiling(
 
     result = getattr(session.post_processing, member)(tmp_path, on_progress=progress, **kwargs)
 
-    assert result['message'] == 'Success.'
+    assert result.message == 'Success.'
+    assert result.output_root == tmp_path
     assert seen['lane'] is session.post_processing.lane
     assert seen['lane'] is not session.file_io_executor
     assert seen['tiling_configs_file_loc'] == session.scope.protocols.tiling_configs_path()
@@ -160,7 +168,7 @@ def test_a_cell_count_takes_the_callers_method_and_progress(session, monkeypatch
     def record(self, path, settings, on_progress=None):
         seen.update(path=path, settings=settings, on_progress=on_progress)
         seen['lane'] = getattr(sie._lane_worker, 'executor', None)
-        return {'message': 'counted'}
+        return {'message': 'counted', 'results_path': str(path / 'results.csv'), 'counted': 3}
 
     monkeypatch.setattr(PostProcessing, 'apply_cell_count_to_folder', record)
     method = default_cell_count_method()
@@ -170,9 +178,9 @@ def test_a_cell_count_takes_the_callers_method_and_progress(session, monkeypatch
     def progress(percent, text):
         told.append((percent, text))
 
-    assert session.post_processing.count_cells(tmp_path, method=method, on_progress=progress) == {
-        'message': 'counted'
-    }
+    assert session.post_processing.count_cells(
+        tmp_path, method=method, on_progress=progress
+    ) == CellCountResult(message='counted', results_path=tmp_path / 'results.csv', counted=3)
     assert seen['settings'] is method
     # What the build is handed reaches the caller's own callback.
     seen['on_progress'](42, 'Image 42')

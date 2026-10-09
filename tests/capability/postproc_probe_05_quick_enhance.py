@@ -48,7 +48,7 @@ def main() -> int:
             print('PROBE RESULT: FAIL')
             return 1
         print('folder result:', folder_result)
-        print('output_folder:', folder_result['output_folder'])
+        print('output_folder:', folder_result.output_folder)
         print('progress ticks:', progress)
         print('PROBE RESULT: SUCCESS')
         return 0

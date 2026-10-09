@@ -155,6 +155,9 @@ def test_build_from_folder_manual_creates_video_excluding_hyperstack(tmp_path):
     out = _find_video(folder, folder.name)
     # 3 numbered frames; the HyperStack.ome.tiff must be excluded.
     assert _frame_count(out) == 3
+    # It says what it made, as a protocol folder's build does: the file, where it landed.
+    assert [pathlib.Path(p) for p in result['artifact_paths']] == [pathlib.Path(out)]
+    assert (result['new_count'], result['output_root']) == (1, str(folder))
 
 
 def test_build_from_folder_empty_is_refused(tmp_path):

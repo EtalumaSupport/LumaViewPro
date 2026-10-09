@@ -12,6 +12,8 @@ which a protocol's processors start through the same door, is waited for,
 not refused.
 """
 
+import pathlib
+
 import pytest
 
 from modules.exceptions import SessionClosingError
@@ -90,10 +92,24 @@ def test_work_lent_by_an_activity_already_under_way_is_still_admitted(sim_sessio
         held.release()
 
 
+def _built(message, folder):
+    from modules.post_processing_api import BuildResult
+
+    return BuildResult(
+        message=message,
+        new_count=0,
+        output_root=pathlib.Path(folder),
+        artifact_paths=(),
+        degraded_outputs=(),
+    )
+
+
 def test_a_post_processing_build_is_not_refused(sim_session, tmp_path):
     sim_session.activity_claim.begin_closing()
 
-    def build(folder, *, on_progress):
-        return {'message': 'built'}
+    built = _built('built', tmp_path)
 
-    assert sim_session.post_processing._run(build, 'stitch', tmp_path) == {'message': 'built'}
+    def build(folder, *, on_progress):
+        return built
+
+    assert sim_session.post_processing._run(build, 'stitch', tmp_path) is built

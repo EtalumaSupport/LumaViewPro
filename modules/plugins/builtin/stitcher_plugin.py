@@ -115,8 +115,8 @@ def _stitcher_processor(
 
     return ProcessorResult(
         success=True,
-        outputs=tuple(result.get('artifact_paths', ())),
-        message=str(result.get('message', '')) or 'Stitching complete.',
+        outputs=tuple(str(path) for path in result.artifact_paths),
+        message=result.message,
         metadata=metadata,
     )
 

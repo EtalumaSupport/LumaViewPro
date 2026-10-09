@@ -10,10 +10,13 @@ thread.
 
 from __future__ import annotations
 
+import pathlib
 from types import SimpleNamespace
 from unittest.mock import ANY, MagicMock
 
 import pytest
+
+from modules.post_processing_api import BuildResult, CellCountResult, EnhanceResult
 
 import ui.post_processing as post_processing
 
@@ -22,11 +25,21 @@ import ui.post_processing as post_processing
 def session(monkeypatch):
     """A stand-in session whose members answer, and an inline GUI boundary."""
     ctx = MagicMock()
-    for member in ('stitch', 'zproject', 'composite', 'video', 'enhance', 'count_cells'):
-        getattr(ctx.session.post_processing, member).return_value = {
-            'message': 'done',
-            'output_folder': 'folder',
-        }
+    built = BuildResult(
+        message='done',
+        new_count=0,
+        output_root=pathlib.Path('folder'),
+        artifact_paths=(),
+        degraded_outputs=(),
+    )
+    for member in ('stitch', 'zproject', 'composite', 'video'):
+        getattr(ctx.session.post_processing, member).return_value = built
+    ctx.session.post_processing.enhance.return_value = EnhanceResult(
+        message='done', output_folder=pathlib.Path('folder'), created=()
+    )
+    ctx.session.post_processing.count_cells.return_value = CellCountResult(
+        message='done', results_path=pathlib.Path('folder/results.csv'), counted=0
+    )
     monkeypatch.setattr(post_processing._app_ctx, 'ctx', ctx)
 
     def inline(call, redraw, label, **kwargs):

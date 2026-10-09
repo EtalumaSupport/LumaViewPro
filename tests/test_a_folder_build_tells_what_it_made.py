@@ -157,8 +157,8 @@ def test_an_enhance_of_one_image_answers_with_its_folder_progress_and_display(tm
         lambda image, significant_bits: shown.append(significant_bits),
     )
 
-    assert result['output_folder'] == tmp_path
-    assert result['message'] == 'Enhance complete.'
+    assert result.output_folder == tmp_path
+    assert result.message == 'Enhance complete.'
     assert texts[-1] == (100, 'Image 1 of 1')
     assert shown == [8]
 

@@ -34,13 +34,136 @@ from modules import live_work
 from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
 from modules.live_work import WorkItem
 from modules.sequential_io_executor import IOTask
-from modules.api_surface import FilePath, api
+from modules.api_surface import FilePath, api, api_fields
 
 if TYPE_CHECKING:
     import numpy as np
 
     from modules.protocol_post_processor import ProgressCallback
     from modules.sequential_io_executor import SequentialIOExecutor
+
+
+@api_fields('path', 'algorithm', 'fallback_from', 'fallback_reason')
+@dataclasses.dataclass(frozen=True)
+class DegradedOutput:
+    """A file a build made by its fallback algorithm, and why.
+
+    Attributes:
+        path: The file.
+        algorithm: The algorithm that made it.
+        fallback_from: The algorithm it fell back from.
+        fallback_reason: Why the first could not make it.
+    """
+
+    path: pathlib.Path
+    algorithm: str
+    fallback_from: str
+    fallback_reason: str
+
+
+@api_fields('message', 'new_count', 'output_root', 'artifact_paths', 'degraded_outputs')
+@dataclasses.dataclass(frozen=True)
+class BuildResult:
+    """What a stitch, z-projection, composite or video build made.
+
+    Attributes:
+        message: The outcome in words, with what was skipped and why.
+        new_count: How many files it made.
+        output_root: The folder it read and wrote under.
+        artifact_paths: Each file it made, where it landed.
+        degraded_outputs: The files a fallback algorithm made; empty when
+            none.
+    """
+
+    message: str
+    new_count: int
+    output_root: pathlib.Path
+    artifact_paths: tuple[pathlib.Path, ...]
+    degraded_outputs: tuple[DegradedOutput, ...]
+
+
+@api_fields('source_path', 'output_path', 'recipe_path')
+@dataclasses.dataclass(frozen=True)
+class EnhancedFile:
+    """One file Quick Enhance derived: its source, the derived image, and its recipe."""
+
+    source_path: pathlib.Path
+    output_path: pathlib.Path
+    recipe_path: pathlib.Path
+
+
+@api_fields('message', 'output_folder', 'created')
+@dataclasses.dataclass(frozen=True)
+class EnhanceResult:
+    """What a Quick Enhance made.
+
+    Attributes:
+        message: The outcome in words.
+        output_folder: The folder the derived files are in.
+        created: Each derived file, with its source and recipe.
+    """
+
+    message: str
+    output_folder: pathlib.Path
+    created: tuple[EnhancedFile, ...]
+
+
+@api_fields('message', 'results_path', 'counted')
+@dataclasses.dataclass(frozen=True)
+class CellCountResult:
+    """What a cell count wrote.
+
+    Attributes:
+        message: The outcome in words.
+        results_path: The results table it wrote.
+        counted: How many images it counted.
+    """
+
+    message: str
+    results_path: pathlib.Path
+    counted: int
+
+
+def _build_result(answer: dict) -> BuildResult:
+    """The published record of a builder's answer."""
+    root = pathlib.Path(answer['output_root'])
+    return BuildResult(
+        message=answer['message'],
+        new_count=answer['new_count'],
+        output_root=root,
+        artifact_paths=tuple(pathlib.Path(path) for path in answer['artifact_paths']),
+        degraded_outputs=tuple(
+            DegradedOutput(
+                path=root / degraded['filepath'],
+                algorithm=degraded['algorithm'],
+                fallback_from=degraded['fallback_from'],
+                fallback_reason=degraded['fallback_reason'],
+            )
+            for degraded in answer.get('degraded_outputs', ())
+        ),
+    )
+
+
+def _cell_count_result(answer: dict) -> CellCountResult:
+    """The published record of a cell count's answer."""
+    return CellCountResult(
+        message=answer['message'],
+        results_path=pathlib.Path(answer['results_path']),
+        counted=answer['counted'],
+    )
+
+
+def _answering[R](record: Callable[[dict], R], build: Callable[..., dict]) -> Callable[..., R]:
+    """``build``, answering ``record`` of what it returns.
+
+    Wrapped so the lane still reads the slow-task budget the build declares.
+    """
+
+    @functools.wraps(build)
+    def answer(*args, **kwargs) -> R:
+        return record(build(*args, **kwargs))
+
+    return answer
 
 
 class PostProcessingAPI:
@@ -110,7 +233,7 @@ class PostProcessingAPI:
         *,
         mode: str = 'quality',
         on_progress: ProgressCallback | None = None,
-    ) -> dict:
+    ) -> BuildResult:
         """Stitch each tiled scan in *folder* into one mosaic per group.
 
         Args:
@@ -127,7 +250,7 @@ class PostProcessingAPI:
             )
         stitcher = Stitcher(has_turret=self._has_turret())
         return self._run(
-            stitcher.load_folder,
+            _answering(_build_result, stitcher.load_folder),
             'stitch',
             pathlib.Path(folder),
             tiling_configs_file_loc=self._tiling_configs_path(),
@@ -142,7 +265,7 @@ class PostProcessingAPI:
         *,
         method: str,
         on_progress: ProgressCallback | None = None,
-    ) -> dict:
+    ) -> BuildResult:
         """Project each Z-stack in *folder* to one image by *method*
         (one of ``ZProjector.methods()``)."""
         from modules.zprojector import ZProjector
@@ -158,7 +281,7 @@ class PostProcessingAPI:
             )
         zprojector = ZProjector(has_turret=self._has_turret())
         return self._run(
-            zprojector.load_folder,
+            _answering(_build_result, zprojector.load_folder),
             'zproject',
             pathlib.Path(folder),
             tiling_configs_file_loc=self._tiling_configs_path(),
@@ -172,7 +295,7 @@ class PostProcessingAPI:
         folder: FilePath,
         *,
         on_progress: ProgressCallback | None = None,
-    ) -> dict:
+    ) -> BuildResult:
         """Merge each multi-channel position in *folder* into one composite.
 
         The output format and each channel's blend threshold are the user's
@@ -185,7 +308,7 @@ class PostProcessingAPI:
         settings = self._settings_snapshot()
         composite_gen = CompositeGeneration(has_turret=self._has_turret())
         return self._run(
-            composite_gen.load_folder,
+            _answering(_build_result, composite_gen.load_folder),
             'composite',
             pathlib.Path(folder),
             tiling_configs_file_loc=self._tiling_configs_path(),
@@ -202,7 +325,7 @@ class PostProcessingAPI:
         frames_per_sec: float | str | None = None,
         timestamp_overlay: bool = False,
         on_progress: ProgressCallback | None = None,
-    ) -> dict:
+    ) -> BuildResult:
         """Build video(s) from *folder*: a protocol scan's time series, or a
         manual frames recording.
 
@@ -215,7 +338,7 @@ class PostProcessingAPI:
         rate = self._playback_rate(frames_per_sec)
         video_builder = VideoBuilder(has_turret=self._has_turret())
         return self._run(
-            video_builder.build_from_folder,
+            _answering(_build_result, video_builder.build_from_folder),
             'video',
             pathlib.Path(folder),
             tiling_configs_file_loc=self._tiling_configs_path(),
@@ -231,7 +354,7 @@ class PostProcessingAPI:
         *,
         on_progress: ProgressCallback | None = None,
         on_derived_image: Callable[[np.ndarray, int], None] | None = None,
-    ) -> dict:
+    ) -> EnhanceResult:
         """Quick Enhance *target* -- one image, or every image in a folder --
         each to its own derived file beside its source.
 
@@ -240,8 +363,8 @@ class PostProcessingAPI:
                 significant bits as it is saved, for a caller that shows it.
 
         Returns:
-            ``created``, one entry per derived file; ``output_folder``; and
-            ``message``, the outcome in words.
+            Each derived file, the folder they are in, and the outcome in
+            words.
 
         Raises:
             PostProcessingRefusedError: reason ``unreadable``, when there is
@@ -263,12 +386,13 @@ class PostProcessingAPI:
         *,
         method: dict,
         on_progress: ProgressCallback | None = None,
-    ) -> dict:
+    ) -> CellCountResult:
         """Count the cells in every image in *folder* by the cell-count
         *method*, writing ``results.csv`` into the folder.
 
         Returns:
-            ``results_path``, ``counted`` and ``message``.
+            The results table, how many images were counted, and the
+            outcome in words.
 
         Raises:
             PostProcessingRefusedError: the method cannot be used (reason
@@ -279,7 +403,7 @@ class PostProcessingAPI:
 
         check_cell_count_method(method)
         return self._run(
-            PostProcessing().apply_cell_count_to_folder,
+            _answering(_cell_count_result, PostProcessing().apply_cell_count_to_folder),
             'count_cells',
             folder,
             method,
@@ -321,7 +445,7 @@ class PostProcessingAPI:
                 raise
             logger.info(
                 f'[PostProc  ] {member} ended after {time.monotonic() - started:.1f} s: '
-                f'{result["message"]}'
+                f'{result.message}'
             )
             return result
 
@@ -360,7 +484,7 @@ class PostProcessingAPI:
         target: pathlib.Path,
         on_progress: ProgressCallback | None,
         on_derived_image: Callable[[np.ndarray, int], None] | None,
-    ) -> dict:
+    ) -> EnhanceResult:
         import cv2
 
         from modules.quick_enhance import (
@@ -408,10 +532,17 @@ class PostProcessingAPI:
             if on_progress is not None:
                 on_progress(100, 'Image 1 of 1')
         output_folder = QuickEnhancer.output_folder({'created': created})
-        return {
-            'created': created,
-            'output_folder': output_folder,
+        return EnhanceResult(
             # The derived files sit beside their sources, so the words do not
             # repeat a path the person just chose.
-            'message': 'Enhance complete.',
-        }
+            message='Enhance complete.',
+            output_folder=output_folder,
+            created=tuple(
+                EnhancedFile(
+                    source_path=pathlib.Path(item['source_path']),
+                    output_path=pathlib.Path(item['output_path']),
+                    recipe_path=pathlib.Path(item['recipe_path']),
+                )
+                for item in created
+            ),
+        )
