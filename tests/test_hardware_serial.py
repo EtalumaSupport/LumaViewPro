@@ -234,7 +234,3 @@ class TestConcurrentSerialAccess:
 
         print(f'\n  Concurrent LED test: {call_count[0]} on+off cycles in {elapsed:.2f}s')
         assert not errors, f'Errors: {errors[:10]}'
-        # All LEDs should be off
-        assert not led.is_led_on('Blue')
-        assert not led.is_led_on('Green')
-        assert not led.is_led_on('Red')

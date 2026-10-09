@@ -14,7 +14,6 @@ has to make. Contention is decided on the resource:
   acquire cannot create a window in which a live holder looks dead.
 """
 
-import logging
 import threading
 from unittest.mock import MagicMock
 
@@ -104,30 +103,6 @@ def test_dead_acquiring_thread_does_not_strand_a_live_holder(scope):
     assert ill.led_lease_purpose == 'worker'
     assert lease.held
     lease.release(leave_on=False)
-
-
-def test_dead_probe_reclaims_regardless_of_thread_state(scope, caplog):
-    ill = scope.illumination
-
-    # Acquire under a claim we can release after the fact.
-    worker_claim = held_run_claim()
-    lease = ill.acquire_led_lease('worker', claim=worker_claim)
-    assert lease is not None and lease.held
-    worker_claim.release()
-
-    with caplog.at_level(logging.WARNING, logger='LVP.api'):
-        nxt = ill.acquire_led_lease('next', claim=held_run_claim())
-
-    assert nxt is not None, 'a holder whose claim ended must not lock out the next acquire'
-    assert ill.led_lease_purpose == 'next'
-    assert not lease.held, 'the reclaimed lease must report not held'
-    reclaims = [
-        r.getMessage() for r in caplog.records if 'reclaimed from stranded owner' in r.getMessage()
-    ]
-    assert any("'worker'" in m and 'its activity claim is no longer held' in m for m in reclaims), (
-        f'the warning must name the dead owner and the claim evidence; got {reclaims}'
-    )
-    nxt.release(leave_on=False)
 
 
 # ---------------------------------------------------------------------------

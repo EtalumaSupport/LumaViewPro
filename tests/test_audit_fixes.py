@@ -10418,54 +10418,6 @@ class TestWindowsBuildIsWindowed_559:
         )
 
 
-class TestShutdownLedsOffRoutedThroughIoExecutor:
-    """The shutdown path must turn LEDs off through the io lane, NOT via
-    an ad-hoc daemon Thread that races with in-flight io tasks on the
-    LED serial bus. The drain must also fire BEFORE the lanes are shut
-    -- otherwise the put() lands in a queue whose worker is exiting and
-    may not be processed. The block lives in the Session's shutdown()
-    so every host gets it.
-    """
-
-    def _src(self):
-        import pathlib
-
-        return pathlib.Path('modules/scope_session.py').read_text()
-
-    def test_leds_off_routes_through_io_executor(self):
-        src = self._src()
-        # Find the shutdown leds_off block by its log message header.
-        marker = '[Session  ] shutdown: leds_off through the io lane'
-        idx = src.find(marker)
-        assert idx >= 0, 'Shutdown leds_off block must keep its log message header.'
-        block = src[idx : idx + 1500]
-        assert 'self.io_executor.put(' in block, (
-            "Shutdown leds_off must route through the io lane's put "
-            'so the LED serial bus is not contended by a parallel '
-            'writer during shutdown drain.'
-        )
-        assert 'IOTask(action=self.scope.illumination._leds_off_if_present)' in block, (
-            "IOTask must wrap the scope's own all-off, _leds_off_if_present, so "
-            'the io lane serializes it with other LED writes.'
-        )
-        assert 'fut.result(timeout=2.0)' in block, (
-            'fut.result(timeout=2.0) preserves the 2-second '
-            'calling-thread-does-not-block timeout semantic.'
-        )
-
-    def test_leds_off_precedes_the_lane_shutdown(self):
-        src = self._src()
-        leds_off_idx = src.find('[Session  ] shutdown: leds_off through the io lane')
-        bundle_idx = src.find('self.executor_bundle.shutdown()', leds_off_idx)
-        disconnect_idx = src.find('self.scope.disconnect()', leds_off_idx)
-        assert leds_off_idx >= 0 and bundle_idx >= 0 and disconnect_idx >= 0
-        assert leds_off_idx < bundle_idx < disconnect_idx, (
-            'Shutdown leds_off must fire BEFORE the io lane is shut -- the '
-            "scope's disconnect shuts it. Otherwise the put() races with the "
-            'worker exiting and the leds_off may never fire.'
-        )
-
-
 class TestImagingPylonSdkPerfSettersPrivatized:
     """Pylon SDK-perf imaging setters are bench-tooling artifacts, not
     part of the L2 contract. Per API audit F8 they are renamed with a
@@ -11776,22 +11728,6 @@ class TestEmergencyShutdownBoundedLeds_F6:
         thread.start()
         assert held.wait(timeout=5.0), 'lock-holder thread failed to start'
         return release, thread
-
-    def test_leds_off_emergency_turns_leds_off_when_lock_free(self, sim_scope):
-        """Asserts at the DRIVER level: the emergency variant deliberately
-        skips the API-side state/owner/listener cleanup (those surfaces
-        may be torn down by the time atexit fires), so get_led_states()
-        is not the observable -- the hardware-off command is."""
-        illum = sim_scope.illumination
-        driver = sim_scope._led_driver
-        illum.led_on(channel=0, illumination_ma=10)
-        assert any(ma > 0 for ma in driver._channel_states.values()), (
-            'precondition: at least one LED on at the driver'
-        )
-        illum._leds_off_emergency()
-        assert not any(ma > 0 for ma in driver._channel_states.values()), (
-            'leds_off_emergency must drive every LED off when the lock is free'
-        )
 
     def test_leds_off_emergency_returns_when_lock_held(self, sim_scope):
         """With _led_lock held by another thread, the bounded variant

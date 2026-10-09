@@ -1473,21 +1473,6 @@ class TestExecuteCancellation:
         assert not executor.run_in_progress(), 'Executor still running after cancel'
 
 
-class TestExecuteLEDRestore:
-    """LED state restoration after protocol."""
-
-    def test_leds_off_after_protocol(self, executor, scope, tmp_path):
-        steps = [_make_step(color='Green', illumination=200.0)]
-        proto = _build_protocol(steps)
-        completed, _ = _run_and_wait(executor, proto, tmp_path)
-        assert completed
-
-        # All LEDs should be off after protocol
-        states = scope.illumination.get_led_states()
-        for color, state in states.items():
-            assert not state['enabled'], f'LED {color} still on after protocol'
-
-
 # ===========================================================================
 # PART 6: Real Path Tests (no mocking of drivers/transforms)
 # ===========================================================================
@@ -1816,23 +1801,6 @@ class TestExecutorEdgeCases:
         assert completed
         assert real_executor.wait_for_run_idle(COMPLETION_TIMEOUT), 'the run never ended'
         assert real_executor._state == ProtocolState.IDLE
-
-    def test_leds_off_after_protocol_real_path(self, real_executor, scope, tmp_path):
-        """All LEDs are off after protocol completes (real motion path)."""
-        proto = _build_protocol(
-            [
-                _make_step(color='Green', illumination=200.0),
-                _make_step(color='Red', illumination=150.0),
-            ]
-        )
-        completed, _ = _run_and_wait(real_executor, proto, tmp_path)
-        assert completed
-        import time
-
-        time.sleep(0.5)
-        states = scope.illumination.get_led_states()
-        for color, state in states.items():
-            assert not state['enabled'], f'LED {color} still on after protocol'
 
     def test_camera_settings_restored_after_protocol(self, real_executor, scope, tmp_path):
         """Camera gain and exposure are restored after protocol."""

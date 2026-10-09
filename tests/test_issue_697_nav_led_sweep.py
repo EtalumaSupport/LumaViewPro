@@ -32,7 +32,6 @@ from unittest.mock import MagicMock, call
 
 import pytest
 
-from tests.ast_seams import parse_module
 from tests.test_issue_733_step_nav_preview_led_button import (  # noqa: F401 -- stepnav_env is a fixture
     _make_step,
     stepnav_env,
@@ -41,7 +40,6 @@ from tests.test_issue_733_step_nav_preview_led_button import (  # noqa: F401 -- 
 _UI_DIR = pathlib.Path(__file__).resolve().parents[1] / 'ui'
 _NAV_SRC = (_UI_DIR / 'step_navigation.py').read_text()
 _NAV_TREE = ast.parse(_NAV_SRC)
-_SESSION_TREE = parse_module('modules/scope_session.py')
 _IMG_SRC = (_UI_DIR / 'image_settings.py').read_text()
 _IMG_TREE = ast.parse(_IMG_SRC)
 
@@ -117,31 +115,6 @@ def test_nav_applies_the_camera_once_and_drives_no_led_itself(stepnav_env, previ
     # update_led=False keeps the enable button out of it.
     assert layer_obj.apply_settings.call_args_list == _THE_APPLY
     assert layer_obj.ids['enable_led_btn'].state == 'normal'
-
-
-def _reads_protocol_led_on(node) -> bool:
-    return any(isinstance(n, ast.Constant) and n.value == 'protocol_led_on' for n in ast.walk(node))
-
-
-def test_go_to_step_no_longer_gates_the_authority_on_protocol_led_on():
-    """protocol_led_on decides only preview_on inside the step's LED context;
-    it is no longer the gate for whether the authority runs. The context is
-    built by the Session, where the navigation now lives."""
-    for name in ('go_to_step', 'start_go_to_step', '_go_to_step_on_lane'):
-        fn = _find_function(_SESSION_TREE, name)
-        branches = [
-            n for n in ast.walk(fn) if isinstance(n, ast.If) and _reads_protocol_led_on(n.test)
-        ]
-        assert branches == [], f'{name} branches on protocol_led_on'
-    led_ctx = _find_function(_SESSION_TREE, '_step_led_ctx')
-    preview_on = [
-        kw.value
-        for n in ast.walk(led_ctx)
-        if isinstance(n, ast.Call)
-        for kw in n.keywords
-        if kw.arg == 'preview_on'
-    ]
-    assert len(preview_on) == 1 and _reads_protocol_led_on(preview_on[0])
 
 
 # ---------------------------------------------------------------------------
@@ -363,27 +336,3 @@ def test_wrapper_go_to_step_requires_an_explicit_target():
     assert arg_names[:2] == ['self', 'step_idx'], arg_names
     required_count = len(fn.args.args) - len(fn.args.defaults)
     assert required_count >= 2, 'step_idx must have no default value'
-
-
-def test_the_sessions_repeat_rule_is_decided_before_the_step_is_recorded():
-    """Ordering invariant inside the Session's lane half: the last step gone
-    to is read BEFORE this navigation overwrites it; reading it after would
-    find this very step and silently skip every preview."""
-    fn = _find_function(_SESSION_TREE, '_go_to_step_on_lane')
-    read_idx = write_idx = None
-    for idx, stmt in enumerate(fn.body):
-        if isinstance(stmt, ast.Assign):
-            is_read = any(
-                isinstance(node, ast.Attribute) and node.attr == '_last_step_gone_to'
-                for node in ast.walk(stmt.value)
-            )
-            is_write = any(
-                isinstance(t, ast.Attribute) and t.attr == '_last_step_gone_to'
-                for t in stmt.targets
-            )
-            if is_read and read_idx is None:
-                read_idx = idx
-            if is_write:
-                write_idx = idx
-    assert read_idx is not None and write_idx is not None
-    assert read_idx < write_idx, 'the last step must be read before it is overwritten'

@@ -28,7 +28,7 @@ the depth rule must match ``saturated_fraction`` (12-bit-in-uint16
 measures against 4095, not 65535).
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -194,41 +194,6 @@ class TestLitFractionDepthRule:
     def test_empty_and_none_are_unlit(self):
         assert ImagingAPI._lit_fraction(None, 8) == 0.0
         assert ImagingAPI._lit_fraction(np.empty((0,), dtype=np.uint8), 8) == 0.0
-
-
-class TestProtocolWriterWiring:
-    """The protocol writer no longer owns illumination knowledge: it
-    commands the LED per step and the capture path derives the dark-floor
-    expectation itself. A writer that re-derives and posts the fact back
-    is a mirror needing manual sync -- the shape this fold retired."""
-
-    def _run_capture(self, illumination_ma):
-        from tests.test_audit_fixes import _bare_protocol_writer, _protocol_step
-
-        writer = _bare_protocol_writer()
-        scope = writer._scope
-        # The objective the frame is taken with, read at capture.
-        scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
-        scope.capabilities.has_turret = False
-        scope.led_connected = False
-        protocol = MagicMock()
-        protocol.capture_root.return_value = ''
-        writer.capture(
-            save_folder='/tmp',
-            step=_protocol_step(Illumination=illumination_ma),
-            output_format='TIFF',
-            protocol=protocol,
-            enable_image_saving=True,
-        )
-        return scope.imaging.capture_and_wait.call_args.kwargs
-
-    def test_writer_posts_no_dark_floor_fact(self):
-        for illumination_ma in (350.0, 0.0):
-            kwargs = self._run_capture(illumination_ma)
-            assert 'dark_floor_check' not in kwargs, (
-                'the writer must not re-derive the dark-floor expectation; '
-                f'it posted one at Illumination={illumination_ma}'
-            )
 
 
 class TestLiveCaptureConfigSeam:

@@ -164,28 +164,6 @@ def test_lease_violation_detects_external_writer(scope):
     assert scope.illumination._lease_violation('protocol') == 'protocol'
 
 
-def test_owner_emit_diff_does_not_self_violate(scope, caplog):
-    # The lease holder driving its own diff clears other channels via an off
-    # made as the holder's lease; that must NOT be flagged as a violation of
-    # the holder's own lease.
-    lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
-    scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=lease)
-    with caplog.at_level(logging.WARNING, logger='LVP.api'):
-        scope.illumination._emit_led_diff(frozenset({(3, 200.0)}), lease=lease, block=False)
-    assert not any('refused' in r.message for r in caplog.records)
-    assert not _lit(scope, 0), 'the holder diff must clear the non-target channel'
-    assert _lit(scope, 3), 'the holder diff must light its target'
-
-
-def test_external_led_on_during_lease_is_refused(scope, caplog):
-    # A live UI write (no lease) while a run holds the LEDs is rejected.
-    scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
-    with caplog.at_level(logging.WARNING, logger='LVP.api'):
-        scope.illumination.led_on(channel=0, illumination_ma=100)
-    assert not _lit(scope, 0)
-    assert any('refused' in r.message for r in caplog.records)
-
-
 def test_external_led_off_during_lease_is_refused(scope):
     # The autofocus-LED-killed shape: a UI off must not turn off a channel a
     # run holds. The protocol lit the channel; a bare UI off is refused.

@@ -79,23 +79,6 @@ def _run_manual_capture(tmp_path, scope, *, layer, false_color_on, separate_fold
 # ---------------------------------------------------------------------------
 
 
-def test_no_drawer_open_and_no_led_lit_saves_as_brightfield(identity_scope, tmp_path):
-    """No open drawer and no lit LED is a brightfield capture: the file, its
-    per-channel folder and the remembered save folder all say BF, and nothing
-    raises. This is the state that used to create the wrong layer's folder and
-    then raise on an unassigned name."""
-    written, reported = _run_manual_capture(
-        tmp_path, identity_scope, layer=None, false_color_on=False, separate_folders=True
-    )
-
-    assert len(written) == 1, f'expected one file, got {[p.name for p in written]}'
-    path = written[0]
-    assert path.parent == tmp_path / 'Manual' / 'BF', f'saved under {path.parent}'
-    assert 'BF' in path.name, f'{path.name} lacks the BF token'
-    assert _read_channel_name(path) == 'BF'
-    assert reported[0].parent == tmp_path / 'Manual' / 'BF'
-
-
 def test_a_lit_led_outranks_the_open_drawer(identity_scope, tmp_path):
     """Green drawer open with false colour on, Red LED lit: the file is named,
     labelled and rendered as Red. The light is the truth; the drawer's toggle

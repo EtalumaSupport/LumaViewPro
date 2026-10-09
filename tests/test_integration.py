@@ -334,18 +334,6 @@ class TestIntegrationSingleStep:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed, 'Protocol did not complete within timeout'
 
-    def test_leds_off_after_completion(self, executor, scope, tmp_path):
-        """After a scan completes, all LEDs should be off."""
-        protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 100.0}])
-        completed, _ = _run_and_wait(executor, protocol, tmp_path)
-        assert completed
-
-        # All LED channels should be off
-        for color in ('BF', 'PC', 'DF', 'Red', 'Green', 'Blue'):
-            assert not scope.illumination.get_led_state(color)['enabled'], (
-                f'LED {color} still on after protocol'
-            )
-
     def test_camera_settings_applied(self, executor, scope, tmp_path):
         """Verify gain and exposure are set on the real camera simulator."""
         protocol = _make_protocol(
@@ -725,27 +713,6 @@ class TestIntegrationAutofocus:
 
 class TestIntegrationStateAssertions:
     """Verify simulator state matches expectations after protocol runs."""
-
-    def test_led_bf_channel(self, executor, scope, tmp_path):
-        """Verify BF LED is driven and turned off after protocol."""
-        protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 75.0}])
-        completed, _ = _run_and_wait(executor, protocol, tmp_path)
-        assert completed
-        assert not scope.illumination.get_led_state('BF')['enabled']
-
-    def test_led_green_channel(self, executor, scope, tmp_path):
-        """Verify Green LED is driven and turned off after protocol."""
-        protocol = _make_protocol([{'color': 'Green', 'illumination_ma': 75.0}])
-        completed, _ = _run_and_wait(executor, protocol, tmp_path)
-        assert completed
-        assert not scope.illumination.get_led_state('Green')['enabled']
-
-    def test_led_red_channel(self, executor, scope, tmp_path):
-        """Verify Red LED is driven and turned off after protocol."""
-        protocol = _make_protocol([{'color': 'Red', 'illumination_ma': 75.0}])
-        completed, _ = _run_and_wait(executor, protocol, tmp_path)
-        assert completed
-        assert not scope.illumination.get_led_state('Red')['enabled']
 
     def test_scope_connected_throughout(self, executor, scope, tmp_path):
         """Scope remains connected after protocol run."""

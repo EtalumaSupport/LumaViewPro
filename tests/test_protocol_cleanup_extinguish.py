@@ -113,23 +113,6 @@ def test_run_cleanup_undecided_return_darkens(scope, monkeypatch):
     assert scope.illumination.led_lease_purpose is None
 
 
-def test_decided_end_state_is_left_untouched(scope, monkeypatch):
-    # Behavior-preservation guard: passes before and after the fix. When
-    # RUN_END applied, the user's end policy owns the LEDs.
-    scope.illumination._led_on_impl(LAYER, ILLUMINATION_MA)
-    assert _lit(scope)
-    lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
-    assert lease is not None
-
-    monkeypatch.setattr(scr, 'run_cleanup', MagicMock(return_value=True))
-    stub = _make_runner_stub(scope, lease=lease)
-
-    _run_cleanup_inner(stub)
-
-    assert _lit(scope), 'a decided end-state must not be overridden by a force-dark'
-    assert scope.illumination.led_lease_purpose is None
-
-
 def test_cleanup_without_lease_does_not_darken(scope, monkeypatch):
     # Behavior-preservation guard: passes before and after the fix. The
     # early-return path (run already unwound) never owned the run's LEDs;

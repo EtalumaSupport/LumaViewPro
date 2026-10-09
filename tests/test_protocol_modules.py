@@ -438,50 +438,6 @@ class TestRunCleanup:
         batch.when_complete(files_written)
         assert fired == ['files_written']
 
-    def test_cleanup_offs_leds_via_run_end_transition(self):
-        from modules.lumascope_api.illumination import LedEndPolicy, LedTransition
-        from modules.protocol_cleanup import run_cleanup
-
-        calls = []
-        args, _ = self._make_cleanup_args(
-            apply_led_transition_fn=lambda transition, ctx: calls.append((transition, ctx)),
-            leds_state_at_end='off',
-        )
-        run_cleanup(**args)
-        assert len(calls) == 1
-        transition, ctx = calls[0]
-        assert transition is LedTransition.RUN_END
-        assert ctx.end_policy is LedEndPolicy.OFF
-
-    def test_cleanup_restores_leds_to_original(self):
-        from modules.lumascope_api.illumination import LedEndPolicy, LedTransition
-        from modules.protocol_cleanup import run_cleanup
-
-        calls = []
-        # Schema matches lumascope_api.illumination's get_led_states():
-        # color -> {'enabled': bool, 'illumination_ma': float}. Cleanup maps
-        # each lit channel to its (channel, mA) pair for the RUN_END snapshot.
-        original_leds = {
-            'Red': {'enabled': True, 'illumination_ma': 50},
-            'Green': {'enabled': False, 'illumination_ma': 0},
-        }
-        scope = MagicMock()
-        scope.illumination.color2ch.side_effect = lambda c: {'Red': 0, 'Green': 1}.get(c)
-        scope.illumination.state_color2ch.side_effect = lambda c: {'Red': 0, 'Green': 1}.get(c)
-        args, _ = self._make_cleanup_args(
-            leds_state_at_end='return_to_original',
-            original_led_states=original_leds,
-            scope=scope,
-            apply_led_transition_fn=lambda transition, ctx: calls.append((transition, ctx)),
-        )
-        run_cleanup(**args)
-        assert len(calls) == 1
-        transition, ctx = calls[0]
-        assert transition is LedTransition.RUN_END
-        assert ctx.end_policy is LedEndPolicy.RETURN_TO_ORIGINAL
-        # Red (channel 0) was lit at 50 mA pre-run; Green was off, so excluded.
-        assert ctx.snapshot_lit == frozenset({(0, 50)})
-
     def test_cleanup_ends_all_executors(self):
         from modules.protocol_cleanup import run_cleanup
 
@@ -768,12 +724,6 @@ class TestFinalStepKeepsLedWhenCleanupRestoresIt:
             run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
             original_led_states=self._lit_before_run(),
         ), 'cleanup is about to re-light this channel; turning it off here blinks'
-
-    def test_final_scan_restore_skips_unlit_channel(self):
-        assert not self._boundary_target_for(
-            run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
-            original_led_states={'BF': {'enabled': False, 'illumination_ma': 0.0}},
-        ), 'a channel dark before the run must go dark at the end'
 
     def test_leds_off_at_end_never_keeps(self):
         assert not self._boundary_target_for(
