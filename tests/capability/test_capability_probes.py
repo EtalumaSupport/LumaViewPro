@@ -17,8 +17,7 @@ run:
   * **24 probes are smoke** (the rest of the layer, post-processing and
     protocol slices). They print a narrative and record nothing, so they
     prove only that the capability still runs without crashing -- which is
-    real, because `lvp_logger`'s excepthook turns an uncaught raise into a
-    silent exit 1. They stay smoke: the census found no void in them worth a
+    real, because an uncaught raise exits 1. They stay smoke: the census found no void in them worth a
     pin, so a green run here is 22 capabilities verified, not 46.
 
 Why subprocesses: `tests/conftest.py` installs Kivy mocks at import time, and

@@ -240,8 +240,8 @@ def run(body):
     try:
         body(session)
     except BaseException:
-        # lvp_logger installs a sys.excepthook that sends an uncaught traceback
-        # to a log file, so a probe that raises would otherwise exit in silence.
+        # A raise is a failed check, not only a crash: the traceback, then the
+        # verdict it leaves.
         traceback.print_exc()
         check('probe completed without an unexpected raise', False)
     finally:

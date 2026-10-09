@@ -286,10 +286,9 @@ class TestBannerIdentityContract:
     against an empty capture.
 
     Importing the real module under an alias to get around that was
-    rejected: ``lvp_logger`` installs a global ``sys.excepthook`` at
-    import, and a bench log has already been polluted once by an
-    out-of-app script inheriting that hook. Trading a suite-wide hazard
-    for four tests is a bad deal.
+    rejected: ``lvp_logger`` attaches its log files to the root logger at
+    import, so the whole suite's logging would land in them. Trading a
+    suite-wide hazard for four tests is a bad deal.
 
     The sibling ``test_lvp_logger_marker_lookup.py`` pins this module the
     same way for the same reason.

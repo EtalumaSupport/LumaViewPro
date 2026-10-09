@@ -122,7 +122,11 @@ if __name__ == '__main__':
     # ---------------------Module Imports---------------------------------------#
     ############################################################################
 
-    from lvp_logger import debug, log_dir, logger
+    from lvp_logger import debug, install_crash_hooks, log_dir, logger
+
+    # LumaViewPro's crash policy: an uncaught exception is recorded in the
+    # log, before settings, Kivy, the plugins or the app can raise one.
+    install_crash_hooks()
 
     DEBUG_MODE = debug
 

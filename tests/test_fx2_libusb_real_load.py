@@ -19,9 +19,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
-# The probe prints rather than asserts: importing the driver imports
-# lvp_logger, whose excepthook sends an uncaught error to the log file only,
-# so a failed assert in the child would leave nothing to read here.
+# The probe prints its answers and the parent asserts them, so a failure
+# names every value the child read.
 _PROBE = """
 import usb.backend.libusb1 as ub
 from drivers import fx2driver

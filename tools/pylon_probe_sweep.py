@@ -179,7 +179,7 @@ def _resolve_resolutions(spec: list[str], sensor_w: int, sensor_h: int):
     the operator typed a sibling flag name (e.g. 'dltl-modes') without the
     leading '--', so argparse's nargs='+' for --resolutions greedily consumed
     it. Print a clear error naming the bad token and exit cleanly rather than
-    letting the bare int() ValueError crash to a CRITICAL traceback.
+    leave the operator a bare int() ValueError traceback.
     """
     out = []
     for tok in spec:

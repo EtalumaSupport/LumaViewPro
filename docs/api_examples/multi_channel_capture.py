@@ -39,10 +39,8 @@ def main():
     # start_streaming() call to make here.
     #
     # source_path defaults to the working directory, which must be an LVP
-    # installation root. ConfigError is caught and printed rather than left to
-    # propagate because an uncaught exception in a process that imports
-    # lvp_logger is written to the log file and never to the terminal: this
-    # message is the only thing that would tell you what went wrong.
+    # installation root. ConfigError is caught to say so beside its own words:
+    # running from the wrong directory is the usual cause.
     try:
         session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
     except ConfigError as exc:

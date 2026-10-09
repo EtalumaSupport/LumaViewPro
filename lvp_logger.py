@@ -598,8 +598,6 @@ if debug and sys.__stderr__ is not None:
     _root_console.setFormatter(CustomFormatter())
     _root_logger.addHandler(_root_console)
 
-sys.excepthook = custom_except_hook
-
 
 def _collect_installed_packages() -> dict:
     """Map distribution name -> version for every installed package.
@@ -877,5 +875,19 @@ def _thread_except_hook(args):
     )
 
 
-threading.excepthook = _thread_except_hook
+def install_crash_hooks() -> None:
+    """Record every uncaught exception, on the main thread or any other, in the log as a crash.
+
+    The application's choice, made by the program that owns the process
+    (LumaViewPro, the REST server) as it starts: importing this module
+    installs nothing, so a script that imports the SDK crashes as any
+    Python program does, its traceback on stderr. A process that imports
+    Kivy has its stderr redirected into Kivy's logger, so there the default
+    traceback reaches the log rather than the terminal; only ``ui/``
+    imports Kivy.
+    """
+    sys.excepthook = custom_except_hook
+    threading.excepthook = _thread_except_hook
+
+
 minimize_logger_window()
