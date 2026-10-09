@@ -38,6 +38,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from modules import wire_encoding
 from modules.protocol_runner import ProtocolRunner
 from modules.scope_session import ScopeSession
+from rest import live as live_view
 from rest import problems
 from rest.events import EventStream
 from rest.handles import HandleRegistry
@@ -60,14 +61,16 @@ SERVER_SEGMENTS = frozenset({'handles', 'jobs', 'events', 'files', 'live', 'live
 class Closing:
     """The server's close, as the application takes part in it (``rest.server``).
 
-    Once it has begun, a member asked is refused ``server_closing``; jobs,
-    handles, files and the stream are still served, so a client can read
-    what the close finishes.
+    Once it has begun, a member asked, or a live view asked for, is refused
+    ``server_closing``; jobs, handles, files and the stream are still
+    served, so a client can read what the close finishes, and a live view
+    already open keeps showing frames until the close finishes.
     """
 
-    def __init__(self, stream: EventStream, jobs: JobRegistry) -> None:
+    def __init__(self, stream: EventStream, jobs: JobRegistry, live: live_view.LiveView) -> None:
         self._stream = stream
         self._jobs = jobs
+        self._live = live
         self.begun = False
 
     def begin(self) -> None:
@@ -75,8 +78,9 @@ class Closing:
         self.begun = True
 
     def finish(self) -> None:
-        """Send ``closing`` on every stream and end it. Called on the server's loop."""
+        """Send ``closing`` on every stream and end it, and end every live view. Called on the server's loop."""
         self._stream.finish()
+        self._live.finish()
 
     def join_jobs(self, timeout_s: float) -> list[str]:
         """Wait up to *timeout_s* for the calls' threads; the names of those still running."""
@@ -89,7 +93,7 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     The OpenAPI description is at ``/api/v1/openapi.json`` and the
     interactive reference at ``/docs``. The event stream hears the scope
     while the application is served, from its startup to its shutdown.
-    Its close is ``app.state.closing``.
+    Its close is ``app.state.closing``; its live view ``app.state.live``.
     """
     # The session's one protocol runner is every client's: its id is kept.
     registry = HandleRegistry(kept=lambda obj: isinstance(obj, ProtocolRunner))
@@ -129,11 +133,14 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     app.add_exception_handler(Exception, _failed)
 
     jobs = JobRegistry()
-    closing = Closing(stream, jobs)
+    live = live_view.LiveView(session)
+    closing = Closing(stream, jobs, live)
     app.state.closing = closing
+    app.state.live = live
     _add_handle_routes(app, registry, handed_out)
     _add_job_routes(app, jobs)
     _add_event_route(app, stream)
+    _add_live_routes(app, live, closing)
     _add_file_route(app, session)
     session_routes = routes(ScopeSession, handed_out=handed_out)
     shadowed = {r.path.split('/')[0] for r in session_routes} & SERVER_SEGMENTS
@@ -193,6 +200,67 @@ def _add_event_route(app: fastapi.FastAPI, stream: EventStream) -> None:
         )
 
     app.add_api_route(f'{PREFIX}/events', events, methods=['GET'], tags=['events'])
+
+
+def _add_live_routes(app: fastapi.FastAPI, live: live_view.LiveView, closing: Closing) -> None:
+    async def watch(request: fastapi.Request) -> fastapi.Response:
+        """The camera's frames as MJPEG (``multipart/x-mixed-replace``), each the newest when the client is ready for it.
+
+        ``max_width`` (pixels) bounds each frame's width; half the camera's
+        frame by default. Each part carries ``X-Frame-Ordinal`` and
+        ``X-Frame-Timestamp``. Display only: 8-bit grey, lossy, no metadata.
+        """
+        max_width = _max_width(request)
+        if closing.begun:
+            raise problems.server_closing()
+        try:
+            await live.watch()
+        except Exception as e:
+            # Refused as a Python caller is: the same door, the same words.
+            return problems.answered_by_member(e, request.state.request_id).response()
+        return live_view.Watching(live, max_width)
+
+    async def snapshot(request: fastapi.Request) -> fastapi.Response:
+        """The camera's newest frame as one JPEG; ``max_width`` as for ``/live``.
+
+        Answers 503 ``no_frame_yet`` when the camera sends no frame within
+        a short wait (it is not streaming, say).
+        """
+        max_width = _max_width(request)
+        if closing.begun:
+            raise problems.server_closing()
+        try:
+            shown = await live.snapshot(max_width)
+        except Exception as e:
+            return problems.answered_by_member(e, request.state.request_id).response()
+        if shown is None:
+            if closing.begun:
+                raise problems.server_closing()
+            raise problems.no_frame_yet(live_view.RETRY_AFTER_S)
+        frame, jpeg = shown
+        return fastapi.Response(
+            jpeg, media_type='image/jpeg', headers={'Cache-Control': 'no-cache', **frame.headers()}
+        )
+
+    app.add_api_route(f'{PREFIX}/live', watch, methods=['GET'], tags=['live'])
+    app.add_api_route(f'{PREFIX}/live.jpg', snapshot, methods=['GET'], tags=['live'])
+
+
+def _max_width(request: fastapi.Request) -> int | None:
+    """The live view's one query argument: a width in pixels above 0, or None when not given."""
+    unknown = sorted(set(request.query_params) - {'max_width'})
+    if unknown:
+        raise problems.invalid_request(f'The live view takes only max_width, not {unknown}.')
+    given = request.query_params.getlist('max_width')
+    if not given:
+        return None
+    if len(given) > 1:
+        raise problems.invalid_request('Give max_width once.')
+    if not given[0].isdigit() or int(given[0]) < 1:
+        raise problems.invalid_request(
+            f'max_width is a whole number of pixels above 0, not {given[0]!r}.'
+        )
+    return int(given[0])
 
 
 def _add_handle_routes(

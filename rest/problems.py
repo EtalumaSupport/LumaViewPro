@@ -20,7 +20,8 @@ cancel) is 409. A fault is 500.
 The server's own answers carry their own reasons, kind ``refusal``:
 ``invalid_request`` 422, ``not_found`` 404, ``method_not_allowed`` 405,
 ``unsupported_media_type`` 415, ``overloaded`` 503, ``server_closing`` 503
-for a member asked while the server closes, and ``handle_shared`` 409 for
+for a member asked while the server closes, ``no_frame_yet`` 503 for a
+live view the camera has sent no frame to, and ``handle_shared`` 409 for
 an id every client shares.
 """
 
@@ -145,6 +146,17 @@ def server_closing() -> ServerRefusedError:
         'server_closing',
         'Server Closing',
         'The server is closing: it finishes what is under way, then exits.',
+    )
+
+
+def no_frame_yet(retry_after_s: int) -> ServerRefusedError:
+    """A live view with no frame to show: the camera sent none in time; asking again later may succeed."""
+    return ServerRefusedError(
+        503,
+        'no_frame_yet',
+        'No Frame Yet',
+        'The camera has sent no frame to show yet; it may not be streaming.',
+        headers={'Retry-After': str(retry_after_s)},
     )
 
 
