@@ -38,6 +38,38 @@ from modules.notification_center import OutcomeKind, outcome_of
 from rest.routes import wire_form
 
 MEDIA_TYPE = 'application/problem+json'
+
+# What every route declares in the OpenAPI description for an answer that is
+# not a result: each is a problem, whatever its status. Ranges, since which
+# reasons a route can answer is the member's, not the route's.
+_SCHEMA = {
+    'type': 'object',
+    'required': ['type', 'title', 'detail', 'status', 'instance', 'kind', 'reason', 'remedy'],
+    'properties': {
+        'type': {'type': 'string', 'description': 'urn:lumascope:problem:<reason>, or about:blank'},
+        'title': {'type': 'string'},
+        'detail': {'type': 'string'},
+        'status': {'type': 'integer'},
+        'instance': {'type': 'string', 'description': 'urn:uuid:<request id>'},
+        'kind': {'type': 'string', 'enum': [kind.value for kind in OutcomeKind]},
+        'reason': {'type': ['string', 'null'], 'description': 'What a client branches on'},
+        'remedy': {'type': ['object', 'null']},
+    },
+    'additionalProperties': True,
+}
+OPENAPI_RESPONSES: dict[int | str, dict] = {
+    code: {'description': words, 'content': {MEDIA_TYPE: {'schema': _SCHEMA}}}
+    for code, words in (
+        (
+            '4XX',
+            'Refused: 422 when the request cannot succeed on this scope, 409 when its state refused it; 404, 405, 415 for the request itself. Beside the members above, a problem carries the fields its type publishes, such as `argument`, and `errors` for a body that does not fit.',
+        ),
+        (
+            '5XX',
+            'A fault (500), or the server overloaded or closing (503, `Retry-After` when asking again may succeed).',
+        ),
+    )
+}
 TYPE_PREFIX = 'urn:lumascope:problem:'
 
 # What each cause of a refusal or quiet outcome answers.

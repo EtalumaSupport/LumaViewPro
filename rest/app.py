@@ -119,6 +119,7 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
         docs_url='/docs',
         redoc_url=None,
         lifespan=served,
+        responses=problems.OPENAPI_RESPONSES,
     )
 
     async def versions() -> dict[str, list[str]]:

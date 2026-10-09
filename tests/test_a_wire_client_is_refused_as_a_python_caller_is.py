@@ -12,7 +12,8 @@ reported once, to the log only: the problem is the answer. A refusal is 422
 when the request as sent cannot succeed and 409 when the scope's state
 refused it, as its type declares, so a client retries only a 409; a fault is
 500. The server's own answers -- no such route, method, handle or body --
-carry their own reasons.
+carry their own reasons. The OpenAPI description declares every answer that
+is not a result as such a problem, on every route.
 """
 
 from __future__ import annotations
@@ -269,3 +270,25 @@ def test_an_invalid_body_names_each_argument_that_does_not_fit(client):
 
     assert {tuple(e['loc']) for e in body['errors']} >= {('body', 'illumination_ma')}
     assert all(set(e) == {'loc', 'msg', 'type'} for e in body['errors'])
+
+
+def test_the_openapi_declares_every_answer_that_is_not_a_result_as_a_problem(client):
+    openapi = client.get('/api/v1/openapi.json').json()
+    operations = [op for path in openapi['paths'].values() for op in path.values()]
+    refused = client.post('/api/v1/scope/motion/move_absolute', json={'axis': 'x', 'position': 0})
+
+    declared = {
+        tuple(sorted(code for code in op['responses'] if not code.startswith('2')))
+        for op in operations
+    }
+    media = {
+        media
+        for op in operations
+        for code in ('4XX', '5XX')
+        for media in op['responses'][code]['content']
+    }
+    schema = operations[0]['responses']['4XX']['content']['application/problem+json']['schema']
+    assert declared == {('4XX', '5XX')}
+    assert media == {'application/problem+json'}
+    assert 'HTTPValidationError' not in str(openapi)
+    assert set(schema['required']) <= set(refused.json())
