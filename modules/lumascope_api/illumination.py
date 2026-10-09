@@ -1506,7 +1506,7 @@ class IlluminationAPI:
         return self._driver.color2ch(color)
 
     # --- Listeners ---
-    @api(event=LedChanged)
+    @api(in_process=True, event=LedChanged)
     def add_led_listener(self, listener: Callable[[str, bool, float], None]) -> None:
         """Register a callback for LED state changes.
 
@@ -1521,7 +1521,7 @@ class IlluminationAPI:
         with self._led_listeners_lock:
             self._led_listeners.append(listener)
 
-    @api
+    @api(in_process=True)
     def remove_led_listener(self, listener: Callable[[str, bool, float], None]) -> None:
         """Unregister an LED listener.
 

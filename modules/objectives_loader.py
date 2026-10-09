@@ -160,7 +160,7 @@ class ObjectiveLoader:
     def get_objectives_list(self) -> list:
         return list(self._objectives.keys())
 
-    @api
+    @api(in_process=True)
     def get_objectives_dataframe(self) -> pd.DataFrame:
         """The objectives table, as the caller's own copy.
 

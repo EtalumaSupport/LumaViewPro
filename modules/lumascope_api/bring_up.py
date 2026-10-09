@@ -70,7 +70,7 @@ class PartStatus:
         """Expected and not up: the part this scope should have and lacks."""
         return self.expected and not self.up
 
-    @api
+    @api(in_process=True)
     def describe(self) -> str:
         """The part's label with its cause: ``Motor Controller (port in use)``."""
         label = PART_LABELS[self.part]
@@ -118,7 +118,7 @@ class BringUpRecord:
     substitutions: tuple[Substitution, ...] = ()
     settings_set_aside: SettingsSetAside | None = None
 
-    @api
+    @api(in_process=True)
     def part(self, name: str) -> PartStatus:
         """The status of ``name``; KeyError when this record has no such part."""
         for status in self.parts:
@@ -132,7 +132,7 @@ class BringUpRecord:
         """The parts this scope should have and lacks."""
         return tuple(status for status in self.parts if status.missing)
 
-    @api
+    @api(in_process=True)
     def substitution(self, setting: str) -> Substitution | None:
         """What bring-up used for ``setting`` instead of the saved value, if anything."""
         for sub in self.substitutions:

@@ -515,7 +515,7 @@ class ScopeSession:
         scope.set_camera_override_key(self._camera_override_key)
         scope.set_activity_claim(self.activity_claim)
 
-    @api
+    @api(in_process=True)
     @contextlib.contextmanager
     def diagnostic_claim(self) -> Iterator[HeldClaim]:
         """Hold the scope for a diagnostic for the length of a ``with`` block.
@@ -823,7 +823,7 @@ class ScopeSession:
         motion available on a scope that has no stage."""
         return self.scope.capabilities.has_xy_stage and not self.run_lockout
 
-    @api(event=LiveWork)
+    @api(in_process=True, event=LiveWork)
     def add_run_state_listener(self, listener: Callable[[], None]) -> None:
         """Register a run-state transition listener and level-sync it.
 
@@ -858,7 +858,7 @@ class ScopeSession:
             except Exception as ex:
                 notifications.report_outcome(ex, solicited=False, category='Run State')
 
-    @api(event=Notification)
+    @api(in_process=True, event=Notification)
     def add_outcome_listener(self, listener: Callable[['Notification'], None]) -> None:
         """Hear every outcome the scope reports from now on.
 
@@ -880,7 +880,7 @@ class ScopeSession:
         notifications.add_listener(listener, min_severity=Severity.DEBUG)
         self._outcome_listeners.append(listener)
 
-    @api
+    @api(in_process=True)
     def remove_outcome_listener(self, listener: Callable[['Notification'], None]) -> None:
         """Stop ``listener`` hearing outcomes; a listener never added is a no-op."""
         from modules.notification_center import notifications

@@ -3502,7 +3502,7 @@ class ImagingAPI:
         """
         return self._driver.get_black_level()
 
-    @api
+    @api(in_process=True)
     def capture_and_wait(
         self,
         force_to_8bit: bool = True,
@@ -3956,7 +3956,7 @@ class ImagingAPI:
 
         return image
 
-    @api
+    @api(in_process=True)
     def get_image(
         self,
         force_to_8bit: bool = True,
@@ -3995,7 +3995,7 @@ class ImagingAPI:
             verify_chunk_targets=verify_chunk_targets,
         )
 
-    @api
+    @api(in_process=True)
     def get_image_from_buffer(
         self, force_to_8bit: bool = True, out_8bit: np.ndarray | None = None
     ) -> tuple:
@@ -4114,7 +4114,7 @@ class ImagingAPI:
         stamped = driver.last_stamped_significant_bits()
         return int(stamped) if stamped is not None else self.significant_bits
 
-    @api
+    @api(in_process=True)
     def capture_frame_depth(self, array: np.ndarray | None) -> int:
         """Payload depth of a frame just produced by a capture call.
 
@@ -4137,7 +4137,7 @@ class ImagingAPI:
             return self.last_significant_bits
         return image_utils.summed_significant_bits(*summing)
 
-    @api
+    @api(in_process=True)
     def capture_frame_full_scale(self, array: np.ndarray | None) -> int:
         """The value at which a frame just produced by a capture call is saturated.
 
@@ -5362,7 +5362,7 @@ class ImagingAPI:
         )
 
     # --- Frame-flow listeners ---
-    @api(event=CameraChanged)
+    @api(in_process=True, event=CameraChanged)
     def add_camera_listener(self, listener: Callable[[str, float], None]) -> None:
         """Register a callback for camera setting changes.
 
@@ -5380,7 +5380,7 @@ class ImagingAPI:
         with self._camera_listeners_lock:
             self._camera_listeners.append(listener)
 
-    @api
+    @api(in_process=True)
     def remove_camera_listener(self, listener: Callable[[str, float], None]) -> None:
         """Unregister a camera listener.
 
@@ -5395,7 +5395,7 @@ class ImagingAPI:
             except ValueError:
                 pass
 
-    @api(event=FrameDelivered)
+    @api(in_process=True, event=FrameDelivered)
     def add_frame_listener(
         self,
         cb: Callable[[np.ndarray, datetime.datetime, dict | None], None],
@@ -5453,7 +5453,7 @@ class ImagingAPI:
                 self._frame_listener_wrappers.pop(cb, None)
             raise FrameListenerNotRegisteredError(name) from ex
 
-    @api
+    @api(in_process=True)
     def remove_frame_listener(
         self, cb: Callable[[np.ndarray, datetime.datetime, dict | None], None]
     ) -> None:

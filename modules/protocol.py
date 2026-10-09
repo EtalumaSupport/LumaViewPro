@@ -1469,7 +1469,7 @@ class Protocol:
         except ValueError as e:
             raise StepEditRefusedError(f'a step {column} of {value!r} {e}') from None
 
-    @api
+    @api(in_process=True)
     def steps(self) -> pd.DataFrame:
         """A copy of the steps frame.
 

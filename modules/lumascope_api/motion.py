@@ -1503,7 +1503,7 @@ class MotionAPI:
         with self._axis_state_lock:
             return self._axis_state.get(axis, AxisState.UNKNOWN)
 
-    @api(event=PositionChanged)
+    @api(in_process=True, event=PositionChanged)
     def add_position_listener(self, listener: Callable[[str, AxisPosition], None]) -> None:
         """Register a callback for position/state changes on any axis.
 
@@ -1521,7 +1521,7 @@ class MotionAPI:
         with self._position_listeners_lock:
             self._position_listeners.append(listener)
 
-    @api
+    @api(in_process=True)
     def remove_position_listener(self, listener: Callable[[str, AxisPosition], None]) -> None:
         """Unregister a position listener.
 

@@ -97,9 +97,9 @@ class ProtocolsAPI:
     def tiling_config(self) -> TilingConfig:
         """The tiling grids this installation offers, from the scope's data folder.
 
-        What a caller needs to choose a grid: ``available_configs()`` lists the
+        What a caller needs to choose a grid: ``available`` lists the
         labels ``create_protocol`` and ``Protocol.apply_tiling`` accept,
-        and ``default_config()`` is the one to preselect; ``Protocol.tiling()``
+        and ``default`` is the one to preselect; ``Protocol.tiling()``
         names the grid a protocol's steps already carry. Read from the file on
         each call, so there is no copy to fall out of step with it.
 

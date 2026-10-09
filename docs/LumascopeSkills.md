@@ -767,12 +767,12 @@ Recovery is deliberate data loss: the finished run's outstanding images are give
 
 **Canonical entry points.** Build the runner with `session.create_protocol_runner()`. Build the `Protocol` it runs with `session.load_protocol(file_path)` (from a `.tsv` on disk, with the scope put on the protocol's plate), `session.new_protocol(...)` (from the session's settings, as the GUI's New does) or `scope.protocols.create_protocol(config=... | input_config=... | empty_config=...)` (in-memory). Each resolves `data/tiling.json` from the scope's data folder and judges the protocol against the scope's catalogues.
 
-**Tiling grids.** `scope.protocols.tiling_config()` returns the grids this installation offers, read from the same `data/tiling.json`: `available_configs()` lists the labels a protocol's `tiling` accepts (`'1x1'`, `'2x2'`, ...), and `default_config()` is the one to preselect. It reads the file on each call; a missing or corrupt file raises `RuntimeError`. `protocol.tiling()` names the grid a protocol's steps already carry: `'1x1'` when no step is tiled, the grid's label when the tiles form one on offer, and None when they are tiled in a layout no grid offers. `session.apply_tiling` refuses any grid over a tiled protocol (`ProtocolRunRefusedError`, reason `already_tiled`).
+**Tiling grids.** `scope.protocols.tiling_config()` returns the grids this installation offers, read from the same `data/tiling.json`, as a record: `available` lists the labels a protocol's `tiling` accepts (`'1x1'`, `'2x2'`, ...), and `default` is the one to preselect (None when the file names none). `available_configs()` and `default_config()` answer the same in-process. It reads the file on each call; a missing or corrupt file raises `RuntimeError`. `protocol.tiling()` names the grid a protocol's steps already carry: `'1x1'` when no step is tiled, the grid's label when the tiles form one on offer, and None when they are tiled in a layout no grid offers. `session.apply_tiling` refuses any grid over a tiled protocol (`ProtocolRunRefusedError`, reason `already_tiled`).
 
 ```python
 grids = session.scope.protocols.tiling_config()
-grids.available_configs()   # ['1x1', '2x2', '3x3', ...]
-grids.default_config()      # '1x1'
+grids.available             # ('1x1', '2x2', '3x3', ...)
+grids.default               # '1x1'
 ```
 
 **Choosing what each layer captures.** `session.set_layer_acquire(layer, mode)` sets whether a layer captures an image (`'image'`), a video (`'video'`) or nothing (None), as the GUI's acquire toggle does; the layers set to acquire are the ones `new_protocol` and `add_step` build steps for and a composite merges. A layer set to acquire stops stimulating. An unknown layer or mode raises `ConfigError` and changes nothing, and so does `'image'` or `'video'` for a layer this scope does not have (`scope.layer_identity`); setting any layer to acquire nothing is always accepted. A saved setting that has such a layer acquiring -- one written on another model -- is set to acquire nothing when the session comes up, and the change is logged.
@@ -825,7 +825,7 @@ session.rename_step(protocol, 0, 'center')   # 'center_BF'
 session.delete_step(protocol, 1)
 ```
 
-**Tiling and z-stacking a protocol.** `session.apply_tiling(protocol, tiling)` does what the protocol panel's tiling Apply does: every step becomes a grid of tiles, `tiling` one of the labels `tiling_config().available_configs()` lists. The tiles are spaced for the configured frame, binning and tile overlap (`tiling_overlap_percent`), and laid out on the protocol's own plate. `session.apply_zstacking(protocol, range_um=..., step_size_um=..., z_reference=...)` does what the z-stack Apply does: every step not already in a stack becomes a stack of slices `step_size_um` apart over `range_um`, its own Z at the stack's `'top'`, `'center'` or `'bottom'`. Both leave the steps in the order a run visits them, and report the step check's notice as the other edits do. Each is refused before any step changes. `ProtocolRunRefusedError` covers a grid this installation does not offer, a protocol already tiled (reason `already_tiled`), a step's objective not in the catalogue, a range or step size not greater than zero, a scope with no motor for the axes the build moves (reason `positions_unreachable`; a Z-only scope cannot be tiled), and a tile or slice outside the stage's travel. `ConfigError` covers an unknown `z_reference` and a protocol plate the catalogue does not have.
+**Tiling and z-stacking a protocol.** `session.apply_tiling(protocol, tiling)` does what the protocol panel's tiling Apply does: every step becomes a grid of tiles, `tiling` one of the labels `tiling_config().available` lists. The tiles are spaced for the configured frame, binning and tile overlap (`tiling_overlap_percent`), and laid out on the protocol's own plate. `session.apply_zstacking(protocol, range_um=..., step_size_um=..., z_reference=...)` does what the z-stack Apply does: every step not already in a stack becomes a stack of slices `step_size_um` apart over `range_um`, its own Z at the stack's `'top'`, `'center'` or `'bottom'`. Both leave the steps in the order a run visits them, and report the step check's notice as the other edits do. Each is refused before any step changes. `ProtocolRunRefusedError` covers a grid this installation does not offer, a protocol already tiled (reason `already_tiled`), a step's objective not in the catalogue, a range or step size not greater than zero, a scope with no motor for the axes the build moves (reason `positions_unreachable`; a Z-only scope cannot be tiled), and a tile or slice outside the stage's travel. `ConfigError` covers an unknown `z_reference` and a protocol plate the catalogue does not have.
 
 ```python
 session.apply_tiling(protocol, '3x3')
@@ -2505,14 +2505,14 @@ ColorChannel.Lumi   # 6  — luminescence (all LEDs off, sensitive mode)
 
 ## API reference
 
-The API is exactly the members below, and nothing else: each carries `@api` in the source, or is a data attribute its class names in `@api_fields` (`modules/api_surface.py`). An unmarked member stays callable from Python but is not API: it can change in any release, and it is never put on a wire. A member labelled (in-process) is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire, because it hosts a session, takes or returns a function, or is held back by policy. `tests/guards/test_the_api_is_declared.py` holds this index equal to the marks, and every type a member hands out or takes in published.
+The API is exactly the members below, and nothing else: each carries `@api` in the source, or is a data attribute its class names in `@api_fields` (`modules/api_surface.py`). An unmarked member stays callable from Python but is not API: it can change in any release, and it is never put on a wire. A member labelled (in-process) is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire, because it hosts a session, takes or returns a function (a listener's registration among them: a wire client hears events on the stream), hands out an image array or a table (a wire client gets frames from the live view and data as files, steps through `num_steps` and `step(idx)`, objectives through `get_objectives_list`), is a method of a class that crosses the wire as a record (a wire client holds the record's data, and a record has no address), or is held back by policy. `tests/guards/test_the_api_is_declared.py` holds this index equal to the marks, and every type a member hands out or takes in published.
 
 ### ScopeSession
 
 Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts here.
 
-- `add_outcome_listener`
-- `add_run_state_listener`
+- `add_outcome_listener` (in-process)
+- `add_run_state_listener` (in-process)
 - `add_step`
 - `apply_focus_to_layer_steps`
 - `apply_layer_camera`
@@ -2533,7 +2533,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `create_empty_protocol`
 - `create_protocol_runner`
 - `delete_step`
-- `diagnostic_claim`
+- `diagnostic_claim` (in-process)
 - `discard_close_drain`
 - `engineering_mode`
 - `exclusive_activity`
@@ -2576,7 +2576,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `protocol_size_advisory`
 - `recording_active`
 - `recover_file_writer`
-- `remove_outcome_listener`
+- `remove_outcome_listener` (in-process)
 - `rename_step`
 - `retire_rejected_settings`
 - `run_in_progress`
@@ -2645,7 +2645,7 @@ Reached through `session.scope`.
 
 Reached through `session.scope.motion`.
 
-- `add_position_listener`
+- `add_position_listener` (in-process)
 - `axes_without_position`
 - `axis_positions`
 - `get_actual_position`
@@ -2666,7 +2666,7 @@ Reached through `session.scope.motion`.
 - `move_relative`
 - `move_turret`
 - `position_is_known`
-- `remove_position_listener`
+- `remove_position_listener` (in-process)
 - `set_precision_mode`
 - `start_home`
 - `start_move_absolute`
@@ -2678,7 +2678,7 @@ Reached through `session.scope.motion`.
 
 Reached through `session.scope.illumination`.
 
-- `add_led_listener`
+- `add_led_listener` (in-process)
 - `ch2color`
 - `color2ch`
 - `get_led_state`
@@ -2686,7 +2686,7 @@ Reached through `session.scope.illumination`.
 - `led_off`
 - `led_on`
 - `leds_off`
-- `remove_led_listener`
+- `remove_led_listener` (in-process)
 - `restore_led_state`
 - `save_led_state`
 
@@ -2694,16 +2694,16 @@ Reached through `session.scope.illumination`.
 
 Reached through `session.scope.imaging`.
 
-- `add_camera_listener`
-- `add_frame_listener`
+- `add_camera_listener` (in-process)
+- `add_frame_listener` (in-process)
 - `applied_auto_gain_for`
 - `applied_exposure_ms_for`
 - `applied_gain_db_for`
 - `apply_layer_camera_settings`
 - `camera_removed`
-- `capture_and_wait`
-- `capture_frame_depth`
-- `capture_frame_full_scale`
+- `capture_and_wait` (in-process)
+- `capture_frame_depth` (in-process)
+- `capture_frame_full_scale` (in-process)
 - `exposure_ms_cached`
 - `frame_is_valid`
 - `frame_size_cached`
@@ -2715,8 +2715,8 @@ Reached through `session.scope.imaging`.
 - `get_delivered_rate`
 - `get_exposure_ms`
 - `get_gain_db`
-- `get_image`
-- `get_image_from_buffer`
+- `get_image` (in-process)
+- `get_image_from_buffer` (in-process)
 - `get_live_camera_settings`
 - `get_pixel_alignment`
 - `get_resulting_frame_rate`
@@ -2729,8 +2729,8 @@ Reached through `session.scope.imaging`.
 - `min_frame_size_cached`
 - `min_gain_db_cached`
 - `pixel_format_cached`
-- `remove_camera_listener`
-- `remove_frame_listener`
+- `remove_camera_listener` (in-process)
+- `remove_frame_listener` (in-process)
 - `scale_bar_config`
 - `set_auto_exposure_time`
 - `set_auto_gain`
@@ -2827,7 +2827,7 @@ Reached through `session.scope.capabilities`.
 Reached through `session.scope.layer_identity`.
 
 - `filterset`
-- `find`
+- `find` (in-process)
 - `layers`
 - `model`
 - `source`
@@ -2836,7 +2836,7 @@ Reached through `session.scope.layer_identity`.
 
 Reached through `session.scope.objective_helper`.
 
-- `get_objectives_dataframe`
+- `get_objectives_dataframe` (in-process)
 - `get_objectives_list`
 
 ### WellPlateLoader
@@ -2915,7 +2915,7 @@ Reached through returned by `session.load_protocol` and `session.new_protocol`.
 - `size_advisory`
 - `step`
 - `step_list_revision`
-- `steps`
+- `steps` (in-process)
 - `tiling`
 - `to_file`
 - `validate_steps`
@@ -2999,10 +2999,10 @@ Reached through each value of `scope.motion.axis_positions()`.
 Reached through returned by `session.bring_up_record`.
 
 - `missing`
-- `part`
+- `part` (in-process)
 - `parts`
 - `settings_set_aside`
-- `substitution`
+- `substitution` (in-process)
 - `substitutions`
 
 ### BuildResult
@@ -3193,7 +3193,7 @@ Reached through returned by `session.objective_question`.
 Reached through returned by `BringUpRecord.part`, `missing` and `parts`.
 
 - `cause`
-- `describe`
+- `describe` (in-process)
 - `detail`
 - `expected`
 - `missing`
@@ -3348,8 +3348,10 @@ Reached through returned by `session.make_support_report` and `session.make_logs
 
 Reached through returned by `scope.protocols.tiling_config`.
 
-- `available_configs`
-- `default_config`
+- `available`
+- `available_configs` (in-process)
+- `default`
+- `default_config` (in-process)
 
 ### UiDispatcher
 
@@ -3372,10 +3374,10 @@ Reached through delivered to `RunEvents.video_progress`'s handler.
 Reached through returned by `scope.runtime_state.get_labware` and `scope.wellplate_loader.get_plate`.
 
 - `config`
-- `get_dimensions`
-- `get_well_index`
-- `get_well_position`
-- `has_wells`
+- `get_dimensions` (in-process)
+- `get_well_index` (in-process)
+- `get_well_position` (in-process)
+- `has_wells` (in-process)
 
 ### WorkItem
 
