@@ -93,6 +93,8 @@ def test_each_kind_of_gap_is_caught():
         '_Root.handed_back return: Callable is not on the wire',
         '_Root.image return: ndarray has no wire form',
         '_Root.worker return: Thread has no wire form',
+        # Its routes cannot be built either: the first return with no form.
+        '_Root: np.ndarray: ndarray has no wire form',
     ]
 
 

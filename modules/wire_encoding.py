@@ -40,6 +40,11 @@ client sent into what the member takes. A parameter type with no inbound
 form -- a job, a path inside an array, a union a value could be read as
 either side of -- is refused when the host is built, never guessed at a
 call.
+
+Outbound, ``outbound`` reads a member's return type into the form its
+answer takes, from the same table, so a host can describe each answer
+before it is sent: what ``encode`` makes of a value is what ``outbound``
+says of its type.
 """
 
 from __future__ import annotations
@@ -471,6 +476,31 @@ class Inbound:
 
 
 @dataclasses.dataclass(frozen=True)
+class Outbound:
+    """One alternative of a return type, as a wire client is sent it.
+
+    Attributes:
+        form: The wire form.
+        name: The type's name, by its last part (``float``, ``Path``,
+            ``AxisPosition``).
+        cls: The project class, for an enum, a record or a handle.
+        items: An array's or object's value alternatives; empty when the
+            annotation does not say.
+        parts: A fixed-shape tuple's parts, each with its alternatives, in
+            order; empty for any other array.
+        fields: A record's keys -- its published fields, then its wire-marked
+            properties -- each with its alternatives.
+    """
+
+    form: str
+    name: str
+    cls: type | None = None
+    items: tuple[Outbound, ...] = ()
+    parts: tuple[tuple[Outbound, ...], ...] = ()
+    fields: tuple[tuple[str, tuple[Outbound, ...]], ...] = ()
+
+
+@dataclasses.dataclass(frozen=True)
 class WireParameter:
     """A parameter a wire client sends by name.
 
@@ -508,10 +538,13 @@ class WireMember:
             to hear how far the call has got; None when it takes none.
         run_events: The parameter a host fills with its own ``RunEvents`` to
             hear the run the call starts; None when it takes none.
+        returns: What its answer can be, each alternative in the form it
+            crosses in (``outbound``).
     """
 
     name: str
     read: bool
+    returns: tuple[Outbound, ...]
     parameters: tuple[WireParameter, ...] = ()
     segment: type | None = None
     doc: str = ''
@@ -634,6 +667,69 @@ def _items(
     return items
 
 
+def outbound(
+    text: str | None, classes: dict[str, type], aliases: dict[str, str]
+) -> tuple[Outbound, ...]:
+    """The alternatives a value of return type *text* is sent to a wire client as.
+
+    Read from ``NAMED_FORMS`` and ``class_form``, the table ``encode``
+    follows, so each alternative is the form ``encode`` gives a value of
+    that type: a record by its published fields and wire properties, a
+    live object as its handle, a ``Future`` as its job, a path as its
+    live-folder name and host path, an array or object by its items, a
+    fixed-shape tuple by its parts.
+
+    Raises:
+        NoWireFormError: *text* is missing, or names a type with no form.
+    """
+    if text is None:
+        raise NoWireFormError('a return type is not annotated')
+    found: list[Outbound] = []
+    for node in _alternatives(text):
+        name = _base(node)
+        if name in _TRANSPARENT:
+            found += outbound(ast.unparse(node.slice), classes, aliases)
+            continue
+        if name in aliases and name not in NAMED_FORMS:
+            found += outbound(aliases[name], classes, aliases)
+            continue
+        form = NAMED_FORMS.get(name)
+        cls = classes.get(name) if form is None else None
+        if cls is not None:
+            form = class_form(cls)
+        if form is None:
+            raise NoWireFormError(f'{text}: {name} has no wire form')
+        if form in (ARRAY, OBJECT):
+            found.append(_outbound_items(node, form, name, classes, aliases))
+        elif form == RECORD:
+            keys = [(f, _field_text(cls, f)) for f in _fields(cls)]
+            keys += [
+                (p, _annotation_text(_marked(cls)[p].fget.__annotations__.get('return')))
+                for p in _wire_properties(cls)
+            ]
+            fields = tuple((k, outbound(t, classes, aliases)) for k, t in keys)
+            found.append(Outbound(form, name, cls, fields=fields))
+        else:
+            found.append(Outbound(form, name, cls))
+    return tuple(found)
+
+
+def _outbound_items(
+    node: ast.AST, form: str, name: str, classes: dict[str, type], aliases: dict[str, str]
+) -> Outbound:
+    """An array or object, with its items or a fixed-shape tuple's parts when the annotation says."""
+    if not isinstance(node, ast.Subscript):
+        return Outbound(form, name)
+    parts = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+    # A mapping's value is its last part; a tuple's ``...`` says nothing.
+    parts = [p for p in parts if not (isinstance(p, ast.Constant) and p.value is Ellipsis)]
+    if name == 'tuple' and len(parts) > 1:
+        return Outbound(
+            form, name, parts=tuple(outbound(ast.unparse(p), classes, aliases) for p in parts)
+        )
+    return Outbound(form, name, items=outbound(ast.unparse(parts[-1]), classes, aliases))
+
+
 def wire_members(
     cls: type,
     classes: dict[str, type],
@@ -647,9 +743,10 @@ def wire_members(
     object no wire member hands out is not sent: its default stands.
 
     Raises:
-        NoWireFormError: a parameter's type has no inbound form, or a
-            parameter without a default takes only a live object no wire
-            member hands out (``NotHandedOutError``).
+        NoWireFormError: a parameter's type has no inbound form, a return
+            type has no outbound form, or a parameter without a default
+            takes only a live object no wire member hands out
+            (``NotHandedOutError``).
         TypeError: a method takes ``*args`` or ``**kwargs``, which a client
             cannot name.
     """
@@ -695,6 +792,7 @@ def wire_members(
             WireMember(
                 name,
                 read=False,
+                returns=outbound(returns, classes, aliases),
                 parameters=tuple(parameters),
                 doc=function.__doc__ or '',
                 hands_out=_hands_out(returns, handed_out, aliases),
@@ -718,10 +816,13 @@ def _read(
     handed_out: frozenset[type] | None,
 ) -> WireMember:
     """A read member, with the live object's class it leads to when it is a sub-object."""
+    segment = _segment(text, classes) if text else None
     return WireMember(
         name,
         read=True,
-        segment=_segment(text, classes) if text else None,
+        # A sub-object is a path segment, never an answer.
+        returns=() if segment is not None else outbound(text, classes, aliases),
+        segment=segment,
         doc=getattr(function, '__doc__', '') or '',
         hands_out=_hands_out(text, handed_out, aliases),
         returns_job=_returns_job(text, aliases),

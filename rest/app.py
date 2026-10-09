@@ -40,12 +40,13 @@ from modules.protocol_runner import ProtocolRunner
 from modules.scope_session import ScopeSession
 from rest import live as live_view
 from rest import problems
+from rest import events as event_stream
 from rest.events import EventStream
 from rest.handles import HandleRegistry
 from rest.jobs import RETRY_AFTER_S as JOB_RETRY_AFTER_S
 from rest.jobs import JobRegistry, Progress, Wait
 from rest.problems import Answer, ServerRefusedError
-from rest.routes import Route, routes
+from rest.routes import ANSWER_CONFIG, Handle, Job, Route, routes
 
 # The REST log: a child of lvp_logger's logger, whose REST handler keeps
 # only the records marked api_request.
@@ -56,6 +57,31 @@ PREFIX = f'/api/{VERSION}'
 # The first path segments the server answers itself; a Session member of
 # one of these names would be shadowed, so one fails the build.
 SERVER_SEGMENTS = frozenset({'handles', 'jobs', 'events', 'files', 'live', 'live.jpg'})
+# What any member answers when its call outlives what the client will wait.
+_ANSWERED_AS_JOB = {
+    'model': Job,
+    'description': 'The call outlived the wait (`Prefer: wait`): its job, at `Location`.',
+}
+
+
+class Versions(pydantic.BaseModel):
+    """The API versions a server answers."""
+
+    model_config = ANSWER_CONFIG
+    versions: list[str]
+
+
+def _not_json(media_type: str, description: str, schema: dict | None = None) -> dict:
+    """The ``add_api_route`` arguments declaring a route's answer as *media_type*, not JSON."""
+    return {
+        'response_class': fastapi.Response,
+        'responses': {
+            200: {
+                'description': description,
+                'content': {media_type: {'schema': schema or {'type': 'string'}}},
+            }
+        },
+    }
 
 
 class Closing:
@@ -126,7 +152,14 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
         """The API versions this server answers, each at ``/api/<version>/``."""
         return {'versions': [VERSION]}
 
-    app.add_api_route('/api', versions, methods=['GET'], tags=['server'])
+    app.add_api_route(
+        '/api',
+        versions,
+        methods=['GET'],
+        tags=['server'],
+        response_model=None,
+        responses={200: {'model': Versions, 'description': 'The versions.'}},
+    )
     app.middleware('http')(_identify_and_admit)
     app.add_exception_handler(ServerRefusedError, _refused)
     app.add_exception_handler(RequestValidationError, _body_does_not_fit)
@@ -140,7 +173,7 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     app.state.live = live
     _add_handle_routes(app, registry, handed_out)
     _add_job_routes(app, jobs)
-    _add_event_route(app, stream)
+    _add_event_route(app, stream, event_stream.published(session, handed_out))
     _add_live_routes(app, live, closing)
     _add_file_route(app, session)
     session_routes = routes(ScopeSession, handed_out=handed_out)
@@ -183,10 +216,22 @@ def _add_file_route(app: fastapi.FastAPI, session: ScopeSession) -> None:
             raise problems.not_found(f'No file {name} is in the live folder.')
         return FileResponse(path, filename=path.name)
 
-    app.add_api_route(f'{PREFIX}/files/{{name:path}}', download, methods=['GET'], tags=['files'])
+    app.add_api_route(
+        f'{PREFIX}/files/{{name:path}}',
+        download,
+        methods=['GET'],
+        tags=['files'],
+        **_not_json(
+            'application/octet-stream',
+            "The file's bytes, typed by its extension.",
+            {'type': 'string', 'format': 'binary'},
+        ),
+    )
 
 
-def _add_event_route(app: fastapi.FastAPI, stream: EventStream) -> None:
+def _add_event_route(
+    app: fastapi.FastAPI, stream: EventStream, published: dict[str, type[pydantic.BaseModel]]
+) -> None:
     async def events(request: fastapi.Request) -> StreamingResponse:
         """Every event the scope sends, as ``text/event-stream``: first ``status``, then each as it happens.
 
@@ -200,7 +245,32 @@ def _add_event_route(app: fastapi.FastAPI, stream: EventStream) -> None:
             headers={'Cache-Control': 'no-cache'},
         )
 
-    app.add_api_route(f'{PREFIX}/events', events, methods=['GET'], tags=['events'])
+    app.add_api_route(
+        f'{PREFIX}/events',
+        events,
+        methods=['GET'],
+        tags=['events'],
+        **_not_json('text/event-stream', event_stream.described(published)),
+    )
+    built = app.openapi
+
+    def openapi() -> dict:
+        """The description, with each event's data a component: no route answers one as JSON."""
+        if app.openapi_schema is None:
+            described = built()
+            _, schemas = pydantic.json_schema.models_json_schema(
+                [(m, 'serialization') for m in published.values()],
+                ref_template='#/components/schemas/{model}',
+            )
+            components = described.setdefault('components', {}).setdefault('schemas', {})
+            for name, schema in schemas.get('$defs', {}).items():
+                # A name already published is the same record (no two
+                # reachable classes share a name): a route's description of
+                # it stands, a parameter's included (``Remedy``).
+                components.setdefault(name, schema)
+        return app.openapi_schema
+
+    app.openapi = openapi
 
 
 def _add_live_routes(app: fastapi.FastAPI, live: live_view.LiveView, closing: Closing) -> None:
@@ -243,8 +313,20 @@ def _add_live_routes(app: fastapi.FastAPI, live: live_view.LiveView, closing: Cl
             jpeg, media_type='image/jpeg', headers={'Cache-Control': 'no-cache', **frame.headers()}
         )
 
-    app.add_api_route(f'{PREFIX}/live', watch, methods=['GET'], tags=['live'])
-    app.add_api_route(f'{PREFIX}/live.jpg', snapshot, methods=['GET'], tags=['live'])
+    app.add_api_route(
+        f'{PREFIX}/live',
+        watch,
+        methods=['GET'],
+        tags=['live'],
+        **_not_json('multipart/x-mixed-replace', 'The frames, each a JPEG part.'),
+    )
+    app.add_api_route(
+        f'{PREFIX}/live.jpg',
+        snapshot,
+        methods=['GET'],
+        tags=['live'],
+        **_not_json('image/jpeg', 'The newest frame.', {'type': 'string', 'format': 'binary'}),
+    )
 
 
 def _max_width(request: fastapi.Request) -> int | None:
@@ -271,7 +353,14 @@ def _add_handle_routes(
         """Every handle held, oldest first: a client that lost an answer finds its handle here."""
         return registry.listing()
 
-    app.add_api_route(f'{PREFIX}/handles', held, methods=['GET'], tags=['handles'])
+    app.add_api_route(
+        f'{PREFIX}/handles',
+        held,
+        methods=['GET'],
+        tags=['handles'],
+        response_model=None,
+        responses={200: {'model': list[Handle], 'description': 'The handles.'}},
+    )
     for cls in sorted(handed_out, key=lambda c: c.__name__):
 
         async def forget(handle_id: str, cls: type = cls) -> fastapi.Response:
@@ -401,7 +490,14 @@ def _add(
         'summary': doc.split('\n', 1)[0] or None,
         'description': doc or None,
         'tags': [tag],
+        # The answer is encoded from the value (``wire_encoding.encode``) and
+        # sent as it is; the models only describe it, from the member's
+        # declared return type.
         'response_model': None,
+        'responses': {
+            200: {'model': route.answer, 'description': "The member's answer."},
+            202: _ANSWERED_AS_JOB,
+        },
     }
 
     async def answer(
@@ -529,7 +625,14 @@ def _add_job_routes(app: fastapi.FastAPI, jobs: JobRegistry) -> None:
         """Every job held, newest first."""
         return jobs.listing()
 
-    app.add_api_route(f'{PREFIX}/jobs', listing, methods=['GET'], tags=['jobs'])
+    app.add_api_route(
+        f'{PREFIX}/jobs',
+        listing,
+        methods=['GET'],
+        tags=['jobs'],
+        response_model=None,
+        responses={200: {'model': list[Job], 'description': 'The jobs.'}},
+    )
 
     async def read(request: fastapi.Request, job_id: str) -> JSONResponse:
         """A job, waiting for it to end for what the client says it will wait (``Prefer: wait``).
@@ -543,7 +646,14 @@ def _add_job_routes(app: fastapi.FastAPI, jobs: JobRegistry) -> None:
             await asyncio.wait({job.answered}, timeout=wait.seconds)
         return JSONResponse(job.view(), headers=wait.headers())
 
-    app.add_api_route(f'{PREFIX}/jobs/{{job_id}}', read, methods=['GET'], tags=['jobs'])
+    app.add_api_route(
+        f'{PREFIX}/jobs/{{job_id}}',
+        read,
+        methods=['GET'],
+        tags=['jobs'],
+        response_model=None,
+        responses={200: {'model': Job, 'description': 'The job.'}},
+    )
 
     async def forget(job_id: str) -> fastapi.Response:
         """Forget a finished job; one still running is 409, and its own member stops it."""

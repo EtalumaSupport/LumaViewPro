@@ -9,6 +9,10 @@ with their record (``@api(event=Record)``), each named for its member
 field names; a run event adds ``run``, the handle of the run that sent it.
 The frame events are the live view's, not the stream's.
 
+Each event's data is described in the OpenAPI description by a component
+of its own (``published``), since what is sent is not quite its record:
+the fields only, without a live object, with ``run`` on a run event.
+
 The first event is ``status``, the ``Status`` record, with the current
 ``id:``; ``id:`` is a sequence number. A client that reconnects with
 ``Last-Event-ID`` is sent what it missed from a bounded buffer, or, once the
@@ -27,10 +31,13 @@ import json
 import threading
 from collections.abc import AsyncIterator, Callable
 
+import pydantic
+
 from modules import api_surface, wire_encoding
 from modules.notification_center import Notification
 from modules.run_events import RunEvents
 from modules.scope_session import ScopeSession
+from rest import routes
 
 # The events a client missed that a reconnect is resent: about a minute of
 # a homing stage's position events, the busiest source.
@@ -88,16 +95,12 @@ class EventStream:
         """Start hearing every listener member's events, on *loop*."""
         self._loop = loop
         self._wake = asyncio.Event()
-        for owner in _owners(self._session):
-            for member_name, record in _listeners(type(owner)):
-                name = member_name.removeprefix('add_').removesuffix('_listener')
-                if name in _LIVE_VIEW:
-                    continue
-                listener = self._listener(name, record)
-                getattr(owner, member_name)(listener)
-                remove = getattr(owner, f'remove_{name}_listener', None)
-                if remove is not None:
-                    self._removals.append(lambda remove=remove, listener=listener: remove(listener))
+        for owner, member_name, name, record in _listened(self._session):
+            listener = self._listener(name, record)
+            getattr(owner, member_name)(listener)
+            remove = getattr(owner, f'remove_{name}_listener', None)
+            if remove is not None:
+                self._removals.append(lambda remove=remove, listener=listener: remove(listener))
 
     def close(self) -> None:
         """Stop hearing: a listener still called sends nothing."""
@@ -160,7 +163,7 @@ class EventStream:
         """
         fields = {
             f: getattr(record, f)
-            for f in _fields(record)
+            for f in _fields(type(record))
             if type(getattr(record, f)) not in self._handed_out
         }
         data = json.dumps({**self._encode(fields), **added}, allow_nan=False)
@@ -235,12 +238,7 @@ class RunTag:
 
     def events(self) -> RunEvents:
         """The ``RunEvents`` that send each event but the live view's."""
-        handlers = {}
-        for field in dataclasses.fields(RunEvents):
-            record = api_surface.field_event(RunEvents, field.name)
-            if record is None or field.name in _LIVE_VIEW:
-                continue
-            handlers[field.name] = self._handler(field.name, record)
+        handlers = {name: self._handler(name, record) for name, record in _run_events().items()}
         return RunEvents(**handlers)
 
     def _handler(self, name: str, record: type) -> Callable[..., None]:
@@ -274,11 +272,94 @@ def _resume_from(last_event_id: str | None) -> int | None:
     return int(text) if text.isdigit() else -1
 
 
-def _fields(record: object) -> tuple[str, ...]:
-    published = api_surface.fields_of(type(record))
+def _fields(record: type) -> tuple[str, ...]:
+    published = api_surface.fields_of(record)
     if published:
         return published
     return tuple(f.name for f in dataclasses.fields(record))
+
+
+def _event_name(member_name: str) -> str:
+    return member_name.removeprefix('add_').removesuffix('_listener')
+
+
+def _run_events() -> dict[str, type]:
+    """Each run event the stream sends, by name, with its record."""
+    found = {}
+    for field in dataclasses.fields(RunEvents):
+        record = api_surface.field_event(RunEvents, field.name)
+        if record is not None and field.name not in _LIVE_VIEW:
+            found[field.name] = record
+    return found
+
+
+def _listened(session: ScopeSession) -> list[tuple[object, str, str, type]]:
+    """``(owner, listener member, event name, record)`` for each event a listener member sends on the stream."""
+    return [
+        (owner, member_name, _event_name(member_name), record)
+        for owner in _owners(session)
+        for member_name, record in _listeners(type(owner))
+        if _event_name(member_name) not in _LIVE_VIEW
+    ]
+
+
+def records(session: ScopeSession) -> dict[str, type]:
+    """Each event the stream sends *session*'s client, by name, with its record: what ``open`` hears, and a run's."""
+    found = {name: record for _owner, _member, name, record in _listened(session)}
+    return {**found, **_run_events()}
+
+
+def published(
+    session: ScopeSession, handed_out: frozenset[type]
+) -> dict[str, type[pydantic.BaseModel]]:
+    """Each event the stream sends, by name, with the model its data is described by.
+
+    ``status`` is the ``Status`` record, sent whole. Every other event is a
+    model of its own, named for it: its record's fields as ``send`` sends
+    them, a field that can hold a live object left out, and ``run`` added
+    to a run event. ``reset`` and ``closing`` carry nothing.
+    """
+    classes = wire_encoding.project_classes()
+    aliases = wire_encoding.project_aliases()
+    status = wire_encoding._annotation_text(ScopeSession.status.fget.__annotations__['return'])
+    found: dict[str, type[pydantic.BaseModel]] = {
+        'status': routes.answer_type(wire_encoding.outbound(status, classes, aliases))
+    }
+    run_events = _run_events()
+    for name, record in sorted(records(session).items()):
+        fields = {}
+        for f in _fields(record):
+            alternatives = wire_encoding.outbound(
+                wire_encoding._field_text(record, f), classes, aliases
+            )
+            if any(a.form == wire_encoding.HANDLE and a.cls in handed_out for a in alternatives):
+                continue
+            fields[f] = (routes.answer_type(alternatives), ...)
+        if name in run_events:
+            fields['run'] = (routes.Handle | None, ...)
+        found[name] = _event_model(name, **fields)
+    found['reset'] = _event_model('reset')
+    found['closing'] = _event_model('closing')
+    return found
+
+
+def _event_model(name: str, **fields: object) -> type[pydantic.BaseModel]:
+    camel = ''.join(part.title() for part in name.split('_'))
+    return pydantic.create_model(
+        f'{camel}Event',
+        __config__=routes.ANSWER_CONFIG,
+        __doc__=f'The data of a `{name}` event.',
+        **fields,
+    )
+
+
+def described(events: dict[str, type[pydantic.BaseModel]]) -> str:
+    """The stream's answer as the OpenAPI description says it: each event's name and data's component."""
+    lines = [f'- `{name}`: `#/components/schemas/{m.__name__}`' for name, m in events.items()]
+    return (
+        'Each event is `id:`, `event:` (its name) and `data:` (JSON). '
+        "Each event's data:\n\n" + '\n'.join(lines)
+    )
 
 
 def _owners(session: ScopeSession) -> list[object]:

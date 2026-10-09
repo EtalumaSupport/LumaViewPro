@@ -2281,6 +2281,8 @@ session.shutdown()                          # once uvicorn has stopped
 
 Serve it on `127.0.0.1` only: it has no credentials, so anyone who can reach the port drives the scope. It needs `fastapi` and `uvicorn` (both in `requirements.txt`). `GET /api` answers the versions served (`{"versions": ["v1"]}`); the OpenAPI 3.1 description of every route is at `/api/v1/openapi.json`, and an interactive reference at `/docs`.
 
+The description says what each route answers, read from the member's declared return type in the form it crosses in. A member route's `200` is its answer: each record is one named schema under `components/schemas` (`AxisPosition`, `Status`, `RunOutcome`, ...) with its keys and their types, a handle is `Handle`, an answered path `PathAnswer`; its `202` is `Job`. A client reads a record's keys there, not from this page. A record's schema is open: a key it does not name may be sent beside the ones it does. Where a member declares only a bare `dict` or `list`, the schema is an object or array that says nothing of its keys or items; those are typed one by one by their owners. `/api/v1/files/...`, `/api/v1/live`, `/api/v1/live.jpg` and `/api/v1/events` are declared by what they send (a file, MJPEG, a JPEG, an event stream), not as JSON.
+
 ### Routes
 
 The Session is the root: its member `m` is `/api/v1/m`, and a sub-object is a path segment, so `session.scope.motion.move_absolute` is `POST /api/v1/scope/motion/move_absolute`. Names are the Python names.
@@ -2341,6 +2343,8 @@ Every answer that is not a result is an RFC 9457 problem, `application/problem+j
 | `run_state` | `LiveWork`, as `live_work` reads when the event is sent |
 | `outcome` | `Notification`: an outcome nobody asked for, once per `outcome_id` (one a request was refused with is its answer's problem) |
 | `scan_started`, `scan_ended`, `step_started`, `video_progress`, `run_ended`, `files_written` | The run event's record (`ScanStarted`, ...), with `run`, the handle of the run that sent it (`null` for `run_composite`, which hands out no handle). `run_ended` leaves out the run's own copy of its protocol. |
+
+Each event's data is a named schema in the description, the event's own (`PositionEvent`, `RunEndedEvent`, ...), and `status`'s is `Status`; the `/api/v1/events` route's description lists which is which. A client reads an event's keys there.
 
 A client that reconnects with `Last-Event-ID` is sent the events it missed. When the server no longer holds them -- more than 1024 events have passed, the id is not one this server sent (it has restarted since), or a slow reader has fallen that far behind on an open stream -- it is sent `reset` (data `{}`) and then `status`, both with the current `id:`; the events in between are gone, and `status` is where the client starts again. A comment is sent every 15 s on a quiet stream. When the server closes, the last event is `closing` (data `{}`) and the stream ends; a stream opened after it is sent only `closing`.
 
