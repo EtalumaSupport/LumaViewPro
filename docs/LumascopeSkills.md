@@ -1084,19 +1084,24 @@ the block's end raises `RuntimeError`.
 ### Support report
 
 Two members make the ZIP Etaluma support asks for. Each blocks until the ZIP
-is written and returns where it is:
+is written into the folder you name, which is made if it is missing, and
+returns where it is. The folder is required: the session chooses none. The
+GUI and the command-line report name the user's Desktop through
+`modules.path_utils.desktop_folder()` (the home folder on a machine with no
+Desktop), and a script may do the same:
 
 ```python
+from modules import path_utils
 from modules.exceptions import SupportReportNotSavedError
 
 try:
     saved = session.make_support_report(        # minutes: boards, motors, camera, then the files
+        output_dir=path_utils.desktop_folder(), # required; any folder
         include_bandwidth_test=False,           # True adds a camera frame-delivery timing
-        output_dir=None,                        # the Desktop; the home folder when there is none
         on_progress=lambda pct, msg: print(pct, msg),
     )
-    saved = session.make_logs_zip(output_dir=None)   # seconds: logs, data folder, recent protocols,
-                                                     # video receipts; touches no hardware
+    saved = session.make_logs_zip(output_dir='/data/support')   # seconds: logs, data folder, recent
+                                                                # protocols, video receipts; no hardware
 except SupportReportNotSavedError as e:         # no ZIP; the failure's own words, chained from it
     print(e.report, e)                          # 'support report' or 'logs zip'
 

@@ -44,13 +44,13 @@ def test_a_logs_zip_that_cannot_be_written_says_why(session, tmp_path):
     assert str(raised.value.__cause__) in str(raised.value)
 
 
-def test_a_support_report_that_fails_says_why(session, monkeypatch):
+def test_a_support_report_that_fails_says_why(session, monkeypatch, tmp_path):
     def _fails(self, *args):
         raise OSError('the disk is full')
 
     monkeypatch.setattr(TechSupportReport, '_generate', _fails)
     with pytest.raises(SupportReportNotSavedError, match='the disk is full') as raised:
-        session.make_support_report()
+        session.make_support_report(output_dir=tmp_path / 'out')
     assert raised.value.report == 'support report'
 
 

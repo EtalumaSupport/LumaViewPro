@@ -2870,8 +2870,8 @@ class ScopeSession:
     def make_support_report(
         self,
         *,
+        output_dir: FilePath,
         include_bandwidth_test: bool = False,
-        output_dir: FilePath | None = None,
         on_progress: Callable[[int, str], None] | None = None,
     ) -> 'SupportReportSaved':
         """Make the full Tech Support Report: the boards, the motors, the camera and the files.
@@ -2885,8 +2885,9 @@ class ScopeSession:
         Args:
             include_bandwidth_test: Also time the camera's frame delivery
                 (adds minutes).
-            output_dir: Where the ZIP is written; the Desktop by default,
-                the home folder when there is none.
+            output_dir: The folder the ZIP is written into, made if it is
+                missing. A host that writes where a person looks passes
+                ``path_utils.desktop_folder()``; the session chooses none.
             on_progress: Called with a percentage and what the report is
                 doing, from the thread the report runs on.
 
@@ -2914,7 +2915,7 @@ class ScopeSession:
     def make_logs_zip(
         self,
         *,
-        output_dir: FilePath | None = None,
+        output_dir: FilePath,
         on_progress: Callable[[int, str], None] | None = None,
     ) -> 'SupportReportSaved':
         """Zip the logs, the data folder, the recent protocols and the video receipts.
@@ -2923,8 +2924,9 @@ class ScopeSession:
         the record of what already happened.
 
         Args:
-            output_dir: Where the ZIP is written; the Desktop by default,
-                the home folder when there is none.
+            output_dir: The folder the ZIP is written into, made if it is
+                missing. A host that writes where a person looks passes
+                ``path_utils.desktop_folder()``; the session chooses none.
             on_progress: Called with a percentage and what the zip is doing,
                 from the thread it runs on.
 

@@ -3,7 +3,8 @@
 Tech Support Report Generator for LumaViewPro.
 
 Collects comprehensive diagnostic information and bundles it into a ZIP file
-on the user's Desktop for emailing to support@etaluma.com.
+in the folder its caller names (the GUI and the command line name the
+user's Desktop) for emailing to support@etaluma.com.
 
 Two modes:
   1. Integrated: Called from the LumaViewPro GUI "Generate Support Report"
@@ -26,7 +27,7 @@ Usage (standalone):
 Usage (integrated):
     from modules.tech_support_report import TechSupportReport
     report = TechSupportReport(scope=lumascope_instance)
-    report.generate(callback=progress_callback)
+    report.generate(callback=progress_callback, output_dir=desktop_folder())
 
 Recent protocols list (reusable from GUI):
     from modules.tech_support_report import get_recent_protocols
@@ -71,7 +72,7 @@ from modules.lumascope_api.diagnostics import (
     NOT_CONNECTED,
     is_board_reply,
 )
-from modules.path_utils import get_script_root, get_source_root
+from modules.path_utils import desktop_folder, get_script_root, get_source_root
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.api_surface import api, api_fields
@@ -202,16 +203,6 @@ def _get_protocol_dir():
         if candidate.is_dir():
             return candidate
     return None
-
-
-def _get_desktop():
-    """Return the Desktop path (fallback: home directory).
-
-    Uses platformdirs to honor localized folder names ("Schreibtisch"
-    on German Windows, etc.); same rationale as _get_user_documents.
-    """
-    desktop = pathlib.Path(platformdirs.user_desktop_dir())
-    return desktop if desktop.is_dir() else pathlib.Path.home()
 
 
 # ---------------------------------------------------------------------------
@@ -1665,7 +1656,8 @@ class TechSupportReport:
         self,
         callback: Callable[[int, str], None] | None = None,
         include_bandwidth_test: bool = False,
-        output_dir: str | pathlib.Path | None = None,
+        *,
+        output_dir: str | pathlib.Path,
     ) -> pathlib.Path:
         """Make the full report and return the ZIP's path.
 
@@ -2250,7 +2242,7 @@ class TechSupportReport:
 
         capture_dir = _get_capture_dir()
         # Use the capture directory's drive for the test
-        test_dir = capture_dir if capture_dir and capture_dir.is_dir() else _get_desktop()
+        test_dir = capture_dir if capture_dir and capture_dir.is_dir() else desktop_folder()
 
         results = {
             'test_directory': str(test_dir),
@@ -2732,7 +2724,8 @@ class TechSupportReport:
     def generate_logs_only(
         self,
         callback: Callable[[int, str], None] | None = None,
-        output_dir: str | pathlib.Path | None = None,
+        *,
+        output_dir: str | pathlib.Path,
     ) -> pathlib.Path:
         """Quick zip of logs + data + recent protocols + video receipts.
         No hardware tests.
@@ -2830,9 +2823,7 @@ class TechSupportReport:
         except Exception as e:
             raise SupportReportNotSavedError('logs zip', e) from e
 
-    def _create_zip(self, tmp, sn, output_dir=None, report_type='tsr'):
-        if output_dir is None:
-            output_dir = _get_desktop()
+    def _create_zip(self, tmp, sn, output_dir, report_type='tsr'):
         output_dir = pathlib.Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2984,7 +2975,7 @@ def main() -> int:
         zip_path = report.generate(
             callback=cli_progress,
             include_bandwidth_test=args.bandwidth_test,
-            output_dir=args.output,
+            output_dir=args.output or desktop_folder(),
         )
     except SupportReportNotSavedError as e:
         print('\n')  # Newline after progress bar

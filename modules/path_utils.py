@@ -250,6 +250,19 @@ def get_source_root(
     return documents_dir / data_folder_name(version)
 
 
+def desktop_folder() -> pathlib.Path:
+    """The user's Desktop, where a person expects a support ZIP; the home folder when there is none.
+
+    Through platformdirs, so a localized Desktop ("Schreibtisch" on German
+    Windows) is the one found. The one Desktop for every caller that names
+    it: the GUI's support report and logs zip, and the command-line report.
+    """
+    import platformdirs
+
+    desktop = pathlib.Path(platformdirs.user_desktop_dir())
+    return desktop if desktop.is_dir() else pathlib.Path.home()
+
+
 def resolve_data_file(
     *parts: str,
     source_path: str | pathlib.Path | None = None,

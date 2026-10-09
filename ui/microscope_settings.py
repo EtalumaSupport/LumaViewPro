@@ -12,7 +12,7 @@ import modules.app_context as _app_ctx
 import modules.binning as binning
 import modules.common_utils as common_utils
 import modules.config_ui_getters as config_ui_getters
-from modules import gui_logger
+from modules import gui_logger, path_utils
 from modules.config_helpers import (
     camera_max_exposure_for_ui,
     camera_max_gain_for_ui,
@@ -828,7 +828,9 @@ class MicroscopeSettings(BoxLayout):
         self._make_zip(
             'Generating Support Report...',
             'GENERATE_SUPPORT_REPORT',
-            lambda progress: session.make_support_report(on_progress=progress),
+            lambda progress: session.make_support_report(
+                output_dir=path_utils.desktop_folder(), on_progress=progress
+            ),
             budget_of=session.make_support_report,
         )
 
@@ -838,7 +840,9 @@ class MicroscopeSettings(BoxLayout):
         self._make_zip(
             'Zipping Logs...',
             'ZIP_LOGS',
-            lambda progress: _app_ctx.ctx.session.make_logs_zip(on_progress=progress),
+            lambda progress: _app_ctx.ctx.session.make_logs_zip(
+                output_dir=path_utils.desktop_folder(), on_progress=progress
+            ),
         )
 
     def _make_zip(self, title, label, make, budget_of=None):
