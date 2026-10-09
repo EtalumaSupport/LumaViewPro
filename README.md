@@ -133,6 +133,10 @@ The macOS and Linux scripts always install into a virtual environment (`venv/`).
    ```bash
    brew install python@3.13
    ```
+   To profile LumaViewPro or dump the stacks of a hung one on a Mac
+   (`tools/profiling/`, py-spy, austin), start it from a Homebrew Python:
+   macOS refuses a profiler's attach, even under `sudo`, to the python.org
+   build, which is signed with the hardened runtime.
 
 2. **Install camera SDK**
    - [Basler Pylon for macOS](https://docs.baslerweb.com/pylon-software-suite)

@@ -40,11 +40,13 @@ def _index(artifact: dict) -> dict[str, dict]:
 def compatibility_issues(before: dict, after: dict) -> list[str]:
     """Reasons the two runs are NOT comparable (empty list = comparable).
 
-    Scenario / machine / CPU-config must match; git SHA is allowed (and
-    expected) to differ."""
+    Scenario / machine / sampler / CPU-config must match; the build is allowed
+    (and expected) to differ. Two samplers name the same function differently
+    (austin a qualified name and full path, py-spy a short one), so their rows
+    would not pair."""
     issues: list[str] = []
     mb, ma = before['manifest'], after['manifest']
-    for field in ('scenario', 'machine'):
+    for field in ('scenario', 'machine', 'sampler'):
         if mb.get(field) != ma.get(field):
             issues.append(f'{field} differs: {mb.get(field)!r} vs {ma.get(field)!r}')
     cb, ca = mb.get('config', {}), ma.get('config', {})
