@@ -44,7 +44,9 @@ def session(live):
 
 @pytest.fixture
 def client(session):
-    return TestClient(build_app(session))
+    # One event loop for every request, as the server runs.
+    with TestClient(build_app(session)) as client:
+        yield client
 
 
 def _members(cls) -> set[tuple[str, str]]:

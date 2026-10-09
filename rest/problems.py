@@ -21,6 +21,8 @@ The server's own answers carry their own reasons, kind ``refusal``:
 
 from __future__ import annotations
 
+import dataclasses
+
 from fastapi.responses import JSONResponse
 
 from modules import notification_center
@@ -38,6 +40,42 @@ _STATUS = {
     OutcomeKind.FAULT: 500,
     OutcomeKind.NOTICE: 500,
 }
+
+
+@dataclasses.dataclass(frozen=True)
+class Answer:
+    """What a request is answered: a result, or a problem.
+
+    Made where the call ends, on the call's own thread, so a call that
+    outlives the client's wait is held as a job with its answer already
+    decided, and read the same way whenever it is read.
+
+    Attributes:
+        status: The HTTP status.
+        body: The JSON-ready body: the encoded result, or the problem.
+        headers: Headers the answer carries, such as ``Retry-After``.
+    """
+
+    status: int
+    body: object
+    headers: dict[str, str] = dataclasses.field(default_factory=dict)
+
+    @property
+    def is_problem(self) -> bool:
+        """Whether the answer is a problem rather than a result."""
+        return self.status >= 400
+
+    def response(self) -> JSONResponse:
+        """The answer as the HTTP response."""
+        media_type = MEDIA_TYPE if self.is_problem else 'application/json'
+        return JSONResponse(
+            self.body, status_code=self.status, media_type=media_type, headers=self.headers
+        )
+
+
+def result(value: object) -> Answer:
+    """A call's encoded result."""
+    return Answer(200, value)
 
 
 class ServerRefusedError(Exception):
@@ -96,7 +134,7 @@ def overloaded(detail: str, retry_after_s: int) -> ServerRefusedError:
     )
 
 
-def refused_by_server(refusal: ServerRefusedError, request_id: str) -> JSONResponse:
+def refused_by_server(refusal: ServerRefusedError, request_id: str) -> Answer:
     """The problem for a request the server answered itself."""
     body = _problem(
         type_=TYPE_PREFIX + refusal.reason,
@@ -108,15 +146,10 @@ def refused_by_server(refusal: ServerRefusedError, request_id: str) -> JSONRespo
         reason=refusal.reason,
         remedy=None,
     )
-    return JSONResponse(
-        {**body, **refusal.extra},
-        status_code=refusal.status,
-        media_type=MEDIA_TYPE,
-        headers=refusal.headers,
-    )
+    return Answer(refusal.status, {**body, **refusal.extra}, dict(refusal.headers))
 
 
-def answered_by_member(exception: Exception, request_id: str) -> JSONResponse:
+def answered_by_member(exception: Exception, request_id: str) -> Answer:
     """The problem for a member's outcome, reported once as every answered outcome is.
 
     Logged and shown to nobody: the problem is the answer, given to the
@@ -137,7 +170,7 @@ def answered_by_member(exception: Exception, request_id: str) -> JSONResponse:
         reason=outcome.reason or None,
         remedy=wire_form(outcome.remedy),
     )
-    return JSONResponse(body, status_code=status, media_type=MEDIA_TYPE)
+    return Answer(status, body)
 
 
 def _problem(

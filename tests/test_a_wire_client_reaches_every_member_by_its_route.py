@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 
 from modules.api_surface import API, fields_of, is_record, mark_of
 from modules.scope_session import ScopeSession
-from rest.app import build_app
+from rest.app import SERVER_SEGMENTS, build_app
 from tests.settings_fixtures import complete_settings
 
 
@@ -37,7 +37,9 @@ def session(live):
 
 @pytest.fixture
 def client(session):
-    return TestClient(build_app(session))
+    # One event loop for every request, as the server runs.
+    with TestClient(build_app(session)) as client:
+        yield client
 
 
 def _wire_routes(session) -> set[tuple[str, str]]:
@@ -77,7 +79,7 @@ def test_the_routes_are_exactly_the_wire_members(client, session):
         (method, path)
         for path, ops in paths.items()
         for method in ops
-        if not path.startswith('/api/v1/handles')
+        if path.removeprefix('/api/v1/').split('/')[0] not in SERVER_SEGMENTS
     }
 
     assert served - {('get', '/api')} == _wire_routes(session)
@@ -190,6 +192,5 @@ def test_a_call_that_ends_its_thread_is_answered_as_a_fault(session, monkeypatch
         raise SystemExit(3)
 
     monkeypatch.setattr(session.scope.illumination, 'leds_off', leaves)
-    client = TestClient(build_app(session), raise_server_exceptions=False)
-
-    assert client.post('/api/v1/scope/illumination/leds_off').status_code == 500
+    with TestClient(build_app(session), raise_server_exceptions=False) as client:
+        assert client.post('/api/v1/scope/illumination/leds_off').status_code == 500

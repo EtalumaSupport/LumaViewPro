@@ -9,14 +9,17 @@ encoded on that thread, since each may read the scope or the disk.
 
 The Session's members are at ``/api/v1/<member>``; a live object a client
 was handed has its members at ``/api/v1/handles/<type>/<id>/<member>``
-(``rest.handles``).
+(``rest.handles``). A call that outlives what its client will wait is a
+job (``rest.jobs``), and every answer that is not a result is a problem
+(``rest.problems``).
 """
 
 from __future__ import annotations
 
 import asyncio
+import dataclasses
+import datetime
 import inspect
-import threading
 import uuid
 from collections.abc import Awaitable, Callable
 from concurrent.futures import Future
@@ -32,7 +35,8 @@ from modules.protocol_runner import ProtocolRunner
 from modules.scope_session import ScopeSession
 from rest import problems
 from rest.handles import HandleRegistry
-from rest.problems import ServerRefusedError
+from rest.jobs import RETRY_AFTER_S, JobRegistry, Progress, Wait
+from rest.problems import Answer, ServerRefusedError
 from rest.routes import Route, routes
 
 VERSION = 'v1'
@@ -71,16 +75,18 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     handed_out = wire_encoding.handed_out(
         ScopeSession, wire_encoding.project_classes(), wire_encoding.project_aliases()
     )
+    jobs = JobRegistry()
     _add_handle_routes(app, registry, handed_out)
+    _add_job_routes(app, jobs)
     session_routes = routes(ScopeSession, handed_out=handed_out)
     shadowed = {r.path.split('/')[0] for r in session_routes} & SERVER_SEGMENTS
     if shadowed:
         raise TypeError(f"Session members {sorted(shadowed)} are named as the server's own routes")
     for route in session_routes:
-        _add(app, session, registry, route)
+        _add(app, session, registry, jobs, route)
     for cls in sorted(handed_out, key=lambda c: c.__name__):
         for route in routes(cls, handed_out=handed_out):
-            _add(app, session, registry, route)
+            _add(app, session, registry, jobs, route)
     return app
 
 
@@ -129,6 +135,7 @@ async def _identify_and_admit(
 ) -> object:
     """Give the request its id, and refuse a body that is not JSON before any route reads it."""
     request.state.request_id = str(uuid.uuid4())
+    request.state.requested = datetime.datetime.now().astimezone()
     media = request.headers.get('content-type', '').split(';')[0].strip().lower()
     has_body = request.headers.get('content-length', '0') != '0' or (
         'transfer-encoding' in request.headers
@@ -137,12 +144,12 @@ async def _identify_and_admit(
         return problems.refused_by_server(
             problems.unsupported_media_type(f'A body is JSON (application/json), not {media}.'),
             request.state.request_id,
-        )
+        ).response()
     return await call_next(request)
 
 
 async def _refused(request: fastapi.Request, refusal: ServerRefusedError) -> JSONResponse:
-    return problems.refused_by_server(refusal, request.state.request_id)
+    return problems.refused_by_server(refusal, request.state.request_id).response()
 
 
 async def _body_does_not_fit(
@@ -158,7 +165,7 @@ async def _body_does_not_fit(
     words = '; '.join(f'{"/".join(str(p) for p in e["loc"])}: {e["msg"]}' for e in errors)
     return problems.refused_by_server(
         problems.invalid_request(words, errors=errors), request.state.request_id
-    )
+    ).response()
 
 
 async def _routing_refused(request: fastapi.Request, error: StarletteHTTPException) -> JSONResponse:
@@ -169,13 +176,18 @@ async def _routing_refused(request: fastapi.Request, error: StarletteHTTPExcepti
         )
     else:
         refusal = problems.not_found(f'No route answers {request.url.path}.')
-    return problems.refused_by_server(refusal, request.state.request_id)
+    return problems.refused_by_server(refusal, request.state.request_id).response()
 
 
 def _add(
-    app: fastapi.FastAPI, session: ScopeSession, registry: HandleRegistry, route: Route
+    app: fastapi.FastAPI,
+    session: ScopeSession,
+    registry: HandleRegistry,
+    jobs: JobRegistry,
+    route: Route,
 ) -> None:
     doc = inspect.cleandoc(route.member.doc)
+    member = route.member
     on_handle = route.root is not ScopeSession
     if on_handle:
         path = f'handles/{route.root.__name__}/{{handle_id}}/{route.path}'
@@ -193,33 +205,68 @@ def _add(
         'response_model': None,
     }
 
-    def root_of(handle_id: str | None) -> object:
-        return registry.get(handle_id, route.root) if on_handle else session
+    async def answer(
+        request: fastapi.Request, handle_id: str | None, act: Callable[[object, Progress], object]
+    ) -> JSONResponse:
+        """Run the call on its own thread; answer it, or hand out its job when it outlives the wait."""
+        _refuse_query(request)
+        if member.hands_out:
+            registry.admit()
+        jobs.admit(returns_job=member.returns_job)
+        request_id = request.state.request_id
+        asked = request.url.path.removeprefix(f'{PREFIX}/')
+        loop = asyncio.get_running_loop()
+        progress = Progress()
 
-    def act_on(act: Callable[[object], object]) -> Callable[[str | None], object]:
-        def work(handle_id: str | None) -> object:
-            owner = root_of(handle_id)
+        def encoded(value: object) -> object:
+            return wire_encoding.encode(
+                value,
+                live_folder=session.get_setting('live_folder'),
+                handle=registry.mint,
+                job=lambda future: jobs.of_future(
+                    future, member=asked, answer=future_answer, loop=loop
+                ),
+            )
+
+        def future_answer(future: Future) -> Answer:
+            return _answered(lambda: encoded(future.result()), request_id)
+
+        def work() -> object:
+            owner = registry.get(handle_id, route.root) if on_handle else session
             for segment in route.segments:
                 owner = getattr(owner, segment)
                 if owner is None:
                     raise problems.not_found(f'{name}: this scope has no {segment}.')
-            return wire_encoding.encode(
-                act(owner),
-                live_folder=session.get_setting('live_folder'),
-                handle=registry.mint,
-                job=_no_jobs_yet,
-            )
+            return encoded(act(owner, progress))
 
-        return work
+        answered = jobs.run(lambda: _answered(work, request_id), name, request_id)
+        wait = Wait.of(request.headers.get('prefer'))
+        await asyncio.wait({answered}, timeout=wait.seconds)
+        if answered.done():
+            reply = answered.result()
+            return dataclasses.replace(
+                reply, headers={**reply.headers, **wait.headers()}
+            ).response()
+        job = jobs.adopt(
+            answered,
+            member=asked,
+            requested=request.state.requested,
+            progress=progress if member.progress else None,
+        )
+        return JSONResponse(
+            job.view(),
+            status_code=202,
+            headers={
+                'Location': f'{PREFIX}/jobs/{job.id}',
+                'Retry-After': str(RETRY_AFTER_S),
+                **wait.headers(),
+            },
+        )
 
-    if route.member.read:
-        work = act_on(lambda owner: getattr(owner, route.member.name))
+    if member.read:
 
         async def read(request: fastapi.Request, handle_id: str | None = None) -> JSONResponse:
-            _refuse_query(request)
-            if route.member.hands_out:
-                registry.admit()
-            return await _answer(request, lambda: work(handle_id), name)
+            return await answer(request, handle_id, lambda owner, _p: getattr(owner, member.name))
 
         _sign(read, on_handle, None)
         app.add_api_route(endpoint=read, methods=['GET'], **common)
@@ -228,12 +275,9 @@ def _add(
     async def call(
         request: fastapi.Request, body: pydantic.BaseModel | None, handle_id: str | None = None
     ) -> JSONResponse:
-        _refuse_query(request)
-        if route.member.hands_out:
-            registry.admit()
         sent = body.model_dump(include=body.model_fields_set) if body is not None else {}
 
-        def invoke(owner: object) -> object:
+        def invoke(owner: object, progress: Progress) -> object:
             arguments = {
                 p.name: wire_encoding.decode(
                     sent[p.name],
@@ -241,16 +285,62 @@ def _add(
                     resolve_path=session.live_folder_path,
                     handle=registry.get,
                 )
-                for p in route.member.parameters
+                for p in member.parameters
                 if p.name in sent
             }
-            return getattr(owner, route.member.name)(**arguments)
+            if member.progress is not None:
+                arguments[member.progress] = progress
+            return getattr(owner, member.name)(**arguments)
 
-        work = act_on(invoke)
-        return await _answer(request, lambda: work(handle_id), name)
+        return await answer(request, handle_id, invoke)
 
     _sign(call, on_handle, route)
     app.add_api_route(endpoint=call, methods=['POST'], **common)
+
+
+def _answered(work: Callable[[], object], request_id: str) -> Answer:
+    """*work*'s encoded result, or the problem it ended in: an answer, never a raise.
+
+    The server's own refusals (a handle not held) carry their own reasons;
+    any other exception is the member's outcome, as a Python caller gets it.
+    """
+    try:
+        return problems.result(work())
+    except ServerRefusedError as refusal:
+        return problems.refused_by_server(refusal, request_id)
+    except Exception as e:
+        return problems.answered_by_member(e, request_id)
+
+
+def _add_job_routes(app: fastapi.FastAPI, jobs: JobRegistry) -> None:
+    async def listing() -> list[dict[str, object]]:
+        """Every job held, newest first."""
+        return jobs.listing()
+
+    app.add_api_route(f'{PREFIX}/jobs', listing, methods=['GET'], tags=['jobs'])
+
+    async def read(request: fastapi.Request, job_id: str) -> JSONResponse:
+        """A job, waiting for it to end for what the client says it will wait (``Prefer: wait``).
+
+        200 whatever the job's status: a failed job's ``error`` is the
+        problem its call ended in.
+        """
+        job = jobs.get(job_id)
+        wait = Wait.of(request.headers.get('prefer'))
+        if not job.finished:
+            await asyncio.wait({job.answered}, timeout=wait.seconds)
+        return JSONResponse(job.view(), headers=wait.headers())
+
+    app.add_api_route(f'{PREFIX}/jobs/{{job_id}}', read, methods=['GET'], tags=['jobs'])
+
+    async def forget(job_id: str) -> fastapi.Response:
+        """Forget a finished job; one still running is 409, and its own member stops it."""
+        jobs.forget(job_id)
+        return fastapi.Response(status_code=204)
+
+    app.add_api_route(
+        f'{PREFIX}/jobs/{{job_id}}', forget, methods=['DELETE'], status_code=204, tags=['jobs']
+    )
 
 
 def _sign(endpoint: Callable, on_handle: bool, route: Route | None) -> None:
@@ -291,53 +381,3 @@ def _refuse_query(request: fastapi.Request) -> None:
         raise problems.invalid_request(
             'A member takes no query string: send its arguments as a JSON object.'
         )
-
-
-async def _answer(request: fastapi.Request, work: Callable[[], object], name: str) -> JSONResponse:
-    """The call's encoded result, or the problem its outcome is.
-
-    The server's own refusals (a handle not held) go to their handler; any
-    other exception is the member's outcome, as a Python caller gets it.
-    """
-    try:
-        result = await _on_own_thread(work, name)
-    except ServerRefusedError:
-        raise
-    except Exception as e:
-        return problems.answered_by_member(e, request.state.request_id)
-    return JSONResponse(result)
-
-
-async def _on_own_thread(work: Callable[[], object], name: str) -> object:
-    loop = asyncio.get_running_loop()
-    done = loop.create_future()
-
-    def settle(result: object, error: BaseException | None) -> None:
-        # The client went away and the route was cancelled: nobody waits.
-        if done.cancelled():
-            return
-        if error is not None:
-            done.set_exception(error)
-        else:
-            done.set_result(result)
-
-    def run() -> None:
-        try:
-            result = work()
-        except Exception as e:
-            loop.call_soon_threadsafe(settle, None, e)
-        except BaseException as e:
-            # A SystemExit on this thread ends the call, not the server: the
-            # request is answered as the fault it is rather than left waiting.
-            fault = RuntimeError(f'{name} ended with {type(e).__name__}')
-            fault.__cause__ = e
-            loop.call_soon_threadsafe(settle, None, fault)
-        else:
-            loop.call_soon_threadsafe(settle, result, None)
-
-    threading.Thread(target=run, name=f'rest {name}').start()
-    return await done
-
-
-def _no_jobs_yet(_future: Future) -> object:
-    raise wire_encoding.NoWireFormError('this server does not yet hand out a job')

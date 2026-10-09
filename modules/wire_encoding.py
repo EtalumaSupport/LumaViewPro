@@ -500,6 +500,10 @@ class WireMember:
         doc: The member's docstring.
         hands_out: Whether its answer can carry a live object a client is
             handed; known only when ``wire_members`` is given ``handed_out``.
+        returns_job: Whether its answer can carry a running call (a
+            ``Future``), which a host hands out as a job.
+        progress: The parameter a host fills with its own ``ProgressCallback``
+            to hear how far the call has got; None when it takes none.
     """
 
     name: str
@@ -508,6 +512,8 @@ class WireMember:
     segment: type | None = None
     doc: str = ''
     hands_out: bool = False
+    returns_job: bool = False
+    progress: str | None = None
 
 
 def _alternatives(text: str) -> list[ast.AST]:
@@ -653,6 +659,7 @@ def wire_members(
             continue
         function = inspect.unwrap(getattr(member, '__func__', member))
         parameters = []
+        progress = None
         for p in inspect.signature(function).parameters.values():
             if p.name in ('self', 'cls'):
                 continue
@@ -669,6 +676,8 @@ def wire_members(
                     raise NotHandedOutError(f'{cls.__name__}.{name} parameter {p.name}: {e}') from e
                 continue
             if not alternatives:
+                if 'ProgressCallback' in _names(text):
+                    progress = p.name
                 continue
             parameters.append(
                 WireParameter(p.name, alternatives, required, None if required else p.default)
@@ -681,6 +690,8 @@ def wire_members(
                 parameters=tuple(parameters),
                 doc=function.__doc__ or '',
                 hands_out=_hands_out(returns, handed_out, aliases),
+                returns_job=_returns_job(returns, aliases),
+                progress=progress,
             )
         )
     members += [
@@ -704,7 +715,19 @@ def _read(
         segment=_segment(text, classes) if text else None,
         doc=getattr(function, '__doc__', '') or '',
         hands_out=_hands_out(text, handed_out, aliases),
+        returns_job=_returns_job(text, aliases),
     )
+
+
+def _returns_job(text: str | None, aliases: dict[str, str]) -> bool:
+    """Whether a value of type *text* can carry a running call, which crosses as a job."""
+    if not text:
+        return False
+    used_names = _names(text)
+    for used in used_names:
+        if used in aliases and used not in NAMED_FORMS:
+            used_names += _names(aliases[used])
+    return any(NAMED_FORMS.get(n) == JOB for n in used_names)
 
 
 def _hands_out(
