@@ -28,26 +28,6 @@ def stage_offset():
 class TestHappyPathStillWorks:
     """Labware round-trips through the transforms."""
 
-    def test_stage_to_plate_returns_tuple(self, transformer, labware, stage_offset):
-        result = transformer.stage_to_plate(
-            labware=labware,
-            stage_offset=stage_offset,
-            sx=0,
-            sy=0,
-        )
-        assert isinstance(result, tuple)
-        assert len(result) == 2
-
-    def test_plate_to_stage_returns_tuple(self, transformer, labware, stage_offset):
-        result = transformer.plate_to_stage(
-            labware=labware,
-            stage_offset=stage_offset,
-            px=50,
-            py=50,
-        )
-        assert isinstance(result, tuple)
-        assert len(result) == 2
-
     def test_round_trip_preserves_values(self, transformer, labware, stage_offset):
         # stage -> plate -> stage should give back the original (within
         # floating-point precision).

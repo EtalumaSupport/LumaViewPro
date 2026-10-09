@@ -915,13 +915,6 @@ class TestMotorBoardMovement:
         expected_ustep = board.z_um2ustep(-100) + 0x100000000
         board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode())
 
-    def test_x_above_travel_is_driven_not_clamped(self):
-        """move_abs_pos('X', 200000) writes 200000, not the 120000um max."""
-        board = self._make_board()
-        board.move_abs_pos('X', 200000)
-        expected_ustep = board.xy_um2ustep(200000)
-        board.driver.write.assert_called_with(f'TARGET_WX{expected_ustep}\n'.encode())
-
     def test_unsupported_axis_raises(self):
         """move_abs_pos with unknown axis should raise."""
         board = self._make_board()

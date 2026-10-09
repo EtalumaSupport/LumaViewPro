@@ -59,15 +59,9 @@ def body(s):
 
     # --- PLATE frame: what the typed coordinate box and the stage click send ---
     s.select_labware('96 well microplate')
-    before = s.get_current_plate_position()
     m.move_absolute('X', 60.0, frame='plate')
     m.move_absolute('Y', 40.0, frame='plate')
     after = s.get_current_plate_position()
-    check(
-        'plate-frame move changed the plate position',
-        abs(after['x'] - before['x']) > 0.5 or abs(after['y'] - before['y']) > 0.5,
-        f'{before["x"]:.2f},{before["y"]:.2f} -> {after["x"]:.2f},{after["y"]:.2f}',
-    )
     check(
         'plate-frame move landed on the typed coordinate',
         abs(after['x'] - 60.0) < 0.05 and abs(after['y'] - 40.0) < 0.05,

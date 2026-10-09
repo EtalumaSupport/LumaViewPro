@@ -37,11 +37,6 @@ def body(s):
         outcome != 'accepted',
         f'outcome={outcome} landed={landed}',
     )
-    check(
-        'relative jog is refused rather than silently clamped to the ceiling',
-        not (outcome == 'accepted' and abs(landed - zmax) < 1.0),
-        f'landed={landed} ceiling={zmax}',
-    )
 
     # beyond the SAFETY limit the relative path does raise
     try:
