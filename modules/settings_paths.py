@@ -75,10 +75,27 @@ VIDEO_MAX_DURATION_S_RANGE: typing.Final = (1, 3600)
 """The manual recording's time limit, in seconds, inclusive."""
 
 
+JPG_QUALITY_RANGE: typing.Final = (1, 100)
+"""The JPG encoder's quality, inclusive."""
+
+
 def _refuse_outside(path: str, value: float, low: float, high: float) -> None:
     if not low <= value <= high:
         raise SettingRefusedError(
             'out_of_range', path, f'it must be between {low} and {high}, not {value!r}'
+        )
+
+
+def _refuse_below(path: str, value: float, floor: float, *, inclusive: bool) -> None:
+    if not (value >= floor if inclusive else value > floor):
+        bound = f'at least {floor}' if inclusive else f'above {floor}'
+        raise SettingRefusedError('out_of_range', path, f'it must be {bound}, not {value!r}')
+
+
+def _refuse_non_count(path: str, value: float) -> None:
+    if not (float(value).is_integer() and value >= 1):
+        raise SettingRefusedError(
+            'out_of_range', path, f'it must be a whole number of at least 1, not {value!r}'
         )
 
 
@@ -89,50 +106,101 @@ def _refuse_unknown_format(path: str, value: str, formats: frozenset) -> None:
         )
 
 
-def _overlap(value: float) -> None:
+def _overlap(path: str, value: float) -> None:
     try:
         TilingConfig.validate_overlap_percent(value)
     except ValueError as e:
-        raise SettingRefusedError('out_of_range', 'tiling_overlap_percent', str(e)) from e
+        raise SettingRefusedError('out_of_range', path, str(e)) from e
 
 
-def _acceleration(value: float) -> None:
+def _acceleration(path: str, value: float) -> None:
     try:
         refuse_acceleration_pct(value)
     except ValueError as e:
-        raise SettingRefusedError('out_of_range', 'motion.acceleration_max_pct', str(e)) from e
+        raise SettingRefusedError('out_of_range', path, str(e)) from e
 
 
-def _schedule(key: str) -> typing.Callable[[typing.Any], None]:
-    path = f'protocol.{key}'
+def _schedule(path: str, value: object) -> None:
+    try:
+        schedule_from_units(path.rpartition('.')[2], value)
+    except ProtocolScheduleRefusedError as e:
+        raise SettingRefusedError('out_of_range', path, str(e)) from e
 
-    def rule(value: object) -> None:
-        try:
-            schedule_from_units(key, value)
-        except ProtocolScheduleRefusedError as e:
-            raise SettingRefusedError('out_of_range', path, str(e)) from e
 
+def _live_format(path: str, value: str) -> None:
+    _refuse_unknown_format(path, value, VALID_LIVE_OUTPUT_FORMATS)
+
+
+def _sequenced_format(path: str, value: str) -> None:
+    _refuse_unknown_format(path, value, VALID_SEQUENCED_OUTPUT_FORMATS)
+
+
+def _video_max_fps(path: str, value: float) -> None:
+    _refuse_outside(path, value, 0, VIDEO_MAX_FPS_LIMIT)
+
+
+def _video_max_duration(path: str, value: float) -> None:
+    _refuse_outside(path, value, *VIDEO_MAX_DURATION_S_RANGE)
+
+
+def _jpg_quality(path: str, value: float) -> None:
+    _refuse_outside(path, value, *JPG_QUALITY_RANGE)
+
+
+def _non_negative(path: str, value: float) -> None:
+    _refuse_below(path, value, 0, inclusive=True)
+
+
+def _positive(path: str, value: float) -> None:
+    _refuse_below(path, value, 0, inclusive=False)
+
+
+# The range the writer owns for a setting: what any value of it must satisfy
+# whatever hardware is attached. A ceiling the attached hardware declares (a
+# camera's exposure or gain, an LED board's current) is the Session's to
+# apply at the write, not a range here. A member's setting is here too: its
+# range is held at load as well, though a write to it is refused for its
+# member before the range is read. ``*`` stands for any layer, as in
+# ``SETTINGS_WITH_A_MEMBER``. Each rule takes the concrete path and the value.
+_RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
+    'motion.acceleration_max_pct': _acceleration,
+    'protocol.period': _schedule,
+    'protocol.duration': _schedule,
+    'tiling_overlap_percent': _overlap,
+    'image_output_format.live': _live_format,
+    'image_output_format.sequenced': _sequenced_format,
+    'video.max_fps': _video_max_fps,
+    'video.max_duration_seconds': _video_max_duration,
+    'jpg_quality': _jpg_quality,
+    'live_view_fps': _non_negative,
+    '*.exposure_ms': _positive,
+    '*.gain_db': _non_negative,
+    '*.illumination_ma': _non_negative,
+    '*.sum': _refuse_non_count,
+    '*.video_config.fps': _positive,
+    '*.video_config.duration': _positive,
+}
+
+
+def _range_for(path: str) -> typing.Callable[[str, typing.Any], None] | None:
+    rule = _RANGES.get(path)
+    if rule is None:
+        layer, _, rest = path.partition('.')
+        if rest and layer in common_utils.get_layers():
+            rule = _RANGES.get(f'*.{rest}')
     return rule
 
 
-# A member's setting is here too: its range is held at load as well, though
-# a write to it is refused for its member before the range is read.
-_RANGES: typing.Final[dict[str, typing.Callable[[typing.Any], None]]] = {
-    'motion.acceleration_max_pct': _acceleration,
-    'protocol.period': _schedule('period'),
-    'protocol.duration': _schedule('duration'),
-    'tiling_overlap_percent': _overlap,
-    'image_output_format.live': lambda value: _refuse_unknown_format(
-        'image_output_format.live', value, VALID_LIVE_OUTPUT_FORMATS
-    ),
-    'image_output_format.sequenced': lambda value: _refuse_unknown_format(
-        'image_output_format.sequenced', value, VALID_SEQUENCED_OUTPUT_FORMATS
-    ),
-    'video.max_fps': lambda value: _refuse_outside('video.max_fps', value, 0, VIDEO_MAX_FPS_LIMIT),
-    'video.max_duration_seconds': lambda value: _refuse_outside(
-        'video.max_duration_seconds', value, *VIDEO_MAX_DURATION_S_RANGE
-    ),
-}
+def _ranged_paths(settings: dict) -> list[str]:
+    """Every concrete path ``_RANGES`` covers in ``settings``, the layers expanded."""
+    layers = [layer for layer in common_utils.get_layers() if isinstance(settings.get(layer), dict)]
+    paths = []
+    for pattern in _RANGES:
+        if pattern.startswith('*.'):
+            paths.extend(f'{layer}.{pattern[2:]}' for layer in layers)
+        else:
+            paths.append(pattern)
+    return paths
 
 
 def _kind(value: object) -> str:
@@ -216,9 +284,9 @@ def _refuse_kind_or_range(shipped: object, path: str, value: object) -> None:
         raise SettingRefusedError('wrong_kind', path, f'it holds a single value, not a {got}')
     if want != 'null' and got != want:
         raise SettingRefusedError('wrong_kind', path, f'it holds a {want}, not {value!r}')
-    rule = _RANGES.get(path)
+    rule = _range_for(path)
     if rule is not None:
-        rule(value)
+        rule(path, value)
 
 
 def replace_refused_stored_values(
@@ -236,7 +304,7 @@ def replace_refused_stored_values(
         once a host can hear it; None when nothing was replaced.
     """
     replaced = []
-    for path in _RANGES:
+    for path in _ranged_paths(settings):
         *parents, leaf = path.split('.')
         stored = settings
         for segment in parents:

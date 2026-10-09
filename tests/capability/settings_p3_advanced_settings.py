@@ -93,9 +93,9 @@ try:
         return False, f'stored {s.get_settings_snapshot()[key]!r} unchecked'
 
     # A bad value of the wrong kind, or outside a range the writer owns, is
-    # refused; a number with no owned range is not (live_view_fps).
+    # refused.
     for key, good, bad, is_refused in (
-        ('live_view_fps', 15, -3, False),
+        ('live_view_fps', 15, -3, True),
         ('tiling_overlap_percent', 15.0, 999.0, True),
         ('protocol_led_on', True, 'maybe', True),
         ('keep_led_between_steps', True, None, True),

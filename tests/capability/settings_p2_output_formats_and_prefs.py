@@ -71,11 +71,11 @@ try:
     _common.ok('jpg_quality took effect', s.get_settings_snapshot()['jpg_quality'] == 55)
     try:
         s.update_settings('jpg_quality', 500)
-        _common.void(
+        _common.ok(
             'jpg_quality 500 refused', False, f'stored {s.get_settings_snapshot()["jpg_quality"]}'
         )
-    except Exception as e:
-        _common.void('jpg_quality 500 refused', True, f'{type(e).__name__}: {e}')
+    except SettingRefusedError as e:
+        _common.ok('jpg_quality 500 refused', True, f'{e.reason}: {e}')
     from modules.image_mode import ImageCaptureConfig
 
     try:

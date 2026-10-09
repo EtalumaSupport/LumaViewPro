@@ -28,7 +28,7 @@ TEMPLATE = REPO_ROOT / 'data' / 'settings.json'
 
 # One value outside each range. The keys are asserted equal to ``_RANGES``'s:
 # the table mirrors the owner on purpose, and that assertion is what keeps
-# the mirror from drifting.
+# the mirror from drifting. ``*`` is any layer; the tests walk it as BF.
 _OUT_OF_RANGE = {
     'motion.acceleration_max_pct': 500,
     'protocol.period': 0.001,
@@ -38,7 +38,17 @@ _OUT_OF_RANGE = {
     'image_output_format.sequenced': 'BMP',
     'video.max_fps': settings_paths.VIDEO_MAX_FPS_LIMIT + 1,
     'video.max_duration_seconds': 0,
+    'jpg_quality': settings_paths.JPG_QUALITY_RANGE[1] + 1,
+    'live_view_fps': -3,
+    '*.exposure_ms': 0.0,
+    '*.gain_db': -3.0,
+    '*.illumination_ma': -1.0,
+    '*.sum': 0,
+    '*.video_config.fps': 0,
+    '*.video_config.duration': -5,
 }
+
+_CASES = sorted((pattern.replace('*', 'BF', 1), value) for pattern, value in _OUT_OF_RANGE.items())
 
 
 def test_the_table_names_every_range_the_writer_holds():
@@ -54,7 +64,7 @@ def session(tmp_path_factory):
     s.shutdown()
 
 
-@pytest.mark.parametrize(('path', 'value'), sorted(_OUT_OF_RANGE.items()))
+@pytest.mark.parametrize(('path', 'value'), _CASES)
 def test_a_write_outside_the_range_is_refused_and_nothing_is_written(session, path, value):
     before = session.get_settings_snapshot()
     if settings_paths.member_for(path) is not None:
@@ -71,7 +81,7 @@ def test_a_write_outside_the_range_is_refused_and_nothing_is_written(session, pa
     assert session.get_settings_snapshot() == before
 
 
-@pytest.mark.parametrize(('path', 'value'), sorted(_OUT_OF_RANGE.items()))
+@pytest.mark.parametrize(('path', 'value'), _CASES)
 def test_a_stored_value_outside_the_range_is_replaced_at_load_and_told_once(tmp_path, path, value):
     data_dir = tmp_path / 'data'
     data_dir.mkdir()

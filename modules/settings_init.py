@@ -319,9 +319,10 @@ def migrate_video_settings_dict(settings_dict: dict) -> bool:
 rejected_current_json = None
 
 
-# Written into a layer whose video_config arrived absent, null, or with a
-# rate the recorder cannot use. The shipped template carries the same pair,
-# so an untouched install never reaches these.
+# Written into a layer whose video_config arrived absent or null. The shipped
+# template carries the same pair, so an untouched install never reaches
+# these; a rate or duration the recorder cannot use is the writer's range
+# (``settings_paths._RANGES``), replaced at load and told once.
 DEFAULT_VIDEO_DURATION_SEC = 5
 DEFAULT_VIDEO_FPS = 30
 
@@ -398,8 +399,7 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
         if 'duration' not in video_config:
             video_config['duration'] = DEFAULT_VIDEO_DURATION_SEC
             changed = True
-        # A zero or negative rate would divide into the frame interval.
-        if video_config.get('fps', 0) <= 0:
+        if 'fps' not in video_config:
             video_config['fps'] = DEFAULT_VIDEO_FPS
             changed = True
 
