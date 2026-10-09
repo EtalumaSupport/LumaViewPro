@@ -39,7 +39,7 @@ from modules.api_surface import FilePath, api, api_fields
 if TYPE_CHECKING:
     import numpy as np
 
-    from modules.protocol_post_processor import ProgressCallback
+    from modules.api_surface import ProgressCallback
     from modules.sequential_io_executor import SequentialIOExecutor
 
 

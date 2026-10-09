@@ -4,13 +4,13 @@ import abc
 import datetime
 import pathlib
 import time
-import typing
 
 import pandas as pd
 
 import modules.image_utils as image_utils
 import modules.path_utils as path_utils
 import modules.recording_frames as recording_frames
+from modules.api_surface import ProgressCallback
 from modules.common_utils import PostFunction
 from modules.exceptions import (
     PostProcessingFailedError,
@@ -69,13 +69,6 @@ _MULTI_FRAME_REQUIREMENT = {
     PostFunction.COMPOSITE: 'multiple channels per scan position',
     PostFunction.STITCHED: 'multiple tile positions per scan',
 }
-
-
-# How a folder build tells its caller how far it has got: the percentage
-# done, and a status line when it has one to say. A callable rather than a
-# surface to write to, so whoever asked -- a widget, a script, a remote
-# caller -- renders it in its own way and on its own thread.
-ProgressCallback = typing.Callable[[float, 'str | None'], None]
 
 
 class ProtocolPostProcessor(abc.ABC):

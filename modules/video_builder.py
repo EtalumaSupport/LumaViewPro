@@ -9,7 +9,8 @@ import modules.image_utils as image_utils
 import modules.common_utils as common_utils
 import modules.recording_frames as recording_frames
 from modules.common_utils import PostFunction
-from modules.protocol_post_processor import ProgressCallback, ProtocolPostProcessor
+from modules.api_surface import ProgressCallback
+from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
 from modules.video_writer import VideoWriter

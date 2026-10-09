@@ -11,14 +11,13 @@ import datetime
 import pathlib
 import re
 import time
-from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 from lvp_logger import log_dir, logger, version
 from modules.finite_number import refuse_unless_finite_number
-from modules.api_surface import api
+from modules.api_surface import ProgressCallback, api
 from modules.exceptions import HardwareCommandRefusedError, MissingPart
 
 if TYPE_CHECKING:
@@ -261,7 +260,7 @@ class DiagnosticsAPI:
         num_frames: int,
         *,
         timeout_s: float = 60.0,
-        progress_cb: Callable[[int, str], None] | None = None,
+        progress_cb: ProgressCallback | None = None,
     ) -> dict:
         """Run an N-frame camera throughput test through the production capture path.
 
@@ -383,7 +382,7 @@ class DiagnosticsAPI:
         vary_settings: bool = False,
         *,
         slow_threshold_s: float = 3.0,
-        progress_cb: Callable[[int, str], None] | None = None,
+        progress_cb: ProgressCallback | None = None,
     ) -> dict:
         """Characterize stop_grabbing/start_grabbing latency, on the camera lane, and wait.
 
@@ -622,7 +621,7 @@ class DiagnosticsAPI:
         duration_s: float = 3.0,
         *,
         drain_camera_side_errors: bool = True,
-        progress_cb: Callable[[int, str], None] | None = None,
+        progress_cb: ProgressCallback | None = None,
     ) -> dict:
         """One-shot Pylon-camera diagnostic probe, on the camera lane, and wait.
 

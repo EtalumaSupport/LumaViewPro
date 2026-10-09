@@ -27,7 +27,7 @@ from modules.exceptions import (
     PostProcessingRefusedError,
 )
 from modules.notification_center import notifications
-from modules.protocol_post_processor import ProgressCallback
+from modules.api_surface import ProgressCallback
 
 # The operation's name as a person reads it, in its refusals and failures.
 CELL_COUNT_OPERATION = 'Cell Count'

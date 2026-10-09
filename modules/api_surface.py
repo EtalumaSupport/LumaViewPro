@@ -15,7 +15,10 @@ wire client skips it while an in-process client (Python, MATLAB calling
 Python) uses it like any other.
 
 A parameter that takes a file-system path is annotated ``FilePath``, so a
-wire client can tell a path from a string.
+wire client can tell a path from a string. One that takes a progress
+callback is annotated ``ProgressCallback``, so a host that carries the
+call elsewhere -- the REST server's jobs -- passes its own and reports
+how far the call has got.
 
 An event declares its record where it is delivered: a listener member as
 ``@api(event=Record)``, a ``RunEvents`` field through
@@ -55,6 +58,11 @@ IN_PROCESS = 'in_process'
 # A ``type`` statement, not an assignment: an assignment's alias evaluates to
 # its union and loses the name a wire client and the guard read.
 type FilePath = str | os.PathLike[str]
+# How a long call tells its caller how far it has got: the percentage done,
+# 0 to 100, and a status line when it has one to say. A callable rather than
+# a surface to write to, so whoever asked -- a widget, a script, a remote
+# caller -- renders it in its own way and on its own thread.
+type ProgressCallback = Callable[[float, str | None], None]
 
 
 def _function_of(member: object) -> object:

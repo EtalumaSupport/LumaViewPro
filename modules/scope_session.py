@@ -82,7 +82,7 @@ from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
 from modules.plugins import PLUGIN_API_LEVEL, PluginRegistry
 from modules.scheduler import Scheduler, ThreadingTimerScheduler
 from modules.sequential_io_executor import IOTask, refuse_blocking_on_a_worker, slow_task_budget
-from modules.api_surface import FilePath, api, api_fields
+from modules.api_surface import FilePath, ProgressCallback, api, api_fields
 
 # How long a diagnostic's end waits for a run it lent its claim to. The
 # window of one autofocus inside a characterization. Per
@@ -2877,7 +2877,7 @@ class ScopeSession:
         *,
         output_dir: FilePath,
         include_bandwidth_test: bool = False,
-        on_progress: Callable[[int, str], None] | None = None,
+        on_progress: ProgressCallback | None = None,
     ) -> 'SupportReportSaved':
         """Make the full Tech Support Report: the boards, the motors, the camera and the files.
 
@@ -2921,7 +2921,7 @@ class ScopeSession:
         self,
         *,
         output_dir: FilePath,
-        on_progress: Callable[[int, str], None] | None = None,
+        on_progress: ProgressCallback | None = None,
     ) -> 'SupportReportSaved':
         """Zip the logs, the data folder, the recent protocols and the video receipts.
 
