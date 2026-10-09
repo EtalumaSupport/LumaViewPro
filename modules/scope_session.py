@@ -575,7 +575,8 @@ class ScopeSession:
         post-processing builds running and queued; a support report or logs
         zip; a still being saved. Each item says how much it has left, and
         a build how far it has got. Read lock-free, owner by owner, from any
-        thread; ``closed`` once the session has shut down.
+        thread; ``closing`` once the close has begun, ``closed`` once the
+        session has shut down.
         """
         work: list[WorkItem] = []
         runner = self.sequenced_capture_runner
@@ -617,7 +618,9 @@ class ScopeSession:
                 work.append(WorkItem(kind, _REPORT_NAMES[kind], left=count))
         if self.manual_capture.in_flight:
             work.append(WorkItem(live_work.STILL, 'A still being saved'))
-        return LiveWork(work=tuple(work), closed=self._shut_down)
+        return LiveWork(
+            work=tuple(work), closing=self.activity_claim.closing, closed=self._shut_down
+        )
 
     @contextlib.contextmanager
     def _report_in_flight(self, kind: str):

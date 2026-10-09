@@ -2120,6 +2120,31 @@ class DiagnosticRefusedError(Refusal, Exception):
         self.holder_trigger = holder_trigger
 
 
+class SessionClosingError(Refusal, Exception):
+    """An activity was asked to take the scope while the session is closing.
+
+    Raised by the activity claim for a run, a recording, a home or a
+    diagnostic once ``ScopeSession.shutdown`` has begun: the close finishes
+    the work already under way, then releases the hardware, so nothing new
+    may start in between. Work inside an activity already under way -- a
+    run's video step under its run -- is not refused. Nothing was taken.
+
+    Attributes:
+        reason: ``'session_closing'``.
+        activity: The kind of activity that was refused.
+    """
+
+    title = 'Closing'
+
+    def __init__(self, activity: str):
+        super().__init__(
+            f'{the_activity_named(activity)} was not started: LumaViewPro is closing, and finishes '
+            'what is already under way before it lets go of the microscope.'
+        )
+        self.reason = 'session_closing'
+        self.activity = activity
+
+
 class AccelerationLimitRefusedError(Refusal, ValueError):
     """An acceleration limit no board may be given was refused; nothing was commanded or stored.
 

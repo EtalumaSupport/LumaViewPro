@@ -966,7 +966,8 @@ session.live_work                # everything the session is still doing, one re
                                  # or ending, a recording's file, a run's video, a run's images, its post-run
                                  # builds, post-processing builds running and queued, a support report or logs
                                  # zip, a still being saved; left counts frames, images or builds still to
-                                 # finish, percent is a build's last progress; .closed once the session shut down
+                                 # finish, percent is a build's last progress; .closing once the close has begun,
+                                 # .closed once the session shut down
 session.close_drain_pending      # a close would cut video short: a manual recording live, draining or finishing its file, or a run's video step still writing
 session.close_drain_frames       # how many of those frames, across both drains (0 when none)
 session.discard_close_drain()    # a closing host's escape: drop every queued frame in both; written ones stay
@@ -3004,6 +3005,7 @@ Reached through returned by `scope.layer_identity.find` and `layers`.
 Reached through `session.live_work`.
 
 - `closed`
+- `closing`
 - `work`
 
 ### MoveInFlight

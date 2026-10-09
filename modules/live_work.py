@@ -57,7 +57,7 @@ class WorkItem:
     percent: float | None = None
 
 
-@api_fields('work', 'closed')
+@api_fields('work', 'closing', 'closed')
 @dataclasses.dataclass(frozen=True)
 class LiveWork:
     """Everything a session is still doing, read once.
@@ -69,8 +69,11 @@ class LiveWork:
     Attributes:
         work: The work still under way, in the order the session asked:
             what holds the scope first, then what finishes after.
+        closing: True once the session's close has begun: nothing new
+            takes the scope, and the close waits for this work.
         closed: True once the session has shut down.
     """
 
     work: tuple[WorkItem, ...]
+    closing: bool
     closed: bool

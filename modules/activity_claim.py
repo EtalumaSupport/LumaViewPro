@@ -6,7 +6,7 @@ import threading
 from collections.abc import Iterator
 from dataclasses import dataclass
 from modules.api_surface import api
-from modules.exceptions import the_activity_named
+from modules.exceptions import SessionClosingError, the_activity_named
 
 # The activity kinds that hold the WHOLE scope: a run and a diagnostic both
 # drive every axis, the LEDs and the camera, and a home leaves every axis
@@ -293,6 +293,25 @@ class ActivityClaim:
         # task on it -- and under this lock, so a recording and such a
         # write can never both be admitted.
         self._falsifying = 0
+        # Set once by the session's close, under this lock, and never
+        # cleared: from then on every new taking is refused, while work lent
+        # by an activity already under way is still admitted.
+        self._closing = False
+
+    @property
+    def closing(self) -> bool:
+        """True once the session's close has begun; never False again."""
+        return self._closing
+
+    def begin_closing(self) -> None:
+        """Refuse every new taking from now on, for the session's close.
+
+        A taking already held keeps its claim and ends through its owner;
+        a borrowing lent from it is still granted, because it is that
+        activity's own work.
+        """
+        with self._lock:
+            self._closing = True
 
     @property
     def holder(self) -> ActivityHolder | None:
@@ -349,6 +368,8 @@ class ActivityClaim:
             when another activity holds the claim.
 
         Raises:
+            SessionClosingError: the session's close has begun
+                (``begin_closing``). Nothing was taken.
             FalsifyingChangeInFlightError: ``owner`` is ``'recording'`` and a
                 write that would falsify it is running.
             ValueError: a run claimed without its identity, or another
@@ -356,6 +377,8 @@ class ActivityClaim:
         """
         holder = ActivityHolder(kind=owner, run=run)
         with self._lock:
+            if self._closing:
+                raise SessionClosingError(owner)
             if owner == 'recording' and self._falsifying:
                 raise FalsifyingChangeInFlightError()
             if self._holder is not None:
