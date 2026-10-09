@@ -221,6 +221,20 @@ logger.setLevel(_log_level)
 logger.propagate = True
 _lvp_parent.propagate = True
 
+
+def rotated_log_name(name: str) -> str:
+    """Every log's backup name: ``lumaviewpro.log.1`` -> ``lumaviewpro.1.log``.
+
+    Only the file name is edited. Editing the whole path renamed into a
+    folder that does not exist whenever a folder above the log had ``.log``
+    in its name (a user ``j.logan``), and every record after that failed
+    rollover was lost.
+    """
+    folder, file_name = os.path.split(name)
+    stem, _, index = file_name.rpartition('.log.')
+    return os.path.join(folder, f'{stem}.{index}.log')
+
+
 # obtains name of the module (file) importing lvp_logger
 filename = f'{__file__}'
 file_handler = RotatingFileHandler(
@@ -231,7 +245,7 @@ file_handler = RotatingFileHandler(
     encoding=None,
     delay=False,
 )
-file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+file_handler.namer = rotated_log_name
 file_handler.setFormatter(CustomFormatter())
 file_handler.addFilter(ThreadPauseFilter())
 
@@ -245,7 +259,7 @@ error_file_handler = RotatingFileHandler(
     delay=False,
 )
 # keep the same filename pattern for rotations
-error_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+error_file_handler.namer = rotated_log_name
 error_file_handler.setFormatter(CustomFormatter())
 error_file_handler.addFilter(ThreadPauseFilter())
 
@@ -281,7 +295,7 @@ rest_api_handler = RotatingFileHandler(
     encoding=None,
     delay=True,  # Don't create file until first REST API log message
 )
-rest_api_handler.namer = lambda name: name.replace('.log', '') + '.log'
+rest_api_handler.namer = rotated_log_name
 rest_api_handler.setFormatter(CustomFormatter())
 rest_api_handler.addFilter(ThreadPauseFilter())
 
@@ -325,7 +339,7 @@ serial_file_handler = RotatingFileHandler(
     encoding=None,
     delay=False,
 )
-serial_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+serial_file_handler.namer = rotated_log_name
 serial_file_handler.setFormatter(SerialFormatter())
 serial_file_handler.addFilter(ThreadPauseFilter())
 serial_logger.addHandler(serial_file_handler)
@@ -368,7 +382,7 @@ camera_file_handler = RotatingFileHandler(
     encoding=None,
     delay=False,
 )
-camera_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+camera_file_handler.namer = rotated_log_name
 camera_file_handler.setFormatter(CameraFormatter())
 camera_file_handler.addFilter(ThreadPauseFilter())
 camera_logger.addHandler(camera_file_handler)
@@ -399,7 +413,7 @@ metrics_file_handler = RotatingFileHandler(
     encoding=None,
     delay=False,
 )
-metrics_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+metrics_file_handler.namer = rotated_log_name
 metrics_file_handler.setFormatter(CustomFormatter())
 metrics_file_handler.addFilter(ThreadPauseFilter())
 metrics_logger.addHandler(metrics_file_handler)
@@ -427,7 +441,7 @@ protocol_file_handler = RotatingFileHandler(
     encoding=None,
     delay=True,  # Don't create file until first write -- absence means no stills protocol ran
 )
-protocol_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+protocol_file_handler.namer = rotated_log_name
 protocol_file_handler.setFormatter(CustomFormatter())
 protocol_file_handler.addFilter(ThreadPauseFilter())
 protocol_logger.addHandler(protocol_file_handler)
@@ -461,7 +475,7 @@ _af_file_handler = RotatingFileHandler(
     encoding=None,
     delay=True,  # Don't create file until first write
 )
-_af_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+_af_file_handler.namer = rotated_log_name
 _af_file_handler.setFormatter(AFFormatter())
 _af_file_handler.addFilter(ThreadPauseFilter())
 
@@ -492,7 +506,7 @@ _api_file_handler = RotatingFileHandler(
     encoding=None,
     delay=True,  # Don't create file until first write
 )
-_api_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+_api_file_handler.namer = rotated_log_name
 _api_file_handler.setFormatter(APIFormatter())
 _api_file_handler.addFilter(ThreadPauseFilter())
 
@@ -534,6 +548,7 @@ logger.addHandler(rest_api_handler)
 gui_handler = RotatingFileHandler(
     GUI_LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=2, encoding='utf-8'
 )
+gui_handler.namer = rotated_log_name
 gui_handler.setFormatter(CustomFormatter())
 gui_handler.setLevel(logging.INFO)
 gui_logger = logging.getLogger('LVP.gui_interactions')
