@@ -17,6 +17,8 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
+from tools.profiling.profile_session import describe_build
+
 # Config keys that move CPU; two runs must agree on these to be comparable.
 _COMPAT_CONFIG_KEYS = ('live_view_fps', 'preview_host_downscale')
 
@@ -82,8 +84,8 @@ def compare(before: dict, after: dict) -> list[FunctionDelta]:
 def _print_report(before: dict, after: dict, deltas: list[FunctionDelta], top_n: int = 25) -> None:
     mb, ma = before['manifest'], after['manifest']
     print(
-        f'\nCompare  {mb["scenario"]}  |  BEFORE {mb["version"]} {mb["git_sha"][:8]}'
-        f'  ->  AFTER {ma["version"]} {ma["git_sha"][:8]}'
+        f'\nCompare  {mb["scenario"]}  |  BEFORE {describe_build(mb)}'
+        f'  ->  AFTER {describe_build(ma)}'
     )
     tb = mb['total_process_cpu_cores']
     ta = ma['total_process_cpu_cores']

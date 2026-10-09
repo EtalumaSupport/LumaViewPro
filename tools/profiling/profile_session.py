@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -41,29 +42,86 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def _git(root: Path, *args: str) -> str:
+# The launch banner's lines (lvp_logger.log_environment_banner), by label. The
+# banner opens with Version and closes with Git. The round-trip test writes a
+# banner with the real function and reads it back here, so a relabelled banner
+# fails a test rather than every artifact.
+_BANNER_LINE = re.compile(
+    r'^\[\w+\] \[[^\]]*\] (\d\d/\d\d/\d{4} \d\d:\d\d:\d\d\.\d{3}) - lvp_logger\.py - '
+    r'\[LVP Main  \] (\w+):\s+(.*)$'
+)
+_BANNER_FIELDS = {
+    'Version': 'version',
+    'Built': 'built',
+    'CommitGUID': 'commit_guid',
+    'BuildID': 'build_id',
+    'Runtime': 'runtime',
+    'PID': 'pid',
+    'Git': 'git',
+}
+# A banner's time is read to the second, in local wall time; the process's
+# start is psutil's, finer. A banner written in the process's first second counts.
+_START_SLACK_S = 1.0
+
+
+def _banners(path: Path) -> list[tuple[float, dict]]:
+    """Every complete banner in one log file, oldest first, with its time."""
+    banners = []
+    current: dict | None = None
+    started = 0.0
+    for line in path.read_text(encoding='utf-8', errors='replace').splitlines():
+        match = _BANNER_LINE.match(line)
+        if not match or match.group(2) not in _BANNER_FIELDS:
+            continue
+        stamp, label, value = match.groups()
+        if label == 'Version':
+            current = {}
+            started = time.mktime(time.strptime(stamp[:-4], '%m/%d/%Y %H:%M:%S'))
+        if current is None:
+            continue
+        current[_BANNER_FIELDS[label]] = value.strip()
+        if label == 'Git':
+            banners.append((started, current))
+            current = None
+    return banners
+
+
+def _build_of(pid: int) -> dict:
+    """The build the process names in its own launch banner, or why there is none.
+
+    The profiled process's log is the one it holds open, so the profiler never
+    guesses a data folder. Its banner is the newest one naming its PID and
+    written after it started: a recycled PID's banner in an old backup is not
+    it, and a process that wrote no banner (any LumaViewPro host but the GUI
+    today) has none.
+    """
     try:
-        out = subprocess.run(
-            ['git', '-C', str(root), *args],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        return out.stdout.strip() if out.returncode == 0 else 'unknown'
-    except (subprocess.SubprocessError, OSError):
-        return 'unknown'
-
-
-def _build_identity(root: Path) -> dict:
-    version = 'unknown'
-    version_txt = root / 'version.txt'
-    if version_txt.exists():
-        version = version_txt.read_text(encoding='utf-8', errors='replace').splitlines()[0].strip()
+        proc = psutil.Process(pid)
+        started = proc.create_time()
+        logs = [Path(f.path) for f in proc.open_files() if Path(f.path).name == 'lumaviewpro.log']
+    except psutil.Error as e:
+        return {'build': None, 'build_identity_source': f'process {pid} not readable: {e}'}
+    if len(logs) != 1:
+        held = 'no LumaViewPro log' if not logs else f'{len(logs)} LumaViewPro logs'
+        return {'build': None, 'build_identity_source': f'{held} open in process {pid}'}
+    # The live log and its rotated backups, newest first.
+    files = sorted(logs[0].parent.glob('lumaviewpro.*'), key=lambda p: p.stat().st_mtime)
+    for path in reversed(files):
+        for when, banner in reversed(_banners(path)):
+            if banner.get('pid') == str(pid) and when >= started - _START_SLACK_S:
+                return {'build': banner, 'build_identity_source': str(path)}
     return {
-        'git_sha': _git(root, 'rev-parse', 'HEAD'),
-        'git_branch': _git(root, 'rev-parse', '--abbrev-ref', 'HEAD'),
-        'version': version,
+        'build': None,
+        'build_identity_source': f'no banner for process {pid} in {logs[0].parent}',
     }
+
+
+def describe_build(manifest: dict) -> str:
+    """The profiled build in a few words, or why it is not known."""
+    build = manifest['build']
+    if build is None:
+        return f'build unknown: {manifest["build_identity_source"]}'
+    return f'{build["version"]} {build["git"]}'
 
 
 def _config_snapshot(settings_json: Path | None) -> dict:
@@ -162,6 +220,7 @@ def profile(
     """Run one profiling capture and write the artifact. Returns its path."""
     outdir.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime('%Y%m%d_%H%M%S')
+    build = _build_of(pid)
     raw_path = outdir / f'pyspy_{stamp}.raw'
 
     cpu_samples: list[float] = []
@@ -185,14 +244,13 @@ def profile(
     except psutil.Error:
         cmdline = 'unknown'
 
-    root = _repo_root()
     artifact = {
         'manifest': {
             'timestamp': stamp,
             'machine': platform.node(),
             'os': platform.platform(),
             'scenario': scenario,
-            **_build_identity(root),
+            **build,
             'pid': pid,
             'cmdline': cmdline,
             'duration_s': duration_s,
@@ -215,7 +273,7 @@ def profile(
 def _print_ranked(artifact: dict, top_n: int = 20) -> None:
     m = artifact['manifest']
     print(
-        f'\nProfile: {m["scenario"]} | {m["version"]} {m["git_sha"][:8]} | {m["machine"]}\n'
+        f'\nProfile: {m["scenario"]} | {describe_build(m)} | {m["machine"]}\n'
         f'  {m["total_samples"]} samples @ {m["rate_hz"]} Hz over {m["duration_s"]}s | '
         f'process CPU {m["total_process_cpu_pct"]:.0f}% ({m["total_process_cpu_cores"]:.2f} cores)'
     )

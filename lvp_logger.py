@@ -700,13 +700,15 @@ def log_environment_banner(
     camera-SDK fingerprint, while importing this module never imports the
     camera bindings the probe imports.
 
-    Logs git hash, run time, host/OS, Python interpreter + version, Kivy,
-    and the camera-SDK lines. Every entry point that ships should call
-    this on startup so support bundles always identify the exact
-    environment that produced the log.
+    Logs git hash, the process ID, run time, host/OS, Python interpreter +
+    version, Kivy, and the camera-SDK lines, so a support bundle identifies
+    the exact environment that produced the log. The PID ties the banner to
+    its process: every process that imports this module writes to the same
+    log, and the CPU profiler finds the build it profiles by it.
 
-    Centralized here so REST API, headless test runner, CLI tools all
-    get the same fingerprint without copy-paste.
+    Today only the GUI writes it (``LumaViewProApp.build``); a headless
+    Session, a script or a test runner that imports this module writes to
+    the log with no banner of its own.
     """
     import sys as _sys
 
@@ -780,6 +782,7 @@ def log_environment_banner(
     # ran (the marker is dropped by the installer). Without it, this is
     # a developer running `python lumaviewpro.py` from a clone.
     logger.info(f'[LVP Main  ] Runtime:   {"installed exe" if lvp_installed else "source / dev"}')
+    logger.info(f'[LVP Main  ] PID:       {os.getpid()}')
 
     _git_hash = git_revision()
     logger.info(f'[LVP Main  ] Git:       {_git_hash or "unknown (use CommitGUID or Built)"}')
