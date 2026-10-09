@@ -336,8 +336,10 @@ def generate_image_metadata(
         dict: Metadata including channel, positions, exposure, gain, pixel size.
 
     Raises:
-        ConfigError: If ``objective_id`` is not a catalogue key, or
-            ``labware`` is None.
+        CatalogueNameRefusedError: ``objective_id`` is not a catalogue key
+            (``'objective_not_in_catalogue'``).
+        ObjectiveUnknownError: ``objective_id`` is None (``'none_selected'``).
+        ConfigError: ``labware`` is None.
         ValueError: If channel is not a known layer or 'Composite'.
     """
     # This is the last point that can tell a real channel from a placeholder,

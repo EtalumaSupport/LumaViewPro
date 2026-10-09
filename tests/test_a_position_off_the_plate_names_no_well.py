@@ -54,3 +54,18 @@ def test_more_than_half_a_pitch_beyond_the_outer_centres_names_none(plate, axis)
     else:
         y -= 0.51 * pitch
     assert plate.get_well_index(x, y) is None
+
+
+def test_a_plate_with_no_wells_names_no_well():
+    """The Blank plate has no grid, so no position on it names a well.
+
+    It once clipped every position to index (-1, -1), saved as '@0' in
+    filenames and drawn as a well ring at the plate's origin, and then
+    raised for any position, so every caller had to ask has_wells() first.
+    A plate with no wells answers as a position off the grid does.
+    """
+    blank = WellPlateLoader().get_plate('Blank')
+
+    assert blank.get_well_index(10.0, 10.0) is None
+    assert blank.get_well_label(x=10.0, y=10.0) == ''
+    assert blank.get_positions_with_labels() == []

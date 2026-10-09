@@ -499,8 +499,9 @@ class ProtocolsAPI:
         asked for is logged as replaced.
 
         Raises:
-            ConfigError: ``plate_key`` is not a plate the catalogue has. The
-                protocol keeps its plate.
+            CatalogueNameRefusedError: ``'labware_unknown'``, ``plate_key``
+                is not a plate the catalogue has. The protocol keeps its
+                plate.
         """
         from modules.labware_loader import CENTER_PLATE
 
@@ -534,9 +535,10 @@ class ProtocolsAPI:
                 objective is not in the catalogue, the scope has no X/Y
                 motor, or a tile falls outside the stage's travel. Nothing
                 changes.
-            ConfigError: the protocol's plate is not in the catalogue, or no
-                session has bound the scope, so it has no stage offset.
-                Nothing changes.
+            CatalogueNameRefusedError: the protocol's plate is not in the
+                catalogue (``'labware_unknown'``). Nothing changes.
+            ConfigError: no session has bound the scope, so it has no stage
+                offset. Nothing changes.
         """
         protocol.apply_tiling(
             tiling=tiling,
@@ -597,8 +599,10 @@ class ProtocolsAPI:
         run keeps the offset it started with).
 
         Raises:
-            ConfigError: the protocol's plate is not in the catalogue, or
-                no session has bound the scope, so it has no stage offset.
+            CatalogueNameRefusedError: the protocol's plate is not in the
+                catalogue (``'labware_unknown'``).
+            ConfigError: no session has bound the scope, so it has no stage
+                offset.
         """
         if stage_offset is None:
             stage_offset = self._scope.runtime_state.get_stage_offset()
@@ -635,7 +639,8 @@ class ProtocolsAPI:
             or None when ``stage_offset`` is.
 
         Raises:
-            ConfigError: the protocol's plate is not in the catalogue.
+            CatalogueNameRefusedError: the protocol's plate is not in the
+                catalogue (``'labware_unknown'``).
         """
         if stage_offset is None:
             return None
@@ -672,7 +677,7 @@ class ProtocolsAPI:
             driven.
 
         Raises:
-            ConfigError: as ``plate_to_stage``.
+            CatalogueNameRefusedError: as ``plate_to_stage``.
         """
         axes = self._scope.capabilities.axes
         x = y = None
@@ -693,7 +698,7 @@ class ProtocolsAPI:
 
         Raises:
             StepNotFoundError: ``step_idx`` is not a step of ``protocol``.
-            ConfigError: as ``stage_targets``.
+            CatalogueNameRefusedError: as ``stage_targets``.
             RuntimeError: this scope has a turret and no slot carries the
                 step's objective. The admissibility rule
                 (``refuse_unaddressable_objectives``) reads the same turret

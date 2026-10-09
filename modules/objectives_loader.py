@@ -5,7 +5,11 @@ import pathlib
 
 import pandas as pd
 
-from modules.exceptions import ConfigError, InstallationFileError
+from modules.exceptions import (
+    CatalogueNameRefusedError,
+    InstallationFileError,
+    ObjectiveUnknownError,
+)
 from modules.path_utils import read_installation_file, resolve_data_file
 from modules.api_surface import api
 
@@ -134,17 +138,20 @@ class ObjectiveLoader:
         an objective here.
 
         Raises:
-            ConfigError: A null identifier, a non-string, or a key the
-                catalogue does not hold. One type for every unusable id: the
-                launch path recovers from exactly this type by republishing
-                the shipped template, and an untyped raise escapes that
-                recovery and takes app start down with it.
+            ObjectiveUnknownError: ``'none_selected'``, a null identifier.
+            CatalogueNameRefusedError: ``'objective_not_in_catalogue'``, a
+                non-string or a key the catalogue does not hold; ``offered``
+                carries the keys it has.
+
+        Both are ``ConfigError``s: the launch path recovers from exactly
+        that type by republishing the shipped template, and an untyped raise
+        escapes that recovery and takes app start down with it.
         """
         if objective_id is None:
             # A stored `objective_id` of null is a legal value on disk: the
             # settings shape gate passes null through deliberately, so this
             # has to be the settings failure it actually is.
-            raise ConfigError('no objective identifier supplied')
+            raise ObjectiveUnknownError('none_selected')
 
         # Exact key only. A prefix match used to stand in for a near miss, and
         # with '10x Oly' and '10x Phase' both in the catalogue an id of '10x'
@@ -152,7 +159,12 @@ class ObjectiveLoader:
         # objective with a real focal length answering for a name that fits
         # two. A near miss is refused by name so the file naming it gets fixed.
         if not isinstance(objective_id, str) or objective_id not in self._objectives:
-            raise ConfigError(f'unknown objective {objective_id!r}; the catalogue has no such key')
+            raise CatalogueNameRefusedError(
+                'objective_not_in_catalogue',
+                argument='objective_id',
+                value=objective_id,
+                offered=tuple(self._objectives),
+            )
 
         return self._objectives[objective_id]
 

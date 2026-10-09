@@ -31,7 +31,7 @@ def _make_protocol_from_config(overlap_percent, capabilities):
                 'name': 'A1',
             }
         ],
-        'labware_id': 'custom',
+        'labware_id': '96 well microplate',
         'objective_id': '10x Oly',
         'zstack_params': {
             'range': 0,

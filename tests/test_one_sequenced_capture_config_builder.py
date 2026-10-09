@@ -80,7 +80,10 @@ def test_an_unknown_labware_is_refused_before_the_config_is_built():
     catalogue does not have, naming it; neither substitutes another plate,
     whose geometry would put every well position in the wrong place.
     """
-    from modules.exceptions import ConfigError
+    from modules.exceptions import CatalogueNameRefusedError
 
-    with pytest.raises(ConfigError, match="unknown labware 'a plate that does not exist'"):
+    with pytest.raises(
+        CatalogueNameRefusedError,
+        match=r"labware catalogue.*'a plate that does not exist' is not one",
+    ):
         _build(_settings(protocol={'labware': 'a plate that does not exist'}))

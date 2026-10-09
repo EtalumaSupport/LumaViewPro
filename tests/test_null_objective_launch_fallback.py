@@ -21,7 +21,7 @@ choice instead of exercising it.
 
 import pytest
 
-from modules.exceptions import ConfigError
+from modules.exceptions import CatalogueNameRefusedError, ConfigError, ObjectiveUnknownError
 from modules.objectives_loader import ObjectiveLoader
 
 
@@ -30,10 +30,17 @@ def loader():
     return ObjectiveLoader()
 
 
-def test_null_objective_id_raises_config_error_not_bare_exception(loader):
-    """The regression: a stored null must be catchable at the launch boundary."""
-    with pytest.raises(ConfigError):
+def test_a_null_objective_id_is_none_selected_and_a_config_error(loader):
+    """The regression: a stored null must be catchable at the launch boundary.
+
+    Null is the settings' "nothing selected", a state of the scope, so it is
+    the objective question's ``none_selected``; it stays a ``ConfigError`` for
+    the launch path's recovery.
+    """
+    with pytest.raises(ObjectiveUnknownError) as refused:
         loader.get_objective_info(objective_id=None)
+    assert refused.value.reason == 'none_selected'
+    assert isinstance(refused.value, ConfigError)
 
 
 @pytest.mark.parametrize('unusable', [4, {'a': 1}, 0, False, 12.5])
@@ -47,8 +54,10 @@ def test_non_string_objective_ids_keep_raising_config_error(loader, unusable):
     `config_helpers.get_current_objective_info`, which propagates its result to
     thirteen sites. The refusal is the contract.
     """
-    with pytest.raises(ConfigError):
+    with pytest.raises(CatalogueNameRefusedError) as refused:
         loader.get_objective_info(objective_id=unusable)
+    assert refused.value.reason == 'objective_not_in_catalogue'
+    assert isinstance(refused.value, ConfigError)
 
 
 def test_an_unknown_string_is_refused_by_name(loader):
@@ -60,8 +69,13 @@ def test_an_unknown_string_is_refused_by_name(loader):
     the three that guarded it did so three different ways. One refusal, one
     type, and the launch path already recovers from it.
     """
-    with pytest.raises(ConfigError, match="unknown objective 'zzz-no-such-objective'"):
+    with pytest.raises(
+        CatalogueNameRefusedError, match="'zzz-no-such-objective' is not one"
+    ) as refused:
         loader.get_objective_info(objective_id='zzz-no-such-objective')
+    assert refused.value.reason == 'objective_not_in_catalogue'
+    assert refused.value.argument == 'objective_id'
+    assert refused.value.offered == tuple(loader.get_objectives_list())
 
 
 @pytest.mark.parametrize('not_an_identifier', ['', '   '])
@@ -76,8 +90,9 @@ def test_an_empty_or_whitespace_id_is_refused_not_matched(loader, not_an_identif
     refusal, and every scale derived from it was wrong by the ratio of the two
     magnifications. Neither is an identifier, so both are refused.
     """
-    with pytest.raises(ConfigError):
+    with pytest.raises(CatalogueNameRefusedError) as refused:
         loader.get_objective_info(objective_id=not_an_identifier)
+    assert refused.value.reason == 'objective_not_in_catalogue'
 
 
 def test_a_partial_id_is_refused_not_guessed(loader):
@@ -90,7 +105,7 @@ def test_a_partial_id_is_refused_not_guessed(loader):
     """
     assert '10x Oly' in loader.get_objectives_list()
     assert '10x Phase' in loader.get_objectives_list()
-    with pytest.raises(ConfigError, match="unknown objective '10x'"):
+    with pytest.raises(CatalogueNameRefusedError, match="'10x' is not one"):
         loader.get_objective_info(objective_id='10x')
     assert loader.get_objective_info(objective_id='10x Oly')['short_name'] == '10xOly'
 

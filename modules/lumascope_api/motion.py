@@ -102,11 +102,9 @@ from modules.lumascope_api._constants import (
     AxisPosition,
     AxisState,
     MOTOR_POSITION_LIMIT,
-    TURRET_SLOT_MAX,
-    TURRET_SLOT_MIN,
-    is_turret_slot,
     refuse_acceleration_pct,
     refuse_unknown_axis,
+    refuse_unless_turret_slot,
 )
 from modules.api_surface import api, api_fields
 
@@ -870,7 +868,14 @@ class MotionAPI:
 
         Returns:
             int | None: Turret position (1-4), or None if not found.
+
+        Raises:
+            CatalogueNameRefusedError: ``'objective_not_in_catalogue'``,
+                ``objective_id`` is not a catalogue key.
+            ObjectiveUnknownError: ``'none_selected'``, ``objective_id`` is
+                None, which would otherwise match an unassigned slot.
         """
+        self._scope.objective_helper.get_objective_info(objective_id=objective_id)
         turret_config = self._scope.runtime_state.get_turret_config()
         for slot in (self._preferred_turret_slot, self.get_turret_slot()):
             if slot is not None and turret_config.get(slot) == objective_id:
@@ -1172,15 +1177,7 @@ class MotionAPI:
         # load-bearing: this one precedes the safety Z-retract and the
         # same-position short-circuit, so a nonsense slot cannot drop Z or
         # poison the position cache on its way to being refused.
-        if not is_turret_slot(position):
-            raise PositionOutOfRangeError(
-                'T',
-                position,
-                TURRET_SLOT_MIN,
-                TURRET_SLOT_MAX,
-                bound='turret slots',
-                quantity='slot',
-            )
+        refuse_unless_turret_slot(position)
 
         # Refuse BEFORE the safety Z-retract below, not inside it. The
         # retract is real motion; gating only the inner turret move would
@@ -1256,15 +1253,8 @@ class MotionAPI:
         Raises:
             PositionOutOfRangeError: ``slot`` is neither None nor a slot 1-4.
         """
-        if slot is not None and not is_turret_slot(slot):
-            raise PositionOutOfRangeError(
-                'T',
-                slot,
-                TURRET_SLOT_MIN,
-                TURRET_SLOT_MAX,
-                bound='turret slots',
-                quantity='slot',
-            )
+        if slot is not None:
+            refuse_unless_turret_slot(slot)
         self._preferred_turret_slot = slot
 
     @api
@@ -2008,15 +1998,8 @@ class MotionAPI:
         # that knows what the number MEANS answers first, so the turret gives
         # one vocabulary for every bad slot rather than naming slots for 5 and
         # a metre for 2000000.
-        if axis == 'T' and not is_turret_slot(position):
-            raise PositionOutOfRangeError(
-                axis,
-                position,
-                TURRET_SLOT_MIN,
-                TURRET_SLOT_MAX,
-                bound='turret slots',
-                quantity='slot',
-            )
+        if axis == 'T':
+            refuse_unless_turret_slot(position)
 
         # The coarse sanity ceiling, checked AFTER the bounds above so the
         # bound that knows the axis answers first. For any axis that publishes

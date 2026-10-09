@@ -19,7 +19,7 @@ import logging
 import pytest
 
 from modules import labware_loader
-from modules.exceptions import ConfigError
+from modules.exceptions import CatalogueNameRefusedError, ConfigError
 from modules.scope_session import ScopeSession
 from tests.ast_seams import writers_of_settings_keys
 from tests.settings_fixtures import complete_settings
@@ -147,7 +147,7 @@ class TestRefusals:
         session = sessions()
         before = _runtime_plate_shape(session)
 
-        with pytest.raises(ConfigError, match='unknown labware'):
+        with pytest.raises(CatalogueNameRefusedError, match='labware catalogue'):
             session.select_labware('Acme 1536 Ultra Plate')
 
         assert session.settings['protocol']['labware'] == STARTING_PLATE

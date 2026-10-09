@@ -880,6 +880,58 @@ class ObjectiveUnknownError(Refusal, ConfigError):
         self.slot = slot
 
 
+@api_fields('argument', 'offered')
+class CatalogueNameRefusedError(Refusal, ConfigError):
+    """A labware or objective name the installation's catalogue does not hold.
+
+    Raised by the catalogue's owner -- ``WellPlateLoader.resolve_plate_key``
+    for a plate, ``ObjectiveLoader.get_objective_info`` for an objective --
+    before anything is stored, so every door that names one is refused
+    alike. A ``ConfigError``, because the same check reads a stored setting
+    at bring-up and the callers that recover from a bad stored name catch
+    that type.
+
+    The catalogue is the installation's, fixed for the process, so the same
+    name is refused every time it is sent.
+
+    Attributes:
+        reason: ``'labware_unknown'`` or ``'objective_not_in_catalogue'``.
+        argument: The owner's parameter: ``plate_key`` or ``objective_id``.
+        value: What was given, as given.
+        offered: The catalogue's keys.
+
+    ``argument`` and ``offered`` are published, so a REST problem carries
+    them beside the words. The run's ``ProtocolRunRefusedError`` names the
+    same fact for a protocol's steps; ``argument`` is on this type only.
+    """
+
+    argument: str
+    offered: tuple[str, ...]
+    cause = RefusalCause.REQUEST
+    _WORDS: ClassVar[dict[str, tuple[str, str]]] = {
+        'labware_unknown': (
+            'Labware Not Known',
+            '{argument} must be a plate in the labware catalogue, one of {offered}; '
+            '{value!r} is not one.',
+        ),
+        'objective_not_in_catalogue': (
+            'Objective Not Known',
+            '{argument} must be a key of the objective catalogue, one of {offered}; '
+            '{value!r} is not one.',
+        ),
+    }
+
+    def __init__(self, reason: str, *, argument: str, value: object, offered: tuple[str, ...]):
+        if reason not in self._WORDS:
+            raise TypeError(f'CatalogueNameRefusedError has no words for the reason {reason!r}')
+        self.title, words = self._WORDS[reason]
+        super().__init__(words.format(argument=argument, value=value, offered=', '.join(offered)))
+        self.reason = reason
+        self.argument = argument
+        self.value = value
+        self.offered = offered
+
+
 class SettingsSaveRefusedError(Refusal, ConfigError):
     """A settings save was refused: writing now would destroy real data.
 

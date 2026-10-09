@@ -22,7 +22,7 @@ from modules.config_helpers import (
     get_auto_gain_settings,
     get_current_objective_info,
 )
-from modules.exceptions import ConfigError
+from modules.exceptions import CatalogueNameRefusedError, ConfigError
 from modules.objectives_loader import ObjectiveLoader
 from modules.labware_loader import WellPlateLoader
 from modules.notification_center import Severity
@@ -148,7 +148,9 @@ class TestGetSelectedLabware:
             get_selected_labware_from_settings({}, _wellplate_loader())
 
     def test_an_unknown_plate_is_refused_by_name(self):
-        with pytest.raises(ConfigError, match="unknown labware 'nonexistent'") as refused:
+        with pytest.raises(
+            CatalogueNameRefusedError, match=r"labware catalogue.*'nonexistent' is not one"
+        ) as refused:
             get_selected_labware_from_settings(
                 {'protocol': {'labware': 'nonexistent'}}, _wellplate_loader()
             )
@@ -164,7 +166,7 @@ class TestGetSelectedLabware:
         assert [n for n in centre_posts if n.severity == Severity.WARNING] == []
 
     def test_an_empty_name_is_refused_not_defaulted(self):
-        with pytest.raises(ConfigError, match="unknown labware ''"):
+        with pytest.raises(CatalogueNameRefusedError, match=r"labware catalogue.*'' is not one"):
             get_selected_labware_from_settings({'protocol': {'labware': ''}}, _wellplate_loader())
 
 

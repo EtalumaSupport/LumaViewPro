@@ -80,7 +80,7 @@ class TestGetSelectedLabware:
         # 'New' was the old KV spinner default that leaked into settings.
         # A plate the catalogue does not have is refused, never replaced
         # by the default: the default's geometry would move every well.
-        from modules.exceptions import ConfigError
+        from modules.exceptions import CatalogueNameRefusedError
         from modules.labware_loader import WellPlateLoader
 
         _patch_ctx(
@@ -92,7 +92,7 @@ class TestGetSelectedLabware:
 
         from modules.config_ui_getters import get_selected_labware
 
-        with pytest.raises(ConfigError, match="unknown labware 'New'"):
+        with pytest.raises(CatalogueNameRefusedError, match=r"labware catalogue.*'New' is not one"):
             get_selected_labware()
 
     def test_spinner_empty_and_settings_missing_is_refused(self, monkeypatch):
@@ -107,10 +107,16 @@ class TestGetSelectedLabware:
             get_selected_labware()
 
     def test_no_first_available_plate_is_substituted(self, monkeypatch):
-        from modules.exceptions import ConfigError
+        from modules.exceptions import CatalogueNameRefusedError
 
         loader = MagicMock()
-        loader.resolve_plate_key.side_effect = ConfigError("unknown labware 'nonexistent plate'")
+        # The refusal the real loader raises for a plate its catalogue lacks.
+        loader.resolve_plate_key.side_effect = CatalogueNameRefusedError(
+            'labware_unknown',
+            argument='plate_key',
+            value='nonexistent plate',
+            offered=('some-other-plate',),
+        )
         loader.get_plate_list.return_value = ['some-other-plate']
         _patch_ctx(
             monkeypatch,
@@ -121,7 +127,7 @@ class TestGetSelectedLabware:
 
         from modules.config_ui_getters import get_selected_labware
 
-        with pytest.raises(ConfigError, match='nonexistent plate'):
+        with pytest.raises(CatalogueNameRefusedError, match='nonexistent plate'):
             get_selected_labware()
         loader.get_plate.assert_not_called()
 

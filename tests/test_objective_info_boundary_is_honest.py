@@ -2,7 +2,8 @@
 """The objective-metadata boundary refuses by name, and declares it.
 
 `ObjectiveLoader.get_objective_info` refuses an id the catalogue does not hold
-with a `ConfigError`, the type the launch path already recovers from. The API
+with a `CatalogueNameRefusedError`, a `ConfigError`, the type the launch path
+already recovers from. The API
 method in front of it forwards the answer unchanged, so its signature promises
 the dict it returns and its docstring names the refusal -- that pair is the
 contract REST and the SDK inherit. An L2 caller reading `-> dict` may
@@ -19,7 +20,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from modules.exceptions import ConfigError
+from modules.exceptions import CatalogueNameRefusedError
 from modules.lumascope_api.runtime_state import RuntimeState
 from modules.objectives_loader import ObjectiveLoader
 
@@ -50,12 +51,14 @@ def test_the_loader_it_forwards_promises_the_same():
 def test_an_unknown_objective_id_is_refused_through_the_boundary():
     """The refusal crosses the boundary as itself, not wrapped or swallowed."""
     api = _turretless_state()
-    with pytest.raises(ConfigError, match="unknown objective 'not-a-real-objective'"):
+    with pytest.raises(CatalogueNameRefusedError) as refused:
         api.get_objective_info(objective_id='not-a-real-objective')
+    assert refused.value.reason == 'objective_not_in_catalogue'
+    assert refused.value.value == 'not-a-real-objective'
 
 
 def test_the_docstring_names_the_refusal():
     """A docstring silent about the raise is the same gap in prose."""
     doc = inspect.getdoc(RuntimeState.get_objective_info) or ''
-    assert 'ConfigError' in doc
+    assert 'CatalogueNameRefusedError' in doc
     assert 'None' not in doc.split('Raises:')[0], 'the Returns section must not promise a None'

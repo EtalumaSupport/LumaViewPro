@@ -17,9 +17,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from modules.exceptions import ArgumentRefusedError
+from modules.labware_loader import WellPlateLoader
 from modules.protocol_state_machine import SequencedCaptureRunMode
-from tests.test_composite_run_config import _settings
 from tests.scope_fakes import build_scope
+from tests.test_composite_run_config import _settings
 
 _POSITION = {'x': 1.0, 'y': 2.0, 'z': 3.0}
 
@@ -211,8 +212,7 @@ class TestTheConfigActuallyBuildsASliceEach:
             settings['zstack'] = zstack
         objective_helper = MagicMock()
         objective_helper.get_objective_info.return_value = {'magnification': 10}
-        wellplate_loader = MagicMock()
-        wellplate_loader.get_plate_list.return_value = ['96 well microplate']
+        wellplate_loader = WellPlateLoader()
 
         config = config_helpers.get_standalone_capture_config_from_settings(
             settings,

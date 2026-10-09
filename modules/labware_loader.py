@@ -5,7 +5,7 @@ import logging
 import pathlib
 
 import modules.labware as labware
-from modules.exceptions import ConfigError
+from modules.exceptions import CatalogueNameRefusedError, ConfigError
 from modules.path_utils import read_installation_file, resolve_data_file
 from modules.api_surface import api
 
@@ -128,10 +128,10 @@ class WellPlateLoader(LabwareLoader):
         """The catalogue key for ``plate_key``, whatever spelling it arrived in.
 
         Raises:
-            ConfigError: ``plate_key`` is not a string, or names a plate this
-                catalogue does not have. The message carries the name and
-                the plates available, so a caller at any boundary can show
-                it as is.
+            ConfigError: ``plate_key`` is not a string.
+            CatalogueNameRefusedError: ``'labware_unknown'``, ``plate_key``
+                names a plate this catalogue does not have; ``offered``
+                carries the plates it has.
         """
         if not isinstance(plate_key, str):
             # The table lookup answers an unhashable value with TypeError,
@@ -139,9 +139,11 @@ class WellPlateLoader(LabwareLoader):
             raise ConfigError(f'labware name must be a string, got {type(plate_key).__name__}')
         resolved_key = canonical_plate_name(plate_key)
         if resolved_key not in self.labware['Wellplate']:
-            raise ConfigError(
-                f'unknown labware {plate_key!r}; the catalogue has no such plate. '
-                f'Available: {", ".join(self.get_plate_list())}'
+            raise CatalogueNameRefusedError(
+                'labware_unknown',
+                argument='plate_key',
+                value=plate_key,
+                offered=tuple(self.get_plate_list()),
             )
         return resolved_key
 

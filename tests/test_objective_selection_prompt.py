@@ -288,17 +288,20 @@ class TestTheAnswerReachesTheSession:
         assert h.stand.shown == [True]
 
     def test_a_raise_inside_the_answer_is_one_notification(self, monkeypatch):
+        from modules.exceptions import CatalogueNameRefusedError
         from modules.notification_center import Severity
         from tests.shown_outcomes import capture_shown
 
-        session = _ScriptedSession(self._question(), changed=ConfigError("unknown objective 'x'"))
+        # The refusal the Session's owner raises for a name the catalogue lacks.
+        refused = CatalogueNameRefusedError(
+            'objective_not_in_catalogue', argument='objective_id', value='x', offered=('20x Oly',)
+        )
+        session = _ScriptedSession(self._question(), changed=refused)
         h = _Harness(monkeypatch, session)
         shown = capture_shown(monkeypatch)
         h.prompt()
         h.answer('x')
-        assert [(n.severity, n.message) for n in shown] == [
-            (Severity.ERROR, "unknown objective 'x'")
-        ]
+        assert [(n.severity, n.message) for n in shown] == [(Severity.WARNING, str(refused))]
         assert h.error_popups == []
 
 

@@ -74,6 +74,7 @@ from modules.exceptions import (
 from modules.kivy_utils import UiDispatcher
 from modules.live_work import LiveWork, WorkItem
 from modules.lumascope_api import AxisPosition
+from modules.lumascope_api._constants import refuse_unless_turret_slot
 from modules.lumascope_api.bring_up import PartStatus
 from modules.lumascope_api.illumination import LedLease, LedTransition, LedTransitionCtx
 from modules.manual_capture import ManualCaptureController
@@ -3343,11 +3344,14 @@ class ScopeSession:
         active objective changed.
 
         Raises:
-            ConfigError: ``objective_id`` is not exactly a catalogue key.
-                Nothing is written.
-            ObjectiveUnknownError: No ``turret_position`` was given on a
-                turreted scope whose slot is unknown.
-            ValueError: ``turret_position`` is not a slot number 1-4.
+            CatalogueNameRefusedError: ``'objective_not_in_catalogue'``,
+                ``objective_id`` is not exactly a catalogue key. Nothing is
+                written.
+            ObjectiveUnknownError: ``objective_id`` is None
+                (``'none_selected'``), or no ``turret_position`` was given on
+                a turreted scope whose slot is unknown (``'slot_unknown'``).
+            PositionOutOfRangeError: ``turret_position`` is not a slot
+                number 1-4.
         """
         if turret_position is None:
             changed = self.select_objective(objective_id)
@@ -3379,18 +3383,22 @@ class ScopeSession:
         Picking the objective already active is a no-op.
 
         Raises:
-            ConfigError: ``objective_id`` is not exactly a catalogue key.
-                The refusal lands before any write.
-            ObjectiveUnknownError: On a turreted scope, the slot in the
+            CatalogueNameRefusedError: ``'objective_not_in_catalogue'``,
+                ``objective_id`` is not exactly a catalogue key. The refusal
+                lands before any write.
+            ObjectiveUnknownError: ``objective_id`` is None
+                (``'none_selected'``), or on a turreted scope the slot in the
                 light path is unknown, so there is no slot to assign.
             HardwareCommandRefusedError: A run, a diagnostic or a recording
                 holds the scope
                 (``exclusive_activity_running``). Nothing is written.
         """
+        # Refuses an id that is not a catalogue key, before any write and
+        # before the no-op compare: an unknown active objective is None, so
+        # a None asked for would otherwise match it and pass unrefused.
+        self.objective_helper.get_objective_info(objective_id=objective_id)
         if objective_id == self.scope.runtime_state.get_current_objective_id():
             return False
-        # Refuses an id that is not a catalogue key, before any write.
-        self.objective_helper.get_objective_info(objective_id=objective_id)
         self._refuse_configuration_change_while_held('select_objective')
         if self.scope.runtime_state.is_turreted():
             slot = self.scope.motion.get_turret_slot()
@@ -3420,9 +3428,11 @@ class ScopeSession:
         decided on the key rather than on how it was spelled.
 
         Raises:
-            ConfigError: ``labware_name`` is not a string, the loader
-                cannot resolve the name, or the settings have no protocol block to hold the
-                selection. Nothing is written.
+            CatalogueNameRefusedError: ``'labware_unknown'``, the labware
+                catalogue has no plate by that name. Nothing is written.
+            ConfigError: ``labware_name`` is not a string, or the settings
+                have no protocol block to hold the selection. Nothing is
+                written.
             HardwareCommandRefusedError: A run, a diagnostic or a recording
                 holds the scope and ``labware_name`` is not the plate in place
                 (``exclusive_activity_running``): each states its positions
@@ -3457,15 +3467,16 @@ class ScopeSession:
         Binding the objective the slot already holds is a no-op.
 
         Raises:
-            ValueError: ``position`` is not a slot number 1-4.
-            ConfigError: ``objective_id`` is not exactly a catalogue key.
+            PositionOutOfRangeError: ``position`` is not a slot number 1-4.
+            ObjectiveUnknownError: ``'none_selected'``, ``objective_id`` is None.
+            CatalogueNameRefusedError: ``'objective_not_in_catalogue'``,
+                ``objective_id`` is not exactly a catalogue key.
             HardwareCommandRefusedError: A run, a diagnostic or a recording
                 holds the scope
                 (``exclusive_activity_running``). Nothing is written.
         """
-        self._check_turret_slot(position)
-        if objective_id not in self.objective_helper.get_objectives_list():
-            raise ConfigError(f'unknown objective {objective_id!r}; the catalogue has no such key')
+        refuse_unless_turret_slot(position)
+        self.objective_helper.get_objective_info(objective_id=objective_id)
         if self.settings['turret_objectives'].get(position) == objective_id:
             return
         self._refuse_configuration_change_while_held('assign_turret_objective')
@@ -3481,13 +3492,13 @@ class ScopeSession:
         capture refused for that afterwards if the clear is in the record.
 
         Raises:
-            ValueError: ``position`` is not a slot number 1-4.
+            PositionOutOfRangeError: ``position`` is not a slot number 1-4.
             HardwareCommandRefusedError: A run, a diagnostic or a recording
                 holds the scope and the slot
                 has an assignment (``exclusive_activity_running``). Nothing
                 is written.
         """
-        self._check_turret_slot(position)
+        refuse_unless_turret_slot(position)
         if self.settings['turret_objectives'].get(position) is not None:
             self._refuse_configuration_change_while_held('clear_turret_objective')
         with self.settings_lock:
@@ -3530,11 +3541,6 @@ class ScopeSession:
         holder = self.activity_claim.owner
         if holder is not None:
             raise HardwareCommandRefusedError('exclusive_activity_running', member, holder)
-
-    @staticmethod
-    def _check_turret_slot(position) -> None:
-        if not isinstance(position, int) or isinstance(position, bool) or not 1 <= position <= 4:
-            raise ValueError(f'turret slot must be a whole number 1-4, got {position!r}')
 
     @api
     def get_current_plate_position(self) -> dict:

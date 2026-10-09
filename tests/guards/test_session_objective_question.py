@@ -21,7 +21,7 @@ import time
 import pytest
 
 from modules import settings_init
-from modules.exceptions import ConfigError
+from modules.exceptions import CatalogueNameRefusedError, ConfigError, PositionOutOfRangeError
 from modules.lumascope_api.motion import AxisState
 from modules.objectives_loader import DEFAULT_PROPOSED_OBJECTIVE_ID
 import modules.scope_session as scope_session_module
@@ -470,16 +470,21 @@ class TestT10TurretWriters:
         assert session.scope.runtime_state.get_turret_config()[2] == '10x Oly'
 
     @pytest.mark.parametrize('position', ['2', 5])
-    def test_a_bad_position_raises_value_error(self, sessions, position):
+    def test_a_bad_position_is_refused_as_out_of_range(self, sessions, position):
         session = sessions(**_turret_settings())
-        with pytest.raises(ValueError):
+        before = dict(session.settings['turret_objectives'])
+        with pytest.raises(PositionOutOfRangeError) as refused:
             session.assign_turret_objective(position, '10x Oly')
+        assert refused.value.reason == 'position_out_of_range'
+        assert refused.value.bound == 'turret slots'
+        assert session.settings['turret_objectives'] == before
 
     def test_a_bad_id_raises_and_leaves_the_slot(self, sessions):
         session = sessions(**_turret_settings())
         before = dict(session.settings['turret_objectives'])
-        with pytest.raises(ConfigError):
+        with pytest.raises(CatalogueNameRefusedError) as refused:
             session.assign_turret_objective(2, 'banana')
+        assert refused.value.reason == 'objective_not_in_catalogue'
         assert dict(session.settings['turret_objectives']) == before
 
     def test_clear_empties_the_slot(self, sessions):

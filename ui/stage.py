@@ -581,15 +581,13 @@ class Stage(Widget):
 
         # Only draw crosshairs and selected well if position is available (after homing)
         if position_available:
-            target_well = None
-            if labware.has_wells():
-                target_plate_x, target_plate_y = coordinate_transformer.stage_to_plate(
-                    labware=labware,
-                    stage_offset=settings['stage_offset'],
-                    sx=x_target,
-                    sy=y_target,
-                )
-                target_well = labware.get_well_index(target_plate_x, target_plate_y)
+            target_plate_x, target_plate_y = coordinate_transformer.stage_to_plate(
+                labware=labware,
+                stage_offset=settings['stage_offset'],
+                sx=x_target,
+                sy=y_target,
+            )
+            target_well = labware.get_well_index(target_plate_x, target_plate_y)
             if target_well is not None:
                 # Draw selected well (updates when target changes)
                 target_i, target_j = target_well

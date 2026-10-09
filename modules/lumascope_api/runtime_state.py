@@ -216,12 +216,15 @@ class RuntimeState:
             dict: Objective info including focal_length, magnification, etc.
 
         Raises:
-            ConfigError: The catalogue holds no such id, or the id is null --
-                which is what a fresh or half-configured scope stores, and
-                what a protocol saved against another catalogue names.
-                Refused by name rather than answered with None: nearly every
-                caller subscripts the answer, so a None reached the user as
-                a bare attribute error naming nothing they could act on.
+            CatalogueNameRefusedError: ``'objective_not_in_catalogue'``, the
+                catalogue holds no such id -- what a protocol saved against
+                another catalogue names.
+            ObjectiveUnknownError: ``'none_selected'``, the id is null, which
+                is what a fresh or half-configured scope stores.
+
+        Refused by name rather than answered with None: nearly every caller
+        subscripts the answer, so a None reached the user as a bare
+        attribute error naming nothing they could act on.
         """
         return self._scope.objective_helper.get_objective_info(objective_id=objective_id)
 

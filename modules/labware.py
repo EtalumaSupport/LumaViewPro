@@ -103,8 +103,9 @@ class WellPlate(LabWare):
 
         None when that centre is outside the grid: the position is more
         than half a pitch beyond the outer well centres, off the plate's
-        wells. No shipped plate states a well size, so within the grid a
-        position names its nearest well whether or not it is inside it.
+        wells, or the plate has no wells at all (the Blank labware). No
+        shipped plate states a well size, so within the grid a position
+        names its nearest well whether or not it is inside it.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, ``x`` or ``y`` is not a
@@ -113,10 +114,7 @@ class WellPlate(LabWare):
         for name, value in (('x', x), ('y', y)):
             refuse_unless_finite_number(value, name)
         if not self.has_wells():
-            # Clipping to [0, -1] would fabricate index -1 for EVERY input
-            # (rendered as label '@0' and a bogus well ring at plate
-            # origin). No valid index exists; callers gate on has_wells().
-            raise ValueError('labware has no wells; no well index exists')
+            return None
 
         ox = self.config['offset']['x']  # offset to first well x-dir
         dx = self.config['spacing']['x']  # distance b/w wells x-dir
@@ -133,13 +131,11 @@ class WellPlate(LabWare):
         return i, j
 
     def get_well_label(self, x: float, y: float) -> str:
-        if not self.has_wells():
-            # Empty, not a fabricated token: filename builders and metadata
-            # writers omit an empty well rather than stamping a fake one.
-            return ''
         index = self.get_well_index(x=x, y=y)
         if index is None:
-            # Off the grid: no well, the same empty value as a plate with none.
+            # Off the grid or a plate with none: empty, not a fabricated
+            # token, so filename builders and metadata writers omit the well
+            # rather than stamping a fake one.
             return ''
         well_x, well_y = index
 

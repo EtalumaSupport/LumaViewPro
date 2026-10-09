@@ -30,11 +30,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from modules.exceptions import ProtocolRunRefusedError
+from modules.labware_loader import WellPlateLoader
 from modules.notification_center import Severity
 from modules.protocol import Protocol
-from tests.test_run_zstack_entry_point import _POSITION, _zstack_settings
 from tests.scope_fakes import build_scope
-
+from tests.test_run_zstack_entry_point import _POSITION, _zstack_settings
 
 _REPO_ROOT = pathlib.Path(__file__).parent.parent
 _TILING = _REPO_ROOT / 'data' / 'tiling.json'
@@ -59,8 +59,7 @@ def _standalone_config(zstack: dict, *, use_zstacking: bool = True) -> dict:
 
     objective_helper = MagicMock()
     objective_helper.get_objective_info.return_value = {'magnification': 10}
-    wellplate_loader = MagicMock()
-    wellplate_loader.get_plate_list.return_value = ['96 well microplate']
+    wellplate_loader = WellPlateLoader()
 
     return config_helpers.get_standalone_capture_config_from_settings(
         settings,
@@ -208,7 +207,7 @@ class TestTheHeadlessCallerGetsIt:
         session.scope = sim_scope
         session.plate_position_on.return_value = dict(_POSITION)
         session.objective_helper.get_objective_info.return_value = {'magnification': 10}
-        session.wellplate_loader.get_plate_list.return_value = ['96 well microplate']
+        session.wellplate_loader = sim_scope.wellplate_loader
         runner = ProtocolRunner(session)
 
         with pytest.raises(ProtocolRunRefusedError) as refusal:

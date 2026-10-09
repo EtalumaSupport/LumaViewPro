@@ -11,7 +11,7 @@ settings writers refuse an unknown plate.
 
 import pytest
 
-from modules.exceptions import ConfigError, SettingRefusedError
+from modules.exceptions import CatalogueNameRefusedError, SettingRefusedError
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
@@ -47,7 +47,9 @@ class TestThePlateHasOneWriter:
 
     def test_an_unknown_plate_is_refused_by_its_member(self, session):
         stored = dict(session.settings['protocol'])
-        with pytest.raises(ConfigError, match="unknown labware 'nonexistent'"):
+        with pytest.raises(
+            CatalogueNameRefusedError, match=r"labware catalogue.*'nonexistent' is not one"
+        ):
             session.select_labware('nonexistent')
         assert session.settings['protocol'] == stored
 

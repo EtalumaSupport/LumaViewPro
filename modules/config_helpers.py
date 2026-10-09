@@ -360,8 +360,9 @@ def get_current_plate_position(
             model has a motor controller and none is connected, so there is
             no position to read. A step or a run recorded at a made-up
             position would image the wrong place under the right name.
-        ConfigError: ``labware_id`` is not a plate the catalogue has.
-            Converting through a different plate would put every position
+        CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
+            is not a plate the catalogue has. Converting through a different
+            plate would put every position
             in the wrong frame.
     """
     scope.motion.refuse_controller_not_connected('get_current_plate_position')
@@ -1100,9 +1101,10 @@ def get_selected_labware_from_settings(
     since the settings named it is found under its old spelling.
 
     Raises:
-        ConfigError: The settings name no plate, or a plate the catalogue
-            does not have; for the latter the message names it and the
-            plates available. No other plate is substituted: a different plate's geometry puts
+        ConfigError: The settings name no plate.
+        CatalogueNameRefusedError: ``'labware_unknown'``, the settings name
+            a plate the catalogue does not have; ``offered`` carries the
+            plates it has. No other plate is substituted: a different plate's geometry puts
             every well position in the wrong place while the protocol reads
             as if it ran normally. Bring-up (``ScopeSession.configure_scope``)
             replaces a stored plate the catalogue cannot resolve; this

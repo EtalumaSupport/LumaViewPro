@@ -15,7 +15,11 @@ class attribute) keep working.
 import numbers
 from typing import NamedTuple
 
-from modules.exceptions import AccelerationLimitRefusedError, ArgumentRefusedError
+from modules.exceptions import (
+    AccelerationLimitRefusedError,
+    ArgumentRefusedError,
+    PositionOutOfRangeError,
+)
 from modules.api_surface import api_fields
 
 # Structural axis-name vocabulary used only for input sanity checks
@@ -109,6 +113,27 @@ def is_turret_slot(position: object) -> bool:
         and not isinstance(position, bool)
         and TURRET_SLOT_MIN <= position <= TURRET_SLOT_MAX
     )
+
+
+def refuse_unless_turret_slot(position: object) -> None:
+    """Refuse ``position`` unless it names a turret slot.
+
+    The one refusal of a slot, for every member that takes one, so a bad
+    slot reads the same whether it was sent to move the turret, to assign
+    an objective, or as the preferred slot at bring-up.
+
+    Raises:
+        PositionOutOfRangeError: ``position`` is not a whole number 1-4.
+    """
+    if not is_turret_slot(position):
+        raise PositionOutOfRangeError(
+            'T',
+            position,
+            TURRET_SLOT_MIN,
+            TURRET_SLOT_MAX,
+            bound='turret slots',
+            quantity='slot',
+        )
 
 
 class AxisState:

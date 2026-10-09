@@ -402,11 +402,13 @@ class TestGetCurrentPlatePosition:
         assert result == {'x': 0, 'y': 0, 'z': 0}
 
     def test_an_unknown_plate_is_refused_not_answered_in_stage_coordinates(self):
-        from modules.exceptions import ConfigError
+        from modules.exceptions import CatalogueNameRefusedError
         from modules.labware_loader import WellPlateLoader
 
         transformer = MagicMock()
-        with pytest.raises(ConfigError, match="unknown labware 'nonexistent'"):
+        with pytest.raises(
+            CatalogueNameRefusedError, match=r"labware catalogue.*'nonexistent' is not one"
+        ):
             config_helpers.get_current_plate_position(
                 _make_mock_scope(),
                 _make_settings(),

@@ -2274,7 +2274,10 @@ class Protocol:
         # future opt-in. Empty / missing falls back to layer_config['focus'].
         previous_well_z = input_config.get('previous_well_z') or {}
 
-        labware_id = input_config['labware_id']
+        # Stored under the catalogue's key: a plate renamed since the caller
+        # named it is found under the old spelling, and the protocol then
+        # carries the name every later reader resolves.
+        labware_id = wellplate_loader.resolve_plate_key(input_config['labware_id'])
         objective_id = input_config['objective_id']
         zstack_params = input_config['zstack_params']
         use_zstacking = input_config['use_zstacking']

@@ -21,6 +21,7 @@ import re
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.motion import MotionAPI
 from modules.lumascope_api.runtime_state import RuntimeState
+from modules.objectives_loader import ObjectiveLoader
 from tests.scope_fakes import bind_settings_like_a_session
 
 
@@ -31,6 +32,8 @@ def _make_scope_with_turret(turret_config, current_pos=None, preferred=None):
     scope = Lumascope.__new__(Lumascope)
     bind_settings_like_a_session(scope, turret_objectives=turret_config)
     scope.runtime_state = RuntimeState(scope)
+    # The lookup asks the catalogue's owner whether the id names an objective.
+    scope.objective_helper = ObjectiveLoader()
     # MotionAPI hosts the relocated body. __new__ skips __init__,
     # which is what sets scope.motion in production, so the test
     # installs the sub-API first so monkeypatches land on the canonical
@@ -109,7 +112,7 @@ def test_objective_not_in_turret_returns_none():
         current_pos=1,
         preferred=2,  # not matching
     )
-    result = scope.motion.get_turret_position_for_objective_id(objective_id='100x Oly')
+    result = scope.motion.get_turret_position_for_objective_id(objective_id='100x Meiji')
     assert result is None
 
 

@@ -14,31 +14,6 @@ from modules.finite_number import refuse_unless_finite_number
 import modules.labware as lw
 
 
-class NoLabwareSelectedError(ValueError):
-    """Raised when a coord transform is called with no labware selected.
-
-    The API boundary must reject invalid inputs at the boundary, not
-    crash deep inside `labware.get_dimensions()`. Issue #634 fix made
-    `get_selected_labware()` correctly return
-    `(None, None)` when no labware is selected; ~12 caller sites then
-    crashed with `AttributeError: 'NoneType' has no attribute
-    'get_dimensions'` because they never None-checked. This exception
-    is the structural answer: the boundary fails fast and informatively;
-    the executor's `_safe_callback` translates it into one user-facing
-    notification per failure class.
-    """
-
-
-def _require_labware(labware: lw.LabWare | None) -> lw.LabWare:
-    """Boundary check shared by every public transform method."""
-    if labware is None:
-        raise NoLabwareSelectedError(
-            'no labware selected -- coordinate transforms require a wellplate; '
-            'select a labware in Protocol settings'
-        )
-    return labware
-
-
 class CoordinateTransformer:
     def stage_to_plate(
         self,
@@ -58,11 +33,9 @@ class CoordinateTransformer:
             (px, py): Plate position in mm.
 
         Raises:
-            NoLabwareSelectedError: If labware is None.
             ArgumentRefusedError: ``'not_a_number'``, ``sx`` or ``sy`` is not
                 a finite number.
         """
-        labware = _require_labware(labware)
         for name, value in (('sx', sx), ('sy', sy)):
             refuse_unless_finite_number(value, name)
         dim_max = labware.get_dimensions()
@@ -90,7 +63,6 @@ class CoordinateTransformer:
             (sx, sy): Stage position in um.
 
         Raises:
-            NoLabwareSelectedError: If labware is None.
             ArgumentRefusedError: ``'not_a_number'``, ``px`` or ``py`` is not
                 a finite number.
 
@@ -103,7 +75,6 @@ class CoordinateTransformer:
         and refuses in this frame. A warning logged here served neither:
         the enumerators do their own checking, and no user reads it.
         """
-        labware = _require_labware(labware)
         for name, value in (('px', px), ('py', py)):
             refuse_unless_finite_number(value, name)
 
@@ -121,7 +92,7 @@ class CoordinateTransformer:
         py: float,
         scale_x: float,
         scale_y: float,
-    ):
+    ) -> tuple[float, float]:
         """Convert plate coordinates (mm) to pixel coordinates (px).
 
         Args:
@@ -131,11 +102,7 @@ class CoordinateTransformer:
 
         Returns:
             (pixel_x, pixel_y): Screen position in pixels.
-
-        Raises:
-            NoLabwareSelectedError: If labware is None.
         """
-        labware = _require_labware(labware)
         dim_max = labware.get_dimensions()
 
         pixel_x = px * scale_x
@@ -151,16 +118,8 @@ class CoordinateTransformer:
         sy: float,
         scale_x: float,
         scale_y: float,
-    ):
-        """Convert stage coordinates (um) to pixel coordinates (px).
-
-        Raises:
-            NoLabwareSelectedError: If labware is None.
-        """
-        # _require_labware fires inside stage_to_plate and plate_to_pixel;
-        # explicit check here gives a single boundary point if the inner
-        # call signature ever changes.
-        labware = _require_labware(labware)
+    ) -> tuple[float, float]:
+        """Convert stage coordinates (um) to pixel coordinates (px)."""
         px, py = self.stage_to_plate(
             labware=labware,
             stage_offset=stage_offset,
