@@ -25,11 +25,11 @@ from drivers.null_ledboard import NullLEDBoard
 from drivers.registry import led_registry
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from modules import config_helpers
-from modules.protocol import Protocol
+from modules.exceptions import ArgumentRefusedError
 from modules.layer_record import UNRESOLVED
+from modules.protocol import Protocol
 from modules.scope_capabilities import ScopeCapabilities
 from tests.ast_seams import find_def, parse_module
-
 
 # ---------------------------------------------------------------------------
 # Every registered LED driver publishes a cap (the build-failing guard)
@@ -95,8 +95,9 @@ def test_the_module_constant_is_gone():
 
 def test_the_api_guard_refuses_one_over_the_boards_cap(sim_scope):
     sim_scope.capabilities = replace(sim_scope.capabilities, led_max_ma=840)
-    with pytest.raises(ValueError, match='0-840 mA'):
+    with pytest.raises(ArgumentRefusedError) as refused:
         sim_scope.illumination.led_on('Blue', 841)
+    assert (refused.value.reason, refused.value.limits) == ('illumination_out_of_range', (0, 840))
     sim_scope.illumination.led_on('Blue', 840)
     sim_scope.illumination.led_off('Blue')
 

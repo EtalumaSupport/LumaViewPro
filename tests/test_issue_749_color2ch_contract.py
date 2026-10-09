@@ -31,6 +31,7 @@ sys.path.insert(0, str(REPO))
 import pytest
 
 from modules import common_utils
+from modules.exceptions import ArgumentRefusedError
 from tests.scope_fakes import build_scope
 
 
@@ -126,11 +127,13 @@ class TestSeamBehaviour:
         sim_scope.illumination.led_off(channel='PC')
         assert board.commands == [], 'off of an absent channel is already done'
 
-    def test_numeric_none_channel_still_rejected(self, sim_scope):
+    def test_a_none_channel_names_no_layer(self, sim_scope):
         board = _FourColourRecordingBoard()
         sim_scope._led_driver = board
-        with pytest.raises(ValueError):
+        with pytest.raises(ArgumentRefusedError) as refused:
             sim_scope.illumination.led_off(channel=None)
+        assert refused.value.reason == 'no_layer_selected'
+        assert board.commands == []
 
 
 class TestTaskFailureNotificationWording:

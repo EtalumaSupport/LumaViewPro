@@ -20,7 +20,12 @@ acquire: it used to save a step with an empty Acquire that failed at Run.
 import pytest
 
 from modules import config_helpers, scope_session
-from modules.exceptions import ConfigError, ProtocolRunRefusedError
+from modules.exceptions import (
+    ConfigError,
+    HardwareCommandRefusedError,
+    MissingPart,
+    ProtocolRunRefusedError,
+)
 from modules.layer_record import UNRESOLVED
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
@@ -92,9 +97,9 @@ def test_new_and_add_build_no_step_for_a_layer_this_scope_lacks(ls850):
 
 
 def test_a_layer_this_scope_lacks_is_refused_acquire_and_allowed_nothing(ls850):
-    with pytest.raises(ConfigError) as refused:
+    with pytest.raises(HardwareCommandRefusedError) as refused:
         ls850.set_layer_acquire('Lumi', 'image')
-    assert 'Lumi' in str(refused.value)
+    assert refused.value.missing == MissingPart.layer('Lumi')
     assert ls850.settings['Lumi']['acquire'] is None
 
     ls850.set_layer_acquire('Lumi', None)

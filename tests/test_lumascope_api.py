@@ -33,7 +33,7 @@ from typing import ClassVar
 
 import pytest
 
-from modules.exceptions import HardwareCommandRefusedError, HomingFailedError
+from modules.exceptions import ArgumentRefusedError, HardwareCommandRefusedError, HomingFailedError
 from modules.lumascope_api import Lumascope, AxisState
 from modules.notification_center import notifications, Severity
 from drivers.null_motorboard import NullMotionBoard
@@ -636,10 +636,10 @@ class TestLEDChannelDiscovery:
         scope._led_driver = FourChannelLED()
 
         scope.illumination.led_on(0, 100)  # Blue -- valid on 4-channel driver
-        with pytest.raises(ValueError, match=r'LED channel must be one of'):
-            scope.illumination.led_on(5, 100)  # DF -- out of range on 4-channel driver
-        with pytest.raises(ValueError, match=r'LED channel must be one of'):
-            scope.illumination.led_on(4, 100)  # PC -- out of range too
+        for channel in (5, 4):  # DF, PC -- off the 4-channel driver's table
+            with pytest.raises(ArgumentRefusedError) as refused:
+                scope.illumination.led_on(channel, 100)
+            assert refused.value.reason == 'led_channel_unknown'
 
     def test_api_validation_error_message_reflects_actual_channels(self):
         """Error messages must describe the actual valid range (the
@@ -653,12 +653,9 @@ class TestLEDChannelDiscovery:
 
         scope._led_driver = TwoChannelLED()
 
-        try:
+        with pytest.raises(ArgumentRefusedError) as refused:
             scope.illumination.led_on(3, 100)
-        except ValueError as e:
-            msg = str(e)
-            assert '(0, 1)' in msg, f'error message must list actual channels, got: {msg}'
-            assert '0-5' not in msg, f'error must not mention stale 0-5 range: {msg}'
+        assert refused.value.offered == (0, 1)
 
     def test_no_hardcoded_LED_VALID_CHANNELS_constant(self):
         """The class-level `LED_VALID_CHANNELS = range(6)` constant has

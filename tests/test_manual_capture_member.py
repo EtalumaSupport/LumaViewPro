@@ -24,7 +24,12 @@ import numpy as np
 import pytest
 
 import modules.image_mode as image_mode
-from modules.exceptions import CaptureError, HardwareCommandRefusedError
+from modules.exceptions import (
+    ArgumentRefusedError,
+    CaptureError,
+    HardwareCommandRefusedError,
+    MissingPart,
+)
 from modules.image_utils import read_postproc_input_metadata, read_tiff_with_legacy_collapse
 from modules.lumascope_api.imaging import capture_failure_cause
 from modules.sequential_io_executor import IOTask
@@ -228,11 +233,24 @@ class TestRefusalsAndFailures:
         settings = _settings(tmp_path)
         settings['separate_folder_per_channel'] = True
         with _open_session(settings) as session:
-            with pytest.raises(ValueError, match='Foo'):
+            with pytest.raises(ArgumentRefusedError) as refused:
                 session.manual_capture.capture(layer='Foo', false_color_on=False)
+            assert (refused.value.reason, refused.value.argument) == ('layer_unknown', 'layer')
             assert not session.manual_capture.in_flight
 
         assert not (tmp_path / 'Manual').exists()
+
+    def test_a_layer_this_scope_lacks_names_no_still(self, tmp_path):
+        """A still named for Lumi on a scope with no Lumi would be a file labelled with what nobody imaged."""
+        settings = _settings(tmp_path)
+        with _open_session(settings) as session:
+            assert session.scope.layer_identity.find('Lumi') is None
+            with pytest.raises(HardwareCommandRefusedError) as refused:
+                session.manual_capture.capture(layer='Lumi', false_color_on=False)
+            assert refused.value.missing == MissingPart.layer('Lumi')
+            assert not session.manual_capture.in_flight
+
+        assert not list(tmp_path.rglob('*.tif*'))
 
     def test_a_second_still_while_one_is_in_flight_is_refused(self, still_session):
         session, _ = still_session

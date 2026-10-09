@@ -16,7 +16,8 @@ import pytest
 
 from modules.exceptions import (
     ArgumentRefusedError,
-    ConfigError,
+    HardwareCommandRefusedError,
+    MissingPart,
     PositionOutOfRangeError,
     ProtocolRunRefusedError,
 )
@@ -76,8 +77,9 @@ def test_a_z_that_is_not_a_number_is_refused_as_one_and_nothing_written(session,
 
 
 def test_a_layer_this_scope_does_not_have_is_refused(session):
-    with pytest.raises(ConfigError):
+    with pytest.raises(HardwareCommandRefusedError) as refused:
         session.save_layer_focus('Lumi', 1000.0)
+    assert refused.value.missing == MissingPart.layer('Lumi')
 
 
 def test_a_scope_with_no_z_refuses_a_focus(tmp_path):

@@ -226,26 +226,6 @@ def test_the_button_is_disabled_while_its_own_request_is_in_flight(clicked):
     assert clicked.starter.zstack_pending is False, "the request's own redraw brings it back"
 
 
-def test_a_missing_layer_is_named_in_words():
-    """A GUI with no drawer open has no layer to name; the member's answer
-    says so rather than printing None into its catalogue sentence."""
-    import modules.config_helpers as config_helpers
-    from modules.exceptions import ConfigError
-
-    with pytest.raises(ConfigError, match='No layer is selected'):
-        config_helpers.get_standalone_capture_config_from_settings(
-            {},
-            MagicMock(),
-            MagicMock(),
-            layer=None,
-            position={},
-            position_name='ZStack',
-            autofocus=False,
-            use_zstacking=True,
-            stim_config={},
-        )
-
-
 class TestTheMemberCarriesWhatTheGuiStates:
     """What only a running GUI knows reaches the engine as stated; a caller
     that states none of it gets today's headless run. Engineering mode is

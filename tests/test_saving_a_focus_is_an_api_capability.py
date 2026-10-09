@@ -14,8 +14,9 @@ import logging
 import pytest
 
 from modules.exceptions import (
+    ArgumentRefusedError,
     AxisStateUnknownError,
-    ConfigError,
+    HardwareCommandRefusedError,
     ProtocolError,
     ProtocolRunRefusedError,
 )
@@ -158,27 +159,36 @@ class TestApplyFocusToLayerSteps:
         assert _zs(protocol) == [LAYER_FOCUS] * 3
 
 
+# A name that is no layer is the request's; a layer this scope lacks is absent hardware.
+NOT_ON_THIS_SCOPE = [
+    ('Purple', ArgumentRefusedError, 'layer_unknown'),
+    ('Lumi', HardwareCommandRefusedError, 'axis_absent'),
+]
+
+
 class TestALayerThisScopeLacks:
     """A focus is saved for a layer of this scope; any other name is refused first."""
 
-    @pytest.mark.parametrize('layer', ['Purple', 'Lumi'])
-    def test_save_focus_is_refused_and_nothing_is_written(self, session, layer):
+    @pytest.mark.parametrize('layer, refused, reason', NOT_ON_THIS_SCOPE)
+    def test_save_focus_is_refused_and_nothing_is_written(self, session, layer, refused, reason):
         protocol = _protocol_bf_bf_blue(session)
         before = {k: v.get('focus') for k, v in session.settings.items() if isinstance(v, dict)}
 
-        with pytest.raises(ConfigError, match=f'no {layer} layer'):
+        with pytest.raises(refused) as raised:
             session.save_focus(protocol, layer, step_idx=0)
+        assert raised.value.reason == reason
 
         after = {k: v.get('focus') for k, v in session.settings.items() if isinstance(v, dict)}
         assert after == before
         assert _zs(protocol) == [LAYER_FOCUS] * 3
 
-    @pytest.mark.parametrize('layer', ['Purple', 'Lumi'])
-    def test_apply_focus_is_refused_and_nothing_is_written(self, session, layer):
+    @pytest.mark.parametrize('layer, refused, reason', NOT_ON_THIS_SCOPE)
+    def test_apply_focus_is_refused_and_nothing_is_written(self, session, layer, refused, reason):
         protocol = _protocol_bf_bf_blue(session)
 
-        with pytest.raises(ConfigError, match=f'no {layer} layer'):
+        with pytest.raises(refused) as raised:
             session.apply_focus_to_layer_steps(protocol, layer)
+        assert raised.value.reason == reason
 
         assert _zs(protocol) == [LAYER_FOCUS] * 3
 

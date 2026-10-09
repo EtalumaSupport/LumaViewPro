@@ -2226,7 +2226,7 @@ class MissingPart:
     part -- a motor, the turret, an LED -- is not on this scope. The motion
     parts, the LED controller and the camera are the class's constants; an LED is named
     when it is refused (``MissingPart.led``), by layer or by channel number,
-    as the command named it.
+    as the command named it, and a layer by name (``MissingPart.layer``).
 
     Attributes:
         name: The part, for the log.
@@ -2261,6 +2261,16 @@ class MissingPart:
             return _AXIS_PARTS[axis]
         except KeyError:
             raise ValueError(f'{axis!r} is not a motion axis') from None
+
+    @classmethod
+    def layer(cls, layer: str) -> 'MissingPart':
+        """The part for a layer of this release that this scope's model does not have.
+
+        For a command that takes a layer rather than lights an LED: a
+        layer's settings, its focus, a still named for it. Lumi has no LED,
+        so "no Lumi LED" would be true and beside the point.
+        """
+        return cls(f'{layer} layer', 'axis_absent', f'This microscope has no {layer} layer.')
 
     @classmethod
     def led(cls, led: 'str | int') -> 'MissingPart':
@@ -2415,7 +2425,7 @@ class SessionClosingError(Refusal, Exception):
         self.activity = activity
 
 
-@api_fields('argument', 'offered')
+@api_fields('argument', 'limits', 'offered')
 class ArgumentRefusedError(Refusal, ValueError):
     """An argument the scope cannot act on: it breaks a fixed rule, whatever the scope's state.
 
@@ -2444,17 +2454,32 @@ class ArgumentRefusedError(Refusal, ValueError):
               plate frame does not define (``offered``: X and Y).
             - ``'fan_duty_out_of_range'`` -- a fan duty outside 0 to 100
               percent.
+            - ``'layer_unknown'`` -- the name is not one of this release's
+              layers (``offered``, the catalogue). Names are exact:
+              ``'bf'`` is not ``'BF'``. A layer this model lacks is a
+              name, and is refused as absent hardware, not here.
+            - ``'no_layer_selected'`` -- the member needs a layer and was
+              given None (``offered``, the catalogue).
+            - ``'led_channel_unknown'`` -- a number that is not one of the
+              attached LED board's channels (``offered``). A ``bool`` is
+              not a channel number.
+            - ``'illumination_out_of_range'`` -- an LED current outside
+              ``limits``, 0 to the attached LED board's maximum, in mA.
         argument: The name of the argument refused.
         value: What was given, as given.
         offered: The values the argument takes, where it takes a list;
             None otherwise.
+        limits: The lowest and highest value the argument takes, where it
+            takes a range that depends on the scope; None otherwise.
 
-    ``argument`` and ``offered`` are published, so a REST problem carries
-    them beside the words; the client already holds the value it sent.
+    ``argument``, ``offered`` and ``limits`` are published, so a REST
+    problem carries them beside the words; the client already holds the
+    value it sent.
     """
 
     argument: str
-    offered: tuple[str, ...] | None
+    offered: tuple[str | int, ...] | None
+    limits: tuple[float, float] | None
     cause = RefusalCause.REQUEST
     _WORDS: ClassVar[dict[str, tuple[str, str]]] = {
         'not_a_number': (
@@ -2482,6 +2507,22 @@ class ArgumentRefusedError(Refusal, ValueError):
             'Fan Duty Not Changed',
             '{argument} is a percentage from 0 to 100; {value!r} is outside it.',
         ),
+        'layer_unknown': (
+            'Not a Layer',
+            '{argument} must be one of {offered}; {value!r} is not one.',
+        ),
+        'no_layer_selected': (
+            'No Layer Selected',
+            'No layer is selected; {argument} must be one of {offered}.',
+        ),
+        'led_channel_unknown': (
+            'Not an LED Channel',
+            "{argument} must be one of the LED board's channels, {offered}; {value!r} is not one.",
+        ),
+        'illumination_out_of_range': (
+            'LED Current Not Set',
+            '{argument} must be from {low:g} to {high:g} mA on this LED board; {value!r} is outside it.',
+        ),
     }
 
     def __init__(
@@ -2490,7 +2531,8 @@ class ArgumentRefusedError(Refusal, ValueError):
         *,
         argument: str,
         value: object,
-        offered: tuple[str, ...] | None = None,
+        offered: tuple[str | int, ...] | None = None,
+        limits: tuple[float, float] | None = None,
     ):
         if reason not in self._WORDS:
             raise TypeError(f'ArgumentRefusedError has no words for the reason {reason!r}')
@@ -2499,13 +2541,25 @@ class ArgumentRefusedError(Refusal, ValueError):
             raise TypeError(
                 f'ArgumentRefusedError({reason!r}) takes offered values exactly when its words name them'
             )
+        if ('{low' in words) != (limits is not None):
+            raise TypeError(
+                f'ArgumentRefusedError({reason!r}) takes limits exactly when its words name them'
+            )
+        low, high = limits or (None, None)
         super().__init__(
-            words.format(argument=argument, value=value, offered=', '.join(offered or ()))
+            words.format(
+                argument=argument,
+                value=value,
+                offered=', '.join(str(o) for o in offered or ()),
+                low=low,
+                high=high,
+            )
         )
         self.reason = reason
         self.argument = argument
         self.value = value
         self.offered = offered
+        self.limits = limits
 
 
 class AccelerationLimitRefusedError(Refusal, ValueError):

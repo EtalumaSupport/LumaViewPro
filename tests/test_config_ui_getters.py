@@ -269,5 +269,8 @@ class TestGettersThatTakeTheirInputs:
 
         from modules.config_ui_getters import get_active_layer_config
 
-        with pytest.raises(Exception, match='No layer currently selected'):
+        from modules.exceptions import ArgumentRefusedError
+
+        with pytest.raises(ArgumentRefusedError) as refused:
             get_active_layer_config(None)
+        assert refused.value.reason == 'no_layer_selected'

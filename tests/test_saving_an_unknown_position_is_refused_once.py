@@ -34,6 +34,7 @@ import ui.layer_control as layer_control
 import ui.motion_settings as motion_settings
 import ui.vertical_control as vertical_control
 from modules.exceptions import AxisStateUnknownError
+from modules.layer_record import LayerIdentity, LayerRecord
 from modules.lumascope_api.protocols import ProtocolsAPI
 from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
@@ -107,14 +108,18 @@ def unknown(monkeypatch):
     # Save Focus, Apply Focus and the bookmarks are the Session's: its real
     # members, over the real protocols API, on this scope.
     scope.protocols = ProtocolsAPI(scope)
-    scope.layer_identity = SimpleNamespace(model='LS850', layers=[SimpleNamespace(key_name='BF')])
+    scope.layer_identity = LayerIdentity(
+        layers=(LayerRecord(0, 'BF', 'BF', (3,), None),),
+        filterset='',
+        source='scopes',
+        model='LS850',
+    )
     session = SimpleNamespace(scope=scope, settings=settings, settings_lock=MagicMock())
     for name in (
         'save_focus',
         'apply_focus_to_layer_steps',
         'save_bookmark',
         'save_all_bookmarks',
-        '_refuse_layer_not_on_scope',
         '_layers_on_scope',
         '_store_setting',
     ):

@@ -25,6 +25,7 @@ import pathlib
 
 from modules.activity_claim import HeldClaim
 from modules.exceptions import CaptureError
+from modules.layer_record import refuse_unknown_layer
 from modules.protocol import Protocol
 from modules.run_events import RunEvents
 from modules.run_outcome import RunOutcome
@@ -292,13 +293,16 @@ class ProtocolRunner:
             wait(timeout_s=...) on it gives the run's outcome.
 
         Raises:
-            ConfigError: *layer* is not a layer this release has.
+            ArgumentRefusedError: ``'layer_unknown'``, or
+                ``'no_layer_selected'`` for None; asked before anything
+                is read from the scope.
             ProtocolRunRefusedError: The runner refused the request
                 (already running, files still writing, hardware not
                 connected); no state was committed.
         """
         import modules.config_helpers as config_helpers
 
+        refuse_unknown_layer(layer)
         settings = self.session.capture_settings_snapshot()
         input_config = config_helpers.get_standalone_capture_config_from_settings(
             settings,
@@ -461,7 +465,9 @@ class ProtocolRunner:
             wait(timeout_s=...) on it gives the run's outcome.
 
         Raises:
-            ConfigError: *layer* is not a layer this release has.
+            ArgumentRefusedError: ``'layer_unknown'``, or
+                ``'no_layer_selected'`` for None; asked before anything
+                is read from the scope.
             ObjectiveUnknownError: The objective in the light path is
                 unknown, so no slice could say what it was taken with.
             ProtocolRunRefusedError: The runner refused the request
@@ -470,6 +476,7 @@ class ProtocolRunner:
         """
         import modules.config_helpers as config_helpers
 
+        refuse_unknown_layer(layer)
         settings = self.session.capture_settings_snapshot()
         position = self.session.plate_position_on(settings['protocol']['labware'])
         input_config = config_helpers.get_standalone_capture_config_from_settings(

@@ -2320,16 +2320,6 @@ class TestLumascapeAPILed:
         for color, state in states.items():
             assert not state['enabled'], f'LED {color} still on after leds_off'
 
-    def test_led_current_validation(self, scope):
-        with pytest.raises(ValueError):
-            scope.illumination.led_on(channel=0, illumination_ma=-1)
-        with pytest.raises(ValueError):
-            scope.illumination.led_on(channel=0, illumination_ma=1001)
-
-    def test_led_channel_validation(self, scope):
-        with pytest.raises(ValueError):
-            scope.illumination.led_on(channel=99, illumination_ma=100)
-
     def test_led_states_snapshot(self, scope):
         scope.illumination.led_on(channel='Green', illumination_ma=200)
         scope.illumination.led_on(channel='Red', illumination_ma=150)

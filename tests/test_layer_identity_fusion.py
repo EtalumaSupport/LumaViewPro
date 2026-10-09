@@ -15,7 +15,7 @@ lit LED outside the extinguish machinery.
 
 import pytest
 
-from modules.exceptions import ConfigError, HardwareCommandRefusedError, MissingPart
+from modules.exceptions import ArgumentRefusedError, HardwareCommandRefusedError, MissingPart
 from tests.scope_fakes import build_scope
 
 
@@ -32,12 +32,15 @@ class TestFusion:
         assert scope.illumination.get_led_state('Green')['enabled'] is True
         scope.illumination.led_off(channel='Green')
 
-    def test_unknown_layer_on_raises_by_name(self, scope):
-        with pytest.raises(ConfigError, match='Skylight'):
-            scope.illumination.led_on(channel='Skylight', illumination_ma=50)
-
-    def test_unknown_layer_off_is_a_silent_noop(self, scope):
-        scope.illumination.led_off(channel='Skylight')
+    @pytest.mark.parametrize('member', ['led_on', 'led_off'])
+    def test_a_name_that_is_no_layer_is_refused_by_name(self, scope, member):
+        call = {
+            'led_on': lambda: scope.illumination.led_on(channel='Skylight', illumination_ma=50),
+            'led_off': lambda: scope.illumination.led_off(channel='Skylight'),
+        }[member]
+        with pytest.raises(ArgumentRefusedError) as refused:
+            call()
+        assert (refused.value.reason, refused.value.value) == ('layer_unknown', 'Skylight')
 
     def test_identity_narrowed_layer_on_raises_by_name(self, scope):
         scope.refresh_layer_identity(override_model='LS850-0')

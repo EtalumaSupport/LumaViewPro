@@ -27,7 +27,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from lvp_logger import logger
-from modules.exceptions import ConfigError, InstallationFileError
+from modules.exceptions import (
+    ArgumentRefusedError,
+    ConfigError,
+    HardwareCommandRefusedError,
+    InstallationFileError,
+    MissingPart,
+)
 from modules.path_utils import read_installation_file, resolve_data_file
 from modules.api_surface import api, api_fields
 
@@ -104,6 +110,34 @@ class LayerIdentity:
                 return layer
         return None
 
+    @api(in_process=True)
+    def refuse_unless_on_scope(self, layer: str, member: str, *, then: str) -> None:
+        """Refuse ``layer`` unless it is a layer of this release and this unit has it.
+
+        The one question for a command that takes a layer: its settings,
+        its focus, a still or a recording named for it. The name first
+        (``refuse_unknown_layer``), so a name that is no layer is never
+        told it is missing hardware.
+
+        Raises:
+            ArgumentRefusedError: ``'layer_unknown'`` or
+                ``'no_layer_selected'``.
+            HardwareCommandRefusedError: ``'axis_absent'``, naming the
+                layer (``MissingPart.layer``).
+            ConfigError: this unit's layers could not be resolved, so
+                ``layer`` cannot ``then``.
+        """
+        refuse_unknown_layer(layer)
+        if self.find(layer) is not None:
+            return
+        if self.layers:
+            part = MissingPart.layer(layer)
+            raise HardwareCommandRefusedError(part.reason, member, missing=part)
+        raise ConfigError(
+            f"this scope's layers could not be resolved (model {self.model}), "
+            f'so {layer} cannot {then}'
+        )
+
 
 UNRESOLVED = LayerIdentity(layers=(), filterset='', source='unresolved', model=None)
 
@@ -112,6 +146,30 @@ UNRESOLVED = LayerIdentity(layers=(), filterset='', source='unresolved', model=N
 # runtime. Tests hand the resolver a vocabulary explicitly and may
 # replace this cache to exercise a different one.
 _CATALOGUE_CACHE: tuple[str, ...] | None = None
+
+
+def refuse_unknown_layer(layer: object, argument: str = 'layer') -> None:
+    """Refuse a value that is not one of this release's layers.
+
+    The one check of a layer name, asked by every member that takes one
+    before it asks whether the unit has the layer: a name that is no layer
+    is the request's fault on every scope. Names are exact: ``'bf'`` is
+    not ``'BF'``.
+
+    Raises:
+        ArgumentRefusedError: ``'no_layer_selected'`` for None,
+            ``'layer_unknown'`` for anything else not in the catalogue;
+            each offers the catalogue.
+    """
+    catalogue = release_catalogue()
+    if layer is None:
+        raise ArgumentRefusedError(
+            'no_layer_selected', argument=argument, value=layer, offered=catalogue
+        )
+    if not isinstance(layer, str) or layer not in catalogue:
+        raise ArgumentRefusedError(
+            'layer_unknown', argument=argument, value=layer, offered=catalogue
+        )
 
 
 def release_catalogue() -> tuple[str, ...]:

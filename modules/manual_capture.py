@@ -111,8 +111,12 @@ class ManualCaptureController:
             bounds its own wait.
 
         Raises:
-            ValueError: ``layer`` is not a channel. Refused before anything
-                is named, created or captured.
+            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a
+                layer. Refused before anything is named, created or
+                captured.
+            HardwareCommandRefusedError: ``'axis_absent'``, this scope has
+                no ``layer``: a still named for it would be a file
+                labelled with a layer nobody imaged. Refused likewise.
             HardwareCommandRefusedError: reason ``'capture_in_flight'``,
                 while an earlier still has not finished;
                 ``'exclusive_activity_running'``, while a run, a
@@ -120,10 +124,8 @@ class ManualCaptureController:
                 its taking; ``'scope_disconnected'``, when the camera lane
                 is closed.
         """
-        if layer is not None and layer not in common_utils.get_layers():
-            raise ValueError(
-                f'layer {layer!r} is not a channel; expected one of {common_utils.get_layers()}'
-            )
+        if layer is not None:
+            self._scope.layer_identity.refuse_unless_on_scope(layer, _MEMBER, then='be captured')
         if not self._in_flight.acquire(blocking=False):
             raise HardwareCommandRefusedError('capture_in_flight', _MEMBER)
         try:

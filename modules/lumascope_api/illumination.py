@@ -12,6 +12,7 @@ extension.
 from __future__ import annotations
 
 import enum
+import numbers
 import logging as _logging
 import threading
 import typing
@@ -22,9 +23,13 @@ from typing import TYPE_CHECKING
 from drivers.null_ledboard import NullLEDBoard
 from lib import profile_trace
 from lvp_logger import logger
-from modules import common_utils
 from modules.finite_number import refuse_unless_finite_number
-from modules.exceptions import ConfigError, HardwareCommandRefusedError, MissingPart
+from modules.exceptions import (
+    ArgumentRefusedError,
+    HardwareCommandRefusedError,
+    MissingPart,
+)
+from modules.layer_record import refuse_unknown_layer
 from modules.sequential_io_executor import IOTask
 from modules.api_surface import api, api_fields
 
@@ -462,35 +467,65 @@ class IlluminationAPI:
     listener registry. Stateful bodies live here post-Phase 3d.
     """
 
+    def _refuse_not_a_channel(self, channel: object) -> None:
+        """Refuse a value that names no LED channel of any scope with this board.
+
+        Asked at the door of every LED command, before the lane, so a
+        caller is told so whatever the scope is doing. A channel is a layer
+        of this release, by name, or a number on the attached board's
+        table; a ``bool`` is neither, though ``True == 1``.
+
+        Raises:
+            ArgumentRefusedError: ``'layer_unknown'`` or
+                ``'no_layer_selected'`` for a name or None,
+                ``'led_channel_unknown'`` for anything else not on the
+                board's table.
+        """
+        if channel is None or isinstance(channel, str):
+            refuse_unknown_layer(channel, argument='channel')
+        else:
+            self._refuse_not_a_board_channel(channel)
+
+    def _refuse_not_a_board_channel(self, channel: object) -> None:
+        """Refuse a value that is not a number on the attached board's table.
+
+        A channel is an integer: a ``bool`` (Python's or numpy's) is not
+        one though ``True == 1``, and a float is not one though ``3.0 == 3``.
+
+        Raises:
+            ArgumentRefusedError: ``'led_channel_unknown'``, offering the
+                board's channels.
+        """
+        board_channels = tuple(self._driver.available_channels())
+        if (
+            not isinstance(channel, numbers.Integral)
+            or isinstance(channel, bool)
+            or channel not in board_channels
+        ):
+            raise ArgumentRefusedError(
+                'led_channel_unknown', argument='channel', value=channel, offered=board_channels
+            )
+
     def _on_channel(self, channel: int | str, member: str) -> int:
         """The board channel an on-command lights, or the refusal that says why not.
 
-        The one order every on-command asks in: a channel at all, then the
-        board, then the model. A name that is no layer of this release is a
-        ``ConfigError``, and a number outside the installed board's table a
-        ``ValueError``, whatever is connected. Then a scope with no LED
+        Asked of a channel the door has judged (``_refuse_not_a_channel``),
+        in one order: the board, then the model. A scope with no LED
         controller connected refuses (``not_connected``). Then an LED this
         model does not have is ``axis_absent``, named as the command named
         it: a layer of the model that drives no LED (Lumi), a layer the
-        model lacks (an LS560's Red), or a number no layer of the model
-        drives (an LS560's 2). A model this release does not know (identity
+        model lacks (an LS560's Red), a layer whose LED the attached board
+        cannot address, or a number no layer of the model drives (an
+        LS560's 2). A model this release does not know (identity
         unresolved) has no layers to judge a number by, so its numbers are
         the board's.
 
         Raises:
-            ConfigError: a name that is no layer, or a layer whose LED the
-                attached board cannot address.
-            ValueError: a number outside the board's channel table.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, naming the missing part.
         """
         identity = self._scope.layer_identity
         if isinstance(channel, str):
-            if channel not in common_utils.get_layers():
-                available = tuple(r.key_name for r in identity.layers if r.led_channel)
-                raise ConfigError(
-                    f"This scope has no '{channel}' LED channel; available: {available}"
-                )
             self.refuse_controller_not_connected(member)
             mapped = self.color2ch(color=channel)
             if mapped is None:
@@ -501,16 +536,10 @@ class IlluminationAPI:
             # layer whose record names a channel the attached board lacks
             # must fail by name here -- driving it anyway would light
             # whatever occupies that address on this board.
-            drivable = tuple(self._driver.available_channels())
-            if mapped not in drivable:
-                raise ConfigError(
-                    f"The attached LED board cannot drive the '{channel}' layer "
-                    f'(channel {mapped}; board channels: {drivable}).'
-                )
+            if mapped not in self._driver.available_channels():
+                part = MissingPart.led(channel)
+                raise HardwareCommandRefusedError(part.reason, member, missing=part)
             return mapped
-        valid_channels = self._driver.available_channels()
-        if channel not in valid_channels:
-            raise ValueError(f'LED channel must be one of {valid_channels}, got {channel}')
         self.refuse_controller_not_connected(member)
         if identity.source != 'unresolved' and self.ch2color(channel) is None:
             part = MissingPart.led(channel)
@@ -520,10 +549,10 @@ class IlluminationAPI:
     def _off_channel(self, channel: int | str) -> int | None:
         """The board channel an off-command darkens; None when it names no LED.
 
-        A name the model has no LED for -- not a layer, a layer the model
-        lacks, a layer that drives no LED -- is definitionally dark, so the
-        off is complete with no command. A number outside the board's table
-        is a ``ValueError``, as for an on.
+        Asked of a channel the door has judged (``_refuse_not_a_channel``).
+        A layer the model has no LED for -- a layer the model lacks, a layer
+        that drives no LED -- is definitionally dark, so the off is complete
+        with no command.
         """
         if isinstance(channel, str):
             mapped = self.color2ch(color=channel)
@@ -531,9 +560,6 @@ class IlluminationAPI:
                 _api_log.debug(f"led_off no-op: scope has no '{channel}' LED")
                 return None
             return mapped
-        valid_channels = self._driver.available_channels()
-        if channel not in valid_channels:
-            raise ValueError(f'LED channel must be one of {valid_channels}, got {channel}')
         return channel
 
     def refuse_controller_not_connected(self, member: str) -> None:
@@ -663,20 +689,28 @@ class IlluminationAPI:
             LEDs, so nothing was commanded.
 
         Raises:
-            ValueError: If channel or illumination_ma is out of range.
             ArgumentRefusedError: ``'not_a_number'``, ``illumination_ma`` is
-                not a finite number.
-            ConfigError: If a name that is no layer is given (see
-                ``_on_channel``).
+                not a finite number; ``'illumination_out_of_range'``, it is
+                outside 0 to the attached board's maximum (``limits``).
             HardwareCommandRefusedError: ``'not_connected'`` with no LED
                 controller connected; ``'axis_absent'`` for an LED this
                 model does not have. Nothing was sent.
+
+        The channel is judged at the door (``led_on``); the internal callers
+        pass the board's own channels.
         """
         channel = self._on_channel(channel, 'led_on')
+        # Judged here, on every path that lights an LED, not at the door:
+        # restore_led_state hands this a caller's snapshot of currents.
         refuse_unless_finite_number(illumination_ma, 'illumination_ma')
         led_max_ma = self._scope.capabilities.led_max_ma
         if illumination_ma < 0 or illumination_ma > led_max_ma:
-            raise ValueError(f'LED current must be 0-{led_max_ma} mA, got {illumination_ma}')
+            raise ArgumentRefusedError(
+                'illumination_out_of_range',
+                argument='illumination_ma',
+                value=illumination_ma,
+                limits=(0, led_max_ma),
+            )
         commanded_ma = self._driver.commanded_ma(illumination_ma)
 
         # Skip redundant command if channel is already on at the same current
@@ -762,7 +796,6 @@ class IlluminationAPI:
         an off of a channel believed lit asks for the controller.
 
         Raises:
-            ValueError: If channel is out of range.
             HardwareCommandRefusedError: ``'not_connected'``, a channel
                 believed lit and no LED controller connected to darken it.
         """
@@ -892,7 +925,12 @@ class IlluminationAPI:
         Returns the current commanded on the board's step. See
         ``_led_on_impl`` for the argument contract, the return and the errors
         it raises; this adds only the dispatch described on ``_dispatch_led``.
+
+        Raises:
+            ArgumentRefusedError: ``channel`` names no channel (see
+                ``_refuse_not_a_channel``); nothing was sent.
         """
+        self._refuse_not_a_channel(channel)
         return self._dispatch_led(
             self._led_on_impl,
             'led_on',
@@ -904,7 +942,12 @@ class IlluminationAPI:
         """Turn off an LED channel, and wait for it.
 
         See ``_led_off_impl`` for the argument contract.
+
+        Raises:
+            ArgumentRefusedError: ``channel`` names no channel (see
+                ``_refuse_not_a_channel``); nothing was sent.
         """
+        self._refuse_not_a_channel(channel)
         return self._dispatch_led(self._led_off_impl, 'led_off', args=(channel,))
 
     @api
@@ -1018,7 +1061,12 @@ class IlluminationAPI:
             {'enabled': bool, 'illumination_ma': float | None};
             illumination_ma is None when off. None when no LED board is
             installed (none came up, or after ``disconnect()``).
+
+        Raises:
+            ArgumentRefusedError: ``'layer_unknown'`` or
+                ``'no_layer_selected'``, ``channel`` is not a layer.
         """
+        refuse_unknown_layer(channel, argument='channel')
         if not self._has_board():
             return None
         with self._led_state_lock:
@@ -1463,7 +1511,12 @@ class IlluminationAPI:
 
         Answers from the unit's resolved layer identity -- the same
         records `scope.layer_identity` exposes.
+
+        Raises:
+            ArgumentRefusedError: ``'led_channel_unknown'``, *channel* is
+                not on the attached board's table.
         """
+        self._refuse_not_a_board_channel(channel)
         for record in self._scope.layer_identity.layers:
             if channel in record.led_channel:
                 return record.key_name
@@ -1477,7 +1530,12 @@ class IlluminationAPI:
         `key_name`. None means the layer is unknown to this unit's
         identity OR drives no LED (luminescence): on-paths turn that
         into a named refusal at `_on_channel`, off-paths no-op.
+
+        Raises:
+            ArgumentRefusedError: ``'layer_unknown'`` or
+                ``'no_layer_selected'``, *color* is not a layer.
         """
+        refuse_unknown_layer(color, argument='color')
         record = self._scope.layer_identity.find(color)
         if record is None or not record.led_channel:
             return None

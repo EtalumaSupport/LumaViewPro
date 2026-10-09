@@ -273,21 +273,6 @@ def sim_scope(_mock_heavy_deps):
 class TestLedOnValidation:
     """Verify led_on() rejects bad inputs."""
 
-    def test_rejects_channel_out_of_range(self, sim_scope):
-        with pytest.raises(ValueError, match='channel'):
-            sim_scope.illumination.led_on(channel=99, illumination_ma=10)
-
-    def test_rejects_negative_current(self, sim_scope):
-        with pytest.raises(ValueError, match='current'):
-            sim_scope.illumination.led_on(channel=0, illumination_ma=-1)
-
-    def test_rejects_current_above_max(self, sim_scope):
-        with pytest.raises(ValueError, match='current'):
-            sim_scope.illumination.led_on(
-                channel=0,
-                illumination_ma=sim_scope.capabilities.led_max_ma + 1,
-            )
-
     def test_accepts_valid_input(self, sim_scope):
         sim_scope.illumination.led_on(channel=0, illumination_ma=50)
 
@@ -9636,19 +9621,6 @@ class TestLedMaxMaCanonicalHomeIsCapabilities:
 
     def test_capabilities_led_max_ma_is_the_drivers_answer(self, sim_scope):
         assert sim_scope.capabilities.led_max_ma == sim_scope._led_driver.max_ma()
-
-    def test_illumination_validation_reads_capabilities(self, sim_scope):
-        """The validation gate inside IlluminationAPI.led_on must read
-        the cap from capabilities, not from a retired class constant.
-        A capability override (test-only) is reflected by the gate."""
-        import pytest as _pytest
-
-        # Cap at 50 mA for this test; 51 must reject.
-        from dataclasses import replace
-
-        sim_scope.capabilities = replace(sim_scope.capabilities, led_max_ma=50)
-        with _pytest.raises(ValueError, match='current'):
-            sim_scope.illumination.led_on(channel=0, illumination_ma=51)
 
 
 class TestRuntimeStateSetObjective:

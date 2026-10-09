@@ -14,7 +14,7 @@ import ast
 
 import pytest
 
-from modules.exceptions import ConfigError
+from modules.exceptions import ArgumentRefusedError, ConfigError
 from tests.ast_seams import REPO_ROOT
 from tests.test_loading_a_protocol_puts_the_scope_on_its_plate import (  # noqa: F401 -- pytest fixture
     session,
@@ -50,8 +50,9 @@ class TestTheSessionSetsTheMode:
         assert _stim(session, 'Green') is True
 
     def test_an_unknown_layer_is_refused(self, session):
-        with pytest.raises(ConfigError):
+        with pytest.raises(ArgumentRefusedError) as refused:
             session.set_layer_acquire('Infrared', 'image')
+        assert refused.value.reason == 'layer_unknown'
 
         assert 'Infrared' not in session.settings
 

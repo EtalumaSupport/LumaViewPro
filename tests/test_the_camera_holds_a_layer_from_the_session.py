@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.exceptions import CameraSettingRejected, ConfigError, HardwareCommandRefusedError
+from modules.exceptions import CameraSettingRejected, HardwareCommandRefusedError
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
@@ -127,8 +127,9 @@ class TestGoingToAStep:
 class TestTheMember:
     def test_a_layer_this_scope_lacks_is_refused_and_nothing_is_applied(self, session):
         before = _camera(session)
-        with pytest.raises(ConfigError):
+        with pytest.raises(HardwareCommandRefusedError) as refused:
             session.apply_layer_camera('Lumi')
+        assert refused.value.reason == 'axis_absent'
         assert _camera(session) == before
 
     def test_a_held_scope_refuses_the_apply(self, session):

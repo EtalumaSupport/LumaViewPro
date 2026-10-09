@@ -26,7 +26,7 @@ import pytest
 from drivers.null_ledboard import NullLEDBoard
 from modules import common_utils
 from modules.exceptions import (
-    ConfigError,
+    ArgumentRefusedError,
     MissingPart,
     ProtocolRunRefusedError,
 )
@@ -119,13 +119,17 @@ def test_an_off_of_an_led_the_model_lacks_is_silent(make_session, monkeypatch, c
     assert _led_lines(caplog) == []
 
 
-def test_a_name_that_is_no_layer_and_a_number_off_the_board_stay_as_they_were(make_session):
+def test_a_name_that_is_no_layer_and_a_number_off_the_board_are_the_requests(make_session):
+    """Neither is absent hardware: no scope has a Purple layer, and an FX2 board has no channel 5."""
     illumination = make_session('LS620').scope.illumination
 
-    with pytest.raises(ConfigError):
+    with pytest.raises(ArgumentRefusedError) as purple:
         illumination.led_on('Purple', 10.0)
-    with pytest.raises(ValueError, match='LED channel must be one of'):
+    with pytest.raises(ArgumentRefusedError) as five:
         illumination.led_on(5, 10.0)
+
+    assert purple.value.reason == 'layer_unknown'
+    assert (five.value.reason, five.value.offered) == ('led_channel_unknown', (0, 1, 2, 3))
 
 
 # --- No LED board ----------------------------------------------------------------

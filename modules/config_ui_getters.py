@@ -15,6 +15,7 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 import modules.labware as labware
+from modules.layer_record import refuse_unknown_layer
 
 logger = logging.getLogger('LVP.modules.config_ui_getters')
 
@@ -186,9 +187,12 @@ def get_active_layer_config(layer: str | None) -> tuple[str, dict]:
     The refusal stays here rather than moving into the three GUI callers:
     "nothing is selected" is one answer to one question, and answering it
     per-caller is how three of them come to disagree.
+
+    Raises:
+        ArgumentRefusedError: ``'no_layer_selected'`` when *layer* is None,
+            ``'layer_unknown'`` when it is not a layer.
     """
-    if layer is None:
-        raise Exception('No layer currently selected')
+    refuse_unknown_layer(layer)
 
     layer_configs = get_layer_configs(specific_layers=[layer])
 

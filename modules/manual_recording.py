@@ -252,6 +252,10 @@ class ManualRecordingController:
                 UI cleanup from it.
 
         Raises:
+            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a
+                layer. Nothing is committed.
+            HardwareCommandRefusedError: ``'axis_absent'``, this scope has
+                no ``layer``. Nothing is committed.
             RecordingRefusedError: The start cannot proceed -- a previous
                 recording is still recording, draining or finishing,
                 another exclusive activity is running, a turret or frame
@@ -286,6 +290,14 @@ class ManualRecordingController:
 
         settings = self._settings
         scope = self._scope
+
+        # Every frame's identity names this layer, so a recording named for
+        # what is no layer, or a layer this scope lacks, is a file labelled
+        # with what nobody imaged.
+        if layer is not None:
+            scope.layer_identity.refuse_unless_on_scope(
+                layer, 'manual_recording.start', then='be recorded'
+            )
 
         if not scope.imaging.active_cached:
             raise RecordingRefusedError(

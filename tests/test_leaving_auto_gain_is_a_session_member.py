@@ -22,7 +22,8 @@ import pytest
 
 import modules.app_context as _app_ctx
 import modules.config_helpers as config_helpers
-from modules.exceptions import ConfigError
+from modules.exceptions import ArgumentRefusedError, ConfigError, HardwareCommandRefusedError
+from modules.layer_record import LayerIdentity, LayerRecord
 from modules.lumascope_api.imaging import (
     AutoGainConvergence,
     AutoGainLock,
@@ -30,15 +31,18 @@ from modules.lumascope_api.imaging import (
 )
 from modules.scope_session import ScopeSession
 
-_MEMBERS = ('set_layer_auto_gain', '_refuse_layer_not_on_scope', '_layers_on_scope')
+_MEMBERS = ('set_layer_auto_gain', '_layers_on_scope')
 
 
 def _session(settings, lock=None, layers=('BF', 'PC', 'DF', 'Blue', 'Green', 'Red')):
     imaging = SimpleNamespace(lock_auto_gain=MagicMock(return_value=lock))
     scope = SimpleNamespace(
         imaging=imaging,
-        layer_identity=SimpleNamespace(
-            model='LS850', layers=[SimpleNamespace(key_name=name) for name in layers]
+        layer_identity=LayerIdentity(
+            layers=tuple(LayerRecord(i, name, name, (), None) for i, name in enumerate(layers)),
+            filterset='',
+            source='scopes',
+            model='LS850',
         ),
     )
     session = SimpleNamespace(scope=scope, settings=settings, settings_lock=threading.Lock())
@@ -137,20 +141,27 @@ def test_turning_on_stores_only_the_preference_and_locks_nothing():
 
 
 @pytest.mark.parametrize(
-    'layer, enabled, layers',
+    'layer, enabled, layers, refused, reason',
     [
-        ('UV', False, ('BF',)),  # not a layer of this release
-        ('Blue', True, ('BF', 'Green')),  # turned on, and this scope has no Blue
-        ('BF', 'off', ('BF',)),  # not a bool
+        (
+            'UV',
+            False,
+            ('BF',),
+            ArgumentRefusedError,
+            'layer_unknown',
+        ),  # not a layer of this release
+        ('Blue', True, ('BF', 'Green'), HardwareCommandRefusedError, 'axis_absent'),  # no Blue here
+        ('BF', 'off', ('BF',), ConfigError, None),  # not a bool
     ],
 )
-def test_a_refused_request_changes_nothing(layer, enabled, layers):
+def test_a_refused_request_changes_nothing(layer, enabled, layers, refused, reason):
     settings = {'BF': {'exposure_ms': 42.0, 'gain_db': 7.0, 'auto_gain': True}}
     session = _session(settings, layers=layers)
     before = {name: dict(values) for name, values in settings.items()}
 
-    with pytest.raises(ConfigError):
+    with pytest.raises(refused) as raised:
         session.set_layer_auto_gain(layer, enabled)
+    assert getattr(raised.value, 'reason', None) == reason
 
     assert settings == before
     session.scope.imaging.lock_auto_gain.assert_not_called()

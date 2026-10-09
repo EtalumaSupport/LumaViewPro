@@ -918,10 +918,12 @@ class ProtocolSettings(FloatLayout):
 
         gui_logger.protocol_action('MODIFY_STEP', f'curr_step={self.curr_step}')
         ctx = _app_ctx.ctx
-        active_layer, _ = get_active_layer_config(common_utils.get_opened_layer(ctx.image_settings))
+        opened_layer = common_utils.get_opened_layer(ctx.image_settings)
         name_field = self.ids['step_name_input'].text
+        # The open drawer is judged inside the reporter, so Modify with no
+        # drawer open is told so rather than raised into Kivy.
         run_reported(
-            lambda: self.modify_step_ex(active_layer, name_field),
+            lambda: self.modify_step_ex(get_active_layer_config(opened_layer)[0], name_field),
             self._draw_protocol_steps,
             'MODIFY_STEP',
         )

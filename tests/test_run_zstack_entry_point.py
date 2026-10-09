@@ -16,7 +16,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.exceptions import ConfigError
+from modules.exceptions import ArgumentRefusedError
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.test_composite_run_config import _settings
 from tests.scope_fakes import build_scope
@@ -182,13 +182,13 @@ class TestTheStackIsConfiguredFromSettings:
 
     def test_an_unknown_layer_is_refused_by_name(self):
         runner = _runner()
-        with pytest.raises(ConfigError) as excinfo:
+        with pytest.raises(ArgumentRefusedError) as excinfo:
             runner.run_zstack(layer='Purple')
-        assert 'Purple' in str(excinfo.value)
+        assert (excinfo.value.reason, excinfo.value.value) == ('layer_unknown', 'Purple')
 
     def test_an_unknown_layer_refuses_before_the_engine_is_touched(self):
         runner = _runner()
-        with pytest.raises(ConfigError):
+        with pytest.raises(ArgumentRefusedError):
             runner.run_zstack(layer='Purple')
         runner._executor.prepare.assert_not_called()
         runner._executor.start.assert_not_called()

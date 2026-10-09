@@ -43,6 +43,7 @@ from modules import (
     settings_paths,
 )
 from modules.finite_number import refuse_unless_finite_number
+from modules.layer_record import refuse_unknown_layer
 from modules.activity_claim import (
     SCOPE_HOLDING_KINDS,
     ActivityClaim,
@@ -1328,7 +1329,17 @@ class ScopeSession:
 
     @api
     def get_layer_configs(self, specific_layers: list | None = None) -> dict:
+        """The stored settings of each layer, or of ``specific_layers``.
+
+        Raises:
+            ArgumentRefusedError: ``'layer_unknown'`` or
+                ``'no_layer_selected'``, a name in ``specific_layers`` is
+                not a layer.
+        """
         import modules.config_helpers as config_helpers
+
+        for layer in specific_layers or ():
+            refuse_unknown_layer(layer)
 
         layer_configs = config_helpers.get_layer_configs(self.settings, specific_layers)
         self._read_autofocus_as_off_without_z(layer_configs.values())
@@ -1354,11 +1365,14 @@ class ScopeSession:
         """The Z saved as ``layer``'s focus.
 
         Raises:
+            ArgumentRefusedError: ``'layer_unknown'`` or
+                ``'no_layer_selected'``, ``layer`` is not a layer.
             FocusNotSavedError: no focus was ever saved for ``layer``; a step
                 built for it takes the current Z instead.
         """
         from modules.exceptions import FocusNotSavedError
 
+        refuse_unknown_layer(layer)
         focus = self.settings[layer]['focus']
         if focus is None:
             raise FocusNotSavedError(layer)
@@ -1555,26 +1569,6 @@ class ScopeSession:
         protocol.to_file(file_path=path, layer_settings=layer_settings)
         return path
 
-    def _refuse_layer_not_on_scope(self, layer: str, *, then: str) -> None:
-        """Refuse ``layer`` unless this scope has it.
-
-        Raises:
-            ConfigError: this scope has no ``layer``, or its layers could
-                not be resolved.
-        """
-        if layer in self._layers_on_scope():
-            return
-        identity = self.scope.layer_identity
-        if identity.layers:
-            raise ConfigError(
-                f'this scope ({identity.model}) has no {layer} layer; '
-                f'its layers are {sorted(self._layers_on_scope())}'
-            )
-        raise ConfigError(
-            f"this scope's layers could not be resolved (model {identity.model}), "
-            f'so {layer} cannot {then}'
-        )
-
     @api
     def set_layer_acquire(self, layer: str, mode: 'str | None') -> None:
         """Set what a layer captures: ``'image'``, ``'video'``, or None (nothing).
@@ -1585,20 +1579,22 @@ class ScopeSession:
         stimulate at once.
 
         Raises:
-            ConfigError: ``layer`` is not one of this release's layers,
-                ``mode`` is not ``'image'``, ``'video'`` or None, or
-                ``mode`` is not None and this scope does not have ``layer``;
-                nothing is changed. Setting a layer to acquire nothing is
-                always admitted.
+            ArgumentRefusedError: ``'layer_unknown'`` or
+                ``'no_layer_selected'``, ``layer`` is not a layer.
+            ConfigError: ``mode`` is not ``'image'``, ``'video'`` or None,
+                or this scope's layers could not be resolved.
+            HardwareCommandRefusedError: ``'axis_absent'``, ``mode`` is not
+                None and this scope does not have ``layer``.
+            Nothing is changed on any refusal. Setting a layer to acquire
+            nothing is always admitted.
         """
-        if layer not in common_utils.get_layers():
-            raise ConfigError(
-                f'{layer!r} is not a layer; the layers are {common_utils.get_layers()}'
-            )
+        refuse_unknown_layer(layer)
         if mode not in ('image', 'video', None):
             raise ConfigError(f"acquire mode {mode!r} is not 'image', 'video' or None")
         if mode is not None:
-            self._refuse_layer_not_on_scope(layer, then='be set to acquire')
+            self.scope.layer_identity.refuse_unless_on_scope(
+                layer, 'set_layer_acquire', then='be set to acquire'
+            )
         with self.settings_lock:
             self._write_layer_acquire(layer, mode)
 
@@ -1629,22 +1625,25 @@ class ScopeSession:
             None when turning on.
 
         Raises:
-            ConfigError: ``layer`` is not one of this release's layers,
-                ``enabled`` is not a bool, or ``enabled`` is True and this
-                scope does not have ``layer``; nothing is changed. Turning
-                auto-gain off is always admitted.
+            ArgumentRefusedError: ``'layer_unknown'`` or
+                ``'no_layer_selected'``, ``layer`` is not a layer.
+            ConfigError: ``enabled`` is not a bool, or this scope's layers
+                could not be resolved.
+            HardwareCommandRefusedError: ``'axis_absent'``, ``enabled`` is
+                True and this scope does not have ``layer``.
+            Nothing is changed on any of these. Turning auto-gain off is
+            always admitted.
             The lock's refusal, when a run, a diagnostic or a home holds the scope;
                 nothing is stored.
         """
-        if layer not in common_utils.get_layers():
-            raise ConfigError(
-                f'{layer!r} is not a layer; the layers are {common_utils.get_layers()}'
-            )
+        refuse_unknown_layer(layer)
         if not isinstance(enabled, bool):
             raise ConfigError(f'auto-gain enabled must be True or False, got {enabled!r}')
         lock = None
         if enabled:
-            self._refuse_layer_not_on_scope(layer, then='run auto-gain')
+            self.scope.layer_identity.refuse_unless_on_scope(
+                layer, 'set_layer_auto_gain', then='run auto-gain'
+            )
         else:
             lock = self.scope.imaging.lock_auto_gain()
         with self.settings_lock:
@@ -1674,7 +1673,11 @@ class ScopeSession:
             gain and exposure now in effect.
 
         Raises:
-            ConfigError: this scope has no ``layer``; nothing is applied.
+            ArgumentRefusedError: ``'layer_unknown'`` or
+                ``'no_layer_selected'``, ``layer`` is not a layer.
+            HardwareCommandRefusedError: ``'axis_absent'``, this scope has
+                no ``layer``.
+            ConfigError: this scope's layers could not be resolved. Nothing is applied.
             HardwareCommandRefusedError: a run, a diagnostic or a home holds the
                 scope (an autofocus is a run), or ``'not_connected'``, naming
                 the camera, with none connected; nothing is applied.
@@ -1683,7 +1686,9 @@ class ScopeSession:
         """
         import modules.config_helpers as config_helpers
 
-        self._refuse_layer_not_on_scope(layer, then='be applied to the camera')
+        self.scope.layer_identity.refuse_unless_on_scope(
+            layer, 'apply_layer_camera', then='be applied to the camera'
+        )
         with self.settings_lock:
             stored = self.settings[layer]
             gain_db = stored['gain_db']
@@ -1821,7 +1826,15 @@ class ScopeSession:
         session the same way ``add_step`` does.
 
         Returns the step's name after the update.
+
+        Raises:
+            ArgumentRefusedError: ``'layer_unknown'`` or
+                ``'no_layer_selected'``, ``layer`` is not a layer.
+            HardwareCommandRefusedError: ``'axis_absent'``, this scope has
+                no ``layer``.
+            Nothing is changed on either.
         """
+        self.scope.layer_identity.refuse_unless_on_scope(layer, 'update_step', then='take a step')
         # None when unknown: the protocols API refuses that by name, notified.
         objective_id = self.scope.runtime_state.get_current_objective_id()
         return self.scope.protocols.update_step(
@@ -1854,9 +1867,13 @@ class ScopeSession:
             AxisStateUnknownError: Z lost its reference. Nothing is written.
             ProtocolError: ``step_idx`` is not a step of ``protocol``.
                 Nothing is written.
-            ConfigError: this scope has no ``layer``. Nothing is written.
+            ArgumentRefusedError: ``'layer_unknown'`` or
+                ``'no_layer_selected'``, ``layer`` is not a layer.
+            HardwareCommandRefusedError: ``'axis_absent'``, this scope has
+                no ``layer``.
+            ConfigError: this scope's layers could not be resolved. Nothing is written.
         """
-        self._refuse_layer_not_on_scope(layer, then='take a focus')
+        self.scope.layer_identity.refuse_unless_on_scope(layer, 'save_focus', then='take a focus')
         step = None if step_idx is None else protocol.step(idx=step_idx)
         z = self.scope.protocols.focus_z(then='save the focus')
         self._store_layer_focus(layer, z)
@@ -1878,13 +1895,19 @@ class ScopeSession:
         ``save_focus``, which saves the live Z, writes through the same path.
 
         Raises:
-            ConfigError: this scope has no ``layer``. Nothing is written.
+            ArgumentRefusedError: ``'layer_unknown'`` or
+                ``'no_layer_selected'``, ``layer`` is not a layer.
+            HardwareCommandRefusedError: ``'axis_absent'``, this scope has
+                no ``layer``.
+            ConfigError: this scope's layers could not be resolved. Nothing is written.
             ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
                 has no Z axis. Nothing is written.
             PositionOutOfRangeError: ``z_um`` is NaN or infinite, or lies
                 outside Z's travel. Nothing is written.
         """
-        self._refuse_layer_not_on_scope(layer, then='take a focus')
+        self.scope.layer_identity.refuse_unless_on_scope(
+            layer, 'save_layer_focus', then='take a focus'
+        )
         z = self._store_layer_focus(layer, z_um)
         logger.info(f'[Session  ] Focus saved: {layer} Z={z}')
 
@@ -1957,9 +1980,15 @@ class ScopeSession:
             ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
                 has no Z axis. Nothing is written.
             AxisStateUnknownError: Z lost its reference. Nothing is written.
-            ConfigError: this scope has no ``layer``. Nothing is written.
+            ArgumentRefusedError: ``'layer_unknown'`` or
+                ``'no_layer_selected'``, ``layer`` is not a layer.
+            HardwareCommandRefusedError: ``'axis_absent'``, this scope has
+                no ``layer``.
+            ConfigError: this scope's layers could not be resolved. Nothing is written.
         """
-        self._refuse_layer_not_on_scope(layer, then='take a focus')
+        self.scope.layer_identity.refuse_unless_on_scope(
+            layer, 'apply_focus_to_layer_steps', then='take a focus'
+        )
         z = self.scope.protocols.focus_z(then='apply the focus')
         self._store_layer_focus(layer, z)
         updated = self.scope.protocols.apply_focus_to_layer_steps(protocol, layer, z)
@@ -2116,8 +2145,12 @@ class ScopeSession:
                 Nothing changes.
             ProtocolRunRefusedError: this scope cannot put the step's
                 objective in the light path. Nothing changes.
-            ConfigError: this scope has no layer of the step's colour, or
-                the step's stimulation names a layer this release has not.
+            ArgumentRefusedError: ``'layer_unknown'``, the step's colour is
+                not a layer. Nothing changes.
+            HardwareCommandRefusedError: ``'axis_absent'``, this scope has
+                no layer of the step's colour. Nothing changes.
+            ConfigError: the step's stimulation names a layer this release
+                has not, or this scope's layers could not be resolved.
                 Nothing changes.
             AxisStateUnknownError: an axis the step moves does not know
                 its position. Nothing changes.
@@ -2134,7 +2167,9 @@ class ScopeSession:
         """
         step = protocol.step(idx=step_idx)
         self.scope.protocols.refuse_unaddressable_objectives([step['Objective']])
-        self._refuse_layer_not_on_scope(step['Color'], then='be gone to')
+        self.scope.layer_identity.refuse_unless_on_scope(
+            step['Color'], 'go_to_step', then='be gone to'
+        )
         stim_configs = step.get('Stim_Config')
         if isinstance(stim_configs, dict):
             unknown = sorted(set(stim_configs) - set(common_utils.get_layers()))

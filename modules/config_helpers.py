@@ -1391,25 +1391,13 @@ def get_standalone_capture_config_from_settings(
         stim_config: Per-layer stimulation to stamp onto the step. An
             empty dict keeps the run stim-free.
 
-    Raises:
-        ConfigError: *layer* is not a layer this release has.
+    *layer* is a layer of this release: the members that build this
+    (``ProtocolRunner.run_autofocus``, ``run_zstack``) judge it at their
+    door, before they read the scope. Unjudged, an unknown name would not
+    fail here -- the layer selector below skips what the catalogue lacks
+    -- and the run would be refused several steps later as "Protocol has
+    no steps", naming a cause that has nothing to do with the mistake.
     """
-    # Validated BEFORE anything indexes settings by it. The layer selector
-    # below iterates the release catalogue and skips what does not match,
-    # so an unknown name does not fail there -- it yields no layers, and
-    # the run is refused several steps later as "Protocol has no steps",
-    # naming a cause that has nothing to do with what the caller got
-    # wrong.
-    known_layers = common_utils.get_layers()
-    # A GUI caller with no drawer open has no layer to name; printing None
-    # into the catalogue sentence below would tell the user nothing.
-    if layer is None:
-        raise ConfigError(f'No layer is selected; choose one of: {", ".join(known_layers)}')
-    if layer not in known_layers:
-        raise ConfigError(
-            f'{layer!r} is not a layer on this scope; available: {", ".join(known_layers)}'
-        )
-
     objective_id, _ = get_current_objective_info(settings, objective_helper)
     labware_id, _ = get_selected_labware_from_settings(settings, wellplate_loader)
 

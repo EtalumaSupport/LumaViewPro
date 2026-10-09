@@ -19,6 +19,7 @@ import pytest
 from modules.activity_claim import ActivityClaim
 import modules.manual_recording as manual_recording_module
 from modules.exceptions import RecordingRefusedError
+from modules.layer_record import LayerIdentity, LayerRecord, release_catalogue
 from modules.manual_recording import ManualRecordingController
 from modules.notification_center import Severity
 from modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
@@ -144,6 +145,16 @@ class _FakeScope:
         self.motion = _FakeMotion()
         self.illumination = _FakeIllumination(lit=lit, board=board)
         self.runtime_state = _FakeRuntimeState()
+        # Every layer of the release: the recording's start asks the scope
+        # has the layer it is named for, and these tests name each.
+        self.layer_identity = LayerIdentity(
+            layers=tuple(
+                LayerRecord(i, name, name, (), None) for i, name in enumerate(release_catalogue())
+            ),
+            filterset='',
+            source='scopes',
+            model='LS850',
+        )
         # A scope that reports no optics: the recording start resolves its
         # scale off these and writes none, the honest-degradation path.
         self.capabilities = SimpleNamespace(
