@@ -15,7 +15,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 
-import fastapi
+from rest import problems
 
 # The most handles held at once. A call whose answer can carry a new
 # handle is refused while this many are held, before the member runs, so
@@ -51,16 +51,15 @@ class HandleRegistry:
         """Refuse a call whose answer can carry a new handle while the limit is held.
 
         Raises:
-            fastapi.HTTPException: 503, with ``Retry-After``.
+            ServerRefusedError: ``overloaded``, with ``Retry-After``.
         """
         with self._lock:
             full = len(self._objects) >= LIMIT
         if full:
-            raise fastapi.HTTPException(
-                503,
+            raise problems.overloaded(
                 f'{LIMIT} handles are held: forget the ones no longer needed '
                 '(DELETE /api/v1/handles/<type>/<id>) and ask again.',
-                headers={'Retry-After': str(RETRY_AFTER_S)},
+                RETRY_AFTER_S,
             )
 
     def mint(self, obj: object) -> dict[str, str]:
@@ -78,25 +77,28 @@ class HandleRegistry:
         """The live object of class *cls* with id *handle*.
 
         Raises:
-            fastapi.HTTPException: 404, no such id is held for that class.
+            ServerRefusedError: ``not_found``, no such id is held for that class.
         """
         with self._lock:
             obj = self._objects.get(handle)
         if obj is None or not isinstance(obj, cls):
-            raise fastapi.HTTPException(404, f'No {cls.__name__} handle {handle} is held.')
+            raise problems.not_found(f'No {cls.__name__} handle {handle} is held.')
         return obj
 
     def forget(self, handle: str, cls: type) -> None:
         """Let go of the id *handle*, never of its object.
 
         Raises:
-            fastapi.HTTPException: 404, no such id is held for that class;
-                409, the id is one every client shares.
+            ServerRefusedError: ``not_found``, no such id is held for that class;
+                ``handle_shared`` (409), the id is one every client shares.
         """
         obj = self.get(handle, cls)
         if self._kept(obj):
-            raise fastapi.HTTPException(
-                409, f'{cls.__name__} handle {handle} is shared by every client and is kept.'
+            raise problems.ServerRefusedError(
+                409,
+                'handle_shared',
+                'Handle Shared',
+                f'{cls.__name__} handle {handle} is shared by every client and is kept.',
             )
         with self._lock:
             if self._objects.pop(handle, None) is not None:

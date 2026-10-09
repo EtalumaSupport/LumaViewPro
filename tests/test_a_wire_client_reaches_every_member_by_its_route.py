@@ -16,7 +16,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from modules.api_surface import API, fields_of, is_record, mark_of
-from modules.exceptions import LiveFolderPathRefusedError
 from modules.scope_session import ScopeSession
 from rest.app import build_app
 from tests.settings_fixtures import complete_settings
@@ -179,9 +178,10 @@ def test_a_path_argument_is_a_live_folder_name_and_reaches_the_member_resolved(c
 
 
 def test_a_path_outside_the_live_folder_is_refused_before_the_member_runs(client, tmp_path):
-    with pytest.raises(LiveFolderPathRefusedError):
-        client.post('/api/v1/make_logs_zip', json={'output_dir': '../outside'})
+    refused = client.post('/api/v1/make_logs_zip', json={'output_dir': '../outside'})
 
+    assert refused.status_code == 409
+    assert refused.json()['reason'] == 'outside_live_folder'
     assert not (tmp_path / 'outside').exists()
 
 

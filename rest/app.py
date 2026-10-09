@@ -17,18 +17,22 @@ from __future__ import annotations
 import asyncio
 import inspect
 import threading
-from collections.abc import Callable
+import uuid
+from collections.abc import Awaitable, Callable
 from concurrent.futures import Future
 
 import fastapi
 import pydantic
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from modules import wire_encoding
 from modules.protocol_runner import ProtocolRunner
 from modules.scope_session import ScopeSession
+from rest import problems
 from rest.handles import HandleRegistry
+from rest.problems import ServerRefusedError
 from rest.routes import Route, routes
 
 VERSION = 'v1'
@@ -57,7 +61,10 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
         return {'versions': [VERSION]}
 
     app.add_api_route('/api', versions, methods=['GET'], tags=['server'])
+    app.middleware('http')(_identify_and_admit)
+    app.add_exception_handler(ServerRefusedError, _refused)
     app.add_exception_handler(RequestValidationError, _body_does_not_fit)
+    app.add_exception_handler(StarletteHTTPException, _routing_refused)
 
     # The session's one protocol runner is every client's: its id is kept.
     registry = HandleRegistry(kept=lambda obj: isinstance(obj, ProtocolRunner))
@@ -117,18 +124,52 @@ def _add_handle_routes(
         )
 
 
-async def _body_does_not_fit(
-    _request: fastapi.Request, error: RequestValidationError
-) -> JSONResponse:
-    """A 422 naming where and why each argument does not fit.
-
-    Not FastAPI's own, which echoes what was sent: a NaN the reader took is
-    no JSON, and the answer would fail where the refusal is due.
-    """
-    return JSONResponse(
-        {'detail': [{k: e[k] for k in ('loc', 'msg', 'type')} for e in error.errors()]},
-        status_code=422,
+async def _identify_and_admit(
+    request: fastapi.Request, call_next: Callable[[fastapi.Request], Awaitable[object]]
+) -> object:
+    """Give the request its id, and refuse a body that is not JSON before any route reads it."""
+    request.state.request_id = str(uuid.uuid4())
+    media = request.headers.get('content-type', '').split(';')[0].strip().lower()
+    has_body = request.headers.get('content-length', '0') != '0' or (
+        'transfer-encoding' in request.headers
     )
+    if has_body and media and media != 'application/json' and not media.endswith('+json'):
+        return problems.refused_by_server(
+            problems.unsupported_media_type(f'A body is JSON (application/json), not {media}.'),
+            request.state.request_id,
+        )
+    return await call_next(request)
+
+
+async def _refused(request: fastapi.Request, refusal: ServerRefusedError) -> JSONResponse:
+    return problems.refused_by_server(refusal, request.state.request_id)
+
+
+async def _body_does_not_fit(
+    request: fastapi.Request, error: RequestValidationError
+) -> JSONResponse:
+    """``invalid_request``, naming where and why each argument does not fit.
+
+    Each error's ``input`` is left out: it echoes what was sent, and a NaN
+    the reader took is no JSON, so the answer would fail where the refusal
+    is due.
+    """
+    errors = [{k: e[k] for k in ('loc', 'msg', 'type')} for e in error.errors()]
+    words = '; '.join(f'{"/".join(str(p) for p in e["loc"])}: {e["msg"]}' for e in errors)
+    return problems.refused_by_server(
+        problems.invalid_request(words, errors=errors), request.state.request_id
+    )
+
+
+async def _routing_refused(request: fastapi.Request, error: StarletteHTTPException) -> JSONResponse:
+    """A path no route answers (404), or a method its route does not (405)."""
+    if error.status_code == 405:
+        refusal = problems.method_not_allowed(
+            f'{request.url.path} does not answer {request.method}.'
+        )
+    else:
+        refusal = problems.not_found(f'No route answers {request.url.path}.')
+    return problems.refused_by_server(refusal, request.state.request_id)
 
 
 def _add(
@@ -161,7 +202,7 @@ def _add(
             for segment in route.segments:
                 owner = getattr(owner, segment)
                 if owner is None:
-                    raise fastapi.HTTPException(404, f'{name}: this scope has no {segment}.')
+                    raise problems.not_found(f'{name}: this scope has no {segment}.')
             return wire_encoding.encode(
                 act(owner),
                 live_folder=session.get_setting('live_folder'),
@@ -178,7 +219,7 @@ def _add(
             _refuse_query(request)
             if route.member.hands_out:
                 registry.admit()
-            return JSONResponse(await _on_own_thread(lambda: work(handle_id), name))
+            return await _answer(request, lambda: work(handle_id), name)
 
         _sign(read, on_handle, None)
         app.add_api_route(endpoint=read, methods=['GET'], **common)
@@ -206,7 +247,7 @@ def _add(
             return getattr(owner, route.member.name)(**arguments)
 
         work = act_on(invoke)
-        return JSONResponse(await _on_own_thread(lambda: work(handle_id), name))
+        return await _answer(request, lambda: work(handle_id), name)
 
     _sign(call, on_handle, route)
     app.add_api_route(endpoint=call, methods=['POST'], **common)
@@ -247,9 +288,24 @@ def _sign(endpoint: Callable, on_handle: bool, route: Route | None) -> None:
 
 def _refuse_query(request: fastapi.Request) -> None:
     if request.url.query:
-        raise fastapi.HTTPException(
-            422, 'A member takes no query string: send its arguments as a JSON object.'
+        raise problems.invalid_request(
+            'A member takes no query string: send its arguments as a JSON object.'
         )
+
+
+async def _answer(request: fastapi.Request, work: Callable[[], object], name: str) -> JSONResponse:
+    """The call's encoded result, or the problem its outcome is.
+
+    The server's own refusals (a handle not held) go to their handler; any
+    other exception is the member's outcome, as a Python caller gets it.
+    """
+    try:
+        result = await _on_own_thread(work, name)
+    except ServerRefusedError:
+        raise
+    except Exception as e:
+        return problems.answered_by_member(e, request.state.request_id)
+    return JSONResponse(result)
 
 
 async def _on_own_thread(work: Callable[[], object], name: str) -> object:

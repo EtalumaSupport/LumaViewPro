@@ -111,13 +111,13 @@ def _field(
     # A parameter the client leaves out takes the member's own default: only
     # what the client sent is passed. The default here only describes it.
     try:
-        described = json.loads(json.dumps(_wire_form(parameter.default)))
+        described = json.loads(json.dumps(wire_form(parameter.default)))
     except (wire_encoding.NoWireFormError, TypeError, ValueError):
         return kind, pydantic.Field(default=None, json_schema_extra=_no_default)
     return kind, pydantic.Field(default=None, json_schema_extra={'default': described})
 
 
-def _wire_form(value: object) -> object:
+def wire_form(value: object) -> object:
     """*value* as a client sends it: a default, or an enum's member.
 
     A path is a host path, not the live-folder name a client sends, and a
@@ -157,7 +157,7 @@ def _one(a: wire_encoding.Inbound, records: dict[type, type[pydantic.BaseModel]]
     if a.form == wire_encoding.HANDLE:
         return typing.Annotated[str, pydantic.Field(description=f'The id of a {a.name} handle.')]
     if a.form == wire_encoding.ENUM:
-        return typing.Literal[tuple(_wire_form(m) for m in a.cls)]
+        return typing.Literal[tuple(wire_form(m) for m in a.cls)]
     if a.form == wire_encoding.ARRAY:
         return list[_type(a.items, records)] if a.items else list
     if a.form == wire_encoding.OBJECT:
