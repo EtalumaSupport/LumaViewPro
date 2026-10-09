@@ -129,11 +129,22 @@ def test_a_job_that_fails_reads_200_with_its_problem(client, session, monkeypatc
     )
 
 
-def test_a_members_progress_is_its_jobs_progress(client, live):
+def test_a_members_progress_is_its_jobs_progress(client, session, live, monkeypatch):
+    # Held until it is a job: a zip that finished inside the zero wait would
+    # be answered 200, with no job to read.
+    release = threading.Event()
+    real = session.make_logs_zip
+
+    def zips_once_released(*args, **kwargs):
+        assert release.wait(10)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(session, 'make_logs_zip', zips_once_released)
     accepted = client.post(
         '/api/v1/make_logs_zip', json={'output_dir': 'reports'}, headers={'Prefer': 'wait=0'}
     )
     assert accepted.status_code == 202
+    release.set()
 
     job = client.get(accepted.headers['Location'], headers={'Prefer': 'wait=30'}).json()
 
@@ -192,13 +203,20 @@ def test_a_call_that_hands_out_a_job_is_refused_while_the_limit_of_jobs_runs(cli
 
 def test_a_finished_job_past_the_count_bound_is_let_go(client, held, monkeypatch):
     monkeypatch.setattr(rest.jobs, 'FINISHED_LIMIT', 1)
-    held.set()
-    oldest = client.post('/api/v1/scope/illumination/leds_off', headers={'Prefer': 'wait=0'})
-    client.get(oldest.headers['Location'], headers={'Prefer': 'wait=10'})
-    newer = client.post('/api/v1/scope/illumination/leds_off', headers={'Prefer': 'wait=0'})
-    client.get(newer.headers['Location'], headers={'Prefer': 'wait=10'})
 
-    client.post('/api/v1/scope/illumination/leds_off', headers={'Prefer': 'wait=0'})
+    def finished_job():
+        # Held until it is a job, then let finish: a call that ended inside
+        # the zero wait would be answered 200, with no job.
+        held.clear()
+        accepted = client.post('/api/v1/scope/illumination/leds_off', headers={'Prefer': 'wait=0'})
+        held.set()
+        client.get(accepted.headers['Location'], headers={'Prefer': 'wait=10'})
+        return accepted
+
+    oldest = finished_job()
+    newer = finished_job()
+
+    finished_job()
 
     assert client.get(oldest.headers['Location']).status_code == 404
     assert client.get(newer.headers['Location']).status_code == 200
