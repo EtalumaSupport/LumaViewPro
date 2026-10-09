@@ -27,6 +27,15 @@ ids-peak-afl==2.0.1.0.6; (sys_platform == "win32" and platform_machine == "AMD64
 psutil==7.2.2
 av==17.0.1
 
+# The REST server (rest/): FastAPI served by uvicorn. pydantic and
+# starlette come with FastAPI and are pinned beside it because rest/
+# imports them directly. The GUI never imports rest/, so none of these
+# is packed into the installer.
+fastapi==0.143.0
+uvicorn==0.54.0
+pydantic==2.14.0
+starlette==1.7.0
+
 # FX2 (LVC LS560/LS620/LS720) USB driver bindings and the native
 # libusb-1.0 they run on. All three are gated at runtime by
 # drivers/fx2driver.py:_FX2_AVAILABLE -- present without FX2 hardware,

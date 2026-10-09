@@ -14,7 +14,7 @@ and code that calls it is unsupported.
 
 The Lumascope SDK API documented in this file is **subject to breaking changes** until `4.0.0` ships. What this document describes is on the trunk now: the `ScopeSession` entry point and the scope's sub-APIs (`scope.motion`, `scope.illumination`, `scope.imaging`, `scope.diagnostics`, `scope.capabilities`, `scope.runtime_state`, `scope.protocols`). What is still fluid:
 
-- The REST surface: no server exists yet (see "REST surface reference"); its endpoint shapes, its job and event forms, and how each value crosses the wire are being designed and will be documented here when they ship.
+- The REST surface ("REST surface reference"): its routes, handles, jobs, problems and event stream are on the trunk as documented, and may still change before `4.0.0`.
 - Protocol-level surfaces may still be renamed or restructured as the wire forms settle.
 
 If you are using this API before stabilization, **contact Etaluma support** so we know to consult you before structural changes. Internal LumaViewPro use does not trigger this requirement.
@@ -2249,15 +2249,129 @@ A plugin runs in LumaViewPro's process and may call any member, marked or not; t
 
 ## REST surface reference
 
-REST is **not implemented**. There is no server, no endpoints, and no wire
-format — nothing in this repo answers HTTP. Endpoints will be documented here
-when REST actually ships, against the real implementation.
+The REST server puts the API reference below on HTTP: every member marked for the wire, nothing else, in the forms `modules/wire_encoding.py` declares. A client in any language reaches what a Python caller reaches, is refused in the same words with the same reason, and hears the same events.
 
-Nothing about a future REST surface is specified anywhere in this document. An
-earlier revision carried a sketch of endpoint shapes and a MATLAB client; both
-predated the 4.0 API-surface work, were never built, and were removed once they
-started being read as a contract that constrained that work. `git log` has them
-if the ideas are ever wanted.
+### Serving it
+
+The server is an application (`rest.app.build_app`) for a session you have brought up, served with uvicorn:
+
+```python
+import uvicorn
+from modules.scope_session import ScopeSession
+from rest.app import build_app
+
+session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
+session.start_application_session()        # homes the scope, as the GUI does at launch
+uvicorn.run(build_app(session), host='127.0.0.1', port=8000)
+session.shutdown()                          # once uvicorn has stopped
+```
+
+Serve it on `127.0.0.1` only: it has no credentials, so anyone who can reach the port drives the scope. It needs `fastapi` and `uvicorn` (both in `requirements.txt`). `GET /api` answers the versions served (`{"versions": ["v1"]}`); the OpenAPI 3.1 description of every route is at `/api/v1/openapi.json`, and an interactive reference at `/docs`.
+
+### Routes
+
+The Session is the root: its member `m` is `/api/v1/m`, and a sub-object is a path segment, so `session.scope.motion.move_absolute` is `POST /api/v1/scope/motion/move_absolute`. Names are the Python names.
+
+- A property or published field is `GET`; its encoded value is the whole body.
+- A method is `POST`, a method with no arguments included (`POST /api/v1/scope/motion/axis_positions`). Its arguments are a JSON object by parameter name; a method with none takes an empty body or `{}`. A parameter with no default must be present, one left out takes the member's own default, and `null` is `None`.
+- The answer to a finished call is `200` with its encoded return value as the whole body, `null` for `None`.
+- A body is checked before the member runs: a key the member does not take, a string where a number goes, a number that is not finite, or a query string is refused `422` (`invalid_request`, its `errors` naming each argument and why).
+- Units are the API's: positions in um (the turret's in slots), exposure in ms, illumination in mA. A `timedelta` crosses as seconds and a `datetime` as ISO 8601 with its offset.
+- A path, sent or answered, is a name in the live folder, `/`-separated (`"ProtocolData/run1"`). A path parameter takes that name; a name that leaves the live folder is refused (`outside_live_folder`). An answered path is `{"name": ..., "host_path": ...}`, `name` null when it is outside the live folder.
+
+### Live objects: handles
+
+A live object -- a protocol, a protocol runner, a run, a move in flight -- crosses as a handle, `{"handle": "3", "type": "RunHandle"}`. One object has one id, whichever call handed it out. Its members are at `/api/v1/handles/<type>/<id>/<member>` (`POST /api/v1/handles/RunHandle/3/stop`), and a parameter that takes it is sent its id (`{"protocol": "1"}`). `GET /api/v1/handles` lists every handle held, oldest first, so a client that lost an answer finds its run there. `DELETE /api/v1/handles/<type>/<id>` forgets the id, never the object: a run goes on, and its stop is `stop`. The session's protocol runner is every client's, and its id is kept (`409`, `handle_shared`). An id not held is `404`. Past 1000 handles held, a call that could hand out another is refused before it runs (`503`, `overloaded`, with `Retry-After`).
+
+### Anything slow is a job
+
+Every call runs on its own thread, and its route waits for it as long as the client says it will: `Prefer: wait=<seconds>` (RFC 7240), 2 s when it says nothing, at most 60 s; the wait applied is echoed in `Preference-Applied`. A call still running then answers `202 Accepted` with `Location: /api/v1/jobs/<id>`, `Retry-After`, and the job:
+
+```json
+{"id": "1", "member": "handles/RunHandle/3/wait", "status": "running",
+ "requested": "2026-10-09T11:47:56.043-07:00", "ended": null, "progress": null}
+```
+
+`status` goes `pending` -> `running` -> `completed` | `failed`; `progress` is `{"percent", "detail"}` from a member that reports how far it has got. `GET /api/v1/jobs/<id>`, itself waiting by `Prefer: wait`, reads it; once it has ended it carries `result` (what a `200` would have carried) or `error` (the problem). Reading a failed job is `200`. A member that hands back a running call (a `Future`) answers its job the same way. `GET /api/v1/jobs` lists the jobs held, newest first; `DELETE /api/v1/jobs/<id>` forgets a finished one (`409`, `job_running`, while it runs). There is no generic cancel: each activity that can be stopped has its own member. Past 256 calls running, a call is refused before it runs (`503`, `overloaded`).
+
+### Problems
+
+Every answer that is not a result is an RFC 9457 problem, `application/problem+json`:
+
+```json
+{"type": "urn:lumascope:problem:axis_unknown", "title": "Not an Axis",
+ "detail": "axis must be one of X, Y, Z, T; 'x' is not one.", "status": 422,
+ "instance": "urn:uuid:3faa1296-...", "kind": "refusal", "reason": "axis_unknown",
+ "remedy": null, "argument": "axis", "offered": ["X", "Y", "Z", "T"]}
+```
+
+`title` and `detail` are the words a Python caller gets; `reason` is the code to branch on (`type` is `urn:lumascope:problem:<reason>`, or `about:blank` for a fault that declares none); `kind` is the outcome's (`refusal`, `quiet`, `fault`); `remedy` is the action that answers it, sent back as `POST /api/v1/apply_remedy {"remedy": ...}`; `instance` names the request. A refusal also carries the fields its type publishes, such as `argument` and `offered` for a refused argument, so a client corrects its request without reading the words.
+
+| Status | When |
+|---|---|
+| `409` | A refusal the scope's state gave (`cause` `'state'`): the same request may succeed once that changes, so it is the one to retry. |
+| `422` | A refusal of the request as sent (`cause` `'request'`): change it before sending it again. Also `invalid_request`, a body that does not fit the member. |
+| `500` | A fault: the call failed. |
+| `404` | `not_found`: no such route, handle, job or file. |
+| `405` / `415` | `method_not_allowed`; `unsupported_media_type` (a body that is not JSON). |
+| `503` | `overloaded`, with `Retry-After`. |
+
+### The event stream
+
+`GET /api/v1/events` is one `text/event-stream` for everything the scope tells its listeners. The first event is `status`, the `Status` record, with the current `id:`; each event after it has the next `id:`, its name as `event:`, and its record, wire-encoded, as `data:`.
+
+| Event | Data |
+|---|---|
+| `position` | `PositionChanged`: an axis's state and position, as `axis_positions` answers |
+| `led` | `LedChanged` |
+| `camera` | `CameraChanged`: gain or exposure |
+| `run_state` | `LiveWork`, as `live_work` reads when the event is sent |
+| `outcome` | `Notification`: an outcome nobody asked for, once per `outcome_id` (one a request was refused with is its answer's problem) |
+| `scan_started`, `scan_ended`, `step_started`, `video_progress`, `run_ended`, `files_written` | The run event's record (`ScanStarted`, ...), with `run`, the handle of the run that sent it (`null` for `run_composite`, which hands out no handle). `run_ended` leaves out the run's own copy of its protocol. |
+
+A client that reconnects with `Last-Event-ID` is sent the events it missed; once more than 1024 events have passed, it is sent `reset` and then `status` instead. A comment is sent every 15 s on a quiet stream.
+
+### Files
+
+`GET /api/v1/files/<name>` downloads a file in the live folder by the name a listing (`POST /api/v1/live_folder_listing {"name": "ProtocolData"}`) or an answered path gives. It comes as an attachment under its own name, its type from its extension, and a `Range` request is answered with that part (`206`), so a large download resumes. A name that is no file is `404`; one that leaves the live folder is refused (`outside_live_folder`).
+
+### Request ids
+
+Every answer carries `X-Request-ID`, which a problem also names as its `instance`, and every request is one line of `lumaviewpro_rest_api.log` under that id, with its method, path, status and time.
+
+### A walkthrough
+
+Against the simulator, with `curl`:
+
+```bash
+API=http://127.0.0.1:8000/api/v1
+curl -s $API/status                                   # what the scope is doing
+curl -s -X POST $API/scope/motion/move_absolute -H 'Content-Type: application/json' \
+     -d '{"axis": "Z", "position": 100.0}'            # 409 position_unknown until homed
+curl -s -X POST $API/scope/motion/home -H 'Prefer: wait=60'
+curl -s -X POST $API/scope/motion/move_absolute -H 'Content-Type: application/json' \
+     -d '{"axis": "Z", "position": 100.0}'            # null
+curl -s -X POST $API/scope/illumination/led_on -H 'Content-Type: application/json' \
+     -d '{"channel": "Blue", "illumination_ma": 50.0}'   # 50.0
+curl -s -X POST $API/scope/illumination/leds_off
+
+# One scan of a one-step protocol
+curl -s -X POST $API/set_layer_acquire -H 'Content-Type: application/json' -d '{"layer": "BF", "mode": "image"}'
+curl -s -X POST $API/create_empty_protocol            # {"handle":"1","type":"Protocol"}
+curl -s -X POST $API/add_step -H 'Content-Type: application/json' -d '{"protocol": "1"}'
+curl -s -X POST $API/create_protocol_runner           # {"handle":"2","type":"ProtocolRunner"}
+curl -s -X POST $API/handles/ProtocolRunner/2/run_single_scan -H 'Content-Type: application/json' \
+     -d '{"protocol": "1", "sequence_name": "walk"}'  # {"handle":"3","type":"RunHandle"}
+curl -s -X POST $API/handles/RunHandle/3/wait -H 'Content-Type: application/json' \
+     -H 'Prefer: wait=60' -d '{"timeout_s": 60}'      # the RunOutcome: status, captures, ...
+curl -s $API/handles/RunHandle/3/run_dir              # {"name":"ProtocolData/20261009_114756", ...}
+curl -s -X POST $API/live_folder_listing -H 'Content-Type: application/json' \
+     -d '{"name": "ProtocolData/20261009_114756"}'
+curl -s -O -J $API/files/ProtocolData/20261009_114756/custom0000_BF_0000.tiff
+
+curl -s -N $API/events                                # the stream, until you stop it
+```
+
 ---
 
 ## Common patterns

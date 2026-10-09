@@ -39,6 +39,10 @@ pyflakes==3.4.0
 # loads a derandomized profile when CI is set so CI runs are reproducible.
 hypothesis==6.165.2
 
+# The HTTP client the REST tests use: FastAPI's TestClient is built on it,
+# and the event-stream tests read a real uvicorn server through it.
+httpx==0.28.1
+
 # Profiling — see Firmware/docs/PROFILING_PRACTICE.md
 # py-spy: sampling profiler, attaches to live LVP process without restart,
 # low overhead so it can run for hours without warping timing data.
