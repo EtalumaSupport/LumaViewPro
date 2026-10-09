@@ -6624,7 +6624,7 @@ class TestSequentialIOExecutorCancelledNotErrorLogged:
     """SequentialIOExecutor._on_task_done must not fire
     notifications.error when the exception is a CancelledError.
     Cancellations come from the caller (shutdown / clear_pending /
-    cancel_all_protocols) by contract; treating them as failures
+    the session's close) by contract; treating them as failures
     floods the error log on every clean shutdown.
     """
 
@@ -9174,7 +9174,7 @@ class TestSequencedCaptureRunnerRunDirCollision:
 
 
 class TestSCEResetSignalsAbort:
-    """UI-initiated abort path (cancel_all_protocols / abort-scan button)
+    """The abort path (the session's close / abort-scan button)
     must signal protocol_thread.abort() before cleanup tears down LEDs /
     camera / position. Without this, cleanup races the in-flight scan
     step (visible as LED flicker, camera config bouncing, return-to-

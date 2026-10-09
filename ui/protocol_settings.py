@@ -1275,16 +1275,3 @@ class ProtocolSettings(FloatLayout):
             set_last_save_folder(dir=started.run_dir)
 
         return _start
-
-    def cancel_all_protocols(self):
-        """Stop whatever run is live, at app close.
-
-        No run's handle is held here and no person waits for an outcome, so
-        it is the engine's shutdown override rather than a Stop, and a
-        failure is reported for the shutdown to carry on past.
-        """
-        logger.info('[LVP Main  ] ProtocolSettings.cancel_all_protocols()')
-        run_unasked(
-            lambda: _app_ctx.ctx.sequenced_capture_runner.force_reset(reason='app shutdown'),
-            'APP_SHUTDOWN',
-        )

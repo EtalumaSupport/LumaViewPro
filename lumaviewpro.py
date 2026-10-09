@@ -495,10 +495,19 @@ from ui.vertical_control import VerticalControl
 from ui.zstack import ZStack
 
 
-# current.json is written at clean shutdown (on_stop). A hard kill or crash
-# would otherwise leave no runtime-state snapshot in a tech-support bundle,
-# so it is also flushed on this interval while the app runs.
+# current.json is written at a clean close (_prepare_the_close). A hard kill
+# or crash would otherwise leave no runtime-state snapshot in a tech-support
+# bundle, so it is also flushed on this interval while the app runs.
 _CURRENT_JSON_FLUSH_INTERVAL_S = 300
+
+
+def _work_item_text(item) -> str:
+    """One piece of the session's live work, as the close's popups show it."""
+    if item.percent is not None:
+        return f'{item.name} ({item.percent:.0f}%)'
+    if item.left is not None:
+        return f'{item.name} ({item.left} left)'
+    return item.name
 
 
 class LumaViewProApp(TooltipMixin, App):
@@ -526,11 +535,12 @@ class LumaViewProApp(TooltipMixin, App):
     # the same edge as the two above.
     homing = BooleanProperty(False)
 
-    # The in-flight drain-close poller, or None when no close is running.
-    # Declared here so the close handler can read it before any close has
-    # assigned it -- the alternative is every reader defending itself with
-    # getattr, which is how one of them eventually forgets.
-    _drain_close_watch = None
+    # The thread the window's close runs the session's close on, or None
+    # before one has begun. Declared here so the close handler can read it
+    # before any close has assigned it -- the alternative is every reader
+    # defending itself with getattr, which is how one of them eventually
+    # forgets.
+    _close_thread = None
 
     def publish_run_state(self, dt: float = 0) -> None:
         """Write the kv mirrors from the session derivations.
@@ -783,8 +793,16 @@ class LumaViewProApp(TooltipMixin, App):
             Clock.schedule_once(lambda dt: memory_profile.snapshot('cold_start_done'), 5.0)
 
         def startup_motion_settled(done: concurrent.futures.Future) -> None:
-            # A shutdown dropped the motion: the app is closing.
-            if done.cancelled() or isinstance(done.exception(), concurrent.futures.CancelledError):
+            from modules.exceptions import SessionClosingError
+
+            # The app is closing: a shutdown dropped the motion, the close
+            # began before it took the scope, or it began while it ran.
+            if done.cancelled() or isinstance(
+                done.exception(), (concurrent.futures.CancelledError, SessionClosingError)
+            ):
+                return
+            live = ctx.session.live_work
+            if live.closing or live.closed:
                 return
             # Raised here, on this thread, where the app's one exception
             # handler takes it, as it took it from on_start when the motion
@@ -1274,119 +1292,96 @@ class LumaViewProApp(TooltipMixin, App):
         gui_logger.window_event('focus', f'focused={focused}')
 
     def on_request_close(self, *args) -> bool:
-        """Kivy on_request_close hook: show a confirmation popup naming what holds the scope.
+        """Kivy on_request_close hook: ask, naming what the session is still doing, then close.
 
-        Returns:
-            True to prevent window close (popup shown); False to allow close.
+        Always True: the window never closes by itself. The close runs on
+        its own thread (``_close_the_session``) and the app stops when it
+        returns.
         """
-        lockout = ctx.session.run_lockout_named
-        scope_held = lockout is not None
+        work = ctx.session.live_work.work
+        scope_held = ctx.session.run_lockout_named is not None
         # Crash-forensics: log the close request to BOTH the main log
         # (so post-mortem can correlate against the shutdown sequence)
         # and the GUI interactions log (so the gui-log timeline names
         # the trigger). Without this line, an X-button / Alt-F4 close
         # produces a silent shutdown -- the gap that prompted this hook.
-        logger.info(f'[LVP Main  ] on_request_close fired; scope_held={scope_held}')
+        logger.info(
+            f'[LVP Main  ] on_request_close fired; scope_held={scope_held} '
+            f'live_work={[item.kind for item in work]}'
+        )
         gui_logger.window_event('close-requested', f'scope_held={scope_held}')
 
-        if self._drain_close_watch is not None:
-            # A close is already draining. This is a SECOND close request --
+        if self._close_thread is not None:
+            # A close is already running. This is a SECOND close request --
             # a Kivy Popup is modal only for in-canvas touch, so the window's
             # X still reaches here while the progress popup is up. Logged
-            # above and then ignored: running the close path again starts a
-            # second poller and a second popup over the same drain.
+            # above and then ignored: a second close would only wait for the
+            # first.
             logger.info('[LVP Main  ] close already in progress; ignoring the request')
-            return True  # Prevent window from closing
+            return True
 
-        if scope_held:
-            Clock.schedule_once(
-                lambda dt: show_confirmation_popup(
-                    title='Confirm Exit',
-                    message=f'{lockout}\n\nAre you sure you want to exit?',
-                    confirm_text='Confirm Exit',
-                    cancel_text='Cancel',
-                    on_confirm=self.stop,
-                )
+        if not work:
+            Clock.schedule_once(lambda dt: self._close_the_session())
+            return True
+
+        Clock.schedule_once(
+            lambda dt: show_confirmation_popup(
+                title='Confirm Exit',
+                message=(
+                    'LumaViewPro is still doing:\n'
+                    + '\n'.join(f'- {_work_item_text(item)}' for item in work)
+                    + '\n\nExiting stops a running protocol or recording, keeping what it '
+                    'captured, and lets the rest finish before LumaViewPro closes.'
+                    '\n\nAre you sure you want to exit?'
+                ),
+                confirm_text='Confirm Exit',
+                cancel_text='Cancel',
+                on_confirm=self._close_the_session,
             )
+        )
+        return True
 
-            return True  # Prevent window from closing
+    def _close_the_session(self) -> None:
+        """Close the session on a thread of its own, showing what it waits for; then stop.
 
-        if ctx.session.manual_recording.is_recording:
-            # Still capturing, so the rest of the take is what closing
-            # costs -- stopping is irreversible and there is no resume.
-            # Read BEFORE the drain check below: a live recording is also
-            # draining, so that branch would otherwise swallow this one
-            # and the app would close without ever asking.
-            Clock.schedule_once(
-                lambda dt: show_confirmation_popup(
-                    title='Confirm Exit',
-                    message=(
-                        'A video recording is in progress.\n\n'
-                        'Exiting now ends the recording and keeps what has been '
-                        'captured so far.\n\n'
-                        'Are you sure you want to exit?'
-                    ),
-                    confirm_text='Confirm Exit',
-                    cancel_text='Cancel',
-                    on_confirm=self._close_with_drain_progress,
-                )
-            )
-
-            return True  # Prevent window from closing
-
-        if ctx.session.close_drain_pending:
-            # Queued video frames -- a manual recording's, or a finished
-            # run's video-step tail -- are still being written to their
-            # final artifacts. A silent block reads as a hang and a
-            # silent close eats the tail of the recording, so the close
-            # shows drain progress with one explicit discard escape.
-            logger.info('[LVP Main  ] Close requested during video drain; showing progress')
-            Clock.schedule_once(lambda dt: self._close_with_drain_progress())
-            return True  # Prevent window from closing
-
-        # No exclusive activity - allow normal close
-        return False
-
-    def _close_with_drain_progress(self) -> None:
-        """PR flow for closing mid-drain: stop, show drain progress, exit
-        when the finish lands (or on explicit discard). Covers both drain
-        sources -- the manual recording and a run's video-step tail."""
+        The host's part runs first, here on the Kivy thread
+        (``_prepare_the_close``). The session's close then runs on its own
+        thread, so this one keeps drawing the progress and the Discard
+        button stays live; when the close returns, the app stops. Closed
+        on this thread instead, nothing would draw while it waits.
+        """
         from ui.notification_popup import show_blocking_progress_popup
 
-        session = ctx.session
-        session.manual_recording.stop()
-
-        def _busy() -> bool:
-            return session.close_drain_pending
-
-        def _pending() -> int:
-            return session.close_drain_frames
-
-        def _discard(*_a):
-            session.discard_close_drain()
-
+        if self._close_thread is not None:
+            return
+        self._prepare_the_close()
         popup, set_message = show_blocking_progress_popup(
-            title='Finishing Video Writes',
-            message='Finishing video writes...',
-            action_text='Discard Remaining Frames',
-            on_action=_discard,
+            title='Closing',
+            message='Closing LumaViewPro...',
+            action_text='Discard Remaining Video Frames',
+            on_action=ctx.session.discard_close_drain,
         )
+        self._close_thread = threading.Thread(
+            target=self._shut_the_session_down, name='session-close', daemon=True
+        )
+        self._close_thread.start()
 
         def _watch(dt):
-            if _busy():
-                set_message(f'Finishing video writes -- {_pending()} frames remaining.')
+            if self._close_thread.is_alive():
+                work = ctx.session.live_work.work
+                set_message(
+                    'Finishing before LumaViewPro closes:\n'
+                    + '\n'.join(_work_item_text(item) for item in work)
+                    if work
+                    else 'Closing LumaViewPro...'
+                )
                 return True
-            # Returning False is what actually stops a Kivy interval, and it
-            # stops THIS event whatever the attribute now holds. Unscheduling
-            # through the attribute alone is not enough: it names whichever
-            # close wrote it last, so an earlier event would keep ticking --
-            # and every tick calls stop() again.
-            self._drain_close_watch = None
+            # Returning False is what stops a Kivy interval.
             popup.dismiss()
             self.stop()
             return False
 
-        self._drain_close_watch = Clock.schedule_interval(_watch, 0.2)
+        Clock.schedule_interval(_watch, 0.2)
 
     def _flush_current_json(self, dt: float) -> None:
         """Periodic current.json snapshot (Clock interval callback).
@@ -1421,10 +1416,8 @@ class LumaViewProApp(TooltipMixin, App):
         """
         stopTouchApp()
 
-    def on_stop(self) -> None:
-        """Kivy lifecycle hook: save settings, tear the session down, exit cleanly."""
-        logger.info('[LVP Main  ] LumaViewProApp.on_stop()')
-
+    def _prepare_the_close(self) -> None:
+        """The host's part of a close, on the Kivy thread, before the session's own."""
         # Suppress notification-listener dispatch during shutdown so the user
         # doesn't see 30+ error toasts as queued IO tasks fail against
         # disconnecting hardware. Log lines still fire for post-mortem.
@@ -1435,49 +1428,20 @@ class LumaViewProApp(TooltipMixin, App):
         except Exception as e:  # grain: ignore NAKED_EXCEPT
             logger.warning(f'[LVP Main  ] Failed to suppress notifications on shutdown: {e}')
 
-        # Plugins released first, before the runs are stopped and the settings
-        # saved: an unregister may stop its own run and wait for it, and their
-        # listener subscriptions and file handles need to drop before hardware
+        # Plugins released first, here on the Kivy thread their widgets live
+        # on: an unregister stops its own work, and their listener
+        # subscriptions and file handles need to drop before hardware
         # tear-down. A plugin's own failure is logged inside, and the rest
-        # still unload.
+        # still unload. The session's close finds them unloaded.
         ctx.session.unload_plugins()
-
-        # Unschedule all recurring interval callbacks to prevent orphaned events
-        try:
-            Clock.unschedule(ctx.stage.draw_labware)
-            Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui)
-        except Exception as e:  # grain: ignore NAKED_EXCEPT
-            logger.debug(f'[LVP Main  ] Clock.unschedule during shutdown raised: {e}')
-
-        ctx.motion_settings.ids['protocol_settings_id'].cancel_all_protocols()
-        # The abort above only signals; the hardware teardown (LED off,
-        # camera restore, return-to-position) runs on the protocol thread.
-        # The session teardown below tears the executors down right after
-        # this block, so wait -- bounded -- for that cleanup to finish
-        # before proceeding. Per PERFORMANCE_BUDGETS.md row
-        # shutdown_protocol_cleanup_wait_s. The session's own LED drain is
-        # the belt-and-suspenders if it times out.
-        try:
-            if ctx.sequenced_capture_runner is not None and not (
-                ctx.sequenced_capture_runner.wait_for_run_idle(timeout_s=30.0)
-            ):
-                logger.warning(
-                    '[LVP Main  ] protocol cleanup still in flight after 30 s '
-                    'shutdown wait; proceeding with teardown anyway'
-                )
-        except Exception as e:  # grain: ignore NAKED_EXCEPT
-            logger.warning(f'[LVP Main  ] shutdown cleanup wait failed: {e}')
-
-        if profiling_helper is not None:
-            profiling_helper.stop()
 
         # The hardware-presence gate lives inside the session's save_settings,
         # so every caller (engineering plugin, REST, scheduled save) gets the
         # same guard. Pass force=True only to override. A refusal must not
-        # abort shutdown -- the session teardown below is hardware teardown.
+        # abort shutdown -- the session's close is hardware teardown.
         # INFO, not WARNING: the errors log ships in every support bundle
         # and a hardware-less clean exit is not an error. The save comes
-        # BEFORE the teardown: it needs the hardware the teardown removes.
+        # BEFORE the close: it needs the hardware the close releases.
         from modules.exceptions import SettingsSaveRefusedError
 
         try:
@@ -1485,9 +1449,8 @@ class LumaViewProApp(TooltipMixin, App):
         except SettingsSaveRefusedError as e:
             logger.info(f'[LVP Main  ] settings not saved at exit: {e.reason}')
 
-        # The one teardown: metrics, the LED drain through the io lane,
-        # the consumer threads, the lanes, motion stopped, the scope
-        # disconnected.
+    def _shut_the_session_down(self) -> None:
+        """The session's close: it stops a live run and recording, finishes the rest, then tears down."""
         logger.info('[LVP Main  ] ctx.session.shutdown()')
         from modules.exceptions import ScopeDisconnectError
         from modules.notification_center import notifications
@@ -1496,8 +1459,30 @@ class LumaViewProApp(TooltipMixin, App):
             ctx.session.shutdown()
         except ScopeDisconnectError as e:
             # Every teardown step has run; the window is closing, so the
-            # record is the log (notifications are muted above).
+            # record is the log (notifications are muted).
             notifications.report_outcome(e, solicited=False, category='Hardware')
+
+    def on_stop(self) -> None:
+        """Kivy lifecycle hook: end the window's own timers; close the session if no close did."""
+        logger.info('[LVP Main  ] LumaViewProApp.on_stop()')
+
+        # Unschedule all recurring interval callbacks to prevent orphaned events
+        try:
+            Clock.unschedule(ctx.stage.draw_labware)
+            Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui)
+        except Exception as e:  # grain: ignore NAKED_EXCEPT
+            logger.debug(f'[LVP Main  ] Clock.unschedule during shutdown raised: {e}')
+
+        if profiling_helper is not None:
+            profiling_helper.stop()
+
+        if not ctx.session.live_work.closed:
+            # Reached without the window's close -- a platform quit -- or
+            # after a close that raised part-way: the close runs here, on
+            # this thread, and nothing draws while it waits. A close still
+            # running on its own thread is waited for by this call.
+            self._prepare_the_close()
+            self._shut_the_session_down()
 
         logger.info('[LVP Main  ] LumaViewProApp exiting.', extra={'force_error': True})
 

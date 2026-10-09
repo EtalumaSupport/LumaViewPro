@@ -19,10 +19,13 @@ or, for a control with no id, ``Class[attr=value]`` among the descendants
 matches nothing, or more than one live widget, stops the walk.
 
 A step that cannot be performed, or whose touch did not reach its control,
-stops the walk there with the reason; a later step never runs. A walk that
-ends in ``quit`` is one nobody watches, so it closes the app at its end, done
-or stopped, with a picture of the window at a stop; any other walk leaves the
-app open. Each step's outcome is logged to the main log under ``[SIM WALK  ]``.
+stops the walk there with the reason; a later step never runs. ``close``
+presses the window's X: the app's own close gate asks, and later steps answer
+it. A walk that ends in ``quit`` stops the app at its end as a platform quit
+does, through ``on_stop``, never through the gate, which would ask with nobody
+there to answer. A walk that ends in ``quit`` or presses ``close`` is one
+nobody watches, so a stop at a failed step also stops the app, with a picture
+of the window; any other walk leaves the app open. Each step's outcome is logged to the main log under ``[SIM WALK  ]``.
 
 Walk files are read and checked by ``ui.sim_walk_file``.
 """
@@ -45,7 +48,7 @@ from kivy.uix.textinput import TextInput
 
 from modules import gui_logger
 from ui import file_dialogs
-from ui.sim_walk_file import DEFAULT_SETTLE_S, closes_at_end
+from ui.sim_walk_file import DEFAULT_SETTLE_S, ends_in_quit, unattended
 
 logger = logging.getLogger('LVP.sim_walk')
 
@@ -84,7 +87,8 @@ class SimWalk:
         self._shot_dir = shot_dir
         self._number = 0
         self._action = None
-        self._closes_at_end = closes_at_end(steps)
+        self._ends_in_quit = ends_in_quit(steps)
+        self._unattended = unattended(steps)
         # What the step's done line says, when it differs from 'done'.
         self._step_outcome = 'done'
         self.finished = False
@@ -141,14 +145,18 @@ class SimWalk:
             logger.info(f'[SIM WALK  ] {self._source}: done')
         else:
             logger.warning(f'[SIM WALK  ] {self._source}: {outcome}')
-        if not self._closes_at_end:
+        if not self._unattended:
             return
         # Nobody is at the screen for this walk, so it never leaves the app
-        # up, done or stopped: an open LVP blocks every other sim launch. The
-        # picture keeps what a stop looked like.
-        if outcome != 'done' and not self._picture(f'stopped_at_step_{self._number}_'):
-            logger.warning('[SIM WALK  ] the picture of the stop was not written')
-        _close_the_app()
+        # up when it stops: an open LVP blocks every other sim launch. The
+        # picture keeps what a stop looked like. Done, a walk that pressed
+        # ``close`` leaves the app to close itself.
+        if outcome != 'done':
+            if not self._picture(f'stopped_at_step_{self._number}_'):
+                logger.warning('[SIM WALK  ] the picture of the stop was not written')
+            _stop_the_app()
+        elif self._ends_in_quit:
+            _stop_the_app()
 
     # --- the actions; each is a generator yielding the seconds to wait ------
 
@@ -266,8 +274,14 @@ class SimWalk:
                 raise WalkStepError(f'a popup or a run was still up after {timeout:g} s')
             yield _POLL_S
 
+    def _close(self, step):
+        # The window's X, as a person presses it: the app's close gate logs
+        # the request and asks or closes, and later steps answer it.
+        Window.dispatch('on_request_close')
+        yield from ()
+
     def _quit(self, step):
-        # The walk's last step (the walk file holds it there); the close is
+        # The walk's last step (the walk file holds it there); the stop is
         # the end of the walk's, in _finish.
         yield from ()
 
@@ -348,10 +362,9 @@ class SimWalk:
             raise WalkStepError(f'{path}: the touch at ({x:.0f}, {y:.0f}) did not reach it')
 
 
-def _close_the_app() -> None:
-    """Close as the window's X does, so the app's own close gate still asks."""
-    if not Window.dispatch('on_request_close'):
-        App.get_running_app().stop()
+def _stop_the_app() -> None:
+    """Stop the app as a platform quit does: its ``on_stop`` closes the session."""
+    App.get_running_app().stop()
 
 
 def _describe(step: dict) -> str:

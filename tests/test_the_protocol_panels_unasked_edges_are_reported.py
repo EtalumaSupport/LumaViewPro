@@ -130,19 +130,3 @@ def test_a_step_editor_frame_on_a_real_step_shows_it(reported, monkeypatch):
     assert reported == []
     assert panel.ids['step_number_input'].text == '2'
     assert panel.ids['step_focus_z_label'].text == '0 um'
-
-
-def test_the_shutdown_overrides_failure_is_reported_once_as_unasked(reported, monkeypatch):
-    def force_reset(*, reason):
-        raise RuntimeError(f'the engine would not reset for {reason}')
-
-    monkeypatch.setattr(
-        _app_ctx,
-        'ctx',
-        SimpleNamespace(sequenced_capture_runner=SimpleNamespace(force_reset=force_reset)),
-    )
-    panel = _Panel(_protocol(0), curr_step=-1)
-
-    panel.cancel_all_protocols()
-
-    assert reported == [('RuntimeError', 'UI:APP_SHUTDOWN', False)]

@@ -897,17 +897,17 @@ class TestCloseWithProgress:
         finish(controller)
         assert not controller.is_busy
 
-    def test_app_close_gate_reads_the_controller(self):
-        # The close hook must ask the Session whether either video drain
-        # still holds frames, and route through the progress-with-discard
-        # flow; kv/Window plumbing has no headless seam, so pin the wiring
-        # on source.
+    def test_app_close_offers_the_sessions_discard(self):
+        # The window's close shows the Session's close in progress with one
+        # escape, the Session's discard of the video frames still queued;
+        # kv/Window plumbing has no headless seam, so pin the wiring on
+        # source.
         repo = manual_recording_module.Path(__file__).resolve().parent.parent
         app_src = (repo / 'lumaviewpro.py').read_text()
-        assert 'close_drain_pending' in app_src
-        assert '_close_with_drain_progress' in app_src
+        assert 'discard_close_drain' in app_src
+        assert '_close_the_session' in app_src
         assert 'show_blocking_progress_popup' in app_src
-        assert 'Discard Remaining Frames' in app_src
+        assert 'Discard Remaining Video Frames' in app_src
 
 
 class TestScratchSweep:

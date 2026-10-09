@@ -25,6 +25,7 @@ _ACTIONS: dict[str, tuple[frozenset[str], frozenset[str]]] = {
     'read': (frozenset({'path', 'props'}), frozenset()),
     'shot': (frozenset({'name'}), frozenset()),
     'wait': (frozenset(), frozenset({'timeout_s'})),
+    'close': (frozenset(), frozenset()),
     'quit': (frozenset(), frozenset()),
 }
 _EVERY_STEP = frozenset({'do', 'settle_s', 'note'})
@@ -87,13 +88,19 @@ def parse_walk(text: str, *, source: str) -> list[dict]:
     return steps
 
 
-def closes_at_end(steps: list[dict]) -> bool:
-    """Whether the walk closes the app at its end: one that ends in ``quit``.
-
-    Such a walk is run with nobody at the screen, so it closes the app
-    whether it finishes or stops at a failed step.
-    """
+def ends_in_quit(steps: list[dict]) -> bool:
+    """Whether the walk stops the app at its end: one that ends in ``quit``."""
     return bool(steps) and steps[-1]['do'] == 'quit'
+
+
+def unattended(steps: list[dict]) -> bool:
+    """Whether the walk is run with nobody at the screen.
+
+    One that ends in ``quit``, or that closes the window itself (``close``):
+    either ends the app, so a walk that stops at a failed step stops the app
+    too rather than leave it open behind a popup nobody will answer.
+    """
+    return ends_in_quit(steps) or any(step['do'] == 'close' for step in steps)
 
 
 def _check_step(step: dict, where: str) -> None:

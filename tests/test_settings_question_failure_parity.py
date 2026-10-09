@@ -634,12 +634,13 @@ class TestTheSaveRefusalIsAudible:
             assert json.load(f)['live_folder'] == '/data/should_not_persist'
 
     def test_shutdown_survives_a_refused_save(self, session, monkeypatch, tmp_path):
-        """Two halves, because on_stop cannot be driven headlessly: it
+        """Two halves, because the app's close cannot be driven headlessly: it
         tears down executors, threads, notification listeners and real
         hardware. The BEHAVIOUR half proves the refusal is an exception
         that would abort an unguarded caller; the STRUCTURAL half proves
-        on_stop catches exactly that type and still reaches the hardware
-        teardown after it."""
+        the close's save catches exactly that type, and that both ways the
+        app closes -- the window's close and on_stop -- save before they
+        reach the session's teardown, which is the session's alone."""
         _without_hardware(session, monkeypatch)
         _make_provisional(monkeypatch, tmp_path)
 
@@ -649,21 +650,21 @@ class TestTheSaveRefusalIsAudible:
             session.save_settings('./data/current.json')
         assert excinfo.value.reason == 'settings_provisional'
 
-        on_stop = _app_methods()['on_stop']
+        methods = _app_methods()
+        prepare = methods['_prepare_the_close']
         guards = [
             node
-            for node in ast.walk(on_stop)
+            for node in ast.walk(prepare)
             if isinstance(node, ast.Try)
             and any(
                 h.type is not None and ast.unparse(h.type) == 'SettingsSaveRefusedError'
                 for h in node.handlers
             )
         ]
-        assert len(guards) == 1, 'on_stop must catch the refusal around its save'
-        guard = guards[0]
+        assert len(guards) == 1, 'the close must catch the refusal around its save'
         assert 'save_settings' in [
             n.func.attr
-            for n in ast.walk(guard)
+            for n in ast.walk(guards[0])
             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
         ]
 
@@ -677,30 +678,44 @@ class TestTheSaveRefusalIsAudible:
                 out.append(value.id)
             return out
 
-        calls = [
-            node
-            for node in ast.walk(on_stop)
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-        ]
-        teardown = [
-            node.lineno
-            for node in calls
-            if node.func.attr == 'shutdown' and _chain(node.func.value) == ['session', 'ctx']
-        ]
-        assert teardown, 'on_stop must still tear the session (and its hardware) down'
-        assert min(teardown) > guard.end_lineno, (
-            'the session teardown must sit AFTER the guarded save, not inside it'
-        )
-        # The teardown is the session's, whole: on_stop stops no thread,
-        # lane or hardware itself.
-        stray = [
-            (node.lineno, ast.unparse(node.func))
-            for node in calls
-            if node.func.attr in ('disconnect', 'shutdown_threads', 'stop_motion', 'stop_metrics')
-            or (node.func.attr == 'shutdown' and _chain(node.func.value) != ['session', 'ctx'])
-            or (node.func.attr == 'stop' and _chain(node.func.value) != ['profiling_helper'])
-        ]
-        assert stray == [], f'on_stop performs teardown steps itself: {stray}'
+        def _calls(method):
+            return [
+                node
+                for node in ast.walk(method)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            ]
+
+        teardown = methods['_shut_the_session_down']
+        assert any(
+            node.func.attr == 'shutdown' and _chain(node.func.value) == ['session', 'ctx']
+            for node in _calls(teardown)
+        ), 'the close must still tear the session (and its hardware) down'
+
+        # Each way the app closes saves first, then reaches the teardown:
+        # on_stop calls it; the window's close starts the thread that runs it.
+        for name in ('on_stop', '_close_the_session'):
+            method = methods[name]
+            saved = [n.lineno for n in _calls(method) if n.func.attr == '_prepare_the_close']
+            torn = [
+                n.lineno
+                for n in ast.walk(method)
+                if isinstance(n, ast.Attribute) and n.attr == '_shut_the_session_down'
+            ]
+            assert saved and torn, f'{name} must save, then reach the teardown'
+            assert min(saved) < min(torn), f'{name} must save BEFORE the teardown'
+
+        # The teardown is the session's, whole: no part of the app's close
+        # stops a thread, lane or hardware itself.
+        for name in ('on_stop', '_prepare_the_close', '_shut_the_session_down'):
+            stray = [
+                (node.lineno, ast.unparse(node.func))
+                for node in _calls(methods[name])
+                if node.func.attr
+                in ('disconnect', 'shutdown_threads', 'stop_motion', 'stop_metrics')
+                or (node.func.attr == 'shutdown' and _chain(node.func.value) != ['session', 'ctx'])
+                or (node.func.attr == 'stop' and _chain(node.func.value) != ['profiling_helper'])
+            ]
+            assert stray == [], f'{name} performs teardown steps itself: {stray}'
 
     def test_the_periodic_flush_survives_a_refused_save(self, monkeypatch):
         """A 300 s timer must not turn an expected condition into a

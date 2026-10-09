@@ -49,10 +49,15 @@ from ui.sim_walk_file import parse_walk
 EventLoop.ensure_window()
 Window.size = (900, 700)
 
-# The app's close gate, standing in: records each close request and refuses
-# it, so the driver never reaches App.stop() in a process with no App.
+# The app's close gate, standing in: records each close request and keeps
+# the window open, as the app's gate does while its close runs.
 closes = []
 Window.bind(on_request_close=lambda *a, **k: closes.append(1) or True)
+
+# The app's stop, standing in: there is no App in this process.
+import ui.sim_walk as _driver_module
+stops = []
+_driver_module._stop_the_app = lambda: stops.append(1)
 
 records = []
 class _Collect(logging.Handler):
@@ -247,7 +252,7 @@ ids.filebtn.bind(on_release=lambda b: file_dialogs._run_native_dialog_async(
     on_cancel=lambda: hits.append('file cancelled')))
 
 def run(steps, shot_dir, bring_up):
-    hits.clear(); frames.clear(); records.clear(); walk_lines.clear(); closes.clear()
+    hits.clear(); frames.clear(); records.clear(); walk_lines.clear(); closes.clear(); stops.clear()
     # The app's bring-up, standing in: owes the named facts for the first
     # ``clears_after`` polls, then nothing. None is a bring-up already done.
     polls = []
@@ -276,7 +281,8 @@ def run(steps, shot_dir, bring_up):
         EventLoop.idle()
     return {'outcome': walk.outcome, 'hits': list(hits), 'frames': dict(frames),
             'records': list(records), 'walk_lines': list(walk_lines), 'reads': walk.reads, 'shots': walk.shots,
-            'two_collapsed': drawers.ids.two.collapse, 'closes': len(closes), 'polls': len(polls)}
+            'two_collapsed': drawers.ids.two.collapse, 'closes': len(closes), 'stops': len(stops),
+            'polls': len(polls)}
 
 steps = json.loads(sys.argv[2])
 bring_up = json.loads(sys.argv[4]) if len(sys.argv) > 4 else None
@@ -495,12 +501,12 @@ def test_the_walk_file_parser_names_each_defect():
         parse_walk('not json', source='w.json')
 
 
-def test_a_walk_ending_in_quit_closes_the_app_when_it_stops_early(tmp_path):
+def test_a_walk_ending_in_quit_stops_the_app_when_it_stops_early(tmp_path):
     # Nobody is at the screen for such a walk; an LVP left open blocks every
     # other sim launch. The stop is recorded first, and a picture kept.
     result = _run(tmp_path, [{'do': 'press', 'path': 'Panel/nosuch'}, {'do': 'quit'}])
     assert result['outcome'].startswith('stopped at step 1'), result
-    assert result['closes'] == 1, result
+    assert (result['stops'], result['closes']) == (1, 0), result
     assert len(result['shots']) == 1, result
     shot = pathlib.Path(result['shots'][0])
     assert shot.name.startswith('stopped_at_step_1_') and shot.is_file(), result
@@ -509,15 +515,33 @@ def test_a_walk_ending_in_quit_closes_the_app_when_it_stops_early(tmp_path):
 def test_a_walk_not_ending_in_quit_leaves_the_app_open_when_it_stops(tmp_path):
     result = _run(tmp_path, [{'do': 'press', 'path': 'Panel/nosuch'}, {'do': 'wait'}])
     assert result['outcome'].startswith('stopped at step 1'), result
-    assert result['closes'] == 0, result
+    assert (result['stops'], result['closes']) == (0, 0), result
     assert result['shots'] == [], result
 
 
-def test_a_walk_ending_in_quit_closes_the_app_when_it_finishes(tmp_path):
+def test_a_walk_ending_in_quit_stops_the_app_as_a_platform_quit_does(tmp_path):
+    # Not through the window's close gate: with work live it asks, and nobody
+    # is there to answer.
     result = _run(tmp_path, [{'do': 'press', 'path': 'Panel/btn'}, {'do': 'quit'}])
     assert result['outcome'] == 'done', result
-    assert result['closes'] == 1, result
+    assert (result['stops'], result['closes']) == (1, 0), result
     assert result['shots'] == [], result
+
+
+def test_close_presses_the_windows_x_and_later_steps_run(tmp_path):
+    # The gate asks; later steps answer it. Done, the app closes itself.
+    result = _run(tmp_path, [{'do': 'close'}, {'do': 'press', 'path': 'Panel/btn'}])
+    assert result['outcome'] == 'done', result
+    assert (result['closes'], result['stops']) == (1, 0), result
+    assert result['hits'] == ['btn'], result
+
+
+def test_a_walk_that_presses_close_stops_the_app_when_it_stops(tmp_path):
+    # Nobody is at the screen: a stop after the close does not leave the app
+    # open behind the confirm nobody answered.
+    result = _run(tmp_path, [{'do': 'close'}, {'do': 'press', 'path': 'Panel/nosuch'}])
+    assert result['outcome'].startswith('stopped at step 2'), result
+    assert (result['closes'], result['stops']) == (1, 1), result
 
 
 def test_step_1_waits_until_bring_up_owes_nothing(tmp_path):
