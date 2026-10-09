@@ -38,6 +38,16 @@ def session(tmp_path):
         s.shutdown()
 
 
+def _gone_before_the_body(member):
+    """An imaging member whose camera went away after the lane asked for it."""
+
+    def refused(*_args):
+        part = MissingPart.CAMERA
+        raise HardwareCommandRefusedError(part.reason, member, missing=part)
+
+    return refused
+
+
 def _stored_frame(session) -> dict:
     return dict(session.settings['frame'])
 
@@ -214,9 +224,13 @@ class TestTheBinning:
 
     def test_no_camera_stores_nothing(self, session, monkeypatch):
         before = (session.settings['binning']['size'], _stored_frame(session))
-        monkeypatch.setattr(session.scope.imaging, 'set_binning_size', lambda size: False)
+        monkeypatch.setattr(
+            session.scope.imaging, 'set_binning_size', _gone_before_the_body('set_binning_size')
+        )
 
-        assert session.set_binning_size(2) is None
+        with pytest.raises(HardwareCommandRefusedError) as caught:
+            session.set_binning_size(2)
+        assert caught.value.reason == 'not_connected'
         assert (session.settings['binning']['size'], _stored_frame(session)) == before
 
     def test_a_binning_change_stores_the_region_a_settings_file_lacked(self, session):
@@ -289,7 +303,7 @@ class TestTheImageMode:
     def test_it_stores_the_mode_once_the_format_is_applied(self, session, monkeypatch):
         applied = _spy(monkeypatch, session.scope.imaging, 'set_pixel_format')
 
-        assert session.set_image_mode('12bit_scientific') is True
+        session.set_image_mode('12bit_scientific')
         assert session.settings['image_mode'] == '12bit_scientific'
         assert len(applied) == 1
 
@@ -303,9 +317,13 @@ class TestTheImageMode:
 
     def test_a_camera_that_went_away_stores_nothing(self, session, monkeypatch):
         before = session.settings['image_mode']
-        monkeypatch.setattr(session.scope.imaging, 'set_pixel_format', lambda fmt: False)
+        monkeypatch.setattr(
+            session.scope.imaging, 'set_pixel_format', _gone_before_the_body('set_pixel_format')
+        )
 
-        assert session.set_image_mode('12bit_scientific') is False
+        with pytest.raises(HardwareCommandRefusedError) as caught:
+            session.set_image_mode('12bit_scientific')
+        assert caught.value.reason == 'not_connected'
         assert session.settings['image_mode'] == before
 
     def test_an_unknown_mode_stores_nothing(self, session):
@@ -314,3 +332,34 @@ class TestTheImageMode:
         with pytest.raises(ConfigError):
             session.set_image_mode('16bit')
         assert session.settings['image_mode'] == before
+
+
+class TestTheCameraToggles:
+    """The simulated camera has neither toggle: on is refused, off is its state."""
+
+    @pytest.mark.parametrize(
+        ('member', 'path'),
+        [
+            ('set_high_conversion_gain', 'high_conversion_gain'),
+            ('set_line_noise_reduction', 'line_noise_reduction'),
+        ],
+    )
+    def test_on_without_the_mode_is_refused_and_stores_nothing(self, session, member, path):
+        session.settings['camera'][path] = False
+
+        with pytest.raises(CameraSettingUnsupportedError):
+            getattr(session, member)(True)
+        assert session.settings['camera'][path] is False
+
+    @pytest.mark.parametrize(
+        ('member', 'path'),
+        [
+            ('set_high_conversion_gain', 'high_conversion_gain'),
+            ('set_line_noise_reduction', 'line_noise_reduction'),
+        ],
+    )
+    def test_off_without_the_mode_is_stored(self, session, member, path):
+        session.settings['camera'][path] = True
+
+        getattr(session, member)(False)
+        assert session.settings['camera'][path] is False

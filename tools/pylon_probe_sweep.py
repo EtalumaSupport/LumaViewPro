@@ -288,7 +288,8 @@ def _apply_cell(scope, transport: str, cell: dict, sensor_w: int, sensor_h: int)
         # camera may lack).
         pf = cell['pixel_format']
         try:
-            log.append(('pixel_format', scope.imaging.set_pixel_format(pf)))
+            scope.imaging.set_pixel_format(pf)
+            log.append(('pixel_format', pf))
         except CameraSettingRejected as e:
             log.append(('pixel_format', f'REJECTED: {e}'))
 

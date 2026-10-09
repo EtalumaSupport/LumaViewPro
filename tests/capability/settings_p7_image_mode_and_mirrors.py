@@ -26,9 +26,10 @@ try:
         depth, s.scope.capabilities.camera_pixel_formats
     )
     print(f'mode {mode!r} -> capture_depth {depth} -> pixel format {target!r}')
+    im.set_pixel_format(target)
     _common.ok(
         '12-bit pixel format applied',
-        bool(im.set_pixel_format(target)),
+        im.pixel_format_cached == target,
         f'cached={im.pixel_format_cached}',
     )
     s.set_image_mode(mode)

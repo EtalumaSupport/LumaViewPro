@@ -285,7 +285,7 @@ def _rejected_gain_words(gain_db: float) -> tuple[str, str]:
 
 
 def _rejected_mode_words(what: str) -> tuple[str, str]:
-    """The title and sentence for an auto-mode change the camera refused."""
+    """The title and sentence for a mode change the camera refused."""
     return (
         'Camera Setting Not Applied',
         f'The camera did not take the {what} change. Captures will continue '
@@ -312,26 +312,31 @@ def _value_rejection(setting: str, requested: float) -> CameraSettingRejected:
 
 
 def _mode_rejection(setting: str, requested: object, what: str) -> CameraSettingRejected:
-    """The typed refusal of an auto-mode change, in its one set of words."""
+    """The typed refusal of a mode change, in its one set of words."""
     title, message = _rejected_mode_words(what)
     return CameraSettingRejected(setting, requested, title=title, message=message)
 
 
 def _absent_mode_refusal(
-    setting: str, requested: object, what: str
+    setting: str, requested: object, what: str, *, offered: tuple, consequence: str
 ) -> CameraSettingUnsupportedError:
-    """The refusal of an auto mode the attached camera does not have.
+    """The refusal of a camera setting the attached camera does not have.
 
-    Nothing reached the camera: its profile declares no such mode, so the
-    only thing it offers is to stay in manual.
+    Nothing reached the camera. ``offered`` is what the camera can still be
+    asked for (an auto mode's off, a toggle's standard setting, or nothing),
+    and ``consequence`` the sentence saying what stays as it is.
     """
     return CameraSettingUnsupportedError(
         setting,
         requested,
-        offered=(False,),
+        offered=offered,
         title='Not Available on This Camera',
-        message=(f'This camera has no {what}. The gain and exposure stay as they are set.'),
+        message=f'This camera has no {what}. {consequence}',
     )
+
+
+# What stays as it is when an auto mode the camera lacks is refused.
+_AUTO_MODE_STAYS = 'The gain and exposure stay as they are set.'
 
 
 def camera_range_words(low: float | None, high: float | None, unit: str) -> str:
@@ -1591,7 +1596,13 @@ class ImagingAPI:
             # cache resync. Its driver answers no auto-mode call truthfully,
             # so it is never asked.
             if state:
-                raise _absent_mode_refusal('auto_gain', state, 'automatic gain')
+                raise _absent_mode_refusal(
+                    'auto_gain',
+                    state,
+                    'automatic gain',
+                    offered=(False,),
+                    consequence=_AUTO_MODE_STAYS,
+                )
             return True
 
         def _write_auto_gain():
@@ -1856,7 +1867,13 @@ class ImagingAPI:
         if not self._camera_has_auto_exposure():
             # See _set_auto_gain_impl: off is such a camera's state, not a write.
             if state:
-                raise _absent_mode_refusal('auto_exposure', state, 'automatic exposure')
+                raise _absent_mode_refusal(
+                    'auto_exposure',
+                    state,
+                    'automatic exposure',
+                    offered=(False,),
+                    consequence=_AUTO_MODE_STAYS,
+                )
             return True
         # Auto-exposure dynamically adjusts the value, so clear the manual
         # exposure target (chunk-match falls back to skip-frames calibration).
@@ -2010,24 +2027,28 @@ class ImagingAPI:
             f'Check USB and reconnect, then try again.',
         )
 
-    def set_binning_size(self, size: int) -> bool:
+    def set_binning_size(self, size: int) -> None:
         """Set camera pixel binning size, and wait for it.
 
         See ``_set_binning_size_impl`` for the apply/rejection contract;
-        this adds only the dispatch described on ``_dispatch_camera``,
-        on the geometry timeout (binning reallocates buffers).
+        this adds the dispatch described on ``_dispatch_camera``, on the
+        geometry timeout (binning reallocates buffers).
 
         Raises:
             HardwareCommandRefusedError: A recording holds the scope: its
-                frames and their pixel size follow the binning it started with.
+                frames and their pixel size follow the binning it started
+                with. ``'not_connected'``, naming the camera, when it is gone
+                before the body runs.
+            CameraSettingRejected: The camera refused the binning.
         """
-        return self._dispatch_camera(
+        if not self._dispatch_camera(
             self._set_binning_size_impl,
             'set_binning_size',
             args=(size,),
             timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
             falsifies_recording=True,
-        )
+        ):
+            raise _camera_not_connected('set_binning_size')
 
     def _set_binning_size_impl(self, size: int) -> bool:
         """Set camera pixel binning size.
@@ -2104,24 +2125,28 @@ class ImagingAPI:
         _api_log.info(f'set_binning {size}x{size} -> True')
         return True
 
-    def set_pixel_format(self, pixel_format: str) -> bool:
+    def set_pixel_format(self, pixel_format: str) -> None:
         """Set the camera pixel format, and wait for it.
 
         See ``_set_pixel_format_impl`` for the apply/rejection contract;
-        this adds only the dispatch described on ``_dispatch_camera``,
-        on the geometry timeout (a format change reallocates geometry).
+        this adds the dispatch described on ``_dispatch_camera``, on the
+        geometry timeout (a format change reallocates geometry).
 
         Raises:
             HardwareCommandRefusedError: A recording holds the scope: its
                 frames are written at the depth it started with.
+                ``'not_connected'``, naming the camera, when it is gone
+                before the body runs.
+            CameraSettingRejected: The camera refused the format.
         """
-        return self._dispatch_camera(
+        if not self._dispatch_camera(
             self._set_pixel_format_impl,
             'set_pixel_format',
             args=(pixel_format,),
             timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
             falsifies_recording=True,
-        )
+        ):
+            raise _camera_not_connected('set_pixel_format')
 
     def _set_pixel_format_impl(self, pixel_format: str) -> bool:
         """Set the camera pixel format.
@@ -2172,114 +2197,150 @@ class ImagingAPI:
             )
         return True
 
-    def set_conversion_gain_mode(self, mode: str) -> bool:
+    def set_conversion_gain_mode(self, mode: str) -> None:
         """Set the camera sensor conversion gain mode, and wait for it.
 
         See ``_set_conversion_gain_mode_impl`` for the mode contract;
-        this adds only the dispatch described on ``_dispatch_camera``.
+        this adds the dispatch described on ``_dispatch_camera``.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected.
+            CameraSettingUnsupportedError: ``'High'`` on a camera without
+                the mode, or a mode that is neither ``'High'`` nor ``'Low'``.
+                Nothing reaches the camera.
+            CameraSettingRejected: The camera refused the change or raised
+                from it (chained).
         """
-        return self._dispatch_camera(
+        if not self._dispatch_camera(
             self._set_conversion_gain_mode_impl,
             'set_conversion_gain_mode',
             args=(mode,),
             timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
-        )
+        ):
+            raise _camera_not_connected('set_conversion_gain_mode')
 
     def _set_conversion_gain_mode_impl(self, mode: str) -> bool:
         """Set the camera sensor conversion gain mode.
 
         High conversion gain lowers the sensor read-noise floor (better
         low-light signal-to-noise) at the cost of dynamic range; Low is
-        the standard wide-range mode. Pylon-only -- returns False on
-        cameras/drivers that don't implement the setter.
+        the standard wide-range mode. A camera without the mode
+        (``capabilities.camera_supports_conversion_gain_mode``) is already
+        at Low, so Low is its state rather than a write.
 
         Args:
             mode: 'High' (low noise) or 'Low' (wide dynamic range).
 
         Returns:
-            bool: True on success. False if the camera is absent, the
-                driver doesn't implement the setter, or the driver
-                returned False / raised. Never raises.
+            bool: True when the camera is in ``mode``. False only when the
+                camera is absent (an outside caller is refused before this
+                runs).
+
+        Raises:
+            CameraSettingUnsupportedError: ``'High'`` on a camera without
+                the mode, or a mode that is neither ``'High'`` nor ``'Low'``.
+                Nothing reaches the camera.
+            CameraSettingRejected: The driver refused the change or raised
+                from it (chained).
         """
         if not self._driver or not self._driver.active:
             return False
-        if not hasattr(self._driver, 'set_conversion_gain_mode'):
-            logger.debug(
-                f'[SCOPE API ] set_conversion_gain_mode: '
-                f'{type(self._driver).__name__} does not implement this method'
+        if not self._scope.capabilities.camera_supports_conversion_gain_mode:
+            if mode == 'Low':
+                return True
+            raise _absent_mode_refusal(
+                'conversion_gain_mode',
+                mode,
+                'high conversion gain',
+                offered=('Low',),
+                consequence='It stays at its standard conversion gain.',
             )
-            return False
+        if mode not in ('High', 'Low'):
+            raise CameraSettingUnsupportedError(
+                'conversion_gain_mode',
+                mode,
+                offered=('High', 'Low'),
+                title='Not Available on This Camera',
+                message=f'There is no conversion gain mode {mode!r}: the modes are High and Low.',
+            )
         try:
             result = self._camera_write(
                 lambda: self._driver.set_conversion_gain_mode(mode),
                 invalidates=('conversion_gain_mode',),
             )
         except Exception as ex:
-            logger.exception(f'[SCOPE API ] Error setting conversion gain mode: {ex}')
-            from modules.notification_center import notifications
+            raise _mode_rejection('conversion_gain_mode', mode, 'conversion gain mode') from ex
+        if result is False:
+            raise _mode_rejection('conversion_gain_mode', mode, 'conversion gain mode')
+        return True
 
-            notifications.error(
-                'Camera',
-                'Conversion gain mode change failed',
-                f'Could not set conversion gain mode to {mode!r}. '
-                f'Camera may still be at the previous mode. See the log for details.',
-            )
-            return False
-        return result
-
-    def set_line_noise_reduction(self, enabled: bool) -> bool:
+    def set_line_noise_reduction(self, enabled: bool) -> None:
         """Enable or disable the line-noise filter, and wait for it.
 
         See ``_set_line_noise_reduction_impl`` for the contract; this
-        adds only the dispatch described on ``_dispatch_camera``.
+        adds the dispatch described on ``_dispatch_camera``.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected.
+            CameraSettingUnsupportedError: Turning the filter on for a camera
+                without it. Nothing reaches the camera.
+            CameraSettingRejected: The camera refused the change or raised
+                from it (chained).
         """
-        return self._dispatch_camera(
+        if not self._dispatch_camera(
             self._set_line_noise_reduction_impl,
             'set_line_noise_reduction',
             args=(enabled,),
             timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
-        )
+        ):
+            raise _camera_not_connected('set_line_noise_reduction')
 
     def _set_line_noise_reduction_impl(self, enabled: bool) -> bool:
         """Enable or disable the camera line-noise reduction filter.
 
         A camera-side filter that smooths horizontal stripe artifacts in
-        the sensor readout. Pylon-only -- returns False on cameras/drivers
-        that don't implement the setter.
+        the sensor readout. A camera without it
+        (``capabilities.camera_supports_line_noise_reduction``) is already
+        unfiltered, so off is its state rather than a write.
 
         Args:
             enabled: True turns the filter on; False off.
 
         Returns:
-            bool: True on success. False if the camera is absent, the
-                driver doesn't implement the setter, or the driver
-                returned False / raised. Never raises.
+            bool: True when the filter is as asked. False only when the
+                camera is absent (an outside caller is refused before this
+                runs).
+
+        Raises:
+            CameraSettingUnsupportedError: Turning the filter on for a camera
+                without it. Nothing reaches the camera.
+            CameraSettingRejected: The driver refused the change or raised
+                from it (chained).
         """
         if not self._driver or not self._driver.active:
             return False
-        if not hasattr(self._driver, 'set_line_noise_reduction'):
-            logger.debug(
-                f'[SCOPE API ] set_line_noise_reduction: '
-                f'{type(self._driver).__name__} does not implement this method'
+        if not self._scope.capabilities.camera_supports_line_noise_reduction:
+            if not enabled:
+                return True
+            raise _absent_mode_refusal(
+                'line_noise_reduction',
+                enabled,
+                'line noise reduction',
+                offered=(False,),
+                consequence='Its readout stays unfiltered.',
             )
-            return False
         try:
             result = self._camera_write(
                 lambda: self._driver.set_line_noise_reduction(enabled=enabled),
                 invalidates=('line_noise_reduction',),
             )
         except Exception as ex:
-            logger.exception(f'[SCOPE API ] Error setting line noise reduction: {ex}')
-            from modules.notification_center import notifications
-
-            notifications.error(
-                'Camera',
-                'Line noise reduction change failed',
-                f'Could not {"enable" if enabled else "disable"} line noise reduction. '
-                f'See the log for details.',
-            )
-            return False
-        return result
+            raise _mode_rejection('line_noise_reduction', enabled, 'line noise reduction') from ex
+        if result is False:
+            raise _mode_rejection('line_noise_reduction', enabled, 'line noise reduction')
+        return True
 
     @api
     def get_black_level(self) -> float | None:
@@ -2373,7 +2434,7 @@ class ImagingAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected.
-            CameraSettingUnsupportedError: This camera offers no black level
+            CameraSettingUnsupportedError: This camera has no black level
                 setting (``capabilities.camera_supports_black_level`` is
                 False). Nothing reached the camera.
             CameraSettingOutOfRangeError: The value is outside the range the
@@ -2402,12 +2463,12 @@ class ImagingAPI:
         if not driver or not driver.active:
             return None
         if not driver.supports_black_level():
-            raise CameraSettingUnsupportedError(
+            raise _absent_mode_refusal(
                 'black_level',
                 value,
+                'black level setting',
                 offered=(),
-                title='Not Available on This Camera',
-                message='This camera offers no black level setting. The black level stays as it is.',
+                consequence='The black level stays as it is.',
             )
         low, high = driver.get_black_level_range()
         self._refuse_out_of_range('black_level', value, low, high, noun='black level', unit='units')
@@ -4766,7 +4827,11 @@ class ImagingAPI:
             return None
         if not self._camera_has_auto_gain():
             raise _absent_mode_refusal(
-                'auto_gain_target_brightness', target_brightness, 'automatic gain'
+                'auto_gain_target_brightness',
+                target_brightness,
+                'automatic gain',
+                offered=(False,),
+                consequence=_AUTO_MODE_STAYS,
             )
         # Changing the target re-drives the auto-gain loop: gain (and, under
         # auto-exposure, exposure) converge to a new operating point, so a frame
@@ -4826,7 +4891,13 @@ class ImagingAPI:
             return
         if not self._camera_has_auto_gain():
             if state:
-                raise _absent_mode_refusal('auto_gain', state, 'automatic gain')
+                raise _absent_mode_refusal(
+                    'auto_gain',
+                    state,
+                    'automatic gain',
+                    offered=(False,),
+                    consequence=_AUTO_MODE_STAYS,
+                )
             return
         # One-shot AG changes both gain and exposure on the camera from a single
         # driver call; the pipeline still needs frames to flush the converged

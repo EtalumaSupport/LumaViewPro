@@ -27,7 +27,12 @@ import threading
 import pytest
 
 from drivers.simulated_camera import SimulatedCamera
-from modules.exceptions import CameraSettingOutOfRangeError, CameraSettingRejected
+from modules.exceptions import (
+    CameraSettingOutOfRangeError,
+    CameraSettingRejected,
+    CameraSettingUnsupportedError,
+    HardwareCommandRefusedError,
+)
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
 from tests.ast_seams import parse_module
@@ -57,9 +62,9 @@ _IMAGING_REL = 'modules/lumascope_api/imaging.py'
 
 
 class _CamWriteCapableSim(SimulatedCamera):
-    """SimulatedCamera plus the two Pylon-only SDK setters, so the success
-    path of set_conversion_gain_mode / set_line_noise_reduction (driver
-    implements the method and returns True) is exercisable in the sim."""
+    """SimulatedCamera plus the two Pylon-only SDK setters and the probes
+    that declare them, so the success path of set_conversion_gain_mode /
+    set_line_noise_reduction is exercisable in the sim."""
 
     def __init__(self):
         super().__init__()
@@ -72,6 +77,12 @@ class _CamWriteCapableSim(SimulatedCamera):
 
     def set_line_noise_reduction(self, enabled: bool) -> bool:
         self._line_noise_reduction = enabled
+        return True
+
+    def supports_conversion_gain_mode(self) -> bool:
+        return True
+
+    def supports_line_noise_reduction(self) -> bool:
         return True
 
 
@@ -271,8 +282,7 @@ class TestGeometrySetterSequences:
 
     def test_set_binning_size_success_sequence(self, imaging_capable):
         events = _record_validity_events(imaging_capable)
-        result = imaging_capable.set_binning_size(2)
-        assert result is True
+        imaging_capable.set_binning_size(2)
         assert events == [('invalidate', 'binning')]
 
     def test_binning_read_failure_sentinel_not_committed(self, imaging_capable):
@@ -327,8 +337,7 @@ class TestGeometrySetterSequences:
     def test_set_binning_size_refreshes_geometry_caches(self, imaging_capable):
         imaging_capable.set_frame_size(3840, 2160)
         events = _record_validity_events(imaging_capable)
-        result = imaging_capable.set_binning_size(2)
-        assert result is True
+        imaging_capable.set_binning_size(2)
         assert events == [('invalidate', 'binning')]
         # Binning 2x halves the sim's post-binning ceiling (3840x2160 native)
         # and the driver clamps the current frame down to it; both
@@ -341,40 +350,117 @@ class TestGeometrySetterSequences:
 
     def test_set_pixel_format_success_sequence(self, imaging_capable):
         events = _record_validity_events(imaging_capable)
-        result = imaging_capable.set_pixel_format('Mono8')
-        assert result is True
+        imaging_capable.set_pixel_format('Mono8')
         assert events == [('invalidate', 'pixel_format')]
         assert imaging_capable.pixel_format_cached == 'Mono8'
 
 
 class TestSdkPerfSetterSequences:
-    """Pylon-only setters: invalidate only when the driver implements the
-    method AND returns truthy; a driver lacking the method returns False with
-    no invalidation."""
+    """The two camera toggles: invalidate only when the camera took the
+    change; a refusal, of either kind, writes and invalidates nothing."""
 
     def test_set_conversion_gain_mode_success_sequence(self, imaging_capable):
         events = _record_validity_events(imaging_capable)
-        result = imaging_capable.set_conversion_gain_mode('High')
-        assert result is True
+        imaging_capable.set_conversion_gain_mode('High')
         assert events == [('invalidate', 'conversion_gain_mode')]
+        assert imaging_capable._driver._conversion_gain_mode == 'High'
 
     def test_set_line_noise_reduction_success_sequence(self, imaging_capable):
         events = _record_validity_events(imaging_capable)
-        result = imaging_capable.set_line_noise_reduction(True)
-        assert result is True
+        imaging_capable.set_line_noise_reduction(True)
         assert events == [('invalidate', 'line_noise_reduction')]
+        assert imaging_capable._driver._line_noise_reduction is True
 
-    def test_conversion_gain_mode_no_method_no_invalidate(self, imaging_plain):
+    def test_conversion_gain_on_without_the_mode_is_refused(self, imaging_plain):
         events = _record_validity_events(imaging_plain)
-        result = imaging_plain.set_conversion_gain_mode('High')
-        assert result is False
+        with pytest.raises(CameraSettingUnsupportedError) as caught:
+            imaging_plain.set_conversion_gain_mode('High')
+        assert caught.value.reason == 'conversion_gain_mode_unsupported'
+        assert caught.value.offered == ('Low',)
+        assert str(caught.value).startswith('This camera has no high conversion gain.')
         assert events == []
 
-    def test_line_noise_reduction_no_method_no_invalidate(self, imaging_plain):
+    def test_line_noise_on_without_the_filter_is_refused(self, imaging_plain):
         events = _record_validity_events(imaging_plain)
-        result = imaging_plain.set_line_noise_reduction(True)
-        assert result is False
+        with pytest.raises(CameraSettingUnsupportedError) as caught:
+            imaging_plain.set_line_noise_reduction(True)
+        assert caught.value.reason == 'line_noise_reduction_unsupported'
+        assert caught.value.offered == (False,)
         assert events == []
+
+    def test_off_without_the_mode_is_that_cameras_state(self, imaging_plain):
+        events = _record_validity_events(imaging_plain)
+        imaging_plain.set_conversion_gain_mode('Low')
+        imaging_plain.set_line_noise_reduction(False)
+        assert events == []
+
+    def test_a_mode_that_is_neither_high_nor_low_is_refused(self, imaging_capable):
+        events = _record_validity_events(imaging_capable)
+        with pytest.raises(CameraSettingUnsupportedError) as caught:
+            imaging_capable.set_conversion_gain_mode('Bogus')
+        assert caught.value.offered == ('High', 'Low')
+        assert imaging_capable._driver._conversion_gain_mode == 'Low'
+        assert events == []
+
+    @pytest.mark.parametrize(
+        ('member', 'driver_member', 'value'),
+        [
+            ('set_conversion_gain_mode', 'set_conversion_gain_mode', 'High'),
+            ('set_line_noise_reduction', 'set_line_noise_reduction', True),
+        ],
+    )
+    def test_a_driver_refusal_is_a_rejection(self, imaging_capable, member, driver_member, value):
+        events = _record_validity_events(imaging_capable)
+        setattr(imaging_capable._driver, driver_member, lambda *a, **k: False)
+        with pytest.raises(CameraSettingRejected) as caught:
+            getattr(imaging_capable, member)(value)
+        assert caught.value.__cause__ is None
+        assert events == []
+
+    @pytest.mark.parametrize(
+        ('member', 'driver_member', 'value'),
+        [
+            ('set_conversion_gain_mode', 'set_conversion_gain_mode', 'High'),
+            ('set_line_noise_reduction', 'set_line_noise_reduction', True),
+        ],
+    )
+    def test_a_driver_raise_is_a_chained_rejection(
+        self, imaging_capable, member, driver_member, value
+    ):
+        events = _record_validity_events(imaging_capable)
+        fault = RuntimeError('node write failed')
+
+        def raising(*a, **k):
+            raise fault
+
+        setattr(imaging_capable._driver, driver_member, raising)
+        with pytest.raises(CameraSettingRejected) as caught:
+            getattr(imaging_capable, member)(value)
+        assert caught.value.__cause__ is fault
+        assert events == []
+
+
+class TestTheImplsAbsentAnswerIsRefused:
+    """A camera gone between the lane's question and the body: the body's
+    absent answer is the refusal naming the camera, never a bare False."""
+
+    @pytest.mark.parametrize(
+        ('member', 'value'),
+        [
+            ('set_binning_size', 2),
+            ('set_pixel_format', 'Mono8'),
+            ('set_conversion_gain_mode', 'High'),
+            ('set_line_noise_reduction', True),
+        ],
+    )
+    def test_absent_answer_raises_not_connected(self, imaging_capable, monkeypatch, member, value):
+        # The lane's question answers connected; the driver drops before the body.
+        monkeypatch.setattr(Lumascope, 'camera_connected', property(lambda self: True))
+        imaging_capable._driver.active = False
+        with pytest.raises(HardwareCommandRefusedError) as caught:
+            getattr(imaging_capable, member)(value)
+        assert caught.value.reason == 'not_connected'
+        assert caught.value.member == member
 
 
 class TestBlackLevelSetterSequence:

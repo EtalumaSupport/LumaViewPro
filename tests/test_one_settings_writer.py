@@ -15,6 +15,7 @@ import pytest
 
 from modules.exceptions import (
     AccelerationLimitRefusedError,
+    CameraSettingRejected,
     HardwareCommandRefusedError,
     Refusal,
     SettingRefusedError,
@@ -211,12 +212,16 @@ def test_a_camera_mode_is_stored_only_once_the_camera_took_it(
     session, monkeypatch, member, imaging_setter, path
 ):
     imaging = session.scope.imaging
-    monkeypatch.setattr(imaging, imaging_setter, lambda value: True)
-    assert getattr(session, member)(True) is True
+    monkeypatch.setattr(imaging, imaging_setter, lambda value: None)
+    getattr(session, member)(True)
     assert session.settings['camera'][path] is True
 
-    monkeypatch.setattr(imaging, imaging_setter, lambda value: False)
-    assert getattr(session, member)(False) is False
+    def refused(value):
+        raise CameraSettingRejected(path, value, title='Not applied', message='refused')
+
+    monkeypatch.setattr(imaging, imaging_setter, refused)
+    with pytest.raises(CameraSettingRejected):
+        getattr(session, member)(False)
     assert session.settings['camera'][path] is True, 'a mode the camera refused is not stored'
 
 

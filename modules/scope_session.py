@@ -3365,53 +3365,46 @@ class ScopeSession:
             self._store_setting('motion.acceleration_max_pct', val_pct)
 
     @api
-    def set_high_conversion_gain(self, enabled: bool) -> bool:
+    def set_high_conversion_gain(self, enabled: bool) -> None:
         """Turn the camera's high conversion gain on or off, then store it.
 
         High conversion gain lowers the sensor's read-noise floor at the cost
         of dynamic range. The one writer of ``camera.high_conversion_gain``:
         the setting is stored only once the camera took it, so the store
-        never names a mode the camera is not in.
-
-        Returns:
-            True when the camera took it and it is stored. False when the
-            camera has no such mode or it refused (each reported by the
-            imaging API); nothing is stored.
+        never names a mode the camera is not in. Off on a camera without the
+        mode is its state, and is stored.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected. Nothing is stored.
+            CameraSettingUnsupportedError: On, for a camera without the mode.
+                Nothing is stored.
+            CameraSettingRejected: The camera refused it. Nothing is stored.
         """
-        if not self.scope.imaging.set_conversion_gain_mode('High' if enabled else 'Low'):
-            return False
+        self.scope.imaging.set_conversion_gain_mode('High' if enabled else 'Low')
         with self.settings_lock:
             self._store_setting('camera.high_conversion_gain', enabled)
-        return True
 
     @api
-    def set_line_noise_reduction(self, enabled: bool) -> bool:
+    def set_line_noise_reduction(self, enabled: bool) -> None:
         """Turn the camera's line-noise filter on or off, then store it.
 
         The one writer of ``camera.line_noise_reduction``, stored only once
         the camera took it, as ``set_high_conversion_gain`` is.
 
-        Returns:
-            True when the camera took it and it is stored. False when the
-            camera has no such filter or it refused (each reported by the
-            imaging API); nothing is stored.
-
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected. Nothing is stored.
+            CameraSettingUnsupportedError: On, for a camera without the
+                filter. Nothing is stored.
+            CameraSettingRejected: The camera refused it. Nothing is stored.
         """
-        if not self.scope.imaging.set_line_noise_reduction(enabled):
-            return False
+        self.scope.imaging.set_line_noise_reduction(enabled)
         with self.settings_lock:
             self._store_setting('camera.line_noise_reduction', enabled)
-        return True
 
     @api
-    def set_image_mode(self, mode: str) -> bool:
+    def set_image_mode(self, mode: str) -> None:
         """Capture in ``mode``: apply the camera format it needs, then store it.
 
         The one writer of ``settings['image_mode']`` for every host. The mode
@@ -3420,12 +3413,11 @@ class ScopeSession:
         camera that reports none (none is connected) has nothing to apply;
         the mode is stored and bring-up applies it.
 
-        Returns:
-            True when the mode is stored. False when the camera went away
-            between the format query and the apply; nothing is stored.
-
         Raises:
             ConfigError: ``mode`` is not an image mode. Nothing is stored.
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, when it went away between the format query and the
+                apply. Nothing is stored.
             CameraSettingRejected: The camera refused the format. Nothing is
                 stored, so captures are never tagged with a depth the camera
                 is not delivering.
@@ -3435,11 +3427,10 @@ class ScopeSession:
         target = image_mode.select_capture_pixel_format(
             capture_depth, self.scope.capabilities.camera_pixel_formats
         )
-        if target is not None and not imaging.set_pixel_format(target):
-            return False
+        if target is not None:
+            imaging.set_pixel_format(target)
         with self.settings_lock:
             self.settings['image_mode'] = mode
-        return True
 
     @api
     def set_binning_size(self, size: int) -> 'dict | None':
@@ -3481,8 +3472,7 @@ class ScopeSession:
                 message=f'This camera does not support {label} binning.',
             )
         native = self._native_frame()
-        if not imaging.set_binning_size(size):
-            return None
+        imaging.set_binning_size(size)
         with self.settings_lock:
             self.settings['binning']['size'] = label
             held = imaging.frame_size_cached

@@ -29,19 +29,11 @@ _EXEMPT_FILES = frozenset({'modules/notification_center.py'})
 _NOT_YET_TYPED = {
     ('modules/lumascope_api/imaging.py', 'ImagingAPI._notify_camera_absent'): (
         1,
-        "primary's ASK-1, the camera-absent setters",
+        "primary's row 'A camera removed mid-session (C)', the camera-absent setters",
     ),
     ('modules/lumascope_api/imaging.py', 'ImagingAPI._get_image_impl'): (
         1,
-        "primary's ASK-1, a capture with the camera gone",
-    ),
-    ('modules/lumascope_api/imaging.py', 'ImagingAPI._set_conversion_gain_mode_impl'): (
-        1,
-        'the camera toggles',
-    ),
-    ('modules/lumascope_api/imaging.py', 'ImagingAPI._set_line_noise_reduction_impl'): (
-        1,
-        'the camera toggles',
+        "primary's row 'A camera removed mid-session (C)', a capture with the camera gone",
     ),
     ('modules/lumascope_api/illumination.py', 'IlluminationAPI._notify_if_led_command_failed'): (
         1,

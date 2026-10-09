@@ -1007,6 +1007,23 @@ class Lumascope:
                         category='Camera',
                     )
                     frame_width, frame_height = fitted
+        # Apply the capture pixel format HERE, synchronously, while the start
+        # gate is still closed (this runs before the start gate is released, below).
+        # Resolving + setting it now -- instead of via the async camera-executor
+        # push that the image-mode spinner enqueues -- removes the race where
+        # the format lands after streaming begins and forces a redundant
+        # grab-loop restart. The spinner handler returns early during init.
+        # The saved mode runs as saved on every camera: a mode is a save
+        # policy (reduce to 8 bits, or keep the depth the frame has), and the
+        # format is chosen from the ones this camera reports -- its 12-bit
+        # format where it has one, else its own 8-bit format, which a
+        # full-depth mode keeps at the depth delivered. Nothing is
+        # substituted. None means the camera reported no formats: there is
+        # nothing to apply.
+        pixel_format = image_mode.select_capture_pixel_format(
+            image_mode.resolve_image_mode(config.image_mode)['capture_depth'],
+            self.capabilities.camera_pixel_formats,
+        )
         # A rejection surviving reconciliation is a live hardware fault
         # mid-apply. Each apply is contained individually so one faulted
         # setting cannot skip the rest of bring-up: the caller of
@@ -1022,46 +1039,30 @@ class Lumascope:
         # With no camera connected there is nothing to apply them to, and
         # the camera's absence was reported when it did not come up.
         if self.camera_connected:
-            for apply_fn in (
+            # In this order: the frame limits depend on the binning, and the
+            # format follows the geometry it is applied at.
+            applies = [
                 lambda: self.imaging._set_binning_size_impl(binning_size),
                 lambda: self.imaging._set_frame_size_impl(frame_width, frame_height),
-            ):
+            ]
+            if pixel_format is not None:
+                applies.append(lambda: self.imaging._set_pixel_format_impl(pixel_format))
+            # Each toggle only where the camera has it: the impl refuses a
+            # mode the camera lacks with CameraSettingUnsupportedError, which
+            # is not a CameraSettingRejected and would abort bring-up.
+            if self.capabilities.camera_supports_conversion_gain_mode:
+                mode = 'High' if config.high_conversion_gain else 'Low'
+                applies.append(lambda: self.imaging._set_conversion_gain_mode_impl(mode))
+            if self.capabilities.camera_supports_line_noise_reduction:
+                applies.append(
+                    lambda: self.imaging._set_line_noise_reduction_impl(config.line_noise_reduction)
+                )
+            for apply_fn in applies:
                 try:
                     apply_fn()
                 except CameraSettingRejected as ex:
                     # Bring-up continues at the value the camera holds.
                     notifications.report_outcome(ex, solicited=False, category='Camera')
-        # Apply the capture pixel format HERE, synchronously, while the start
-        # gate is still closed (this runs before the start gate is released, below).
-        # Resolving + setting it now -- instead of via the async camera-executor
-        # push that the image-mode spinner enqueues -- removes the race where
-        # the format lands after streaming begins and forces a redundant
-        # grab-loop restart. The spinner handler returns early during init.
-        # The saved mode runs as saved on every camera: a mode is a save
-        # policy (reduce to 8 bits, or keep the depth the frame has), and the
-        # format is chosen from the ones this camera reports -- its 12-bit
-        # format where it has one, else its own 8-bit format, which a
-        # full-depth mode keeps at the depth delivered. Nothing is
-        # substituted. None means the camera reported no formats: there is
-        # nothing to apply. With no camera connected there is nothing to
-        # send the format to.
-        pixel_format = image_mode.select_capture_pixel_format(
-            image_mode.resolve_image_mode(config.image_mode)['capture_depth'],
-            self.capabilities.camera_pixel_formats,
-        )
-        if pixel_format is not None and self.camera_connected:
-            try:
-                self.imaging._set_pixel_format_impl(pixel_format)
-            except CameraSettingRejected as ex:
-                # As for the geometry above: continue at the camera-held
-                # format and report the rejection where it stops.
-                notifications.report_outcome(ex, solicited=False, category='Camera')
-        if self.capabilities.camera_supports_conversion_gain_mode:
-            self.imaging._set_conversion_gain_mode_impl(
-                'High' if config.high_conversion_gain else 'Low'
-            )
-        if self.capabilities.camera_supports_line_noise_reduction:
-            self.imaging._set_line_noise_reduction_impl(config.line_noise_reduction)
         # Asked first: a scope with no motor controller has no limit to set.
         if self.motor_connected:
             self.motion._set_acceleration_limit_impl(val_pct=config.acceleration_pct)

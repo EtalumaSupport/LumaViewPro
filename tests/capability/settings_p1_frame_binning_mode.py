@@ -58,19 +58,19 @@ try:
 
     # --- binning ---------------------------------------------------------
     supported = caps.camera_binning_sizes
-    got = im.set_binning_size(2)
+    im.set_binning_size(2)
     _common.ok(
         'binning 2 applied',
-        bool(got) and im.get_binning_size() == 2,
-        f'ret={got} read-back={im.get_binning_size()}',
+        im.get_binning_size() == 2,
+        f'read-back={im.get_binning_size()}',
     )
     bad_bin = next(x for x in (3, 5, 7, 16) if x not in supported)
     try:
-        out = im.set_binning_size(bad_bin)
+        im.set_binning_size(bad_bin)
         _common.void(
             f'unsupported binning {bad_bin} refused',
-            not out,
-            f'returned {out}; read-back {im.get_binning_size()}',
+            False,
+            f'accepted; read-back {im.get_binning_size()}',
         )
     except Exception as e:
         _common.void(f'unsupported binning {bad_bin} refused', True, f'{type(e).__name__}: {e}')
@@ -79,15 +79,15 @@ try:
     # --- pixel format (image mode) --------------------------------------
     fmts = caps.camera_pixel_formats
     if fmts:
-        r = im.set_pixel_format(fmts[0])
+        im.set_pixel_format(fmts[0])
         _common.ok(
             f'pixel format {fmts[0]} applied',
-            bool(r),
-            f'ret={r} read-back={im.pixel_format_cached}',
+            im.pixel_format_cached == fmts[0],
+            f'read-back={im.pixel_format_cached}',
         )
     try:
-        out = im.set_pixel_format('Mono99')
-        _common.ok('bogus pixel format refused', not out, f'returned {out}')
+        im.set_pixel_format('Mono99')
+        _common.ok('bogus pixel format refused', False, 'accepted')
     except Exception as e:
         _common.ok('bogus pixel format refused', True, f'{type(e).__name__}: {e}')
 

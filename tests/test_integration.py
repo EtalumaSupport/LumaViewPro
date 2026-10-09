@@ -942,8 +942,7 @@ class TestRestAPIPrep:
     def test_set_pixel_format(self):
         """set_pixel_format() should change the camera format."""
         session = ScopeSession.create(complete_settings(), simulate=True)
-        result = session.scope.imaging.set_pixel_format('Mono12')
-        assert result is True
+        session.scope.imaging.set_pixel_format('Mono12')
         assert session.scope.imaging._get_pixel_format() == 'Mono12'
 
     def test_set_pixel_format_invalid(self):

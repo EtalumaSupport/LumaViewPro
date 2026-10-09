@@ -429,3 +429,59 @@ def test_initialize_contains_frame_size_rejection_and_completes(monkeypatch):
         'initialize must run to completion (stage offset / scale bar / '
         'acceleration) despite the contained rejection'
     )
+
+
+def _a_camera_with_both_toggles(answer):
+    """A ``prepare`` giving the simulated camera both toggles, each answering ``answer``."""
+
+    def prepare(scope):
+        import dataclasses
+
+        scope.capabilities = dataclasses.replace(
+            scope.capabilities,
+            camera_supports_conversion_gain_mode=True,
+            camera_supports_line_noise_reduction=True,
+        )
+        scope._camera_driver.set_conversion_gain_mode = lambda mode: answer()
+        scope._camera_driver.set_line_noise_reduction = lambda enabled: answer()
+
+    return prepare
+
+
+def _refuses():
+    return False
+
+
+def _raises():
+    raise RuntimeError('node write failed')
+
+
+@pytest.mark.parametrize('answer', [_refuses, _raises], ids=['refuses', 'raises'])
+def test_initialize_contains_a_toggle_rejection_and_completes(monkeypatch, answer):
+    # A camera that has both toggles but refuses (or raises from) each at
+    # bring-up: each is reported once, unsolicited, and bring-up runs on.
+    import dataclasses
+
+    from modules.notification_center import notifications
+
+    reported = []
+    monkeypatch.setattr(
+        notifications, 'report_outcome', lambda exc, **kw: reported.append((exc, kw))
+    )
+    config = dataclasses.replace(
+        _init_config(1, frame_width=900, frame_height=600),
+        high_conversion_gain=True,
+        line_noise_reduction=True,
+    )
+
+    _applied, _frames, _errors, reached_end = _drive_initialize(
+        config, monkeypatch, prepare=_a_camera_with_both_toggles(answer)
+    )
+
+    rejections = [
+        (exc.setting, kw['solicited'])
+        for exc, kw in reported
+        if isinstance(exc, CameraSettingRejected)
+    ]
+    assert rejections == [('conversion_gain_mode', False), ('line_noise_reduction', False)]
+    assert reached_end, 'bring-up runs to completion past a refused toggle'

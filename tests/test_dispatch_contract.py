@@ -120,6 +120,12 @@ FAMILIES = [
 
 FAMILY_IDS = [f'{family}.{member}' for family, member, _, _ in FAMILIES]
 
+# A member that answers by raising: its body's answer says only whether the
+# camera was there, so it returns nothing rather than passing the answer on.
+_RETURNS_NOTHING = frozenset(
+    {'set_binning_size', 'set_pixel_format', 'set_conversion_gain_mode', 'set_line_noise_reduction'}
+)
+
 # A member whose body is not named after it: the start members share the
 # move bodies with the waited members.
 _BODY_OF = {'start_move_absolute': '_move_absolute_impl'}
@@ -230,7 +236,7 @@ def test_live_executor_submits_and_blocks(sim_scope, executors, family, member, 
         f'has; body ran on {threads}'
     )
     assert caller not in threads
-    assert result is IMPL_RESULT
+    assert result is (None if member in _RETURNS_NOTHING else IMPL_RESULT)
 
 
 def test_capture_wait_scales_with_the_declared_work(sim_scope, executors):

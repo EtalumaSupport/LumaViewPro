@@ -1879,26 +1879,26 @@ class TestSetBinningSizeFailureNotifies:
         assert 'simulated SDK failure' in captured[0][2], captured[0]
 
 
-class TestSetBinningSizeReturnsBool:
-    """Wave 1 / B1: ImagingAPI.set_binning_size must propagate the driver's bool.
+class TestSetBinningSizeAnswersByRaising:
+    """ImagingAPI.set_binning_size returns only when the camera took it.
 
     Bench session 2026-05-05 surfaced a phantom-failure bug where the API
     method dropped the driver's True return and implicitly returned None;
     char-tool's `if not ok:` check then misreported every successful binning
-    op as a failure. This test pins the contract: capture-and-return on the
-    success path; a camera that refuses the size raises CameraSettingRejected.
+    op as a failure. A status any caller can drop is the defect: the member
+    returns nothing and every failure raises, so there is no return to
+    misread.
     """
 
-    def test_set_binning_size_has_bool_return_annotation(self):
-        # Body relocated to imaging.py in Wave 7 Phase 4d.
+    def test_set_binning_size_declares_no_return(self):
         from tests.ast_seams import assert_def
 
         assert_def(
             'modules/lumascope_api/imaging.py',
             'set_binning_size',
             params=['self', 'size'],
-            returns='bool',
-            msg='ImagingAPI.set_binning_size must declare `-> bool` (Wave 1 B1; Rule 37)',
+            returns='None',
+            msg='ImagingAPI.set_binning_size must declare `-> None`: a failure raises (Rule 37)',
         )
 
     def test_set_binning_size_returns_driver_value(self):
@@ -1912,9 +1912,8 @@ class TestSetBinningSizeReturnsBool:
         from modules.exceptions import CameraSettingRejected
 
         imaging, _cam = _sim_backed_imaging()
-        assert imaging.set_binning_size(2) is True, (
-            'a driver-accepted binning change must propagate as True'
-        )
+        imaging.set_binning_size(2)
+        assert imaging.get_binning_size() == 2, 'a driver-accepted binning change is recorded'
         with pytest.raises(CameraSettingRejected):
             imaging.set_binning_size(5)  # sim supports 1-4
 
@@ -3895,7 +3894,8 @@ class TestPF5_ImageBufferRetired:
         from tests.camera_fakes import grab_a_frame_made_after_now
 
         imaging, cam = _sim_backed_imaging()
-        assert imaging.set_pixel_format('Mono12') is True
+        imaging.set_pixel_format('Mono12')
+        assert imaging.pixel_format_cached == 'Mono12'
         grab_a_frame_made_after_now(cam)
         sentinel = np.full((4, 4), 7, dtype=np.uint8)
         monkeypatch.setattr(

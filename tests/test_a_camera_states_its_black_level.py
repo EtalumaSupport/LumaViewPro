@@ -131,8 +131,14 @@ def test_the_fx2_reports_its_row_black_target_and_offers_no_setting(fx2_session)
     assert scope.capabilities.camera_supports_black_level is False
     assert scope.imaging.get_black_level() == 0.0
     assert scope.imaging.get_black_level_range() is None
-    with pytest.raises(CameraSettingUnsupportedError):
+    with pytest.raises(CameraSettingUnsupportedError) as caught:
         scope.imaging.set_black_level(4.0)
+    assert caught.value.reason == 'black_level_unsupported'
+    assert caught.value.offered == ()
+    assert caught.value.title == 'Not Available on This Camera'
+    assert str(caught.value) == (
+        'This camera has no black level setting. The black level stays as it is.'
+    )
     assert scope.imaging.capture_and_wait(accept_dark=True, timeout_s=2.0) is not None
     assert scope.imaging.last_capture_info['frame_record'].black_level == 0.0
 

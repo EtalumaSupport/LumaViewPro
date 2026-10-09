@@ -245,13 +245,15 @@ class TestGeometryFormatInvalidates:
     def test_set_pixel_format_turns_marker_red(self, sim_imaging):
         imaging, _cam = sim_imaging
         imaging.frame_validity.reset()
-        assert imaging.set_pixel_format('Mono12') is True
+        imaging.set_pixel_format('Mono12')
+        assert imaging.pixel_format_cached == 'Mono12'
         assert 'pixel_format' in imaging.frame_validity.pending_sources
 
     def test_set_binning_size_turns_marker_red(self, sim_imaging):
         imaging, _cam = sim_imaging
         imaging.frame_validity.reset()
-        assert imaging.set_binning_size(2) is True
+        imaging.set_binning_size(2)
+        assert imaging.get_binning_size() == 2
         assert 'binning' in imaging.frame_validity.pending_sources
 
 
