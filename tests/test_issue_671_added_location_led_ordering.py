@@ -41,35 +41,23 @@ from __future__ import annotations
 
 import datetime
 import logging
-import sys
 import threading
 from unittest.mock import MagicMock
 
 import pytest
 
-# Mirror conftest pattern (heavy deps already mocked there).
-_mock_settings_init = MagicMock()
-_mock_settings_init.settings = {
-    'BF': {'autofocus': False},
-    'PC': {'autofocus': False},
-    'DF': {'autofocus': False},
-    'Red': {'autofocus': False},
-    'Green': {'autofocus': False},
-    'Blue': {'autofocus': False},
-    'Lumi': {'autofocus': False},
-}
-sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
+from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
-from modules.lumascope_api import Lumascope
-from tests.scope_fakes import home_sim_scope
+from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from modules.protocol import Protocol
+from modules.run_events import RunEvents
 from modules.sequenced_capture_runner import (
     SequencedCaptureRunner,
     SequencedCaptureRunMode,
 )
 from modules.sequential_io_executor import SequentialIOExecutor
-from tests.protocol_drives import autofocus_snapshot
+from tests.scope_fakes import configure_turret_like_bringup
 
 
 # A1 / A2 / added-location PLATE coordinates in mm (from RedStaysOn.tsv).
@@ -111,6 +99,7 @@ def _step_dict(name, x, y, z, color, idx):
         'Stim_Config': {},
         'Step Index': idx,
         'Label': '',
+        'Auto_Named': True,
     }
 
 
@@ -184,16 +173,19 @@ def _add_3rd_location_via_insert_step(protocol):
 
 @pytest.fixture
 def scope():
-    s = home_sim_scope(Lumascope(simulate=True))
-    # The session registers the data root at bring-up; a runner over a
-    # bare scope needs it too, or the run refuses at start.
-    s.protocols.register_source_path('.')
+    # The data root is the scope's, given at construction; a runner over a
+    # bare scope reads its catalogues and tiling config from it.
+    s = home_sim_scope(build_scope(simulate=True, source_path='.'))
+    # A bare scope skipped bring-up, which fills the turret from the
+    # persisted slots; an empty turret addresses no glass at all.
+    configure_turret_like_bringup(s)
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
     s.imaging.start_streaming()
     yield s
-    s.imaging.stop_streaming()
+    # disconnect() stops the stream itself; a stop sent through the camera
+    # lane would be refused once the test's own lanes are shut.
     s.disconnect()
 
 
@@ -225,9 +217,6 @@ def executors():
 
 @pytest.fixture
 def executor(scope, executors):
-    from modules.coord_transformations import CoordinateTransformer
-    from modules.labware_loader import WellPlateLoader
-
     mock_af = MagicMock()
     mock_af.reset = MagicMock()
     mock_af.in_progress = MagicMock(return_value=False)
@@ -237,18 +226,15 @@ def executor(scope, executors):
     mock_af.best_focus_position = MagicMock(return_value=A1_Z)
     mock_af.run_in_progress = MagicMock(return_value=False)
 
+    swap_lanes(scope, io=executors['io'], camera=executors['camera'])
     exc = SequencedCaptureRunner(
         scope=scope,
-        stage_offset={'x': 0.0, 'y': 0.0},
-        io_executor=executors['io'],
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
-        camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(is_running=False),
+        autofocus_thread=MagicMock(in_flight_sweep=None),
+        activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
     )
-    exc._wellplate_loader = WellPlateLoader()
-    exc._coordinate_transformer = CoordinateTransformer()
     return exc
 
 
@@ -268,19 +254,13 @@ class _ApiLogCapture(logging.Handler):
 
 
 def _run_protocol(executor, protocol, tmp_path):
-    """Run protocol with default_move firing (no no-op go_to_step)."""
+    """Run protocol; the run's own moves fire real move_abs calls."""
     done = threading.Event()
     result_holder: dict = {}
 
-    def on_complete(**kwargs):
-        result_holder.update(kwargs)
+    def on_ended(outcome, run_dir, protocol):
+        result_holder.update(outcome=outcome, run_dir=run_dir, protocol=protocol)
         done.set()
-
-    callbacks = {
-        'run_complete': on_complete,
-        # Deliberately DO NOT set 'go_to_step' so the runner falls
-        # through to default_move(), which fires real move_abs calls.
-    }
 
     plan = executor.prepare(
         protocol=protocol,
@@ -296,9 +276,7 @@ def _run_protocol(executor, protocol, tmp_path):
         },
         parent_dir=tmp_path / 'output',
         max_scans=1,
-        callbacks=callbacks,
-        leds_state_at_end='off',
-        autofocus_snapshot=autofocus_snapshot(),
+        events=RunEvents(run_ended=on_ended),
     )
     executor.start(plan)
 
@@ -326,6 +304,7 @@ class TestAddedLocationLedOrdering:
     not falsely reproduce the bug.
     """
 
+    @pytest.mark.slow
     def test_leds_off_precedes_move_at_added_location_boundary(self, executor, tmp_path):
         protocol = _build_tsv_only_protocol()
         _add_3rd_location_via_insert_step(protocol)
@@ -361,7 +340,7 @@ class TestAddedLocationLedOrdering:
         all_red_led_ons = [
             i
             for i, (_, msg) in enumerate(capture.records)
-            if 'led_on ch=2' in msg and 'illumination_ma=350' in msg and "owner='protocol'" in msg
+            if 'led_on ch=2' in msg and 'illumination_ma=350' in msg and "lease='protocol'" in msg
         ]
         assert len(all_red_led_ons) >= 3, (
             f'Expected >=3 Red led_on calls (A1 + A2 + ADDED); saw '

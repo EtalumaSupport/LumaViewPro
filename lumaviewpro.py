@@ -35,7 +35,7 @@ from modules.app_environment import preload_camera_sdks
 
 preload_camera_sdks()
 
-import functools
+import concurrent.futures
 import threading
 
 import matplotlib
@@ -50,6 +50,54 @@ if __name__ == '__main__':
     no_engineering = '--no-engineering' in sys.argv
     if no_engineering:
         sys.argv.remove('--no-engineering')
+    # --sim-camera-stall=AFTER,FOR stops the simulated camera's frames AFTER
+    # seconds into the session, for FOR seconds, the camera staying connected
+    # and grabbing: a stalled stream, shown without hardware. Read here, beside
+    # --simulate, so a malformed value stops the launch before anything starts.
+    sim_camera_stall = None
+    _stall_args = [arg for arg in sys.argv if arg.startswith('--sim-camera-stall=')]
+    for _arg in _stall_args:
+        sys.argv.remove(_arg)
+    if _stall_args:
+        from drivers.simulated_camera import SimulatedStall
+
+        try:
+            if len(_stall_args) > 1:
+                raise ValueError('give --sim-camera-stall once')
+            if not simulate_mode:
+                raise ValueError('--sim-camera-stall needs --simulate')
+            _after, _for = _stall_args[0].split('=', 1)[1].split(',')
+            sim_camera_stall = SimulatedStall(after_s=float(_after), for_s=float(_for))
+        except ValueError as _stall_error:
+            sys.exit(f'--sim-camera-stall=AFTER,FOR (seconds): {_stall_error}')
+    # --sim-file-stall=AFTER,FOR holds the file lane's worker AFTER seconds
+    # into the session, for FOR seconds: a save drive that stops answering,
+    # so a stalled file writer is shown without one.
+    sim_file_stall = None
+    _file_stall_args = [arg for arg in sys.argv if arg.startswith('--sim-file-stall=')]
+    for _arg in _file_stall_args:
+        sys.argv.remove(_arg)
+    if _file_stall_args:
+        from drivers.simulated_camera import SimulatedStall
+
+        try:
+            if len(_file_stall_args) > 1:
+                raise ValueError('give --sim-file-stall once')
+            if not simulate_mode:
+                raise ValueError('--sim-file-stall needs --simulate')
+            _after, _for = _file_stall_args[0].split('=', 1)[1].split(',')
+            sim_file_stall = SimulatedStall(after_s=float(_after), for_s=float(_for))
+        except ValueError as _stall_error:
+            sys.exit(f'--sim-file-stall=AFTER,FOR (seconds): {_stall_error}')
+    # --sim-walk=<file> performs a sim walk's steps on the GUI once bring-up
+    # has finished (ui/sim_walk.py; what it waits on is _bring_up_owes
+    # below). Simulator only: a walk on hardware would move a real stage.
+    from ui.sim_walk_file import take_walk_flag
+
+    try:
+        sim_walk = take_walk_flag(sys.argv, simulate=simulate_mode)
+    except (OSError, ValueError) as _walk_error:
+        sys.exit(f'--sim-walk=<file>: {_walk_error}')
 
     ############################################################################
     # ---------------------Directory Initialization-----------------------------#
@@ -73,7 +121,11 @@ if __name__ == '__main__':
     # ---------------------Module Imports---------------------------------------#
     ############################################################################
 
-    from lvp_logger import debug, log_dir, logger
+    from lvp_logger import debug, install_crash_hooks, log_dir, logger
+
+    # LumaViewPro's crash policy: an uncaught exception is recorded in the
+    # log, before settings, Kivy, the plugins or the app can raise one.
+    install_crash_hooks()
 
     DEBUG_MODE = debug
 
@@ -85,7 +137,6 @@ if __name__ == '__main__':
     capture_installer_logs(log_dir)
 
     print(f'LumaViewPro {version}')
-    logger.info(f'[LVP Main  ] LumaViewPro {version}')
 
     if DEBUG_MODE:
         logger.info('[LVP Main  ] Debug mode is enabled.')
@@ -97,18 +148,15 @@ if __name__ == '__main__':
 
     memory_profile.start(source_path)
 
-    try:
-        from modules.settings_init import load_lvp_settings
+    # A settings or installation file that cannot be used stops the launch by
+    # escaping: the crash hook logs it, and the packaged build's bootloader
+    # shows its message. Never a SystemExit here, which the bootloader treats
+    # as a deliberate stop and shows nothing for.
+    from modules.settings_init import load_lvp_settings
 
-        load_lvp_settings(logger, source_path)
+    load_lvp_settings(logger, source_path)
 
-        from modules.settings_init import settings as initialized_settings
-
-        settings = initialized_settings
-
-    except Exception as e:  # grain: ignore NAKED_EXCEPT
-        logger.critical(f'[LVP Main  ] Failed to load settings -- cannot continue. {e}')
-        sys.exit(1)
+    from modules.settings_init import settings
 
     import modules.app_context as app_context
     import modules.common_utils as common_utils
@@ -116,13 +164,14 @@ if __name__ == '__main__':
     import modules.lvp_lock as lvp_lock
     import modules.profiling_utils as profiling_utils
     from modules.app_context import AppContext
-    from modules.plugins import fire_settings_save_hooks
     from modules.scope_session import ScopeSession
 
     global profiling_helper
     profiling_helper = None
 
-    if getattr(sys, 'frozen', False):
+    from modules.path_utils import app_runtime
+
+    if app_runtime().frozen:
         import pyi_splash  # type: ignore
 
         pyi_splash.update_text('')
@@ -130,6 +179,10 @@ if __name__ == '__main__':
     # Disable Kivy's own file logging (LVP has its own RotatingFileHandler)
     os.environ['KIVY_NO_CONSOLELOG'] = '1'
     os.environ['KIVY_NO_FILELOG'] = '1'
+    # Kivy reads no command line: its parser exits on an argument it does not
+    # know, and a packaged build's bootloader shows nothing for that exit.
+    # LumaViewPro's own flags are read above, before Kivy loads.
+    os.environ['KIVY_NO_ARGS'] = '1'
 
     # Single-instance lock check BEFORE any Kivy import.
     # When the check lived inside App.build(), Kivy had already
@@ -137,10 +190,8 @@ if __name__ == '__main__':
     # loser reached sys.exit, producing duplicate visible Kivy
     # windows on double-launch. Run the check now while only
     # tkinter is alive (used above for the Python-version dialog).
-    from modules.app_config import get_lvp_lock_port as _get_lvp_lock_port
-
-    _lvp_lock_singleton = lvp_lock.LvpLock(lock_port=_get_lvp_lock_port(source_path))
-    if not _lvp_lock_singleton.lock():
+    _lvp_lock_singleton = lvp_lock.take_instance_lock(source_path)
+    if _lvp_lock_singleton is None:
         _msg = 'Another instance of LVP may already be running. Exiting.'
         logger.error(f'[LVP Lock ] {_msg}')
         # Previously also printed to stderr; on a windowed PyInstaller
@@ -152,11 +203,22 @@ if __name__ == '__main__':
             from tkinter import messagebox as _mb
 
             _root = _tk.Tk()
-            _root.withdraw()
+            # The dialog's parent is an invisible 1 px window centred across
+            # the screen, a third of the way down, not a withdrawn one: macOS
+            # attaches the alert to its parent, and a withdrawn root sits at
+            # (0, 0), so the alert opened in the corner, half off screen.
+            # Moving a withdrawn root does not move it, and no parent at all
+            # lets the alert open behind the existing LVP window.
+            _root.overrideredirect(True)
+            _root.geometry(
+                f'1x1+{_root.winfo_screenwidth() // 2}+{_root.winfo_screenheight() // 3}'
+            )
+            _root.attributes('-alpha', 0.0)
             # Force the dialog to the foreground. Without this the messagebox
             # can open behind the existing LVP window and get buried, so the
             # user never sees why the second launch silently did nothing.
             _root.attributes('-topmost', True)
+            _root.update()
             _root.lift()
             _root.focus_force()
             _mb.showerror(
@@ -242,6 +304,7 @@ if __name__ == '__main__':
     kivy.require('2.1.0')
 
     from kivy.app import App
+    from kivy.base import stopTouchApp
     from kivy.clock import Clock
     from kivy.factory import Factory
     from kivy.graphics import (
@@ -289,6 +352,10 @@ if __name__ == '__main__':
     # Imported for its side effect: registers the global <Popup> on_open rule
     # that adds a close (X) button to every popup app-wide.
     import ui.popup_close  # registers the Etaluma popup-close button on every Popup
+
+    # Imported for its side effect: defining the class registers PickSpinner
+    # with Kivy's Factory, which the kv rules name it through.
+    import ui.pick_spinner
 
     # User Interface Custom Widgets
     from ui.range_slider import RangeSlider
@@ -409,28 +476,33 @@ from ui.shader import ShaderViewer
 from ui.stage import Stage
 from ui.tooltip import Tooltip, TooltipMixin
 from ui.ui_helpers import (
-    _handle_autofocus_ui,
+    LoggedAccordionItem,
     _handle_ui_update_for_axis,
+    draw_shared_run_displays,
+    homing_banner_shown,
+    run_reported,
+    run_unasked,
 )
+
+# Imported for kv: <MainDisplay> builds a HomingBanner by name.
+from ui.homing_banner import HomingBanner
 from ui.vertical_control import VerticalControl
 from ui.zstack import ZStack
 
 
-# current.json is written at clean shutdown (on_stop). A hard kill or crash
-# would otherwise leave no runtime-state snapshot in a tech-support bundle,
-# so it is also flushed on this interval while the app runs.
+# current.json is written at a clean close (_prepare_the_close). A hard kill
+# or crash would otherwise leave no runtime-state snapshot in a tech-support
+# bundle, so it is also flushed on this interval while the app runs.
 _CURRENT_JSON_FLUSH_INTERVAL_S = 300
 
 
-def _notify_plugins_of_settings_save(settings_snapshot: dict) -> None:
-    """Tell plugins the settings were just written to disk.
-
-    The session does the saving and knows nothing about the plugin
-    registry, which is a GUI-side service. Passing this down as a
-    callback keeps it that way: a headless session is simply handed no
-    hook, rather than reaching up for a registry that is not there.
-    """
-    fire_settings_save_hooks(app_context.ctx, settings_snapshot)
+def _work_item_text(item) -> str:
+    """One piece of the session's live work, as the close's popups show it."""
+    if item.percent is not None:
+        return f'{item.name} ({item.percent:.0f}%)'
+    if item.left is not None:
+        return f'{item.name} ({item.left} left)'
+    return item.name
 
 
 class LumaViewProApp(TooltipMixin, App):
@@ -438,76 +510,113 @@ class LumaViewProApp(TooltipMixin, App):
 
     kv_file = 'ui/lumaviewpro.kv'
 
+    # The saved protocol is loaded once, after the startup objective
+    # question settles. A plain attribute rather than a kv property: no
+    # widget binds to it, and it exists only so the several paths that can
+    # ask the objective question cannot each re-load over the user's work.
+    _persisted_protocol_loaded = False
+
     # kv mirrors of the session's run-state derivations, published by
     # the ONE run-state listener below (worker-side truth lives on the
     # session; a kv binding cannot read it directly). run_lockout
     # carries the session derivation of the same name (a run or its
-    # post-run file drain); recording_active carries a LIVE manual
-    # recording; controls_locked is the full-surface lock. Never add a
-    # second per-site flag -- bind to these.
+    # post-run file drain); controls_locked is the full-surface lock.
+    # Never add a second per-site flag -- bind to these. A run control
+    # binds its own held flag instead, drawn from the Session for the run
+    # that control started.
     run_lockout = BooleanProperty(False)
-    recording_active = BooleanProperty(False)
     controls_locked = BooleanProperty(False)
+    # Whether the middle of the window shows the homing banner. Written on
+    # the same edge as the two above.
+    homing = BooleanProperty(False)
 
-    # The in-flight drain-close poller, or None when no close is running.
-    # Declared here so the close handler can read it before any close has
-    # assigned it -- the alternative is every reader defending itself with
-    # getattr, which is how one of them eventually forgets.
-    _drain_close_watch = None
+    # The thread the window's close runs the session's close on, or None
+    # before one has begun. Declared here so the close handler can read it
+    # before any close has assigned it -- the alternative is every reader
+    # defending itself with getattr, which is how one of them eventually
+    # forgets.
+    _close_thread = None
 
-    def publish_run_state(self, dt=0):
-        """Write the three kv mirrors from the session derivations.
+    def publish_run_state(self, dt: float = 0) -> None:
+        """Write the kv mirrors from the session derivations.
 
-        One closure writes all three, in fail-safe order: Kivy
-        dispatches bindings synchronously inside each setattr, so a
-        handler observing a torn pair must see OVER-locked, never
-        under-locked -- the tightening property writes first on lock,
-        last on unlock.
+        One closure writes the two locks, in fail-safe order: Kivy
+        dispatches bindings synchronously inside each setattr, so a handler
+        observing a torn pair must see OVER-locked, never under-locked --
+        the tightening property writes first on lock, last on unlock. The
+        homing banner is written after them; nothing locks on it.
         """
         session = ctx.session
         run_lockout = session.run_lockout
-        recording = session.exclusive_activity == 'recording' and session.recording_capturing
         locked = session.controls_locked
         if locked:
             self.controls_locked = True
             self.run_lockout = run_lockout
-            self.recording_active = recording
         else:
             self.run_lockout = run_lockout
-            self.recording_active = recording
             self.controls_locked = False
+        self.homing = homing_banner_shown(session)
+        gui_logger.display(
+            'CONTROLS_LOCKED', f'{locked} by={session.run_lockout_named if locked else None}'
+        )
+        gui_logger.display('HOMING_BANNER', self.homing)
+        self._draw_run_controls()
+        # The objective question is withheld while an activity holds the
+        # scope; this edge is the one that fires when the hold ends, so the
+        # question is asked again here rather than at the next turret move.
+        ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state()
+
+    def _draw_run_controls(self) -> None:
+        """Redraw each run control from its own run, on the same edge.
+
+        A run control's button shows what the engine says of the run it
+        started, and this edge is the one that fires after a run is back
+        to idle -- so a run that ends on its own is drawn ended here, and
+        nowhere else has to guess when. A control styles only its own
+        button; what every run shares is drawn once, after them.
+        """
+        ctx.lumaview.draw_composite_button()
+        ctx.lumaview.draw_record_button()
+        ctx.motion_settings.ids['protocol_settings_id'].draw_protocol_buttons()
+        ctx.motion_settings.ids['verticalcontrol_id'].ids['zstack_id'].draw_zstack_button()
+        ctx.motion_settings.ids['verticalcontrol_id'].draw_autofocus_button()
+        draw_shared_run_displays()
 
     def on_start(self) -> None:
         """Kivy lifecycle hook: fires after build() and before the main loop runs."""
         # Read scope through ctx so widget rebuilds (LS850 <-> LS620) don't strand it.
         lumaview = ctx.lumaview
 
-        # UI listener bridges live in modules/ui_listener_bridge.py so REST API and
-        # headless tools can reuse them.
-        from modules.ui_listener_bridge import UIListenerBridge
+        # The bridge subscribes the GUI to the scope's state events. It
+        # lives in ui/ because every one of its handlers ends in a widget
+        # write; a non-GUI host subscribes to the same events itself.
+        from ui.listener_bridge import UIListenerBridge
 
         ctx.ui_listener_bridge = UIListenerBridge(
             scope=lumaview.scope,
             ctx=ctx,
             stage=ctx.stage,
-            ui_dispatcher=Clock.schedule_once,
         )
         ctx.ui_listener_bridge.register_all()
 
         # The ONE run-state listener: session transitions (claim
         # grant/release, file-drain exit, scope rebind) schedule a
         # single main-thread closure that re-reads the derivations at
-        # fire time and writes the three kv mirrors. Level-read at
+        # fire time and writes the kv mirrors. Level-read at
         # fire time means out-of-order delivery degrades to bounded
         # staleness, never a permanently wrong publish; registration
-        # itself level-syncs the mirrors to current truth.
-        ctx.session.add_run_state_listener(lambda: Clock.schedule_once(self.publish_run_state, 0))
+        # itself level-syncs the mirrors to current truth. The draw is
+        # contained: a raise out of a clock callback closes the application.
+        ctx.session.add_run_state_listener(
+            lambda: Clock.schedule_once(
+                lambda dt: run_unasked(self.publish_run_state, 'RUN_STATE'), 0
+            )
+        )
 
         # Slow idle refresh (1Hz) for display elements that may change without motion
         # (e.g., labware selection, stage offset changes)
         Clock.schedule_interval(ctx.stage.draw_labware, 1.0)
         Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 1.0)
-        Clock.schedule_once(functools.partial(ctx.image_settings.set_expanded_layer, 'BF'), 0.2)
 
         # Periodic current.json snapshot so a hard kill / crash still leaves a
         # recent runtime-state file for tech-support bundles (it is otherwise
@@ -560,7 +669,7 @@ class LumaViewProApp(TooltipMixin, App):
                     active_layer = curr_color
             # Engineering mode wants the drawer the user has open, which is
             # NOT active_layer once the override above has fired.
-            if ctx.engineering_mode and ctx.image_settings is not None:
+            if ctx.session.engineering_mode and ctx.image_settings is not None:
                 open_layer = opened_layer
             ctx.scope_display_thread.update_layer_config(
                 active_layer,
@@ -613,7 +722,19 @@ class LumaViewProApp(TooltipMixin, App):
             # either way.
             ctx.image_settings.accordion_collapse()
 
-        Clock.schedule_once(complete_initialization, 0.3)
+        if sim_walk is not None:
+            from ui.sim_walk import SimWalk
+
+            _walk_path, _walk_steps = sim_walk
+            # Held on the app: the Clock keeps only weak references to the
+            # walk's bound methods. Pictures land beside the walk file.
+            self._sim_walk = SimWalk(
+                _walk_steps,
+                source=str(_walk_path),
+                bring_up_owes=self._bring_up_owes,
+                shot_dir=_walk_path.parent,
+            )
+            self._sim_walk.start()
 
         # MetricsLogger owns the executor watchdog, system metrics, and camera-temp
         # logging so adding a new periodic metric only requires editing one module.
@@ -622,73 +743,81 @@ class LumaViewProApp(TooltipMixin, App):
         load_autofocus_log_enable(source_path)
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
 
-        if lumaview.scope.no_hardware:
-            Clock.schedule_once(
-                lambda dt: show_notification_popup(
-                    title='No hardware detected',
-                    message=(
-                        'No microscope hardware was detected. You can continue in software-only '
-                        'mode (live view + protocol design will work; capture will not). To '
-                        'connect hardware, power on the scope and reconnect the USB cable, then '
-                        'restart LumaViewPro.'
-                    ),
-                ),
-                0,
-            )
+        def after_the_startup_motion() -> None:
+            # Everything here followed the startup motion when it blocked
+            # this thread, and still does, in the same order, with the scope
+            # free: several of these do nothing while the scope is held.
+            move_home_cb('ALL')
+            ctx.image_settings.set_expanded_layer('BF')
+            complete_initialization(None)
+            ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state(prompt=False)
+
+            # Both startup questions may only fire once the session is up and
+            # the frame has rendered; each helper owns its own deferral. The
+            # settings question comes first -- while it is unresolved, every
+            # save is refused and the objective prompt suppresses itself.
+            self._ask_about_rejected_settings()
+            self._prompt_objective_if_needed()
+
+            # Objective and LEDs are set by scope.initialize() during load_settings();
+            # BF apply_settings fires from complete_initialization() -> accordion_collapse().
+
+            # Once-per-startup environment + dependency fingerprint. Pairs
+            # with the per-tick [PDH METRICS] / [BUFFER METRICS] surface so
+            # post-mortem can correlate a problem against the exact host
+            # state (OS, Python, Pylon SDK, Defender state, etc.) without
+            # the noise of repeating those facts every tick.
+            config_helpers.log_environment_once()
+
+            # The session owns the metrics lifecycle (it owns the session
+            # scheduler and restarts metrics on the new scope at
+            # every reconnect). Cadence is hourly in production and 60 s in
+            # engineering mode; settings.profiling.metrics_interval_s
+            # overrides both (gen2_depth + handle/thread counts are the
+            # signals worth sub-minute granularity on a short leak hunt).
+            ctx.session.start_metrics()
+
+            # The atexit emergency-shutdown hook is registered in Lumascope.__init__
+            # so every Lumascope user gets the same safety net automatically.
+
+            # Capture the settled startup footprint a few seconds after the
+            # start has finished, so the camera/UI have finished initializing.
+            # No-op unless the memory profiler is enabled.
+            from lib import memory_profile
+
+            Clock.schedule_once(lambda dt: memory_profile.snapshot('cold_start_done'), 5.0)
+
+        def startup_motion_settled(done: concurrent.futures.Future) -> None:
+            from modules.exceptions import SessionClosingError
+
+            # The app is closing: a shutdown dropped the motion, the close
+            # began before it took the scope, or it began while it ran.
+            if done.cancelled() or isinstance(
+                done.exception(), (concurrent.futures.CancelledError, SessionClosingError)
+            ):
+                return
+            live = ctx.session.live_work
+            if live.closing or live.closed:
+                return
+            # Raised here, on this thread, where the app's one exception
+            # handler takes it, as it took it from on_start when the motion
+            # blocked; a reported failed home settles with None.
+            done.result()
+            after_the_startup_motion()
 
         # ScopeSession owns startup orchestration so REST API, headless tools and
-        # the GUI all hit the same path.
-        # The GUI drives motion through the ui_helpers wrappers: they set the
-        # window title during the home, and the turret one goes through the
-        # widget that also reconciles the objective, spinner and button state.
-        # The Session's own defaults are the bare API calls, which is what a
-        # headless caller gets.
-        from ui.ui_helpers import move_home, move_absolute
+        # the GUI all hit the same path. The window draws and stays live while
+        # the startup motion runs; the scope is the motion's until it ends.
+        from ui.ui_helpers import move_home_cb, set_title_event_text
 
-        ctx.session.start_application_session(
-            disable_homing=disable_homing,
-            home_fn=lambda axis: move_home(axis, wait=True),
-            turret_fn=lambda position: move_absolute(
-                axis='T', position=position, wait_until_complete=True
-            ),
+        started = ctx.session.begin_application_session(disable_homing=disable_homing)
+        if not started.done():
+            set_title_event_text('Homing, please wait...')
+        started.add_done_callback(
+            lambda done: Clock.schedule_once(lambda dt: startup_motion_settled(done), 0)
         )
 
-        # Both startup questions may only fire once the session is up and
-        # the frame has rendered; each helper owns its own deferral. The
-        # settings question comes first -- while it is unresolved, every
-        # save is refused and the objective prompt suppresses itself.
-        self._ask_about_rejected_settings()
-        self._prompt_objective_if_needed()
-
-        # Objective and LEDs are set by scope.initialize() during load_settings();
-        # BF apply_settings fires from complete_initialization() -> accordion_collapse().
-
-        # Once-per-startup environment + dependency fingerprint. Pairs
-        # with the per-tick [PDH METRICS] / [BUFFER METRICS] surface so
-        # post-mortem can correlate a problem against the exact host
-        # state (OS, Python, Pylon SDK, Defender state, etc.) without
-        # the noise of repeating those facts every tick.
-        config_helpers.log_environment_once()
-
-        # The session owns the metrics lifecycle (it owns the session
-        # scheduler and restarts metrics on the new scope at
-        # every reconnect). Cadence is hourly in production and 60 s in
-        # engineering mode; settings.profiling.metrics_interval_s
-        # overrides both (gen2_depth + handle/thread counts are the
-        # signals worth sub-minute granularity on a short leak hunt).
-        ctx.session.start_metrics()
-
-        # The atexit emergency-shutdown hook is registered in Lumascope.__init__
-        # so every Lumascope user gets the same safety net automatically.
-
-        # Capture the settled startup footprint a few seconds after on_start so
-        # the camera/UI have finished initializing. No-op unless the memory
-        # profiler is enabled.
-        from lib import memory_profile
-
-        Clock.schedule_once(lambda dt: memory_profile.snapshot('cold_start_done'), 5.0)
-
-        if getattr(sys, 'frozen', False):
+        if app_runtime().frozen:
             pyi_splash.close()
 
     def _prompt_objective_if_needed(self) -> None:
@@ -699,9 +828,65 @@ class LumaViewProApp(TooltipMixin, App):
         again when the provisional-settings dialog resolves -- while
         settings were provisional the question was suppressed because
         its answer could not be kept.
+
+        The persisted protocol load is hung on the answer. Whether the
+        scope can perform that protocol depends on what the turret
+        carries, and on a turreted scope the slot at the current position
+        is only assigned once this question is answered -- so loading
+        first meant judging the protocol against a configuration that was
+        about to change.
         """
         vertical_control = ctx.motion_settings.ids['verticalcontrol_id']
-        Clock.schedule_once(lambda dt: vertical_control.prompt_if_objective_unknown(), 0)
+        Clock.schedule_once(
+            lambda dt: vertical_control.prompt_if_objective_unknown(
+                on_resolved=self._load_persisted_protocol_once
+            ),
+            0,
+        )
+
+    def _bring_up_owes(self) -> list[str]:
+        """What bring-up has not finished, for a sim walk waiting to start.
+
+        ``ctx.ready`` is a timer, 0.3 s after on_start, and nothing it names
+        has finished: the saved protocol loads once the objective question
+        resolves, and the display shows a frame once the display thread
+        delivers one. A walk started on the timer pressed a control
+        mid-layout and shot the black placeholder.
+
+        While the objective question is showing, the load is owed by the
+        walk's answer, not by bring-up: a walk of that question is the
+        one that answers it, so a popup up is bring-up waiting on the walk.
+        """
+        from ui.sim_walk import open_popups
+
+        owed = []
+        if not ctx.ready:
+            owed.append('initialization')
+        if not self._persisted_protocol_loaded and not open_popups():
+            owed.append('the saved protocol load')
+        if ctx.scope_display.frames_shown == 0:
+            owed.append('a displayed frame')
+        return owed
+
+    def _load_persisted_protocol_once(self) -> None:
+        """Load the saved protocol, the first time the objective settles.
+
+        Latched because the objective question is asked from more than one
+        place: this startup path, the provisional-settings dialog
+        resolving, and the turret arriving at an unassigned slot. Each is
+        a legitimate reason to ask again; none is a reason to re-load the
+        saved protocol over whatever the user has done since, which a
+        naive continuation would do on every one of them.
+
+        The latch is set BEFORE the load rather than after, so a load that
+        raises does not leave the door open for the next question to try
+        again -- the panel reports its own failure and keeps an empty
+        protocol.
+        """
+        if self._persisted_protocol_loaded:
+            return
+        self._persisted_protocol_loaded = True
+        ctx.motion_settings.ids['protocol_settings_id'].load_persisted_protocol()
 
     def _ask_about_rejected_settings(self) -> None:
         """Let the user choose what happens to a current.json we could not read.
@@ -722,42 +907,25 @@ class LumaViewProApp(TooltipMixin, App):
         mean running with saves silently disabled -- the user changes settings
         all session and loses every one of them at exit, with nothing said.
         """
-        import modules.settings_init as settings_init
-
         if not ctx.session.settings_are_provisional():
             return
 
-        path, reason = settings_init.rejected_current_json
+        reason = ctx.session.bring_up_record().settings_set_aside.reason
+
+        def _after_revert():
+            # The retire is a file rename that can fail under a Windows
+            # AV/indexer lock. The session still says provisional then, so
+            # the question is put back -- every save raises loudly until it
+            # is resolved. Otherwise settings can be kept again, so the
+            # objective question suppressed while they were provisional is
+            # asked now.
+            if ctx.session.settings_are_provisional():
+                self._ask_about_rejected_settings()
+            else:
+                self._prompt_objective_if_needed()
 
         def _revert():
-            # The retire is a file rename that can fail under a Windows
-            # AV/indexer lock; unguarded, that exception would kill the
-            # process from the button callback with no teardown. On
-            # failure, say so and re-present the question -- the
-            # provisional state still holds, and every save raises
-            # loudly until it is resolved.
-            try:
-                retired = ctx.session.retire_rejected_settings()
-            except Exception:
-                logger.error(
-                    '[LVP Main  ] could not retire the rejected settings file',
-                    exc_info=True,
-                )
-                from modules.notification_center import notifications
-
-                notifications.error(
-                    'Settings',
-                    'Settings file could not be replaced',
-                    f'{path} is in use by another program. Close it and try again.',
-                )
-                self._ask_about_rejected_settings()
-                return
-            logger.warning(
-                f'[LVP Main  ] settings reset by user choice; previous file kept at {retired}'
-            )
-            # Settings can be kept again now -- ask the objective question
-            # that was suppressed while they were provisional.
-            self._prompt_objective_if_needed()
+            run_reported(ctx.session.retire_rejected_settings, _after_revert, 'USE_DEFAULTS')
 
         def _quit():
             logger.warning('[LVP Main  ] user chose to repair settings; exiting without saving')
@@ -803,7 +971,7 @@ class LumaViewProApp(TooltipMixin, App):
         from modules.app_environment import camera_sdk_probe
 
         # Pass the install directory (script_path), not the per-user data
-        # directory (source_path). version.txt and .git_archival.txt ship next
+        # directory (source_path). version.txt and build_id.txt ship next
         # to the executable; on an installed build source_path points at the
         # Documents data folder, which has no version.txt, so the banner would
         # report Built/Branch/CommitGUID as "unknown". On a source/dev run the
@@ -846,113 +1014,99 @@ class LumaViewProApp(TooltipMixin, App):
 
         stage = Stage()
 
-        # Wire NotificationCenter to UI popups BEFORE any hardware init.
-        # The session factory below constructs Lumascope -> LED/motor
-        # boards -> connect(), which can fire notifications.error() for
-        # silent-board detection or any other early hardware failure. If
-        # the listener is registered AFTER hardware init, those early
-        # errors go to the log but never reach the user as popups.
-        from modules.notification_center import Severity, notifications
-
+        # The popups are one subscriber to the session's outcomes, given to
+        # the factory below so it hears bring-up: the factory registers it
+        # before it builds the scope, whose boards and camera report what
+        # failed to come up while they connect. The bridge opens what the
+        # API says is shown and decides nothing more.
         from ui.notification_popup import notification_popup_bridge
 
-        notifications.add_listener(
-            notification_popup_bridge,
-            # NOTICE (not WARNING) so user-facing status of long unattended
-            # operations crosses the bridge; INFO stays log-only.
-            min_severity=Severity.DEBUG if ENGINEERING_MODE else Severity.NOTICE,
+        from kivy.core.window import Window
+
+        # Window min size uses SDL point coordinates -- do NOT use dp()
+        Window.minimum_width = 1024
+        Window.minimum_height = 600
+        Window.bind(on_resize=self._on_resize)
+        Window.bind(on_request_close=self.on_request_close)
+        # Window-level lifecycle bindings -- log every event the OS /
+        # window manager / global keyboard shortcut can deliver
+        # outside any registered widget. Without these, a shutdown
+        # triggered by Alt-F4 / window-X / OS-close leaves the GUI
+        # log silent and post-mortem cannot name the trigger.
+        Window.bind(on_close=self._on_window_close)
+        Window.bind(on_keyboard=self._on_window_keyboard)
+        # SDL2-only events: minimize / maximize / restore. Bind under
+        # try/except so non-SDL2 window providers (rare) don't crash.
+        # Handler names are constructed dynamically here, so
+        # _on_window_minimize/_maximize/_restore have no static
+        # references -- dead-code scanners must not flag them.
+        for _evt in ('on_minimize', 'on_maximize', 'on_restore'):
+            try:
+                Window.bind(**{_evt: getattr(self, f'_on_window_{_evt[3:]}')})
+            except Exception as _e:
+                logger.debug(f'[LVP Main  ] Window.bind({_evt}) failed: {_e}')
+        Window.bind(focus=self._on_window_focus)
+
+        # Clock.schedule_once is the process's one UI dispatcher: the
+        # executor lanes, a run's deliveries and the listener bridge post
+        # callbacks to the Kivy main thread through it without importing
+        # Kivy themselves. The Clock delivers on the main thread, the one
+        # Kivy runs on.
+        from kivy.clock import Clock
+
+        from modules.kivy_utils import UiDispatcher
+
+        ScopeSession.set_ui_dispatcher(
+            UiDispatcher(schedule=Clock.schedule_once, thread=threading.main_thread())
         )
 
+        # The Session composes the instrument -- the scope (the camera
+        # registry picks by priority, Pylon -> IDS -> FX2, reading the
+        # labware and objective catalogues), the executor topology and the autofocus
+        # pair -- and brings the scope up (configure from settings,
+        # then release the camera start gate) before it returns. What
+        # only this host knows goes in by name. The pre-release
+        # warning is gated off: the GUI ships in the same commit as
+        # the API, so it has nothing to tell it and would only reach
+        # the user's console. A raise inside the factory tears down
+        # what it had started before it reaches here.
+        def _compose(from_settings):
+            return ScopeSession.create(
+                settings=from_settings,
+                source_path=source_path,
+                simulate=simulate_mode,
+                warn_pre_release=False,
+                engineering_mode=ENGINEERING_MODE,
+                no_engineering=no_engineering,
+                sim_camera_stall=sim_camera_stall,
+                sim_file_stall=sim_file_stall,
+                outcome_listener=notification_popup_bridge,
+            )
+
+        # A stored value the settings store cannot configure a scope
+        # from -- a key the shipped template lacks, a shipped objective the
+        # installation's catalogue does not hold -- reaches here as
+        # ConfigError, and there is nothing above build() to catch it, so
+        # without this the app does not launch at all. Come
+        # up on the shipped template instead, the same recovery
+        # settings_init already runs for an unreadable current.json.
+        # The user's file is NOT repaired: a value we cannot interpret
+        # is not a value we may overwrite. The fallback writes the one log
+        # line for the rejection, carrying its cause; a raise out of here
+        # is the process's crash, recorded once by the crash hook.
         try:
-            from kivy.core.window import Window
-
-            # Window min size uses SDL point coordinates -- do NOT use dp()
-            Window.minimum_width = 1024
-            Window.minimum_height = 600
-            Window.bind(on_resize=self._on_resize)
-            Window.bind(on_request_close=self.on_request_close)
-            # Window-level lifecycle bindings -- log every event the OS /
-            # window manager / global keyboard shortcut can deliver
-            # outside any registered widget. Without these, a shutdown
-            # triggered by Alt-F4 / window-X / OS-close leaves the GUI
-            # log silent and post-mortem cannot name the trigger.
-            Window.bind(on_close=self._on_window_close)
-            Window.bind(on_keyboard=self._on_window_keyboard)
-            # SDL2-only events: minimize / maximize / restore. Bind under
-            # try/except so non-SDL2 window providers (rare) don't crash.
-            # Handler names are constructed dynamically here, so
-            # _on_window_minimize/_maximize/_restore have no static
-            # references -- dead-code scanners must not flag them.
-            for _evt in ('on_minimize', 'on_maximize', 'on_restore'):
-                try:
-                    Window.bind(**{_evt: getattr(self, f'_on_window_{_evt[3:]}')})
-                except Exception as _e:
-                    logger.debug(f'[LVP Main  ] Window.bind({_evt}) failed: {_e}')
-            Window.bind(focus=self._on_window_focus)
-
-            # Clock.schedule_once is the UI dispatcher: the executor lanes
-            # post callbacks to the Kivy main thread without importing
-            # Kivy themselves.
-            from kivy.clock import Clock
-
-            _ui = Clock.schedule_once
-
-            # Also set the global dispatcher for kivy_utils.schedule_ui()
-            from modules.kivy_utils import set_ui_dispatcher
-
-            set_ui_dispatcher(_ui)
-
-            # The Session composes the instrument -- the scope (the camera
-            # registry picks by priority, Pylon -> IDS -> FX2), the three
-            # data-file helpers, the executor topology and the autofocus
-            # pair -- and brings the scope up (configure from settings,
-            # then release the camera start gate) before it returns. What
-            # only this host knows goes in by name. The pre-release
-            # warning is gated off: the GUI ships in the same commit as
-            # the API, so it has nothing to tell it and would only reach
-            # the user's console. A raise inside the factory tears down
-            # what it had started before it reaches here.
-            def _compose(from_settings):
-                return ScopeSession.create(
-                    settings=from_settings,
-                    source_path=source_path,
-                    simulate=simulate_mode,
-                    warn_pre_release=False,
-                    ui_dispatcher=_ui,
-                    af_ui_update_func=_handle_autofocus_ui,
-                    settings_saved_hook=_notify_plugins_of_settings_save,
-                    engineering_mode=ENGINEERING_MODE,
-                    display_ctx_provider=lambda: app_context.ctx,
-                )
-
-            # A stored value the settings store cannot configure a scope
-            # from -- a malformed binning label, a missing frame -- reaches
-            # here as ConfigError, and there is nothing above build() to
-            # catch it, so without this the app does not launch at all. Come
-            # up on the shipped template instead, the same recovery
-            # settings_init already runs for an unreadable current.json.
-            # The user's file is NOT repaired: a value we cannot interpret
-            # is not a value we may overwrite.
-            try:
-                scope_session = _compose(settings)
-            except ConfigError as unusable:
-                logger.exception(
-                    '[LVP Main  ] Stored settings cannot configure a scope; '
-                    'coming up on the shipped defaults.'
-                )
-                # Republishes the store IN PLACE and marks the session
-                # provisional, so `settings` below is the template and every
-                # save raises until the user resolves it. Reassigning the name
-                # here instead would strand every other holder of this dict on
-                # the rejected values.
-                fall_back_to_template(logger, source_path, str(unusable))
-                scope_session = _compose(settings)
-            lumaview = MainDisplay(scope=scope_session.scope)
-            cell_count_content = CellCountControls()
-            graphing_controls = GraphingControls()
-        except Exception:
-            logger.exception('[LVP Main  ] Cannot compose the session or open the main display.')
-            raise
+            scope_session = _compose(settings)
+        except ConfigError as unusable:
+            # Republishes the store IN PLACE and marks the session
+            # provisional, so `settings` below is the template and every
+            # save raises until the user resolves it. Reassigning the name
+            # here instead would strand every other holder of this dict on
+            # the rejected values.
+            fall_back_to_template(logger, source_path, str(unusable))
+            scope_session = _compose(settings)
+        lumaview = MainDisplay(scope=scope_session.scope)
+        cell_count_content = CellCountControls()
+        graphing_controls = GraphingControls()
 
         # A crash in a pre-engine release can strand a multi-GB recording
         # scratch in the live folder; sweep it before anything records.
@@ -975,6 +1129,7 @@ class LumaViewProApp(TooltipMixin, App):
             camera_executor=scope_session.camera_executor,
             protocol_thread=scope_session.protocol_thread,
             file_io_executor=scope_session.file_io_executor,
+            post_processing_executor=scope_session.post_processing.lane,
             autofocus_thread=scope_session.autofocus_thread,
             scope_display_thread=scope_session.executor_bundle.scope_display_thread,
             worker_pool=scope_session.executor_bundle.worker_pool,
@@ -984,8 +1139,6 @@ class LumaViewProApp(TooltipMixin, App):
             stage=stage,
             cell_count_content=cell_count_content,
             graphing_controls=graphing_controls,
-            engineering_mode=ENGINEERING_MODE,
-            no_engineering=no_engineering,
             show_tooltips=show_tooltips,
             live_histo_setting=live_histo_setting,
             last_save_folder=last_save_folder,
@@ -1008,27 +1161,15 @@ class LumaViewProApp(TooltipMixin, App):
         ctx.scope_display.start()
 
         # load settings file (must be after motion_settings is wired)
-        ctx.motion_settings.ids['microscope_settings_id'].load_settings('./data/current.json')
+        ctx.motion_settings.ids['microscope_settings_id'].load_settings()
 
         # Creates and manages Tooltips
         self.init_tooltips(lumaview)
 
-        # Discover plugins via entry_points group 'lvp.plugins'.
-        # Engineering plugin (etaluma-engineering, dev/bench-only) loads
-        # here; customer installs find nothing in the group.
-        from modules.plugins import load_plugins
-
-        load_plugins(ctx)
-
-        # Register in-tree built-in plugins (Stitcher canary, plus
-        # CompositeGeneration / ZProjector / VideoBuilder once they
-        # retire into the namespace). Runs AFTER load_plugins so an
-        # external package claiming the same name wins -- the built-in
-        # registration then logs WARNING and continues, leaving the
-        # legacy UI button paths still wired to the same Stitcher class.
-        from modules.plugins.builtin import register_builtins
-
-        register_builtins(ctx)
+        # The session's plugins: the installed ones (the engineering plugin,
+        # dev/bench-only; customer installs find nothing in the group), then
+        # the built-ins. Each is handed the session.
+        ctx.session.load_plugins()
 
         # A plugin exception reaching the Kivy event loop must not take
         # down the host: plugins are separately versioned (and may not be
@@ -1044,30 +1185,12 @@ class LumaViewProApp(TooltipMixin, App):
             def handle_exception(self, inst):
                 plugin_name = None
                 try:
-                    plugin_name = ctx.plugins.attribute_exception(sys.exc_info()[2])
+                    plugin_name = ctx.session.plugins.attribute_exception(sys.exc_info()[2])
                 except Exception as e:
                     logger.debug(f'[Plugins ] crash attribution failed: {e}')
                 if plugin_name is None:
                     return ExceptionManager.RAISE
-                logger.exception(
-                    f'[Plugins ] contained a crash from plugin {plugin_name!r}: {inst}'
-                )
-                try:
-                    ctx.plugins.ui.record_runtime_error(plugin_name, 'ui_event', inst)
-                except Exception as e:
-                    logger.debug(f'[Plugins ] runtime-error record failed: {e}')
-                try:
-                    from modules.notification_center import notifications
-
-                    notifications.error(
-                        'Plugins',
-                        'Plugin Error',
-                        f'The "{plugin_name}" plugin hit an error and the action '
-                        'was cancelled. The rest of the application is '
-                        'unaffected. See the log for details.',
-                    )
-                except Exception as e:
-                    logger.debug(f'[Plugins ] plugin-error popup failed: {e}')
+                ctx.session.plugins.record_runtime_error(plugin_name, 'ui_event', inst)
                 return ExceptionManager.PASS
 
         ExceptionManager.add_handler(_PluginCrashGuard())
@@ -1077,35 +1200,27 @@ class LumaViewProApp(TooltipMixin, App):
         # invoked here; builder() returns the Kivy widget which is
         # added to the named mount point.
         motionsettings_accordion = ctx.motion_settings.ids['motionsettings_accordion_id']
-        for plugin_name, mount_point, builder in ctx.plugins.ui.mounts():
+        for plugin_name, mount_point, builder in ctx.session.plugins.ui.mounts():
             if mount_point == 'left_sidebar.accordion':
                 try:
                     plugin_item = builder()
-                    # The accordion itself no longer carries the exclusive-
-                    # activity lock (its bind would swallow the run/stop
-                    # toggles' abort clicks); runtime-mounted items inherit
-                    # the lock explicitly so plugin tabs grey out like the
-                    # built-in regions.
-                    plugin_item.disabled = bool(self.controls_locked)
-                    self.bind(
-                        controls_locked=lambda _app, value, item=plugin_item: setattr(
-                            item, 'disabled', value
-                        )
-                    )
+                    # The item carries no exclusive-activity lock, as the
+                    # accordion carries none: a lock on the whole item would
+                    # grey out a control that must stay live during a run,
+                    # such as the plugin's own Stop. A plugin locks its own
+                    # controls, as the built-in regions do, from the
+                    # session's run-state listeners.
                     motionsettings_accordion.add_widget(plugin_item)
                     logger.info(f'[LVP Main  ] Mounted {plugin_name} at {mount_point}')
                 except Exception as e:
-                    logger.error(
-                        f'[LVP Main  ] {plugin_name} mount failed: {e}',
-                        exc_info=True,
-                    )
+                    ctx.session.plugins.record_runtime_error(plugin_name, 'mount', e)
 
         # Enable engineering-only log files (autofocus.log, api.log).
-        # Read from ctx since the engineering plugin's register(ctx)
-        # may have flipped ctx.engineering_mode during load_plugins.
+        # Read from the session since the engineering plugin may have turned
+        # its engineering mode on when it loaded.
         from lvp_logger import enable_engineering_logs
 
-        enable_engineering_logs(ctx.engineering_mode)
+        enable_engineering_logs(ctx.session.engineering_mode)
 
         # NotificationCenter -> UI popup bridge was registered at the
         # top of build(), BEFORE the session factory / Lumascope() /
@@ -1173,122 +1288,96 @@ class LumaViewProApp(TooltipMixin, App):
         gui_logger.window_event('focus', f'focused={focused}')
 
     def on_request_close(self, *args) -> bool:
-        """Kivy on_request_close hook: show a confirmation popup if a protocol is running.
+        """Kivy on_request_close hook: ask, naming what the session is still doing, then close.
 
-        Returns:
-            True to prevent window close (popup shown); False to allow close.
+        Always True: the window never closes by itself. The close runs on
+        its own thread (``_close_the_session``) and the app stops when it
+        returns.
         """
-        protocol_running = ctx.session.run_lockout
+        work = ctx.session.live_work.work
+        scope_held = ctx.session.run_lockout_named is not None
         # Crash-forensics: log the close request to BOTH the main log
         # (so post-mortem can correlate against the shutdown sequence)
         # and the GUI interactions log (so the gui-log timeline names
         # the trigger). Without this line, an X-button / Alt-F4 close
         # produces a silent shutdown -- the gap that prompted this hook.
-        logger.info(f'[LVP Main  ] on_request_close fired; protocol_running={protocol_running}')
-        gui_logger.window_event('close-requested', f'protocol_running={protocol_running}')
+        logger.info(
+            f'[LVP Main  ] on_request_close fired; scope_held={scope_held} '
+            f'live_work={[item.kind for item in work]}'
+        )
+        gui_logger.window_event('close-requested', f'scope_held={scope_held}')
 
-        if self._drain_close_watch is not None:
-            # A close is already draining. This is a SECOND close request --
+        if self._close_thread is not None:
+            # A close is already running. This is a SECOND close request --
             # a Kivy Popup is modal only for in-canvas touch, so the window's
             # X still reaches here while the progress popup is up. Logged
-            # above and then ignored: running the close path again starts a
-            # second poller and a second popup over the same drain.
+            # above and then ignored: a second close would only wait for the
+            # first.
             logger.info('[LVP Main  ] close already in progress; ignoring the request')
-            return True  # Prevent window from closing
+            return True
 
-        if protocol_running:
-            Clock.schedule_once(
-                lambda dt: show_confirmation_popup(
-                    title='Confirm Exit',
-                    message='A protocol is currently running.\n\nAre you sure you want to exit?',
-                    confirm_text='Confirm Exit',
-                    cancel_text='Cancel',
-                    on_confirm=self.stop,
-                )
+        if not work:
+            Clock.schedule_once(lambda dt: self._close_the_session())
+            return True
+
+        Clock.schedule_once(
+            lambda dt: show_confirmation_popup(
+                title='Confirm Exit',
+                message=(
+                    'LumaViewPro is still doing:\n'
+                    + '\n'.join(f'- {_work_item_text(item)}' for item in work)
+                    + '\n\nExiting stops a running protocol or recording, keeping what it '
+                    'captured, and lets the rest finish before LumaViewPro closes.'
+                    '\n\nAre you sure you want to exit?'
+                ),
+                confirm_text='Confirm Exit',
+                cancel_text='Cancel',
+                on_confirm=self._close_the_session,
             )
+        )
+        return True
 
-            return True  # Prevent window from closing
+    def _close_the_session(self) -> None:
+        """Close the session on a thread of its own, showing what it waits for; then stop.
 
-        if ctx.session.recording_capturing:
-            # Still capturing, so the rest of the take is what closing
-            # costs -- stopping is irreversible and there is no resume.
-            # Read BEFORE the drain check below: a live recording is also
-            # draining, so that branch would otherwise swallow this one
-            # and the app would close without ever asking.
-            Clock.schedule_once(
-                lambda dt: show_confirmation_popup(
-                    title='Confirm Exit',
-                    message=(
-                        'A video recording is in progress.\n\n'
-                        'Exiting now ends the recording and keeps what has been '
-                        'captured so far.\n\n'
-                        'Are you sure you want to exit?'
-                    ),
-                    confirm_text='Confirm Exit',
-                    cancel_text='Cancel',
-                    on_confirm=self._close_with_drain_progress,
-                )
-            )
-
-            return True  # Prevent window from closing
-
-        if ctx.session.close_drain_pending:
-            # Queued video frames -- a manual recording's, or a finished
-            # run's video-step tail -- are still being written to their
-            # final artifacts. A silent block reads as a hang and a
-            # silent close eats the tail of the recording, so the close
-            # shows drain progress with one explicit discard escape.
-            logger.info('[LVP Main  ] Close requested during video drain; showing progress')
-            Clock.schedule_once(lambda dt: self._close_with_drain_progress())
-            return True  # Prevent window from closing
-
-        # No exclusive activity - allow normal close
-        return False
-
-    def _close_with_drain_progress(self) -> None:
-        """PR flow for closing mid-drain: stop, show drain progress, exit
-        when the finish lands (or on explicit discard). Covers both drain
-        sources -- the manual recording and a run's video-step tail."""
+        The host's part runs first, here on the Kivy thread
+        (``_prepare_the_close``). The session's close then runs on its own
+        thread, so this one keeps drawing the progress and the Discard
+        button stays live; when the close returns, the app stops. Closed
+        on this thread instead, nothing would draw while it waits.
+        """
         from ui.notification_popup import show_blocking_progress_popup
 
-        recording = ctx.session.manual_recording
-        runner = ctx.sequenced_capture_runner
-        recording.stop()
-
-        def _busy() -> bool:
-            return recording.is_busy or (runner is not None and runner.video_drain_busy)
-
-        def _pending() -> int:
-            tail = runner.video_pending_writes if runner is not None else 0
-            return recording.pending_writes + tail
-
-        def _discard(*_a):
-            recording.discard_pending()
-            if runner is not None:
-                runner.discard_video_pending()
-
+        if self._close_thread is not None:
+            return
+        self._prepare_the_close()
         popup, set_message = show_blocking_progress_popup(
-            title='Finishing Video Writes',
-            message='Finishing video writes...',
-            action_text='Discard Remaining Frames',
-            on_action=_discard,
+            title='Closing',
+            message='Closing LumaViewPro...',
+            action_text='Discard Remaining Video Frames',
+            on_action=ctx.session.discard_close_drain,
         )
+        self._close_thread = threading.Thread(
+            target=self._shut_the_session_down, name='session-close', daemon=True
+        )
+        self._close_thread.start()
 
         def _watch(dt):
-            if _busy():
-                set_message(f'Finishing video writes -- {_pending()} frames remaining.')
+            if self._close_thread.is_alive():
+                work = ctx.session.live_work.work
+                set_message(
+                    'Finishing before LumaViewPro closes:\n'
+                    + '\n'.join(_work_item_text(item) for item in work)
+                    if work
+                    else 'Closing LumaViewPro...'
+                )
                 return True
-            # Returning False is what actually stops a Kivy interval, and it
-            # stops THIS event whatever the attribute now holds. Unscheduling
-            # through the attribute alone is not enough: it names whichever
-            # close wrote it last, so an earlier event would keep ticking --
-            # and every tick calls stop() again.
-            self._drain_close_watch = None
+            # Returning False is what stops a Kivy interval.
             popup.dismiss()
             self.stop()
             return False
 
-        self._drain_close_watch = Clock.schedule_interval(_watch, 0.2)
+        Clock.schedule_interval(_watch, 0.2)
 
     def _flush_current_json(self, dt: float) -> None:
         """Periodic current.json snapshot (Clock interval callback).
@@ -1311,10 +1400,20 @@ class LumaViewProApp(TooltipMixin, App):
         except Exception:
             logger.exception('[LVP Main  ] periodic current.json flush failed')
 
-    def on_stop(self) -> None:
-        """Kivy lifecycle hook: save settings, tear the session down, exit cleanly."""
-        logger.info('[LVP Main  ] LumaViewProApp.on_stop()')
+    def stop(self, *largs) -> None:
+        """End the event loop; ``run()`` then dispatches ``on_stop``, once.
 
+        Kivy's own ``stop()`` dispatches ``on_stop`` itself, and ``run()``
+        dispatches it again when the loop it ended returns, so every exit
+        made from inside the loop (Confirm Exit, the drain close, quit and
+        repair) would cancel, save and tear down twice, the second save
+        after the scope is disconnected. A window close already ends the
+        loop this way.
+        """
+        stopTouchApp()
+
+    def _prepare_the_close(self) -> None:
+        """The host's part of a close, on the Kivy thread, before the session's own."""
         # Suppress notification-listener dispatch during shutdown so the user
         # doesn't see 30+ error toasts as queued IO tasks fail against
         # disconnecting hardware. Log lines still fire for post-mortem.
@@ -1325,15 +1424,43 @@ class LumaViewProApp(TooltipMixin, App):
         except Exception as e:  # grain: ignore NAKED_EXCEPT
             logger.warning(f'[LVP Main  ] Failed to suppress notifications on shutdown: {e}')
 
-        # Plugins released first: their listener subscriptions and file handles
-        # need to drop before hardware tear-down so shutdown ordering matches
-        # registration ordering.
-        try:
-            from modules.plugins import unload_plugins
+        # Plugins released first, here on the Kivy thread their widgets live
+        # on: an unregister stops its own work, and their listener
+        # subscriptions and file handles need to drop before hardware
+        # tear-down. A plugin's own failure is logged inside, and the rest
+        # still unload. The session's close finds them unloaded.
+        ctx.session.unload_plugins()
 
-            unload_plugins(ctx)
-        except Exception as e:  # grain: ignore NAKED_EXCEPT
-            logger.warning(f'[LVP Main  ] Plugin unload during shutdown raised: {e}')
+        # The hardware-presence gate lives inside the session's save_settings,
+        # so every caller (engineering plugin, REST, scheduled save) gets the
+        # same guard. Pass force=True only to override. A refusal must not
+        # abort shutdown -- the session's close is hardware teardown.
+        # INFO, not WARNING: the errors log ships in every support bundle
+        # and a hardware-less clean exit is not an error. The save comes
+        # BEFORE the close: it needs the hardware the close releases.
+        from modules.exceptions import SettingsSaveRefusedError
+
+        try:
+            ctx.session.save_settings('./data/current.json')
+        except SettingsSaveRefusedError as e:
+            logger.info(f'[LVP Main  ] settings not saved at exit: {e.reason}')
+
+    def _shut_the_session_down(self) -> None:
+        """The session's close: it stops a live run and recording, finishes the rest, then tears down."""
+        logger.info('[LVP Main  ] ctx.session.shutdown()')
+        from modules.exceptions import ScopeDisconnectError
+        from modules.notification_center import notifications
+
+        try:
+            ctx.session.shutdown()
+        except ScopeDisconnectError as e:
+            # Every teardown step has run; the window is closing, so the
+            # record is the log (notifications are muted).
+            notifications.report_outcome(e, solicited=False, category='Hardware')
+
+    def on_stop(self) -> None:
+        """Kivy lifecycle hook: end the window's own timers; close the session if no close did."""
+        logger.info('[LVP Main  ] LumaViewProApp.on_stop()')
 
         # Unschedule all recurring interval callbacks to prevent orphaned events
         try:
@@ -1342,49 +1469,16 @@ class LumaViewProApp(TooltipMixin, App):
         except Exception as e:  # grain: ignore NAKED_EXCEPT
             logger.debug(f'[LVP Main  ] Clock.unschedule during shutdown raised: {e}')
 
-        ctx.motion_settings.ids['protocol_settings_id'].cancel_all_protocols()
-        # The abort above only signals; the hardware teardown (LED off,
-        # camera restore, return-to-position) runs on the protocol thread.
-        # The session teardown below tears the executors down right after
-        # this block, so wait -- bounded -- for that cleanup to finish
-        # before proceeding. Per PERFORMANCE_BUDGETS.md row
-        # shutdown_protocol_cleanup_wait_s. The session's own LED drain is
-        # the belt-and-suspenders if it times out.
-        try:
-            if ctx.sequenced_capture_runner is not None and not (
-                ctx.sequenced_capture_runner.wait_for_run_idle(timeout_s=30.0)
-            ):
-                logger.warning(
-                    '[LVP Main  ] protocol cleanup still in flight after 30 s '
-                    'shutdown wait; proceeding with teardown anyway'
-                )
-        except Exception as e:  # grain: ignore NAKED_EXCEPT
-            logger.warning(f'[LVP Main  ] shutdown cleanup wait failed: {e}')
-
         if profiling_helper is not None:
             profiling_helper.stop()
 
-        # The hardware-presence gate lives inside the session's save_settings,
-        # so every caller (engineering plugin, REST, scheduled save) gets the
-        # same guard. Pass force=True only to override. A refusal must not
-        # abort shutdown -- the session teardown below is hardware teardown.
-        # INFO, not WARNING: the errors log ships in every support bundle
-        # and a hardware-less clean exit is not an error. The save comes
-        # BEFORE the teardown: it needs the hardware the teardown removes.
-        from modules.exceptions import SettingsSaveRefusedError
-
-        try:
-            ctx.session.save_settings('./data/current.json')
-        except SettingsSaveRefusedError as e:
-            logger.info(f'[LVP Main  ] settings not saved at exit: {e.reason}')
-
-        # The one teardown: metrics, the LED drain through the io lane,
-        # the consumer threads, the lanes, motion stopped, the scope
-        # disconnected. Kivy's run() falls through to a second on_stop
-        # after an in-loop stop(); that pass finds the session already
-        # shut and logs it.
-        logger.info('[LVP Main  ] ctx.session.shutdown()')
-        ctx.session.shutdown()
+        if not ctx.session.live_work.closed:
+            # Reached without the window's close -- a platform quit -- or
+            # after a close that raised part-way: the close runs here, on
+            # this thread, and nothing draws while it waits. A close still
+            # running on its own thread is waited for by this call.
+            self._prepare_the_close()
+            self._shut_the_session_down()
 
         logger.info('[LVP Main  ] LumaViewProApp exiting.', extra={'force_error': True})
 

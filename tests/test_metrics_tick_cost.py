@@ -24,11 +24,14 @@ operator believed it off.
 """
 
 from collections import defaultdict
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+from types import SimpleNamespace
 
 import pytest
 
 from modules import app_context, common_utils, config_helpers
+from tests.scope_fakes import real_executor_bundle, scope_delivering_nothing
 
 
 @pytest.fixture
@@ -57,7 +60,9 @@ def _drive_log_system_metrics(monkeypatch, settings, metrics, on_call=None):
     """
     rec = _RecordingLogger()
     monkeypatch.setattr(config_helpers, 'metrics_logger', rec)
-    monkeypatch.setattr(app_context, 'ctx', MagicMock())
+    ctx = MagicMock()
+    ctx.scope_display.display_fps.return_value = 0.0
+    monkeypatch.setattr(app_context, 'ctx', ctx)
     monkeypatch.setattr(config_helpers.common_utils, 'check_disk_space', lambda **k: 1.0e5)
 
     def _stub(**kwargs):
@@ -66,7 +71,7 @@ def _drive_log_system_metrics(monkeypatch, settings, metrics, on_call=None):
         return metrics
 
     monkeypatch.setattr(config_helpers.common_utils, 'system_metrics', _stub)
-    config_helpers.log_system_metrics(settings)
+    config_helpers.log_system_metrics(settings, scope=scope_delivering_nothing())
     return rec
 
 
@@ -153,19 +158,7 @@ class TestHandleMetricsLine:
         assert not lines
 
 
-_SCHEDULER = object()
-
-
-class _EngineeringCtx:
-    """Only what the cadence branch reads.
-
-    A MagicMock cannot stand in here: scope construction reads other
-    attributes off the context (objectives_loader wants source_path)
-    and a MagicMock resolves those to bogus paths.
-    """
-
-    def __init__(self, engineering_mode):
-        self.engineering_mode = engineering_mode
+_SCHEDULER = SimpleNamespace(shutdown=lambda: None)
 
 
 def _make_session(**kwargs):
@@ -175,12 +168,14 @@ def _make_session(**kwargs):
     defaults = {
         'settings': {},
         'scope': spec_scope(),
-        'io_executor': MagicMock(),
-        'camera_executor': MagicMock(),
+        'executor_bundle': real_executor_bundle(),
         'scheduler': _SCHEDULER,
     }
     defaults.update(kwargs)
-    return ScopeSession(**defaults)
+    # The session builds its own metrics logger; a stand-in shows what the
+    # session asks of it.
+    with patch('modules.scope_session.MetricsLogger'):
+        return ScopeSession(**defaults)
 
 
 class TestCadence:
@@ -189,37 +184,32 @@ class TestCadence:
 
         assert DEFAULT_SYSTEM_METRICS_INTERVAL_S == 3600.0
 
-    def test_no_override_outside_engineering_mode_uses_the_default(self, monkeypatch):
-        # ctx pinned explicitly: it is a process global, and a ctx left behind
-        # by another test would otherwise decide this assertion.
+    def test_no_override_outside_engineering_mode_uses_the_default(self):
         session = _make_session()
-        monkeypatch.setattr(app_context, 'ctx', None)
         session.start_metrics()
-        session.scope.metrics_logger.start.assert_called_once_with(_SCHEDULER)
+        session.metrics_logger.start.assert_called_once_with(_SCHEDULER)
 
-    def test_engineering_mode_keeps_sixty_seconds(self, monkeypatch):
-        # Build the scope before installing the ctx -- construction reads
-        # other attributes off it.
-        session = _make_session()
-        monkeypatch.setattr(app_context, 'ctx', _EngineeringCtx(True))
+    def test_engineering_mode_keeps_sixty_seconds(self):
+        # The session's own flag, the one a plugin turns on when it loads.
+        session = _make_session(engineering_mode=True)
         session.start_metrics()
-        session.scope.metrics_logger.start.assert_called_once_with(
+        session.metrics_logger.start.assert_called_once_with(
             _SCHEDULER, system_metrics_interval_s=60.0
         )
 
-    def test_engineering_mode_false_uses_the_default(self, monkeypatch):
-        session = _make_session()
-        monkeypatch.setattr(app_context, 'ctx', _EngineeringCtx(False))
+    def test_engineering_mode_false_uses_the_default(self):
+        session = _make_session(engineering_mode=False)
         session.start_metrics()
-        session.scope.metrics_logger.start.assert_called_once_with(_SCHEDULER)
+        session.metrics_logger.start.assert_called_once_with(_SCHEDULER)
 
-    def test_explicit_override_beats_engineering_mode(self, monkeypatch):
+    def test_explicit_override_beats_engineering_mode(self):
         # A bench operator naming an interval is honoured even on a machine
         # engineering mode would otherwise pin to 60 s.
-        session = _make_session(settings={'profiling': {'metrics_interval_s': 42}})
-        monkeypatch.setattr(app_context, 'ctx', _EngineeringCtx(True))
+        session = _make_session(
+            settings={'profiling': {'metrics_interval_s': 42}}, engineering_mode=True
+        )
         session.start_metrics()
-        session.scope.metrics_logger.start.assert_called_once_with(
+        session.metrics_logger.start.assert_called_once_with(
             _SCHEDULER, system_metrics_interval_s=42.0
         )
 
@@ -229,4 +219,4 @@ class TestCadence:
         session = _make_session()
         monkeypatch.setattr(app_context, 'ctx', None)
         session.start_metrics()
-        session.scope.metrics_logger.start.assert_called_once_with(_SCHEDULER)
+        session.metrics_logger.start.assert_called_once_with(_SCHEDULER)

@@ -11,8 +11,11 @@ from unittest import mock
 import numpy as np
 import pytest
 
+from tests.protocol_drives import lent_run_claim
+from modules.run_events import RunEvents
 import modules.video_writer as video_writer_module
 from modules.video_writer import VideoWriter
+from tests.scope_fakes import answer_auto_gain_like_the_api
 
 
 class _FakeStream:
@@ -261,17 +264,12 @@ class TestProtocolVideoDropNotification:
     protocol mute owns whether an unattended run pops it -- plus the
     manifest counts. A clean step posts nothing."""
 
-    def _capture_notifications(self, monkeypatch):
-        import modules.protocol_recording as protocol_recording
-
-        fired = {'warning': [], 'error': [], 'critical': []}
-        for level in fired:
-            monkeypatch.setattr(
-                protocol_recording.notifications,
-                level,
-                lambda *a, _lv=level, **k: fired[_lv].append((a, k)),
-            )
-        return fired
+    @staticmethod
+    def _posted(centre_posts):
+        return {
+            level: [n for n in centre_posts if n.severity.name.lower() == level]
+            for level in ('warning', 'error', 'critical')
+        }
 
     def _run_one_frame_step(self, tmp_path, monkeypatch, *, write_fails):
         import threading
@@ -285,7 +283,11 @@ class TestProtocolVideoDropNotification:
             protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999)
         )
 
+        written = []
+        self.written = written
+
         def _write_frame(**kwargs):
+            written.append(kwargs)
             if write_fails:
                 raise OSError('disk said no')
 
@@ -293,13 +295,21 @@ class TestProtocolVideoDropNotification:
 
         listeners = {}
         scope = MagicMock()
+        answer_auto_gain_like_the_api(scope.imaging)
+        scope.runtime_state.resolve_current_objective.return_value = (
+            '4x Oly',
+            {'focal_length': 45.0},
+        )
+        # The frames leg reads the scope's tracked state per frame; a
+        # MagicMock answers a MagicMock, which is not a position.
+        scope.motion.axis_positions = lambda: {}
+        scope.runtime_state.plate_transform = lambda: None
+        scope.illumination.get_led_states = lambda: {}
         scope.imaging.frames_until_valid.return_value = 0
         scope.imaging.active_cached = True
-        scope.imaging.camera_identity = {
-            'model': 'sim',
-            'serial': '0',
-            'timestamp_tick_frequency_hz': None,
-        }
+        scope.capabilities.camera_model = 'sim'
+        scope.capabilities.camera_serial_number = '0'
+        scope.capabilities.camera_timestamp_tick_hz = None
         scope.imaging.frame_size_cached = {'width': 8, 'height': 8}
         scope.imaging.add_frame_listener = lambda cb, name=None: listeners.update(cb=cb)
 
@@ -320,14 +330,15 @@ class TestProtocolVideoDropNotification:
             timestamp_overlay=True,
             global_max_fps=0,
             autogain_settings={},
-            callbacks={},
+            events=RunEvents(),
             aborted_event=threading.Event(),
             is_run_in_progress=lambda: True,
             abort_run_fatal=MagicMock(),
-            abort_run_on_writer_death=MagicMock(),
             record_step_row=MagicMock(),
             record_dropped_capture=MagicMock(),
             clock=lambda: clock['t'],
+            run_claim=lent_run_claim(),
+            to_plate=None,
         )
         worker = threading.Thread(target=recorder.run_blocking)
         worker.start()
@@ -340,19 +351,34 @@ class TestProtocolVideoDropNotification:
         assert recorder.wait_until_finished(timeout=10.0)
         return recorder
 
-    def test_write_failure_posts_one_nonfatal_warning(self, tmp_path, monkeypatch):
-        fired = self._capture_notifications(monkeypatch)
+    def test_write_failure_posts_one_nonfatal_error(self, tmp_path, monkeypatch, centre_posts):
         self._run_one_frame_step(tmp_path, monkeypatch, write_fails=True)
-        assert len(fired['warning']) == 1, (
-            'a step that lost frames must post exactly one warning through the '
+        fired = self._posted(centre_posts)
+        assert len(fired['error']) == 1 and fired['warning'] == [], (
+            'a step that lost frames must post exactly one error through the '
             f'center (the protocol mute owns popup policy); got {fired}'
         )
         assert fired['critical'] == [], 'a per-frame loss is non-fatal, never critical'
 
-    def test_no_drops_posts_nothing(self, tmp_path, monkeypatch):
-        fired = self._capture_notifications(monkeypatch)
+    def test_no_drops_posts_nothing(self, tmp_path, monkeypatch, centre_posts):
         self._run_one_frame_step(tmp_path, monkeypatch, write_fails=False)
+        fired = self._posted(centre_posts)
         assert fired['warning'] == [] and fired['error'] == [], 'a clean recording must not notify'
+
+    def test_each_frame_carries_its_own_fact_and_is_rendered_as_its_channel(
+        self, tmp_path, monkeypatch
+    ):
+        # The protocol leg reads the scope's tracked state when the frame
+        # arrives, like the manual leg: with no LED reported lit the channel
+        # is the step's, the stage is not moving, and with no plate transform
+        # the frame states no plate position rather than a number.
+        self._run_one_frame_step(tmp_path, monkeypatch, write_fails=False)
+        (kwargs,) = self.written
+        metadata = kwargs['metadata']
+        assert metadata['channel'] == 'Blue'
+        assert metadata['stage_moving'] is False
+        assert 'plate_pos_mm' not in metadata and 'z_pos_um' not in metadata
+        assert kwargs['channel'] == 'Blue', 'rendered as the channel the frame records'
 
 
 class TestVideoBuilderDropAccounting:

@@ -10,45 +10,232 @@ re-exports everything for existing callers.
 import logging
 import typing
 
-from kivy.clock import Clock
+from kivy.properties import StringProperty
+from kivy.uix.accordion import AccordionItem
 from kivy.uix.scrollview import ScrollView
+from modules import gui_logger
 from modules.kivy_utils import schedule_ui as _schedule_ui
 
 import modules.app_context as _app_ctx
-from modules import gui_logger
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
-from modules.exceptions import ProtocolRunRefusedError
-from modules.sequential_io_executor import IOTask
+import modules.image_utils as image_utils
+
+if typing.TYPE_CHECKING:
+    from modules.sequential_io_executor import SequentialIOExecutor
 
 logger = logging.getLogger('LVP.modules.ui_helpers')
 
-# A turret move can carry a turret home in front of it (the widget homes
-# first when the turret reference is unknown), then a Z-retract, the
-# rotation, and a Z-restore. Sized for that whole chain rather than the
-# rotation alone, so a waiting caller does not give up mid-sequence.
-_TURRET_MOVE_TIMEOUT_S = 180.0
 
-
-def run_with_refusal_boundary(
-    start_fn: typing.Callable[[], None],
-    on_refused: typing.Callable[[], None],
+def run_reported(
+    call: typing.Callable[[], object],
+    redraw: typing.Callable[[], None] | None,
+    label: str,
 ) -> None:
-    """The single UI boundary for the runner's typed run refusal.
+    """Run an API call a person asked for, here, and report its outcome; then redraw.
 
-    A refused run is a designed outcome, not a failure to propagate: the
-    runner's refusal funnel has already logged it and notified the user
-    exactly once, and no running-state was committed (commit_ui_state
-    runs only after a successful prepare). What remains is per-starter:
-    undo the pre-gate button cosmetics via on_refused. Every UI starter
-    (scan, protocol, autofocus scan, z-stack) routes its prepare/start
-    sequence through this one handler so refusal handling cannot drift
-    between them.
+    The one place in the GUI where an API call's exception is caught. The
+    exception is the API's answer, and the reporter shows it as its type says
+    -- a refusal as a warning under its own title, a fault as an error -- so
+    no widget writes its own popup or decides what an outcome means. The
+    redraw then shows the scope's state read back from the API, whatever the
+    call did; a widget changes nothing ahead of that answer.
+
+    For members that do not wait on a lane: the call runs on this thread,
+    before the next thing this thread does, so a continuation that reads what
+    the call applied sees it. A member that waits on a lane raises here, by
+    name, instead of freezing the window; it goes through submit_reported.
+
+    A call that raises is also recorded against the frame it ran in, for
+    refused_in_this_input: a button whose own touch committed a refused
+    edit does not act on the value the person just tried to change.
+
+    Args:
+        call: The API call, closed over any value a widget holds. Its return
+            is ignored: nothing in the GUI branches on it.
+        redraw: Shows the API's state, or None when the call's own callback
+            already does.
+        label: The gesture's interaction-log label; the outcome's category.
+    """
+    from modules.sequential_io_executor import inline_outcome
+
+    global _unanswered_frame
+    with inline_outcome():
+        if not _reported(call, label):
+            _unanswered_frame = _input_frame()
+    _reported(redraw, label)
+
+
+# The frame in which run_reported last reported a call that raised.
+_unanswered_frame: int | None = None
+
+
+def _input_frame() -> int:
+    from kivy.clock import Clock
+
+    return Clock.frames
+
+
+def refused_in_this_input() -> bool:
+    """Whether a request made in the input now being handled was not taken.
+
+    Kivy commits a focused field on the touch that leaves it, before that
+    touch's button handler runs, and both happen in one frame. A button
+    pressed straight off an edit the API refused would otherwise act on the
+    value the person just tried to change, so a handler that acts on such a
+    value asks this first and does nothing when it is true.
+    """
+    return _unanswered_frame is not None and _unanswered_frame == _input_frame()
+
+
+def submit_reported(
+    call: typing.Callable[[], object],
+    redraw: typing.Callable[[], None] | None,
+    label: str,
+    *,
+    stop: bool = False,
+    lane: 'SequentialIOExecutor | None' = None,
+    budget_of: typing.Callable[..., object] | None = None,
+) -> None:
+    """Run an API call that may block off the GUI thread and report its outcome; then redraw.
+
+    run_reported's twin for members that wait on a lane (hardware, a lane's
+    answer). The redraw is scheduled back onto the GUI thread afterwards,
+    whatever the outcome. The call reads no widget and touches nothing in
+    the GUI: any value a widget holds is read before this is called and
+    closed over.
+
+    Where the call runs:
+        lane: The one lane every member in *call* dispatches to (the camera
+            lane for camera members, the IO lane for motion and LED ones).
+            The call runs on that lane's worker, where its members run
+            inline, so a person's actions on one device run in the order
+            they were made while the other device's lane keeps working -- a
+            gain change does not wait behind a home. Only a call whose
+            members all dispatch to this one lane may name it: a member
+            that dispatches elsewhere raises on the lane worker rather than
+            wait on another lane. Or an executor that is not a lane, for a
+            call that waits on several lanes for minutes (the support
+            report on ``diagnostics_executor``), so it holds neither a
+            device lane nor the worker pool a Stop goes through.
+        None: the GUI's worker pool, for a call that spans lanes (a run's
+            start or Stop). One worker, so actions run in the order they
+            were made, and a Stop submitted at high priority goes first.
+
+    The redraw runs exactly once per submit, whatever the outcome: the call
+    returned or raised, the lane refused the task at submit, while it was
+    queued or as it left the queue, or the executor was not taking work. A
+    widget that shows a request as pending is cleared only by its redraw,
+    so a lost redraw leaves it dead. An executor that is not taking work
+    (closing down, or fenced by a run) never runs the task and answers
+    nothing, so that one outcome is redrawn from here; every other outcome
+    reaches the task's callback once. The executor's own narration is the
+    record of a refused or dropped call, under the gesture's label.
+
+    Two executor paths run no callback, so their redraw is lost: a queue
+    drained by ``clear_pending`` (the lane closing down), and a task whose
+    worker was abandoned by wedge recovery while stuck inside it.
+
+    ``stop`` is for a Stop: it goes ahead of every queued request, so a
+    person stopping a run is never kept waiting behind work they asked for
+    before it.
+
+    ``budget_of`` is the API member *call* runs, when that member declares
+    how long it may legitimately take (``@slow_task_budget``): the task
+    carries the member's budget, so a member that runs for minutes is not
+    logged as a slow task each time it succeeds. The cost is the member's;
+    the GUI only says which member it called.
+    """
+    from modules.sequential_io_executor import (
+        PRIORITY_HIGH,
+        PRIORITY_MED,
+        SLOW_TASK_BUDGET_ATTR,
+        IOTask,
+    )
+
+    def _redraw():
+        _schedule_ui(lambda dt: _reported(redraw, label))
+
+    def _off_the_gui_thread():
+        _reported(call, label)
+
+    # The executor names a refused task by its action, so the action carries
+    # the gesture's label rather than this wrapper's name.
+    _off_the_gui_thread.__name__ = _off_the_gui_thread.__qualname__ = f'UI:{label}'
+    budget = getattr(budget_of, SLOW_TASK_BUDGET_ATTR, None)
+    if budget is not None:
+        setattr(_off_the_gui_thread, SLOW_TASK_BUDGET_ATTR, budget)
+
+    executor = lane if lane is not None else _app_ctx.ctx.worker_pool
+    priority = PRIORITY_HIGH if stop else PRIORITY_MED
+    queued = executor.put(IOTask(action=_off_the_gui_thread, callback=_redraw, priority=priority))
+    if queued is None:
+        _redraw()
+
+
+def run_unasked(call: typing.Callable[[], object], label: str) -> bool:
+    """Run for an edge no person asked for; a raise is reported, not raised.
+
+    A run-state edge redraws on the clock, a step-list change redraws the
+    step editor, the application's close stops a live run. A raise out of a
+    clock callback or a shutdown step reaches the main loop and closes the
+    application, and nothing waits on these calls, so a fault stops here --
+    reported as unasked, which an unattended run's mute and the repeat
+    window apply to -- and the next edge runs again.
+
+    True when *call* returned, False when it raised and was reported: a
+    step that must follow whether or not the call got through runs on
+    False, without deciding what the outcome meant.
+    """
+    return _contained(call, label, solicited=False)
+
+
+def typed_number(
+    text: str, cast: typing.Callable[[str], float], put_back: typing.Callable[[], None]
+) -> float | None:
+    """The number a typed box committed, or None with the box put back.
+
+    The kv float and int filters admit entries that are not numbers -- '',
+    '.', '-', '-.' -- and a box that commits on focus loss hands them over
+    as typed. Such an entry is not a request: nothing moves, no setting
+    changes, and *put_back* shows the box what the API or the settings hold
+    again. The caller then records what the box went back to under its own
+    ``<NAME>_APPLIED``, written at the call site so the interaction census
+    can read the name. One parse for every typed-number box, so they cannot
+    each choose their own failure.
     """
     try:
-        start_fn()
-    except ProtocolRunRefusedError:
-        on_refused()
+        return cast(text)
+    except ValueError:
+        put_back()
+        return None
+
+
+def _reported(fn: typing.Callable[[], object] | None, label: str) -> bool:
+    """Run *fn* and hand whatever it raises to the one reporter, as a person's request.
+
+    The reporting core both boundary forms share. A redraw goes through it
+    too, so a widget that fails to draw is reported as a fault rather than
+    exiting the app from a clock callback. True when *fn* returned.
+    """
+    return _contained(fn, label, solicited=True)
+
+
+def _contained(fn: typing.Callable[[], object] | None, label: str, *, solicited: bool) -> bool:
+    """The only place in the GUI that catches an outcome: run *fn*, report what it raises.
+
+    True when *fn* returned (or there was none), False when it raised.
+    """
+    if fn is None:
+        return True
+    from modules.notification_center import notifications
+
+    try:
+        fn()
+    except Exception as e:
+        notifications.report_outcome(e, solicited=solicited, category=f'UI:{label}')
+        return False
+    return True
 
 
 # ============================================================================
@@ -56,21 +243,33 @@ def run_with_refusal_boundary(
 # ============================================================================
 
 
-def live_display_callbacks() -> dict:
-    """The run callbacks that feed the live display, for every GUI run starter.
+def show_captured_frame(image, frames_summed: int, frame_significant_bits: int) -> None:
+    """Every GUI run's ``frame_captured``: hold the frame a run just captured on screen.
 
-    One key today: the hold that keeps a just-saved protocol frame on screen.
-    Late-bound on purpose -- the display is resolved when the writer calls,
-    not when the starter builds its dict -- so a run started before the
-    display exists degrades inside the writer's own guard, exactly as the
-    writer's former direct read did, in one place rather than at each
-    starter.
+    Rendered as a JPG save renders it -- a sum against one frame's white,
+    brighter -- on the run's thread, where the engine delivers the event, so
+    the display only uploads the result. The display is looked up when the
+    frame arrives, not when the run starts.
     """
-    return {
-        'hold_protocol_saved_image': lambda image, significant_bits: (
-            _app_ctx.ctx.scope_display.hold_protocol_saved_image(image, significant_bits)
-        ),
-    }
+    rendered = image_utils.convert_sum_to_8bit(image, frames_summed, frame_significant_bits)
+    _app_ctx.ctx.scope_display.hold_protocol_saved_image(rendered, 8)
+
+
+def restore_display_after_run(*_ended) -> None:
+    """Put the display back on the user's settings once a run has ended.
+
+    A run shows each step in the layer panel and in the shader's false
+    colour without writing the user's settings; this puts every layer's
+    widgets back on the settings and the shader back on the open drawer's
+    layer, or BF when none is open. Takes and ignores ``run_ended``'s values.
+    """
+    sync_layer_widgets_from_settings()
+    ctx = _app_ctx.ctx
+    layer_name = common_utils.get_opened_layer(ctx.image_settings)
+    if layer_name is not None:
+        ctx.image_settings.layer_lookup(layer=layer_name).update_shader(dt=0)
+        return
+    ctx.viewer.update_shader(false_color='BF')
 
 
 def set_last_save_folder(dir):
@@ -109,35 +308,8 @@ def find_nearest_step(x, y, protocol):
 
 
 # ============================================================================
-# LED / Illumination Helpers
-# ============================================================================
-
-# _handle_ui_for_leds_off and _handle_ui_for_led removed --
-# LED observer handles UI sync. See Phase 1 commit 96defe3.
-
-
-def scope_leds_off(no_callback: bool = False):
-    """Turn off all LEDs. UI sync is handled by the LED observer."""
-    ctx = _app_ctx.ctx
-    if ctx.session.run_lockout:
-        return
-
-    # LED observer handles UI button sync -- no manual callback needed.
-    # The no_callback parameter is kept for API compatibility but is now
-    # effectively always True (observer replaces the callback).
-    ctx.scope.illumination.leds_off_async()
-
-
-# ============================================================================
 # Protocol Step Navigation Helpers
 # ============================================================================
-
-
-def _update_step_number_callback(step_num: int):
-    ctx = _app_ctx.ctx
-    protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
-    protocol_settings.curr_step = step_num - 1
-    _schedule_ui(lambda dt: protocol_settings.update_step_ui(), 0)
 
 
 # ============================================================================
@@ -152,11 +324,12 @@ def _handle_ui_update_for_axis(axis: str, vertical_control: bool = False):
         ctx.motion_settings.ids['verticalcontrol_id'].update_gui(vertical_control=vertical_control)
     elif axis in ('X', 'Y', 'XY'):
         ctx.motion_settings.update_xy_stage_control_gui()
-
-
-def _handle_autofocus_ui(pos: float):
-    ctx = _app_ctx.ctx
-    ctx.motion_settings.ids['verticalcontrol_id'].update_autofocus_gui(pos=pos)
+    elif axis == 'ALL':
+        # A full home moves every axis the scope has, the turret included.
+        ctx.motion_settings.ids['verticalcontrol_id'].update_gui(vertical_control=vertical_control)
+        ctx.motion_settings.update_xy_stage_control_gui()
+        if ctx.scope.capabilities.has_turret:
+            ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state()
 
 
 def _user_motion_locked(axis: str) -> bool:
@@ -181,119 +354,181 @@ def _user_motion_locked(axis: str) -> bool:
     return True
 
 
-# Wrapper to move and update the UI position. `protocol=False` (UI
-# thread) dispatches via the API's async path. `protocol=True` runs on
-# protocol_thread -- a DIFFERENT thread from the io_executor worker --
-# so the move is queued through io_executor.protocol_put and awaited,
-# keeping it ordered behind the step's leds_off/led_on on the single
-# worker. A direct call would race them and leave the prior step's LED
-# lit through the move. Awaiting is deadlock-free: the caller is
-# protocol_thread, not the worker.
 def move_absolute(
     axis: str,
     position: float,
-    wait_until_complete: bool = False,
     overshoot_enabled: bool = True,
-    protocol: bool = False,
-    vertical_control: bool = False,
-    restore_z: bool = True,
+    frame: str = 'stage',
 ):
+    """Start an axis moving for a person's gesture, keeping the gesture lock in one place.
+
+    Started, not waited: a gesture returns at once, and a move that fails
+    on the way is the motion monitor's to report.
+
+    A turret slot goes to the turret widget, which asks the API to move and
+    then shows where the API says the turret is.
+
+    ``frame='plate'`` hands the API the number a user typed, in plate mm,
+    instead of converting first. The conversion and its bound then happen
+    inside the submitted call, on the IO lane, where the reporter shows a
+    refusal; the axis boxes redraw once the command has landed.
+    """
     ctx = _app_ctx.ctx
 
-    if not protocol and _user_motion_locked(axis):
+    if _user_motion_locked(axis):
         return
 
     if axis == 'T':
-        # Turret moves go through the GUI widget which manages homing and objective settings
-        if not protocol:
-            # wait_until_complete has to be honored here, not just accepted.
-            # Startup asks for it so the turret is in position before the
-            # first capture; submitting fire-and-forget returned control
-            # immediately and let the caller proceed mid-rotation.
-            waiter = ctx.io_executor.put(
-                IOTask(
-                    action=ctx.motion_settings.ids['verticalcontrol_id'].turret_select,
-                    kwargs={'selected_position': position},
-                    callback=_handle_ui_update_for_axis,
-                    cb_kwargs={'axis': axis, 'vertical_control': vertical_control},
-                ),
-                return_future=wait_until_complete,
-            )
-            # `waiter` only holds a waiter when wait_until_complete asked for
-            # one; otherwise it is the ENQUEUED sentinel, which has no
-            # .result(). The first conjunct is what keeps that unreachable, so
-            # it must stay ahead of the None check rather than be folded into it.
-            if wait_until_complete and waiter is not None:
-                waiter.result(timeout=_TURRET_MOVE_TIMEOUT_S)
-        else:
-            ctx.motion_settings.ids['verticalcontrol_id'].turret_select(
-                selected_position=position, protocol=True, restore_z=restore_z
-            )
-    else:
-        if not protocol:
-            ctx.scope.motion.move_absolute_async(
-                axis,
-                position,
-                wait_until_complete=wait_until_complete,
-                overshoot_enabled=overshoot_enabled,
-                callback=_handle_ui_update_for_axis,
-                cb_kwargs={'axis': axis},
-            )
-        else:
-            fut = ctx.io_executor.protocol_put(
-                IOTask(
-                    action=ctx.scope.motion._move_absolute_impl,
-                    kwargs={
-                        'axis': axis,
-                        'position': position,
-                        'wait_until_complete': wait_until_complete,
-                        'overshoot_enabled': overshoot_enabled,
-                    },
-                ),
-                return_future=True,
-            )
-            if fut:
-                fut.result(timeout=60)
-
-        _schedule_ui(lambda dt: _handle_ui_update_for_axis(axis=axis), 0)
-
-
-def move_relative(
-    axis: str, distance: float, wait_until_complete: bool = False, overshoot_enabled: bool = True
-):
-    if _user_motion_locked(axis):
+        ctx.motion_settings.ids['verticalcontrol_id'].turret_select(position)
         return
-    ctx = _app_ctx.ctx
-    ctx.scope.motion.move_relative_async(
-        axis,
-        distance,
-        wait_until_complete=wait_until_complete,
-        overshoot_enabled=overshoot_enabled,
-        callback=_handle_ui_update_for_axis,
-        cb_kwargs={'axis': axis},
+
+    submit_reported(
+        lambda: ctx.scope.motion.start_move_absolute(
+            axis,
+            position,
+            overshoot_enabled=overshoot_enabled,
+            frame=frame,
+        ),
+        lambda: _handle_ui_update_for_axis(axis=axis),
+        f'MOVE_{axis}',
+        lane=ctx.io_executor,
     )
 
 
-def move_home(axis: str, wait: bool = False):
-    """Home an axis. Returns whether it succeeded when ``wait`` is set.
+def move_relative(axis: str, distance: float, overshoot_enabled: bool = True):
+    """Start an axis jogging for a person's gesture; started, not waited, as ``move_absolute``."""
+    if _user_motion_locked(axis):
+        return
+    ctx = _app_ctx.ctx
+    submit_reported(
+        lambda: ctx.scope.motion.start_move_relative(
+            axis,
+            distance,
+            overshoot_enabled=overshoot_enabled,
+        ),
+        lambda: _handle_ui_update_for_axis(axis=axis),
+        f'JOG_{axis}',
+        lane=ctx.io_executor,
+    )
 
-    The UI buttons leave ``wait`` off: they run on the UI thread, and
-    blocking it for the length of a home would freeze the window. The
-    startup orchestration passes it, because it has to know whether the
-    reference frame is good before it drives anything else.
+
+def submit_gesture(
+    label: str,
+    *,
+    axes: typing.Iterable[str],
+    then: str,
+    moves: typing.Callable[[], None],
+    on_moved: typing.Callable[[], None] | None = None,
+) -> None:
+    """Run a person's several-axis gesture as one task on the IO lane.
+
+    The lane asks the motion API once whether every axis the gesture needs
+    knows where it is, then runs *moves*, whose members run inline there. A
+    home or a stop can no longer land between the question and the moves,
+    and a refusal is shown once by the reporter instead of once per axis.
+    A move refused part way leaves the axes that already moved where they
+    went.
+
+    Submits and returns; nothing here waits on the lane, so a caller that
+    is itself running inline on a lane may start a gesture.
+
+    Args:
+        label: The gesture, as the reporter and the executor name it.
+        axes: The axes the gesture moves. They are asked about, and redrawn
+            once the task has ended whatever its outcome. Empty when the
+            gesture moves nothing (the scope has no motor board).
+        then: What the user does once the scope knows its position, ending
+            the refusal the API shows.
+        moves: The API calls, all on the IO lane.
+        on_moved: GUI work that belongs to a gesture that happened, run on
+            the GUI thread after the redraw and only when *moves* returned.
+    """
+    axes = tuple(axes)
+
+    def call() -> None:
+        if axes:
+            _app_ctx.ctx.scope.motion.refuse_unknown_positions(axes, recording=False, then=then)
+        moves()
+
+    submit_move(label, axes=axes, call=call, on_moved=on_moved)
+
+
+def submit_move(
+    label: str,
+    *,
+    axes: typing.Iterable[str],
+    call: typing.Callable[[], None],
+    on_moved: typing.Callable[[], None] | None = None,
+) -> None:
+    """Run a person's move on the IO lane, redraw its axes, then its GUI work.
+
+    The lane half of ``submit_gesture``, for a move an API member composes
+    itself (asking about its axes included): the control-surface lock is
+    enforced here, *call* runs as one task on the IO lane, the axes are
+    redrawn once the task has ended whatever its outcome, and *on_moved*
+    runs on the GUI thread only when *call* returned. A gesture's moves are
+    started, never waited on, so the task holds the lane only for the
+    commands.
+    """
+    ctx = _app_ctx.ctx
+    axes = tuple(axes)
+    if _user_motion_locked(label):
+        return
+    # Written on the lane, read by the redraw, which submit_reported runs
+    # once after the task has ended: the one thing the redraw needs to know
+    # about the outcome the reporter has already shown.
+    moved = False
+
+    def moving() -> None:
+        nonlocal moved
+        call()
+        moved = True
+
+    def redraw() -> None:
+        _redraw_gesture_axes(axes)
+        if moved and on_moved is not None:
+            on_moved()
+
+    submit_reported(moving, redraw, label, lane=ctx.io_executor)
+
+
+def _redraw_gesture_axes(axes: tuple[str, ...]) -> None:
+    ctx = _app_ctx.ctx
+    vertical_control = ctx.motion_settings.ids['verticalcontrol_id']
+    if 'X' in axes or 'Y' in axes:
+        ctx.motion_settings.update_xy_stage_control_gui()
+    if 'Z' in axes:
+        vertical_control.update_gui()
+    if 'T' in axes:
+        # A person's turret move: after a failed one the objective question
+        # is asked again.
+        vertical_control.show_turret_state()
+
+
+def move_home(axis: str):
+    """Home an axis from a Home button, without blocking the UI thread.
+
+    The API starts the home and answers at once: a home asked while one is
+    in flight is refused then, and shown, rather than queued behind it. The
+    home's outcome is reported, and the axis redrawn, when it settles.
     """
     if _user_motion_locked(axis):
-        return False
+        return
     ctx = _app_ctx.ctx
-    axis = axis.upper()
-    set_title_event_text('Homing, please wait...')
-    if not wait:
-        ctx.scope.motion.move_home_async(axis, callback=move_home_cb, cb_args=(axis))
-        return None
-    try:
-        return ctx.scope.motion.move_home_and_wait(axis)
-    finally:
-        move_home_cb(axis)
+
+    def start() -> None:
+        ctx.scope.motion.start_home(axis).add_done_callback(
+            lambda done: _schedule_ui(lambda _dt: _home_settled(done, axis))
+        )
+        # Only a home that started says so; the settle clears it.
+        set_title_event_text('Homing, please wait...')
+
+    run_reported(start, None, f'HOME_{axis}')
+
+
+def _home_settled(done, axis: str) -> None:
+    """Read the settled home on the Kivy thread: its failure to the reporter, then the redraw."""
+    run_reported(done.result, lambda: move_home_cb(axis), f'HOME_{axis}')
 
 
 # ============================================================================
@@ -303,13 +538,35 @@ def move_home(axis: str, wait: bool = False):
 # Single-owner title bar:
 # - shader.py::_update_status_bar is the ONLY caller of Window.set_title().
 # - Other callers set the event-suffix via set_title_event_text() -- the next
-#   status-bar tick (~5 Hz) composes the final title with FPS + MB/s + suffix.
-# - This eliminates: (a) the FPS getting clobbered by event messages,
-#   (b) the LumaViewPro / Lumaview Pro spelling oscillation between tickers,
-#   (c) the ordering race where event messages briefly hide live FPS.
+#   status tick composes the title from the product name and the suffix; the
+#   live readouts are on the status line, not the title.
+# - This eliminates the LumaViewPro / Lumaview Pro spelling oscillation
+#   between tickers.
 # Canonical product spelling is `LumaViewPro` (matches the repo name).
 
 _title_event_text = None
+
+# A status-line readout is padded to the width of its largest value, so it
+# holds still as its value changes: the status line is drawn in Roboto, whose
+# digits, figure space and minus sign are all one width (a hyphen is not).
+# The window title is not used for readouts; the operating system draws it in
+# its own font, whose digits differ in width on macOS.
+FIGURE_SPACE = '\N{FIGURE SPACE}'
+MINUS = '\N{MINUS SIGN}'
+
+
+def fixed_number(value: float, *, whole_digits: int, decimals: int, signed: bool = False) -> str:
+    """A status-line readout padded to the width of its largest value.
+
+    ``whole_digits`` and ``decimals`` are the largest value's; ``signed``
+    keeps a slot for a minus sign. A value larger than its width is shown
+    whole, never cut.
+    """
+    width = whole_digits + (1 + decimals if decimals else 0) + (1 if signed else 0)
+    digits = f'{abs(value):.{decimals}f}'
+    sign = MINUS if signed and value < 0 and float(digits) != 0 else ''
+    text = sign + digits
+    return FIGURE_SPACE * max(0, width - len(text)) + text
 
 
 def get_title_event_text():
@@ -317,29 +574,37 @@ def get_title_event_text():
 
 
 def set_title_event_text(text):
-    """Set the suffix shown after the FPS/MB/s portion of the window title.
+    """Set the suffix shown after the product name in the window title.
     Pass None or '' to clear. Safe to call from any thread (single attribute
     write on a module-level CPython str/None -- atomic under GIL)."""
     global _title_event_text
     _title_event_text = text or None
+    gui_logger.display('TITLE_EVENT', _title_event_text)
 
 
-# Should only be called from main thread
-def set_recording_title(elapsed_sec=None, total_sec=None):
-    if elapsed_sec is None:
-        set_title_event_text('Recording Video...')
-    elif total_sec:
-        set_title_event_text(f'Recording Video... {int(elapsed_sec)}s / {int(total_sec)}s')
+# The suffix the last video progress wrote, so its 'ended' clears only its
+# own text: the slot also holds homing, compositing and file-drain text.
+_video_progress_text = None
+
+
+def show_video_progress(progress) -> None:
+    """Every GUI run's ``video_progress``: say in the title what a video step is doing.
+
+    On the UI thread. ``'ended'`` clears the suffix only while it still holds
+    the text this wrote; anything another writer has put there since stays.
+    """
+    global _video_progress_text
+    if progress.phase == 'ended':
+        if get_title_event_text() == _video_progress_text:
+            set_title_event_text(None)
+        _video_progress_text = None
+        return
+    if progress.phase == 'recording':
+        text = f'Recording Video... {int(progress.elapsed_s)}s / {int(progress.total_s)}s'
     else:
-        set_title_event_text(f'Recording Video... {int(elapsed_sec)}s')
-
-
-# Should only be called from main thread
-def set_writing_title(progress=None):
-    if progress is None:
-        set_title_event_text('Writing Video...')
-    else:
-        set_title_event_text(f'Writing Video... {int(progress)}%')
+        text = f'Writing Video... {int(progress.percent)}%'
+    _video_progress_text = text
+    set_title_event_text(text)
 
 
 def reset_title():
@@ -370,51 +635,45 @@ def live_histo_reverse():
         logger.info('[LVP Main  ] Live Histogram Equalization] True')
 
 
-_text_input_debounce_timers: dict = {}
-_TEXT_INPUT_DEBOUNCE_S: float = 1.5
+_DRAIN_TITLE = 'Writing protocol scan files to disk...'
 
 
-def text_input_debounced(name: str, value: object, delay_s: float = _TEXT_INPUT_DEBOUNCE_S) -> None:
-    """Log a text field's value once the user has stopped typing.
+def draw_shared_run_displays() -> None:
+    """Draw the displays every run shares -- equalization, title, LED toggles.
 
-    Each call cancels the previous pending log for ``name`` and schedules a
-    fresh one ``delay_s`` out, so a burst of calls collapses to one log line
-    carrying the settled value.
+    Their only writer. Each run control redraws on every run-state edge,
+    including the edge where ANOTHER run takes the scope, so a control
+    that wrote these while drawing its own idle state would undo the live
+    run's display. These are drawn from what the session says holds the
+    scope, never from any one control's run.
 
-    The burst it exists for is NOT per-character typing: the text fields that
-    use it commit on enter and on focus loss, and a single edit fires both, so
-    an undebounced log would record the same value twice. A field that also
-    commits per keystroke (the protocol period and duration now do, so the
-    settings store tracks what is on screen) sends a longer burst through the
-    same collapse, which is why the debounce is the right shape either way.
-
-    Lives here rather than beside the other gui_interactions entries because
-    the debounce needs the Kivy Clock and modules/ carries no GUI imports.
+    While anything holds the scope its own writers title the window, so
+    the title is left to them; the LED toggles are reconciled only once
+    nothing holds the scope, after the run's hardware restore has settled
+    and with no diagnostic lighting the LEDs underneath them.
     """
-    # The app's own write coming back around, not something the user typed.
-    # Checked HERE rather than at the emitter, because the cancel below would
-    # already have destroyed the pending typed line by the time it emits.
-    if gui_logger.consume_write_back(name, value):
+    ctx = _app_ctx.ctx
+    session = ctx.session
+    if session.run_lockout:
+        live_histo_off()
+    else:
+        live_histo_reverse()
+    if session.exclusive_activity is not None:
         return
+    if session.protocol_files_draining:
+        set_title_event_text(_DRAIN_TITLE)
+    else:
+        reset_title()
+    ctx.ui_listener_bridge.reconcile_led_buttons()
 
-    existing = _text_input_debounce_timers.pop(name, None)
-    if existing is not None:
-        try:
-            existing.cancel()
-        except Exception:
-            # A timer that already fired cannot be cancelled; the emit has
-            # happened and popping it above is all the cleanup there is.
-            pass
 
-    def _emit(_dt):
-        _text_input_debounce_timers.pop(name, None)
-        # A declaration nobody echoed (a click-away commit fires the handler
-        # once) must not outlive this line, or it would swallow a later real
-        # entry of the same value.
-        gui_logger.consume_write_back(name, value)
-        gui_logger.text_input(name, value)
+def homing_banner_shown(session) -> bool:
+    """Whether the middle of the window shows the homing banner: while a home holds the scope.
 
-    _text_input_debounce_timers[name] = Clock.schedule_once(_emit, delay_s)
+    A home only: a run shows its own progress, and a banner over the live
+    view would hide the images it captures.
+    """
+    return session.exclusive_activity == 'home'
 
 
 # ============================================================================
@@ -439,12 +698,12 @@ def reset_acquire_ui():
 
 
 def reset_stim_ui():
+    # Display only: a loaded protocol's stimulation was turned off by the
+    # Session (``ScopeSession.apply_layer_settings``), which writes it.
     ctx = _app_ctx.ctx
     for layer in common_utils.get_layers():
         layer_obj = ctx.image_settings.layer_lookup(layer=layer)
         if 'stim_config' in ctx.settings[layer] and ctx.settings[layer]['stim_config'] is not None:
-            with ctx.settings_lock:
-                ctx.settings[layer]['stim_config']['enabled'] = False
             layer_obj._initializing = True
             try:
                 layer_obj.ids['stim_disable_btn'].active = True
@@ -456,6 +715,64 @@ def reset_stim_ui():
 # ============================================================================
 # ScrollView Memory Cleanup
 # ============================================================================
+
+
+class LoggedAccordionItem(AccordionItem):
+    """An accordion item that records a person opening it.
+
+    Kivy expands a collapsed item in one place, its touch handler; the app's
+    own expands (start-up, a step's layer, a model swap, a resort) write
+    ``collapse`` directly and never pass through it. So the record is written
+    here, before the expand and whatever it causes, and only for a person.
+    ``on_collapse`` cannot carry it: it fires for both and does not say which.
+
+    Every item sets both names in the kv; the GUI-logging census refuses an
+    item that does not (tests/gui_logging_census.py).
+    """
+
+    log_group = StringProperty('')
+    log_item = StringProperty('')
+
+    def on_touch_down(self, touch):
+        if self.collapse and not self.disabled and self.collide_point(*touch.pos):
+            gui_logger.select(self.log_group, self.log_item)
+        return super().on_touch_down(touch)
+
+
+def resort_accordion(accordion, items: typing.Sequence[tuple[object | None, bool]]) -> None:
+    """Put an accordion's items back in canonical order, the one way both panels do it.
+
+    A live scope-model switch re-adds an item that was hidden, and add_widget
+    lands it wherever it lands; after a few switches the order is wrong. This
+    takes every child out and adds back, in *items* order, each widget whose
+    flag says it is shown, then any child *items* does not name (a plugin's
+    tab, registered after the kv build) below them, in the order they had.
+
+    Kivy renders children[0] last, at the bottom, and add_widget with no
+    index prepends, so walking *items* forward puts the first at the top.
+    Items are matched by ``uid``: ``ids.get`` returns a WeakProxy whose
+    Python id is not the widget's. An item's open or closed state lives on
+    the widget, so taking it out and adding it back keeps it.
+
+    Args:
+        accordion: The Accordion whose children are reordered.
+        items: (widget, shown) pairs in canonical order, top first. A widget
+            that is None, or not shown, is left out.
+    """
+    tracked = {widget.uid for widget, _shown in items if widget is not None}
+    untracked = [w for w in reversed(accordion.children) if w.uid not in tracked]
+    for widget in list(accordion.children):
+        accordion.remove_widget(widget)
+    for widget, shown in items:
+        if widget is None or not shown:
+            continue
+        # A shown item still attached elsewhere is detached first: add_widget
+        # refuses a widget that has a parent.
+        if widget.parent is not None:
+            widget.parent.remove_widget(widget)
+        accordion.add_widget(widget)
+    for widget in untracked:
+        accordion.add_widget(widget, 0)
 
 
 def cleanup_scrollview_viewport(scrollview):

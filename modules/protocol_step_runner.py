@@ -24,7 +24,13 @@ from lvp_logger import logger
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 import modules.image_mode as image_mode
-from modules.exceptions import AutofocusAborted
+from modules.exceptions import (
+    AutofocusAborted,
+    AxisStateUnknownError,
+    CameraSettingRejected,
+    HardwareCommandRefusedError,
+    MotorStopFailedError,
+)
 from modules.lumascope_api.illumination import (
     FIRE_AND_FORGET_TRANSITIONS,
     LedEndPolicy,
@@ -32,13 +38,13 @@ from modules.lumascope_api.illumination import (
     LedTransitionCtx,
     resolve_end_state,
 )
-from modules.protocol_state_machine import ProtocolState
+from modules.notification_center import notifications
 from modules.sequential_io_executor import IOTask, PROTOCOL_ENQUEUED
 
 if TYPE_CHECKING:
     from modules.sequenced_capture_runner import SequencedCaptureRunner
 
-from modules.kivy_utils import schedule_ui as _schedule_ui
+from modules.run_events import deliver
 
 
 class ProtocolStepRunner:
@@ -107,7 +113,7 @@ class ProtocolStepRunner:
         # the next step waiting for it. Frames are already captured and queued.
         if not p._scan_in_progress.is_set():
             return
-        if not p._run_in_progress_event.is_set():
+        if not p._is_run_live():
             return
         if p._af_future is not None and not p._af_future.done():
             return
@@ -124,11 +130,13 @@ class ProtocolStepRunner:
             # The autofocus thread is the sole owner of recording the fault with
             # a full traceback: it logs every non-abort exception before setting
             # it on the future, but at that altitude it has no idea which protocol
-            # step or well the run belonged to. AFE has restored a usable Z, so an
-            # AF fault mid-protocol is non-fatal -- the step still captures here at
-            # that fallback Z and the run continues (no halt, no modal). That
-            # fallback capture may be out of focus, so emit one step-correlated
-            # warning that ties a possibly-blurry frame back to its step and well.
+            # step or well the run belonged to. When AFE restored its pre-sweep Z,
+            # an AF fault mid-protocol is non-fatal -- the step still captures at
+            # that fallback Z and the run continues (no halt, no modal). When the
+            # restore itself failed, Z is unknown, and the position check before
+            # the capture ends the run instead. A fallback capture may be out of
+            # focus, so emit one step-correlated warning that ties a
+            # possibly-blurry frame back to its step and well.
             # It is complementary to the AF thread's traceback (which it does not
             # repeat), and the one-shot latch keeps it to a single line per fault
             # rather than one per ~1 kHz settle poll. An intentional abort is not a
@@ -151,7 +159,7 @@ class ProtocolStepRunner:
                 f'camera_gain={_cam_gain} camera_exp={_cam_exp} step={p._curr_step}'
             )
 
-        remaining_scans = p.remaining_scans()
+        remaining_scans = p._remaining_scans()
         if remaining_scans <= 0:
             return
 
@@ -168,22 +176,29 @@ class ProtocolStepRunner:
                     f'({p.MOTION_TIMEOUT_SECONDS}s).'
                 )
                 logger.error(f'[PROTOCOL] {timeout_msg} -- transitioning to ERROR state')
-                from modules.notification_center import notifications
 
                 # The timed-out move is still in flight. Halt the motor before
                 # erroring out so it stops driving toward the unreachable target
                 # rather than latching against a limit. Idempotent + no-ops on
-                # field firmware without a STOP command.
-                p._scope.motion.stop_motion()
-
-                notifications.error(
-                    'Protocol', 'Protocol Error -- Motion Timeout', timeout_msg, fatal=True
-                )
-                p._scan_in_progress.clear()
+                # field firmware without a STOP command. A STOP that failed is
+                # logged once and folded into the run's one fatal popup: the
+                # power-cycle advice has to reach the person, and the run
+                # must still reach ERROR. Asked first: a controller lost
+                # mid-run has nothing to stop, and its refusal would skip both.
                 try:
-                    p._set_state(ProtocolState.ERROR)
-                except ValueError:
-                    pass
+                    if p._scope.motor_connected:
+                        p._scope.motion.stop_motion()
+                except MotorStopFailedError as e:
+                    notifications.report_outcome(
+                        e, solicited=False, category='Protocol', log_only=True
+                    )
+                    timeout_msg = f'{timeout_msg} {e}'
+
+                p._scan_in_progress.clear()
+                # The ERROR state is written before the funnel darkens the
+                # sample and notifies, so a raise from the funnel cannot cost
+                # this site the state that stops the loop re-entering.
+                p.end_run_fatally('motion_timeout', 'Protocol Error -- Motion Timeout', timeout_msg)
             return
         p._motion_wait_start = None
 
@@ -212,15 +227,6 @@ class ProtocolStepRunner:
             else bool(step.get('Auto_Focus'))
         )
 
-        # AF already pushed the Z UI to best_focus_position; do not
-        # overwrite with the pre-AF step['Z']. AFE.complete() being
-        # True at this point means the most recent AF run finished
-        # with a result that AFE has already scheduled to the UI.
-        if wants_af and p._autofocus_runner.complete():
-            pass
-        elif p._z_ui_update_func is not None:
-            _schedule_ui(lambda dt: p._z_ui_update_func(float(step['Z'])))
-
         # --- Pipeline timing instrumentation ---
         _t_settle = time.monotonic()
         _settle_wait_ms = (_t_settle - p._step_start_time) * 1000
@@ -242,7 +248,7 @@ class ProtocolStepRunner:
             and step['Color'] != 'BF'
             and p._autofocus_runner.best_focus_position() is not None
         ):
-            if p._update_z_pos_from_autofocus:
+            if p._write_focus_to is not None:
                 new_z_pos = p._autofocus_runner.best_focus_position()
                 p._protocol.modify_step_z_height(step_idx=p._curr_step, z=new_z_pos)
             logger.info(
@@ -253,13 +259,6 @@ class ProtocolStepRunner:
             wants_af = False
 
         if wants_af and p._af_future is None:
-            if p._callbacks.autofocus_in_progress:
-                _schedule_ui(lambda dt: p._callbacks.autofocus_in_progress(), 0)
-
-            af_executor_callbacks = {}
-            if p._callbacks.move_position:
-                af_executor_callbacks['move_position'] = p._callbacks.move_position
-
             if p._aborted.is_set() or not p._scan_in_progress.is_set():
                 return
 
@@ -267,8 +266,8 @@ class ProtocolStepRunner:
                 objective_id=step['Objective'],
                 save_results_to_file=p._save_autofocus_data,
                 results_dir=p._parent_dir,
-                run_trigger_source=p._run_trigger_source,
-                callbacks=af_executor_callbacks,
+                write_batch=p._write_batch,
+                run=p._run_identity,
                 led_color=step['Color'],
                 led_illumination=step['Illumination'],
                 camera_gain=step['Gain'],
@@ -279,8 +278,7 @@ class ProtocolStepRunner:
                 # capture inherits the LED state already established.
                 keep_led_on=True,
                 # AF runs inside this protocol step, which holds the LED
-                # lease; hand it over so AF nests as a child rather than
-                # contending for a fresh top-level lease.
+                # lease; AF drives the LEDs through a child of it.
                 led_lease=p._led_lease,
             )
             return
@@ -323,8 +321,6 @@ class ProtocolStepRunner:
                 placed_z = float(p._protocol.step(idx=p._curr_step)['Z'])
                 self._move_axis_through_io('Z', placed_z)
                 p._focus_placed_step = p._curr_step
-                if p._callbacks.move_position:
-                    _schedule_ui(lambda dt: p._callbacks.move_position('Z'), 0)
                 # Let the next poll's motion gate settle the stage before the
                 # capture. That poll also re-reads the step row, so the frame
                 # this slice is saved with carries the placed Z.
@@ -351,47 +347,48 @@ class ProtocolStepRunner:
             p._autogain_settings['min_exposure_ms'] = config_helpers.get_ag_ae_min_exposure_ms(
                 step['Color']
             )
-            fut = p._io_executor.protocol_put(
-                IOTask(
-                    # Run-internal machinery binds the impl per the
-                    # dispatch contract: the public member is the
-                    # external-caller surface (SDK/REST), and internal
-                    # callers already inside the run's serialization
-                    # use the body directly.
-                    action=p._scope.imaging._apply_layer_camera_settings_impl,
-                    kwargs={
-                        'layer': step['Color'],
-                        'gain_db': step['Gain'],
-                        'exposure_ms': step['Exposure'],
-                        'auto_gain': True,
-                        'auto_gain_settings': p._autogain_settings,
-                        # A step's arm is unattended: the capture that locks
-                        # it records the state and moves on -- no notice, no
-                        # re-arm (the step-end disarm below is the only Off
-                        # this path needs). Left at the live-view default,
-                        # every protocol capture re-armed and popped a notice.
-                        'resume_after_capture': False,
-                    },
-                ),
-                return_future=True,
-            )
-            if fut:
-                fut.result(timeout=30)
+            try:
+                p._scope.imaging.apply_layer_camera_settings(
+                    layer=step['Color'],
+                    gain_db=step['Gain'],
+                    exposure_ms=step['Exposure'],
+                    auto_gain=True,
+                    auto_gain_settings=p._autogain_settings,
+                    # A step's arm is unattended: the capture that locks it
+                    # records the state and moves on -- no notice, no re-arm
+                    # (the step-end disarm below is the only Off this path
+                    # needs). Left at the live-view default, every protocol
+                    # capture re-armed and popped a notice.
+                    resume_after_capture=False,
+                )
+            except CameraSettingRejected as rejected:
+                # The apply ran every write before raising, so auto-gain is
+                # armed and the step goes on at the value the camera holds;
+                # the refusal ends its flight here.
+                notifications.report_outcome(rejected, solicited=False, category='Camera')
             p._auto_gain_armed_step = p._curr_step
             # Return after arming; the next tick falls through to capture, where
             # the auto_gain settle drain runs against the now-lit scene.
             return
+
+        # The step commits from here on: its autofocus result is written into
+        # the protocol and its frame is saved with this position. Neither may
+        # happen where an axis position is not known -- the image would carry
+        # a position that is not true. Asked here, once, rather than at each
+        # path that can lose a position on the way (a failed autofocus
+        # restore reaches this point without raising). The raise ends the run
+        # through the run loop's classification.
+        lost_axes = p._scope.motion.axes_without_position()
+        if lost_axes:
+            raise AxisStateUnknownError(lost_axes)
 
         # Update Z position with autofocus results
         if wants_af:
             new_z_pos = p._autofocus_runner.best_focus_position()
             if new_z_pos is None:
                 logger.warning('[Capture   ] Autofocus returned no position -- keeping current Z')
-            elif zstack_focus_anchor is None and p._update_z_pos_from_autofocus:
+            elif zstack_focus_anchor is None and p._write_focus_to is not None:
                 p._protocol.modify_step_z_height(step_idx=p._curr_step, z=new_z_pos)
-
-        if p._callbacks.autofocus_complete:
-            _schedule_ui(lambda dt: p._callbacks.autofocus_complete(), 0)
 
         if wants_af:
             p._autofocus_count += 1
@@ -437,7 +434,7 @@ class ProtocolStepRunner:
                         and step['Z-Stack Group ID'] != -1
                         and next_step['Z-Stack Group ID'] == step['Z-Stack Group ID']
                     )
-                elif p.remaining_scans() <= 1:
+                elif p._remaining_scans() <= 1:
                     # Final step of the final scan -- the run-end boundary. The
                     # authority holds this channel only if the run-end target
                     # re-lights it, so the boundary off plus the restore a few
@@ -447,7 +444,7 @@ class ProtocolStepRunner:
                     # cannot disagree about what run-end will light.
                     is_run_end_boundary = True
                     resolved_policy, snapshot_lit = resolve_end_state(
-                        p._leds_state_at_end,
+                        p._run_mode.leds_state_at_end,
                         getattr(p, '_original_led_states', None),
                         p._scope.illumination.state_color2ch,
                     )
@@ -522,28 +519,13 @@ class ProtocolStepRunner:
                 # No saving -- turn off LEDs manually (capture normally does this)
                 self.leds_off()
 
-        # Disable autogain when moving between steps. Run-internal
-        # machinery binds the impl, as the arm above does: the public
-        # member is a dispatcher that refuses work while a run holds the
-        # camera lane, and a refusal here raised out of the step, was
-        # classified transient, and retried the whole scan.
+        # Disable autogain when moving between steps. A refused disarm is
+        # reported and the run goes on: the next step writes its own values.
         if step['Auto_Gain']:
-            fut = p._io_executor.protocol_put(
-                IOTask(
-                    action=p._scope.imaging._set_auto_gain_impl,
-                    kwargs={
-                        'state': False,
-                        'settings': p._autogain_settings,
-                    },
-                ),
-                return_future=True,
-            )
-            if fut:
-                # 30s window: leaves headroom under Pylon USB3 stress where
-                # a single io_executor task can stretch past 5s without
-                # being a real failure. Cluster with leds_off / led_on
-                # below and restore_camera_state in protocol_cleanup.
-                fut.result(timeout=30)
+            try:
+                p._scope.imaging.set_auto_gain(False, p._autogain_settings)
+            except CameraSettingRejected as rejected:
+                notifications.report_outcome(rejected, solicited=False, category='Camera')
 
         logger.debug(
             f'[TIMING] Step {p._curr_step} total: {(time.monotonic() - p._step_start_time) * 1000:.1f}ms'
@@ -558,8 +540,6 @@ class ProtocolStepRunner:
                 # step starts a fresh AF run whose outcome must be consumed anew.
                 p._af_result_consumed = False
 
-            if p._callbacks.update_step_number:
-                _schedule_ui(lambda dt: p._callbacks.update_step_number(p._curr_step + 1), 0)
             self.go_to_step(step_idx=p._curr_step)
             return
 
@@ -574,7 +554,9 @@ class ProtocolStepRunner:
     # Motion
     # ------------------------------------------------------------------
 
-    def default_move(self, px=None, py=None, z=None):
+    def default_move(
+        self, px: float | None = None, py: float | None = None, z: float | None = None
+    ) -> None:
         """Move to plate coordinates, converting to stage coordinates.
 
         Each axis move is submitted through ``io_executor.protocol_put``
@@ -586,78 +568,70 @@ class ProtocolStepRunner:
         sliders, manual moves) mid-step.
         """
         p = self._p
-        labware = p._wellplate_loader.get_plate(plate_key=p._protocol.labware())
+        # Through the one conversion a step move takes, so only the axes this
+        # scope has are driven; against the plate the PROTOCOL stores, not
+        # the one the session has selected -- a run images the plate it was
+        # written for even if the operator has since picked a different
+        # one -- and with the offset this run started with.
+        sx, sy, sz = p._scope.protocols.stage_targets(
+            p._protocol, px, py, z, stage_offset=p._stage_offset
+        )
+        self._move_to_stage(sx, sy, sz)
 
-        if (px is not None) and (py is not None):
-            sx, sy = p._coordinate_transformer.plate_to_stage(
-                labware=labware,
-                stage_offset=p._stage_offset,
-                px=px,
-                py=py,
-            )
-
+    def _move_to_stage(self, sx: float | None, sy: float | None, z: float | None) -> None:
+        """Move each given axis to its stage target, X then Y then Z, and record it."""
+        p = self._p
+        if sx is not None and sy is not None:
             self._move_axis_through_io('X', sx)
             p._target_x_pos = sx
-            if p._callbacks.move_position:
-                _schedule_ui(lambda dt: p._callbacks.move_position('X'), 0)
 
             self._move_axis_through_io('Y', sy)
             p._target_y_pos = sy
-            if p._callbacks.move_position:
-                _schedule_ui(lambda dt: p._callbacks.move_position('Y'), 0)
 
-            if z is not None:
-                self._move_axis_through_io('Z', z)
-                p._target_z_pos = z
-                if p._callbacks.move_position:
-                    _schedule_ui(lambda dt: p._callbacks.move_position('Z'), 0)
+        # Z does not depend on X/Y: a step whose plate position is unknown
+        # still has a focus, and its image records that Z.
+        if z is not None:
+            self._move_axis_through_io('Z', z)
+            p._target_z_pos = z
 
     def _move_axis_through_io(self, axis: str, position):
-        """Submit a single-axis move to io_executor and wait for completion.
+        """Start a single-axis move on the io lane and wait for the command, not the arrival.
 
-        Used by ``default_move``, which runs on PROTOCOL_WORKER, to keep
-        motor writes off that thread. Falls back to a direct call if the
-        executor isn't available (early init / standalone tests).
-
-        Only a caller OFF the io worker may use this: the io worker cannot
-        reach a task queued behind the one it is running, so enqueue-and-
-        wait from the worker itself can never complete -- code already on
-        the worker (the grease routine) calls the move body directly.
+        The public member, under the run's taking: it goes through the run's
+        door on the lane, and a refusal raises rather than letting the step
+        capture wherever the last move left the stage. X, Y and Z are started
+        one after another and travel together; the run's tick waits for them
+        by polling ``is_moving``.
         """
-        p = self._p
-        kwargs = {
-            'axis': axis,
-            'position': position,
-            'wait_until_complete': False,
-        }
-        if p._io_executor is None:
-            p._scope.motion._move_absolute_impl(**kwargs)
-            return
-        fut = p._io_executor.protocol_put(
-            IOTask(action=p._scope.motion._move_absolute_impl, kwargs=kwargs),
-            return_future=True,
-        )
-        if fut:
-            fut.result(timeout=60.0)
+        self._p._scope.motion.start_move_absolute(axis, position)
 
-    def go_to_step(self, step_idx: int):
+    def _move_turret_through_io(self, slot: int) -> None:
+        """Turn the turret to ``slot`` on the io lane and wait for it.
+
+        Z is not restored after the turret's safety park: the step's own Z
+        move follows at once and would overwrite it.
+        """
+        self._p._scope.motion.move_turret(slot, restore_z=False)
+
+    def go_to_step(self, step_idx: int) -> None:
         """Move to the position for a given protocol step."""
         p = self._p
         p._step_start_time = time.monotonic()
         p._motion_wait_start = None
         if p._aborted.is_set():
             return
+        deliver(p._events.step_started, 'step_started', step_idx)
 
-        if p._callbacks.go_to_step:
-            p._callbacks.go_to_step(
-                protocol=p._protocol,
-                step_idx=step_idx,
-                include_move=True,
-                ignore_auto_gain=True,
-            )
-        else:
-            step = p._protocol.step(idx=step_idx)
-            self.default_move(px=step['X'], py=step['Y'], z=step['Z'])
+        # The targets a person's navigation to this step computes too, with
+        # the offset this run started with.
+        targets = p._scope.protocols.step_targets(
+            p._protocol, step_idx, stage_offset=p._stage_offset
+        )
+        # The run turns the turret itself, on every host: a step's captures
+        # are only of its objective if that objective is in the light path.
+        if targets.turret_slot is not None:
+            self._move_turret_through_io(targets.turret_slot)
+        self._move_to_stage(targets.x, targets.y, targets.z)
 
     # ------------------------------------------------------------------
     # Grease redistribution
@@ -689,25 +663,12 @@ class ProtocolStepRunner:
             # get_current_position is a cache read (a zero-serial-IO accessor);
             # safe to call directly from any thread that needs the live z position.
             z_orig = p._scope.motion.get_current_position(axis=axis)
-            # This routine already RUNS on the io worker, so the moves run
-            # inline: enqueueing them back onto the single worker and waiting
-            # could never complete -- the worker cannot reach a task queued
-            # behind the one it is running, so the wait always expired, the
-            # queued Z->0 then ran out of band on unwind, and the restore to
-            # z_orig never enqueued at all.
-            p._scope.motion._move_absolute_impl(
-                axis, 0, wait_until_complete=True, overshoot_enabled=True
-            )
+            # This routine RUNS on the io worker, so the lane runs these moves
+            # inline there: enqueueing them back onto the single worker and
+            # waiting could never complete.
+            p._scope.motion.move_absolute(axis, 0, overshoot_enabled=True)
 
-            if p._callbacks.move_position:
-                _schedule_ui(lambda dt, a=axis: p._callbacks.move_position(a))
-
-            p._scope.motion._move_absolute_impl(
-                axis, z_orig, wait_until_complete=True, overshoot_enabled=True
-            )
-
-            if p._callbacks.move_position:
-                _schedule_ui(lambda dt, a=axis: p._callbacks.move_position(a))
+            p._scope.motion.move_absolute(axis, z_orig, overshoot_enabled=True)
 
             elapsed = time.monotonic() - _t_start
             if elapsed > 30:
@@ -729,23 +690,19 @@ class ProtocolStepRunner:
     # LED control
     # ------------------------------------------------------------------
 
-    def leds_off(self):
-        """Turn all LEDs off via the IO executor.
+    def leds_off(self) -> None:
+        """Turn all LEDs off on the io lane; if the lane refuses, off regardless.
 
-        UI update is handled by the LED observer -- no manual callback needed.
+        A darken never waits for permission: a refused one would leave the
+        sample lit, so it falls to the lease-bypassing safety off. UI update
+        is handled by the LED observer -- no manual callback needed.
         """
         p = self._p
-        fut = p._io_executor.protocol_put(
-            IOTask(action=p._scope.illumination._leds_off_impl), return_future=True
-        )
-        if fut:
-            fut.result(timeout=30)
-        else:
-            try:
-                p._scope.illumination._leds_off_impl()
-            except Exception as ex:
-                logger.warning(f'[{p.LOGGER_NAME}] Direct leds_off fallback failed: {ex}')
-        # LED observer handles UI sync -- no manual callback
+        try:
+            p._scope.illumination.leds_off()
+        except HardwareCommandRefusedError as refused:
+            logger.warning(f'[{p.LOGGER_NAME}] leds_off refused ({refused}); forcing all off')
+            p._scope.illumination.force_off()
 
     def apply_led_transition(self, transition: LedTransition, ctx: LedTransitionCtx) -> None:
         """Drive an LED lifecycle transition through the run's LED authority.
@@ -800,7 +757,9 @@ class ProtocolStepRunner:
         board reports the channel on; the short settle after covers the board's
         on-to-stable lag before the grab. A same-color step that kept its channel
         lit is left untouched (the diff self-skips), so consecutive z-slices do
-        not blink off->on.
+        not blink off->on. With no LED controller connected the light is
+        refused (``not_connected``) and the refusal ends the run as a
+        disconnect, before the step's frame is grabbed.
         """
         p = self._p
         if p._aborted.is_set():
@@ -808,19 +767,11 @@ class ProtocolStepRunner:
             # abort path is turning the LEDs off, and a stray on here flashes
             # the sample at cancel time.
             return
-        if not p._scope.led_connected:
-            # A disconnected LED board makes every step grab a dark frame; say so
-            # at the capture point so a black-frame run is diagnosable.
-            logger.warning(
-                '[Capture   ] LED controller not available; step channel not illuminated.'
-            )
-            return
         channel = p._scope.illumination.color2ch(step['Color'])
         if channel is None and step['Color'] in common_utils.get_layers_with_led():
-            # The board is connected (checked above) and the layer is one
-            # that drives an LED, so an unresolvable name here means this
-            # unit's identity has no such layer: the step will capture
-            # dark, deterministically, every scan. Say so per step -- a
+            # The layer is one that drives an LED, so an unresolvable name
+            # here means this unit's identity has no such layer: the step
+            # will capture dark, deterministically, every scan. Say so per step -- a
             # run in progress gets logs, not popups -- rather than let
             # the frames come back dark with no named cause.
             logger.error(

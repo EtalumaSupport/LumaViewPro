@@ -3,7 +3,6 @@ import logging
 
 from kivy.clock import Clock
 from kivy.metrics import dp
-from kivy.uix.accordion import AccordionItem
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.scrollview import ScrollView
 
@@ -15,6 +14,7 @@ from modules.config_ui_getters import (
     get_layer_exposure_slider_max,
     get_layer_illumination_slider_max,
 )
+from ui.ui_helpers import LoggedAccordionItem, resort_accordion
 
 logger = logging.getLogger('LVP.ui.image_settings')
 
@@ -24,7 +24,7 @@ logger = logging.getLogger('LVP.ui.image_settings')
 # ============================================================================
 
 
-class AccordionItemXyStageControl(AccordionItem):
+class AccordionItemXyStageControl(LoggedAccordionItem):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
@@ -32,7 +32,7 @@ class AccordionItemXyStageControl(AccordionItem):
         self.ids['xy_stagecontrol_id'].update_gui(full_redraw=full_redraw)
 
 
-class AccordionItemImageSettingsBase(AccordionItem):
+class AccordionItemImageSettingsBase(LoggedAccordionItem):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
@@ -92,8 +92,7 @@ class ImageSettings(BoxLayout):
     # reconcile belongs to genuine USER drawer clicks. A PROGRAMMATIC
     # expansion (manual step navigation) owns its entire LED + camera
     # outcome through the LED authority, so while this is True the
-    # reconcile defers to that owner. Same flag idiom as
-    # LayerControl._suppressing_led_log.
+    # reconcile defers to that owner.
     _suppress_reconcile_for_programmatic_expand = False
 
     def __init__(self, **kwargs):
@@ -167,7 +166,8 @@ class ImageSettings(BoxLayout):
         if _app_ctx.ctx.session.run_lockout:
             return
 
-        gui_logger.select('IMAGE_LAYER', layer)
+        # No gui_logger record: this is the app's expand, not a person's.
+        # A person's is recorded by LoggedAccordionItem.on_touch_down.
 
         # Ordering invariant: the guard is set BEFORE the mutation loop
         # (the collapse events it fires prime the reconcile trigger) and
@@ -223,9 +223,7 @@ class ImageSettings(BoxLayout):
             self._resort_accordion()
 
     def _hide_lumi_layer_control(self):
-        settings = _app_ctx.ctx.settings
-        if settings:
-            settings['Lumi']['acquire'] = None
+        _app_ctx.ctx.session.set_layer_acquire('Lumi', None)
         if self._accordion_item_lumi_control_visible:
             self._accordion_item_lumi_control.collapse = True
             self._accordion_item_lumi_control_visible = False
@@ -244,9 +242,7 @@ class ImageSettings(BoxLayout):
             self._resort_accordion()
 
     def _hide_df_layer_control(self):
-        settings = _app_ctx.ctx.settings
-        if settings:
-            settings['DF']['acquire'] = None
+        _app_ctx.ctx.session.set_layer_acquire('DF', None)
         if self._accordion_item_df_control_visible:
             self._accordion_item_df_control.collapse = True
             self._accordion_item_df_control_visible = False
@@ -286,9 +282,7 @@ class ImageSettings(BoxLayout):
             self._resort_accordion()
 
     def _hide_pc_layer_control(self):
-        settings = _app_ctx.ctx.settings if _app_ctx.ctx else None
-        if settings and 'PC' in settings:
-            settings['PC']['acquire'] = None
+        _app_ctx.ctx.session.set_layer_acquire('PC', None)
         widget = self._resolve_pc_accordion()
         if widget is not None and self._accordion_item_pc_control_visible:
             widget.collapse = True
@@ -300,20 +294,15 @@ class ImageSettings(BoxLayout):
 
         Only layers present in the identity are retitled; a hidden
         accordion keeps its last title and is refreshed the next time
-        its layer appears in identity. A record whose layer has no
-        accordion in this build is skipped -- the drawer set is fixed
-        until accordions are built from the record, so a catalogue
-        layer beyond the built set simply has no drawer to retitle.
+        its layer appears in identity. Every catalogue layer has a drawer
+        (tests/guards/test_every_layer_has_a_drawer.py).
         """
         for record in layers:
-            try:
-                item = self.accordion_item_lookup(layer=record.key_name)
-            except KeyError:
-                logger.debug(
-                    f'[LVP Main  ] no accordion for layer {record.key_name!r}; title skipped'
-                )
-                continue
-            item.title = layer_title(record)
+            self.accordion_item_lookup(layer=record.key_name).title = layer_title(record)
+
+    def set_layer_focus_visibility(self, visible: bool) -> None:
+        for layer in common_utils.get_layers():
+            self.layer_lookup(layer=layer).focus_support = visible
 
     def set_fluorescence_layer_control_visibility(self, layer: str, visible: bool) -> None:
         if layer not in self._fluorescence_control_visible:
@@ -330,9 +319,7 @@ class ImageSettings(BoxLayout):
             self._resort_accordion()
 
     def _hide_fluorescence_layer_control(self, layer: str):
-        settings = _app_ctx.ctx.settings
-        if settings:
-            settings[layer]['acquire'] = None
+        _app_ctx.ctx.session.set_layer_acquire(layer, None)
         if self._fluorescence_control_visible[layer]:
             item = self.accordion_item_lookup(layer=layer)
             item.collapse = True
@@ -340,27 +327,16 @@ class ImageSettings(BoxLayout):
             self.ids['accordion_id'].remove_widget(item)
 
     def _resort_accordion(self):
-        """Rebuild the accordion children list in canonical layer order.
+        """Put the layer accordion back in catalogue order after a model switch.
 
-        Live scope-model transitions (LS620 -> LS850, etc.) re-add
-        previously hidden layer-control widgets via add_widget(...,0),
-        which appends to the children list and ends up at the BOTTOM of
-        the visible accordion regardless of canonical order. After every
-        ``_show_*`` call we re-sort so the order matches the release
-        layer catalogue -- display order IS the catalogue order (a
-        layer's id is its position there), so no second order is
-        authored here.
-
-        Kivy renders the children list bottom-to-top and ``add_widget``
-        with no index prepends, so walking the canonical order FORWARD
-        re-adds each currently-visible widget in the right visual order.
-        AccordionItem state (``collapse``, internal anim) lives on the
-        widget instance, so remove + re-add preserves it.
+        Live scope-model transitions (LS620 -> LS850, etc.) re-add hidden
+        layer controls out of order; after every ``_show_*`` call the order
+        is restored. Display order IS the catalogue order (a layer's id is
+        its position there), so no second order is authored here.
         """
         accordion = self.ids.get('accordion_id') if hasattr(self, 'ids') else None
         if accordion is None:
             return
-
         widget_for_layer = {
             'BF': self.ids.get('BF_accordion'),
             'PC': self._resolve_pc_accordion(),
@@ -377,46 +353,13 @@ class ImageSettings(BoxLayout):
             'Lumi': self._accordion_item_lumi_control_visible,
             **self._fluorescence_control_visible,
         }
-
-        # Walk the live children list directly and remove any widget we
-        # track. ``widget.parent is accordion`` was unreliable here --
-        # Kivy's parent attribute can lag the children list during
-        # add_widget calls inside the same event tick. Membership in
-        # ``accordion.children`` is the ground truth.
-        #
-        # Compare via ``widget.uid`` rather than Python ``id()`` because
-        # ``self.ids.get(...)`` returns a Kivy WeakProxy whose Python id
-        # differs from the underlying widget's id. Today all the
-        # right-side widgets are python instance refs (no kv ids in
-        # ``widget_for_layer``) so id() happens to work, but the left-
-        # side resort hit this exact trap 2026-05-03 -- using uid is the
-        # defensive choice.
-        tracked_uids = {w.uid for w in widget_for_layer.values() if w is not None}
-        present = [w for w in list(accordion.children) if w.uid in tracked_uids]
-        for widget in present:
-            accordion.remove_widget(widget)
-
-        # Walk forward through canonical order. ``add_widget`` with no
-        # index prepends to the children list; the accordion renders
-        # children in reverse order (children[0] is drawn last -> bottom),
-        # so the FIRST canonical layer added ends up at the bottom of
-        # the children list and at the TOP of the visual accordion. The
-        # final iteration (Lumi) lands at children[0] -> bottom of display.
-        for layer in common_utils.get_layers():
-            if not visible_for_layer.get(layer, False):
-                continue
-            widget = widget_for_layer.get(layer)
-            if widget is None:
-                continue
-            # Defensive: if a widget still has a parent (e.g. transient
-            # state during animation), detach it before adding so kivy
-            # doesn't raise "already has a parent".
-            if widget.parent is not None:
-                try:
-                    widget.parent.remove_widget(widget)
-                except Exception:
-                    pass
-            accordion.add_widget(widget)
+        resort_accordion(
+            accordion,
+            [
+                (widget_for_layer.get(layer), visible_for_layer.get(layer, False))
+                for layer in common_utils.get_layers()
+            ],
+        )
 
     def _init_ui(self, dt=0):
         ctx = _app_ctx.ctx
@@ -437,7 +380,7 @@ class ImageSettings(BoxLayout):
         self.enable_image_stats_if_needed()
 
     def enable_image_stats_if_needed(self):
-        if _app_ctx.ctx.engineering_mode:
+        if _app_ctx.ctx.session.engineering_mode:
             for layer in common_utils.get_layers():
                 layer_obj = self.layer_lookup(layer=layer)
                 layer_obj.ids['image_stats_mean_id'].height = '30dp'
@@ -491,13 +434,18 @@ class ImageSettings(BoxLayout):
         """Size each layer's illumination slider from the connected LED
         driver's cap, through the getter that also applies the transmitted-
         layer policy. The one owner of ill_slider.max; the .kv value is the
-        placeholder until the scope is built.
+        placeholder until the scope is built. A scope with no LED board has
+        no cap to size from, and its illumination controls are hidden
+        (set_layer_led_controller_support).
         """
         for layer in common_utils.get_layers():
+            layer_obj = self.layer_lookup(layer=layer)
+            if not layer_obj.led_controller_support:
+                continue
             bound = get_layer_illumination_slider_max(layer)
             if bound is None:
                 continue
-            self.layer_lookup(layer=layer).ids['ill_slider'].max = bound
+            layer_obj.ids['ill_slider'].max = bound
 
     def set_layer_autogain_support(self):
         """Gate the Auto Gain/Exp control on the camera's hardware AG/AE support.
@@ -512,8 +460,8 @@ class ImageSettings(BoxLayout):
         fail-safe live in camera_autogain_supported() (the single gate).
 
         Only the visibility gate is set here; the persisted per-layer auto_gain
-        is NOT mutated. The effective enable (preference AND capability) is
-        derived non-destructively at the consumption point
+        is NOT mutated. The enable actually in force is the API's answer
+        (imaging.applied_auto_gain_for), read at the consumption point
         (LayerControl.effective_auto_gain), so a capable camera's saved
         preference survives a swap to an AG-less body and back.
         """
@@ -521,6 +469,28 @@ class ImageSettings(BoxLayout):
         for layer in common_utils.get_layers():
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.camera_autogain_support = supported
+
+    def set_layer_led_controller_support(self):
+        """Hide every layer's LED toggle and illumination current when the
+        scope came up without its LED board: its capabilities carry no LED
+        channels. Display of the API's answer, set where the capabilities
+        are synced.
+        """
+        present = _app_ctx.ctx.scope.capabilities.led_channels is not None
+        for layer in common_utils.get_layers():
+            self.layer_lookup(layer=layer).led_controller_support = present
+
+    def set_camera_controls_support(self):
+        """Disable the camera controls -- each layer's gain, exposure and
+        auto-gain, and the frame size and binning -- when the scope has no
+        camera connected. Display of the API's answer, set where the
+        capabilities are synced.
+        """
+        ctx = _app_ctx.ctx
+        connected = ctx.scope.camera_connected
+        for layer in common_utils.get_layers():
+            self.layer_lookup(layer=layer).camera_connected = connected
+        ctx.motion_settings.ids['microscope_settings_id'].camera_connected = connected
 
     def sync_camera_capability_ranges(self):
         """Resync every per-layer camera control from the live camera caps.
@@ -539,9 +509,9 @@ class ImageSettings(BoxLayout):
         the bound. Every other programmatic widget write in LayerControl takes
         the same flag for the same reason.
 
-        clamp_layer_settings_to_caps stays OUTSIDE the flag: its store write is
-        the deliberate reconciliation of a value the hardware cannot honor, not
-        a display correction.
+        reconcile_layers_to_camera_caps stays OUTSIDE the flag: it delivers to
+        the camera through each layer's apply, and that apply returns early on
+        exactly this flag -- inside, it would render and push nothing.
         """
         layer_objs = [self.layer_lookup(layer=layer) for layer in common_utils.get_layers()]
         for layer_obj in layer_objs:
@@ -549,48 +519,54 @@ class ImageSettings(BoxLayout):
         try:
             self.set_layer_exposure_ranges()
             self.set_layer_gain_ranges()
+            self.set_layer_led_controller_support()
+            self.set_camera_controls_support()
             self.set_layer_illumination_ranges()
             self.set_layer_autogain_support()
         finally:
             for layer_obj in layer_objs:
                 layer_obj._initializing = False
-        self.clamp_layer_settings_to_caps()
+        self.reconcile_layers_to_camera_caps()
 
-    def clamp_layer_settings_to_caps(self):
-        """Bring every layer's stored gain/exposure within the live camera caps.
+    def reconcile_layers_to_camera_caps(self):
+        """Render every layer the attached camera cannot fully reach, and re-apply the open one.
 
-        A camera swap can leave a layer's persisted gain_db/exposure_ms above the new
-        body's physical maximum; applying that value blacks the channel out (and
-        it would persist to current.json on the next save). Reconcile the stored
-        value -- and its slider -- down to the cap for every layer, the same
-        reconciliation load_settings performs, so connect and reconnect agree.
-        An over-cap value cannot be honored by the hardware regardless.
+        A camera swap can leave a layer's persisted gain_db/exposure_ms above
+        the new body's maximum. The stored value is the user's committed
+        intent, so it is NOT rewritten: the API caps what it writes to
+        hardware, the channel runs at the most that body can do, and putting a
+        capable camera back applies the intent again. Overwriting the store
+        instead destroyed the setting silently -- the periodic current.json
+        flush persisted the shrunken value and nothing recorded the original.
 
-        Runs BEFORE anything renders the store, on every path that reaches it:
-        a value the camera cannot honor is wrong in the store, so rendering it
-        first would pin the slider against the cap and present the pending
-        reconciliation as a legitimate divergence between the two widgets.
+        The divergence itself is the trigger. Firing for every layer would
+        drive each one's LED state through apply_settings, changing what
+        startup does to the illuminators. Only the open layer is applied: the
+        camera holds one layer, and applying each capped layer in turn left it
+        on the last of them, not the one on screen; a closed layer reaches the
+        camera, capped, when it is next applied.
+
+        Runs BEFORE anything renders the store, on every path that reaches it,
+        so the slider's pinned position and the box's stored value are in
+        agreement the first time they are drawn.
 
         The re-render and the apply are both explicit. They used to arrive as
         side effects of writing the slider -- the layer's handler re-committed
         the value (crediting the user with a drag it never made) and its
-        debounced trigger was what actually told the camera, which on the
-        reconnect path was the only apply there was.
+        debounced trigger was what actually told the camera.
         """
         ctx = _app_ctx.ctx
         settings = ctx.settings
+        imaging = ctx.lumaview.scope.imaging
+        opened = common_utils.get_opened_layer(self)
         for layer in common_utils.get_layers():
-            reconciled = False
-            if settings[layer]['gain_db'] > ctx.max_gain:
-                settings[layer]['gain_db'] = ctx.max_gain
-                reconciled = True
-            if settings[layer]['exposure_ms'] > ctx.max_exposure:
-                settings[layer]['exposure_ms'] = ctx.max_exposure
-                reconciled = True
-            if reconciled:
+            gain = imaging.applied_gain_db_for(settings[layer]['gain_db'])
+            exposure = imaging.applied_exposure_ms_for(settings[layer]['exposure_ms'])
+            if gain.capped or exposure.capped:
                 layer_obj = self.layer_lookup(layer=layer)
                 layer_obj.render_layer_values_from_settings()
-                layer_obj.apply_settings()
+                if layer == opened:
+                    layer_obj.apply_settings()
 
     def open_or_default_layer(self):
         """The layer whose accordion is expanded, or 'BF' when none is open.
@@ -636,14 +612,14 @@ class ImageSettings(BoxLayout):
 
         # move position of settings and stop histogram if main settings are collapsed
         if self.ids['toggle_imagesettings'].state == 'normal':
-            self.pos = lumaview.width - self.tab_width, 0
+            self.x = lumaview.width - self.tab_width
 
             for layer in common_utils.get_layers():
                 layer_obj = ctx.image_settings.layer_lookup(layer=layer)
                 Clock.unschedule(layer_obj.ids['histo_id'].histogram)
                 logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
         else:
-            self.pos = lumaview.width - self.settings_width, 0
+            self.x = lumaview.width - self.settings_width
 
         # if scope_display.play == True:
         #     scope_display.start()
@@ -737,17 +713,20 @@ class ImageSettings(BoxLayout):
         # already off, and offing the collapsed layers here still clears a
         # previously-lit channel when the drawer switches to a layer whose LED
         # is off (which the open layer's apply_settings alone would not do).
+        from ui.ui_helpers import submit_reported
+
+        illumination = ctx.scope.illumination
         for layer in common_utils.get_layers():
             layer_accordion = self.accordion_item_lookup(layer=layer)
             if layer_accordion.collapse:
-                try:
-                    state = ctx.scope.illumination.get_led_state(channel=layer)
-                    if state.get('enabled', False):
-                        ctx.scope.illumination.led_off_async(layer)
-                except Exception as e:
-                    logger.warning(
-                        f'[LVP Main  ] get_led_state({layer}) failed during '
-                        f'accordion-collapse LED cleanup: {e}'
+                # None with no LED board installed: nothing is lit.
+                state = illumination.get_led_state(channel=layer)
+                if state is not None and state['enabled']:
+                    submit_reported(
+                        lambda lit=layer: illumination.led_off(lit),
+                        None,
+                        f'LED_{layer}_OFF',
+                        lane=ctx.io_executor,
                     )
             else:
                 self.layer_lookup(layer=layer).apply_settings()
@@ -756,9 +735,9 @@ class ImageSettings(BoxLayout):
         logger.info('[LVP Main  ] ImageSettings.check_settings()')
         lumaview = _app_ctx.ctx.lumaview
         if self.ids['toggle_imagesettings'].state == 'normal':
-            self.pos = lumaview.width - self.tab_width, 0
+            self.x = lumaview.width - self.tab_width
         else:
-            self.pos = lumaview.width - self.settings_width, 0
+            self.x = lumaview.width - self.settings_width
 
 
 def set_histogram_layer(active_layer):

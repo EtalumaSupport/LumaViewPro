@@ -1,8 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-from modules.plugins import PluginRegistry
 
 # Module-level singleton -- set by LumaViewProApp.build() after construction.
 # Extracted modules import this module and access `app_context.ctx` to avoid
@@ -61,6 +60,7 @@ class AppContext:
     camera_executor: object = None
     protocol_thread: object = None
     file_io_executor: object = None
+    post_processing_executor: object = None
     scope_display_thread: object = None
     autofocus_thread: object = None
     worker_pool: object = None
@@ -85,17 +85,13 @@ class AppContext:
     quick_enhance_controls: object = None
     # No metrics_logger field: it mirrored scope.metrics_logger and went
     # stale at every reconnect; the session owns the metrics lifecycle.
-    ui_listener_bridge: object = None  # UIListenerBridge (LVP-A-6)
+    ui_listener_bridge: object = None  # the GUI's subscriber to scope state events
 
-    # Plugin platform: registry + entry-points discovery
-    plugins: PluginRegistry = field(default_factory=PluginRegistry)
+    # No plugins and no engineering flag: both are the session's
+    # (ctx.session.plugins, ctx.session.engineering_mode), so every host
+    # sees the plugins and the mode the GUI sees.
 
     # State
-    protocol: object = None  # Protocol instance (canonical owner, not UI)
-    engineering_mode: bool = False
-    no_engineering: bool = (
-        False  # --no-engineering CLI flag; suppresses engineering plugin auto-enable
-    )
     show_tooltips: bool = False
     live_histo_setting: bool = False
     last_save_folder: str = None
@@ -151,6 +147,14 @@ class AppContext:
         """A deep copy of settings taken under the lock."""
         return self._require_session().get_settings_snapshot()
 
-    def update_settings(self, key: str, value: object) -> None:
-        """Write one top-level settings key under the lock."""
-        self._require_session().update_settings(key, value)
+    def update_settings(self, path: str, value: object) -> None:
+        """Write one setting by its dotted path; ``ScopeSession.update_settings``."""
+        self._require_session().update_settings(path, value)
+
+    def set_live_folder(self, folder: str) -> None:
+        """Make ``folder`` the live folder; ``ScopeSession.set_live_folder``."""
+        self._require_session().set_live_folder(folder)
+
+    def set_protocol_filepath(self, file_path: str) -> None:
+        """Remember the protocol to open at the next start; ``ScopeSession.set_protocol_filepath``."""
+        self._require_session().set_protocol_filepath(file_path)

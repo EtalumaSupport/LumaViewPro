@@ -10,7 +10,7 @@ calls the widget's _render_one_frame(...) per iteration; sleeps via
 _stop_event.wait(timeout=...) for responsive shutdown.
 
 Public API:
-  start(fps)            -- spawn thread, begin rendering
+  start(renderer, fps)  -- spawn thread, begin rendering through renderer
   stop(timeout)         -- signal stop, join with bound timeout
   pause() / resume()    -- loop continues but skips work; no Thread
                            teardown, no generation bump
@@ -33,7 +33,6 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from modules.notification_center import notifications
 
 logger = logging.getLogger('LVP.modules.scope_display_thread')
 
@@ -43,19 +42,7 @@ logger = logging.getLogger('LVP.modules.scope_display_thread')
 STATUS_OK = 0
 STATUS_EMPTY = 1  # no new frame in buffer
 STATUS_DUPLICATE = 2  # same camera timestamp as last frame
-STATUS_NOT_READY = 3  # ctx is None / scope disconnected / similar
-
-
-# Live-view stall watchdog. The display loop runs at the FPS cap even when
-# no new frame arrives (STATUS_EMPTY / STATUS_DUPLICATE); a gap longer than
-# this between STATUS_OK frames, while the camera is active, means frames
-# stopped advancing -- a silent camera/grabber stall the user sees as a
-# frozen live image. The loop logs one WARNING per stall episode (re-armed
-# when frames resume). Per PERFORMANCE_BUDGETS.md live_view_frame_stall_s
-# row: warning at > 10 s, observability only (no abort). No legitimate
-# single live frame takes this long even at the 1000 ms exposure cap with
-# summing.
-STALL_WARN_SECONDS = 10.0
+STATUS_NOT_READY = 3  # scope disconnected / similar
 
 
 # Idle back-off floor for the pacing wait. The loop's only pacing input is the
@@ -75,28 +62,18 @@ IDLE_BACKOFF_SECONDS = 0.005
 class ScopeDisplayThread:
     """Owns the live-display refresh loop.
 
-    Construction takes:
-      widget:        the ScopeDisplay widget. The thread calls
-                     widget._render_one_frame(...) per iteration; the
-                     widget owns the actual rendering state (texture,
-                     frame interval history). Thread owns only the
-                     loop, pacing, and the volatile publish state.
-      ctx_provider:  callable() -> ctx (so we don't capture a stale
-                     ref at construction). The thread looks up ctx
-                     at each iteration; if ctx is None the loop
-                     short-sleeps and retries.
+    The renderer it is started with (the ScopeDisplay widget) is called
+    as renderer._render_one_frame(...) per iteration; the renderer owns
+    the actual rendering state (texture, frame interval history), and
+    answers STATUS_NOT_READY while it has nothing to render from. The
+    thread owns only the loop, pacing, and the volatile publish state,
+    and reads no application context.
     """
 
-    def __init__(
-        self,
-        *,
-        ctx_provider: Callable[[], Any] | None = None,
-    ):
-        # The widget (ScopeDisplay) is created by Kivy after this
-        # registry runs. The thread looks it up each iteration via
-        # ctx_provider().scope_display so we don't have to thread
-        # through a setter at app-build time.
-        self._ctx_provider = ctx_provider or (lambda: None)
+    def __init__(self):
+        # The widget is created by Kivy after the session builds this
+        # thread, so it arrives with start(), the thread's one starter.
+        self._renderer: Any = None
 
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -132,22 +109,11 @@ class ScopeDisplayThread:
         self._listeners_lock = threading.Lock()
         self._frame_listeners: list[Callable] = []
 
-        # Live-view stall watchdog state (see STALL_WARN_SECONDS). Holds
-        # the monotonic time of the last STATUS_OK frame and whether the
-        # current stall episode has already warned (one WARNING per
-        # episode). Owned by the loop thread; reset on start().
-        self._last_ok_monotonic: float | None = None
-        self._stall_warned: bool = False
-        # When set, the stall watchdog is muted: an operation that
-        # deliberately monopolizes the camera (e.g. a characterization run
-        # driving forced grabs) makes live-view frame delivery gap on
-        # purpose, so the "no new frame" warning would be a false alarm.
-        # Rendering is unaffected -- only the warning + popup are withheld.
-        self._stall_suppressed = threading.Event()
-
     # ---- lifecycle ----
 
-    def start(self, fps: int = 30) -> None:
+    def start(self, renderer: Any, fps: int = 30) -> None:
+        """Render through *renderer* at up to *fps* (0 uncapped)."""
+        self._renderer = renderer
         if self._thread is not None and self._thread.is_alive():
             logger.debug(
                 'scope_display_thread already running; set_fps + resume instead of re-start'
@@ -158,8 +124,6 @@ class ScopeDisplayThread:
         self.set_fps(fps)
         self._stop_event.clear()
         self._paused.clear()
-        self._last_ok_monotonic = None
-        self._stall_warned = False
         self._generation += 1
         self._thread = threading.Thread(
             target=self._run_loop,
@@ -192,18 +156,6 @@ class ScopeDisplayThread:
     def resume(self) -> None:
         """Resume rendering iterations after pause()."""
         self._paused.clear()
-
-    def suppress_stall_warnings(self, value: bool = True) -> None:
-        """Mute (or restore) the live-view stall watchdog. Call with True
-        around an operation that deliberately monopolizes the camera with
-        forced grabs (e.g. a characterization run): the live view keeps
-        rendering whatever frames arrive, but the watchdog stops raising
-        false 'camera not updating' warnings + popups for the expected
-        frame-delivery gaps. Call with False when the operation ends."""
-        if value:
-            self._stall_suppressed.set()
-        else:
-            self._stall_suppressed.clear()
 
     # ---- runtime config ----
 
@@ -277,14 +229,7 @@ class ScopeDisplayThread:
                 self._intentional_wait_s += time.monotonic() - pause_wait_start
                 continue
 
-            # ctx / widget not ready (early boot, between disconnect /
-            # reconnect). Short sleep + retry; respect stop signal.
-            ctx = self._ctx_provider()
-            widget = getattr(ctx, 'scope_display', None) if ctx else None
-            if ctx is None or widget is None or getattr(ctx, 'scope', None) is None:
-                if self._stop_event.wait(timeout=0.1):
-                    return
-                continue
+            widget = self._renderer
 
             # Snapshot config under lock; release before doing work.
             with self._config_lock:
@@ -328,9 +273,6 @@ class ScopeDisplayThread:
             if status == STATUS_OK:
                 self._dispatch_listeners(widget)
 
-            # Live-view stall watchdog (see STALL_WARN_SECONDS).
-            self._check_frame_stall(status, time.monotonic(), ctx)
-
             # FPS pace. Event.wait(timeout=) returns False on timeout,
             # True when stop is signalled. Skip the wait entirely if
             # uncapped or already over budget.
@@ -346,76 +288,6 @@ class ScopeDisplayThread:
                 return
 
         logger.info('scope_display_thread exiting')
-
-    def _check_frame_stall(self, status: int, now: float, ctx) -> None:
-        """Emit one WARNING per stall episode when live-view frames stop
-        advancing while the camera is active. See STALL_WARN_SECONDS.
-
-        A STATUS_OK resets the clock and re-arms the warning. While the
-        camera is inactive the clock is held cleared so a fresh stream
-        starts a fresh stall window rather than inheriting an old gap.
-        """
-        # Muted while an operation deliberately monopolizes the camera (see
-        # suppress_stall_warnings). The expected frame-delivery gap is not a
-        # fault, so withhold the warning -- and hold the clock cleared so the
-        # watchdog re-arms on a fresh window once suppression lifts, instead
-        # of firing immediately on the accumulated gap.
-        if self._stall_suppressed.is_set():
-            self._last_ok_monotonic = None
-            self._stall_warned = False
-            return
-        if status == STATUS_OK:
-            self._last_ok_monotonic = now
-            self._stall_warned = False
-            return
-
-        # Only watch while the camera is meant to be streaming. Disconnect
-        # is surfaced elsewhere (recovery contract); don't double-warn.
-        try:
-            active_cached = ctx.scope.imaging.active_cached
-        except Exception:
-            active_cached = False
-        if not active_cached:
-            self._last_ok_monotonic = None
-            self._stall_warned = False
-            return
-
-        # Start the clock on the first active iteration so a stream that
-        # never delivers a frame is caught too.
-        if self._last_ok_monotonic is None:
-            self._last_ok_monotonic = now
-            return
-
-        elapsed = now - self._last_ok_monotonic
-        if elapsed > STALL_WARN_SECONDS and not self._stall_warned:
-            self._stall_warned = True
-            try:
-                connected = ctx.scope.camera_connected
-            except Exception:
-                connected = '?'
-            # Report the CONFIGURED cap as fps_cap, not fps: self._fps is the
-            # target rate (default 30), so a bare "fps=30" on a stall line reads
-            # as healthy throughput when delivered throughput is in fact zero
-            # (the "no new frame for {elapsed}s" above is the real rate).
-            logger.warning(
-                f'Live-view frames stalled: no new frame for {elapsed:.1f}s '
-                f'(warn threshold {STALL_WARN_SECONDS:.0f}s). '
-                f'camera_connected={connected} active_cached={active_cached} '
-                f'last_status={status} generation={self._generation} '
-                f'fps_cap={self._fps} delivered_fps=0 paused={self._paused.is_set()}'
-            )
-            # Surface the stall once per episode (re-armed when frames resume,
-            # same as the log). The full diagnostic stays in the log line above;
-            # the user just needs the actionable summary. Non-fatal: the stream
-            # may recover on its own, and during an unattended protocol the
-            # notification center suppresses this so a run isn't popup-flooded.
-            notifications.warning(
-                'Live View',
-                'Live View Stalled',
-                f'The live image stopped updating (no new camera frame for '
-                f'{elapsed:.0f}s). Check the USB cable and power '
-                f'connections, then restart LumaViewPro.',
-            )
 
     def _dispatch_listeners(self, widget) -> None:
         """Pull the last-rendered bytes/shape from the widget and fan

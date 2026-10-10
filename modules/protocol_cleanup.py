@@ -2,116 +2,94 @@
 
 """Protocol cleanup / shutdown logic.
 
-Restores LED, autofocus, camera state and fires completion callbacks.
+Unwinds an in-flight autofocus, restores LED and camera state, and sends
+the run's end and its files' completion to its events.
 Extracted from ``sequenced_capture_runner.py`` during the
 protocol-decomposition refactor.
 """
 
 from __future__ import annotations
 
+import pathlib
 import threading
 from concurrent.futures import CancelledError
-from functools import partial
 from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 
+from modules.exceptions import RunCleanupFailedError, SlowFileWritesNotice
 from modules.lumascope_api.illumination import (
     LedTransition,
     LedTransitionCtx,
     resolve_end_state,
 )
+from modules.protocol_image_writer import SLOW_WRITE_BLOCKED_WARN_S, WRITE_STALL_FATAL_S
 from modules.protocol_state_machine import ProtocolState
-from modules.sequential_io_executor import (
-    IOTask,
-    PROTOCOL_QUEUE_WEDGED,
-    SLOW_WRITE_BLOCKED_WARN_S,
-)
+from modules.run_events import RunEvents, deliver
+from modules.run_outcome import RunEnding
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from modules.autofocus_thread import AutofocusThread
-    from modules.config_helpers import AutofocusSnapshot
     from modules.lumascope_api import Lumascope
     from modules.protocol import Protocol
-    from modules.protocol_callbacks import ProtocolCallbacks
-    from modules.protocol_execution_record import ProtocolExecutionRecord
-    from modules.sequential_io_executor import SequentialIOExecutor
+    from modules.protocol_image_writer import RunWriteBatch
+    from modules.sequenced_capture_runner import RunHandle
 
 
-from modules.kivy_utils import schedule_ui as _schedule_ui
-
-
-def _schedule_cleanup_ui(
-    func,
-    step_label: str,
-    cleanup_errors: list[str],
-    summary_sent: threading.Event,
+def send_run_ended(
+    events: RunEvents, run: RunHandle, *, protocol: Protocol, run_dir: pathlib.Path | None
 ) -> None:
-    """Schedule a cleanup UI callback that must not take the app down.
+    """Send the run's one ``run_ended`` once its outcome settles; mark *run* told after it.
 
-    Every `try` in this module collects its failure into `cleanup_errors`
-    and keeps going, because a run's data is already written by the time
-    cleanup starts and no cleanup step is worth losing the session over.
-    A callback handed to `schedule_ui` was outside that contract whenever
-    it was genuinely deferred: it runs on a later Clock tick, so the `try`
-    that scheduled it has already returned, and the app's crash guard
-    re-raises anything it cannot pin on a plugin. A panel-sync failure
-    therefore terminated LumaViewPro at the end of every protocol run.
-
-    The re-raise is right as a DEFAULT -- a core bug should be loud -- and
-    is left alone everywhere else. It is wrong for these callbacks for the
-    same reason the code around them is fault-tolerant, and for the same
-    reason a non-fatal failure during a run is log-only: an unattended run
-    must not lose its application to a cosmetic restore step.
-
-    Which channel reports the failure depends on WHEN it happens, because
-    the summary is emitted once, partway through:
-
-    - before the summary (the callback ran inline -- headless, REST, or a
-      test dispatcher): collected into `cleanup_errors` exactly as if the
-      surrounding `try` had caught it, so the one summary still carries
-      every failed step and its count stays honest.
-    - after it (the GUI case, a real Clock tick): the summary has already
-      gone, so the callback reports itself.
-
-    `step_label` is the same wording the surrounding `except` blocks use,
-    so a step reads identically whichever channel carried it.
+    Called once the run has let go of the scope, on every path, a cleanup
+    that raised included, and before the run's files are handed their
+    completion. Every run's outcome has settled by then but a composite's
+    whose merge is still owed, which is sent from the merge's settle, on
+    the merge's thread: before or after its ``files_written``, whichever the
+    merge and the last write reach first. The values are captured here, while the run's
+    fields are still its own: a successor started after the release
+    replaces them.
     """
 
-    def _guarded(dt):
-        try:
-            return func(dt)
-        except Exception as ex:
-            # The exception detail belongs in the log that ships with a
-            # bundle. The popup speaks to a researcher, who can act on
-            # "check the stage position" and not on a traceback.
-            logger.exception(f'[PROTOCOL] {step_label} failed after the run')
-            if not summary_sent.is_set():
-                cleanup_errors.append(f'{step_label}: {type(ex).__name__}: {ex}')
-                return
-            try:
-                from modules.notification_center import notifications
+    def _send(outcome) -> None:
+        deliver(
+            events.run_ended,
+            'run_ended',
+            outcome,
+            run_dir,
+            protocol,
+            delivery=run._delivering(run._run_told),
+        )
 
-                notifications.warning(
-                    'Protocol',
-                    'Protocol cleanup issues',
-                    f'Your images were saved, but one cleanup step did not '
-                    f'finish: {step_label}.\n'
-                    'Check LED state, camera settings, and stage position.',
-                )
-            except Exception as notify_ex:
-                logger.error(f'[PROTOCOL] Failed to surface cleanup-callback error: {notify_ex}')
-
-    _schedule_ui(_guarded, 0)
+    run._pending.when_settled(_send)
 
 
-# Stall budget for queueing the run-record completion task. Short: on the
-# normal path the queue is draining (the put unblocks within one write), and
-# cleanup must not hang behind a wedged writer for the writer's own longer
-# fatal budget just to file the record.
-_RECORD_COMPLETE_STALL_S = 2.0
+def send_files_written(
+    events: RunEvents, run: RunHandle, *, run_dir: pathlib.Path | None, files: str
+) -> None:
+    """Send the run's one ``files_written``; mark *run* files told after it.
+
+    ``files`` is the run's write outcome: ``'written'``, or ``'incomplete'``
+    when some of its images are not on disk.
+    """
+    deliver(
+        events.files_written,
+        'files_written',
+        run_dir,
+        files,
+        delivery=run._delivering(run._files_told),
+    )
+
+
+# How long cleanup waits for an aborted autofocus to unwind -- its restore,
+# and the wait for its data write that ends it -- before calling it stuck:
+# the house's one "wedged" threshold. A sweep inside a capture is bounded by
+# the capture's own 30 s and more, so a shorter bound would call a slow
+# exposure stuck. Per PERFORMANCE_BUDGETS.md row
+# autofocus_unwind_after_stop_s.
+_AF_UNWIND_WAIT_S = WRITE_STALL_FATAL_S
 
 
 def run_cleanup(
@@ -119,45 +97,46 @@ def run_cleanup(
     # State
     get_state_fn: Callable[[], ProtocolState],
     set_state_fn: Callable[[ProtocolState], None],
-    run_lock: threading.Lock,
     scan_in_progress: threading.Event,
-    # True when the run died on a fatal fault (stalled writer, dead camera,
-    # disk floor) rather than finishing or being stopped by the user.
-    # Required, not defaulted: every caller states which kind of end this is.
-    fatal_abort: bool,
+    # True when the run died on a fault that force-darkened the sample
+    # (stalled writer, dead camera, disk floor) rather than finishing or
+    # being stopped by the user. Required, not defaulted: every caller
+    # states which kind of end this is. Read once by the caller, so the
+    # decision cannot flip mid-cleanup.
+    forced_dark: bool,
     # Saved original states
     leds_state_at_end: str,
     original_led_states: dict,
-    autofocus_snapshot: AutofocusSnapshot,
     saved_camera_state: dict,
     return_to_position: dict | None,
-    disable_saving_artifacts: bool,
-    protocol: Protocol,
-    protocol_execution_record: ProtocolExecutionRecord | None,
     # Dependencies
     scope: Lumascope,
-    callbacks: ProtocolCallbacks,
     # Executor functions
     apply_led_transition_fn: Callable[[LedTransition, LedTransitionCtx], object],
     default_move_fn: Callable[..., object],
     cancel_scheduled_events_fn: Callable[[], None],
-    # IO executors
-    io_executor: SequentialIOExecutor,
+    # IO executors; the IO and CAMERA lanes are the scope's
     autofocus_thread: AutofocusThread | None,
-    file_io_executor: SequentialIOExecutor,
-    camera_executor: SequentialIOExecutor,
-    # Mutable flag -- set to False when done
-    set_run_in_progress_fn: Callable[[bool], None],
+    # THIS run's writes: read for the run-end summary. Its completion --
+    # the record's, and files_written -- is the batch's, once the last
+    # write lands.
+    write_batch: RunWriteBatch,
     logger_name: str = 'SequencedCaptureRunner',
-    # Terminal outcome the run_complete subscribers receive
-    run_status: str,
+    # How the run ended, and why.
+    ending: RunEnding,
+    # Where the run's outcome takes the names of the steps that failed to
+    # put the scope back; called once, with none when every step finished.
+    record_cleanup_failures: Callable[[tuple[str, ...]], None],
 ) -> bool:
-    """Core cleanup logic -- restores state, fires callbacks, ends executors.
+    """Core cleanup logic -- restores state, ends executors.
 
-    Called from ``SequencedCaptureRunner._cleanup_inner()``. run_status
-    ('completed', 'aborted', 'failed', 'failed_at_start') is required so
-    the cleanup site states the run's true terminal outcome; it reaches
-    every run_complete subscriber as the ``status`` kwarg.
+    Called from ``SequencedCaptureRunner._cleanup_inner()``. ending is
+    required so the cleanup site states the run's true terminal outcome.
+    The run's writes are not ended here: they are the run's batch's, which
+    the caller closes on every path out, and which writes every image the
+    run captured however the run ended. Nor is run_ended sent here: the
+    run sends it once it has let go of the scope, so a subscriber can act
+    on the scope when told.
 
     Returns True when the RUN_END LED transition actually applied -- the
     run's LED end-state is decided. False (or a raise anywhere in here)
@@ -165,18 +144,6 @@ def run_cleanup(
     the lease: a lit channel with no owner to turn it off cooks the
     sample, and the lease release itself deliberately leaves LEDs as-is.
     """
-    # Capture the abort state BEFORE the COMPLETING transition below. Only a
-    # hardware-error abort (ERROR state) clears file_io_executor's pending queue:
-    # on a hardware fault the queued frames are suspect, and letting them drain
-    # can pin memory and lock the next protocol-start. Every other abort path
-    # (user Stop, disk-full, 3-strike camera) leaves ERROR unset, so its pending
-    # writes DRAIN to disk instead of being dropped. Considered routing those
-    # through is_aborted too so Stop returns control instantly; rejected -- an
-    # already-captured frame must not be discarded because the user stopped the
-    # run; preserving the captured data wins over the faster stop. Revisit if
-    # draining a large pending queue on Stop becomes a real usability problem.
-    is_aborted = get_state_fn() == ProtocolState.ERROR
-
     # Transition to COMPLETING (or stay in ERROR if that's how we got here)
     if get_state_fn() not in (ProtocolState.COMPLETING, ProtocolState.ERROR, ProtocolState.IDLE):
         set_state_fn(ProtocolState.COMPLETING)
@@ -189,20 +156,15 @@ def run_cleanup(
 
     # Collect cleanup-step failures so a single summary notification at
     # the end tells the user what went wrong. Each except continues to
-    # the next step (fault tolerance -- all six must run regardless of
+    # the next step (fault tolerance -- every step must run regardless of
     # any one failing); total silence at the end was the bug. One
-    # summary popup, not six.
-    cleanup_errors: list[str] = []
-    # Flipped once the summary below has gone out. A guarded UI callback
-    # that fails before this is collected into the summary like every
-    # other step; one that fails after it has to report itself.
-    summary_sent = threading.Event()
+    # summary popup, not one per step.
+    cleanup_errors: list[tuple[str, str]] = []
 
     try:
         cancel_scheduled_events_fn()
     except Exception as ex:
-        logger.error(f'[PROTOCOL] Error cancelling scheduled events during cleanup: {ex}')
-        cleanup_errors.append(f'Cancel scheduled events: {type(ex).__name__}: {ex}')
+        cleanup_errors.append(('Cancel scheduled events', f'{type(ex).__name__}: {ex}'))
 
     # --- Unwind any in-flight autofocus BEFORE restoring LEDs ---
     # The AF worker lights its own channel during setup and restores
@@ -212,24 +174,35 @@ def run_cleanup(
     # would lose the race -- worst case an AF LED left on overnight.
     # The AF Future resolves only after that finally chain finishes,
     # so waiting on it (bounded, so a wedged AF run cannot block
-    # cleanup) guarantees the LED restore below runs last.
+    # cleanup) guarantees the LED restore below runs last. The chain
+    # ends by waiting for the sweep's data write, which an aborted run
+    # still makes, so the bound covers that wait on top of the unwind.
     # A run that failed during start() never dispatched anything, so a live
     # AF future here belongs to SOMEONE ELSE -- most likely the very holder
     # whose lease refusal failed this run. Aborting it would steal the
     # operation the refusal deferred to.
-    if autofocus_thread is not None and run_status != 'failed_at_start':
+    if autofocus_thread is not None and ending.status != 'failed_at_start':
         _af_future = autofocus_thread.current_future
         if _af_future is not None and not _af_future.done():
             autofocus_thread.abort()
             try:
                 # Returns the run's exception (normally AutofocusAborted)
                 # without raising it; raises TimeoutError on the bound.
-                _af_future.exception(timeout=5.0)
+                _af_future.exception(timeout=_AF_UNWIND_WAIT_S)
             except TimeoutError:
-                logger.warning(
-                    f'[{logger_name}] Cleanup: autofocus still unwinding '
-                    'after 5.0 s; its exit path restores LED/camera state '
-                    'when it finishes'
+                # Stuck: a cleanup step that did not finish. The run's own
+                # ending stands -- a person who pressed Stop is not told the
+                # run failed -- and the stuck sweep is told once, in the
+                # cleanup summary below. It can no longer reach the scope:
+                # the run's lease and claim go at release, and its work is
+                # refused from then on.
+                cleanup_errors.append(
+                    (
+                        'Stop autofocus',
+                        f'the autofocus sweep did not stop within '
+                        f'{_AF_UNWIND_WAIT_S:.0f} s; autofocus and new runs are '
+                        'refused until it does -- restart LumaViewPro if it does not',
+                    )
                 )
             except Exception as ex:
                 logger.warning(
@@ -248,162 +221,69 @@ def run_cleanup(
     # on the protocol IO queue, so the end-state off cannot race the
     # return-to-position move across the shared serial bus.
     led_end_state_applied = False
-    try:
-        # A fatal abort's terminal LED state is DARK regardless of the user's
-        # end policy: force_off already darkened the sample at the fault
-        # site, and this forced-OFF RUN_END re-asserts dark against any step
-        # that raced the abort and re-lit a channel (the OFF diff serializes
-        # after such a re-light on the same FIFO protocol queue, so off
-        # wins). Asserting OFF -- not skipping the restore -- is the point: a
-        # skipped restore would leave a raced re-light on forever. User Stop
-        # keeps the configured policy.
-        end_policy, snapshot_lit = resolve_end_state(
-            'off' if fatal_abort else leds_state_at_end,
-            original_led_states,
-            scope.illumination.state_color2ch,
-        )
-        if end_policy is None:
-            logger.error(f'Unsupported LEDs state at end value: {leds_state_at_end}')
-        else:
-            apply_led_transition_fn(
-                LedTransition.RUN_END,
-                LedTransitionCtx(end_policy=end_policy, snapshot_lit=snapshot_lit),
-            )
-            led_end_state_applied = True
-    except CancelledError:
-        # The protocol queue was cleared and this restore task cancelled
-        # before it ran. A superseding run/abort cycle is one canceller --
-        # but so are executor shutdown, an unwedge/quarantine, and the
-        # end-of-protocol-mode drain, and none of those re-asserts LED
-        # state. So the end-state stays undecided and the caller darkens;
-        # a superseding run re-lights per step, costing at most a
-        # transient dark blip during rapid run cycling. Not surfaced as a
-        # failure -- doing so produced a popup per cycle when the run
-        # button was clicked rapidly.
-        logger.info(
-            f'[{logger_name}] Cleanup: LED restore superseded by an overlapping run/abort cycle'
-        )
-    except Exception as ex:
-        logger.error(f'[PROTOCOL] Error restoring LED states during cleanup: {ex}')
-        cleanup_errors.append(f'Restore LED states: {type(ex).__name__}: {ex}')
-    logger.info(f'[{logger_name}] Cleanup: LED restore complete')
-
-    # --- Restore layer shader / false-color (UI side) ---
-    # Each protocol step calls layer_control.apply_settings() which
-    # writes the OpenGL shader white_point for that layer's
-    # false-color (Red tint for the Red step, Green tint for Green,
-    # etc.). Without this restore the last step's shader stays
-    # active and tints the live preview after protocol stop. Cluster
-    # sibling of LED-state-hygiene-at-transition (#666 / #659 /
-    # #617): driver LED state was already cleared above; this is
-    # the sibling UI-shader-state clear. Bugs cluster -- one cleanup
-    # pass covers both halves.
-    try:
-        if callbacks.restore_layer_shader:
-            _schedule_cleanup_ui(
-                lambda dt: callbacks.restore_layer_shader(),
-                'Restore layer shader',
-                cleanup_errors,
-                summary_sent,
-            )
-    except Exception as ex:
-        logger.error(f'[PROTOCOL] Error restoring layer shader during cleanup: {ex}')
-        cleanup_errors.append(f'Restore layer shader: {type(ex).__name__}: {ex}')
-
-    # --- Restore autofocus states ---
-    # Empty states (the common case when no AF was active for this scan)
-    # skip the restore with one debug line. Iterating an absent snapshot
-    # once fired ERROR every scan, burying real failure signal under
-    # thousands of spurious lines; the snapshot is required now, so only
-    # the empty case remains. The restorer rides the snapshot: the run
-    # writes back to the same dict it was read from, whichever process
-    # owns it.
-    if not autofocus_snapshot.states:
-        logger.debug('[PROTOCOL] No autofocus states to restore')
+    # A run that ended before it took the camera (a Stop, or a stuck lane,
+    # during the wait for the lane) changed no LED and holds no snapshot,
+    # so there is nothing to return to: the resolver would read the missing
+    # snapshot as "nothing was lit" and darken a sample a still may be
+    # grabbing under right now.
+    if original_led_states is None:
+        logger.info(f'[{logger_name}] Cleanup: the run never took the camera; LEDs left as found')
+        # Decided, not undecided: "as found" is the end state, and the
+        # caller's fallback for an undecided one is to darken.
+        led_end_state_applied = True
     else:
         try:
-            for layer, layer_data in autofocus_snapshot.states.items():
-                autofocus_snapshot.restore(layer=layer, value=layer_data)
-        except Exception as ex:
-            logger.error(f'[PROTOCOL] Error restoring autofocus states during cleanup: {ex}')
-            cleanup_errors.append(f'Restore autofocus states: {type(ex).__name__}: {ex}')
-
-    # --- Put the layer panel back on the settings ---
-    # The run displayed each step in the panel without writing the user's
-    # settings; the panel now shows the settings again. Once per run,
-    # outside the restore above: it does not depend on any autofocus state
-    # having been snapshotted.
-    try:
-        if callbacks.sync_layer_widgets:
-            _schedule_cleanup_ui(
-                lambda dt: callbacks.sync_layer_widgets(),
-                'Sync layer panel',
-                cleanup_errors,
-                summary_sent,
+            # A fatal abort's terminal LED state is DARK regardless of the user's
+            # end policy: force_off already darkened the sample at the fault
+            # site, and this forced-OFF RUN_END re-asserts dark against any step
+            # that raced the abort and re-lit a channel (the OFF diff serializes
+            # after such a re-light on the same FIFO protocol queue, so off
+            # wins). Asserting OFF -- not skipping the restore -- is the point: a
+            # skipped restore would leave a raced re-light on forever. User Stop
+            # keeps the configured policy.
+            end_policy, snapshot_lit = resolve_end_state(
+                'off' if forced_dark else leds_state_at_end,
+                original_led_states,
+                scope.illumination.state_color2ch,
             )
-    except Exception as ex:
-        logger.error(f'[PROTOCOL] Error scheduling the layer panel sync during cleanup: {ex}')
-        cleanup_errors.append(f'Sync layer panel: {type(ex).__name__}: {ex}')
+            if end_policy is None:
+                logger.error(f'Unsupported LEDs state at end value: {leds_state_at_end}')
+            else:
+                apply_led_transition_fn(
+                    LedTransition.RUN_END,
+                    LedTransitionCtx(end_policy=end_policy, snapshot_lit=snapshot_lit),
+                )
+                led_end_state_applied = True
+        except CancelledError:
+            # The protocol queue was cleared and this restore task cancelled
+            # before it ran. A superseding run/abort cycle is one canceller --
+            # but so are executor shutdown, an unwedge/quarantine, and the
+            # end-of-protocol-mode drain, and none of those re-asserts LED
+            # state. So the end-state stays undecided and the caller darkens;
+            # a superseding run re-lights per step, costing at most a
+            # transient dark blip during rapid run cycling. Not surfaced as a
+            # failure -- doing so produced a popup per cycle when the run
+            # button was clicked rapidly.
+            logger.info(
+                f'[{logger_name}] Cleanup: LED restore superseded by an overlapping run/abort cycle'
+            )
+        except Exception as ex:
+            cleanup_errors.append(('Restore LED states', f'{type(ex).__name__}: {ex}'))
+    logger.info(f'[{logger_name}] Cleanup: LED restore complete')
 
     # --- Restore camera gain and exposure ---
-    # PROTO-CLEAN-1: dispatch the gain/exposure SDK calls through
-    # camera_executor (CAMERA_WORKER) instead of running on MainThread.
-    # Pylon's set_gain_db / set_exposure_ms take noticeable time on real
-    # hardware -- running on MainThread blocked the UI for the duration
-    # of protocol stop. Submit-and-wait so cleanup still serializes:
-    # the next steps (return-to-position, executor end) need camera
-    # state restored before they run, otherwise live preview after stop
-    # could briefly use protocol gain/exposure.
-    #
-    # Cleanup runs while ``protocol_running`` is still set, so we use
-    # ``protocol_put`` (which accepts during a running protocol) rather
-    # than ``put`` (which rejects until protocol_end fires).
-    #
-    # That choice is necessary but not sufficient: the camera executor is
-    # also DISABLED for the duration of a run and is not re-enabled until
-    # the end-executors step further down this function, and protocol_put
-    # refuses while disabled. So on a normal run the enqueue below returns
-    # None and the direct-call branch is what actually restores state.
+    # Before the return moves and the executors' end: live preview after the
+    # stop must not briefly run at the run's gain and exposure. The restore
+    # dispatches onto the camera lane; cleanup acts under the run's taking,
+    # so it goes through the run's door while the lane is still in protocol
+    # mode.
     try:
         if saved_camera_state:
             tag = saved_camera_state.get('tag', '?')
-            # Ask before submitting. The disabled executor is the NORMAL
-            # state here -- cleanup runs after the run has closed it -- and a
-            # submit made anyway is refused, which the executor reports at
-            # WARNING because it cannot know this caller has an inline path.
-            # A warning on the expected route is one a reader has to learn to
-            # ignore. The second check below still catches the race, the same
-            # ask-twice shape the motion dispatcher uses.
-            fut = None
-            if camera_executor.accepts_work():
-                fut = camera_executor.protocol_put(
-                    IOTask(
-                        action=scope.imaging.restore_camera_state,
-                        args=(saved_camera_state,),
-                    ),
-                    return_future=True,
-                )
-            if fut is not None:
-                # Reached only when the executor is still live -- a run that
-                # failed before the disable, or a caller driving cleanup
-                # without a run behind it.
-                logger.info(
-                    f'[{logger_name}] Cleanup: restoring camera state tag={tag} (via CAMERA_WORKER)'
-                )
-                fut.result(timeout=30)
-            else:
-                # The normal path: the camera executor is disabled, so restore
-                # inline on the cleanup thread. State still gets restored
-                # either way; the log says which thread did it so a trace of
-                # this run is readable.
-                logger.info(
-                    f'[{logger_name}] Cleanup: restoring camera state '
-                    f'tag={tag} (direct -- camera executor disabled)'
-                )
-                scope.imaging.restore_camera_state(saved_camera_state)
+            logger.info(f'[{logger_name}] Cleanup: restoring camera state tag={tag}')
+            scope.imaging.restore_camera_state(saved_camera_state)
     except Exception as ex:
-        logger.error(f'[PROTOCOL] Error restoring camera gain/exposure during cleanup: {ex}')
-        cleanup_errors.append(f'Restore camera gain/exposure: {type(ex).__name__}: {ex}')
+        cleanup_errors.append(('Restore camera gain/exposure', f'{type(ex).__name__}: {ex}'))
 
     # --- Return to position ---
     try:
@@ -426,12 +306,13 @@ def run_cleanup(
             'overlapping run/abort cycle'
         )
     except Exception as ex:
-        logger.error(f'[PROTOCOL] Error returning to position during cleanup: {ex}')
-        cleanup_errors.append(f'Return to position: {type(ex).__name__}: {ex}')
+        cleanup_errors.append(('Return to position', f'{type(ex).__name__}: {ex}'))
 
     # --- End executors ---
     scan_in_progress.clear()
 
+    io_executor = scope.io_lane()
+    camera_executor = scope.camera_lane()
     io_executor.protocol_end()
     # Wait for any task that was in-flight when protocol_end fired to
     # finish before we mutate scope / camera / settings state below --
@@ -447,179 +328,47 @@ def run_cleanup(
         # Signal any lingering AF run to unwind. abort() is a no-op when
         # the thread is idle, so this is always safe to call.
         autofocus_thread.abort()
-    camera_executor.enable()
+    camera_executor.protocol_end()
     logger.info(f'[{logger_name}] Cleanup: protocol_end called on all executors')
 
     io_executor.clear_protocol_pending()
-    if is_aborted:
-        # Drop pending writes only on an ERROR-state abort. Drain (the
-        # COMPLETING-path default) writes everything queued to disk before
-        # releasing memory -- correct on normal completion AND on a user Stop
-        # (don't discard captured frames), but on a hardware disconnect/error the
-        # frames are suspect and the user wants control back without waiting for
-        # many GB to slowly drain.
-        file_io_executor.clear_protocol_pending()
-        logger.info(f'[{logger_name}] Cleanup: file_io_executor pending cleared (aborted)')
-
-    # --- Complete protocol execution record ---
-    # Ordering invariant: this enqueue must run AFTER the abort-path clear
-    # above. Enqueued before it, the completion task itself was cancelled by
-    # the clear, so an aborted run's record silently never finalized. After
-    # the clear, an aborted run's queue has room and the put returns
-    # immediately even when the worker is stuck mid-write.
-    try:
-        if not disable_saving_artifacts and protocol_execution_record is not None:
-            # On a clean finish, reconcile attempted captures against rows
-            # written and warn on any shortfall. On abort, pending writes were
-            # dropped on purpose above, so a shortfall is expected -- skip it.
-            # Blocking put: the old fire-and-forget enqueue ignored the
-            # queue-full return, so a backed-up queue silently lost the
-            # record completion.
-            _record_put = file_io_executor.protocol_put_wait(
-                IOTask(
-                    action=partial(protocol_execution_record.complete, reconcile=not is_aborted)
-                ),
-                should_abort=lambda: False,
-                stall_timeout_s=_RECORD_COMPLETE_STALL_S,
-            )
-            if _record_put is PROTOCOL_QUEUE_WEDGED:
-                logger.error(
-                    f'[{logger_name}] Cleanup: run-record completion could not '
-                    f'be queued -- the file writer is stalled on '
-                    f"{file_io_executor.describe_running_task()}; this run's "
-                    f'execution record will not be finalized'
-                )
-    except Exception as ex:
-        logger.error(f'[PROTOCOL] Error completing protocol record during cleanup: {ex}')
-        cleanup_errors.append(f'Complete protocol record: {type(ex).__name__}: {ex}')
-
-    with run_lock:
-        set_run_in_progress_fn(False)
-        # Transition back to IDLE from COMPLETING or ERROR
-        if get_state_fn() in (ProtocolState.COMPLETING, ProtocolState.ERROR):
-            set_state_fn(ProtocolState.IDLE)
+    camera_executor.clear_protocol_pending()
+    # The run is NOT ended here. The phase returns to IDLE in the caller's
+    # finally, after the activity claim is released -- one writer, on a
+    # path that runs even when a step in here raises. Ending the run from
+    # inside this function is what used to admit the next run while the
+    # teardown was still handing resources back.
 
     # Surface a single summary if any cleanup step failed. Fault
     # tolerance ran each step regardless; the user needs to know LED
     # state, camera settings, or stage position may not be what they
     # expect.
+    # The run's outcome names the steps, so a caller waiting on the run
+    # learns the scope was not put back; the person is told once, here.
+    record_cleanup_failures(tuple(step for step, _ in cleanup_errors))
     if cleanup_errors:
-        try:
-            from modules.notification_center import notifications
+        from modules.notification_center import notifications
 
-            err_summary = '\n'.join(f'  - {e}' for e in cleanup_errors)
-            # "ended", not "completed": this summary also fires on aborted
-            # runs, and claiming completion on an abort misleads the
-            # post-mortem reader.
-            notifications.warning(
-                'Protocol',
-                'Protocol cleanup issues',
-                f'Protocol ended but {len(cleanup_errors)} cleanup step(s) failed:\n'
-                f'{err_summary}\n'
-                f'Check LED state, camera settings, and stage position.',
-            )
-        except Exception as ex:
-            # Best-effort -- a notification failure during cleanup must
-            # not prevent the completion callbacks from firing.
-            logger.error(f'[PROTOCOL] Failed to surface cleanup-error notification: {ex}')
-
-    # The one summary has now gone out (or there was nothing to say). Any
-    # guarded UI callback that fails from here on has missed it and must
-    # report itself instead of appending where nobody will read.
-    summary_sent.set()
-
-    # Surface silently-dropped captures. A full write queue discards an
-    # already-grabbed frame, so a nonzero count is images the user expected
-    # that are permanently absent from disk. A throttled log was the only prior
-    # signal; the run-terminal summary is the reliable surface because mid-run
-    # popups are suppressed. Fires on aborted runs too -- a queue-full drop
-    # during capture is unintended loss, distinct from an abort's deliberate
-    # drop of pending writes.
-    dropped_captures = file_io_executor.protocol_dropped_count()
-    if dropped_captures > 0:
-        try:
-            from modules.notification_center import notifications
-
-            notifications.warning(
-                'Protocol',
-                'Protocol Captures Dropped',
-                f'{dropped_captures} captured image(s) could not be saved because '
-                'the file writer fell behind the camera. Those images are lost '
-                'from this run. Reduce the capture rate (fewer channels or '
-                'Z-steps, or a slower scan) or use a faster save drive.',
-            )
-        except Exception as ex:
-            logger.error(f'[PROTOCOL] Failed to surface dropped-capture notification: {ex}')
+        notifications.report_outcome(
+            RunCleanupFailedError(cleanup_errors), solicited=False, category='Protocol'
+        )
 
     # Sustained-slow-write warning, demand-relative: the time this run's
     # capture loop spent blocked waiting for a write slot. An absolute MB/s
     # floor false-fires on healthy machines (PERFORMANCE_BUDGETS.md
     # protocol_write_backpressure_wait_s), so the trigger is the run's own
     # unmet demand. Surfaced at run end because mid-run non-fatal popups are
-    # suppressed; the first crossing already logged from the executor.
-    blocked_s = file_io_executor.protocol_backpressure_blocked_s()
+    # suppressed; the first crossing already logged from the run's write batch.
+    blocked_s = write_batch.blocked_s
     if blocked_s >= SLOW_WRITE_BLOCKED_WARN_S:
-        try:
-            from modules.notification_center import notifications
+        from modules.notification_center import notifications
 
-            notifications.warning(
-                'Protocol',
-                'Very Slow File Writes',
-                'Very slow writes are occurring on the save disk. '
-                'Please confirm your computer and storage are OK.',
-            )
-        except Exception as ex:
-            logger.error(f'[PROTOCOL] Failed to surface slow-write notification: {ex}')
+        notifications.report_outcome(SlowFileWritesNotice(), solicited=False, category='Protocol')
 
-    # --- Fire completion callbacks ---
-    _file_queue_active = file_io_executor.is_protocol_queue_active()
-    # Log the pending-write count so a post-run read shows HOW MANY files were
-    # still draining at protocol end, not just that the queue was non-empty.
-    _file_queue_depth = file_io_executor.protocol_queue_size()
-    logger.info(
-        f'[{logger_name}] Cleanup: file queue active={_file_queue_active} '
-        f'pending_writes={_file_queue_depth}'
-    )
-    if _file_queue_active:
-        if callbacks.run_complete:
-            _schedule_cleanup_ui(
-                lambda dt: callbacks.run_complete(protocol=protocol, status=run_status),
-                'Run-complete callback',
-                cleanup_errors,
-                summary_sent,
-            )
-        if callbacks.files_complete:
-            file_io_executor.set_protocol_complete_callback(
-                callback=lambda: _schedule_cleanup_ui(
-                    lambda dt: callbacks.files_complete(protocol=protocol),
-                    'Files-complete callback',
-                    cleanup_errors,
-                    summary_sent,
-                )
-            )
-        file_io_executor.protocol_finish_then_end()
-        logger.info(
-            f'[{logger_name}] Cleanup: callbacks scheduled (run_complete now, files_complete deferred)'
-        )
-    else:
-        if callbacks.run_complete:
-            _schedule_cleanup_ui(
-                lambda dt: callbacks.run_complete(protocol=protocol, status=run_status),
-                'Run-complete callback',
-                cleanup_errors,
-                summary_sent,
-            )
-        if callbacks.files_complete:
-            _schedule_cleanup_ui(
-                lambda dt: callbacks.files_complete(protocol=protocol),
-                'Files-complete callback',
-                cleanup_errors,
-                summary_sent,
-            )
-        file_io_executor.protocol_finish_then_end()
-        logger.info(
-            f'[{logger_name}] Cleanup: callbacks scheduled (run_complete + files_complete immediate)'
-        )
+    # run_ended and files_written are the run's to send, once it has let go
+    # of the scope.
+    logger.info(f'[{logger_name}] Run ended: status={ending.status} reason={ending.reason}')
+    logger.info(f'[{logger_name}] Cleanup: pending_writes={write_batch.pending}')
 
     # Map the footprint right after a protocol run. No-op unless the memory
     # profiler is enabled.

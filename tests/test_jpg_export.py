@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import pathlib
 import sys
+import threading
 
 import cv2
 import numpy as np
@@ -24,6 +25,7 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
 from modules import image_utils
+from tests.frame_records import frame_record, plate
 
 
 def _bright_mono(value: int = 200) -> np.ndarray:
@@ -107,6 +109,10 @@ def test_save_image_routes_jpg_to_encoder(tmp_path):
         jpeg_quality=95,
         save_encoding='8bit',
         significant_bits=8,
+        objective_id='4x Oly',
+        frame_record=frame_record(),
+        labware=plate(),
+        well_label=None,
     )
     saved = pathlib.Path(path)
     assert saved.suffix == '.jpg', 'JPG format must resolve a .jpg extension'
@@ -119,15 +125,11 @@ def test_save_image_routes_jpg_to_encoder(tmp_path):
 
 # --- Default significant-bits rule: one helper, three save paths ---
 #
-# save_live_image resolves the payload depth once at capture (via the shared
+# The manual still resolves the payload depth once at capture (via the shared
 # capture_frame_depth rule) and hands it down; a distinctive value (not
 # 8 / 12 / 16) proves the camera's reported depth flows through unchanged into
 # the post-save log line, rather than any hand-written constant.
 _CAMERA_DEPTH = 11
-
-
-def _wide_frame() -> np.ndarray:
-    return np.zeros((16, 16), dtype=np.uint16)
 
 
 def _scope_with_depth(significant_bits: int = _CAMERA_DEPTH, frame=None):
@@ -140,36 +142,35 @@ def _scope_with_depth(significant_bits: int = _CAMERA_DEPTH, frame=None):
         last_significant_bits=significant_bits,
         _binning_size=1,
         _capture_and_wait_impl=lambda **kwargs: frame,
+        _state_lock=threading.Lock(),
+        _last_frame_summing=None,
     )
     # The REAL shared depth rule, bound to this stub -- the tests pin that
     # every save path resolves through one rule, so the stub must not
     # re-implement it.
-    imaging.capture_frame_depth = lambda array, sum_count=1: ImagingAPI.capture_frame_depth(
-        imaging, array, sum_count
+    imaging.capture_frame_depth = lambda array: ImagingAPI.capture_frame_depth(imaging, array)
+    return SimpleNamespace(
+        imaging=imaging,
+        runtime_state=SimpleNamespace(resolve_current_objective=lambda: ('4x Oly', {})),
     )
-    return SimpleNamespace(imaging=imaging)
 
 
-def test_save_live_log_reports_captured_depth(monkeypatch):
+def test_manual_capture_log_reports_captured_depth(monkeypatch, tmp_path):
     # The post-save log line reports the depth that was written; for a single
     # (non-summed) wide frame it must log the depth resolved at capture.
-    # Stub save_image (real write needs a configured scope) and capture the log.
-    from modules import image_save
-
-    monkeypatch.setattr(image_save, 'save_image', lambda *a, **k: 'frame.tiff')
+    import modules.image_mode as image_mode
+    from modules import manual_capture
+    from modules.lumascope_api.imaging import ImagingAPI
+    from tests.test_manual_capture_member import _capture, _open_session, _settings
 
     messages = []
-    monkeypatch.setattr(image_save.logger, 'info', lambda msg: messages.append(msg))
+    monkeypatch.setattr(manual_capture.logger, 'info', lambda msg: messages.append(msg))
+    # The camera's per-frame stamp, read by the real shared depth rule.
+    monkeypatch.setattr(ImagingAPI, 'last_significant_bits', property(lambda self: _CAMERA_DEPTH))
 
-    scope = _scope_with_depth(frame=_wide_frame())
-    image_save.save_live_image(
-        scope,
-        save_folder='.',
-        file_root='img_',
-        append='ms',
-        channel='BF',
-        false_color_on=False,
-        tail_id_mode=None,
-        save_encoding='8bit',
-    )
-    assert any(f'significant_bits={_CAMERA_DEPTH}' in m for m in messages), messages
+    settings = _settings(tmp_path)
+    settings['image_mode'] = image_mode.IMAGE_MODE_12BIT_SCIENTIFIC
+    with _open_session(settings) as session:
+        _capture(session)
+
+    assert any(f'capture_bits={_CAMERA_DEPTH}' in m for m in messages), messages

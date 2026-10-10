@@ -44,6 +44,14 @@ class AccessException(GenericException):
     pass
 
 
+class OutOfRangeException(GenericException):
+    """A value outside a node's min/max. Named to mirror the SDK class exactly. Modelled because it is the class a
+    refused gain actually arrives as, and because it is NOT a RuntimeException
+    subclass in the real SDK (MRO checked against the installed pypylon:
+    OutOfRangeException -> GenericException -> Exception). A driver that catches
+    only RuntimeException therefore does not see it."""
+
+
 class LogicalErrorException(GenericException):
     pass
 
@@ -130,6 +138,7 @@ _PYLON_MEMBERS = {
     'TimeoutException': TimeoutException,
     'AccessException': AccessException,
     'LogicalErrorException': LogicalErrorException,
+    'OutOfRangeException': OutOfRangeException,
     # Enum stand-ins: distinct ints so identity/equality checks behave.
     'GrabStrategy_OneByOne': 0,
     'GrabStrategy_LatestImageOnly': 1,
@@ -145,7 +154,18 @@ _GENICAM_MEMBERS = {
     'TimeoutException': TimeoutException,
     'AccessException': AccessException,
     'LogicalErrorException': LogicalErrorException,
+    'OutOfRangeException': OutOfRangeException,
     'IsReadable': IsReadable,
+    # Increment modes, with the values the real SDK reports (checked
+    # against pypylon 26.04.1). These MUST be modelled rather than left
+    # to the MagicMock fallback: the fallback hands out a NEW mock per
+    # attribute access, so production code comparing a node's reported
+    # mode against genicam.fixedIncrement compares two different mocks,
+    # never matches, and silently takes its "no usable increment" path
+    # under test while behaving correctly against real hardware.
+    'fixedIncrement': 1,
+    'listIncrement': 2,
+    'noIncrement': 0,
 }
 
 pylon = _stub_module('pypylon.pylon', _PYLON_MEMBERS)

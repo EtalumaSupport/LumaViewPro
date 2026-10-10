@@ -33,28 +33,21 @@ class Histogram(Widget):
 
         True only when the settings drawer is open, this layer's
         accordion is expanded, and the layer's camera controls (which
-        contain the histogram) are shown. Any failure to resolve the
-        widgets is treated as not-displayed so we err toward skipping
-        the work, never toward computing for an off-screen widget.
+        contain the histogram) are shown. Every layer has a drawer
+        (tests/guards/test_every_layer_has_a_drawer.py), so both lookups
+        answer.
         """
         image_settings = getattr(ctx, 'image_settings', None)
         if image_settings is None or self.layer is None:
             return False
-        try:
-            # Settings drawer collapsed: the whole panel is off-screen.
-            if image_settings.ids['toggle_imagesettings'].state == 'normal':
-                return False
-            # This layer's accordion collapsed: another layer is showing.
-            item = image_settings.accordion_item_lookup(layer=self.layer)
-            if item is None or item.collapse:
-                return False
-            # Camera controls (which host the histogram) hidden for this layer.
-            layer_obj = image_settings.layer_lookup(layer=self.layer)
-            if layer_obj is not None and not layer_obj.show_camera_controls:
-                return False
-        except (KeyError, AttributeError):
+        # Settings drawer collapsed: the whole panel is off-screen.
+        if image_settings.ids['toggle_imagesettings'].state == 'normal':
             return False
-        return True
+        # This layer's accordion collapsed: another layer is showing.
+        if image_settings.accordion_item_lookup(layer=self.layer).collapse:
+            return False
+        # Camera controls (which host the histogram) hidden for this layer.
+        return image_settings.layer_lookup(layer=self.layer).show_camera_controls
 
     def histogram(self, *args):
         ctx = _app_ctx.ctx

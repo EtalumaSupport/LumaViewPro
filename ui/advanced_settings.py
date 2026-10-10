@@ -22,11 +22,9 @@ from kivy.uix.popup import Popup
 import modules.app_context as _app_ctx
 from lvp_logger import logger
 from modules import gui_logger
-from ui.ui_helpers import text_input_debounced
 from modules.config_helpers import get_manual_video_max_duration
 from modules.config_ui_getters import firmware_stim_supported
-from modules.sequential_io_executor import IOTask
-from modules.tiling_config import TilingConfig
+from ui.ui_helpers import run_reported, submit_reported, typed_number
 
 
 class AdvancedSettings(Popup):
@@ -69,14 +67,7 @@ class AdvancedSettings(Popup):
         self.conversion_gain_supported = caps.camera_supports_conversion_gain_mode
         self.line_noise_reduction_supported = caps.camera_supports_line_noise_reduction
         self.xy_stage_supported = caps.has_xy_stage
-        camera_settings = settings.setdefault('camera', {})
-        self.ids['high_conversion_gain'].active = bool(
-            self.conversion_gain_supported and camera_settings.get('high_conversion_gain', False)
-        )
-        self.ids['line_noise_reduction'].active = bool(
-            self.line_noise_reduction_supported
-            and camera_settings.get('line_noise_reduction', False)
-        )
+        self._show_camera_modes()
 
         video_settings = settings.get('video', {})
         self.ids['video_max_fps_input'].text = str(video_settings.get('max_fps', 0))
@@ -129,114 +120,95 @@ class AdvancedSettings(Popup):
         # populate does not re-run the handler -- no phantom toggle on open.
         self.ids['show_step_locations_id'].active = settings['show_step_locations']
 
+    def _show_camera_modes(self):
+        """Show the stored conversion gain and line-noise filter, where the camera has them."""
+        camera_settings = _app_ctx.ctx.settings['camera']
+        self.ids['high_conversion_gain'].active = bool(
+            self.conversion_gain_supported and camera_settings['high_conversion_gain']
+        )
+        self.ids['line_noise_reduction'].active = bool(
+            self.line_noise_reduction_supported and camera_settings['line_noise_reduction']
+        )
+
     def update_high_conversion_gain(self):
         ctx = _app_ctx.ctx
-        settings = ctx.settings
         state = self.ids['high_conversion_gain'].active
         gui_logger.select('HIGH_CONVERSION_GAIN', state)
-        settings.setdefault('camera', {})['high_conversion_gain'] = state
-        mode = 'High' if state else 'Low'
-
-        def _set_conversion_gain():
-            # Already on the camera worker: bind the impl -- the public
-            # dispatcher would re-enter this same lane and stall on its
-            # own queue slot.
-            ctx.lumaview.scope.imaging._set_conversion_gain_mode_impl(mode)
-
-        ctx.camera_executor.put(IOTask(action=_set_conversion_gain))
+        session = ctx.session
+        submit_reported(
+            lambda: session.set_high_conversion_gain(state),
+            self._show_camera_modes,
+            'HIGH_CONVERSION_GAIN',
+            lane=ctx.camera_executor,
+        )
 
     def update_line_noise_reduction(self):
         ctx = _app_ctx.ctx
-        settings = ctx.settings
         state = self.ids['line_noise_reduction'].active
         gui_logger.select('LINE_NOISE_REDUCTION', state)
-        settings.setdefault('camera', {})['line_noise_reduction'] = state
-
-        def _set_line_noise():
-            # On the camera worker: bind the impl, never the dispatcher
-            # (self-dispatch on the single lane).
-            ctx.lumaview.scope.imaging._set_line_noise_reduction_impl(state)
-
-        ctx.camera_executor.put(IOTask(action=_set_line_noise))
+        session = ctx.session
+        submit_reported(
+            lambda: session.set_line_noise_reduction(state),
+            self._show_camera_modes,
+            'LINE_NOISE_REDUCTION',
+            lane=ctx.camera_executor,
+        )
 
     def update_video_max_fps(self):
         # 0 = no limit: the recording rate is then bounded only by
         # exposure and the delivery constant; non-zero is the user's
         # explicit cap on the recording cadence.
-        settings = _app_ctx.ctx.settings
         widget = self.ids['video_max_fps_input']
-        try:
-            value = int(widget.text)
-        except (ValueError, TypeError):
-            value = -1
-        if value < 0 or value > 200:
-            from modules.notification_center import notifications
-
-            notifications.warning(
-                'Settings',
-                'Invalid FPS limit',
-                'Video max FPS must be between 0 and 200 (0 = no limit). '
-                'Reverting to previous value.',
-            )
-            settings.setdefault('video', {})
-            restored = str(settings['video'].get('max_fps', 0))
-            # A refused entry is still a user action, and until now it left no
-            # trace: the handler reverted the box and returned. Both halves are
-            # recorded -- what was typed, and what the box was put back to --
-            # and the revert is declared, because one Enter runs this handler
-            # twice (the box binds both commit events) and the second pass
-            # would otherwise report the reverted value as the typed one.
-            text_input_debounced('VIDEO_MAX_FPS', widget.text)
-            text_input_debounced('VIDEO_MAX_FPS_APPLIED', restored)
-            widget.text = restored
-            gui_logger.note_write_back('VIDEO_MAX_FPS', restored)
-            return
-        settings.setdefault('video', {})
-        settings['video']['max_fps'] = value
-        text_input_debounced('VIDEO_MAX_FPS', value)
+        gui_logger.text_input('VIDEO_MAX_FPS', widget.text)
+        if self._commit_video_limit(
+            widget, 'video.max_fps', lambda settings: settings['video']['max_fps'], 'VIDEO_MAX_FPS'
+        ):
+            gui_logger.text_input('VIDEO_MAX_FPS_APPLIED', widget.text)
 
     def update_video_max_duration(self):
         # Bounds the recording's frame budget (fps * duration); the
         # record start's disk floor check guards feasibility.
-        settings = _app_ctx.ctx.settings
         widget = self.ids['video_max_duration_input']
-        try:
-            value = int(widget.text)
-        except (ValueError, TypeError):
-            value = 0
-        if value < 1 or value > 3600:
-            from modules.notification_center import notifications
+        gui_logger.text_input('VIDEO_MAX_DURATION_S', widget.text)
+        if self._commit_video_limit(
+            widget,
+            'video.max_duration_seconds',
+            get_manual_video_max_duration,
+            'VIDEO_MAX_DURATION_S',
+        ):
+            gui_logger.text_input('VIDEO_MAX_DURATION_S_APPLIED', widget.text)
 
-            notifications.warning(
-                'Settings',
-                'Invalid time limit',
-                'Video Time Limit must be between 1 and 3600 seconds. Reverting to previous value.',
-            )
-            settings.setdefault('video', {})
-            restored = str(get_manual_video_max_duration(settings))
-            # The twin of the FPS limit above, and the same reasoning: the
-            # attempt and the reverted value are both recorded, and the revert
-            # is declared so the second commit pass cannot report it as typed.
-            text_input_debounced('VIDEO_MAX_DURATION_S', widget.text)
-            text_input_debounced('VIDEO_MAX_DURATION_S_APPLIED', restored)
-            widget.text = restored
-            gui_logger.note_write_back('VIDEO_MAX_DURATION_S', restored)
-            return
-        settings.setdefault('video', {})
-        settings['video']['max_duration_seconds'] = value
-        text_input_debounced('VIDEO_MAX_DURATION_S', value)
+    @staticmethod
+    def _commit_video_limit(widget, path: str, stored, label: str) -> bool:
+        """Hand a typed video limit to the settings writer; True when the box went back.
+
+        The writer owns the limit's range and refuses a value outside it; the
+        box then shows what is stored. A refused or unparseable entry is still
+        a user action, and the box going back would otherwise leave no trace
+        of it, so the caller records what the box shows as well as what was
+        typed. Assigning .text does not dispatch the focus event the handlers
+        are bound to, so the redraw cannot come back as a record.
+        """
+        ctx = _app_ctx.ctx
+        typed = widget.text
+
+        def show_stored():
+            widget.text = str(stored(ctx.settings))
+
+        value = typed_number(typed, int, show_stored)
+        if value is not None:
+            run_reported(lambda: ctx.update_settings(path, value), show_stored, label)
+        return widget.text != typed
 
     def update_video_timestamp_overlay(self):
-        settings = _app_ctx.ctx.settings
         state = self.ids['video_timestamp_overlay_id'].active
         gui_logger.toggle('VIDEO_TIMESTAMP_OVERLAY', state)
-        settings.setdefault('video', {})['timestamp_overlay'] = state
+        _app_ctx.ctx.update_settings('video.timestamp_overlay', state)
 
     def update_separate_folders_per_channel(self):
-        settings = _app_ctx.ctx.settings
         state = self.ids['separate_folder_per_channel_id'].state == 'down'
         gui_logger.toggle('SEPARATE_FOLDERS', state)
-        settings['separate_folder_per_channel'] = state
+        _app_ctx.ctx.update_settings('separate_folder_per_channel', state)
 
     def live_view_fps_slider(self):
         ctx = _app_ctx.ctx
@@ -246,8 +218,7 @@ class AdvancedSettings(Popup):
         if fps_val > 60:
             fps_val = 0
         ctx.live_view_fps = fps_val
-        with ctx.settings_lock:
-            ctx.settings['live_view_fps'] = fps_val
+        ctx.update_settings('live_view_fps', fps_val)
         logger.info(
             f'[LVP Main  ] Live view FPS set to {"Max (uncapped)" if fps_val == 0 else fps_val}'
         )
@@ -258,16 +229,14 @@ class AdvancedSettings(Popup):
             scope_display.start(fps=fps_val)
 
     def update_protocol_led_on(self):
-        settings = _app_ctx.ctx.settings
         enabled = self.ids['protocol_led_on_btn'].state == 'down'
         gui_logger.toggle('PROTOCOL_LED_ON', enabled)
-        settings['protocol_led_on'] = enabled
+        _app_ctx.ctx.update_settings('protocol_led_on', enabled)
 
     def update_keep_led_between_steps(self):
-        settings = _app_ctx.ctx.settings
         enabled = self.ids['keep_led_between_steps_btn'].state == 'down'
         gui_logger.toggle('KEEP_LED_BETWEEN_STEPS', enabled)
-        settings['keep_led_between_steps'] = enabled
+        _app_ctx.ctx.update_settings('keep_led_between_steps', enabled)
 
     def update_stimulation_settings(self):
         ctx = _app_ctx.ctx
@@ -280,26 +249,28 @@ class AdvancedSettings(Popup):
 
     def update_tiling_overlap(self):
         ctx = _app_ctx.ctx
-        overlap = TilingConfig.validate_overlap_percent(
-            self.ids['tiling_overlap_spinner'].text.strip().rstrip('%')
-        )
+        overlap = float(self.ids['tiling_overlap_spinner'].text.strip().rstrip('%'))
         # on_open populates the spinner with the stored value; that programmatic
         # write is not a user change, so skip the action log and redundant write.
         if overlap == ctx.settings['tiling_overlap_percent']:
             return
         gui_logger.select('TILING_OVERLAP', overlap)
-        ctx.settings['tiling_overlap_percent'] = overlap
+        run_reported(
+            lambda: ctx.update_settings('tiling_overlap_percent', overlap),
+            None,
+            'TILING_OVERLAP',
+        )
 
     def update_show_step_locations(self):
         ctx = _app_ctx.ctx
         enabled = bool(self.ids['show_step_locations_id'].active)
         gui_logger.toggle('SHOW_STEP_LOCATIONS', enabled)
-        ctx.settings['show_step_locations'] = enabled
+        ctx.update_settings('show_step_locations', enabled)
         ctx.stage.show_protocol_steps(enable=enabled)
 
     def load_scopes(self):
-        scopes = _app_ctx.ctx.motion_settings.ids['microscope_settings_id'].scopes
-        self.ids['scope_spinner'].values = list(scopes.keys())
+        # The scope's own model catalogue, read once at its construction.
+        self.ids['scope_spinner'].values = list(_app_ctx.ctx.session.scope.scope_models)
 
     def select_scope(self):
         ctx = _app_ctx.ctx
@@ -310,26 +281,17 @@ class AdvancedSettings(Popup):
         if new_model == settings['microscope']:
             return
         gui_logger.select('SCOPE', new_model)
-        settings['microscope'] = new_model
-        # Reconfigure the panel for the new scope through its single owner
-        # (control visibility + read-only model label + stage redraw); the
-        # startup path uses the same method so both reconfigure identically.
-        ctx.motion_settings.ids['microscope_settings_id'].reconfigure_for_scope()
-        # The motion controls follow the attached hardware, so this selection
-        # does not move them. Say that outright: a panel that visibly does
-        # nothing otherwise reads as a broken selector. The wording must not
-        # promise the choice sticks either -- a board that reports its own
-        # model overwrites this value at the next startup.
-        from modules.notification_center import notifications
-
-        notifications.info(
-            'Microscope',
-            'Scope model saved',
-            f'{new_model} is saved as the configured model. The controls on '
-            f'screen follow the microscope actually attached, so this takes '
-            f'effect when you reconnect. A microscope that reports its own '
-            f'model overrides this selection.',
+        run_reported(
+            lambda: ctx.session.select_model(new_model),
+            self._show_saved_model,
+            'SCOPE',
         )
+
+    def _show_saved_model(self) -> None:
+        """Show the saved model; the session says when it waits for the next start."""
+        ctx = _app_ctx.ctx
+        self.ids['scope_spinner'].text = ctx.settings['microscope']
+        ctx.motion_settings.ids['microscope_settings_id'].show_scope_model()
 
     def acceleration_pct_slider(self):
         acc_val = self.ids['acceleration_pct_slider'].value
@@ -337,46 +299,51 @@ class AdvancedSettings(Popup):
         self.set_acceleration_limit(val_pct=acc_val)
 
     def acceleration_pct_text(self):
-        acc_min = self.ids['acceleration_pct_slider'].min
-        acc_max = self.ids['acceleration_pct_slider'].max
-        try:
-            acc_val = int(self.ids['acceleration_pct_text'].text)
-        except (ValueError, TypeError):
-            logger.debug(
-                f'[Advanced ] Invalid acceleration input: '
-                f'{self.ids["acceleration_pct_text"].text!r}'
-            )
+        typed = self.ids['acceleration_pct_text'].text
+        # Before the parse: the twin slider emits SLIDER ACCELERATION, so
+        # without a line of its own a typed limit showed up in the bundle as
+        # a limit that changed with nothing saying a user set it.
+        gui_logger.text_input('ACCELERATION', typed)
+        acc_val = typed_number(typed, int, self._show_acceleration_limit)
+        if acc_val is None:
+            gui_logger.text_input('ACCELERATION_APPLIED', self.ids['acceleration_pct_text'].text)
             return
-
-        # The slider's [min, max] is the valid domain for the typed value. A
-        # Kivy input_filter can't enforce a minimum on partial input (typing
-        # "10" must allow the intermediate "1"), so clamp the validated value.
-        acc_val = int(max(acc_min, min(acc_max, acc_val)))
-        self.ids['acceleration_pct_slider'].value = acc_val
-        self.ids['acceleration_pct_text'].text = str(acc_val)
+        # As typed: the motion API owns the range and refuses outside it; the
+        # redraw then shows the limit that is stored.
         self.set_acceleration_limit(val_pct=acc_val)
+
+    def _show_acceleration_limit(self):
+        """Show the box the limit its slider holds, as its kv binding does."""
+        self.ids['acceleration_pct_text'].text = format(self.ids['acceleration_pct_slider'].value)
+
+    def _show_stored_acceleration_limit(self):
+        """Show the slider and the box the stored limit, taken or refused.
+
+        The box is set as well as the slider: a refused entry leaves the
+        slider where it was, so its kv binding would not fire and the box
+        would keep the number the API refused.
+        """
+        self.ids['acceleration_pct_slider'].value = _app_ctx.ctx.settings['motion'][
+            'acceleration_max_pct'
+        ]
+        self._show_acceleration_limit()
 
     _ACCELERATION_DEBOUNCE_S = 0.10
     _acceleration_dispatch_trigger = None
     _pending_acceleration_pct = None
 
     def set_acceleration_limit(self, val_pct):
-        """Apply acceleration limit (writes settings + dispatches motor command).
+        """Hand the acceleration limit to the Session, which commands the motors and stores it.
 
         The motor serial write goes through ``io_executor`` instead of running
         synchronously on MainThread. The slider's ``on_value`` event can fire at
         up to 60 Hz on a smooth drag -- without the executor route, every tick
-        blocks the UI on a serial write. The settings dict is still updated
-        synchronously so other UI code reading the slider sees the committed
-        value immediately.
+        blocks the UI on a serial write.
 
         The 100 ms ``Clock.create_trigger`` debounce coalesces rapid slider
         ticks into one motor write per debounce window. Final settle of the
         slider always lands on the last value the user picked.
         """
-        ctx = _app_ctx.ctx
-        with ctx.settings_lock:
-            ctx.settings['motion']['acceleration_max_pct'] = val_pct
         # Stash the most recent value; the trigger reads it when it fires.
         self._pending_acceleration_pct = int(val_pct)
         if self._acceleration_dispatch_trigger is None:
@@ -390,8 +357,8 @@ class AdvancedSettings(Popup):
         """Send the most-recent acceleration value to the motor on IO_WORKER.
 
         Reads ``self._pending_acceleration_pct`` (latest stash from
-        ``set_acceleration_limit``) and submits an IOTask through
-        ``io_executor``. If the slider moved again while the trigger was
+        ``set_acceleration_limit``) and submits the Session member on the IO
+        lane. If the slider moved again while the trigger was
         pending, only the latest value reaches the motor -- no queued command
         burst.
         """
@@ -399,14 +366,12 @@ class AdvancedSettings(Popup):
         if ctx is None or self._pending_acceleration_pct is None:
             return
         val_pct = self._pending_acceleration_pct
-        scope = ctx.lumaview.scope if ctx.lumaview else None
-        if scope is None:
-            return
-        ctx.io_executor.put(
-            IOTask(
-                action=scope.motion.set_acceleration_limit,
-                kwargs={'val_pct': val_pct},
-            )
+        session = ctx.session
+        submit_reported(
+            lambda: session.set_acceleration_limit(val_pct),
+            self._show_stored_acceleration_limit,
+            'ACCELERATION_LIMIT',
+            lane=ctx.io_executor,
         )
 
     def close(self):
@@ -520,7 +485,6 @@ kv = Builder.load_string(
                         halign: 'right'
                         input_filter: 'int'
                         text: format(acceleration_pct_slider.value)
-                        on_text_validate: root.acceleration_pct_text()
                         on_focus: if not self.focus: root.acceleration_pct_text()
 
                 # Hidden when firmware lacks stim. The toggle's OWN height
@@ -628,7 +592,6 @@ kv = Builder.load_string(
                         halign: 'right'
                         input_filter: 'int'
                         text: '0'
-                        on_text_validate: root.update_video_max_fps()
                         on_focus: if not self.focus: root.update_video_max_fps()
 
                 BoxLayout:
@@ -653,7 +616,6 @@ kv = Builder.load_string(
                         halign: 'right'
                         input_filter: 'int'
                         text: '30'
-                        on_text_validate: root.update_video_max_duration()
                         on_focus: if not self.focus: root.update_video_max_duration()
 
                 BoxLayout:

@@ -15,8 +15,7 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 import modules.labware as labware
-from modules.image_mode import ImageCaptureConfig
-from modules.zstack_config import ZStackConfig
+from modules.layer_record import refuse_unknown_layer
 
 logger = logging.getLogger('LVP.modules.config_ui_getters')
 
@@ -89,7 +88,7 @@ def firmware_stim_supported() -> bool:
     yet available, so stim never appears on firmware that cannot drive it.
     """
     caps = _live_capabilities()
-    return bool(caps.supports('firmware_stim')) if caps is not None else False
+    return bool(caps.has_firmware_stim) if caps is not None else False
 
 
 def get_layer_illumination_slider_max(layer: str) -> int | None:
@@ -115,44 +114,6 @@ def get_layer_exposure_slider_max(camera_max_ms: float, layer: str) -> float:
     return config_helpers.layer_max_exposure_ms_for_ui(camera_max_ms, layer)
 
 
-def _live_imaging():
-    """The imaging surface of the LIVE scope, or None if no scope is built."""
-    return getattr(_live_scope(), 'imaging', None)
-
-
-def get_exposure_text_max() -> float | None:
-    """The typed exposure ceiling: the live camera's own cap, or None when no
-    camera can report one.
-
-    Every narrowing lives on the SLIDER; the box is the physical limit, so a
-    user who needs an exposure the slider's convenience range does not reach
-    can type it -- and a user on a body with a low cap cannot type past what
-    its sensor will honor. No layer branch, unlike illumination, where
-    over-driving an LED is a damage mode and the text bound is policy too.
-
-    Deliberately NOT camera_max_exposure_for_ui: that resolver substitutes the
-    no-camera default when the camera reports nothing, which is right for
-    SIZING a slider -- it needs some range to draw -- and wrong here. On a body
-    whose real cap is well under that default, a camera drop would silently
-    raise the typed ceiling and let the user store an exposure the sensor
-    clamps away. No camera, no ceiling; the caller falls back to the slider.
-    """
-    imaging = _live_imaging()
-    if imaging is None:
-        return None
-    return imaging.max_exposure_ms_cached
-
-
-def get_layer_illumination_text_max(layer: str) -> int | None:
-    """The illumination text-entry upper bound for ``layer``: BF alone may be
-    typed above its slider. None before the scope is built.
-    """
-    caps = _live_capabilities()
-    if caps is None:
-        return None
-    return config_helpers.layer_illumination_text_max_for_ui(caps, layer)
-
-
 def camera_autogain_supported() -> bool:
     """True when the connected camera has hardware auto-gain or auto-exposure.
 
@@ -176,7 +137,7 @@ def camera_autogain_supported() -> bool:
 
 def is_image_saving_enabled() -> bool:
     return not (
-        _app_ctx.ctx.engineering_mode
+        _app_ctx.ctx.session.engineering_mode
         and _app_ctx.ctx.motion_settings.ids['protocol_settings_id']
         .ids['protocol_disable_image_saving_id']
         .active
@@ -186,22 +147,6 @@ def is_image_saving_enabled() -> bool:
 # ---------------------------------------------------------------------------
 # Binning / Z-stack
 # ---------------------------------------------------------------------------
-
-
-def get_binning_from_ui() -> int:
-    """The binning factor for the running GUI.
-
-    Reads the settings store, not the selector. The selector commits its label
-    to the store as soon as the user picks one, so the store is the current
-    answer, and it is already what scope bring-up and the native-ROI
-    reconstruction read.
-
-    Reading the widget also had its own failure mode this does not: the
-    selector carries the placeholder 'Select' until a stored value is applied,
-    and parsing that text produced a notification and a factor of 1 -- an
-    answer no headless caller could see and no camera was necessarily at.
-    """
-    return config_helpers.get_binning_from_settings(_app_ctx.ctx.settings)
 
 
 def get_zstack_params() -> dict:
@@ -220,25 +165,6 @@ def get_zstack_params() -> dict:
     return config_helpers.get_zstack_params_from_settings(_app_ctx.ctx.settings)
 
 
-def get_zstack_positions() -> tuple[bool, dict]:
-    config = get_zstack_params()
-
-    ctx = _app_ctx.ctx
-    current_pos = ctx.scope.motion.get_current_position('Z')
-
-    zstack_config = ZStackConfig(
-        range=config['range'],
-        step_size=config['step_size'],
-        current_z_reference=config['z_reference'],
-        current_z_value=current_pos,
-    )
-
-    if zstack_config.number_of_steps() <= 0:
-        return False, {None: None}
-
-    return True, zstack_config.step_positions()
-
-
 # ---------------------------------------------------------------------------
 # Layer / channel configuration
 # ---------------------------------------------------------------------------
@@ -250,23 +176,27 @@ def get_layer_configs(
     return config_helpers.get_layer_configs(_app_ctx.ctx.settings, specific_layers)
 
 
-def get_active_layer_config() -> tuple[str, dict]:
-    c_layer = common_utils.get_opened_layer(_app_ctx.ctx.image_settings)
+def get_active_layer_config(layer: str | None) -> tuple[str, dict]:
+    """The capture config for one named layer.
 
-    if c_layer is None:
-        raise Exception('No layer currently selected')
+    Takes the layer rather than reading which accordion drawer is open:
+    an open drawer is a fact about the running GUI and means nothing to a
+    caller that has none, so the GUI names its layer and every other
+    caller names its own.
 
-    layer_configs = get_layer_configs(specific_layers=[c_layer])
+    The refusal stays here rather than moving into the three GUI callers:
+    "nothing is selected" is one answer to one question, and answering it
+    per-caller is how three of them come to disagree.
 
-    return c_layer, layer_configs[c_layer]
+    Raises:
+        ArgumentRefusedError: ``'no_layer_selected'`` when *layer* is None,
+            ``'layer_unknown'`` when it is not a layer.
+    """
+    refuse_unknown_layer(layer)
 
+    layer_configs = get_layer_configs(specific_layers=[layer])
 
-def get_stim_configs() -> dict:
-    return config_helpers.get_stim_configs(_app_ctx.ctx.settings)
-
-
-def get_enabled_stim_configs() -> dict:
-    return config_helpers.get_enabled_stim_configs(_app_ctx.ctx.settings)
+    return layer, layer_configs[layer]
 
 
 # ---------------------------------------------------------------------------
@@ -274,19 +204,7 @@ def get_enabled_stim_configs() -> dict:
 # ---------------------------------------------------------------------------
 
 
-def get_current_frame_dimensions() -> dict:
-    microscope_settings = _app_ctx.ctx.motion_settings.ids['microscope_settings_id']
-    try:
-        frame_width = int(microscope_settings.ids['frame_width_id'].text)
-        frame_height = int(microscope_settings.ids['frame_height_id'].text)
-    except Exception as e:
-        raise ValueError('Invalid value for frame width/height') from e
-
-    frame = {'width': frame_width, 'height': frame_height}
-    return frame
-
-
-def get_selected_labware() -> tuple[str | None, labware.WellPlate | None]:
+def get_selected_labware() -> tuple[str, labware.WellPlate]:
     """The currently-selected labware, read from SETTINGS.
 
     Settings is the single labware store: the spinner writes through on
@@ -295,106 +213,10 @@ def get_selected_labware() -> tuple[str | None, labware.WellPlate | None]:
     settings write that bypassed the spinner (protocol load) used to
     make the GUI and headless paths answer differently.
 
-    Returns (labware_id, wellplate_obj); the lookup falls back to the
-    shipped default or first available plate and only raises
-    ConfigError if the wellplate loader is completely empty.
+    Returns (labware_id, wellplate_obj). A stored plate the catalogue
+    does not have raises ConfigError; no other plate is substituted.
     """
     return config_helpers.get_selected_labware_from_settings(
         _app_ctx.ctx.settings,
         _app_ctx.ctx.wellplate_loader,
     )
-
-
-# ---------------------------------------------------------------------------
-# Image capture / sequenced capture
-# ---------------------------------------------------------------------------
-
-
-def get_image_capture_config_from_ui() -> ImageCaptureConfig:
-    """The image capture config for the running GUI.
-
-    Reads the settings store, not the widgets. Every value here is
-    committed to settings the moment the user picks it -- each output-format
-    spinner handler writes its key, and the image-mode selector writes its
-    key alongside the display mirror it drives -- so the store is already
-    the current answer and the widgets are a rendering of it. Assembling
-    the config from the widgets instead gave a headless caller, which can
-    only see the store, a different answer than the screen; the mode also
-    reaches saved output through capture_depth, so the drift was reachable
-    in the files.
-    """
-    return config_helpers.get_image_capture_config_from_settings(_app_ctx.ctx.settings)
-
-
-def get_sequenced_capture_config_from_ui() -> dict:
-    objective_id, _ = _app_ctx.ctx.session.get_current_objective_info()
-    time_params = get_protocol_time_params()
-    labware_id, _ = get_selected_labware()
-    protocol_settings = _app_ctx.ctx.motion_settings.ids['protocol_settings_id']
-    tiling = protocol_settings.ids['tiling_size_spinner'].text
-    tiling_overlap_percent = protocol_settings.get_tiling_overlap_percent()
-    use_zstacking = protocol_settings.ids['acquire_zstack_id'].active
-    frame_dimensions = get_current_frame_dimensions()
-    zstack_params = get_zstack_params()
-
-    layer_configs = get_layer_configs()
-
-    return config_helpers.build_sequenced_capture_config(
-        {
-            'labware_id': labware_id,
-            'objective_id': objective_id,
-            'zstack_params': zstack_params,
-            'use_zstacking': use_zstacking,
-            'tiling': tiling,
-            'tiling_overlap_percent': tiling_overlap_percent,
-            'layer_configs': layer_configs,
-            'period': time_params['period'],
-            'duration': time_params['duration'],
-            'frame_dimensions': frame_dimensions,
-            'binning_size': get_binning_from_ui(),
-            'stim_config': get_stim_configs(),
-        }
-    )
-
-
-# ---------------------------------------------------------------------------
-# Auto gain / objective / protocol time
-# ---------------------------------------------------------------------------
-
-
-def get_auto_gain_settings() -> dict:
-    return config_helpers.get_auto_gain_settings(_app_ctx.ctx.settings)
-
-
-def get_ag_ae_max_exposure_ms(layer: str) -> float:
-    return config_helpers.get_ag_ae_max_exposure_ms(
-        layer, _app_ctx.ctx.settings.get('ag_ae_max_exposure_ms', {})
-    )
-
-
-def get_ag_ae_min_exposure_ms(layer: str) -> float:
-    return config_helpers.get_ag_ae_min_exposure_ms(layer)
-
-
-def get_protocol_time_params() -> dict:
-    """The protocol period and duration for the running GUI.
-
-    Reads the settings store, not the two text fields. Each field commits its
-    parsed value to the store when the user leaves it or presses enter, so the
-    store already holds the schedule; parsing the widget text a second time
-    here only created a way for the two lanes to answer differently.
-
-    It also gave the failure two different shapes. This lane used to swallow
-    an unparseable value, substitute one minute or one hour, and say so in a
-    popup that no headless caller can see, while the settings lane let a raw
-    conversion error escape. Both now surface the one refusal the store lane
-    raises, so a REST caller gets the same failure the screen shows.
-
-    The 1-second floor still applies and is still silent, because save and
-    run-start both call this and a clamp warning here would repeat; that
-    warning fires once, at the field edit.
-
-    Raises:
-        ConfigError: a stored period or duration will not parse as a number.
-    """
-    return config_helpers.get_protocol_time_params_from_settings(_app_ctx.ctx.settings)

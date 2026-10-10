@@ -10,7 +10,7 @@ more than the code under test.
 from tools.profiling.compare import compare, compatibility_issues
 
 
-def _artifact(*, scenario, machine, git_sha, config, functions):
+def _artifact(*, scenario, machine, git_sha, config, functions, sampler='py-spy'):
     # functions: list of (name, cpu_cores, err_cores_95)
     return {
         'manifest': {
@@ -18,6 +18,7 @@ def _artifact(*, scenario, machine, git_sha, config, functions):
             'machine': machine,
             'git_sha': git_sha,
             'version': '4.0.0-beta20',
+            'sampler': sampler,
             'total_process_cpu_cores': sum(c for _, c, _ in functions),
             'config': config,
         },
@@ -47,6 +48,26 @@ class TestCompatibility:
             functions=[('f', 1.0, 0.02)],
         )
         assert compatibility_issues(before, after) == []
+
+    def test_two_samplers_are_not_comparable(self):
+        # austin names a function by its qualified name and full path, py-spy by a
+        # short one, so the same code's rows would not pair across them.
+        before = _artifact(
+            scenario='liveview-fit',
+            machine='bench',
+            git_sha='a',
+            config=_CFG,
+            functions=[('f', 1.0, 0.02)],
+        )
+        after = _artifact(
+            scenario='liveview-fit',
+            machine='bench',
+            git_sha='a',
+            config=_CFG,
+            functions=[('f', 1.0, 0.02)],
+            sampler='austin -c',
+        )
+        assert compatibility_issues(before, after) == ["sampler differs: 'py-spy' vs 'austin -c'"]
 
     def test_config_mismatch_blocks(self):
         before = _artifact(

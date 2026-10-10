@@ -31,6 +31,7 @@ class TestFuturesMetricsFormat:
         from collections import defaultdict
 
         from modules import app_context, config_helpers
+        from tests.scope_fakes import scope_delivering_nothing
 
         class _RecordingLogger:
             def __init__(self):
@@ -45,12 +46,13 @@ class TestFuturesMetricsFormat:
 
         class _FakeCtx:
             io_executor = _FakeExec()
+            scope_display = None
 
         rec = _RecordingLogger()
         monkeypatch.setattr(config_helpers, 'metrics_logger', rec)
         monkeypatch.setattr(app_context, 'ctx', _FakeCtx())
-        # psutil is conftest-stubbed, so the disk/metrics helpers return
-        # MagicMocks; feed them real values to reach the futures block.
+        # The disk/metrics helpers would read this machine; feed them fixed
+        # values to reach the futures block.
         monkeypatch.setattr(config_helpers.common_utils, 'check_disk_space', lambda **k: 1.0e5)
         # defaultdict(float): direct-subscript metric keys resolve to 0.0;
         # .get() still returns None so the optional-metric blocks skip.
@@ -60,7 +62,9 @@ class TestFuturesMetricsFormat:
             lambda **k: defaultdict(float),
         )
 
-        config_helpers.log_system_metrics({'live_folder': str(tmp_path)})
+        config_helpers.log_system_metrics(
+            {'live_folder': str(tmp_path)}, scope=scope_delivering_nothing()
+        )
 
         futures_lines = [m for m in rec.messages if '[FUTURES METRICS]' in m]
         assert futures_lines, 'no [FUTURES METRICS] line emitted'
@@ -111,10 +115,15 @@ class TestPostProcessingEmptyResultMessages:
             'root_path': pathlib.Path('.'),
             'protocol_post_record': None,
         }
-        result = comp.load_folder(path='run', tiling_configs_file_loc=pathlib.Path('tiling.json'))
-        assert result['status'] is False
-        assert 'No image files were found in the selected folder' in result['message']
-        assert 'captured scan images' in result['message']
+        import pytest
+
+        from modules.exceptions import PostProcessingRefusedError
+
+        with pytest.raises(PostProcessingRefusedError) as refused:
+            comp.load_folder(path='run', tiling_configs_file_loc=pathlib.Path('tiling.json'))
+        assert refused.value.reason == 'no_images'
+        assert 'No image files were found in the selected folder' in str(refused.value)
+        assert 'captured scan images' in str(refused.value)
 
     def test_helper_empty_message_actionable(self):
         # pin-justified: the user-facing message wording is the contract.

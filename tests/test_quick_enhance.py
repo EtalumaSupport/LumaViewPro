@@ -10,6 +10,7 @@ import pytest
 import tifffile as tf
 
 from modules import image_utils
+from modules.exceptions import PostProcessingFailedError
 from modules.quick_enhance import QUANTITATIVE_USE_WARNING, QuickEnhanceSettings, QuickEnhancer
 
 
@@ -417,17 +418,19 @@ def test_folder_batch_skips_unreadable_file_and_continues(tmp_path):
     (tmp_path / 'bad.tif').write_bytes(b'not a tiff')
     progress = []
 
-    result = QuickEnhancer().export_folder(
-        tmp_path,
-        QuickEnhanceSettings(),
-        progress_callback=lambda completed, total, path: progress.append(
-            (completed, total, path.name)
-        ),
-    )
+    # Every image is still tried; the skipped one makes the pass incomplete,
+    # and the outcome carries what was saved.
+    with pytest.raises(PostProcessingFailedError) as raised:
+        QuickEnhancer().export_folder(
+            tmp_path,
+            QuickEnhanceSettings(),
+            progress_callback=lambda completed, total, path: progress.append(
+                (completed, total, path.name)
+            ),
+        )
 
-    assert result['status'] is True
-    assert result['created_count'] == 1
-    assert len(result['skipped']) == 1
+    assert raised.value.produced_paths == (str(tmp_path / 'valid_enhanced.tif'),)
+    assert len(raised.value.errors) == 1
     assert [(completed, total) for completed, total, _ in progress] == [(1, 2), (2, 2)]
     assert {name for _, _, name in progress} == {'valid.tif', 'bad.tif'}
     assert (tmp_path / 'valid_enhanced.tif').exists()
@@ -456,20 +459,20 @@ def test_mixed_folder_exports_bf_composite_png_jpeg_and_skips_bad_or_derived_fil
     progress = []
 
     displayed = []
-    result = QuickEnhancer().export_folder(
-        tmp_path,
-        QuickEnhanceSettings(),
-        progress_callback=lambda completed, total, path: progress.append(
-            (completed, total, path.name)
-        ),
-        display_callback=lambda image, significant_bits: displayed.append(
-            (image.shape, significant_bits)
-        ),
-    )
+    with pytest.raises(PostProcessingFailedError) as raised:
+        QuickEnhancer().export_folder(
+            tmp_path,
+            QuickEnhanceSettings(),
+            progress_callback=lambda completed, total, path: progress.append(
+                (completed, total, path.name)
+            ),
+            display_callback=lambda image, significant_bits: displayed.append(
+                (image.shape, significant_bits)
+            ),
+        )
 
-    assert result['total'] == 5
-    assert result['created_count'] == 4
-    assert [entry['source_path'].name for entry in result['skipped']] == ['bad.tif']
+    assert len(raised.value.produced_paths) == 4
+    assert [error.split(':')[0] for error in raised.value.errors] == ['bad.tif']
     assert [(completed, total) for completed, total, _ in progress] == [
         (1, 5),
         (2, 5),
@@ -498,8 +501,10 @@ def test_output_folder_is_reported_from_a_completed_export(tmp_path):
     assert QuickEnhancer.output_folder({'created': []}) is None
 
 
-def test_ui_export_callback_restores_controls_on_every_terminal_path():
-    """Automatic Enhance owns ``busy`` for the complete export lifetime."""
+def test_ui_export_done_restores_controls_on_every_terminal_path():
+    """Automatic Enhance owns ``busy`` for the complete export lifetime: the
+    boundary calls ``_export_done`` once whatever the outcome, and it clears
+    ``busy`` before anything else."""
     source = (pathlib.Path(__file__).resolve().parents[1] / 'ui' / 'post_processing.py').read_text()
     tree = ast.parse(source)
     cls = next(
@@ -512,38 +517,21 @@ def test_ui_export_callback_restores_controls_on_every_terminal_path():
         and any(isinstance(target, ast.Name) and target.id == 'done' for target in node.targets)
         for node in cls.body
     )
-    callback = next(
+    done = next(
         node
         for node in cls.body
-        if isinstance(node, ast.FunctionDef) and node.name == '_export_callback'
+        if isinstance(node, ast.FunctionDef) and node.name == '_export_done'
     )
-
-    def _self_attr_targets(node):
-        if isinstance(node, ast.Assign):
-            targets = node.targets
-        elif isinstance(node, (ast.AugAssign, ast.AnnAssign)):
-            targets = [node.target]
-        else:
-            return []
-        return [
-            target.attr
-            for target in targets
-            if isinstance(target, ast.Attribute)
-            and isinstance(target.value, ast.Name)
-            and target.value.id == 'self'
-        ]
-
-    for attr in ('_export_inflight', 'busy'):
-        assert any(
-            attr in _self_attr_targets(stmt)
-            and isinstance(stmt, ast.Assign)
-            and isinstance(stmt.value, ast.Constant)
-            and stmt.value.value is False
-            for stmt in callback.body
-        ), f'{attr} = False must be an unconditional top-level statement of _export_callback'
+    first = done.body[0]
+    assert (
+        isinstance(first, ast.Assign)
+        and ast.unparse(first.targets[0]) == 'self.busy'
+        and isinstance(first.value, ast.Constant)
+        and first.value.value is False
+    ), 'self.busy = False must be the first statement of _export_done'
 
 
-def test_file_and_folder_selection_start_enhance_automatically():
+def test_a_selection_starts_enhance_through_one_member():
     source = (pathlib.Path(__file__).resolve().parents[1] / 'ui' / 'post_processing.py').read_text()
     tree = ast.parse(source)
     cls = next(
@@ -551,8 +539,6 @@ def test_file_and_folder_selection_start_enhance_automatically():
         for node in tree.body
         if isinstance(node, ast.ClassDef) and node.name == 'QuickEnhanceControls'
     )
-    for method in ('set_source_file', 'set_source_folder'):
-        body = next(
-            node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == method
-        )
-        assert '_start_export' in ast.get_source_segment(source, body)
+    members = {node.name: node for node in cls.body if isinstance(node, ast.FunctionDef)}
+    assert 'set_source_file' not in members and 'set_source_folder' not in members
+    assert 'self.export(' in ast.get_source_segment(source, members['set_source'])

@@ -20,9 +20,10 @@ The fix:
     ``autogain_support`` in the kv so Lumi stays hidden regardless. Set on every
     layer by the capability-sync grouping ``ImageSettings._init_ui`` runs on
     connect (a scope swap re-runs the same grouping).
-  - The effective enable is derived NON-DESTRUCTIVELY at the consumption point
-    (``LayerControl.effective_auto_gain`` = saved preference AND capability),
-    used by ``apply_settings`` for the slider-disable / camera enable. The
+  - The effective enable is the API's answer, read NON-DESTRUCTIVELY at the
+    consumption point (``LayerControl.effective_auto_gain`` reads
+    ``imaging.applied_auto_gain_for``), used by ``apply_settings`` for the
+    slider-disable / camera enable. The
     persisted ``auto_gain`` is never mutated, so a capable camera's saved
     preference survives a swap to an AG-less body and back.
 
@@ -39,8 +40,9 @@ from unittest.mock import MagicMock
 import modules.app_context as _app_ctx
 from modules.config_ui_getters import camera_autogain_supported
 from drivers.camera_profiles import lookup_profile
-from modules.lumascope_api import Lumascope
+from modules.layer_record import UNRESOLVED
 from modules.scope_capabilities import ScopeCapabilities
+from tests.scope_fakes import build_scope
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 LAYER_CONTROL_PATH = REPO_ROOT / 'ui' / 'layer_control.py'
@@ -124,10 +126,15 @@ class TestCapabilityMapping:
         led.available_colors.return_value = ('Blue', 'Green', 'Red')
         led.supports_firmware_stim.return_value = False
         camera = SimpleNamespace(
+            model_name=model_name,
+            device_serial=None,
+            timestamp_tick_frequency_hz=None,
             profile=lookup_profile(model_name),
             get_max_frame_size=lambda: {'width': 1024, 'height': 768},
         )
-        return ScopeCapabilities.from_drivers(motion=motion, led=led, camera=camera)
+        return ScopeCapabilities.from_drivers(
+            motion=motion, led=led, camera=camera, layer_identity=UNRESOLVED, scope_models={}
+        )
 
     def test_ids_reports_no_hardware_autogain(self):
         caps = self._caps_for('U3-34LxXCP-M')
@@ -135,7 +142,7 @@ class TestCapabilityMapping:
         assert caps.camera_supports_auto_exposure is False
 
     def test_fx2_ls620_reports_no_hardware_autogain(self):
-        caps = self._caps_for('LS620')
+        caps = self._caps_for('MT9P031-LS620')  # the name FX2Camera sets
         assert caps.camera_supports_auto_gain is False
         assert caps.camera_supports_auto_exposure is False
 
@@ -144,7 +151,7 @@ class TestCapabilityMapping:
 
     def test_simulated_scope_reports_hardware_autogain(self):
         # Real-path anchor for the mocked getter tests: the sim camera has AG.
-        assert Lumascope(simulate=True).capabilities.camera_supports_auto_gain is True
+        assert build_scope(simulate=True).capabilities.camera_supports_auto_gain is True
 
 
 class TestUiWiring:
@@ -203,14 +210,18 @@ class TestUiWiring:
             'a capable camera preference survives a swap to an AG-less body.'
         )
 
-    def test_effective_auto_gain_gates_preference_on_capability(self):
-        # The non-destructive derivation: effective = saved preference AND the
-        # camera capability gate, computed on read.
+    def test_effective_auto_gain_reads_the_api_answer(self):
+        # The non-destructive read: the API decides what the saved preference
+        # becomes on this camera; the GUI shows it and decides nothing.
         method = _method_node(LAYER_CONTROL_PATH, 'effective_auto_gain')
         body = ast.dump(method)
-        assert 'camera_autogain_support' in body and 'auto_gain' in body, (
-            'effective_auto_gain must AND the saved auto_gain preference with '
-            'camera_autogain_support.'
+        assert _calls_named(method, 'applied_auto_gain_for') and 'auto_gain' in body, (
+            'effective_auto_gain must show imaging.applied_auto_gain_for for the saved '
+            'auto_gain preference.'
+        )
+        assert 'camera_autogain_support' not in body, (
+            'effective_auto_gain must not decide from the visibility flag -- that '
+            "decision is the API's."
         )
 
     def test_apply_settings_uses_effective_auto_gain(self):

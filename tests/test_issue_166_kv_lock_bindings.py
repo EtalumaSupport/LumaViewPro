@@ -247,20 +247,35 @@ STOP_TOGGLES = (
 )
 
 
+# Each stop toggle's own held flag: True while anything but the run that
+# toggle started holds the scope, as the Session answers.
+STOP_TOGGLE_HELD_FLAGS = {
+    'run_autofocus_btn': 'root.autofocus_scan_held',
+    'run_scan_btn': 'root.scan_held',
+    'run_protocol_btn': 'root.protocol_held',
+    'autofocus_id': 'root.autofocus_held',
+    'zstack_aqr_btn': 'root.zstack_held',
+    'composite_btn': 'root.composite_held',
+}
+
+
 class TestStopToggleExemption:
     """A run's own toggle IS its stop control: it must stay clickable
-    during the run (second click = abort) and lock only while a rival
-    RECORDING is live. A protocol-lock bind on the toggle or any
-    ancestor strands the abort -- the exact regression the #166 KEEP
-    roster warned about, reintroduced from above by a container bind."""
+    during the run (second click = abort) and lock only while something
+    other than its own run holds the scope -- the Session's answer for the
+    run that toggle started, drawn into its own held flag. A protocol-lock
+    bind on the toggle or any ancestor strands the abort -- the exact
+    regression the #166 KEEP roster warned about, reintroduced from above by
+    a container bind."""
 
-    def test_stop_toggles_lock_only_for_recordings(self):
+    def test_stop_toggles_lock_only_while_another_holds_the_scope(self):
+        assert set(STOP_TOGGLE_HELD_FLAGS) == set(STOP_TOGGLES)
         for control_id in STOP_TOGGLES:
             block = _block_for_id(control_id)
             assert any(
-                line.strip().startswith('disabled:') and 'app.recording_active' in line
+                line.strip().startswith('disabled:') and STOP_TOGGLE_HELD_FLAGS[control_id] in line
                 for line in block
-            ), f'{control_id!r} must carry disabled: app.recording_active'
+            ), f'{control_id!r} must carry disabled: {STOP_TOGGLE_HELD_FLAGS[control_id]}'
 
     def test_stop_toggles_have_no_protocol_locked_ancestor(self):
         for control_id in STOP_TOGGLES:

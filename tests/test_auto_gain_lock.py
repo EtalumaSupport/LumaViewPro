@@ -26,11 +26,20 @@ import threading
 from unittest.mock import patch
 
 import lvp_logger
+import pytest
 import modules.config_helpers as config_helpers
-from drivers.simulated_camera import SimulatedCamera
+from drivers.exceptions import HardwareError
+from modules.exceptions import ExposureAtMinimumNotice
+from drivers.simulated_camera import SimulatedCamera, _SimImageHandler
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
+from modules.notification_center import OutcomeKind
 from tests import ast_seams
+from tests.scope_fakes import (
+    bind_settings_like_a_session,
+    give_camera_capabilities,
+    give_stub_lanes,
+)
 
 AG_SETTINGS_FLUORESCENCE = {
     'target_brightness': 0.5,
@@ -48,12 +57,14 @@ AG_SETTINGS_TRANSMITTED = {
 }
 
 
-class _ChunkHandler:
-    """The shape ImagingAPI._get_latest_chunks reaches: a handler whose
-    get_last_chunks() reports the exposure (us) and gain (dB) the last
-    stored frame was taken with."""
+class _ChunkHandler(_SimImageHandler):
+    """The simulator's own frame handler, whose get_last_chunks() reports
+    the exposure (us) and gain (dB) the last stored frame was taken with --
+    the shape ImagingAPI._get_latest_chunks reaches. Everything else (the
+    frame count frame validity reads, the buffer) is the real handler's."""
 
     def __init__(self, cam):
+        super().__init__()
         self._cam = cam
 
     def get_last_chunks(self):
@@ -124,8 +135,10 @@ def _build(ae_lands_on_ms: float) -> tuple[ImagingAPI, _ChunkAeSim]:
     cam = _ChunkAeSim(ae_lands_on_ms)
     cam.active = True
     scope = Lumascope.__new__(Lumascope)
+    bind_settings_like_a_session(scope)
     scope._camera_driver = cam
-    scope._camera_executor = None
+    give_camera_capabilities(scope, cam)
+    give_stub_lanes(scope)
     scope._cam_lock = threading.RLock()
     scope._state_lock = threading.RLock()
     imaging = ImagingAPI(scope, cam)
@@ -173,6 +186,7 @@ def test_auto_gain_capture_locks_and_passes_the_gate():
     assert cam._auto_gain_enabled is False
 
 
+@pytest.mark.slow
 def test_auto_gain_capture_reports_maxed_and_saves():
     """Auto-exposure pegged at the 200 ms class ceiling is MAXED: the frame
     is still returned and the lock line is logged at INFO."""
@@ -251,36 +265,50 @@ def test_live_view_arm_resumes_after_capture():
     assert cam._auto_gain_enabled is False
 
 
-def test_live_view_lock_tells_the_user_and_a_protocol_lock_does_not():
+def test_a_failed_black_level_read_fails_the_capture_and_the_arm_resumes():
+    """The record's black level read raising fails the capture, and a
+    live-view arm the capture locked is re-armed all the same."""
+    imaging, cam = _build(ae_lands_on_ms=62.0)
+    _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
+    with (
+        patch.object(cam, 'get_black_level', side_effect=HardwareError('BlackLevel read failed')),
+        pytest.raises(HardwareError, match='BlackLevel read failed'),
+    ):
+        imaging._capture_and_wait_impl(timeout_s=1.0)
+    assert cam._auto_gain_enabled is True
+
+
+def test_live_view_lock_tells_the_user_and_a_protocol_lock_does_not(centre_posts):
     """A limit state reaches an attended user through the notification
     center from the API itself, so the GUI renders nothing of its own and
     a headless caller gets the same notice; a protocol step's arm is
     unattended and gets the log line only."""
     imaging, _cam = _build(ae_lands_on_ms=0.4)
     _arm(imaging, AG_SETTINGS_FLUORESCENCE, resume_after_capture=True)
-    with patch('modules.lumascope_api.imaging.notifications') as notifications:
-        lock = imaging._lock_auto_gain_impl()
+    lock = imaging._lock_auto_gain_impl()
     assert lock.state.value == 'AT_MINIMUM'
-    assert notifications.info.call_count == 1
-    assert '0.4' in notifications.info.call_args.args[2]
+    assert [(n.kind, n.reason) for n in centre_posts] == [
+        (OutcomeKind.NOTICE, ExposureAtMinimumNotice.reason)
+    ]
+    assert '0.4' in centre_posts[0].message
 
+    centre_posts.clear()
     imaging, _cam = _build(ae_lands_on_ms=0.4)
     _arm(imaging, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
-    with patch('modules.lumascope_api.imaging.notifications') as notifications:
-        assert imaging._lock_auto_gain_impl().state.value == 'AT_MINIMUM'
-    assert notifications.info.call_count == 0
-    assert notifications.error.call_count == 0
+    assert imaging._lock_auto_gain_impl().state.value == 'AT_MINIMUM'
+    assert centre_posts == []
 
 
-def test_failed_lock_under_a_live_view_arm_is_an_error_to_the_user():
+def test_failed_lock_under_a_live_view_arm_is_an_error_to_the_user(centre_posts):
     imaging, cam = _build(ae_lands_on_ms=62.0)
     _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
     cam.chunks_absent = True
     cam.fail_readback = True
-    with patch('modules.lumascope_api.imaging.notifications') as notifications:
-        assert imaging._capture_and_wait_impl(timeout_s=1.0) is not None
+    assert imaging._capture_and_wait_impl(timeout_s=1.0) is not None
     assert imaging.last_capture_info['auto_gain'] == 'FAILED'
-    assert notifications.error.call_count == 1
+    assert [(n.kind, n.reason) for n in centre_posts] == [
+        (OutcomeKind.FAULT, 'auto_gain_not_settled')
+    ]
 
 
 def test_public_lock_runs_the_impl_without_an_executor():
@@ -306,7 +334,6 @@ def test_class_floor_lives_in_config_helpers():
     names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
     assert 'TRANSMITTED_MIN_EXPOSURE_MS' not in names
     assert 'FLUORESCENCE_MIN_EXPOSURE_MS' not in names
-    assert 'get_ag_ae_min_exposure_ms' in names
 
 
 def test_converged_lock_leaves_an_info_line():
@@ -345,8 +372,10 @@ def _build_inert() -> tuple[ImagingAPI, _InertAeSim]:
     cam = _InertAeSim(ae_lands_on_ms=0.0)
     cam.active = True
     scope = Lumascope.__new__(Lumascope)
+    bind_settings_like_a_session(scope)
     scope._camera_driver = cam
-    scope._camera_executor = None
+    give_camera_capabilities(scope, cam)
+    give_stub_lanes(scope)
     scope._cam_lock = threading.RLock()
     scope._state_lock = threading.RLock()
     imaging = ImagingAPI(scope, cam)
@@ -460,46 +489,60 @@ def test_run_start_owns_a_standing_live_arm():
     """A run holds a live-view arm that stood when it began: disarmed at
     start, re-armed by the cleanup restore. Left standing, an auto-gain-off
     protocol's first capture locked it and re-armed it, and every capture
-    after that did the same -- a run the user set to manual ran auto. The
-    manual autofocus one-shot keeps the arm: it focuses the field the user
-    is watching, live arm included, and its own lock scans at what that arm
-    achieved."""
+    after that did the same -- a run the user set to manual ran auto. An
+    autofocus scan is a protocol's steps too and is taken the same way, so
+    each step focuses at its own values. The manual autofocus one-shot keeps
+    the arm: it focuses the field the user is watching, live arm included,
+    and its own lock scans at what that arm achieved."""
     from modules.sequenced_capture_runner import SequencedCaptureRunMode
     from tests.protocol_drives import bare_capture_runner
 
-    imaging, cam = _build(ae_lands_on_ms=8.0)
-    _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
-    runner = bare_capture_runner()
-    runner._scope.imaging = imaging
-    runner._saved_camera_state = imaging.save_camera_state('protocol')
-    runner._run_mode = SequencedCaptureRunMode.FULL_PROTOCOL
-    runner._take_auto_gain_arm_for_run()
-    assert cam._auto_gain_enabled is False
-    assert imaging._auto_gain_arm is None
-    assert runner._saved_camera_state['auto_gain_arm'] is not None
+    for run_mode in (
+        SequencedCaptureRunMode.FULL_PROTOCOL,
+        SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
+    ):
+        imaging, cam = _build(ae_lands_on_ms=8.0)
+        _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
+        runner = bare_capture_runner()
+        runner._scope.imaging = imaging
+        runner._saved_camera_state = imaging.save_camera_state('protocol')
+        runner._run_mode = run_mode
+        runner._take_auto_gain_arm_for_run()
+        assert cam._auto_gain_enabled is False, run_mode
+        assert imaging._auto_gain_arm is None, run_mode
+        assert runner._saved_camera_state['auto_gain_arm'] is not None, run_mode
 
     imaging, cam = _build(ae_lands_on_ms=8.0)
     _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
     runner = bare_capture_runner()
     runner._scope.imaging = imaging
     runner._saved_camera_state = imaging.save_camera_state('protocol')
-    runner._run_mode = SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN
+    runner._run_mode = SequencedCaptureRunMode.SINGLE_AUTOFOCUS
     runner._take_auto_gain_arm_for_run()
     assert cam._auto_gain_enabled is True
     assert imaging._auto_gain_arm is not None
 
-    # The seam: start() takes the arm right after it snapshots the camera.
-    start = ast_seams.find_def(
-        'modules/sequenced_capture_runner.py', 'start', class_name='SequencedCaptureRunner'
+    # The seam: the run's camera takeover snapshots the camera, then takes
+    # the arm out of that snapshot -- in that order, after the wait for the
+    # lane, so the snapshot records the arm the lane's last command left and
+    # the take reads a real snapshot. It writes no target brightness: every
+    # arm and one-shot a step makes carries its own.
+    takeover = ast_seams.find_def(
+        'modules/sequenced_capture_runner.py', '_take_camera', class_name='SequencedCaptureRunner'
     )
-    assert start is not None
+    assert takeover is not None
     attrs = [
         n.func.attr
-        for n in ast.walk(start)
+        for n in ast.walk(takeover)
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
     ]
-    assert 'save_camera_state' in attrs and '_take_auto_gain_arm_for_run' in attrs
-    assert attrs.index('save_camera_state') < attrs.index('_take_auto_gain_arm_for_run')
+    order = (
+        'save_camera_state',
+        '_take_auto_gain_arm_for_run',
+    )
+    assert all(name in attrs for name in order), attrs
+    assert [attrs.index(name) for name in order] == sorted(attrs.index(name) for name in order)
+    assert 'update_auto_gain_target_brightness' not in attrs, attrs
 
 
 class _ApiLogCollector(logging.Handler):

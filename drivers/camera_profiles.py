@@ -35,10 +35,10 @@ Adding a new camera model
      * GainSelector value: 'All', 'AnalogAll', 'DigitalAll'
    - Auto gain / auto exposure        (has_auto_gain, has_auto_exposure)
      * Whether the camera hardware supports these features
-   - Temperature sensors              (has_temperature)
-   - AOI alignment constraints        (alignment)
-     * Width step (e.g. 4 or 48 pixels)
-     * Height step (e.g. 4 pixels)
+   - Deliverable frame-size step      (alignment)
+     * Even sides for every camera (the default): the camera base acquires
+       the next window up on the driver's own grid and crops back, so the
+       hardware grid is the driver's (_frame_grid), not the profile's
 
 2. CREATE THE PROFILE
    Add a CameraProfile instance in the "Known camera profiles" section
@@ -47,7 +47,7 @@ Adding a new camera model
    (in microseconds) -- it's the single source of truth for the maximum
    exposure cap. `_query_dynamic_capabilities()` may overwrite it at
    connect time with an SDK-queried value or a driver-narrowed cap
-   (e.g. FX2's 178 ms safe-frame ceiling). Leave dynamic gain fields
+   (e.g. FX2's 1000 ms ceiling). Leave dynamic gain fields
    (gain.total_min_db, total_max_db) and exposure_min_us as None --
    they will be populated at connect time.
 
@@ -81,7 +81,8 @@ Adding a new camera model
    exposure, and gain all work correctly.
 """
 
-from dataclasses import dataclass, field
+import copy
+from dataclasses import dataclass, field, replace
 
 
 @dataclass
@@ -109,11 +110,13 @@ class CameraProfile:
     pixel_formats: list[str] = field(default_factory=list)
     binning_sizes: list[int] = field(default_factory=lambda: [1])
     binning_modes: list[str] = field(default_factory=lambda: ['Sum'])
-    alignment: dict = field(default_factory=lambda: {'width': 4, 'height': 4})
+    # Deliverable frame-size granularity, NOT the hardware AOI grid: every
+    # camera delivers any size by oversize-then-crop, so the size the UI/API
+    # can request is bounded only by even-dimension video safety (H.264).
+    alignment: dict = field(default_factory=lambda: {'width': 2, 'height': 2})
     gain: GainInfo = field(default_factory=GainInfo)
     has_auto_gain: bool = False
     has_auto_exposure: bool = False
-    has_temperature: bool = False
     driver: str = ''  # 'pylon', 'ids', 'simulated'
     notes: str = ''
 
@@ -138,11 +141,10 @@ _daA3840_45um = CameraProfile(
     pixel_size_um=2.0,
     shutter='rolling',
     native_resolution={'width': 3840, 'height': 2160},
-    pixel_formats=['Mono8', 'Mono10', 'Mono10p', 'Mono12', 'Mono12p'],
+    pixel_formats=['Mono8', 'Mono12', 'Mono12p'],
     exposure_max_us=1_000_000,
     binning_sizes=[1, 2, 4],
     binning_modes=['Sum', 'Average'],
-    alignment={'width': 4, 'height': 4},
     gain=GainInfo(
         analog_max_db=24.0,
         has_digital=True,
@@ -150,7 +152,6 @@ _daA3840_45um = CameraProfile(
     ),
     has_auto_gain=True,
     has_auto_exposure=True,
-    has_temperature=False,
     driver='pylon',
 )
 
@@ -177,7 +178,6 @@ _dmA3536_9gm = CameraProfile(
     exposure_max_us=10_000_000,
     binning_sizes=[1, 2, 4],
     binning_modes=['Sum', 'Average'],
-    alignment={'width': 4, 'height': 4},
     gain=GainInfo(
         analog_max_db=30.0,  # IMX676 sensor max -- shared with a2A3536
         has_digital=True,
@@ -185,7 +185,6 @@ _dmA3536_9gm = CameraProfile(
     ),
     has_auto_gain=True,  # sensor-shared default; bench-verify on MIPI body
     has_auto_exposure=True,  # sensor-shared default; bench-verify on MIPI body
-    has_temperature=False,  # conservative default; bench-verify on MIPI body
     driver='pylon',
 )
 
@@ -200,7 +199,6 @@ _a2A3536_31umBAS = CameraProfile(
     exposure_max_us=10_000_000,
     binning_sizes=[1, 2, 4],
     binning_modes=['Sum', 'Average'],
-    alignment={'width': 4, 'height': 4},
     gain=GainInfo(
         analog_max_db=30.0,  # Confirmed from Basler docs
         has_digital=True,
@@ -208,7 +206,6 @@ _a2A3536_31umBAS = CameraProfile(
     ),
     has_auto_gain=True,
     has_auto_exposure=True,
-    has_temperature=True,
     driver='pylon',
 )
 
@@ -228,12 +225,6 @@ _U3_34L0XCP_M = CameraProfile(
     exposure_max_us=2_000_000,
     binning_sizes=[1, 2],  # Sensor 2x2 only, H+V joint
     binning_modes=['Sum'],
-    # Deliverable frame-size granularity, NOT the hardware AOI grid. The IDS
-    # driver delivers any even size via oversize-then-crop (it reads the real
-    # 48x4 AOI grid live from the SDK nodemap, set_frame_size), so the size the
-    # UI/API can request is bounded only by even-dimension video safety. A
-    # floor-only driver (Pylon/FX2/sim) instead reports its true grid here.
-    alignment={'width': 2, 'height': 2},
     gain=GainInfo(
         analog_max_db=None,  # 31.6x max -- query dB from SDK
         has_digital=False,
@@ -241,7 +232,6 @@ _U3_34L0XCP_M = CameraProfile(
     ),
     has_auto_gain=False,  # Not supported in hardware
     has_auto_exposure=False,  # Not supported in hardware
-    has_temperature=False,
     driver='ids',
     notes='IDS Peak SDK on this body exposes only Mono10g40IDS / '
     'Mono12g24IDS -- requires software ConvertTo for Mono8 '
@@ -251,37 +241,33 @@ _U3_34L0XCP_M = CameraProfile(
     '31.6x (analog only).',
 )
 
-# Simulated camera
-_simulated = CameraProfile(
-    model_name='SimulatedCamera-1920x1200',
+# Simulated camera: the daA3840-45um, the camera LumaViewPro's main fleet
+# ships, so a script, REST client or GUI meets in the simulator the limits it
+# meets on the bench. Built from that profile, so every field an API caller
+# reads is the dart's by construction; replaced are the identity, the ranges
+# the real camera fills at connect (given as what it advertises: 0-48 dB,
+# 14 us - 1 s), and the formats the simulator renders (it has no packed
+# Mono12p). The simulated camera reads its size, name and formats from here.
+_simulated = replace(
+    copy.deepcopy(_daA3840_45um),
+    model_name='SimulatedCamera-3840x2160',
     sensor='Simulated',
-    pixel_size_um=2.0,
-    shutter='global',
-    native_resolution={'width': 1920, 'height': 1200},
-    pixel_formats=['Mono8', 'Mono10', 'Mono12'],
-    exposure_max_us=10_000_000,
-    binning_sizes=[1, 2, 4],
-    binning_modes=['Sum'],
-    alignment={'width': 48, 'height': 4},
-    gain=GainInfo(
-        analog_max_db=20.0,
-        has_digital=False,
-        gain_selector='All',
-        total_min_db=0.0,
-        total_max_db=20.0,
-    ),
-    has_auto_gain=True,
-    has_auto_exposure=True,
-    has_temperature=True,
     driver='simulated',
+    pixel_formats=['Mono8', 'Mono12'],
+    exposure_min_us=14.0,
+    exposure_max_us=1_000_000,
 )
+_simulated.gain = replace(_simulated.gain, total_min_db=0.0, total_max_db=48.0)
 
 
 # Aptina MT9P031 -- Lumascope Classic LS620 / LS560 / LS720 via Cypress FX2
 # Native sensor is 2592x1944 but the driver crops/centers a 1900x1900
-# window. Gain is hardcoded by driver math (0-42.1 dB). Max exposure is
-# MAX_EXPOSURE_ROWS (65535) x _ROW_TIME_MS (0.1124) = 7366 ms.
-# See drivers/fx2driver.py + LumaviewClassic/docs/DATASHEET_VERIFICATION.md.
+# window. The gain range is the driver's, set at connect from the gain
+# settings it writes (0-42.144 dB, DS Table 15). The static max
+# exposure below is 65535 rows at a 0.1124 ms row, a clock model the sensor
+# does not follow (the data sheet gives 7934.6 ms at the full window); the
+# driver replaces it with its own cap at every connect. The sensor's timing
+# is drivers/fx2driver.py's (row_time_s, exposure_s, frame_time_s).
 _MT9P031_LS620 = CameraProfile(
     model_name='MT9P031-LS620',
     sensor='Aptina MT9P031',
@@ -289,21 +275,16 @@ _MT9P031_LS620 = CameraProfile(
     shutter='rolling',
     native_resolution={'width': 1900, 'height': 1900},
     pixel_formats=['Mono8'],  # 12-bit sensor, FX2 streams top 8 bits
-    exposure_max_us=7_366_000,  # 65535 rows x 0.1124 ms/row x 1000 us/ms
-    # Driver narrows to 178 ms at connect.
+    exposure_max_us=7_366_000,  # replaced by the driver's cap at connect (see above)
     binning_sizes=[1],  # driver doesn't wire up sensor binning
     binning_modes=['Sum'],
-    alignment={'width': 4, 'height': 4},  # matches set_frame_size() step
     gain=GainInfo(
         analog_max_db=18.06,  # 8x analog = 20*log10(8) = 18.06 dB
         has_digital=True,  # digital stage adds up to 16x more
         gain_selector='All',
-        total_min_db=0.0,
-        total_max_db=42.1,  # audit-corrected per RR_A legal ranges
     ),
     has_auto_gain=False,  # no hardware AE/AG on MT9P031
     has_auto_exposure=False,
-    has_temperature=False,
     driver='fx2',
     notes='Cypress FX2 USB + Aptina MT9P031 sensor. 4 LED channels via '
     'I2C at 0x2A. No hardware auto gain/exposure. No binning. '
@@ -329,10 +310,9 @@ _PROFILES: list[tuple[str, CameraProfile]] = [
     # entry above this one once characterized.
     ('U3-34Lx', _U3_34L0XCP_M),
     ('SimulatedCamera', _simulated),
-    ('MT9P031', _MT9P031_LS620),  # FX2Camera sets model_name='MT9P031-LS620'
-    ('LS620', _MT9P031_LS620),  # explicit model-name match
-    ('LS560', _MT9P031_LS620),  # same sensor, same profile
-    ('LS720', _MT9P031_LS620),  # same sensor, same profile
+    # FX2Camera sets model_name='MT9P031-LS620' on every Classic model (LS560,
+    # LS620, LS720 share the sensor), so the sensor name is the one key.
+    ('MT9P031', _MT9P031_LS620),
 ]
 
 # Default profile for unknown cameras
@@ -346,6 +326,11 @@ _DEFAULT = CameraProfile(
     driver='unknown',
     notes='Fallback profile -- camera model not recognized',
 )
+
+
+def simulated_profile() -> CameraProfile:
+    """The simulated camera's profile, a copy, as ``lookup_profile`` returns one."""
+    return copy.deepcopy(_simulated)
 
 
 def ids_default_profile(model_name: str) -> CameraProfile:
@@ -370,9 +355,6 @@ def ids_default_profile(model_name: str) -> CameraProfile:
         pixel_formats=[],  # filled from the live PixelFormat node at connect
         binning_sizes=[1],  # widened from the live binning ceiling at connect
         binning_modes=['Sum'],
-        # IDS delivers any even size via oversize-then-crop, reading the real
-        # AOI grid live -- match the known IDS bodies' deliverable granularity.
-        alignment={'width': 2, 'height': 2},
         gain=GainInfo(gain_selector='AnalogAll'),  # resolved live against the enum
         driver='ids',
         notes='Generic IDS fallback -- capabilities read live from the nodemap',

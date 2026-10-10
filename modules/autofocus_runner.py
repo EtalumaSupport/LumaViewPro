@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import datetime
+import concurrent.futures
 import logging
 import pathlib
 import threading
@@ -13,24 +14,38 @@ import pandas as pd
 
 from lvp_logger import logger
 
+import modules.path_utils as path_utils
 import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
 import modules.lumascope_api as lumascope_api
-from modules.exceptions import AutofocusAborted
-from modules.kivy_utils import schedule_ui as _schedule_ui
+from modules.activity_claim import current_taking
+from modules.exceptions import (
+    AutofocusAborted,
+    AutofocusFailedError,
+    AutofocusZNotRestoredError,
+    CameraSettingRejected,
+    HardwareCommandRefusedError,
+)
 from modules.lumascope_api.illumination import (
     LedTransition,
     LedTransitionCtx,
     snapshot_lit_pairs,
 )
 from modules.notification_center import notifications
-from modules.objectives_loader import ObjectiveLoader
-from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+from modules.exceptions import RunWriteRefusedError
 
 if TYPE_CHECKING:
     from modules.lumascope_api.illumination import LedLease
+    from modules.protocol_image_writer import RunWriteBatch
 
 _af_log = logging.getLogger('LVP.autofocus')
+
+# How long a sweep waits for its queued characterization write to reach disk
+# before reporting that it wrote nothing. Budget row: af_data_write_wait_s in
+# PERFORMANCE_BUDGETS.md. Only a sweep that ASKED to save waits at all -- an
+# aborting run's included, since a run writes what it produced however it
+# ends -- so this bound is paid only by a save that is genuinely slow.
+AF_DATA_WRITE_WAIT_S = 5.0
 
 
 def _describe_restore(restore: dict) -> str:
@@ -41,50 +56,30 @@ def _describe_restore(restore: dict) -> str:
     return str(shown)
 
 
+def _its_run_has_ended() -> bool:
+    """Whether the run this sweep acts under has let go of the scope.
+
+    A sweep that outlives its run -- stuck past cleanup's bound -- wakes into
+    refusals and timeouts that are the stuck sweep itself, already told once
+    in the run's cleanup summary. Told again, they would report a fault to a
+    person whose run is over; a refused LED lease is kept quiet for the same
+    reason.
+    """
+    taking = current_taking()
+    return taking is not None and not taking.holds
+
+
 class AutofocusRunner:
-    def __init__(
-        self,
-        scope: lumascope_api.Lumascope,
-        camera_executor: SequentialIOExecutor,
-        io_executor: SequentialIOExecutor,
-        file_io_executor: SequentialIOExecutor,
-        ui_update_func=None,
-    ):
+    def __init__(self, scope: lumascope_api.Lumascope):
         self._scope = scope
-        self._camera_executor = camera_executor
-        self._io_executor = io_executor
-        self._file_io_executor = file_io_executor
-        self.ui_update_func = ui_update_func
 
         # Set by run() before the loop starts; consulted by _iterate
         # each iteration. AutofocusThread owns the actual Event.
         self._abort_event: threading.Event | None = None
 
-        # Guards _callbacks reads/writes -- the AF thread writes in
-        # run(); UI dispatches read via _schedule_ui in _iterate.
-        self._callbacks_lock = threading.Lock()
-
         self._af_in_progress = threading.Event()
 
         self._reset_state()
-
-        if not self._scope.imaging.active_cached:
-            return
-
-        self._objective_loader = ObjectiveLoader()
-        self._reset_state()
-
-    def _notify_af_failure(self, title: str, message: str) -> None:
-        """Fire an AF failure user-notification IF the trigger is
-        interactive. Suppressed for unattended ('protocol') triggers
-        because protocols continue with the prior Z position and
-        should not block on modal popups -- per the
-        "protocols are unattended" product contract. Log lines are
-        emitted by the caller regardless of trigger source; this is
-        the popup-gate only."""
-        if self._run_trigger_source == 'protocol':
-            return
-        notifications.error('Autofocus', title, message)
 
     def reset(self):
         # Skip if a run is in flight: _reset_state() would wipe _params
@@ -112,9 +107,6 @@ class AutofocusRunner:
             )
         self._reset_state()
 
-    def set_scope(self, scope: lumascope_api.Lumascope):
-        self._scope = scope
-
     def _calculate_params(self):
         center = self._scope.motion.get_current_position('Z')
 
@@ -123,8 +115,9 @@ class AutofocusRunner:
         if range <= 0:
             raise ValueError(f'AF_range must be positive, got {range}')
 
-        z_min = max(0, center - range)
+        z_min = center - range
         z_max = center + range
+        self._refuse_outside_travel(z_min, z_max, 'the first window')
         resolution = self._objective['AF_max']
         exposure = self._scope.imaging.get_exposure_ms()
 
@@ -137,20 +130,42 @@ class AutofocusRunner:
             'exposure': exposure,
         }
 
+    def _refuse_outside_travel(self, low: float, high: float, what: str) -> None:
+        """Refuse a sweep window that reaches past Z's travel, before any move into it.
+
+        A move past the travel is refused mid-sweep, which ended the
+        autofocus as an unexpected error. A window is never narrowed to fit:
+        a focus beyond the travel would come back as the travel's edge, a
+        plausible wrong result. An axis with no configured limits has no
+        bound, as the move itself has none.
+
+        Raises:
+            AutofocusFailedError: ``'out_of_travel'``.
+        """
+        limits = self._scope.motion.get_axis_limits('Z')
+        if limits is None or (limits['min'] <= low and high <= limits['max']):
+            return
+        _af_log.warning(
+            f'--- AF REFUSED: {what} [{low:.1f}, {high:.1f}] reaches past '
+            f'Z travel [{limits["min"]:.1f}, {limits["max"]:.1f}] ---'
+        )
+        raise AutofocusFailedError('out_of_travel')
+
     def run(
         self,
         objective_id: str,
-        callbacks: dict | None = None,
         save_results_to_file: bool = False,
         run_trigger_source: str | None = None,
         results_dir: pathlib.Path | None = None,
-        led_color: str | None = None,
-        led_illumination: float = 0,
         camera_gain: float | None = None,
         camera_exposure: float | None = None,
         abort_event: threading.Event | None = None,
         keep_led_on: bool = False,
-        led_lease: 'LedLease | None' = None,
+        *,
+        led_color: str | None,
+        led_illumination: float,
+        led_lease: 'LedLease',
+        write_batch: 'RunWriteBatch | None' = None,
     ) -> float | None:
         """Run autofocus to completion synchronously on the caller's thread.
 
@@ -159,12 +174,8 @@ class AutofocusRunner:
 
         Args:
             objective_id: which objective profile to use.
-            callbacks: optional dict of UI hooks. Recognized keys:
-                'move_position' -- called per Z move on the UI thread.
-                The 'complete' hook from the prior API has been retired;
-                completion is signalled via the AutofocusThread Future.
-            save_results_to_file: if True, queue a save of AF results
-                to results_dir on file_io_executor at AF end.
+            save_results_to_file: if True, save the AF results to
+                results_dir at AF end, as one of the run's writes.
             run_trigger_source: free-form string recorded in saved data.
             results_dir: required when save_results_to_file=True.
             led_color, led_illumination, camera_gain, camera_exposure:
@@ -173,9 +184,12 @@ class AutofocusRunner:
                 the lock read from the camera instead of camera_gain /
                 camera_exposure (see _apply_sweep_camera_targets).
             abort_event: signalled by caller to abort the run. Required.
-            led_lease: the caller's LED lease when AF runs inside a
-                protocol step -- AF takes a child lease under it. None for
-                an interactive run, where AF takes a top-level lease itself.
+            led_lease: the LED lease of the run AF executes inside -- AF
+                takes a child lease under it. Every AF runs inside a run,
+                an interactive one as a one-step run.
+            write_batch: the write batch of that run; required when
+                save_results_to_file, so the save is counted among the run's
+                writes and lands before the run says its files are written.
 
         Returns:
             best_focus_position (float) on success, or None when the AF
@@ -195,9 +209,13 @@ class AutofocusRunner:
         if save_results_to_file and results_dir is None:
             raise ValueError('Cannot save autofocus results to file if results_dir is None')
 
+        if save_results_to_file and write_batch is None:
+            raise ValueError(
+                "Cannot save autofocus results without the run's write batch: a save "
+                'that belongs to no run could land after its run said its files were written'
+            )
+
         self._reset_state()
-        with self._callbacks_lock:
-            self._callbacks = callbacks if callbacks is not None else {}
         self._abort_event = abort_event
         self._run_trigger_source = run_trigger_source
         self._led_color = led_color
@@ -216,6 +234,7 @@ class AutofocusRunner:
         self._last_progress_ts = time.monotonic()
 
         self._save_results_to_file = save_results_to_file
+        self._write_batch = write_batch
         # Per-run timestamped subdir under the caller's results_dir.
         # Eager mkdir so aborted runs still leave a directory marker
         # and successive runs do not collide on filenames.
@@ -243,7 +262,9 @@ class AutofocusRunner:
             # so every later run raised 'Autofocus already in progress' and
             # is_focusing answered True until the app restarted. One bad
             # objective config killed autofocus for the session.
-            self._objective = self._objective_loader.get_objective_info(objective_id=objective_id)
+            self._objective = self._scope.objective_helper.get_objective_info(
+                objective_id=objective_id
+            )
 
             self._calculate_params()
             self._af_start_time = time.monotonic()
@@ -265,7 +286,7 @@ class AutofocusRunner:
             # capture would lock and re-arm on its own -- paying the
             # auto-gain settle at every position -- and the step's gain
             # and exposure written next would be overridden by the loop.
-            auto_gain_lock = self._scope.imaging._lock_auto_gain_impl()
+            auto_gain_lock = self._scope.imaging.lock_auto_gain()
             self._sweep_targets_source = self._apply_sweep_camera_targets(auto_gain_lock)
             _af_log.info(
                 f'[AF DIAG] Saved pre-AF camera state: '
@@ -278,38 +299,21 @@ class AutofocusRunner:
             # illuminates by calling apply(AF_ENTER) ON this lease; issued
             # before AF holds a lease, a protocol's already-held lease would
             # refuse the out-of-turn write and the AF channel never lights --
-            # AF would then scan an unlit field. Inside a protocol step the
-            # protocol passes its lease and AF nests as a child it must
-            # outlive; an interactive run takes a top-level lease. The alive
-            # probe is _af_in_progress (set above, cleared LAST in the
-            # finally), so a contender can prove this run dead but never
-            # steal from it live. The acquire sits inside the try so a
-            # refused acquire unwinds through the finally (camera/Z restore,
-            # in-progress flags cleared) instead of latching is_focusing.
-            if led_lease is not None:
-                self._led_lease = led_lease.acquire_child(
-                    'autofocus', alive=self._af_in_progress.is_set
-                )
-            else:
-                self._led_lease = self._scope.illumination.acquire_led_lease(
-                    'autofocus', alive=self._af_in_progress.is_set
-                )
+            # AF would then scan an unlit field. The run passes its lease and
+            # AF nests as a child it must outlive. The acquire sits inside the
+            # try so a refused acquire unwinds through the finally (camera/Z
+            # restore, in-progress flags cleared) instead of latching
+            # is_focusing.
+            self._led_lease = led_lease.acquire_child('autofocus')
             if self._led_lease is None:
-                # A live owner holds illumination authority. AF without the
-                # lease would sweep an unlit field and commit a garbage Z --
-                # refuse the run loudly instead. error severity: the
-                # operation ABORTED, and the likeliest contention (a running
-                # protocol) suppresses non-fatal popups, which would
-                # otherwise swallow exactly this message.
-                holder = self._scope.illumination.led_lease_owner
-                holder_desc = f'Another operation ({holder})' if holder else 'Another operation'
+                # The child is refused only once the lease AF was handed has
+                # been released: the run this sweep belongs to has ended, and
+                # whatever holds the LEDs now is not it. AF without the lease
+                # would sweep an unlit field and commit a garbage Z, so it
+                # stops as an abort. Nobody is told: the run's own end is the
+                # report.
+                holder = self._scope.illumination.led_lease_purpose
                 logger.error(f'[AF] LED lease refused (held live by {holder!r}); aborting run')
-                notifications.error(
-                    'Autofocus',
-                    'Autofocus Did Not Start',
-                    f'{holder_desc} is controlling the microscope '
-                    'illumination. Let it finish, then run autofocus.',
-                )
                 raise AutofocusAborted(f'LED authority held live by {holder!r}')
             # Make the AF channel the only lit one before scanning, confirmed
             # on (AF_ENTER blocks) so the focus metric never reads a dark or
@@ -386,15 +390,26 @@ class AutofocusRunner:
                 logger.debug('[AF] precision restore in error path failed', exc_info=True)
             self._is_focusing_event.clear()
             self._is_complete_event.clear()
-            params_repr = repr(getattr(self, '_params', None))[:500]
-            logger.exception(
-                f'[AF] Error during loop: {type(ex).__name__}: {ex} | _params={params_repr}'
-            )
-            _af_log.exception(f'AF loop raised: {type(ex).__name__}: {ex} | _params={params_repr}')
-            self._notify_af_failure(
-                'Autofocus Failed',
-                f'Unexpected error during autofocus: {ex}',
-            )
+            if isinstance(ex, (AutofocusFailedError, HardwareCommandRefusedError)):
+                # A refusal the sweep decided, already logged with its
+                # numbers, is reported as itself; so is a command the
+                # hardware refused -- the light that could not go on names
+                # the missing LED controller, not an unexpected error.
+                failed = ex
+            else:
+                params_repr = repr(getattr(self, '_params', None))[:500]
+                _af_log.exception(
+                    f'AF loop raised: {type(ex).__name__}: {ex} | _params={params_repr}'
+                )
+                # Chained, so the one report logs the traceback.
+                failed = AutofocusFailedError('unexpected_error')
+                failed.__cause__ = ex
+            # An unattended run's mute keeps this off the screen; the run
+            # captures at its fallback Z and the report is the record.
+            if _its_run_has_ended():
+                logger.warning(f'[AF] {failed} -- after its run ended, so not reported')
+            else:
+                notifications.report_outcome(failed, solicited=False, category='Autofocus')
             raise
 
         finally:
@@ -419,11 +434,26 @@ class AutofocusRunner:
                         self._af_data_full.extend(self._af_data_pass)
                         self._af_data_pass = []
                     try:
-                        self._file_io_executor.protocol_put(
-                            IOTask(action=self._save_autofocus_data)
+                        # Keep the waiter: the sweep reports what it WROTE, so
+                        # it has to outlive the queueing and be awaited before
+                        # run() returns (see _await_data_write below). Never
+                        # paced: a full backlog must not delay the restore
+                        # below, which puts the LED, camera and Z back.
+                        self._data_write_future = self._write_batch.submit(
+                            self._save_autofocus_data,
+                            {},
+                            what='The autofocus data',
+                            image=False,
+                            pace_until=None,
+                            return_future=True,
                         )
-                    except Exception as ex:
-                        logger.warning(f'[AF] Failed to queue autofocus data save: {ex}')
+                    except RunWriteRefusedError as ex:
+                        logger.warning(f'[AF] Autofocus data not saved: {ex}')
+                    except Exception:
+                        # Broad on purpose: the restore chain below must run.
+                        logger.exception(
+                            "[AF] Autofocus data not saved: handing it to the run's writes failed"
+                        )
 
                 # Restore LED + camera + Z precision regardless of exit path
                 # so the invariant "Z precision ON + pre-AF camera + LED off
@@ -432,9 +462,11 @@ class AutofocusRunner:
                 # so the user / protocol sees the state they started from.
                 # _af_in_progress clears LAST so any caller polling
                 # AFE.in_progress() does not race ahead before restoration
-                # finishes.
+                # finishes. Asked first: a controller lost mid-sweep has no
+                # precision to restore.
                 try:
-                    self._scope.motion.set_precision_mode('Z', True)
+                    if self._scope.motor_connected:
+                        self._scope.motion.set_precision_mode('Z', True)
                 except Exception:
                     logger.debug('[AF] precision restore in finally failed', exc_info=True)
                 # A run that chose a focus leaves the stage standing there; one
@@ -447,31 +479,36 @@ class AutofocusRunner:
                 if self._best_focus_position is None and self._params:
                     pre_af_z = self._params['center']
                     try:
-                        # The non-dispatching body: AF runs while the executors
-                        # are held by the run, so the public dispatcher would
-                        # refuse this restore.
-                        self._scope.motion._move_absolute_impl('Z', pre_af_z)
+                        self._scope.motion.move_absolute('Z', pre_af_z)
                         _af_log.info(
                             f'[AF DIAG] Non-success exit: restored Z to pre-AF position {pre_af_z:.2f}'
                         )
-                    except Exception:
-                        logger.warning(
-                            '[AF] pre-AF Z restore in finally failed; the stage '
-                            'may be left at the last AF search position',
-                            exc_info=True,
+                    except Exception as restore_ex:
+                        # Which of two things the user must do depends on how the
+                        # restore failed: a move that faulted has lost Z, and no
+                        # move is accepted on it until a home; a refused target
+                        # left Z known, where the sweep parked it. Chained, so the
+                        # one report logs the restore's traceback.
+                        not_restored = AutofocusZNotRestoredError(
+                            z_lost='Z' in self._scope.motion.axes_without_position()
                         )
-                        notifications.warning(
-                            'Autofocus',
-                            'Z Position Not Restored',
-                            'Could not restore Z position after autofocus stopped. '
-                            'Move Z manually if needed.',
-                        )
+                        not_restored.__cause__ = restore_ex
+                        if _its_run_has_ended():
+                            logger.warning(
+                                f'[AF] {not_restored} -- after its run ended, so not reported'
+                            )
+                        else:
+                            notifications.report_outcome(
+                                not_restored, solicited=False, category='Autofocus'
+                            )
                 # The AF-end LED state is the authority's AF_TO_CAPTURE decision:
                 # hold the AF channel for the following capture, or restore the
-                # pre-AF snapshot. Hold only on success -- on abort or error the
-                # capture never runs, so inheriting would leave the LED lit with no
-                # owner to turn it off (overnight sample damage); a non-success
-                # exit always restores. The authority's diff is idempotent (a
+                # pre-AF snapshot. Hold only on success -- after an abort or error
+                # the capture is not this sweep's to light for (it may not run at
+                # all, and the step re-lights its own channel if it does), so
+                # inheriting could leave the LED lit with no owner to turn it off
+                # (overnight sample damage); a non-success exit always restores.
+                # The authority's diff is idempotent (a
                 # channel already at its target is left untouched, so no off->on
                 # blink) and offs whatever is lit but not in the target.
                 keep_for_capture = self._keep_led_on and completed_successfully
@@ -546,12 +583,6 @@ class AutofocusRunner:
                     f'exp={self._scope.imaging.get_exposure_ms()}'
                 )
             finally:
-                # Order matters: the two flags clear before the lease is
-                # released. _af_in_progress IS the lease liveness probe, so
-                # clearing it while the AF_TO_CAPTURE transition above is
-                # still pending would publish this run as dead, let a
-                # contender reclaim, and silently no-op AF's own LED restore
-                # -- leaving the sample lit in AF illumination.
                 self._af_in_progress.clear()
                 # Clear the public ImagingAPI mirror AFTER camera/LED/Z restore
                 # finishes, matching _af_in_progress lifecycle.
@@ -563,6 +594,10 @@ class AutofocusRunner:
                     self._led_lease.release(leave_on=True)
                     self._led_lease = None
                 self._abort_event = None
+                # Last, after every flag is cleared and the lease is released:
+                # the wait must not hold the LED lease or the in-progress flag
+                # that gates the next run, and by here it holds neither.
+                self._await_data_write()
 
     def _apply_sweep_camera_targets(self, lock) -> str:
         """Choose what the sweep scans at and write it if the lock has not.
@@ -584,10 +619,20 @@ class AutofocusRunner:
             self._camera_gain = lock.gain_db
             self._camera_exposure = lock.exposure_ms
             return 'lock'
-        if self._camera_gain is not None:
-            self._scope.imaging._set_gain_db_impl(self._camera_gain)
-        if self._camera_exposure is not None:
-            self._scope.imaging._set_exposure_ms_impl(self._camera_exposure)
+        # A target the camera rejects ends its flight here: it is reported
+        # once and the sweep scans at the value the camera holds -- one
+        # refused gain is not a reason to abandon the focus.
+        imaging = self._scope.imaging
+        for setter, value in (
+            (imaging.set_gain_db, self._camera_gain),
+            (imaging.set_exposure_ms, self._camera_exposure),
+        ):
+            if value is None:
+                continue
+            try:
+                setter(value)
+            except CameraSettingRejected as rejected:
+                notifications.report_outcome(rejected, solicited=False, category='Camera')
         return 'step'
 
     def _camera_state_to_restore(self) -> dict:
@@ -652,14 +697,11 @@ class AutofocusRunner:
         while True:
             # accept_dark: AF consumes focus scores, not saved truth,
             # and a hard dark-reject mid-sweep would stall the scan; the
-            # mean-intensity retry below handles dark frames.
-            # The non-dispatching body, not the public capture_and_wait: AF
-            # runs while the camera executor is disabled by the run, so the
-            # dispatcher would refuse every grab; the body must run on this
-            # thread.
-            image = self._scope.imaging._capture_and_wait_impl(
-                accept_dark=True, exclude_sources=('z_move',)
-            )
+            # mean-intensity retry below handles dark frames. The Z move is
+            # waited out like any other change: a frame already on its way
+            # when the move went out shows the previous step's Z, and its
+            # score would be recorded at this one.
+            image = self._scope.imaging.capture_and_wait(accept_dark=True)
             count += 1
             if isinstance(image, np.ndarray):
                 break
@@ -681,12 +723,7 @@ class AutofocusRunner:
         mean_intensity = float(np.mean(image))
         if mean_intensity < 1.0:
             _af_log.warning(f'  DARK FRAME: mean={mean_intensity:.2f}, retrying')
-            # Non-dispatching body for the same reason as the grab loop
-            # above: the camera executor is disabled during the run, so the
-            # public dispatcher would refuse this retry.
-            retry = self._scope.imaging._capture_and_wait_impl(
-                accept_dark=True, exclude_sources=('z_move',)
-            )
+            retry = self._scope.imaging.capture_and_wait(accept_dark=True)
             if isinstance(retry, np.ndarray):
                 image = retry
 
@@ -698,9 +735,6 @@ class AutofocusRunner:
         current_pos = round(
             self._scope.motion.get_current_position('Z'), common_utils.max_decimal_precision('z')
         )
-
-        if self.ui_update_func is not None:
-            _schedule_ui(lambda dt: self.ui_update_func(pos=current_pos), 0)
 
         self._af_data_pass.append(
             {
@@ -739,6 +773,11 @@ class AutofocusRunner:
                 if peak_idx >= len(pass_scores) - 2 and pass_max > 0:
                     recent = pass_scores[-2:]
                     if not all(s < pass_max * 0.5 for s in recent):
+                        self._refuse_outside_travel(
+                            self._params['z_min'],
+                            self._params['z_max'] + resolution,
+                            'the extended window',
+                        )
                         self._params['z_max'] += resolution
                         _af_log.info(
                             f'  EXTEND: peak at edge, extending z_max to {self._params["z_max"]:.1f}'
@@ -779,14 +818,9 @@ class AutofocusRunner:
         # Detect degenerate focus curve (all zeros, all NaN, or flat)
         scores = df['score']
         if scores.max() == 0 or scores.isna().all():
-            logger.warning(
-                'Autofocus: degenerate focus curve (all scores zero or NaN) -- '
-                'no focus found; returning the stage to its pre-autofocus Z'
-            )
             _af_log.warning('--- AF ABORT: degenerate curve (all scores zero/NaN) ---')
-            self._notify_af_failure(
-                'Autofocus Failed',
-                'Focus curve is flat or invalid -- check sample and illumination',
+            notifications.report_outcome(
+                AutofocusFailedError('flat_focus_curve'), solicited=False, category='Autofocus'
             )
             # Restore Z precision ON before bailing so the pre-AF position
             # the unwind restores is reached accurately.
@@ -803,9 +837,9 @@ class AutofocusRunner:
             # Move just below the best position so the final approach
             # is upward; this side of the curve is the one the fine
             # pass measured most densely.
-            self._move_absolute_position(
-                position=(best_focus_position - self._params['resolution'])
-            )
+            approach = best_focus_position - self._params['resolution']
+            self._refuse_outside_travel(approach, best_focus_position, 'the final approach')
+            self._move_absolute_position(position=approach)
 
             af_elapsed = (time.monotonic() - self._af_start_time) * 1000
             _af_log.info(
@@ -816,9 +850,6 @@ class AutofocusRunner:
             )
 
             self._move_absolute_position(position=best_focus_position)
-
-            if self.ui_update_func is not None:
-                _schedule_ui(lambda dt: self.ui_update_func(pos=float(best_focus_position)), 0)
 
             # Data save is queued from run()'s finally block so abort,
             # exception, and degenerate-curve exits also produce a CSV
@@ -838,9 +869,18 @@ class AutofocusRunner:
             # after camera state is restored, so callers polling
             # in_progress() do not race ahead before restoration.
 
-            self._best_focus_position = best_focus_position
+            # Stored as a plain float: the fit hands back a numpy/pandas
+            # scalar, and this value reaches callers that serialize it (a
+            # run's outcome, a script's JSON), where a numpy type does not
+            # round-trip.
+            self._best_focus_position = float(best_focus_position)
             return
 
+        self._refuse_outside_travel(
+            best_focus_position - prev_resolution,
+            best_focus_position + prev_resolution,
+            'the refined window',
+        )
         self._params['z_min'] = best_focus_position - prev_resolution
         self._params['z_max'] = best_focus_position + prev_resolution
 
@@ -857,44 +897,45 @@ class AutofocusRunner:
     def best_focus_position(self) -> float | None:
         return self._best_focus_position
 
-    def clear_result(self) -> None:
-        """Drop the last result so it cannot outlive the run that made it.
+    def saved_data_path(self) -> pathlib.Path | None:
+        """The characterization file THIS run wrote, or None if none was.
 
-        The result answers one question -- what did THIS run's autofocus
-        find -- but the attribute is reset only at run() entry, so a value
-        stayed valid from one autofocus's start to the NEXT autofocus's
-        start. A run therefore clears it before producing one.
+        None covers every way there is nothing to point at: the sweep was
+        not asked to save, it collected no data, or its queued save was
+        dropped by an aborting run. The results directory cannot stand in
+        for this -- it is allocated before the sweep starts and survives
+        all three -- so a caller that needs to know the data landed reads
+        this and not the folder.
+        """
+        return self._saved_data_path
+
+    def clear_result(self) -> None:
+        """Drop the last run's results so they cannot outlive it.
+
+        The results answer one question -- what did THIS run's autofocus
+        find, and what did it write -- but the attributes are reset only
+        at run() entry, so a value stayed valid from one autofocus's start
+        to the NEXT autofocus's start. A run therefore clears them before
+        producing any.
 
         Deliberately NOT guarded on _af_in_progress the way reset() is. A
         prior autofocus can still be unwinding when the next run starts,
         because run cleanup proceeds once its wait times out, and that is
         exactly the case where a stale value would be read; a guard would
         make the clear a no-op precisely there. The guard reset() carries
-        protects _params, which run() reads on the AF thread -- the result
-        is only ever WRITTEN there, so clearing it alone races nothing.
+        protects _params, which run() reads on the AF thread -- the results
+        are only ever WRITTEN there, so clearing them alone races nothing.
         """
         self._best_focus_position = None
+        self._saved_data_path = None
 
     def _move_absolute_position(self, position):
-        # Internal-caller contract of the motion API: the public members are
-        # dispatchers that serialize EXTERNAL callers onto the io worker,
-        # and every internal caller already on a managed thread binds the
-        # body directly -- the same contract the AF camera grabs above and
-        # the protocol writer follow.
-        self._scope.motion._move_absolute_impl('Z', position)
-        with self._callbacks_lock:
-            cb = self._callbacks.get('move_position')
-        if cb is not None:
-            _schedule_ui(lambda dt: cb('Z'))
+        # Started, not waited: _iterate holds the next frame while the
+        # scope reports motion.
+        self._scope.motion.start_move_absolute('Z', position)
 
     def _move_relative_position(self, distance):
-        # Internal-caller contract of the motion API -- see
-        # _move_absolute_position above.
-        self._scope.motion._move_relative_impl('Z', distance)
-        with self._callbacks_lock:
-            cb = self._callbacks.get('move_position')
-        if cb is not None:
-            _schedule_ui(lambda dt: cb('Z'))
+        self._scope.motion.start_move_relative('Z', distance)
 
     def in_progress(self) -> bool:
         # Use _af_in_progress, not _is_focusing_event. _is_focusing_event
@@ -917,6 +958,16 @@ class AutofocusRunner:
 
         df = pd.DataFrame(self._af_data_full)
         df.to_csv(results_file_loc, header=True, index=False)
+        # Recorded HERE, after the write returns, because every earlier
+        # point can be true while the file never appears: the results dir
+        # is allocated eagerly at AF start, this save is queued rather
+        # than performed, the queue is dropped wholesale on an error
+        # abort, and the early return above fires when the sweep
+        # collected nothing. A caller asking "did the characterization
+        # data land" can only be answered honestly by the write itself.
+        # The plot below is diagnostic garnish and may fail on its own;
+        # the CSV is the data, so it alone decides the answer.
+        self._saved_data_path = results_file_loc
 
         plot_filename = f'autofocus_plot_{ts}.png'
         plot_outfile_loc = self._results_dir / plot_filename
@@ -1024,13 +1075,64 @@ class AutofocusRunner:
         self._af_data_pass = []
         self._af_data_full = []
         self._best_focus_position = None
+        self._saved_data_path = None
+        self._data_write_future = None
+        self._write_batch = None
         self._last_pass = False
         self._params = {}
         self._run_trigger_source = None
         self._led_color = None
         self._led_illumination = 0
-        with self._callbacks_lock:
-            self._callbacks = {}
+
+    def _await_data_write(self) -> None:
+        """Block until the queued characterization save has actually run.
+
+        A sweep answers "what did I write" through saved_data_path(), and
+        that answer is read after the sweep ends -- by the run that settles
+        its outcome, among others. Queueing the save is not writing it: the
+        file lane is sequential and the run's cleanup does not wait for it
+        (it hands the caller a deferred files-complete callback instead), so
+        without this a reader is told nothing was written by a sweep whose
+        CSV lands moments later.
+
+        Bounded, and a bound that expires is not silent: the answer then
+        stays None, which is wrong-but-honest in the safe direction, and
+        the log says a write outlived its window rather than leaving a
+        reader to wonder. A save the run's writes gave up on resolves the
+        waiter with no result; a lane that drops the save -- a shutdown
+        clearing its queue, or a stuck writer replaced -- cancels it. Either
+        resolves this wait at once.
+
+        A refused submit returns no waiter at all, which needs no wait:
+        nothing was queued, and saved_data_path() correctly stays None.
+        """
+        fut = self._data_write_future
+        self._data_write_future = None
+        if fut is None:
+            return
+        try:
+            fut.result(timeout=AF_DATA_WRITE_WAIT_S)
+        except concurrent.futures.CancelledError:
+            # The lane dropped the save before it ran: a shutdown cleared
+            # its queue, or a stuck writer was replaced.
+            logger.warning(
+                "[AF] autofocus characterization write was given up with the run's "
+                'writes; this sweep reports no data file'
+            )
+        except concurrent.futures.TimeoutError:
+            logger.warning(
+                f'[AF] autofocus characterization write did not finish within '
+                f'{AF_DATA_WRITE_WAIT_S}s; this sweep reports no data file, and '
+                f'one may still appear on disk afterwards'
+            )
+        except Exception:
+            # The write itself failed -- a full disk, a vanished drive. Said
+            # as that, not as a timeout: a caller reading the log has to be
+            # able to tell a slow write from a failed one.
+            logger.warning(
+                '[AF] autofocus characterization write failed; this sweep reports no data file',
+                exc_info=True,
+            )
 
     def _init_results_dir_and_ts(self, results_dir: pathlib.Path) -> str:
         results_dir.mkdir(exist_ok=True, parents=True)
@@ -1045,18 +1147,10 @@ class AutofocusRunner:
         two AF runs in the same wall-clock second do not collide.
         """
         parent_dir = pathlib.Path(parent_dir)
+        # The parent is created here and not by the allocator below: the
+        # allocator REFUSES a missing parent on purpose, because a missing
+        # capture location usually means an unplugged drive. An autofocus
+        # results folder is ours to make under a location the caller chose.
         parent_dir.mkdir(parents=True, exist_ok=True)
         base = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-        candidates = [base] + [f'{base}_{i:03d}' for i in range(1, 1000)]
-        for candidate in candidates:
-            run_dir = parent_dir / candidate
-            try:
-                run_dir.mkdir(exist_ok=False)
-                return run_dir
-            except FileExistsError:
-                continue
-        raise RuntimeError(
-            f'Could not allocate an autofocus results folder under '
-            f'{parent_dir} (1000 same-second collisions). Try running '
-            f'again; if the problem persists, free disk space or restart.'
-        )
+        return path_utils.allocate_directory(parent_dir / base)

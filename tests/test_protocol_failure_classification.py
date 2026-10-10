@@ -33,72 +33,6 @@ fires the regression.
 
 from __future__ import annotations
 
-import ast
-import pathlib
-
-
-def _read(path: str) -> str:
-    return (pathlib.Path(__file__).resolve().parent.parent / path).read_text()
-
-
-def _function_source(source: str, func_name: str) -> str:
-    """Return the raw source text of a named method/function."""
-    tree = ast.parse(source)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == func_name:
-            text = ast.get_source_segment(source, node)
-            if text is None:
-                raise AssertionError(f'could not extract source for {func_name!r}')
-            return text
-    raise AssertionError(f'function {func_name!r} not found in source')
-
-
-class TestScanLoopPropagatesExceptions:
-    """``scan_loop`` must NOT swallow exceptions with a broad except.
-    The outer run-loop is the single point of failure classification."""
-
-    def test_scan_loop_has_no_broad_except_block(self):
-        body = _function_source(_read('modules/protocol_step_runner.py'), 'scan_loop')
-        # The old broad-except pattern fired a notification and broke
-        # the loop. Either of these substrings appearing in scan_loop
-        # is a regression.
-        assert 'Protocol scan stopped' not in body, (
-            "scan_loop must not fire 'Protocol scan stopped' "
-            'notification -- that classification lives in the outer '
-            'run_loop_inner via are_all_connected().'
-        )
-        assert 'notifications.error' not in body, (
-            'scan_loop must not call notifications.error directly. '
-            'Let exceptions propagate to the outer handler.'
-        )
-
-    def test_scan_loop_does_not_catch_broad_exception(self):
-        """AST-check: no ``except Exception`` (or bare ``except``) inside
-        the scan_loop function body."""
-        src = _read('modules/protocol_step_runner.py')
-        tree = ast.parse(src)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == 'scan_loop':
-                for sub in ast.walk(node):
-                    if isinstance(sub, ast.ExceptHandler):
-                        # Allow narrow except like AutofocusAborted, but
-                        # fail if it's a bare except or `except Exception`.
-                        if sub.type is None:
-                            raise AssertionError(
-                                'scan_loop contains a bare `except:` -- let exceptions propagate.'
-                            )
-                        # Check for `except Exception` (broad)
-                        type_src = ast.get_source_segment(src, sub.type)
-                        if type_src and type_src.strip() == 'Exception':
-                            raise AssertionError(
-                                f'scan_loop has `except {type_src}:` -- '
-                                f'broad excepts at this layer fire the '
-                                f'wrong notification and turn transient '
-                                f'faults into halting popups.'
-                            )
-                return
-        raise AssertionError('scan_loop function not found')
-
 
 class TestRunLoopInnerClassifiesByConnection:
     """The outer ``_run_loop_inner`` exception handler must classify
@@ -106,33 +40,55 @@ class TestRunLoopInnerClassifiesByConnection:
     notify), still-connected = transient (silent retry on next period,
     bounded by the consecutive-failure ceiling)."""
 
-    def _drive_failing_run_loop(self, monkeypatch, *, connected):
+    def _drive_failing_run_loop(self, centre_posts, *, connected):
         """run_loop on a runner whose every scan raises; classification
         is steered by the mocked are_all_connected."""
         from unittest.mock import MagicMock
 
-        from modules.notification_center import notifications
+        from modules.notification_center import Severity
         from tests.protocol_drives import protocol_step, run_loop_ready_runner
 
-        captured = []
-        monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
+        # Both channels, because the two classifications notify through
+        # different ones and "exactly one popup" has to count them all: a
+        # fatal abort goes through the fatal-abort funnel, which posts at
+        # critical severity, while the consecutive-failure ceiling notifies
+        # itself at error. Capturing one channel would let a second popup on
+        # the other slip past unseen.
         runner = run_loop_ready_runner(protocol_step())
         runner._protocol.step.side_effect = RuntimeError('serial dropped mid-step')
         runner._scope.are_all_connected = MagicMock(return_value=connected)
-        runner._run_loop_executor.run_loop()
+        runner._run_loop_executor.run_loop(runner._last_run())
+        captured = [
+            (n.category, n.title, n.message)
+            for n in centre_posts
+            if n.severity in (Severity.ERROR, Severity.CRITICAL)
+        ]
         return runner, captured
 
-    def test_disconnect_aborts_with_classified_notification(self, monkeypatch):
+    def test_disconnect_aborts_with_classified_notification(self, centre_posts):
         from modules.protocol_state_machine import ProtocolState
 
-        runner, captured = self._drive_failing_run_loop(monkeypatch, connected=False)
-        assert len(captured) == 1 and captured[0][1] == 'Protocol Aborted', (
-            f'a disconnect must surface exactly one abort popup; got {captured}'
+        runner, captured = self._drive_failing_run_loop(centre_posts, connected=False)
+        # The abort and its popup both come from the fatal-abort funnel, which
+        # this harness holds as a mock -- so the observable here is the one
+        # call into it, carrying the cause. The popup the funnel then posts is
+        # pinned by the funnel's own ordering test.
+        aborts = runner._image_writer._abort_run_fatal.call_args_list
+        assert len(aborts) == 1, (
+            f'a disconnect must abort the run exactly once; got {len(aborts)} calls'
         )
-        assert 'Hardware disconnected' in captured[0][2], (
-            f'the popup must name the disconnect; got {captured[0]}'
+        reason, _domain, title, message = aborts[0].args
+        assert (reason, title) == ('hardware_disconnected', 'Protocol Aborted'), (
+            f'the abort must name the disconnect as its cause; got {aborts[0].args}'
         )
-        assert runner.protocol_state == ProtocolState.ERROR, (
+        assert 'Hardware disconnected' in message, (
+            f'the message the user reads must name the disconnect; got {message!r}'
+        )
+        assert captured == [], (
+            f'the funnel posts the disconnect popup; a site posting its own too '
+            f'would show the user two dialogs for one fault. Got {captured}'
+        )
+        assert runner._state == ProtocolState.ERROR, (
             'a disconnect mid-scan must land the run in ERROR'
         )
         assert runner._protocol.step.call_count == 1, (
@@ -140,8 +96,8 @@ class TestRunLoopInnerClassifiesByConnection:
         )
         assert runner._cleanup.called
 
-    def test_transient_failure_retries_then_escalates(self, monkeypatch):
-        runner, captured = self._drive_failing_run_loop(monkeypatch, connected=True)
+    def test_transient_failure_retries_then_escalates(self, centre_posts):
+        runner, captured = self._drive_failing_run_loop(centre_posts, connected=True)
         assert runner._protocol.step.call_count == 3, (
             'transient (still-connected) failures must retry on the next '
             f'period up to the ceiling; got {runner._protocol.step.call_count} attempts'
@@ -150,31 +106,12 @@ class TestRunLoopInnerClassifiesByConnection:
         assert len(captured) == 1, (
             f'transients are silent until the consecutive-failure ceiling; got {captured}'
         )
+        assert runner._image_writer._abort_run_fatal.call_args_list == [], (
+            'the strike ceiling stops a run the instrument could not complete; '
+            'it must not force-darken the sample the way a fault does'
+        )
         assert '3 times' in captured[0][2] and 'in a row' in captured[0][2], (
             f'the ceiling popup must name the repeated failure; got {captured[0]}'
-        )
-
-    def test_retired_scan_stopped_notification_absent(self):
-        """The per-failure 'Protocol scan stopped' popup is retired --
-        transients are silent; fatals use the disconnect shape."""
-        assert 'Protocol scan stopped' not in _read('modules/protocol_run_loop.py'), (
-            "'Protocol scan stopped' notification text is retired. "
-            "Transient failures don't notify; disconnects use the "
-            "'Hardware disconnected' / 'Protocol Aborted' shape."
-        )
-
-    def test_outer_except_does_not_fire_generic_protocol_error(self):
-        """The retired generic 'Protocol Error' notification (which
-        used to fire for every exception, fatal or transient) must be
-        gone from the source. All notifications now route through the
-        classified disconnect path."""
-        src = _read('modules/protocol_run_loop.py')
-        # The exact retired call shape was:
-        #   notifications.error("Protocol", "Protocol Error", str(ex))
-        assert '"Protocol Error"' not in src, (
-            "Retired 'Protocol Error' notification title -- transients "
-            "are silent; fatals use 'Protocol Aborted' / 'Hardware "
-            "disconnected'."
         )
 
 

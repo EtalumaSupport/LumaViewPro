@@ -25,12 +25,11 @@ import threading
 from unittest.mock import MagicMock
 
 from modules.lumascope_api.illumination import LedEndPolicy, LedTransition
-from modules.notification_center import notifications
-from modules.protocol_callbacks import ProtocolCallbacks
+from modules.exceptions import RecordIncompleteError
+from modules.notification_center import Severity
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.protocol_state_machine import ProtocolState
-from modules.sequential_io_executor import PROTOCOL_QUEUE_WEDGED
-from tests.protocol_drives import autofocus_snapshot
+from modules.protocol_image_writer import RunWriteBatch
 
 from tests.test_audit_fixes import _bare_protocol_writer
 from tests.test_protocol_modules import _FakeExecutor
@@ -43,28 +42,43 @@ _MODULES_DIR = pathlib.Path(__file__).resolve().parents[1] / 'modules'
 # ---------------------------------------------------------------------------
 
 
-def test_wedge_funnel_order_abort_then_dark_then_notify(monkeypatch):
-    order = []
+from modules.run_outcome import RunEnding
+from tests.scope_fakes import swap_lanes
+
+
+def test_wedge_funnel_order_abort_then_dark_then_notify(monkeypatch, centre_posts):
+    # Each of the test's own events records how many critical posts the
+    # centre had made by then, so the post's place among them can be read.
+    events = []
+
+    def _event(name):
+        criticals = sum(1 for n in centre_posts if n.severity == Severity.CRITICAL)
+        events.append((name, criticals))
+
     fatal_event = threading.Event()
     orig_set = fatal_event.set
-    fatal_event.set = lambda: (order.append('fatal'), orig_set())[1]
+    fatal_event.set = lambda: (_event('fatal'), orig_set())[1]
 
+    # The writer is stuck: the backlog is full (a bound of 0 is full at
+    # once) past the stall budget, and the write in flight is stalled, so
+    # the run's batch answers the submit wedged.
+    monkeypatch.setattr('modules.protocol_image_writer.WRITE_BACKLOG_BOUND', 0)
+    monkeypatch.setattr('modules.protocol_image_writer.WRITE_STALL_FATAL_S', 0.0)
     file_io_executor = MagicMock()
-    file_io_executor.protocol_put_wait.return_value = PROTOCOL_QUEUE_WEDGED
+    file_io_executor.in_flight_task_stalled.return_value = True
     file_io_executor.describe_running_task.return_value = "write_capture 'x' 32s in flight"
 
     record = MagicMock()
-    record.mark_target_unresponsive.side_effect = lambda: order.append('latch')
-    record.add_step.side_effect = lambda **kw: order.append('row')
+    record.mark_target_unresponsive.side_effect = lambda: _event('latch')
+    record.add_step.side_effect = lambda **kw: _event('row')
 
     writer = _bare_protocol_writer(
-        file_io_executor=file_io_executor,
+        write_batch=RunWriteBatch(file_io_executor),
         execution_record=record,
-        abort_fn=lambda: order.append('abort'),
+        abort_fn=lambda: _event('abort'),
         fatal_abort_event=fatal_event,
     )
-    writer._scope.illumination.force_off.side_effect = lambda: order.append('force_off')
-    monkeypatch.setattr(notifications, 'critical', lambda *a, **k: order.append('critical'))
+    writer._scope.illumination.force_off.side_effect = lambda: _event('force_off')
 
     submitted = writer._submit_write(
         kwargs={},
@@ -76,6 +90,13 @@ def test_wedge_funnel_order_abort_then_dark_then_notify(monkeypatch):
     )
 
     assert submitted is False
+    _event('end')
+    order, seen = [], 0
+    for name, criticals in events:
+        order.extend(['critical'] * (criticals - seen))
+        seen = criticals
+        if name != 'end':
+            order.append(name)
     assert order == ['abort', 'fatal', 'force_off', 'critical', 'latch', 'row'], (
         'fatal abort must close the step gates and darken the sample BEFORE '
         'any notification or record write can run (or block): ' + repr(order)
@@ -114,8 +135,10 @@ def test_latched_record_writes_nothing_but_still_reconciles(tmp_path, monkeypatc
     )
 
     warnings = []
-    monkeypatch.setattr(notifications, 'warning', lambda *a, **k: warnings.append(a))
-    record.complete(reconcile=True)
+    try:
+        record.complete()
+    except RecordIncompleteError as shortfall:
+        warnings.append(shortfall)
     assert len(warnings) == 1, (
         'complete() must stay un-latched: it does no filesystem I/O and its '
         'reconcile warning is the only surviving report of the lost row'
@@ -127,7 +150,7 @@ def test_latched_record_writes_nothing_but_still_reconciles(tmp_path, monkeypatc
 # ---------------------------------------------------------------------------
 
 
-def _run_cleanup_capture_led_ctx(*, fatal_abort, leds_state_at_end):
+def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
     from modules.protocol_cleanup import run_cleanup
 
     applied = []
@@ -136,33 +159,26 @@ def _run_cleanup_capture_led_ctx(*, fatal_abort, leds_state_at_end):
     scope.illumination.color2ch.return_value = 1
     af_thread = MagicMock()
     af_thread.current_future = None
-    file_io_executor = _FakeExecutor()
+    ending = RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped')
 
+    swap_lanes(scope, io=_FakeExecutor(), camera=_FakeExecutor())
     run_cleanup(
         get_state_fn=lambda: state[0],
         set_state_fn=lambda s: state.__setitem__(0, s),
-        run_lock=threading.Lock(),
         scan_in_progress=threading.Event(),
-        fatal_abort=fatal_abort,
+        forced_dark=forced_dark,
         leds_state_at_end=leds_state_at_end,
         original_led_states={'Blue': {'enabled': True, 'illumination_ma': 42.0}},
-        autofocus_snapshot=autofocus_snapshot(states={}),
         saved_camera_state=None,
         return_to_position=None,
-        disable_saving_artifacts=True,
-        protocol=None,
-        protocol_execution_record=None,
         scope=scope,
-        callbacks=ProtocolCallbacks(),
         apply_led_transition_fn=lambda transition, ctx: applied.append((transition, ctx)),
         default_move_fn=lambda **kw: None,
         cancel_scheduled_events_fn=lambda: None,
-        io_executor=_FakeExecutor(),
         autofocus_thread=af_thread,
-        file_io_executor=file_io_executor,
-        camera_executor=_FakeExecutor(),
-        set_run_in_progress_fn=lambda v: None,
-        run_status='aborted',
+        write_batch=RunWriteBatch(_FakeExecutor()),
+        ending=ending,
+        record_cleanup_failures=lambda steps: None,
     )
     run_end = [ctx for t, ctx in applied if t is LedTransition.RUN_END]
     assert len(run_end) == 1
@@ -170,7 +186,7 @@ def _run_cleanup_capture_led_ctx(*, fatal_abort, leds_state_at_end):
 
 
 def test_fatal_cleanup_asserts_dark_regardless_of_end_policy():
-    ctx = _run_cleanup_capture_led_ctx(fatal_abort=True, leds_state_at_end='return_to_original')
+    ctx = _run_cleanup_capture_led_ctx(forced_dark=True, leds_state_at_end='return_to_original')
     assert ctx.end_policy is LedEndPolicy.OFF
     assert ctx.snapshot_lit == frozenset(), (
         'a fatal abort must ASSERT dark -- restoring pre-run channels after a '
@@ -179,7 +195,7 @@ def test_fatal_cleanup_asserts_dark_regardless_of_end_policy():
 
 
 def test_nonfatal_cleanup_keeps_the_configured_end_policy():
-    ctx = _run_cleanup_capture_led_ctx(fatal_abort=False, leds_state_at_end='return_to_original')
+    ctx = _run_cleanup_capture_led_ctx(forced_dark=False, leds_state_at_end='return_to_original')
     assert ctx.end_policy is LedEndPolicy.RETURN_TO_ORIGINAL
     assert ctx.snapshot_lit != frozenset(), 'user Stop keeps the configured restore'
 

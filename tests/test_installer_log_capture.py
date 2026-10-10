@@ -1,19 +1,41 @@
-"""The installer's own logs must reach the application log folder.
+"""The installer's own logs must reach the application log folder, once.
 
 The Windows bundle writes its logs to the user TEMP directory, where a
 support bundle never sees them -- so an install that silently failed to
 replace a binary reads exactly like an application defect, and Windows
-sweeps the evidence away on its own schedule. Startup copies them into
-the app's log folder instead. These exercise the real function; the
-temp-directory argument makes the copy observable without touching the
-machine's actual TEMP.
+sweeps the evidence away on its own schedule. An installed build's startup
+moves them into the app's log folder instead: copied, then deleted from
+TEMP, so no later start or later version collects them again. These
+exercise the real function; the temp-directory argument makes the capture
+observable without touching the machine's actual TEMP, and a read-only
+temp directory stands in for a log Windows will not let go of.
 """
 
 from __future__ import annotations
 
+import contextlib
+import logging
+import os
 import pathlib
 
+import json
+import sys
+import tempfile
+
+import pytest
+
 from modules.app_environment import capture_installer_logs
+from modules.path_utils import INSTALLED_MARKER
+
+
+@pytest.fixture(autouse=True)
+def installed(tmp_path, monkeypatch):
+    """This process as an installed build: frozen, the installer's marker beside its exe."""
+    install = tmp_path / 'install'
+    install.mkdir()
+    (install / INSTALLED_MARKER).write_text('')
+    monkeypatch.setattr(sys, 'frozen', True, raising=False)
+    monkeypatch.setattr(sys, 'executable', str(install / 'LumaViewPro.exe'))
 
 
 def _make(directory: pathlib.Path, name: str, content: str = 'log body') -> pathlib.Path:
@@ -21,6 +43,16 @@ def _make(directory: pathlib.Path, name: str, content: str = 'log body') -> path
     path = directory / name
     path.write_text(content, encoding='utf-8')
     return path
+
+
+@contextlib.contextmanager
+def _undeletable(directory: pathlib.Path):
+    """Its files stay put, as a log still held open by an install does on Windows."""
+    directory.chmod(0o555)
+    try:
+        yield
+    finally:
+        directory.chmod(0o755)
 
 
 def test_matching_installer_logs_are_copied_into_the_install_subfolder(tmp_path):
@@ -49,13 +81,54 @@ def test_unrelated_temp_files_are_left_alone(tmp_path):
     assert not (log_dir / 'install').exists()
 
 
+def test_a_captured_log_is_deleted_from_temp(tmp_path):
+    temp_dir = tmp_path / 'temp'
+    log_dir = tmp_path / 'logs'
+    source = _make(temp_dir, 'LumaViewPro-4.0.0-beta23_0.log')
+
+    copied = capture_installer_logs(log_dir, temp_dir=temp_dir)
+
+    assert copied == ['LumaViewPro-4.0.0-beta23_0.log']
+    assert not source.exists(), (
+        'a captured log must leave TEMP, or every later start takes it again'
+    )
+    assert (log_dir / 'install' / source.name).read_text(encoding='utf-8') == 'log body'
+
+
+def test_a_source_run_captures_nothing(tmp_path, monkeypatch):
+    monkeypatch.delattr(sys, 'frozen')
+    temp_dir = tmp_path / 'temp'
+    log_dir = tmp_path / 'logs'
+    source = _make(temp_dir, 'LumaViewPro-4.0.0-beta23_0.log')
+
+    assert capture_installer_logs(log_dir, temp_dir=temp_dir) == []
+    assert source.exists(), 'the log belongs to an installed build, which has not started yet'
+    assert not (log_dir / 'install').exists()
+
+
+def test_a_log_that_cannot_be_deleted_stays_and_is_named(tmp_path, caplog):
+    temp_dir = tmp_path / 'temp'
+    log_dir = tmp_path / 'logs'
+    source = _make(temp_dir, 'LumaViewPro-4.0.0-beta23_0.log')
+
+    with _undeletable(temp_dir), caplog.at_level(logging.WARNING, 'LVP.app_environment'):
+        copied = capture_installer_logs(log_dir, temp_dir=temp_dir)
+
+    assert copied == ['LumaViewPro-4.0.0-beta23_0.log']
+    assert source.exists()
+    warnings = [r.getMessage() for r in caplog.records if r.name == 'LVP.app_environment']
+    assert len(warnings) == 1
+    assert warnings[0].startswith(f'Installer log {source.name} captured but left in {temp_dir}: ')
+
+
 def test_repeat_startup_does_not_recopy_captured_logs(tmp_path):
     temp_dir = tmp_path / 'temp'
     log_dir = tmp_path / 'logs'
     _make(temp_dir, 'LumaViewPro-4.0.0-beta23_1.log')
 
-    first = capture_installer_logs(log_dir, temp_dir=temp_dir)
-    second = capture_installer_logs(log_dir, temp_dir=temp_dir)
+    with _undeletable(temp_dir):
+        first = capture_installer_logs(log_dir, temp_dir=temp_dir)
+        second = capture_installer_logs(log_dir, temp_dir=temp_dir)
 
     assert first == ['LumaViewPro-4.0.0-beta23_1.log']
     assert second == [], 'an already-captured log must not be copied again'
@@ -65,15 +138,26 @@ def test_a_grown_log_is_recaptured(tmp_path):
     temp_dir = tmp_path / 'temp'
     log_dir = tmp_path / 'logs'
     source = _make(temp_dir, 'LumaViewPro-4.0.0-beta23_2.log', content='partial')
-    capture_installer_logs(log_dir, temp_dir=temp_dir)
-
-    source.write_text('partial plus the rest of the install', encoding='utf-8')
-    again = capture_installer_logs(log_dir, temp_dir=temp_dir)
+    with _undeletable(temp_dir):
+        capture_installer_logs(log_dir, temp_dir=temp_dir)
+        source.write_text('partial plus the rest of the install', encoding='utf-8')
+        again = capture_installer_logs(log_dir, temp_dir=temp_dir)
 
     assert again == ['LumaViewPro-4.0.0-beta23_2.log']
     assert (log_dir / 'install' / 'LumaViewPro-4.0.0-beta23_2.log').read_text(
         encoding='utf-8'
     ) == 'partial plus the rest of the install'
+
+
+def test_a_bundle_the_installer_did_not_install_captures_nothing(tmp_path):
+    # A build run from dist is frozen but was never installed: the logs in
+    # TEMP describe some other installed build.
+    (tmp_path / 'install' / INSTALLED_MARKER).unlink()
+    temp_dir = tmp_path / 'temp'
+    source = _make(temp_dir, 'LumaViewPro-4.0.0-beta23_0.log')
+
+    assert capture_installer_logs(tmp_path / 'logs', temp_dir=temp_dir) == []
+    assert source.exists()
 
 
 def test_missing_temp_directory_is_not_fatal(tmp_path):
@@ -85,8 +169,6 @@ def test_only_the_newest_logs_are_copied(tmp_path):
     log_dir = tmp_path / 'logs'
     for index in range(5):
         path = _make(temp_dir, f'LumaViewPro-4.0.0-beta23_{index}.log')
-        import os
-
         os.utime(path, (1_700_000_000 + index, 1_700_000_000 + index))
 
     copied = capture_installer_logs(log_dir, temp_dir=temp_dir, max_files=2)
@@ -124,6 +206,7 @@ def test_a_utf16_installer_log_lands_as_utf8(tmp_path):
     log_dir = tmp_path / 'logs'
     body = '=== Verbose logging started ===\r\nExecuting op: FileCopy(...)\r\n'
     source = _make_utf16(temp_dir, 'LumaViewPro-4.0.0-beta23_1_LVP.log', body)
+    source_size = source.stat().st_size
 
     capture_installer_logs(log_dir, temp_dir=temp_dir)
 
@@ -131,7 +214,7 @@ def test_a_utf16_installer_log_lands_as_utf8(tmp_path):
     raw = target.read_bytes()
     assert raw == body.encode('utf-8'), 'content must survive the transcode intact'
     assert raw[:2] not in (b'\xff\xfe', b'\xfe\xff'), 'the byte-order mark must be dropped'
-    assert target.stat().st_size < source.stat().st_size
+    assert target.stat().st_size < source_size
 
 
 def test_a_transcoded_log_is_not_recopied_every_startup(tmp_path):
@@ -142,8 +225,9 @@ def test_a_transcoded_log_is_not_recopied_every_startup(tmp_path):
     log_dir = tmp_path / 'logs'
     _make_utf16(temp_dir, 'LumaViewPro-4.0.0-beta23_2_LVP.log', 'body\r\n')
 
-    first = capture_installer_logs(log_dir, temp_dir=temp_dir)
-    second = capture_installer_logs(log_dir, temp_dir=temp_dir)
+    with _undeletable(temp_dir):
+        first = capture_installer_logs(log_dir, temp_dir=temp_dir)
+        second = capture_installer_logs(log_dir, temp_dir=temp_dir)
 
     assert first == ['LumaViewPro-4.0.0-beta23_2_LVP.log']
     assert second == [], 'a transcoded log must not be recaptured on the next startup'
@@ -153,10 +237,10 @@ def test_a_grown_utf16_log_is_recaptured(tmp_path):
     temp_dir = tmp_path / 'temp'
     log_dir = tmp_path / 'logs'
     source = _make_utf16(temp_dir, 'LumaViewPro-4.0.0-beta23_3_LVP.log', 'partial\r\n')
-    capture_installer_logs(log_dir, temp_dir=temp_dir)
-
-    source.write_bytes(b'\xff\xfe' + 'partial\r\nand the rest\r\n'.encode('utf-16-le'))
-    again = capture_installer_logs(log_dir, temp_dir=temp_dir)
+    with _undeletable(temp_dir):
+        capture_installer_logs(log_dir, temp_dir=temp_dir)
+        source.write_bytes(b'\xff\xfe' + 'partial\r\nand the rest\r\n'.encode('utf-16-le'))
+        again = capture_installer_logs(log_dir, temp_dir=temp_dir)
 
     assert again == ['LumaViewPro-4.0.0-beta23_3_LVP.log']
     target = log_dir / 'install' / 'LumaViewPro-4.0.0-beta23_3_LVP.log'
@@ -167,12 +251,12 @@ def test_a_non_utf16_log_is_copied_byte_for_byte(tmp_path):
     """The burn bundle log is already ASCII; it must not be rewritten."""
     temp_dir = tmp_path / 'temp'
     log_dir = tmp_path / 'logs'
-    source = _make(temp_dir, 'LumaViewPro-4.0.0-beta23_4.log', content='plain ascii body')
+    _make(temp_dir, 'LumaViewPro-4.0.0-beta23_4.log', content='plain ascii body')
 
     capture_installer_logs(log_dir, temp_dir=temp_dir)
 
     target = log_dir / 'install' / 'LumaViewPro-4.0.0-beta23_4.log'
-    assert target.read_bytes() == source.read_bytes()
+    assert target.read_bytes() == b'plain ascii body'
 
 
 def test_a_bom_that_does_not_decode_is_copied_verbatim(tmp_path):
@@ -191,3 +275,34 @@ def test_a_bom_that_does_not_decode_is_copied_verbatim(tmp_path):
     assert copied == ['LumaViewPro-4.0.0-beta23_5_LVP.log']
     target = log_dir / 'install' / 'LumaViewPro-4.0.0-beta23_5_LVP.log'
     assert target.read_bytes() == corrupt, 'an undecodable log must survive intact'
+
+
+def test_an_installed_rest_server_captures_them_as_the_gui_does(tmp_path, monkeypatch):
+    # Every installed host captures. The server is stopped right after, at
+    # its instance lock, held here on a port this test's settings name.
+    from modules import path_utils
+    from modules.lvp_lock import LvpLock
+    from rest.__main__ import main
+
+    documents = tmp_path / 'Documents'
+    # platformdirs and lvp_logger are conftest stand-ins.
+    monkeypatch.setattr(sys.modules['platformdirs'], 'user_documents_dir', lambda: str(documents))
+    log_dir = tmp_path / 'logs'
+    monkeypatch.setattr(sys.modules['lvp_logger'], 'log_dir', str(log_dir))
+    temp_dir = tmp_path / 'temp'
+    source = _make(temp_dir, 'LumaViewPro-4.0.0-beta23_0.log')
+    monkeypatch.setattr(tempfile, 'tempdir', str(temp_dir))
+
+    held = LvpLock()
+    assert held.lock()
+    try:
+        data = path_utils.get_source_root() / 'data'
+        data.mkdir(parents=True)
+        (data / 'current.json').write_text(json.dumps({'lvp_lock_port': held.port}))
+
+        assert main([]) == 1
+    finally:
+        held.close()
+
+    assert (log_dir / 'install' / source.name).read_text(encoding='utf-8') == 'log body'
+    assert not source.exists()

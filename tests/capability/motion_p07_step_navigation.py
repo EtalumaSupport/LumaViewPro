@@ -1,0 +1,68 @@
+"""P07 -- right-click the stage to jump to the nearest protocol step.
+
+GUI entry: ui/stage.py on_touch_down, right-button branch ->
+ui/ui_helpers.py find_nearest_step -> ui/step_navigation.py go_to_step ->
+ScopeSession.go_to_step.
+"""
+
+from harness import check, run
+
+import modules.config_helpers as config_helpers
+
+
+def body(s):
+    m = s.scope.motion
+    m.home('ALL')
+    s.select_labware('96 well microplate')
+
+    # --- the API member for interactive step navigation ---
+    check(
+        'a script can go to a protocol step through one Session member',
+        callable(getattr(s, 'go_to_step', None)),
+    )
+
+    # --- find_nearest_step IS a modules-level function, reachable headless ---
+    check(
+        'find_nearest_step lives in modules/config_helpers (headless-reachable)',
+        callable(getattr(config_helpers, 'find_nearest_step', None)),
+    )
+
+    # --- build a two-position protocol and navigate to a step by hand ---
+    cfg = config_helpers.get_standalone_capture_config_from_settings(
+        s.settings,
+        s.objective_helper,
+        s.wellplate_loader,
+        layer='BF',
+        position={'x': 30.0, 'y': 20.0, 'z': 2000.0},
+        position_name='A',
+        autofocus=False,
+        use_zstacking=False,
+        stim_config={},
+    )
+    cfg['positions'] = [
+        {'x': 30.0, 'y': 20.0, 'z': 2000.0, 'name': 'A'},
+        {'x': 70.0, 'y': 50.0, 'z': 3000.0, 'name': 'B'},
+    ]
+    protocol = s.scope.protocols.create_protocol(input_config=cfg)
+    check(
+        'a script can build a multi-step protocol',
+        protocol.num_steps() >= 2,
+        f'{protocol.num_steps()} steps',
+    )
+
+    idx = config_helpers.find_nearest_step(x=69.0, y=49.0, protocol=protocol)
+    check('find_nearest_step resolves a click to a step index', idx >= 0, f'idx={idx}')
+
+    step = protocol.step(idx=idx)
+    s.go_to_step(protocol, idx)
+    m.wait_until_finished_moving()
+    here = s.get_current_plate_position()
+    check(
+        'a script can go to the nearest step through the Session',
+        abs(here['x'] - float(step['X'])) < 0.05 and abs(here['y'] - float(step['Y'])) < 0.05,
+        f'step=({step["X"]},{step["Y"]},{step["Z"]}) arrived=({here["x"]:.2f},{here["y"]:.2f},'
+        f'{m.get_current_position("Z"):.1f})',
+    )
+
+
+run(body)

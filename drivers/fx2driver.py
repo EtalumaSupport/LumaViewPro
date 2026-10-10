@@ -8,31 +8,38 @@ driver roles (camera + LED board).
 Architecture
 ------------
 
-Three objects live in this file:
+Three objects live in this file, over one seam:
 
-1. ``_FX2Connection`` -- module-level singleton that owns the USB handle,
-   firmware upload, control transfers, I2C, sensor register R/W, and ISO
-   streaming. Constructed lazily the first time any driver calls
-   ``_FX2Connection.get()``. Raises on any failure; the registry treats a
-   raise as "this driver isn't available" and falls through to the next
-   candidate. Private -- never touched from outside this module.
+1. ``_FX2Connection`` -- module-level singleton that owns the device:
+   discovery, firmware upload, control transfers, I2C, sensor register
+   writes, and the stream (``start_stream`` / ``stop_stream``, the bytes
+   arriving in its ``stream``). Every USB library call it makes goes
+   through its transport, chosen once per host by ``_platform_transport``:
+   ``_LibusbTransport`` (macOS / Linux) or ``_WinUsbTransport`` (Windows).
+   Constructed lazily the first time any driver calls
+   ``_FX2Connection.get()``. Raises ``_FX2AbsentError`` when no FX2 is on
+   the bus, which each driver reports as found=False like every other
+   absent board, and raises on any other failure, which the registry ranks
+   as a driver that failed. Private to the FX2 drivers and the simulated FX2
+   (``drivers/simulated_fx2.py``), which builds one on its own transport.
 
 2. ``FX2Camera`` -- registered as ``@camera_registry.register('fx2', ...)``.
    Implements the Camera ABC. Pulls ``_FX2Connection.get()`` in ``__init__``
-   so the camera and LED end up sharing the same USB handle.
+   so the camera and LED end up sharing the same USB handle, unless it is
+   handed a connection: a simulated FX2 (``drivers/simulated_fx2.py``) hands
+   both drivers the connection on its device.
 
 3. ``FX2LEDController`` -- registered as ``@led_registry.register('fx2', ...)``.
    Satisfies LEDBoardProtocol. Thin command translator: no state tracking,
-   no ``led_ma`` dict, no ``is_led_on`` bookkeeping. Source of truth for
-   LED state is ``Lumascope._led_owners`` (post-B3 / Stage 2 architecture).
-   The class exists only to convert LVP's (channel, mA) calls into FX2
-   I2C byte sequences. State-query protocol methods return sentinel
-   defaults (-1 / False / dict-of-False) -- matching NullLEDBoard.
+   no ``led_ma`` dict, no state queries. Source of truth for LED state is
+   ``IlluminationAPI._led_state``. The class exists only to convert LVP's
+   (channel, mA) calls into FX2 I2C byte sequences.
 
-The camera and LED objects both hold a reference to the same
-``_FX2Connection._instance`` -- proven viable by
-``TestRegistryAccommodatesCompositeHardware`` in tests/test_driver_registry.py.
-No special casing required in ``Lumascope.__init__``.
+The camera and LED objects both hold a reference to the same connection:
+on hardware the ``_FX2Connection._instance`` singleton -- proven viable by
+``TestRegistryAccommodatesCompositeHardware`` in tests/test_driver_registry.py
+-- and in the simulator the one connection the simulated FX2 hands both.
+Neither driver touches a USB library or the connection's private state.
 
 Dependencies
 ------------
@@ -40,17 +47,19 @@ Dependencies
 - ``pyusb``  (firmware upload + control transfers)
 - ``libusb1`` (isochronous streaming on macOS/Linux -- python-libusb1 binding)
 - ``drivers.winusb_iso`` (isochronous streaming on Windows -- ctypes wrapper)
-- Native ``libusb-1.0`` library (macOS: ``brew install libusb``;
-  Windows: vendored ``libusb-1.0.dll`` via PyInstaller binaries list)
+- ``libusb-package`` (the native ``libusb-1.0`` library itself, one
+  versioned copy on every platform; never a host copy)
 
 Import-time safety
 ------------------
 
-All USB / libusb1 imports are wrapped in try/except. If neither library is
-installed, the module still imports and registers with the camera and LED
-registries -- but ``_FX2Connection.__init__`` raises ``ImportError`` on
-first use, so the registry's auto-detect fallthrough handles it cleanly
-without breaking non-FX2 scopes on dev machines without pyusb.
+All USB / libusb1 imports are wrapped in try/except. When a prerequisite is
+missing the module still imports, logs which one, and registers neither
+driver, so auto-detect never offers an FX2 that cannot run and non-FX2
+scopes on dev machines without pyusb are unaffected.
+
+The driver reads no application settings: the one runtime toggle, the LED
+wire trace, arrives as the ``debug_wire`` constructor argument.
 
 References
 ----------
@@ -64,6 +73,7 @@ References
 from __future__ import annotations
 
 import atexit
+import ctypes
 import logging
 import math
 import os
@@ -71,8 +81,9 @@ import sys
 import threading
 import time
 import weakref
-from typing import Any
+from typing import Any, NamedTuple, NoReturn
 from collections import deque
+from collections.abc import Callable
 from datetime import datetime
 
 import numpy as np
@@ -86,7 +97,8 @@ except ImportError:
     # safe -- the dedicated camera log is an enhancement, not a
     # dependency, and dozens of call sites use _cam_log unguarded.
     _cam_log = logger
-from drivers.camera import Camera, ImageHandlerBase
+from drivers.camera import Camera, FrameGrid, ImageHandlerBase, link_info, no_hardware_auto_mode
+from drivers.exceptions import HardwareError
 from drivers.registry import camera_registry, led_registry
 
 # Wire-level logging for the FX2 (LumaviewClassic LS560/620/720) USB
@@ -124,6 +136,11 @@ _USB_DESCRIPTOR_FIELDS = (
     'port_numbers',
     'speed',
 )
+
+
+# libusb_speed (libusb.h): low, full, high, super, super+. 0 is unknown, absent
+# here so it reads as not reported.
+_LIBUSB_SPEED_MBPS = {1: 1.5, 2: 12.0, 3: 480.0, 4: 5000.0, 5: 10000.0}
 
 
 def describe_usb_device(dev: Any) -> str:
@@ -179,27 +196,8 @@ try:
     import usb.util
 
     _HAS_USB = True
-    _USBError = usb.core.USBError
-    _USBTimeoutError = usb.core.USBTimeoutError
 except ImportError:
     _HAS_USB = False
-    _USBError = OSError
-    _USBTimeoutError = TimeoutError
-
-# pyusb imports without the native libusb-1.0 binary on the path; the
-# missing-DLL case only surfaces at the first usb.core.find() call,
-# which then raises NoBackendError mid-_connect and produces a noisy
-# traceback in lumaviewpro_errors.log on every startup. Probe the
-# backend at module load so the case is classified as "FX2 not
-# applicable to this install" rather than "FX2 driver crashed."
-_HAS_USB_BACKEND = False
-if _HAS_USB:
-    try:
-        import usb.backend.libusb1
-
-        _HAS_USB_BACKEND = usb.backend.libusb1.get_backend() is not None
-    except Exception:
-        _HAS_USB_BACKEND = False
 
 try:
     import usb1
@@ -207,6 +205,67 @@ try:
     _HAS_USB1 = True
 except ImportError:
     _HAS_USB1 = False
+
+
+def _load_bundled_libusb():
+    """Bind pyusb and python-libusb1 to libusb-package's library.
+
+    Returns ``(path, None)`` when both bindings run on the bundled file, or
+    ``(None, reason)`` when they cannot. Which libusb a host happens to have
+    (Homebrew's, a distro's, a stray DLL) must never decide what the driver
+    runs on, so there is no fallback: ``libusb_package.get_libusb1_backend``
+    would fall back to the system search when its own file is missing, so
+    the path is taken and checked here instead.
+
+    Ordering invariant: pyusb keeps one backend per process, bound by the
+    first ``get_backend`` call, and python-libusb1 loads its library once
+    (``loadLibrary`` returns False, it does not raise, when another is
+    already loaded). This must run before anything else in the process
+    touches either binding; the checks below catch it if something did.
+    """
+    try:
+        import libusb_package
+    except ImportError:
+        return None, (
+            'libusb-package is not installed (pip install -r requirements.txt; '
+            'it has no wheel for 32-bit ARM Linux or Windows on ARM)'
+        )
+    lib_path = libusb_package.get_library_path()
+    if lib_path is None:
+        return None, 'libusb-package holds no library file in this install'
+    path = str(lib_path)
+    try:
+        import usb.backend.libusb1
+
+        backend = usb.backend.libusb1.get_backend(find_library=lambda _name: path)
+    except Exception as ex:
+        return None, f'the bundled libusb at {path} did not load: {ex}'
+    if backend is None:
+        return None, f'the bundled libusb at {path} did not load'
+    if backend.lib._name != path:
+        return None, f'another libusb was loaded before the bundled one: {backend.lib._name}'
+    # Its own handle to the same file: each binding declares argument types
+    # on the functions of the handle it holds, so one shared handle leaves
+    # pyusb calling with python-libusb1's declarations and every descriptor
+    # read fails. The OS loader still maps the file once.
+    if _HAS_USB1:
+        try:
+            usb1_handle = ctypes.CDLL(path)
+        except OSError as ex:
+            return None, f'the bundled libusb at {path} did not load for python-libusb1: {ex}'
+        if not usb1.loadLibrary(usb1_handle):
+            return None, 'python-libusb1 had already loaded another libusb'
+    return path, None
+
+
+# Resolved at import so a host without a usable libusb is classified as
+# "FX2 not applicable to this install" here, instead of the first
+# usb.core.find() raising NoBackendError mid-connect on every startup.
+_LIBUSB_PATH = None
+_LIBUSB_REFUSAL = 'pyusb is not installed'
+if _HAS_USB:
+    _LIBUSB_PATH, _LIBUSB_REFUSAL = _load_bundled_libusb()
+_HAS_USB_BACKEND = _LIBUSB_PATH is not None
 
 
 # FX2 (LumaviewClassic) drivers require pyusb plus a loadable libusb-1.0
@@ -227,20 +286,50 @@ if not _FX2_AVAILABLE:
         )
     elif not _HAS_USB_BACKEND:
         logger.info(
-            '[FX2 Driver] libusb-1.0 native library not loadable -- FX2 '
-            '(LumaviewClassic) drivers will not be registered. Install '
-            'the native library to enable LVC hardware support: macOS: '
-            'brew install libusb; Windows: ensure libusb-1.0.dll is on '
-            'PATH or vendored alongside the executable; Linux: apt '
-            'install libusb-1.0-0.'
+            f'[FX2 Driver] bundled libusb not in use: {_LIBUSB_REFUSAL} -- '
+            'FX2 (LumaviewClassic) drivers will not be registered.'
         )
     elif not _HAS_USB1:
         logger.info(
             '[FX2 Driver] libusb1 not installed -- FX2 (LumaviewClassic) '
             'drivers will not be registered on macOS/Linux. Install '
-            'libusb1 (pip install libusb1) plus the native libusb to '
-            'enable LVC hardware support.'
+            'libusb1 (pip install -r requirements.txt) to enable LVC '
+            'hardware support.'
         )
+if _HAS_USB_BACKEND:
+    logger.info(
+        f'[FX2 Driver] libusb {usb1.getVersion() if _HAS_USB1 else "(version unread)"} '
+        f'loaded from {_LIBUSB_PATH}'
+    )
+
+
+def fx2_readiness() -> dict[str, bool | None]:
+    """Each term of the availability gate, as this process found it at import.
+
+    Keys name what an installer installs: ``pyusb``, ``libusb-package``
+    (the native library both bindings run on) and ``libusb1`` (the binding that streams
+    frames off Windows). ``libusb1`` is ``None`` on Windows, where the gate
+    does not need it. ``scripts/install_mac.sh`` reports these rather than
+    probing on its own, so what it prints is what the driver will do.
+    """
+    return {
+        'pyusb': _HAS_USB,
+        'libusb-package': _HAS_USB_BACKEND,
+        'libusb1': None if sys.platform == 'win32' else _HAS_USB1,
+    }
+
+
+def fx2_readiness_line() -> str:
+    """One line for an installer: ready or not, and each gate term's state."""
+    terms = ', '.join(
+        f'{name} {"not needed" if present is None else "present" if present else "missing"}'
+        for name, present in fx2_readiness().items()
+    )
+    verdict = 'ready' if _FX2_AVAILABLE else 'NOT ready'
+    line = f'FX2 (LS560/LS620/LS720) support: {verdict} -- {terms}'
+    if _HAS_USB and not _HAS_USB_BACKEND:
+        line += f' ({_LIBUSB_REFUSAL})'
+    return line
 
 
 def _register_if_fx2_available(registry, name, **kwargs):
@@ -264,7 +353,6 @@ PID_APP = 0xEA17  # Running firmware
 
 # Vendor request codes -- FX2 firmware vendor command handler
 VR_ANCHOR_DLD = 0xA0  # Cypress standard: firmware upload
-VR_I2C_READ = 0xB2
 VR_I2C_WRITE = 0xB3
 VR_I2C_MT9P031_READ = 0xB4  # Async MT9P031 register read (5s timeout OK)
 VR_INIT_GPIF = 0xB9
@@ -288,7 +376,6 @@ VR_STOP_STREAMING = 0xBE
 _VR_NAMES.update(
     {
         VR_ANCHOR_DLD: 'VR_ANCHOR_DLD',
-        VR_I2C_READ: 'VR_I2C_READ',
         VR_I2C_WRITE: 'VR_I2C_WRITE',
         VR_I2C_MT9P031_READ: 'VR_I2C_MT9P031_READ',
         VR_INIT_GPIF: 'VR_INIT_GPIF',
@@ -299,10 +386,10 @@ _VR_NAMES.update(
     }
 )
 
-# Vendor requests that the i2c_write / i2c_read wrappers route through
-# control_transfer_*. Logged at the i2c_* layer (with addr/data); the
+# Vendor requests that the i2c_write wrapper routes through
+# control_transfer_*. Logged at the i2c_write layer (with addr/data); the
 # control_transfer_* layer skips them to avoid double-emission.
-_I2C_VR_REQUESTS = frozenset({VR_I2C_READ, VR_I2C_WRITE})
+_I2C_VR_REQUESTS = frozenset({VR_I2C_WRITE})
 
 # I2C addresses
 I2C_SENSOR = 0x5D  # MT9P031 image sensor
@@ -318,31 +405,219 @@ IMG_HEIGHT = 1900
 FRAME_BYTES = IMG_WIDTH * IMG_HEIGHT  # raw pixel count (8-bit mono)
 FRAME_DELIM = b'\x01\xfe\x00\xff'  # injected between frames by GpifWaveform_Isr
 
+
+# Column_Size over the window's width. RR R0x04 asks for Column_Size in the
+# form 4n - 1, and the window's width is a multiple of 4, so it is w - 1 or
+# w + 3. The sensor outputs Column_Size + 1 columns and the wire drops the
+# first two of them, so w - 1 leaves w - 2 pixels a row, too few.
+COLUMN_SIZE_OVER_WIDTH = 3
+
+
+def column_size_for(w: int) -> int:
+    """The Column_Size the driver writes for a ``w``-wide window."""
+    return w + COLUMN_SIZE_OVER_WIDTH
+
+
+class FrameLayout(NamedTuple):
+    """Where a frame's pixels sit in the bytes streamed between two delimiters.
+
+    For a ``w`` x ``h`` window the driver writes ``column_size_for(w)`` and
+    Row_Size h + 1, and the sensor outputs W = Column_Size + 1 columns and
+    H = h + 2 rows (DS Table 8). The wire carries each output row as
+    ``stride`` (Column_Size) bytes: output columns 2 to W - 1 as pixels, then
+    a 0 sync byte. A row carries more pixels than the window's ``w``; the
+    ``w`` stored are the first of them, from byte ``column``: with
+    Mirror_Column clear, as the driver leaves it, the columns are read out in
+    numerical order from Column_Start (RR R0x020), so the extra ones come
+    last. With Mirror_Row set, as the driver sets it, the rows are read out
+    from Row_Start + Row_Size down to Row_Start, so the row skipped first and
+    the row not stored last trade ends and the ``h`` stored are the same
+    sensor rows, reversed. After ``FRAME_DELIM``
+    comes the first output row, which the parser skips (``skip`` bytes, one
+    more than a row), then the ``h`` stored rows, then the last output row,
+    which it does not store. Both unstored rows carry sensor data. The row's
+    length, its sync byte and the two dropped columns were measured on an
+    LS620 with the sensor's test patterns, at 1900, 1896 and 1000 wide. A
+    whole frame is ``frame_bytes`` long; anything else between two frame
+    ends is damaged.
+    """
+
+    stride: int
+    column: int
+    skip: int
+    needed: int
+    frame_bytes: int
+
+
+def frame_layout(w: int, h: int) -> FrameLayout:
+    """The wire layout of a ``w`` x ``h`` window: what the parser reads and a device sends.
+
+    Raises:
+        ValueError: The window's frame is an even number of bytes. The stream
+            finds a frame's end as the one packet that is not a whole number
+            of ISO transactions, and the delimiter as the one 4-byte packet;
+            that needs every frame's length odd, so its last packet is never
+            whole and never 4 bytes. It is odd when both sides are multiples
+            of 4, as ``set_frame_size`` rounds them.
+    """
+    stride = column_size_for(w)
+    # The window leads the row; the extra columns trail it.
+    column = 0
+    skip = stride + 1
+    needed = skip + h * stride
+    frame_bytes = needed + stride
+    if frame_bytes % 2 == 0:
+        raise ValueError(
+            f'a {w}x{h} window streams {frame_bytes} bytes a frame; the stream can find '
+            f'the end only of an odd-length frame (sides that are multiples of 4)'
+        )
+    return FrameLayout(stride, column, skip, needed, frame_bytes)
+
+
 # MT9P031 register addresses
 REG_ROW_START = 0x01
 REG_COL_START = 0x02
 REG_ROW_SIZE = 0x03
 REG_COL_SIZE = 0x04
+REG_OUTPUT_CONTROL = 0x07
 REG_EXPOSURE = 0x09
+REG_RESTART = 0x0B
+REG_RESET = 0x0D
 REG_PLL_CTRL = 0x10
 REG_PLL_CFG1 = 0x11
+REG_PLL_CFG2 = 0x12
 REG_READ_MODE2 = 0x20
 REG_GLOBAL_GAIN = 0x35
 REG_ROW_BLACK = 0x49
-REG_BLC = 0x62
 
-# Shutter width register (0x09) is 16-bit: max 65535 rows = ~7.4 seconds
+# Read Mode 2's readout-order bits (RR R0x020): each reverses its axis.
+MIRROR_ROW = 0x8000
+MIRROR_COLUMN = 0x4000
+
+# Read Mode 2 as connect writes it: Mirror_Row set, Mirror_Column clear, Row_BLC
+# on. LumaViewPro shows and saves a frame's first row at the bottom, and every
+# camera delivers to that; Basler and IDS reverse their columns at the sensor to
+# do it. The FX2 scopes' optics put the image on this sensor so that it reads
+# correctly with its rows in numerical order shown top-down, as LumaView Classic
+# showed it, so here the sensor reverses its rows. A USAF target facing the
+# objective then reads as it does on an LS850, where with Mirror_Column alone
+# it read rotated 180 degrees and with neither flipped top-to-bottom.
+READ_MODE2 = MIRROR_ROW | 0x0040
+
+# The Row Black Target written at connect, and the black level the camera
+# reports: one value, so the report cannot drift from the write.
+ROW_BLACK_TARGET = 0x0000
+
+# R0x10 with its reserved bits 7:4 at their default 0x5: Power_PLL, then
+# Power_PLL and Use_PLL.
+_PLL_POWERED = 0x0051
+_PLL_IN_USE = 0x0053
+
+# DS p23's soft standby sequences. Each pauses the sensor at row 0 before
+# Chip_Enable (R0x07 bit 1) changes and ends in a Restart, so the frame the
+# standby interrupted is abandoned rather than resumed corrupted.
+_ENTER_SOFT_STANDBY = (
+    (REG_RESTART, 0x0002),
+    (REG_RESTART, 0x0003),
+    (REG_OUTPUT_CONTROL, 0x1F82),
+    (REG_OUTPUT_CONTROL, 0x1F80),
+    (REG_RESTART, 0x0001),
+)
+_LEAVE_SOFT_STANDBY = (
+    (REG_RESTART, 0x0002),
+    (REG_RESTART, 0x0003),
+    (REG_OUTPUT_CONTROL, 0x1F80),
+    (REG_OUTPUT_CONTROL, 0x1F82),
+    (REG_RESTART, 0x0001),
+)
+
+# The largest value Shutter_Width_Lower (R0x09) holds. It is not the sensor's
+# limit: Shutter_Width_Upper (R0x08) extends the shutter width past it, and the
+# driver does not write R0x08.
 MAX_EXPOSURE_ROWS = 65535
 
-# Row time from MT9P031 datasheet (Table 8):
-#   EXTCLK = 12 MHz (FX2 24 MHz crystal / 2)
-#   PLL: M=27, N=1, P1=13 -> pixel_clock = 24.923 MHz
-#   Row period = 2 x max(W/2 + HBMIN, 486) = 2 x 1401 = 2802 pixel clocks
-#   (W=1902, HBMIN=450 with Row_BLC enabled)
-#   tROW = 2802 / 24.923 MHz = 112.4 us = 0.1124 ms
-_ROW_TIME_MS = 0.1124
-# Shutter overhead SO = 426 pixel clocks = 0.0171 ms
-_SHUTTER_OVERHEAD_MS = 0.0171
+
+# ---------------------------------------------------------------------------
+# The sensor's timing, as the MT9P031 data sheet states it
+# ---------------------------------------------------------------------------
+# Every time the driver records or publishes is computed here from the
+# registers it writes, so an exposure means the same integration at every
+# window and the simulator's timing is the sensor's, not a copy of it.
+
+# The sensor's EXTCLK: 24 MHz from the main board (the Series 600 image sensor
+# interface spec, "Clock signal (24 MHz) from main to sensor"). The LS620
+# bench agrees: frame periods at three widths and three clock settings land
+# within 0.4% of the data sheet at 24 MHz, and 7.7% off at 12 MHz.
+EXTCLK_HZ = 24_000_000
+
+# The PLL fields connect() writes. The data sheet's divisors are one more than
+# the register fields: f_PIXCLK = f_EXTCLK x M / ((N_divider + 1) x
+# (P1_divider + 1)) = 24 x 27 / (2 x 14) = 23.14 MHz, with the VCO at 324 MHz
+# and f_EXTCLK / N at 12 MHz, both inside their ranges. P1_divider is odd:
+# an even value gives a system clock that is not 50:50.
+_PLL_M = 27
+_PLL_N_DIVIDER = 1
+_PLL_P1_DIVIDER = 13
+
+# Horizontal timing at Row_Bin 0 and Column_Bin 0, with Row_BLC on (the
+# driver's Read Mode 2): HBMIN = 346 x (Row_Bin + 1) + 64 + WDC / 2, WDC = 80
+# dark columns; a row is never shorter than 41 + 346 x (Row_Bin + 1) + 99
+# clocks per half. Horizontal_Blank (R0x05) is never written, so its default
+# 0 gives HB = 1, under HBMIN.
+_HBMIN = 450
+_HALF_ROW_MIN = 486
+_HB = 1
+# Vertical_Blank (R0x06) is never written: its default 25 gives VB = 26 rows.
+_VB = 26
+# Shutter overhead SO = 208 x (Row_Bin + 1) + 98 + min(SD, SDmax) - 94 = 213
+# with Shutter_Delay (R0x0C) at its default 0 (SD = 1); it costs 2 x SO
+# pixel clocks.
+_SHUTTER_OVERHEAD_CLOCKS = 2 * 213
+
+
+def pixel_clock_hz(m: int, n_divider: int, p1_divider: int) -> float:
+    """f_PIXCLK for the PLL register fields, as the data sheet's PLL section gives it."""
+    return EXTCLK_HZ * m / ((n_divider + 1) * (p1_divider + 1))
+
+
+_PIXEL_CLOCK_HZ = pixel_clock_hz(_PLL_M, _PLL_N_DIVIDER, _PLL_P1_DIVIDER)
+
+
+def _output_size(size_register: int) -> int:
+    """The pixels the sensor outputs for a Column_Size or Row_Size (no skip): W or H."""
+    return 2 * -(-(size_register + 1) // 2)
+
+
+def row_time_s(column_size: int) -> float:
+    """tROW for a Column_Size: 2 x tPIXCLK x max(W/2 + max(HB, HBMIN), 486)."""
+    half_row = max(_output_size(column_size) // 2 + max(_HB, _HBMIN), _HALF_ROW_MIN)
+    return 2 * half_row / _PIXEL_CLOCK_HZ
+
+
+def exposure_s(shutter_width: int, column_size: int) -> float:
+    """tEXP = SW x tROW - SO x 2 x tPIXCLK, the integration a shutter width gives."""
+    return (
+        max(1, shutter_width) * row_time_s(column_size) - _SHUTTER_OVERHEAD_CLOCKS / _PIXEL_CLOCK_HZ
+    )
+
+
+def shutter_width_for(exposure_seconds: float, column_size: int) -> int:
+    """The Shutter_Width_Lower whose integration is nearest ``exposure_seconds``."""
+    rows = round(
+        (exposure_seconds + _SHUTTER_OVERHEAD_CLOCKS / _PIXEL_CLOCK_HZ) / row_time_s(column_size)
+    )
+    return max(1, min(MAX_EXPOSURE_ROWS, rows))
+
+
+def frame_time_s(column_size: int, row_size: int, shutter_width: int) -> float:
+    """tFRAME = (H + max(VB, VBMIN)) x tROW, VBMIN = max(8, SW - H) + 1.
+
+    A shutter width past H + 25 rows stretches the frame: the sensor adds
+    blanking rows until the integration fits.
+    """
+    h = _output_size(row_size)
+    vbmin = max(8, shutter_width - h) + 1
+    return (h + max(_VB, vbmin)) * row_time_s(column_size)
 
 
 # ---------------------------------------------------------------------------
@@ -371,6 +646,12 @@ ISO_ALT_INTERFACE = 3  # Alt interface 3 = ISO IN, 3x1024/microframe
 ISO_NUM_TRANSFERS = 16  # Pending transfers in flight
 ISO_NUM_PACKETS = 256  # ISO packets per transfer (C# reference uses 256)
 ISO_MAX_PACKET_SIZE = 3072  # 3 x 1024 bytes per microframe
+# The size of one transaction on the ISO endpoint (EP2's 1024-byte buffers).
+# A microframe's packet is a whole number of them, except where the firmware
+# commits a frame's last bytes early (INPKTEND): that short packet is where
+# the device ends each frame. The delimiter written after a frame comes
+# alone, as a 4-byte packet.
+ISO_TRANSACTION_SIZE = 1024
 
 
 # ---------------------------------------------------------------------------
@@ -430,41 +711,25 @@ def parse_intel_hex(hex_path: str) -> tuple[bytes, int]:
 # Digital gain: DG = 1 + (Digital_Gain / 8)
 # Total gain:   AG x DG
 #
-# Strategy (datasheet recommended):
-#   <= 4x:  analog only (multiplier=0) -- best noise performance
-#   <= 8x:  analog with multiplier=1
-#   > 8x:  max analog (8x) + digital for the rest
-#
-# Range: 1x (0 dB) to 128x (42.1 dB). The LumaviewClassic LVC driver
-# reference originally had `min(127, ...)` on the digital clamp and a
-# comment claiming ~135x max -- that was outside the documented legal
-# range per RR_A. The corrected legal max is 120 / 128x. See the
-# docstring on `_gain_db_to_register` for the conversion derivation.
+# The driver writes only the settings DS Table 15 recommends, analog
+# maximized before digital:
+#   1-4x:     analog 8-32, no multiplier -- the best noise
+#   4.25-8x:  analog 17-32 with the multiplier
+#   9-128x:   analog 32 with the multiplier, digital 1-120
+# 128x (42.144 dB) is the largest; Digital_Gain's legal maximum is 120.
+
+
+def _table_15_gain_registers() -> tuple[int, ...]:
+    """Every global gain register value DS Table 15 recommends, lowest gain first."""
+    analog_only = range(8, 33)
+    with_multiplier = [(1 << 6) | analog for analog in range(17, 33)]
+    with_digital = [(digital << 8) | (1 << 6) | 32 for digital in range(1, 121)]
+    return (*analog_only, *with_multiplier, *with_digital)
 
 
 def _gain_db_to_register(db: float) -> int:
-    """Convert gain in dB to MT9P031 global gain register value."""
-    mult = 10 ** (float(db) / 20.0)
-    mult = max(1.0, mult)
-
-    if mult <= 4.0:
-        # Analog only, no multiplier
-        analog_val = min(63, max(8, round(mult * 8)))
-        analog_mult = 0
-        digital_val = 0
-    elif mult <= 8.0:
-        # Analog with multiplier
-        analog_val = min(63, max(8, round(mult / 2 * 8)))
-        analog_mult = 1
-        digital_val = 0
-    else:
-        # Max analog (8x) + digital
-        analog_val = 32  # AG = 2 x 32/8 = 8.0
-        analog_mult = 1
-        dg_needed = mult / 8.0
-        digital_val = min(120, max(0, round((dg_needed - 1) * 8)))
-
-    return (digital_val << 8) | (analog_mult << 6) | analog_val
+    """The DS Table 15 setting nearest ``db``, in dB."""
+    return min(_GAIN_REGISTERS, key=lambda reg: abs(_register_to_gain_db(reg)[1] - float(db)))
 
 
 def _register_to_gain_db(reg: int) -> tuple[float, float]:
@@ -477,6 +742,11 @@ def _register_to_gain_db(reg: int) -> tuple[float, float]:
     total = ag * dg
     db = 20 * math.log10(total) if total > 0 else 0.0
     return total, db
+
+
+_GAIN_REGISTERS = _table_15_gain_registers()
+GAIN_MIN_DB = _register_to_gain_db(_GAIN_REGISTERS[0])[1]
+GAIN_MAX_DB = _register_to_gain_db(_GAIN_REGISTERS[-1])[1]
 
 
 # ---------------------------------------------------------------------------
@@ -502,7 +772,8 @@ class StreamStats:
             self._good_count = 0
             self._total_bytes = 0
             self._usb_errors = 0
-            self._usb_timeouts = 0
+            self._delimiters_missing = 0
+            self._delimiters_wrong = 0
             self._start_time = time.monotonic()
             self._delimiters_seen = 0
 
@@ -544,24 +815,18 @@ class StreamStats:
             self._shifted_sizes.append(size)
             self._delimiters_seen += 1
 
-    def record_bytes(self, n: int) -> None:
-        """Add ``n`` to the total-bytes counter. Thread-safe.
-
-        Args:
-            n: Number of bytes received.
-        """
+    def rejected(self) -> tuple[int, int]:
+        """Return ``(shifted, partial)``: the frames discarded so far. Thread-safe."""
         with self._lock:
-            self._total_bytes += n
+            return self._shifted_count, self._partial_count
 
-    def record_usb_error(self) -> None:
-        """Increment the USB error counter. Thread-safe."""
+    def record_counts(self, counts: StreamCounts) -> None:
+        """Add what the stream counted since it was last asked. Thread-safe."""
         with self._lock:
-            self._usb_errors += 1
-
-    def record_usb_timeout(self) -> None:
-        """Increment the USB timeout counter. Thread-safe."""
-        with self._lock:
-            self._usb_timeouts += 1
+            self._total_bytes += counts.arrived
+            self._usb_errors += counts.usb_errors
+            self._delimiters_missing += counts.delimiters_missing
+            self._delimiters_wrong += counts.delimiters_wrong
 
     def get_fps(self) -> tuple[float, float]:
         """Return ``(current_fps, avg_fps)``. Current = last 2 seconds.
@@ -585,7 +850,7 @@ class StreamStats:
             dict: Keys include ``elapsed_s``, ``good_frames``,
                 ``partial_frames``, ``shifted_frames``, ``total_MB``,
                 ``throughput_MBps``, ``fps_current``, ``fps_average``,
-                ``usb_errors``, ``usb_timeouts``.
+                ``usb_errors``, ``delimiters_missing``, ``delimiters_wrong``.
         """
         with self._lock:
             now = time.monotonic()
@@ -608,21 +873,530 @@ class StreamStats:
             'fps_current': round(cur_fps, 1),
             'fps_average': round(avg_fps, 2),
             'usb_errors': self._usb_errors,
-            'usb_timeouts': self._usb_timeouts,
+            'delimiters_missing': self._delimiters_missing,
+            'delimiters_wrong': self._delimiters_wrong,
         }
 
 
 # ---------------------------------------------------------------------------
-# _FX2Connection -- module-level singleton owning the USB handle
+# _ByteStream -- the streamed bytes, between the transport and the parser
 # ---------------------------------------------------------------------------
 
 
-class _FX2Connection:
-    """Singleton owning the FX2 USB device.
+class StreamCounts(NamedTuple):
+    """What a stream counted between two asks."""
 
-    Lazily constructed on first ``_FX2Connection.get()``. Private -- external
-    callers should never reference this class directly. ``FX2Camera`` and
-    ``FX2LEDController`` reach it only via ``get()`` in their ``__init__``.
+    arrived: int
+    usb_errors: int
+    delimiters_missing: int
+    delimiters_wrong: int
+
+
+class _ByteStream:
+    """The device's packets, assembled into frames where the device ends them. Thread-safe.
+
+    The transport hands over each ISO packet, and each failure, in the order
+    they arrived. A packet that is not a whole number of ISO transactions is
+    the frame's last: the firmware commits a frame's tail early, and that
+    short packet arrives at the end of every frame. The 4-byte delimiter the
+    firmware writes between frames comes as a packet of its own and is
+    checked but never framed on, since at some windows the firmware loses it
+    or writes 4 other bytes in its place, which glued two frames into one
+    when frames were found by it. A failure marks the frame it falls in, so
+    a frame that lost bytes on USB is never stored, whatever its length.
+
+    The grab loop takes the frames ended since it last asked, all of them,
+    and flushes at a window change. Every access goes through these methods,
+    so a reader can never be left feeding a buffer the parser no longer reads.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        # A frame longer than this can be stored at no window: the bound on
+        # a frame whose end never comes.
+        self._longest = frame_layout(IMG_WIDTH, IMG_HEIGHT).frame_bytes
+        self._frame = bytearray()
+        self._damaged = False
+        self._ended: list[tuple[bytearray, bool]] = []
+        # Whether the last packet ended a frame, so the next one is due to
+        # be the delimiter.
+        self._delimiter_due = False
+        self._zero_counts()
+        # When bytes last arrived: an unplug stops them without any error,
+        # so the silence is how the driver hears it.
+        self._last_arrival = time.monotonic()
+
+    def _zero_counts(self) -> None:
+        self._arrived = 0
+        self._usb_errors = 0
+        self._delimiters_missing = 0
+        self._delimiters_wrong = 0
+
+    def packet(self, data: bytes | bytearray) -> None:
+        """One ISO packet's bytes, as it arrived from the device."""
+        if not data:
+            return
+        with self._lock:
+            self._arrived += len(data)
+            self._last_arrival = time.monotonic()
+            if len(data) == len(FRAME_DELIM):
+                if data != FRAME_DELIM:
+                    self._delimiters_wrong += 1
+                self._delimiter_due = False
+                return
+            if self._delimiter_due:
+                self._delimiters_missing += 1
+                self._delimiter_due = False
+            self._frame.extend(data)
+            if len(data) % ISO_TRANSACTION_SIZE:
+                self._end_frame()
+                self._delimiter_due = True
+            elif len(self._frame) > self._longest:
+                self._end_frame()
+
+    def fail(self) -> None:
+        """A packet, transfer or read that failed: its bytes are missing from the frame."""
+        with self._lock:
+            self._usb_errors += 1
+            self._damaged = True
+
+    def _end_frame(self) -> None:
+        self._ended.append((self._frame, self._damaged))
+        self._frame = bytearray()
+        self._damaged = False
+
+    def take_frames(self) -> list[tuple[bytearray, bool]]:
+        """The frames ended since the last call, oldest first, each with whether it is damaged."""
+        with self._lock:
+            ended, self._ended = self._ended, []
+            return ended
+
+    def take_counts(self) -> StreamCounts:
+        """What arrived and what went wrong since the last call."""
+        with self._lock:
+            counts = StreamCounts(
+                self._arrived,
+                self._usb_errors,
+                self._delimiters_missing,
+                self._delimiters_wrong,
+            )
+            self._zero_counts()
+            return counts
+
+    def seconds_since_arrival(self, now: float) -> float:
+        """How long, at ``now`` (``time.monotonic()``), since a byte last arrived."""
+        with self._lock:
+            return now - self._last_arrival
+
+    def _clear(self) -> None:
+        self._frame = bytearray()
+        self._damaged = False
+        self._ended = []
+        self._delimiter_due = False
+
+    def flush(self) -> None:
+        """Drop the frames ended and the one in assembly. What arrived stays counted: it did arrive."""
+        with self._lock:
+            self._clear()
+
+    def restart(self) -> None:
+        """A new stream: nothing assembled and nothing counted from the last one.
+
+        The silence is timed from here, so a stream is not heard as silent
+        before its first bytes have had time to come.
+        """
+        with self._lock:
+            self._clear()
+            self._zero_counts()
+            self._last_arrival = time.monotonic()
+
+
+# ---------------------------------------------------------------------------
+# Transports -- every USB library call the driver makes
+# ---------------------------------------------------------------------------
+
+
+class _PyusbTransport:
+    """Discovery, the firmware upload and idle control, through pyusb.
+
+    The base of both platform transports; each adds the stream. While a
+    stream runs, the pyusb handle is released -- only one handle on the
+    device at a time -- and control goes through the stream's handle, then
+    comes back to a reopened pyusb handle when the stream stops.
+    """
+
+    def __init__(self):
+        self._dev = None
+
+    def find(self, pid: int) -> Any:
+        """The FX2 enumerated under ``pid``, or None."""
+        return usb.core.find(idVendor=VID, idProduct=pid)
+
+    def describe(self, dev: Any) -> str:
+        """The found device's place on the host, for the log."""
+        return describe_usb_device(dev)
+
+    def write_to(self, dev: Any, request: int, value: int, index: int, data: bytes) -> None:
+        """A vendor OUT request to a found device that is not opened: the bootloader."""
+        dev.ctrl_transfer(0x40, request, value, index, data)
+
+    def open(self, dev: Any) -> None:
+        """Detach the kernel driver, configure, claim interface 0; idle control goes here."""
+        # On macOS/Linux, detach the kernel driver if it grabbed the
+        # interface. Windows pyusb raises NotImplementedError here -- ignore.
+        try:
+            if dev.is_kernel_driver_active(0):
+                dev.detach_kernel_driver(0)
+                logger.info('[FX2 Conn  ] detached kernel driver from interface 0')
+        except (usb.core.USBError, NotImplementedError):
+            pass
+
+        try:
+            dev.set_configuration()
+        except usb.core.USBError:
+            pass  # may already be configured
+
+        try:
+            usb.util.claim_interface(dev, 0)
+        except usb.core.USBError:
+            pass  # may already be claimed
+
+        self._dev = dev
+        logger.info('[FX2 Conn  ] USB device configured, interface 0 claimed')
+
+    def control_out(self, request: int, value: int, index: int, data: bytes, timeout: int) -> int:
+        """A vendor OUT request on the opened device; returns the bytes written."""
+        return self._dev.ctrl_transfer(0x40, request, value, index, data, timeout=timeout)
+
+    def _release_idle(self) -> None:
+        try:
+            usb.util.dispose_resources(self._dev)
+        except Exception:
+            pass
+
+    def _reopen_idle(self) -> None:
+        try:
+            dev = self.find(PID_APP)
+            if dev is not None:
+                self.open(dev)
+        except Exception as e:
+            logger.warning('[FX2 Conn  ] pyusb handle reopen failed: %s', e)
+
+    def link_speed_mbps(self) -> float | None:
+        """The speed the opened device negotiated, from libusb; None when no
+        device is open or libusb reports the speed unknown."""
+        if self._dev is None:
+            return None
+        return _LIBUSB_SPEED_MBPS.get(self._dev.speed)
+
+    def close(self) -> None:
+        """Release the pyusb handle. Idempotent, swallows errors."""
+        if self._dev is not None:
+            try:
+                usb.util.dispose_resources(self._dev)
+            except Exception:
+                pass
+            self._dev = None
+
+
+class _LibusbTransport(_PyusbTransport):
+    """macOS / Linux: the ISO stream, and control while it runs, through python-libusb1."""
+
+    def __init__(self):
+        super().__init__()
+        self._ctx = None
+        self._handle = None
+        self._transfers: list = []
+        self._event_thread: threading.Thread | None = None
+        self._streaming = False
+        self._stream: _ByteStream | None = None
+        self._on_gone = None
+
+    def control_out(self, request: int, value: int, index: int, data: bytes, timeout: int) -> int:
+        if self._handle is not None:
+            return self._handle.controlWrite(0x40, request, value, index, data, timeout=timeout)
+        return super().control_out(request, value, index, data, timeout)
+
+    def start_stream(self, stream: _ByteStream, on_gone: Callable[[], None]) -> None:
+        """Stream ISO packets, and each failed transfer or packet, into ``stream``.
+
+        ``on_gone`` is called when a transfer cannot be resubmitted because the
+        device has left the bus.
+        """
+        self._release_idle()
+
+        # Explicit open: usb1's lazy auto-open on first use is deprecated
+        # (warns at every stream start) and skips the library's shutdown
+        # cleanup registration. open() returns the context; the paired
+        # explicit close() lives in stop_stream.
+        self._ctx = usb1.USBContext().open()
+        handle = self._ctx.openByVendorIDAndProductID(VID, PID_APP)
+        if handle is None:
+            raise RuntimeError('FX2 USB device disappeared before ISO streaming could start')
+        try:
+            if handle.kernelDriverActive(0):
+                handle.detachKernelDriver(0)
+        except Exception:
+            pass
+        handle.claimInterface(0)
+        handle.setInterfaceAltSetting(0, ISO_ALT_INTERFACE)
+
+        # Control goes through this handle while streaming -- the pyusb
+        # handle is released.
+        self._handle = handle
+        self._stream = stream
+        self._on_gone = on_gone
+        self._streaming = True
+
+        # Submit ISO transfers BEFORE sending VR_START_STREAMING. Transfers
+        # must be pending when data starts flowing or the FIFO overflows
+        # while we're still queuing up.
+        self._transfers = []
+        for _ in range(ISO_NUM_TRANSFERS):
+            xfer = handle.getTransfer(iso_packets=ISO_NUM_PACKETS)
+            xfer.setIsochronous(
+                0x82,
+                ISO_MAX_PACKET_SIZE * ISO_NUM_PACKETS,
+                callback=self._iso_callback,
+                timeout=5000,
+                iso_transfer_length_list=[ISO_MAX_PACKET_SIZE] * ISO_NUM_PACKETS,
+            )
+            xfer.submit()
+            self._transfers.append(xfer)
+
+        # USB event pump in a dedicated thread -- libusb1 needs someone
+        # to call handleEventsTimeout() to process ISO completions.
+        self._event_thread = threading.Thread(target=self._usb_event_loop, daemon=True)
+        self._event_thread.start()
+
+        # Now start streaming -- transfers are ready to receive data.
+        handle.controlWrite(0x40, VR_START_STREAMING, 0, 0, b'')
+
+        logger.info(
+            '[FX2 Conn  ] streaming started (ISO alt %d, EP 0x82, %d transfers x %d packets)',
+            ISO_ALT_INTERFACE,
+            ISO_NUM_TRANSFERS,
+            ISO_NUM_PACKETS,
+        )
+
+    def stop_stream(self) -> None:
+        """Stop the ISO stream and give control back to a reopened pyusb handle.
+
+        Matches the LVC reference: cancel transfers, drain events for ~2s,
+        join the event thread, send STOP, close the handle.
+        """
+        self._streaming = False
+        for xfer in self._transfers:
+            try:
+                xfer.cancel()
+            except Exception:
+                pass
+
+        # Drain cancelled transfers.
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            try:
+                self._ctx.handleEventsTimeout(tv=0.1)
+            except Exception:
+                break
+
+        if self._event_thread is not None:
+            self._event_thread.join(timeout=3.0)
+            self._event_thread = None
+
+        try:
+            self._handle.controlWrite(0x40, VR_STOP_STREAMING, 0, 0, b'')
+        except Exception:
+            pass
+        try:
+            self._handle.releaseInterface(0)
+            self._handle.close()
+        except Exception:
+            pass
+        self._transfers = []
+        # Paired with the explicit open() at stream start: dropping the
+        # reference without close() leaks the libusb context until GC. The
+        # transfers are cancelled and the handle closed above, so close()
+        # is safe here.
+        self._ctx.close()
+        self._ctx = None
+        self._handle = None
+        self._stream = None
+        self._on_gone = None
+
+        self._reopen_idle()
+
+    def _iso_callback(self, transfer):
+        """libusb1 callback -- called when an ISO transfer completes.
+
+        Each packet goes to the stream as a packet, since a packet's length
+        is where the device marks a frame's end. A failed packet, and a
+        transfer that failed whole, go to the stream in their place: their
+        bytes are missing from the frame they fell in.
+        """
+        status = transfer.getStatus()
+        if status == usb1.TRANSFER_CANCELLED:
+            return
+        if status == usb1.TRANSFER_COMPLETED:
+            for packet_status, buf in transfer.iterISO():
+                if packet_status != usb1.TRANSFER_COMPLETED:
+                    self._stream.fail()
+                else:
+                    self._stream.packet(buf)
+        else:
+            self._stream.fail()
+        # Resubmit for continuous streaming.
+        if self._streaming:
+            try:
+                transfer.submit()
+            except Exception as e:
+                # A dead transfer is one fewer in flight; when all are
+                # gone the stream silently freezes (the preview keeps
+                # showing the last frame). ERROR level so a frozen-
+                # preview post-mortem finds the cause next to the
+                # display-stall watchdog warning. Bounded by the
+                # transfer count -- this is not a per-frame loop.
+                logger.error(
+                    '[FX2 Conn  ] _iso_callback: transfer resubmit failed; '
+                    'grab loop will stall if this persists: %s: %s',
+                    type(e).__name__,
+                    e,
+                )
+                # Unplugged, the resubmit is refused at once: the fastest
+                # word the driver gets that the device is gone, and the one
+                # LumaView Classic stopped its stream on.
+                if isinstance(e, (usb1.USBErrorNoDevice, usb1.USBErrorNotFound)):
+                    self._on_gone()
+
+    def _usb_event_loop(self):
+        """Pump libusb1 events in a dedicated thread.
+
+        handleEventsTimeout(tv=0.1) blocks up to 100 ms per call, so even
+        when the device dies and every call raises, this loop degrades to
+        a ~10 Hz idle poll -- it does not hot-spin.
+        """
+        while self._streaming:
+            try:
+                self._ctx.handleEventsTimeout(tv=0.1)
+            except Exception:
+                if not self._streaming:
+                    break
+
+
+class _WinUsbTransport(_PyusbTransport):
+    """Windows: the ISO stream, and control while it runs, through WinUSB (``drivers/winusb_iso.py``)."""
+
+    def __init__(self):
+        super().__init__()
+        self._reader = None
+
+    def control_out(self, request: int, value: int, index: int, data: bytes, timeout: int) -> int:
+        if self._reader is not None:
+            return self._reader.device.control_transfer(0x40, request, value, index, data=data)
+        return super().control_out(request, value, index, data, timeout)
+
+    def start_stream(self, stream: _ByteStream, on_gone: Callable[[], None]) -> None:
+        """Stream ISO packets, and each failed read or packet, into ``stream``.
+
+        The reader calls both from its one thread, in arrival order, so a
+        failure lands in the frame it fell in. ``on_gone`` is not called: the
+        WinUSB reader reports no removal of its own, so an unplug is heard as
+        the stream's silence.
+        """
+        from drivers.winusb_iso import WinUsbIsoReader
+
+        # Release the pyusb handle -- WinUSB needs exclusive device access.
+        self._release_idle()
+
+        reader = WinUsbIsoReader(
+            VID,
+            PID_APP,
+            pipe_id=0x82,
+            alt_interface=ISO_ALT_INTERFACE,
+            num_slots=ISO_NUM_TRANSFERS,
+            packets_per_xfer=ISO_NUM_PACKETS,
+            on_data=stream.packet,
+            on_error=stream.fail,
+        )
+        reader.start()
+        # Held before START, so a START that raises leaves the running
+        # reader where stop_stream stops it. It also routes control
+        # transfers through the reader while streaming: without it, any LED
+        # command or exposure/gain change during streaming would fail on
+        # Windows (the branch the 4.0.0-LVCtest integration dropped from the
+        # LVC upstream).
+        self._reader = reader
+
+        # Send VR_START_STREAMING through the WinUSB reader (can't use
+        # the pyusb handle -- it's released).
+        reader.device.control_transfer(0x40, VR_START_STREAMING, 0, 0)
+
+        logger.info(
+            '[FX2 Conn  ] streaming started (WinUSB ISO alt %d, EP 0x82)',
+            ISO_ALT_INTERFACE,
+        )
+
+    def stop_stream(self) -> None:
+        """Stop the WinUSB stream and give control back to a reopened pyusb handle."""
+        if self._reader is not None:
+            try:
+                self._reader.device.control_transfer(0x40, VR_STOP_STREAMING, 0, 0)
+            except Exception:
+                pass
+            self._reader.stop()
+            self._reader = None
+        self._reopen_idle()
+
+
+def _platform_transport() -> _PyusbTransport:
+    """The transport for this host. The platform is decided here and nowhere else.
+
+    Raises:
+        ImportError: pyusb, or python-libusb1 off Windows, is not installed.
+    """
+    if not _HAS_USB:
+        raise ImportError(
+            'pyusb is required for FX2 hardware access. Install with: pip install pyusb'
+        )
+    if sys.platform == 'win32':
+        return _WinUsbTransport()
+    # libusb1 is needed for ISO streaming on macOS/Linux. Fail fast so an
+    # LS620 user on macOS without libusb1 gets a clear install hint, not a
+    # confusing runtime error 30 seconds in when they hit "start streaming".
+    if not _HAS_USB1:
+        raise ImportError(
+            'libusb1 (python-libusb1) is required for FX2 ISO streaming '
+            'on macOS / Linux. Install with: pip install -r requirements.txt'
+        )
+    return _LibusbTransport()
+
+
+# ---------------------------------------------------------------------------
+# _FX2Connection -- module-level singleton owning the device
+# ---------------------------------------------------------------------------
+
+
+class _FX2AbsentError(RuntimeError):
+    """No FX2 is on the bus, under either the application or the bootloader PID.
+
+    Told apart from every other connection failure because it is not one: the
+    registry tries the FX2 drivers on every scope, most of which have no FX2,
+    and a driver that raises is ranked above one that reports found=False. So
+    each FX2 driver turns this, and only this, into found=False; an FX2 that is
+    present and fails (a firmware upload that does not re-enumerate) still
+    raises with its own message.
+    """
+
+
+class _FX2Connection:
+    """Singleton owning the FX2 USB device, through a platform transport.
+
+    Lazily constructed on first ``_FX2Connection.get()``. Private -- outside
+    the FX2 drivers only the simulated FX2 builds one, on its own transport.
+    ``FX2Camera`` and ``FX2LEDController`` reach it through ``get()`` in their
+    ``__init__``, or through the connection they are handed, and are the only
+    objects that talk to it: every USB library call is the transport's, and
+    the bytes the device streams arrive in ``stream``.
 
     Why a singleton:
         The FX2 chip is one USB device with two functional sub-devices
@@ -653,14 +1427,15 @@ class _FX2Connection:
 
         Raises:
             ImportError: pyusb (or libusb1 on macOS/Linux) is not installed.
-            RuntimeError: No Lumascope FX2 device was found, or firmware
-                upload did not re-enumerate within the timeout window.
+            _FX2AbsentError: No Lumascope FX2 device is on the bus.
+            RuntimeError: Firmware upload did not re-enumerate within the
+                timeout window.
         """
         if cls._instance is not None:
             return cls._instance
         with cls._instance_lock:
             if cls._instance is None:
-                cls._instance = cls()
+                cls._instance = cls(_platform_transport())
             return cls._instance
 
     @classmethod
@@ -679,35 +1454,25 @@ class _FX2Connection:
                     pass
             cls._instance = None
 
-    def __init__(self):
-        if not _HAS_USB:
-            raise ImportError(
-                'pyusb is required for FX2 hardware access. Install with: pip install pyusb'
-            )
-        # libusb1 is needed for ISO streaming on macOS/Linux. Windows uses
-        # the native WinUSB path (drivers/winusb_iso.py) and doesn't need
-        # libusb1. Fail fast so an LS620 user on macOS without libusb1
-        # gets a clear install hint, not a confusing runtime error 30
-        # seconds in when they hit "start streaming".
-        if sys.platform != 'win32' and not _HAS_USB1:
-            raise ImportError(
-                'libusb1 (python-libusb1) is required for FX2 ISO streaming '
-                'on macOS / Linux. Install with: pip install libusb1. '
-                'On macOS you also need the native library: brew install libusb.'
-            )
-        self._dev = None
+    def __init__(self, transport: _PyusbTransport):
+        self._transport = transport
+        # Held around every control transfer and around the stream's start
+        # and stop, the moments the transport moves control between the
+        # pyusb handle and the stream's, so no transfer meets a half-made
+        # switch.
         self._lock = threading.Lock()
-        # During streaming, the pyusb handle is closed -- only one handle
-        # at a time. Control transfers issued while streaming route
-        # through whichever of these is live:
-        #   _iso_handle_for_ctrl      -> usb1 handle (macOS/Linux ISO path)
-        #   _winusb_reader_for_ctrl   -> WinUsbIsoReader (Windows WinUSB path)
-        # Both default to None; FX2Camera's streaming start/stop code sets
-        # and clears them in lockstep with its own handles.
-        # NOTE: losing the winusb branch was the bug in 4.0.0-LVCtest vs
-        # the LVC upstream -- restoring it here per the LVC reference.
-        self._iso_handle_for_ctrl = None
-        self._winusb_reader_for_ctrl = None
+        self.stream = _ByteStream()
+        # Whether the stream is running, decided under _lock: the removal's
+        # teardown and the application's own shutdown can both stop it, and
+        # a transport stopped twice fails on state its first stop released.
+        self._streaming = False
+        # The device has left the bus. Written once, by the camera's grab
+        # loop when it concludes an unplug; read by the LED, which shares
+        # the device. Never cleared: a replugged scope is a new process.
+        self.removed = False
+        # Set from the transport's event thread when a transfer finds the
+        # device gone; taken by the grab loop, which confirms it on the bus.
+        self._gone_reported = threading.Event()
 
         try:
             self._connect()
@@ -718,21 +1483,21 @@ class _FX2Connection:
     # -- connection ---------------------------------------------------------
 
     def _connect(self):
-        """Find the device, upload firmware if needed, claim interface."""
-        dev = usb.core.find(idVendor=VID, idProduct=PID_APP)
+        """Find the device, upload firmware if needed, open it."""
+        transport = self._transport
+        dev = transport.find(PID_APP)
         if dev is not None:
-            self._dev = dev
-            logger.info('[FX2 Conn  ] device: %s', describe_usb_device(dev))
-            self._setup_device()
+            logger.info('[FX2 Conn  ] device: %s', transport.describe(dev))
+            transport.open(dev)
             logger.info(
                 '[FX2 Conn  ] device found running firmware (PID 0x%04X)',
                 PID_APP,
             )
             return
 
-        dev = usb.core.find(idVendor=VID, idProduct=PID_BOOT)
+        dev = transport.find(PID_BOOT)
         if dev is None:
-            raise RuntimeError(
+            raise _FX2AbsentError(
                 f'No Lumascope FX2 device found (checked PID 0x{PID_APP:04X} and 0x{PID_BOOT:04X})'
             )
 
@@ -740,17 +1505,16 @@ class _FX2Connection:
             '[FX2 Conn  ] bootloader found (PID 0x%04X), uploading firmware...',
             PID_BOOT,
         )
-        self._upload_firmware(dev, self._find_firmware_path())
+        self._upload_firmware(dev, _FX2Connection.find_firmware_path())
 
         # Wait for re-enumeration under the new application PID.
         deadline = time.monotonic() + self.FIRMWARE_RE_ENUM_TIMEOUT
         while time.monotonic() < deadline:
             time.sleep(0.5)
-            dev = usb.core.find(idVendor=VID, idProduct=PID_APP)
+            dev = transport.find(PID_APP)
             if dev is not None:
-                self._dev = dev
-                logger.info('[FX2 Conn  ] device: %s', describe_usb_device(dev))
-                self._setup_device()
+                logger.info('[FX2 Conn  ] device: %s', transport.describe(dev))
+                transport.open(dev)
                 logger.info(
                     '[FX2 Conn  ] firmware loaded, re-enumerated as PID 0x%04X',
                     PID_APP,
@@ -762,32 +1526,8 @@ class _FX2Connection:
             f'(waited {self.FIRMWARE_RE_ENUM_TIMEOUT:.0f}s)'
         )
 
-    def _setup_device(self):
-        """Detach kernel driver, configure, claim interface 0."""
-        dev = self._dev
-
-        # On macOS/Linux, detach the kernel driver if it grabbed the
-        # interface. Windows pyusb raises NotImplementedError here -- ignore.
-        try:
-            if dev.is_kernel_driver_active(0):
-                dev.detach_kernel_driver(0)
-                logger.info('[FX2 Conn  ] detached kernel driver from interface 0')
-        except (usb.core.USBError, NotImplementedError):
-            pass
-
-        try:
-            dev.set_configuration()
-        except usb.core.USBError:
-            pass  # may already be configured
-
-        try:
-            usb.util.claim_interface(dev, 0)
-        except usb.core.USBError:
-            pass  # may already be claimed
-
-        logger.info('[FX2 Conn  ] USB device configured, interface 0 claimed')
-
-    def _find_firmware_path(self) -> str:
+    @staticmethod
+    def find_firmware_path() -> str:
         """Locate the FX2 firmware hex file in a PyInstaller bundle or source tree.
 
         Two hex files ship with the driver:
@@ -843,8 +1583,10 @@ class _FX2Connection:
         data, end_addr = parse_intel_hex(hex_path)
         logger.info('[FX2 Conn  ] firmware: %s (%d bytes)', hex_path, end_addr)
 
+        write_to = self._transport.write_to
+
         # Put 8051 into reset
-        dev.ctrl_transfer(0x40, VR_ANCHOR_DLD, 0xE600, 0, b'\x01')
+        write_to(dev, VR_ANCHOR_DLD, 0xE600, 0, b'\x01')
 
         # Send firmware data in chunks
         addr = 0
@@ -852,11 +1594,11 @@ class _FX2Connection:
         while addr < end_addr:
             remaining = end_addr - addr
             length = min(chunk, remaining)
-            dev.ctrl_transfer(0x40, VR_ANCHOR_DLD, addr, 0, data[addr : addr + length])
+            write_to(dev, VR_ANCHOR_DLD, addr, 0, data[addr : addr + length])
             addr += length
 
         # Release 8051 from reset -- firmware boots and the device re-enumerates
-        dev.ctrl_transfer(0x40, VR_ANCHOR_DLD, 0xE600, 0, b'\x00')
+        write_to(dev, VR_ANCHOR_DLD, 0xE600, 0, b'\x00')
         logger.info('[FX2 Conn  ] firmware upload complete, 8051 released')
 
     # -- control transfers --------------------------------------------------
@@ -872,10 +1614,10 @@ class _FX2Connection:
         """Thread-safe vendor OUT control transfer.
 
         While streaming, the pyusb handle is closed -- only one handle
-        on the device at a time. Routes through whichever streaming
-        handle is currently live (libusb1 on macOS/Linux, WinUSB reader
-        on Windows), or the pyusb handle otherwise. Callers don't need
-        to care which path is active.
+        on the device at a time. The transport routes through whichever
+        streaming handle is currently live (libusb1 on macOS/Linux, WinUSB
+        reader on Windows), or the pyusb handle otherwise. Callers don't
+        need to care which path is active.
 
         Args:
             request: USB vendor request code.
@@ -890,18 +1632,7 @@ class _FX2Connection:
         t_start = time.monotonic()
         try:
             with self._lock:
-                if self._iso_handle_for_ctrl is not None:
-                    result = self._iso_handle_for_ctrl.controlWrite(
-                        0x40, request, value, index, data, timeout=timeout
-                    )
-                elif self._winusb_reader_for_ctrl is not None:
-                    result = self._winusb_reader_for_ctrl.device.control_transfer(
-                        0x40, request, value, index, data=data
-                    )
-                else:
-                    result = self._dev.ctrl_transfer(
-                        0x40, request, value, index, data, timeout=timeout
-                    )
+                result = self._transport.control_out(request, value, index, data, timeout)
         except Exception as e:
             elapsed_ms = (time.monotonic() - t_start) * 1000
             if request not in _I2C_VR_REQUESTS:
@@ -918,65 +1649,6 @@ class _FX2Connection:
             _serial_log.info(
                 f'[FX2] {_vr_name(request)} OUT value=0x{value:04X} '
                 f'index=0x{index:04X} len={len(data)} -> result={result} '
-                f'({elapsed_ms:.1f}ms)'
-            )
-        return result
-
-    def control_transfer_in(
-        self,
-        request: int,
-        value: int = 0,
-        index: int = 0,
-        length: int = 0,
-        timeout: int = 5000,
-    ) -> bytes:
-        """Thread-safe vendor IN control transfer (same routing as OUT).
-
-        Args:
-            request: USB vendor request code.
-            value: 16-bit ``wValue`` field.
-            index: 16-bit ``wIndex`` field.
-            length: Number of bytes to read.
-            timeout: Timeout in milliseconds.
-
-        Returns:
-            bytes: Bytes returned by the device (length-prefixed by the
-                USB layer).
-        """
-        t_start = time.monotonic()
-        try:
-            with self._lock:
-                if self._iso_handle_for_ctrl is not None:
-                    result = self._iso_handle_for_ctrl.controlRead(
-                        0xC0, request, value, index, length, timeout=timeout
-                    )
-                elif self._winusb_reader_for_ctrl is not None:
-                    result = self._winusb_reader_for_ctrl.device.control_transfer(
-                        0xC0, request, value, index, length=length
-                    )
-                else:
-                    result = self._dev.ctrl_transfer(
-                        0xC0, request, value, index, length, timeout=timeout
-                    )
-        except Exception as e:
-            elapsed_ms = (time.monotonic() - t_start) * 1000
-            if request not in _I2C_VR_REQUESTS:
-                _serial_log.error(
-                    f'[FX2] {_vr_name(request)} IN value=0x{value:04X} '
-                    f'index=0x{index:04X} length={length} -> EXCEPTION: '
-                    f'{type(e).__name__}: {e} ({elapsed_ms:.1f}ms)'
-                )
-            raise
-        elapsed_ms = (time.monotonic() - t_start) * 1000
-        if request not in _I2C_VR_REQUESTS:
-            # Truncate large reads (sensor reg reads are 2 bytes; a long
-            # response would overflow the line).
-            result_repr = repr(bytes(result)) if result is not None else 'None'
-            if len(result_repr) > 200:
-                result_repr = result_repr[:200] + '...'
-            _serial_log.info(
-                f'[FX2] {_vr_name(request)} IN value=0x{value:04X} '
-                f'index=0x{index:04X} length={length} -> {result_repr} '
                 f'({elapsed_ms:.1f}ms)'
             )
         return result
@@ -1014,36 +1686,6 @@ class _FX2Connection:
         )
         return result
 
-    def i2c_read(self, addr: int, length: int) -> bytes:
-        """Read bytes from the I2C bus via vendor request 0xB2.
-
-        Args:
-            addr: I2C device address (used as ``wIndex``).
-            length: Number of bytes to read.
-
-        Returns:
-            bytes: Bytes returned by the device.
-        """
-        t_start = time.monotonic()
-        try:
-            result = self.control_transfer_in(VR_I2C_READ, value=0, index=addr, length=length)
-        except Exception as e:
-            elapsed_ms = (time.monotonic() - t_start) * 1000
-            _serial_log.error(
-                f'[FX2 I2C] READ addr=0x{addr:02X} length={length} -> '
-                f'EXCEPTION: {type(e).__name__}: {e} ({elapsed_ms:.1f}ms)'
-            )
-            raise
-        elapsed_ms = (time.monotonic() - t_start) * 1000
-        result_repr = repr(bytes(result)) if result is not None else 'None'
-        if len(result_repr) > 200:
-            result_repr = result_repr[:200] + '...'
-        _serial_log.info(
-            f'[FX2 I2C] READ addr=0x{addr:02X} length={length} -> '
-            f'{result_repr} ({elapsed_ms:.1f}ms)'
-        )
-        return result
-
     def sensor_reg_write(self, reg: int, value: int) -> None:
         """Write 16-bit value to an MT9P031 register via VR_I2C_WRITE (0xB3).
 
@@ -1074,96 +1716,49 @@ class _FX2Connection:
         data = bytes([reg, high, low])
         self.control_transfer_out(VR_I2C_WRITE, value=0, index=I2C_SENSOR, data=data)
 
-    def sensor_reg_read(self, reg: int) -> int:
-        """Read 16-bit value from MT9P031 register via vendor request 0xB4.
+    # -- the stream ---------------------------------------------------------
 
-        The FX2 firmware processes this asynchronously: it sets a flag in the
-        vendor request handler, the main loop does the I2C read, then sends
-        the data back on EP0 IN. A generous 5s timeout covers the async gap.
-
-        Args:
-            reg: MT9P031 register address (used as ``wValue``).
-
-        Returns:
-            int: 16-bit register contents (high byte first).
-        """
-        result = self.control_transfer_in(
-            VR_I2C_MT9P031_READ,
-            value=reg,
-            index=I2C_SENSOR,
-            length=2,
-            timeout=5000,
-        )
-        return (result[0] << 8) | result[1]
-
-    def init_gpif(self) -> None:
-        """Initialize GPIF. Required after pixel clock changes via VR_INIT_GPIF.
-
-        WARNING: do NOT call this from ``FX2Camera._init_sensor`` after the
-        PLL config write. The firmware's TD_Init() / Init_GPIF() /
-        SetISOInterface() path disrupts the EP2 configuration. The clock-
-        managed write (0xBA) already handles IFCLK switching without a
-        separate init_gpif call.
-        """
-        self.control_transfer_out(VR_INIT_GPIF)
-
-    def start_streaming(self) -> None:
-        """Send vendor request to start image data output."""
-        self.control_transfer_out(VR_START_STREAMING)
-
-    def stop_streaming(self) -> None:
-        """Send vendor request to stop image data output."""
-        self.control_transfer_out(VR_STOP_STREAMING)
-
-    def get_firmware_version(self) -> int:
-        """Read 2-byte firmware version register.
-
-        Returns:
-            int: Firmware version (high byte first, then low byte).
-        """
-        result = self.control_transfer_in(VR_CODE_VERSION, length=2)
-        return (result[0] << 8) | result[1]
-
-    # -- bulk / alt-interface / low-level ----------------------------------
-
-    def set_alt_interface(self, alt: int) -> None:
-        """Switch USB alternate interface setting (0=bulk, 3=iso).
-
-        Args:
-            alt: Alternate setting index.
-        """
+    def start_stream(self) -> None:
+        """Start the device streaming into ``stream``, emptied first."""
         with self._lock:
-            self._dev.set_interface_altsetting(interface=0, alternate_setting=alt)
-            # Clear any halt/stall on EP 0x82 after switching alt interface
-            try:
-                usb.util.dispose_resources(self._dev)
-            except Exception:
-                pass
-            logger.info('[FX2 Conn  ] alt interface set to %d', alt)
+            self.stream.restart()
+            self._gone_reported.clear()
+            # Marked before the transport starts: a start that raises part
+            # way leaves what it opened for stop_stream to release.
+            self._streaming = True
+            self._transport.start_stream(self.stream, self._gone_reported.set)
 
-    def clear_halt(self, endpoint: int = 0x82) -> None:
-        """Clear halt/stall condition on an endpoint.
-
-        Args:
-            endpoint: USB endpoint address (default 0x82, the bulk IN).
-        """
+    def stop_stream(self) -> None:
+        """Stop the stream; control returns to the idle handle. Does nothing when stopped."""
         with self._lock:
-            try:
-                self._dev.clear_halt(endpoint)
-            except usb.core.USBError as e:
-                logger.debug('[FX2 Conn  ] clear_halt(0x%02X): %s', endpoint, e)
+            if not self._streaming:
+                return
+            self._streaming = False
+            self._transport.stop_stream()
 
-    def bulk_read(self, size: int, timeout: int = 1000) -> bytes:
-        """Read from bulk endpoint 0x82. NOT locked -- caller manages timing.
+    # -- presence -----------------------------------------------------------
 
-        Args:
-            size: Number of bytes to read.
-            timeout: Timeout in milliseconds.
+    def take_gone_report(self) -> bool:
+        """Whether a transfer found the device gone since the last call."""
+        reported = self._gone_reported.is_set()
+        self._gone_reported.clear()
+        return reported
 
-        Returns:
-            bytes: Data read from EP 0x82.
+    def link_speed_mbps(self) -> float | None:
+        """The negotiated USB speed of the opened device, from its transport."""
+        return self._transport.link_speed_mbps()
+
+    def device_present(self) -> bool | None:
+        """Whether the device is enumerated on the bus; None when the bus could not be read.
+
+        Enumeration only: nothing is opened, so this is safe while the stream
+        runs on its own handle.
         """
-        return self._dev.read(0x82, size, timeout=timeout)
+        try:
+            return self._transport.find(PID_APP) is not None
+        except Exception as e:
+            logger.warning('[FX2 Conn  ] bus enumeration failed: %s: %s', type(e).__name__, e)
+            return None
 
     # -- teardown ----------------------------------------------------------
 
@@ -1174,18 +1769,7 @@ class _FX2Connection:
         ``_reset_for_test``. Does NOT null out ``_instance`` -- that's
         ``_reset_for_test``'s job.
         """
-        if self._dev is not None:
-            try:
-                usb.util.dispose_resources(self._dev)
-            except Exception:
-                pass
-            self._dev = None
-        self._iso_handle_for_ctrl = None
-        self._winusb_reader_for_ctrl = None
-
-    def disconnect(self) -> None:
-        """Public cleanup hook. Same as ``_teardown`` but named for callers."""
-        self._teardown()
+        self._transport.close()
 
 
 # ---------------------------------------------------------------------------
@@ -1202,9 +1786,78 @@ class _FX2ImageHandler(ImageHandlerBase):
     so ``ImageHandlerBase`` is always available and its behavior is what
     the rest of the camera stack expects.
 
-    No overrides needed; the base class already implements
-    ``_store_frame`` / ``get_last_image`` / ``_record_failure`` / ``reset``.
+    The base class implements ``_store_frame`` / ``get_last_image`` /
+    ``_record_failure`` / ``reset``; this handler only says when its camera
+    has been removed, so a frame buffered before an unplug is not handed out
+    as current.
     """
+
+    def __init__(self, camera: FX2Camera):
+        super().__init__()
+        self._camera = camera
+
+    def _detached(self) -> bool:
+        return self._camera._device_removed
+
+
+# ---------------------------------------------------------------------------
+# _UnplugWatch -- hearing an unplug in a stream that sends no error
+# ---------------------------------------------------------------------------
+
+
+class _UnplugWatch:
+    """Decides, from the grab loop, when the FX2 has been unplugged.
+
+    An unplug sends the driver no error: the bytes stop. Two things raise a
+    suspicion -- no byte for ``SILENCE_S``, or a transfer that found the
+    device gone -- and the bus decides it: absent on two probes
+    ``CONFIRM_GAP_S`` apart is an unplug. A device still enumerated is
+    probed at most every ``PROBE_INTERVAL_S`` while the silence lasts, and a
+    stream silent for ``CEILING_S`` is dead whatever the bus says, since an
+    enumeration can keep listing a device that has gone.
+
+    Silence, not missing frames: a device whose frames all misalign stores
+    none but keeps sending bytes, and it is not unplugged.
+    """
+
+    # Every gap a working stream shows is well under this: the first frame
+    # arrives 0.3-0.5 s after a start, and a window change drops buffered
+    # bytes without stopping their arrival.
+    SILENCE_S = 2.0
+    CONFIRM_GAP_S = 0.5
+    PROBE_INTERVAL_S = 1.0
+    CEILING_S = 30.0
+
+    def __init__(self, connection: _FX2Connection):
+        self._connection = connection
+        self._suspected = False
+        self._absences = 0
+        self._last_probe: float | None = None
+
+    def verdict(self, now: float) -> str | None:
+        """Why the device is judged unplugged at ``now``, or None."""
+        silent_s = self._connection.stream.seconds_since_arrival(now)
+        if self._connection.take_gone_report():
+            self._suspected = True
+        if silent_s >= self.SILENCE_S:
+            self._suspected = True
+        if not self._suspected:
+            return None
+        if silent_s >= self.CEILING_S:
+            return f'no byte for {silent_s:.0f} s'
+        wait_s = self.CONFIRM_GAP_S if self._absences else self.PROBE_INTERVAL_S
+        if self._last_probe is not None and now - self._last_probe < wait_s:
+            return None
+        self._last_probe = now
+        present = self._connection.device_present()
+        if present is False:
+            self._absences += 1
+            if self._absences >= 2:
+                return f'off the bus on two probes, {silent_s:.1f} s after the last byte'
+        elif present is True:
+            self._absences = 0
+            self._suspected = silent_s >= self.SILENCE_S
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -1241,18 +1894,28 @@ class FX2Camera(Camera):
     # How often to log streaming stats (seconds). Set to 0 to disable.
     STATS_LOG_INTERVAL = 10.0
 
+    # How long bytes may arrive with no frame stored before the stream is
+    # reported unframeable. A working stream at the full window stores about
+    # four frames a second (measured at 50 ms exposure), and a window change
+    # costs it a few, so 5 s is about twenty frames' worth.
+    FRAMING_STALL_S = 5.0
+
     # Frame size bounds
     FRAME_SIZE_MIN = 100
     FRAME_SIZE_STEP = 4
 
-    def __init__(self, **kwargs):
-        # Grab the FX2 connection BEFORE super().__init__() -- the Camera
-        # base class calls self.connect() at the end of its __init__,
-        # and that needs self._fx2 live. If _FX2Connection.get() raises
-        # (no FX2 hardware, no pyusb, firmware upload fails), the
-        # exception propagates and the registry falls through to the
-        # next camera driver candidate.
-        self._fx2 = _FX2Connection.get()
+    # A typical microscopy starting point.
+    DEFAULT_EXPOSURE_MS = 50.0
+
+    def __init__(self, *, connection: _FX2Connection | None = None, **kwargs):
+        # The connection is taken in connect(), which the Camera base class
+        # calls at the end of its __init__ and which is where the base class
+        # has a driver that cannot find its camera leave itself inactive
+        # (found=False). A simulated FX2 hands its own connection to both
+        # drivers; the registry passes none, and the camera shares the
+        # process's device through _FX2Connection.get().
+        self._given_connection = connection
+        self._fx2: _FX2Connection | None = None
 
         # Streaming state -- initialized here so connect() can see them
         # even though connect() runs inside super().__init__().
@@ -1260,21 +1923,12 @@ class FX2Camera(Camera):
         self._grab_thread: threading.Thread | None = None
         self._width = IMG_WIDTH
         self._height = IMG_HEIGHT
-        self._exposure_rows = 100
+        # The exposure asked for, kept so every window gets the shutter width
+        # that integrates it; the driver's default until init_camera_config()
+        # applies it, since connect() sets the window first.
+        self._exposure_ms = self.DEFAULT_EXPOSURE_MS
         self._gain_reg = 0x0008  # default = 1.0x = 0 dB
         self._pixel_format = 'Mono8'
-
-        # Platform-specific streaming state (set by _start_*_streaming)
-        self._use_iso = False
-        self._use_winusb_iso = False
-        self._iso_ctx = None
-        self._iso_handle = None
-        self._iso_transfers: list = []
-        self._iso_buf = bytearray()
-        self._iso_buf_lock = threading.Lock()
-        self._usb_event_thread: threading.Thread | None = None
-        self._bulk_reader_thread: threading.Thread | None = None
-        self._winusb_reader = None
 
         self.stream_stats = StreamStats()
 
@@ -1357,9 +2011,22 @@ class FX2Camera(Camera):
         ``scope.imaging.start_streaming()`` after configuration (the
         blank-view failure that bit the first LS620 GUI launch 2026-04-15).
         """
+        if self._fx2 is None:
+            # No FX2 on the bus leaves the camera inactive, so found=False, as
+            # for every other camera; an FX2 that is present and fails, or a
+            # missing USB library, raises and the registry ranks it as such.
+            try:
+                self._fx2 = (
+                    self._given_connection
+                    if self._given_connection is not None
+                    else _FX2Connection.get()
+                )
+            except _FX2AbsentError as e:
+                logger.debug('[FX2 Cam   ] %s', e)
+                return False
         self.model_name = 'MT9P031-LS620'
         self._init_sensor()
-        self.cam_image_handler = _FX2ImageHandler()
+        self.cam_image_handler = _FX2ImageHandler(self)
         # Fresh handler starts with an empty dispatch list; re-push any durable
         # listeners so a reconnect keeps delivering frames to recording / plugins.
         self._reapply_frame_callbacks()
@@ -1380,7 +2047,7 @@ class FX2Camera(Camera):
         return True
 
     def is_connected(self) -> bool:
-        return self._active is not None and bool(self._active)
+        return self._active is not None and bool(self._active) and not self._device_removed
 
     def _query_dynamic_capabilities(self):
         """Populate profile's dynamic gain / exposure fields.
@@ -1392,26 +2059,27 @@ class FX2Camera(Camera):
         instead of the ``None`` defaults.
         """
         try:
-            self.profile.gain.total_min_db = 0.0
-            self.profile.gain.total_max_db = 42.1  # 128x, per audit-corrected math
-            self.profile.exposure_min_us = _ROW_TIME_MS * 1000  # 1 row = 112.4 us
-            # Cap exposure at the legacy LVC 178 ms value (matches what
-            # was known-safe in the original LumaviewClassic UI). The
-            # MT9P031 register itself supports up to MAX_EXPOSURE_ROWS x
-            # row_time = 7,366 ms, BUT above the per-frame readout time
-            # (~214 ms at 1900 rows x 0.1124 ms/row) the sensor inserts
-            # vertical blanking rows to extend the frame period, which
-            # changes the bytes/sec rate mid-stream and desyncs the FX2
-            # frame parser. Visible as image corruption when the user
-            # drags the exposure slider above ~200 ms. Raising this
-            # requires fixing the frame parser to handle variable frame
-            # timing OR doing stop-grab / set / start-grab on every
-            # exposure change -- both Stage 3.6+ work, both non-trivial.
-            # Hardware-validated 2026-04-15 on the first LS620 GUI run.
-            SAFE_EXPOSURE_MAX_MS = 178
+            self.profile.gain.total_min_db = GAIN_MIN_DB
+            self.profile.gain.total_max_db = GAIN_MAX_DB
+            # One shutter row at the full window: the shortest exposure
+            # every window the driver allows can give (a narrower window's
+            # row is shorter, so it reaches this to within its own row).
+            self.profile.exposure_min_us = exposure_s(1, column_size_for(IMG_WIDTH)) * 1e6
+            # One second, deliberately: as long as these units need, and no
+            # longer. The stream stays clean far past it (an LS620 ran to the
+            # register's 65535 rows), but the API's fixed 5 s wait for a new
+            # capture and the stream check's bound after a long-to-short
+            # exposure change both misfire above a few seconds, and 65535
+            # rows is only 2.8 s at the narrowest window. Past the readout
+            # (about 233 ms at 1900 wide, 84 ms at 1000, 32 ms at 500) the
+            # sensor adds blanking rows and the frame stretches to the
+            # exposure (frame_time_s), which the stream handles.
+            SAFE_EXPOSURE_MAX_MS = 1000
             self.profile.exposure_max_us = SAFE_EXPOSURE_MAX_MS * 1000
             logger.debug(
-                '[FX2 Cam   ] profile capabilities: gain 0.0-42.1 dB, exposure %.3f-%.3f ms',
+                '[FX2 Cam   ] profile capabilities: gain %.3f-%.3f dB, exposure %.3f-%.3f ms',
+                self.profile.gain.total_min_db,
+                self.profile.gain.total_max_db,
                 self.profile.exposure_min_us / 1000,
                 self.profile.exposure_max_us / 1000,
             )
@@ -1421,7 +2089,7 @@ class FX2Camera(Camera):
     # -- Sensor init -------------------------------------------------------
 
     def _init_sensor(self):
-        """Initialize MT9P031 sensor: PLL, window, black level calibration.
+        """Initialize MT9P031 sensor: reset, PLL, read mode, black target, window.
 
         Uses individual 3-byte register writes because the FX2 firmware's
         I2C handler truncates writes longer than 3 bytes. 10 ms sleep
@@ -1429,77 +2097,41 @@ class FX2Camera(Camera):
         but this matches the LVC reference that hardware-validated at
         63/63 frames.
 
-        WARNING: do NOT call ``self._fx2.init_gpif()`` here. Per the
-        firmware disassembly (see LumaviewClassic/docs/STREAMING_ANALYSIS.md
+        WARNING: do NOT send VR_INIT_GPIF here. Per the firmware
+        disassembly (see LumaviewClassic/docs/STREAMING_ANALYSIS.md
         sec.3.2), VR_INIT_GPIF calls TD_Init() -> Init_GPIF() -> SetISOInterface()
-        internally, which resets EP2 configuration. The clock-managed
-        write (0xBA) already handles IFCLK switching without calling
-        init_gpif.
+        internally, which resets EP2 configuration. The sensor writes here
+        go through plain VR_I2C_WRITE, which never touches IFCLK, so no
+        GPIF re-init is needed.
         """
-        fx2 = self._fx2
-
-        # Initial window -- set a default BEFORE PLL config. Overwritten
-        # by the set_frame_size() call at the end of this method.
-        fx2.sensor_reg_write(REG_ROW_START, 0x0036)  # sensor default row_start
-        time.sleep(0.01)
-        fx2.sensor_reg_write(REG_COL_START, 0x0010)  # sensor default col_start
-        time.sleep(0.01)
-        fx2.sensor_reg_write(REG_ROW_SIZE, 0x0797)  # sensor default 1943
-        time.sleep(0.01)
-        fx2.sensor_reg_write(REG_COL_SIZE, 0x0A1F)  # sensor default 2591
-        time.sleep(0.01)
-
-        # PLL power on
-        fx2.sensor_reg_write(REG_PLL_CTRL, 0x0051)
-        time.sleep(0.01)
-
-        # PLL config: M=0x1B=27, N_divider=0x01, P1_divider=0x0D=13.
-        # EXTCLK = 12 MHz -> pixel_clock ~= 24.92 MHz -> ~4.5 fps at 1900x1900.
-        # NOTE on register interpretation: the MT9P031 datasheet formula
-        # says N = N_divider + 1 and P1 = P1_divider + 1, but the
-        # working silicon uses the raw register values directly (M, N,
-        # P1 as written). The VCO constraint (180-360 MHz) only passes
-        # with raw interpretation (12*27/1 = 324 MHz), not with +1
-        # (12*27/2 = 162 MHz). See
-        # LumaviewClassic/docs/DATASHEET_VERIFICATION.md sec.1 for the full
-        # audit. The comment used to say M=27/N=1/P1=13; we keep that
-        # convention but note that it's raw-register math, not
-        # datasheet-formula math.
-        fx2.sensor_reg_write(REG_PLL_CFG1, 0x1B01)
-        time.sleep(0.01)
-        fx2.sensor_reg_write(0x12, 0x000D)  # PLL Config 2: P1_divider = 13
-        time.sleep(0.01)
-
-        # PLL activate
-        fx2.sensor_reg_write(REG_PLL_CTRL, 0x0053)
-        time.sleep(0.2)  # datasheet requires 1ms for VCO lock; 200ms is defensive
-        # Do NOT call init_gpif() here -- see docstring warning.
+        # A soft reset (DS p21) returns every register but Chip_Enable,
+        # Synchronize_Changes and the PLL fields to its power-on default, so
+        # nothing an earlier writer left (a crashed session, LumaView
+        # Classic, a bench test) outlives this connect. Every register the
+        # driver relies on at its default, the black-level calibration's
+        # R0x62 among them, is established here.
+        self._write_sensor_registers(((REG_RESET, 0x0001), (REG_RESET, 0x0000)))
+        self._program_pll(_PLL_P1_DIVIDER)
+        # Do NOT send VR_INIT_GPIF here -- see docstring warning.
 
         # Blue-strip fix per MT9P031 developer guide (DG_A page 7).
         # Prevents a blue strip artifact when bright light hits the top
         # or bottom of the sensor array. Recommended even at slower
         # pixel clocks where it may not be strictly necessary.
-        fx2.sensor_reg_write(0x7F, 0x0000)
-        time.sleep(0.01)
+        self._write_sensor_registers(((0x7F, 0x0000),))
 
-        # Black level calibration
-        fx2.sensor_reg_write(REG_BLC, 0x6000)  # lock green + red/blue BLC channels
-        time.sleep(0.01)
-        # Read Mode 2 bits we set:
-        #   bit  6 (0x0040) -- Row_BLC enabled (sensor default)
-        #   bit 14 (0x4000) -- Mirror_Column = horizontal flip. Per
-        #                     Linux kernel mt9p031.c register defs.
-        #                     LS620 optic path delivers a left/right-
-        #                     reversed view through the eyepiece vs the
-        #                     sensor's native readout; this bit corrects
-        #                     it at the sensor (free, no CPU cost,
-        #                     applies to live view + captures uniformly).
-        # If the image ends up upside down instead of mirrored, swap
-        # bit 14 -> bit 15 (0x4000 -> 0x8000) for Mirror_Row instead.
-        fx2.sensor_reg_write(REG_READ_MODE2, 0x4040)
-        time.sleep(0.01)
-        fx2.sensor_reg_write(REG_ROW_BLACK, 0x0000)  # black target = 0 (microscopy optimization)
-        time.sleep(0.01)
+        # Read Mode 2 sets the orientation the frames are delivered in
+        # (READ_MODE2). Mirror_Row causes a bad frame when written (RR
+        # R0x020); this write comes before the stream starts.
+        self._write_sensor_registers(((REG_READ_MODE2, READ_MODE2),))
+        # The Row Black Target is 0, not its default 0xA8: the default gives
+        # every image a floor of about 10.5 counts in 8 bits, the dark floor
+        # LumaView images once had and were better without. The cost, measured
+        # on an LS620 with the light path covered: the sensor clips the lower
+        # half of its read noise to zero, invisible at 0 dB (dark noise 0.28
+        # counts), while at 24 dB 64% of dark pixels read 0 and the dark mean
+        # reads 0.64 counts, a sub-count bias on faint signal at high gain.
+        self._write_sensor_registers(((REG_ROW_BLACK, ROW_BLACK_TARGET),))
 
         # Set default window to full 1900x1900 -- also configures the
         # col_size/row_size registers correctly with centering.
@@ -1511,11 +2143,45 @@ class FX2Camera(Camera):
             # mismatched byte count -- garbage live view with no error.
             raise RuntimeError('MT9P031 initial window apply failed during sensor init')
 
-        logger.info('[FX2 Cam   ] MT9P031 sensor initialized (PLL + BLC)')
+        logger.info('[FX2 Cam   ] MT9P031 sensor initialized (reset, PLL, window)')
+
+    def _program_pll(self, p1_divider: int) -> None:
+        """Run the sensor from the PLL at ``p1_divider``, as DS p22-23 programs it.
+
+        The PLL fields are written in soft standby: DS p22 calls writing them
+        while the sensor streams undefined. The documents leave one ordering
+        open: their PLL steps power the PLL before the fields are written, yet
+        standby powers it down. This is LumaView Classic's answer: Power_PLL,
+        standby, M/N and P1, out of standby, Power_PLL again, the VCO's lock
+        wait (DS: 1 ms), then Use_PLL.
+        """
+        self._write_sensor_registers(
+            (
+                (REG_PLL_CTRL, _PLL_POWERED),
+                *_ENTER_SOFT_STANDBY,
+                (REG_PLL_CFG1, (_PLL_M << 8) | _PLL_N_DIVIDER),
+                (REG_PLL_CFG2, p1_divider),
+                *_LEAVE_SOFT_STANDBY,
+                (REG_PLL_CTRL, _PLL_POWERED),
+                (REG_PLL_CTRL, _PLL_IN_USE),
+            )
+        )
+
+    def _write_sensor_registers(self, writes) -> None:
+        """Write ``(register, value)`` pairs in order, 10 ms apart.
+
+        One write per I2C transaction: the FX2 firmware's I2C handler
+        truncates a write longer than 3 bytes. The 10 ms gap is longer than
+        any the documents ask for (the PLL's 1 ms lock wait the longest) and
+        is the gap LumaView Classic's bring-up ran with.
+        """
+        for reg, value in writes:
+            self._fx2.sensor_reg_write(reg, value)
+            time.sleep(0.01)
 
     # -- Streaming start / stop --------------------------------------------
 
-    def start_grabbing(self):
+    def start_grabbing(self) -> None:
         if self._grabbing:
             if _cam_log is not None:
                 _cam_log.info('fx2 start_grabbing SKIPPED: already grabbing')
@@ -1524,151 +2190,11 @@ class FX2Camera(Camera):
             _cam_log.info('fx2 start_grabbing')
         self.stream_stats.reset()
         self._grabbing = True  # set BEFORE starting threads that check it
-        self._use_winusb_iso = False
-        self._use_iso = False
-
-        if sys.platform == 'win32':
-            # Windows: WinUSB native ISO API (not libusb1).
-            self._use_winusb_iso = True
-            if _cam_log is not None:
-                _cam_log.info('fx2 path=winusb_iso')
-            self._start_winusb_iso_streaming()
-        elif _HAS_USB1:
-            # macOS / Linux: libusb1 async ISO.
-            self._use_iso = True
-            if _cam_log is not None:
-                _cam_log.info('fx2 path=libusb1_iso')
-            self._start_iso_streaming()
-        else:
-            # Fallback: bulk transfers. ~0.7 fps, useful only for bring-up.
-            if _cam_log is not None:
-                _cam_log.info('fx2 path=bulk_fallback')
-            self._start_bulk_streaming()
-
+        self._fx2.start_stream()
         self._grab_thread = threading.Thread(target=self._grab_loop, daemon=True)
         self._grab_thread.start()
 
-    def _start_iso_streaming(self):
-        """macOS / Linux ISO path via python-libusb1."""
-        # Close the pyusb handle -- only one handle on the device at a time.
-        try:
-            usb.util.dispose_resources(self._fx2._dev)
-        except Exception:
-            pass
-
-        # Explicit open: usb1's lazy auto-open on first use is deprecated
-        # (warns at every stream start) and skips the library's shutdown
-        # cleanup registration. open() returns the context; the paired
-        # explicit close() lives in the stop path.
-        self._iso_ctx = usb1.USBContext().open()
-        self._iso_handle = self._iso_ctx.openByVendorIDAndProductID(VID, PID_APP)
-        if self._iso_handle is None:
-            raise RuntimeError('FX2 USB device disappeared before ISO streaming could start')
-        try:
-            if self._iso_handle.kernelDriverActive(0):
-                self._iso_handle.detachKernelDriver(0)
-        except Exception:
-            pass
-        self._iso_handle.claimInterface(0)
-        self._iso_handle.setInterfaceAltSetting(0, ISO_ALT_INTERFACE)
-
-        # Route control transfers through this handle while streaming --
-        # the pyusb handle is closed, so the connection's normal
-        # control_transfer_out/in path would fail without this swap.
-        self._fx2._iso_handle_for_ctrl = self._iso_handle
-
-        # Fresh buffer for the ISO callback to fill.
-        with self._iso_buf_lock:
-            self._iso_buf = bytearray()
-
-        # Submit ISO transfers BEFORE sending VR_START_STREAMING. Transfers
-        # must be pending when data starts flowing or the FIFO overflows
-        # while we're still queuing up.
-        self._iso_transfers = []
-        for _ in range(ISO_NUM_TRANSFERS):
-            xfer = self._iso_handle.getTransfer(iso_packets=ISO_NUM_PACKETS)
-            xfer.setIsochronous(
-                0x82,
-                ISO_MAX_PACKET_SIZE * ISO_NUM_PACKETS,
-                callback=self._iso_callback,
-                timeout=5000,
-                iso_transfer_length_list=[ISO_MAX_PACKET_SIZE] * ISO_NUM_PACKETS,
-            )
-            xfer.submit()
-            self._iso_transfers.append(xfer)
-
-        # USB event pump in a dedicated thread -- libusb1 needs someone
-        # to call handleEventsTimeout() to process ISO completions.
-        self._usb_event_thread = threading.Thread(target=self._usb_event_loop, daemon=True)
-        self._usb_event_thread.start()
-
-        # Now start streaming -- transfers are ready to receive data.
-        self._iso_handle.controlWrite(0x40, VR_START_STREAMING, 0, 0, b'')
-
-        logger.info(
-            '[FX2 Cam   ] streaming started (ISO alt %d, EP 0x82, %d transfers x %d packets)',
-            ISO_ALT_INTERFACE,
-            ISO_NUM_TRANSFERS,
-            ISO_NUM_PACKETS,
-        )
-
-    def _start_winusb_iso_streaming(self):
-        """Windows ISO path via WinUSB native API."""
-        from drivers.winusb_iso import WinUsbIsoReader
-
-        # Close the pyusb handle -- WinUSB needs exclusive device access.
-        try:
-            usb.util.dispose_resources(self._fx2._dev)
-        except Exception:
-            pass
-
-        self._winusb_reader = WinUsbIsoReader(
-            VID,
-            PID_APP,
-            pipe_id=0x82,
-            alt_interface=ISO_ALT_INTERFACE,
-            num_slots=ISO_NUM_TRANSFERS,
-            packets_per_xfer=ISO_NUM_PACKETS,
-        )
-        self._winusb_reader.start()
-
-        # Send VR_START_STREAMING through the WinUSB reader (can't use
-        # the pyusb handle -- it's closed).
-        self._winusb_reader.device.control_transfer(0x40, VR_START_STREAMING, 0, 0)
-
-        # Route control transfers through the WinUSB reader while
-        # streaming. Restoring this branch (which the 4.0.0-LVCtest
-        # integration branch had dropped) is the entire reason we went
-        # back to the LVC upstream as the port source -- without it,
-        # any LED command or exposure/gain change during streaming
-        # would fail on Windows.
-        self._fx2._winusb_reader_for_ctrl = self._winusb_reader
-
-        # Share the reader's data buffer with our grab loop.
-        self._iso_buf = self._winusb_reader.data_buf
-        self._iso_buf_lock = self._winusb_reader.data_lock
-
-        logger.info(
-            '[FX2 Cam   ] streaming started (WinUSB ISO alt %d, EP 0x82)',
-            ISO_ALT_INTERFACE,
-        )
-
-    def _start_bulk_streaming(self):
-        """Bulk fallback via pyusb. Tops out at ~0.7 fps on macOS -- only
-        useful for hardware bring-up on systems without libusb1 installed.
-        """
-        self._fx2.set_alt_interface(0)
-        self._fx2.clear_halt(0x82)
-        self._fx2.start_streaming()
-        with self._iso_buf_lock:
-            self._iso_buf = bytearray()
-
-        self._bulk_reader_thread = threading.Thread(target=self._bulk_reader_loop, daemon=True)
-        self._bulk_reader_thread.start()
-
-        logger.info('[FX2 Cam   ] streaming started (bulk alt 0, EP 0x82) -- fallback mode')
-
-    def stop_grabbing(self):
+    def stop_grabbing(self) -> None:
         if not self._grabbing:
             if _cam_log is not None:
                 _cam_log.info('fx2 stop_grabbing SKIPPED: not grabbing')
@@ -1676,277 +2202,100 @@ class FX2Camera(Camera):
         if _cam_log is not None:
             _cam_log.info('fx2 stop_grabbing')
         self._grabbing = False
-
-        if self._use_winusb_iso:
-            self._stop_winusb_iso_streaming()
-        elif self._use_iso:
-            self._stop_iso_streaming()
-        else:
-            self._stop_bulk_streaming()
+        self._fx2.stop_stream()
 
         if self._grab_thread is not None:
             self._grab_thread.join(timeout=3.0)
             self._grab_thread = None
+        # What arrived after the grab loop's last pass belongs to this stream.
+        self.stream_stats.record_counts(self._fx2.stream.take_counts())
 
         s = self.stream_stats.summary()
         logger.info(
             '[FX2 Cam   ] streaming stopped: %d frames in %.1fs (%.1f fps avg), '
-            '%d partial, %d USB errors, %.1f MB total',
+            '%d partial, %d shifted, %d USB errors, %.1f MB total, '
+            'delimiters %d missing / %d wrong',
             s['good_frames'],
             s['elapsed_s'],
             s['fps_average'],
             s['partial_frames'],
+            s['shifted_frames'],
             s['usb_errors'],
             s['total_MB'],
+            s['delimiters_missing'],
+            s['delimiters_wrong'],
         )
-
-    def _stop_iso_streaming(self):
-        """Stop libusb1 ISO streaming and restore the pyusb handle.
-
-        Matches the LVC reference: cancel transfers, drain events for
-        ~2s on the main thread, join the event thread, send STOP, close
-        the handle. Hardware-validated at Stage 3.5.
-
-        **Known robustness gap (Stage 3.6 followup):** if user code on
-        the main thread raises an unhandled exception while streaming,
-        Python interpreter shutdown will GC the libusb1 context while
-        the daemon event thread is still inside handleEventsTimeout,
-        which crashes with a libusb1 native ``pthread_mutex_destroy``
-        assertion. The fix is an atexit hook (or context-manager
-        ``__exit__``) on FX2Camera that calls ``stop_grabbing`` before
-        the interpreter tears down threads. Tracked in TODO.
-        """
-        for xfer in self._iso_transfers:
-            try:
-                xfer.cancel()
-            except Exception:
-                pass
-
-        # Drain cancelled transfers.
-        deadline = time.monotonic() + 2.0
-        while time.monotonic() < deadline:
-            try:
-                self._iso_ctx.handleEventsTimeout(tv=0.1)
-            except Exception:
-                break
-
-        if self._usb_event_thread is not None:
-            self._usb_event_thread.join(timeout=3.0)
-            self._usb_event_thread = None
-
-        try:
-            self._iso_handle.controlWrite(0x40, VR_STOP_STREAMING, 0, 0, b'')
-        except Exception:
-            pass
-        try:
-            self._iso_handle.releaseInterface(0)
-            self._iso_handle.close()
-        except Exception:
-            pass
-        self._iso_transfers = []
-        # Paired with the explicit open() at stream start: dropping the
-        # reference without close() leaks the libusb context until GC. The
-        # transfers are cancelled and the handle closed above, so close()
-        # is safe here.
-        self._iso_ctx.close()
-        self._iso_ctx = None
-        self._iso_handle = None
-        self._fx2._iso_handle_for_ctrl = None
-
-        # Reopen the pyusb handle so control transfers work again.
-        try:
-            dev = usb.core.find(idVendor=VID, idProduct=PID_APP)
-            if dev is not None:
-                self._fx2._dev = dev
-                self._fx2._setup_device()
-        except Exception as e:
-            logger.warning('[FX2 Cam   ] pyusb handle reopen failed: %s', e)
-
-    def _stop_winusb_iso_streaming(self):
-        """Stop WinUSB ISO streaming and restore the pyusb handle."""
-        if self._winusb_reader is not None:
-            try:
-                self._winusb_reader.device.control_transfer(0x40, VR_STOP_STREAMING, 0, 0)
-            except Exception:
-                pass
-            self._winusb_reader.stop()
-            self._winusb_reader = None
-        self._fx2._winusb_reader_for_ctrl = None
-
-        try:
-            dev = usb.core.find(idVendor=VID, idProduct=PID_APP)
-            if dev is not None:
-                self._fx2._dev = dev
-                self._fx2._setup_device()
-        except Exception as e:
-            logger.warning('[FX2 Cam   ] pyusb handle reopen failed: %s', e)
-
-    def _stop_bulk_streaming(self):
-        """Stop bulk streaming."""
-        if self._bulk_reader_thread is not None:
-            self._bulk_reader_thread.join(timeout=3.0)
-            self._bulk_reader_thread = None
-        try:
-            self._fx2.stop_streaming()
-        except Exception:
-            pass
 
     def is_grabbing(self) -> bool:
         return self._grabbing and self._grab_thread is not None and self._grab_thread.is_alive()
 
-    # -- Reader threads ----------------------------------------------------
-
-    def _iso_callback(self, transfer):
-        """libusb1 callback -- called when an ISO transfer completes."""
-        if transfer.getStatus() == usb1.TRANSFER_COMPLETED:
-            with self._iso_buf_lock:
-                for status, buf in transfer.iterISO():
-                    if status == usb1.TRANSFER_COMPLETED and len(buf) > 0:
-                        self._iso_buf.extend(buf)
-        elif transfer.getStatus() == usb1.TRANSFER_CANCELLED:
-            return
-        # Resubmit for continuous streaming.
-        if self._grabbing:
-            try:
-                transfer.submit()
-            except Exception as e:
-                # A dead transfer is one fewer in flight; when all are
-                # gone the stream silently freezes (the preview keeps
-                # showing the last frame). ERROR level so a frozen-
-                # preview post-mortem finds the cause next to the
-                # display-stall watchdog warning. Bounded by the
-                # transfer count -- this is not a per-frame loop.
-                logger.error(
-                    '[FX2 Cam   ] _iso_callback: transfer resubmit failed; '
-                    'grab loop will stall if this persists: %s: %s',
-                    type(e).__name__,
-                    e,
-                )
-
-    def _bulk_reader_loop(self):
-        """Read bulk EP 0x82 and feed into `_iso_buf` (fallback path)."""
-        while self._grabbing:
-            try:
-                data = self._fx2.bulk_read(16384, timeout=1000)
-                with self._iso_buf_lock:
-                    self._iso_buf.extend(data)
-            except _USBTimeoutError:
-                continue
-            except _USBError:
-                if not self._grabbing:
-                    break
-                self.stream_stats.record_usb_error()
-                time.sleep(0.01)
-
-    def _usb_event_loop(self):
-        """Pump libusb1 events in a dedicated thread.
-
-        handleEventsTimeout(tv=0.1) blocks up to 100 ms per call, so even
-        when the device dies and every call raises, this loop degrades to
-        a ~10 Hz idle poll -- it does not hot-spin.
-        """
-        while self._grabbing:
-            try:
-                self._iso_ctx.handleEventsTimeout(tv=0.1)
-            except Exception:
-                if not self._grabbing:
-                    break
-
     # -- Grab loop ---------------------------------------------------------
 
     def _grab_loop(self):
-        """Extract frames from the ISO / bulk data buffer.
-
-        Departures from the LVC reference:
-        - ``local_buf`` is explicitly initialized before the loop instead
-          of relying on ``'local_buf' not in dir()`` (fragile, un-Pythonic).
-        - The trim-after-prepend operation shares a single lock acquisition
-          with the prepend instead of splitting into two `with` blocks
-          (which could race against the ISO callback).
-        """
+        """Store the frames the connection's stream assembles, each checked against the window."""
         stats = self.stream_stats
+        stream = self._fx2.stream
         last_stats_log = time.monotonic()
         first_frame_logged = False
-        local_buf: bytearray | None = None  # explicit init
+        watch = _UnplugWatch(self._fx2)
+        # When the last frame was stored, and the discards counted by then:
+        # bytes that keep arriving while nothing is stored are a stream the
+        # parser cannot frame, said once per episode.
+        last_stored = time.monotonic()
+        rejected_at_store = stats.rejected()
+        framing_reported = False
 
         while self._grabbing:
+            unplugged = watch.verdict(time.monotonic())
+            if unplugged is not None:
+                self._on_unplugged(unplugged)
+                return
+
             # Re-read dimensions every iteration -- the UI can call
             # set_frame_size() between frames.
             w = self._width
             h = self._height
-            stride = w + 1
-            skip_first_row = stride + 1
-            needed = skip_first_row + h * stride
+            layout = frame_layout(w, h)
 
-            with self._iso_buf_lock:
-                if len(self._iso_buf) >= needed:
-                    local_buf = self._iso_buf
-                    self._iso_buf = bytearray()
-                else:
-                    local_buf = None
-
-            if local_buf is None:
+            counts = stream.take_counts()
+            frames = stream.take_frames()
+            if not frames and not counts.arrived:
                 time.sleep(0.005)
                 continue
+            stats.record_counts(counts)
 
-            stats.record_bytes(len(local_buf))
-
-            # Scan for frame delimiters.
-            buf = local_buf
-            while True:
-                idx = buf.find(FRAME_DELIM)
-                if idx < 0:
-                    # No complete frame -- put unconsumed data back and
-                    # trim if it's gotten out of hand. Single lock
-                    # acquisition covers both.
-                    with self._iso_buf_lock:
-                        self._iso_buf = buf + self._iso_buf
-                        if len(self._iso_buf) > needed * 3:
-                            self._iso_buf = self._iso_buf[-(needed * 2) :]
-                    break
-
-                frame_data = buf[:idx]
-                buf = buf[idx + len(FRAME_DELIM) :]
-
-                # Strict frame validation. The MT9P031 + FX2 GPIF emits
-                # frames with EXACTLY one extra row of stride padding
-                # beyond the math (`needed`). Measured 2026-04-15 on
-                # 175 samples of clean streaming: 173/175 (98.9%) were
-                # exactly `needed + stride` bytes, the other 2 were
-                # corrupt (1 partial, 1 oversized). The +stride extra
-                # is hardware-constant for fixed frame size; the
-                # `as_strided` block below silently truncates it.
-                #
-                # PRIOR BEHAVIOR: the check was
-                # `len(frame_data) >= needed`, which silently accepted
-                # arbitrary oversized frames as "good" and reshaped
-                # them from a misaligned offset -> visually corrupt
-                # frames flagged as good, no telemetry. The partial-
-                # frame counter only fires on undersize and missed
-                # this entirely.
-                #
-                # CURRENT BEHAVIOR: strict equality on `expected`.
-                # Anything else is discarded, distinct shifted/partial
-                # counters give honest telemetry on which failure mode
-                # dominates. If frame size or readout config ever
-                # changes such that the +stride invariant breaks, the
-                # shifted counter will spike and we re-measure.
-                expected = needed + stride
-
-                if len(frame_data) == expected:
+            for frame_data, damaged in frames:
+                # Only a frame of exactly its window's length, with nothing
+                # lost on USB, is stored: the length is fixed for a window,
+                # and anything else would be reshaped from a misaligned
+                # offset into a corrupt image. A frame of another length
+                # (from the old window after a change, rows too many, or
+                # two frames run together) is shifted; one cut short or
+                # missing bytes is partial.
+                if damaged:
+                    stats.record_partial_frame(len(frame_data))
+                elif len(frame_data) == layout.frame_bytes:
                     raw = np.frombuffer(frame_data, dtype=np.uint8)
-                    remaining = raw[skip_first_row:]
+                    remaining = raw[layout.skip :]
                     raw_2d = np.lib.stride_tricks.as_strided(
-                        remaining, shape=(h, stride), strides=(stride, 1)
+                        remaining, shape=(h, layout.stride), strides=(layout.stride, 1)
                     )
-                    image = raw_2d[:, :w].copy()
+                    image = raw_2d[:, layout.column : layout.column + w].copy()
                     # The FX2 sensor is 8-bit only, so the delivered array's
                     # container width IS its payload depth; stamp it from the
                     # frame so depth and pixels stay paired.
+                    # On the link the frame is its whole layout, the rows
+                    # the parser skips included, plus the delimiter before it.
                     self.cam_image_handler._store_frame(
-                        image, datetime.now(), significant_bits=image.dtype.itemsize * 8
+                        image,
+                        datetime.now(),
+                        significant_bits=image.dtype.itemsize * 8,
+                        wire_bytes=len(FRAME_DELIM) + len(frame_data),
                     )
                     stats.record_good_frame()
+                    last_stored = time.monotonic()
+                    rejected_at_store = stats.rejected()
+                    framing_reported = False
 
                     if not first_frame_logged:
                         first_frame_logged = True
@@ -1954,31 +2303,37 @@ class FX2Camera(Camera):
                             '[FX2 Cam   ] first frame: %dx%d, stride=%d, %d bytes, mean=%.1f',
                             w,
                             h,
-                            stride,
+                            layout.stride,
                             len(frame_data),
                             float(image.mean()),
                         )
-                elif len(frame_data) > needed:
-                    # Wrong size but bigger than minimum -- either
-                    # oversized (missed delimiter, two frames glued)
-                    # or sized between `needed` and `expected`
-                    # (off-by-rows). Either way, the bytes are
-                    # misaligned and would render as garbage.
+                elif len(frame_data) > layout.needed:
                     stats.record_shifted_frame(len(frame_data))
-                elif len(frame_data) > 0:
-                    # Severely undersized -- bytes dropped before the
-                    # next delimiter was found.
+                else:
                     stats.record_partial_frame(len(frame_data))
 
-            # Periodic stats logging.
             now = time.monotonic()
+            if not framing_reported and now - last_stored >= self.FRAMING_STALL_S:
+                framing_reported = True
+                shifted, partial = stats.rejected()
+                logger.warning(
+                    '[FX2 Cam   ] no frame stored for %.0f s while bytes keep arriving: '
+                    '%d shifted and %d partial frames discarded, window %dx%d',
+                    now - last_stored,
+                    shifted - rejected_at_store[0],
+                    partial - rejected_at_store[1],
+                    w,
+                    h,
+                )
+
+            # Periodic stats logging.
             if self.STATS_LOG_INTERVAL > 0 and (now - last_stats_log) >= self.STATS_LOG_INTERVAL:
                 last_stats_log = now
                 s = stats.summary()
                 logger.info(
                     '[FX2 Cam   ] stream: %.1f fps (avg %.2f), '
                     '%d good / %d partial / %d shifted, '
-                    '%.1f MB/s, %d errors, %d timeouts',
+                    '%.1f MB/s, %d errors, delimiters %d missing / %d wrong',
                     s['fps_current'],
                     s['fps_average'],
                     s['good_frames'],
@@ -1986,8 +2341,25 @@ class FX2Camera(Camera):
                     s['shifted_frames'],
                     s['throughput_MBps'],
                     s['usb_errors'],
-                    s['usb_timeouts'],
+                    s['delimiters_missing'],
+                    s['delimiters_wrong'],
                 )
+
+    def _on_unplugged(self, reason: str) -> None:
+        """The device has left the bus: record it where it is read, then tear down.
+
+        Runs on the grab loop, which returns right after. The teardown runs
+        on the base Camera's thread, because stopping the stream joins this
+        one; the connection's record is what the LED, on the same device,
+        reads.
+        """
+        self._fx2.removed = True
+        self._mark_disconnected()
+        logger.warning(
+            '[FX2 Cam   ] the FX2 was unplugged (%s); replug it and restart LumaViewPro',
+            reason,
+        )
+        self._schedule_async_teardown()
 
     # -- Grab API (mostly inherits from Camera; override for clarity) ------
 
@@ -2006,39 +2378,50 @@ class FX2Camera(Camera):
 
     # -- Frame size --------------------------------------------------------
 
-    def set_frame_size(self, w, h):
-        """Set the sensor readout window.
+    def _frame_grid(self) -> FrameGrid:
+        """Windows from 100 to 1900 in steps of FRAME_SIZE_STEP (4).
 
-        The sensor is configured to output (display + 1) x (display + 1)
-        pixels. The extra column becomes a 0x00 sync byte between rows
-        after GPIF processing; the extra row is discarded by the grab
-        loop (``skip_first_row``). Dimensions are rounded down to
-        multiples of FRAME_SIZE_STEP (4) and clamped to [100, 1900].
-
-        Returns the delivered size ``{'width': int, 'height': int}`` after
-        rounding and clamping, so the caller knows what was actually applied
-        without a read-back; ``False`` when a sensor-register write fails --
-        the same failure contract the Camera base class documents and the
-        pylon / IDS drivers implement, so the camera-write authority
-        upstream sees one rejection signal from every driver. There is no
-        up-front active-flag guard: connect() configures the initial window
-        through this method BEFORE the active flag is set, and with no SDK
-        to consult, a failing USB register write IS the disconnected signal
-        (routed to False by the handler below).
+        Both sides a multiple of 4 is what makes a frame's length odd, which
+        the stream needs to find its end (``frame_layout``). There is no
+        active-flag guard: connect() configures the initial window BEFORE the
+        active flag is set, and with no SDK to consult, a failing USB register
+        write IS the disconnected signal.
         """
-        step = self.FRAME_SIZE_STEP
-        w = max(self.FRAME_SIZE_MIN, min(IMG_WIDTH, int(w)))
-        h = max(self.FRAME_SIZE_MIN, min(IMG_HEIGHT, int(h)))
-        w = (w // step) * step
-        h = (h // step) * step
+        return FrameGrid(
+            step=(self.FRAME_SIZE_STEP, self.FRAME_SIZE_STEP),
+            max_size=(IMG_WIDTH, IMG_HEIGHT),
+            size_min=(self.FRAME_SIZE_MIN, self.FRAME_SIZE_MIN),
+        )
 
-        # Sensor registers want (display + 1) per LVC reference.
-        sensor_w = w + 1
+    def _set_hardware_window(self, plan) -> bool:
+        """Set the sensor readout window to the planned acquisition.
+
+        The sizes written are one larger than the window; the sensor outputs
+        two more columns and rows than the window, of which the wire keeps
+        the window (``frame_layout``). The sensor centres the window itself
+        (``_column_start``, ``_row_start``).
+
+        Returns False when a sensor-register write fails -- the same failure
+        contract the Camera base class documents and the pylon / IDS drivers
+        implement, so the camera-write authority upstream sees one rejection
+        signal from every driver.
+
+        The row time follows the window's width, so the same shutter width
+        integrates a different time at each window. The shutter width is
+        written again after the window, from the exposure asked for, so the
+        exposure stays the setting at every window, as on every other camera.
+        It takes effect two frames after the window (the data sheet's shutter
+        latency), inside the frames a window change already discards.
+        """
+        w, h = plan.acq_width, plan.acq_height
+
+        # The sensor outputs one column and one row more than the sizes
+        # written (DS Table 8), and the parser keeps w of those columns and
+        # h of those h + 2 rows (frame_layout).
+        sensor_w = column_size_for(w)
         sensor_h = h + 1
-        # Center the window on the active pixel area (2592 x 1944 with
-        # offsets 16 col / 54 row) and force even alignment.
-        col_start = max(0, (2592 - sensor_w) // 2 + 16) & ~1
-        row_start = max(0, (1944 - sensor_h) // 2 + 54) & ~1
+        col_start = self._column_start(sensor_w)
+        row_start = self._row_start(h)
 
         try:
             # Individual 3-byte writes -- firmware truncates multi-byte I2C.
@@ -2046,12 +2429,15 @@ class FX2Camera(Camera):
             self._fx2.sensor_reg_write(REG_COL_START, col_start)
             self._fx2.sensor_reg_write(REG_ROW_SIZE, sensor_h)
             self._fx2.sensor_reg_write(REG_COL_SIZE, sensor_w)
+            self._fx2.sensor_reg_write(
+                REG_EXPOSURE, shutter_width_for(self._exposure_ms / 1000.0, sensor_w)
+            )
         except Exception as e:
             # Translate a USB write failure into the base contract's explicit
             # False -- the rejection signal the pylon and IDS set_frame_size
             # already return, which the camera-write authority upstream turns
             # into its keep-prior-cache branch. The window fields mutate only
-            # after all four writes land, so a failed apply never lets
+            # after all five writes land, so a failed apply never lets
             # get_frame_size() report geometry the sensor never took.
             logger.error(
                 '[FX2 Cam   ] set_frame_size(%dx%d) register write failed: %s: %s '
@@ -2066,20 +2452,18 @@ class FX2Camera(Camera):
             # sensor window indeterminate; buffered stream data may match no
             # known geometry and would desync the frame parser, so drop it on
             # the failure path too.
-            with self._iso_buf_lock:
-                self._iso_buf = bytearray()
+            self._fx2.stream.flush()
             return False
 
         self._width = w
         self._height = h
 
-        # Flush the ISO buffer -- data captured with the old window is
+        # Flush the stream -- data captured with the old window is
         # now misaligned and would desync the frame parser.
-        with self._iso_buf_lock:
-            self._iso_buf = bytearray()
+        self._fx2.stream.flush()
 
         logger.info(
-            '[FX2 Cam   ] frame size %dx%d (sensor %dx%d, row_start=%d, col_start=%d)',
+            '[FX2 Cam   ] window %dx%d (sensor %dx%d, row_start=%d, col_start=%d)',
             w,
             h,
             sensor_w,
@@ -2087,9 +2471,9 @@ class FX2Camera(Camera):
             row_start,
             col_start,
         )
-        return {'width': w, 'height': h}
+        return True
 
-    def get_frame_size(self):
+    def _hardware_frame_size(self):
         return {'width': self._width, 'height': self._height}
 
     def get_min_frame_size(self):
@@ -2112,22 +2496,20 @@ class FX2Camera(Camera):
 
     # -- Exposure ----------------------------------------------------------
 
-    def exposure_t(self, exposure_ms):
-        """Set exposure time in milliseconds.
+    def exposure_t(self, exposure_ms: float) -> float:
+        """Set exposure time in milliseconds, returning the microseconds
+        actually in effect.
 
-        Formula from MT9P031 datasheet DS_F p31:
-            tEXP = SW x tROW - SO x 2 x tPIXCLK
-        Inverted:
-            SW = (tEXP + SO_ms) / tROW_ms
+        The request is quantized onto the sensor's row-time grid below, so
+        the applied value routinely differs from what was asked for -- by up
+        to a full row. The caller records a chunk-match target from this
+        return; a request-derived target would not describe any exposure this
+        sensor can produce.
 
-        NOTE on accuracy: ``_ROW_TIME_MS = 0.1124`` assumes EXTCLK=12 MHz.
-        The LVC OPTIMIZATION_ANALYSIS doc measured actual throughput
-        and computed EXTCLK ~= 7.6 MHz instead, which would put the row
-        time at 0.1205 ms (7% higher). Hardware validation passed with
-        0.1124 ms so we keep it, but precise exposure calibration for
-        brightness-matched captures may be +/-7% off. Stage 3.5 bench
-        work can measure row time directly with a pulsed reference
-        LED and a known-duration trigger.
+        The shutter width is the one whose integration at the current
+        window is nearest the request (``shutter_width_for``, from the data
+        sheet's tEXP). The request is kept, so a window change writes the
+        width that integrates it there.
 
         NOTE on effect timing: MT9P031 has a 2-frame pipeline delay
         between writing the shutter width register and seeing the new
@@ -2135,75 +2517,138 @@ class FX2Camera(Camera):
         (autofocus, protocol captures) must wait >=2 frames after an
         exposure change before relying on the new value.
         """
+        # Refused while disconnected, as the other drivers do: no register
+        # write is attempted and nothing is recorded. connect() sets the
+        # active flag before init_camera_config() writes the defaults.
+        if not self.is_connected():
+            return False
         target_ms = float(exposure_ms)
-        rows = max(
-            1,
-            min(
-                MAX_EXPOSURE_ROWS,
-                round((target_ms + _SHUTTER_OVERHEAD_MS) / _ROW_TIME_MS),
-            ),
-        )
-        self._exposure_rows = rows
+        rows = shutter_width_for(target_ms / 1000.0, column_size_for(self._width))
         if _cam_log is not None:
             _cam_log.info(
                 f'fx2 sensor_reg_write(REG_EXPOSURE={REG_EXPOSURE:#x}, rows={rows}) (={target_ms}ms)'
             )
         self._fx2.sensor_reg_write(REG_EXPOSURE, rows)
+        self._exposure_ms = target_ms
+        return self.get_exposure_t() * 1000.0
 
-    def get_exposure_t(self):
-        return max(0.0, self._exposure_rows * _ROW_TIME_MS - _SHUTTER_OVERHEAD_MS)
+    def get_exposure_t(self) -> float:
+        """The integration the sensor holds, in ms: the request to within a row."""
+        sensor_w = column_size_for(self._width)
+        shutter_width = shutter_width_for(self._exposure_ms / 1000.0, sensor_w)
+        return exposure_s(shutter_width, sensor_w) * 1000.0
 
-    def auto_exposure_t(self, state=True):
-        pass  # MT9P031 has no hardware auto-exposure
+    @staticmethod
+    def _column_start(column_size: int) -> int:
+        """The Column_Start that centres a window of ``column_size`` on the active array.
+
+        RR R0x02 requires the form 4n with Mirror_Column clear, as the driver
+        leaves it; this is the nearest such value to the centred start, the
+        lower of two equally near.
+        """
+        centred = (2592 - column_size) // 2 + 16
+        return ((centred + 1) // 4) * 4
+
+    @staticmethod
+    def _row_start(h: int) -> int:
+        """The Row_Start of an ``h``-row window: LumaView Classic's.
+
+        The window centred on the 1944-row active array, which starts at row
+        54, made even by rounding up, as Classic made it.
+        """
+        start = (1944 - h) // 2 + 54
+        return start + start % 2
+
+    def auto_exposure_t(self, state: bool = True) -> NoReturn:
+        raise no_hardware_auto_mode('FX2', 'auto_exposure_t', 'auto-exposure')
 
     # -- Gain --------------------------------------------------------------
 
-    def gain(self, g):
-        """Set gain in dB. Clamped to [0.0, 42.1] (audit-corrected max)."""
-        db = max(0.0, min(42.1, float(g)))
-        reg = _gain_db_to_register(db)
+    def gain(self, g: float) -> float | bool | None:
+        """Set gain in dB: the DS Table 15 setting nearest the request.
+
+        A failed register write RAISES out of ``sensor_reg_write`` rather than
+        returning, so this never answers refused. It answers with the gain the
+        register now encodes, which differs from the request by the
+        quantization step, or is 0 dB or 128x (42.144 dB) for a request
+        outside them.
+
+        Returns:
+            float | bool | None: See ``Camera.gain``. False while disconnected:
+            refused, nothing written, as ``exposure_t`` answers -- a None there
+            reads to the API as applied, and it would record a gain the camera
+            never received.
+        """
+        if not self.is_connected():
+            return False
+        reg = _gain_db_to_register(g)
         self._gain_reg = reg
         if _cam_log is not None:
             _cam_log.info(
-                f'fx2 sensor_reg_write(REG_GLOBAL_GAIN={REG_GLOBAL_GAIN:#x}, reg={reg:#x}) (={db}dB)'
+                f'fx2 sensor_reg_write(REG_GLOBAL_GAIN={REG_GLOBAL_GAIN:#x}, reg={reg:#x}) (={g}dB requested)'
             )
         self._fx2.sensor_reg_write(REG_GLOBAL_GAIN, reg)
+        return _register_to_gain_db(reg)[1]
 
     def get_gain(self):
         _, db = _register_to_gain_db(self._gain_reg)
         return db
 
+    def get_black_level(self) -> float | None:
+        """The Row Black Target written at connect (R0x49, sensor counts).
+
+        Not read back: the driver has no sensor register read path, and
+        nothing else writes the register. The black level is not offered
+        for setting; the FX2 line keeps LumaView Classic's sensor setup.
+        """
+        if not self.active:
+            return None
+        return float(ROW_BLACK_TARGET)
+
+    def get_link_info(self) -> dict | None:
+        """USB 2.0, at the speed libusb reports the device negotiated. See
+        ``Camera.get_link_info``."""
+        if not self.active:
+            return None
+        try:
+            speed = self._fx2.link_speed_mbps()
+        except Exception as e:
+            raise HardwareError(f'Link speed read failed: {type(e).__name__}: {e}') from e
+        return link_info(transport='USB2', link_speed=speed, link_speed_unit='Mbps')
+
     def auto_gain(
         self,
-        state=True,
-        target_brightness=0.5,
-        min_gain_db=None,
-        max_gain_db=None,
-        ae_max_exposure_ms=None,
-    ):
-        pass  # no hardware auto-gain
+        state: bool = True,
+        target_brightness: float = 0.5,
+        min_gain_db: float | None = None,
+        max_gain_db: float | None = None,
+        ae_max_exposure_ms: float | None = None,
+    ) -> NoReturn:
+        raise no_hardware_auto_mode('FX2', 'auto_gain', 'auto-gain')
 
     def auto_gain_once(
         self,
-        state=True,
-        target_brightness=0.5,
-        min_gain_db=None,
-        max_gain_db=None,
-        ae_max_exposure_ms=None,
-    ):
-        pass
+        state: bool = True,
+        target_brightness: float = 0.5,
+        min_gain_db: float | None = None,
+        max_gain_db: float | None = None,
+        ae_max_exposure_ms: float | None = None,
+    ) -> NoReturn:
+        raise no_hardware_auto_mode('FX2', 'auto_gain_once', 'auto-gain')
 
-    def update_auto_gain_target_brightness(self, auto_target_brightness: float):
-        pass
+    def update_auto_gain_target_brightness(self, auto_target_brightness: float) -> NoReturn:
+        raise no_hardware_auto_mode('FX2', 'update_auto_gain_target_brightness', 'auto-gain')
 
-    def update_auto_gain_min_max(self, min_gain_db=None, max_gain_db=None):
-        pass
+    def update_auto_gain_min_max(
+        self, min_gain_db: float | None = None, max_gain_db: float | None = None
+    ) -> NoReturn:
+        raise no_hardware_auto_mode('FX2', 'update_auto_gain_min_max', 'auto-gain')
 
     # -- Misc (no-op or trivial) ------------------------------------------
 
-    def init_camera_config(self):
+    def init_camera_config(self) -> None:
         """Apply sensible defaults for exposure and gain on startup."""
-        self.exposure_t(50.0)  # 50 ms default -- typical microscopy starting point
+        self.exposure_t(self.DEFAULT_EXPOSURE_MS)
         self.gain(0.0)  # 0 dB = 1x gain
 
     def get_all_temperatures(self) -> dict:
@@ -2212,7 +2657,7 @@ class FX2Camera(Camera):
     def set_max_acquisition_frame_rate(self, enabled: bool, fps: float = 1.0):
         pass  # Frame rate is determined by PLL / exposure, not a software cap
 
-    def set_binning_size(self, size: int) -> bool:
+    def _set_hardware_binning(self, size: int) -> bool:
         return size == 1  # only 1x1 supported in this port
 
     def get_binning_size(self) -> int:
@@ -2227,40 +2672,15 @@ class FX2Camera(Camera):
 # ---------------------------------------------------------------------------
 
 
-def _read_fx2_wire_setting() -> bool:
-    """Read fx2_debug_wire_enabled from settings.json at module import.
-
-    Replaces the prior LVP_FX2_DEBUG_WIRE environment-variable gate.
-    Falls back to False on any read failure so the driver remains
-    shippable without runtime config.
-    """
-    from modules.settings_init import load_fx2_debug_wire_setting
-
-    try:
-        import lvp_logger
-
-        base_dir = lvp_logger.lvp_appdata
-    except (ImportError, AttributeError):
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return load_fx2_debug_wire_setting(base_dir)
-
-
-_FX2_WIRE_SETTING = _read_fx2_wire_setting()
-
-
 @_register_if_fx2_available(led_registry, 'fx2', priority=80)
 class FX2LEDController:
     """LED controller for Lumascope Classic via FX2 I2C at address 0x2A.
 
     **Thin command translator.** The LVC reference carried a ``led_ma``
-    dict and client-side state tracking (``get_led_ma`` / ``is_led_on`` /
-    etc. read back from the dict). That existed because the pre-4.1 GUI
-    owned LED state. In 4.1 the API owns state via
-    ``Lumascope._led_owners`` / ``save_led_state`` / ``restore_led_state``,
-    so this driver drops all state bookkeeping. The LEDBoardProtocol
-    state-query methods still exist (the protocol requires them) but
-    return sentinel defaults matching NullLEDBoard -- the real truth
-    lives above the driver layer.
+    dict and client-side state tracking read back from it. That existed
+    because the pre-4.1 GUI owned LED state. In 4.1 the API owns state via
+    ``IlluminationAPI._led_state`` / ``save_led_state`` / ``restore_led_state``,
+    so this driver keeps no LED state and answers no state queries.
 
     **LED channel -> I2C ASCII byte mapping** lives in this class only:
     LVP integer channels 0/1/2/3 -> ASCII bytes 0x43/0x42/0x41/0x44
@@ -2310,30 +2730,43 @@ class FX2LEDController:
     # Companion gates live in modules/lumascope_api/illumination.py
     # (cache-equality check) and ui/layer_control.py (slider vs text entry
     # points). Toggle by either:
-    #   * set fx2_debug_wire_enabled: true in data/settings.json
+    #   * set fx2_debug_wire_enabled: true in the settings, which the
+    #     session passes in as ``debug_wire``
     #   * flip _FX2_DEBUG_WIRE = True  below
     # ------------------------------------------------------------------
     _FX2_DEBUG_WIRE = False
 
-    @classmethod
-    def _wire_debug_enabled(cls) -> bool:
-        return cls._FX2_DEBUG_WIRE or _FX2_WIRE_SETTING
+    def _wire_debug_enabled(self) -> bool:
+        return self._FX2_DEBUG_WIRE or self._debug_wire
 
-    def __init__(self, **kwargs):
-        # Grab the singleton -- raises if no FX2 hardware, registry
-        # fallthrough handles that case cleanly.
-        self._fx2 = _FX2Connection.get()
+    def __init__(self, *, connection: _FX2Connection | None = None, debug_wire: bool = False):
         self._enabled = True
+        self._debug_wire = debug_wire
 
         # Attributes the Lumascope API / SerialBoard pattern expects to
         # be able to read directly without method calls. ``driver`` is
-        # a truthy sentinel; ``found`` means construction succeeded;
+        # a truthy sentinel; ``found`` means an FX2 is attached;
         # ``port`` is a human-readable tag for the settings UI.
         self.driver = True
-        self.found = True
         self.port = 'FX2-USB'
         self.firmware_version = 'FX2-Classic'
+        # The FX2's LED peripheral has no INFO command, so no date and no answer.
+        self.firmware_date = None
+        self.firmware_responding = False
         self.is_v2 = False
+
+        # The registry passes no connection, so this takes the singleton. A
+        # simulated FX2 hands in the connection its camera shares. No FX2 on
+        # the bus is found=False, as for every other board; an FX2 that is
+        # present and fails raises.
+        try:
+            self._fx2 = connection if connection is not None else _FX2Connection.get()
+        except _FX2AbsentError as e:
+            logger.debug('[FX2 LED   ] %s', e)
+            self._fx2 = None
+            self.found = False
+            return
+        self.found = True
 
     # -- I2C write primitive ----------------------------------------------
 
@@ -2406,8 +2839,17 @@ class FX2LEDController:
             time.sleep(0.01)
 
     def _ma_to_brightness(self, mA) -> int:
-        """Convert mA to the 0-0xFE brightness byte (0xFF is the preamble)."""
-        brightness = max(0, min(self._BRIGHTNESS_MAX, round(float(mA) * 255.0 / self._MAX_MA)))
+        """Convert mA to the 0-0xFE brightness byte (0xFF is the preamble).
+
+        The nearest byte, a half going up. A request above zero but under one
+        byte's current is byte 1: rounding it to 0 would leave a channel dark
+        that was asked to light.
+        """
+        if float(mA) <= 0:
+            brightness = 0
+        else:
+            nearest = math.floor(float(mA) * 255.0 / self._MAX_MA + 0.5)
+            brightness = max(1, min(self._BRIGHTNESS_MAX, nearest))
         # Workaround trace for mA->byte conversion. See the
         # _FX2_DEBUG_WIRE block above for the full instrumentation
         # rationale (LED driver brightness curve verification).
@@ -2430,6 +2872,9 @@ class FX2LEDController:
 
     def max_ma(self) -> int:
         return self._MAX_MA
+
+    def commanded_ma(self, mA: float) -> float:
+        return self._ma_to_brightness(mA) * self._MAX_MA / 255.0
 
     def available_colors(self) -> tuple:
         return tuple(self._COLOR_TO_CH.keys())  # ('Blue', 'Green', 'Red', 'BF')
@@ -2485,24 +2930,6 @@ class FX2LEDController:
     def leds_off_fast(self):
         self.leds_off()
 
-    # -- State queries (sentinel defaults -- real state is in API) ---------
-    # These methods exist because LEDBoardProtocol requires them. The
-    # driver has no idea what's currently lit -- that's owned by
-    # Lumascope._led_owners. Callers should read state through the API
-    # (scope.get_led_state(color)), never by reaching into the driver.
-
-    def get_led_ma(self, color: str) -> int:
-        return -1
-
-    def is_led_on(self, color: str) -> bool:
-        return False
-
-    def get_led_state(self, color: str) -> dict:
-        return {'enabled': False, 'illumination_ma': -1}
-
-    def get_led_states(self) -> dict:
-        return {c: {'enabled': False, 'illumination_ma': -1} for c in self._COLOR_TO_CH}
-
     # -- Connection no-ops (USB owned by _FX2Connection) ------------------
 
     def connect(self):
@@ -2512,7 +2939,9 @@ class FX2LEDController:
         pass
 
     def is_connected(self) -> bool:
-        return self._fx2 is not None
+        # The LED is on the camera's USB device: when the camera's grab loop
+        # finds the device unplugged, the LED is gone with it.
+        return self._fx2 is not None and not self._fx2.removed
 
     # -- Diagnostics / protocol completeness ------------------------------
 

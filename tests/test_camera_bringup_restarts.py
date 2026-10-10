@@ -131,25 +131,3 @@ def test_connect_does_not_eager_start_and_open_and_start_releases():
     cam.open_and_start()
     assert cam._grab_gate_open is True
     assert cam.is_grabbing() is True
-
-
-# -- Pixel-format capability: exact match, additive (pure logic) -----------
-
-
-def test_pylon_mono12_still_recognized_as_12bit():
-    """The 12-bit capability check stays additive: a Pylon camera
-    advertising Mono12 still reports 12-bit, and Mono8 never does."""
-    from modules.image_mode import camera_supports_12bit
-
-    assert camera_supports_12bit(('Mono12',)) is True
-    assert camera_supports_12bit(('Mono8',)) is False
-
-
-def test_ids_packed_format_12bit_recognition():
-    """The IDS sensor advertises the packed IDS-specific format, not bare
-    Mono12. Mono12g24IDS is 12-bit; Mono10g40IDS is not -- the match must
-    be format-exact so Mono10 is never offered the 12-bit modes."""
-    from modules.image_mode import camera_supports_12bit
-
-    assert camera_supports_12bit(('Mono12g24IDS',)) is True
-    assert camera_supports_12bit(('Mono10g40IDS',)) is False

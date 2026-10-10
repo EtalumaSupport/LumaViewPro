@@ -16,19 +16,26 @@ Usage in your plugin's test file:
         loaded = harness_ctx.plugins.post_processing.names()
         assert 'my_plugin' in loaded
 
-The harness ctx exposes:
-    ctx.plugins          -- real PluginRegistry
-    ctx.scope            -- mocked Lumascope; attribute access does not raise
-    ctx.settings         -- empty dict
-    ctx.version          -- the LVP version string the host would pass
-    ctx.engineering_mode -- False
+The harness ctx stands in for the ScopeSession the host hands a plugin,
+and has only what a session has:
+    ctx.plugins              -- real PluginRegistry
+    ctx.scope                -- mocked Lumascope; attribute access does not raise
+    ctx.post_processing      -- mocked post-processing builds
+    ctx.engineering_mode     -- False
+    ctx.no_engineering       -- False
+    ctx.get_settings_snapshot() -- a copy of the settings, the shipped template to begin with
+    ctx.update_settings      -- the Session's own check against the shipped template, then the
+                                store, so a write the Session would refuse is refused here too
 
-The scope mock is intentionally minimal. Plugins that exercise scope
-methods should set attributes on ctx.scope explicitly per test.
+A plugin that reaches for anything else a session does not have fails
+here as it would in LumaViewPro. The mocks are intentionally minimal:
+plugins that exercise scope methods should set attributes on ctx.scope
+explicitly per test.
 """
 
 from __future__ import annotations
 
+import copy
 import types
 from unittest.mock import MagicMock
 
@@ -42,6 +49,7 @@ from modules.plugins import (
     PluginRegistrationError,
     ProcessorResult,
 )
+from tests.settings_fixtures import complete_settings, settings_writer
 
 
 __all__ = [
@@ -52,18 +60,19 @@ __all__ = [
 ]
 
 
-def _make_ctx(version: str = '4.0.0') -> types.SimpleNamespace:
-    """Build a fresh ctx-shaped object with a real PluginRegistry."""
+def _make_ctx() -> types.SimpleNamespace:
+    """Build a fresh session-shaped ctx with a real PluginRegistry."""
     ctx = types.SimpleNamespace()
     ctx.plugins = PluginRegistry()
     ctx.scope = MagicMock(name='scope')
-    ctx.settings = {}
-    ctx.version = version
+    ctx.post_processing = MagicMock(name='post_processing')
     ctx.engineering_mode = False
-    ctx.lumaview = MagicMock(name='lumaview')
-    ctx.session = MagicMock(name='session')
-    # live_processing registry needs scope wired (load_plugins does this
-    # in production; tests use the harness without load_plugins so do it
+    ctx.no_engineering = False
+    settings = complete_settings()
+    ctx.get_settings_snapshot = lambda: copy.deepcopy(settings)
+    ctx.update_settings = settings_writer(settings)
+    # live_processing registry needs scope wired (PluginRegistry.load does
+    # this in production; tests use the harness without loading, so do it
     # here). Tests that need an unbound registry can reset
     # ctx.plugins.live_processing._scope = None.
     ctx.plugins.live_processing.bind_scope(ctx.scope)

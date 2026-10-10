@@ -18,12 +18,14 @@ The fix:
     load_settings resolves through them so the fallback can't be applied
     two different ways.
   - ImageSettings.sync_camera_capability_ranges groups the per-layer setters
-    (exposure + gain ranges + autogain gate) AND clamp_layer_settings_to_caps,
-    which reconciles each layer's stored gain_db/exposure_ms down to the new caps
-    (the blackout fix, matching load_settings); _init_ui (connect) calls that
-    grouping. A scope swap (the auto-reconnect item) re-runs it and re-applies
-    the VISIBLE layer (ImageSettings.open_or_default_layer), never a hardcoded
-    channel -- its acceptance list lives with that item.
+    (exposure + gain ranges + autogain gate) AND reconcile_layers_to_camera_caps,
+    which re-renders and re-applies each layer the attached camera cannot
+    fully reach. The blackout fix lives on the APPLY -- the API caps what it
+    writes to hardware -- so the stored value is never narrowed; _init_ui
+    (connect) calls that grouping. A scope swap (the auto-reconnect item)
+    re-runs it and re-applies the VISIBLE layer
+    (ImageSettings.open_or_default_layer), never a hardcoded channel -- its
+    acceptance list lives with that item.
 
 The UI modules touch Kivy widgets and cannot be imported under the test mocks
 (see test_ids_native_roi_sync_binning), so the wiring is pinned with AST
@@ -99,22 +101,25 @@ class TestCapResolvers:
 class TestSyncGrouping:
     """sync_camera_capability_ranges groups all three per-layer setters."""
 
-    def test_grouping_calls_all_setters_and_clamp(self):
+    def test_grouping_calls_all_setters_and_reconcile(self):
         method = _method_node(IMAGE_SETTINGS_PATH, 'sync_camera_capability_ranges')
         for setter in (
             'set_layer_exposure_ranges',
             'set_layer_gain_ranges',
             'set_layer_autogain_support',
-            'clamp_layer_settings_to_caps',
+            'reconcile_layers_to_camera_caps',
         ):
             assert _attr_calls(method, setter), f'sync_camera_capability_ranges must call {setter}.'
 
-    def test_clamp_reconciles_stored_gain_and_exposure_to_caps(self):
-        # The blackout fix: a stored gain_db/exposure_ms above the new camera's cap
-        # must be brought down to the cap (and persisted) for every layer, so a
-        # downshift swap can't push an over-cap value that blacks out.
-        method = _method_node(IMAGE_SETTINGS_PATH, 'clamp_layer_settings_to_caps')
-        clamped = {
+    def test_the_reconcile_never_writes_the_stored_gain_or_exposure(self):
+        # A stored gain_db/exposure_ms above the attached camera's cap is the
+        # user's committed intent, not an error to correct: the API caps what
+        # it writes to hardware and the store is left alone, so putting a
+        # capable camera back applies the intent again. Overwriting it here
+        # destroyed the setting silently -- the periodic current.json flush
+        # persisted the shrunken value with no record of the original.
+        method = _method_node(IMAGE_SETTINGS_PATH, 'reconcile_layers_to_camera_caps')
+        written = {
             t.slice.value
             for node in ast.walk(method)
             if isinstance(node, ast.Assign)
@@ -123,9 +128,10 @@ class TestSyncGrouping:
             and isinstance(t.slice, ast.Constant)
             and t.slice.value in ('gain_db', 'exposure_ms')
         }
-        assert clamped == {'gain_db', 'exposure_ms'}, (
-            'clamp_layer_settings_to_caps must reconcile both stored gain_db and '
-            'exposure_ms down to the camera caps.'
+        assert written == set(), (
+            'reconcile_layers_to_camera_caps must not write gain_db or exposure_ms '
+            f'into the store; found writes to {sorted(written)}. The cap belongs on '
+            'the value sent to the camera, not on the value kept for the user.'
         )
 
     def test_init_ui_uses_the_grouping(self):
@@ -154,7 +160,7 @@ class TestSyncGrouping:
 
 
 class TestLoadSettingsResync:
-    """load_settings resolves the caps and the clamp through the shared owners."""
+    """load_settings resolves the caps and the reconcile through the shared owners."""
 
     def test_load_settings_uses_the_cap_resolvers(self):
         # The de-fragmentation: load_settings resolves caps through the same
@@ -167,12 +173,12 @@ class TestLoadSettingsResync:
             'load_settings must resolve the gain cap via camera_max_gain_for_ui.'
         )
 
-    def test_load_settings_delegates_clamp_not_inline(self):
-        # De-dup: load_settings reconciles over-cap values via the single
-        # clamp_layer_settings_to_caps owner, not a duplicate inline clamp.
+    def test_load_settings_delegates_the_reconcile_not_inline(self):
+        # De-dup: load_settings reconciles an unreachable stored value via the
+        # single reconcile_layers_to_camera_caps owner, never inline.
         method = _method_node(MS_PATH, 'load_settings')
-        assert _attr_calls(method, 'clamp_layer_settings_to_caps'), (
-            'load_settings must delegate over-cap reconciliation to clamp_layer_settings_to_caps.'
+        assert _attr_calls(method, 'reconcile_layers_to_camera_caps'), (
+            'load_settings must delegate to reconcile_layers_to_camera_caps.'
         )
         inline = [
             t
@@ -184,8 +190,8 @@ class TestLoadSettingsResync:
             and t.slice.value in ('gain_db', 'exposure_ms')
         ]
         assert not inline, (
-            'load_settings must not carry an inline gain_db/exposure_ms clamp-persist '
-            '(it duplicates clamp_layer_settings_to_caps).'
+            'load_settings must not carry an inline gain_db/exposure_ms write -- the '
+            'store is the user intent and no load path narrows it.'
         )
 
 
@@ -201,8 +207,9 @@ class TestCapabilitySyncDoesNotImpersonateTheUser:
     the app -- a stored BF illumination of 500 became 50 in current.json, and
     a stored DF exposure of 500 became 200, each with a matching SLIDER line.
 
-    clamp_layer_settings_to_caps must stay outside the flag: it reconciles a
-    value the hardware cannot honor, which is a real settings change.
+    reconcile_layers_to_camera_caps must stay outside the flag: it delivers to
+    the camera through each layer's apply_settings, and that apply returns
+    early on exactly this flag -- inside, it would push nothing.
     """
 
     def _sync_method(self):
@@ -259,21 +266,21 @@ class TestCapabilitySyncDoesNotImpersonateTheUser:
         )
         assert cleared_in_finally, 'The flag must be cleared in a finally, not on the happy path.'
 
-    def test_clamp_stays_outside_the_guard(self):
+    def test_the_reconcile_stays_outside_the_guard(self):
         method = self._sync_method()
         in_try = any(
             isinstance(n, ast.Call)
             and isinstance(n.func, ast.Attribute)
-            and n.func.attr == 'clamp_layer_settings_to_caps'
+            and n.func.attr == 'reconcile_layers_to_camera_caps'
             for try_node in [x for x in ast.walk(method) if isinstance(x, ast.Try)]
             for n in ast.walk(try_node)
         )
         assert not in_try, (
-            'clamp_layer_settings_to_caps must stay OUTSIDE the _initializing guard -- '
-            'it reconciles a value the hardware cannot honor, which is a real change.'
+            'reconcile_layers_to_camera_caps must stay OUTSIDE the _initializing guard '
+            '-- apply_settings returns early on that flag, so inside it pushes nothing.'
         )
-        assert _attr_calls(method, 'clamp_layer_settings_to_caps'), (
-            'sync_camera_capability_ranges must still run the clamp.'
+        assert _attr_calls(method, 'reconcile_layers_to_camera_caps'), (
+            'sync_camera_capability_ranges must still run the reconcile.'
         )
 
 
@@ -318,10 +325,9 @@ class TestManualExposurePolicy:
     def test_a_body_that_caps_low_narrows_every_class(self):
         """A camera whose own cap sits under the policy ceilings.
 
-        The FX2 boards cap exposure at 178 ms -- above the per-frame readout
-        time the sensor inserts blanking rows, which changes the byte rate
-        mid-stream and desyncs the frame parser. Nothing may hand any layer a
-        bound above what the attached body will honor.
+        A body may cap exposure under a layer's policy ceiling (the FX2
+        boards once capped at 178 ms). Nothing may hand any layer a bound
+        above what the attached body will honor.
         """
         for layer in ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi'):
             assert layer_max_exposure_ms_for_ui(178.0, layer) <= 178.0, layer
@@ -339,24 +345,41 @@ class TestManualExposurePolicy:
         assert 'overrides' not in inspect.signature(layer_max_exposure_ms_for_ui).parameters
 
 
-class TestTypedExposureCeiling:
-    """The exposure TEXT box is bounded by the camera, not by its slider.
+class TestTheTypedExposureHasNoWidgetCeiling:
+    """The exposure TEXT box carries no ceiling of its own; the camera's is applied at the apply.
 
     The slider's range is a manual convenience range, deliberately narrower
-    than the sensor on most classes. The box is the physical limit, so the
-    two bounds cannot share a source: reading the slider's max made the box
-    inherit a policy number, and brightfield read a GUI constant that matched
-    no camera at all -- on a body whose real cap is 178 ms that constant let a
-    user store an exposure the sensor silently clamped away.
+    than the sensor on most classes, and it narrows nothing typed. The box
+    used to read a ceiling from a GUI constant that matched no camera, then
+    from a resolver of the live camera's cap, and clip the typed value to
+    it; both put a second copy of the sensor's limit in the widget. The
+    typed value is now stored as the layer's intent and the camera is
+    driven at its own limit when the layer is applied
+    (``ImagingAPI.applied_exposure_ms_for``), the same as a stored value
+    loaded from the file (Eric, 2026-10-08).
     """
 
     def _exp_text(self) -> ast.FunctionDef:
         return _method_node(LAYER_CONTROL_PATH, 'exp_text')
 
-    def test_the_bound_comes_from_the_camera_resolver(self):
-        assert _name_calls(self._exp_text(), 'get_exposure_text_max'), (
-            'exp_text must resolve its upper bound through get_exposure_text_max.'
-        )
+    def test_the_box_passes_no_ceiling_to_the_handler(self):
+        keywords = {
+            kw.arg
+            for n in ast.walk(self._exp_text())
+            if isinstance(n, ast.Call)
+            for kw in n.keywords
+        }
+        assert 'value_max' not in keywords, 'exp_text must not hand the handler a ceiling.'
+        from tests.ast_seams import parse_module
+
+        for rel in ('ui/layer_control.py', 'modules/config_ui_getters.py'):
+            named = {
+                getattr(n, 'id', None) or getattr(n, 'attr', None) or getattr(n, 'name', None)
+                for n in ast.walk(parse_module(rel))
+            }
+            assert 'get_exposure_text_max' not in named, (
+                f'{rel}: the typed-exposure ceiling resolver is retired; the apply caps.'
+            )
 
     def test_no_layer_is_special_cased(self):
         """One rule for every layer: the slider carries all the narrowing.
@@ -379,62 +402,4 @@ class TestTypedExposureCeiling:
         assert 'BF_MAX_EXPOSURE_MS' not in src, (
             'A GUI-side exposure ceiling constant matches no camera; the bound '
             'belongs to the attached body.'
-        )
-
-    def test_no_camera_means_no_ceiling(self):
-        """None, not a substituted default.
-
-        camera_max_exposure_for_ui answers the no-camera case with
-        DEFAULT_MAX_EXPOSURE_MS so a slider always has some range to draw.
-        Reusing it here would raise the typed ceiling on a camera drop and
-        re-open exactly the divergence this resolver closes.
-        """
-        import modules.app_context as _app_ctx
-        from modules.config_ui_getters import get_exposure_text_max
-
-        def _ctx_with(lumaview):
-            return SimpleNamespace(lumaview=lumaview)
-
-        def _scope_reporting(cap):
-            return SimpleNamespace(
-                scope=SimpleNamespace(imaging=SimpleNamespace(max_exposure_ms_cached=cap))
-            )
-
-        prior = _app_ctx.ctx
-        try:
-            # No scope built yet.
-            _app_ctx.ctx = _ctx_with(None)
-            assert get_exposure_text_max() is None
-
-            # A scope whose camera reports no cap still has no honest ceiling.
-            _app_ctx.ctx = _ctx_with(_scope_reporting(None))
-            assert get_exposure_text_max() is None
-
-            # A body that caps low is reported at its real cap, not a default.
-            _app_ctx.ctx = _ctx_with(_scope_reporting(178.0))
-            assert get_exposure_text_max() == 178.0
-        finally:
-            _app_ctx.ctx = prior
-
-    def test_the_resolver_does_not_substitute_the_slider_default(self):
-        """Asserted on the BODY, not the source text.
-
-        The docstring names the resolver it rejects, and must keep naming it --
-        that is the whole reason the two look interchangeable.
-        """
-        import modules.config_ui_getters as getters
-
-        fn = ast.parse(inspect.getsource(getters.get_exposure_text_max)).body[0]
-        called = {
-            n.func.id
-            for n in ast.walk(fn)
-            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-        } | {
-            n.func.attr
-            for n in ast.walk(fn)
-            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-        }
-        assert 'camera_max_exposure_for_ui' not in called, (
-            'get_exposure_text_max must read the cap directly; that resolver '
-            'substitutes the no-camera default and would hide a low-capping body.'
         )

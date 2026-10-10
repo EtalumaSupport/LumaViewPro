@@ -1,0 +1,705 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+"""The application a server serves: one route per wire member of a session.
+
+Every call runs on a thread of its own and the route awaits it, so a call
+that waits on the scope holds no worker another request needs: a shared
+pool of threads let long waits hold a stop for seconds. A call's
+arguments are decoded, the member reached and called, and its answer
+encoded on that thread, since each may read the scope or the disk.
+
+The Session's members are at ``/api/v1/<member>``; a live object a client
+was handed has its members at ``/api/v1/handles/<type>/<id>/<member>``
+(``rest.handles``). A call that outlives what its client will wait is a
+job (``rest.jobs``), every answer that is not a result is a problem
+(``rest.problems``), what the scope tells its listeners is one event
+stream (``rest.events``), and a file in the live folder is downloaded by
+its name there (``/api/v1/files/<name>``).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import dataclasses
+import datetime
+import inspect
+import logging
+import time
+import uuid
+from collections.abc import AsyncIterator, Awaitable, Callable
+from concurrent.futures import Future
+
+import fastapi
+import pydantic
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from modules import wire_encoding
+from modules.protocol_runner import ProtocolRunner
+from modules.scope_session import ScopeSession
+from rest import live as live_view
+from rest import problems
+from rest import events as event_stream
+from rest.events import EventStream
+from rest.handles import HandleRegistry
+from rest.jobs import RETRY_AFTER_S as JOB_RETRY_AFTER_S
+from rest.jobs import JobRegistry, Progress, Wait
+from rest.problems import Answer, ServerRefusedError
+from rest.routes import ANSWER_CONFIG, Handle, Job, Route, routes
+
+# The REST log: a child of lvp_logger's logger, whose REST handler keeps
+# only the records marked api_request.
+_request_log = logging.getLogger('lvp_logger.rest')
+
+VERSION = 'v1'
+PREFIX = f'/api/{VERSION}'
+# The first path segments the server answers itself; a Session member of
+# one of these names would be shadowed, so one fails the build.
+SERVER_SEGMENTS = frozenset({'handles', 'jobs', 'events', 'files', 'live', 'live.jpg'})
+# What any member answers when its call outlives what the client will wait.
+_ANSWERED_AS_JOB = {
+    'model': Job,
+    'description': 'The call outlived the wait (`Prefer: wait`): its job, at `Location`.',
+}
+
+
+class Versions(pydantic.BaseModel):
+    """The API versions a server answers."""
+
+    model_config = ANSWER_CONFIG
+    versions: list[str]
+
+
+def _not_json(media_type: str, description: str, schema: dict | None = None) -> dict:
+    """The ``add_api_route`` arguments declaring a route's answer as *media_type*, not JSON."""
+    return {
+        'response_class': fastapi.Response,
+        'responses': {
+            200: {
+                'description': description,
+                'content': {media_type: {'schema': schema or {'type': 'string'}}},
+            }
+        },
+    }
+
+
+class Closing:
+    """The server's close, as the application takes part in it (``rest.server``).
+
+    Once it has begun, a member asked, or a live view asked for, is refused
+    ``server_closing``; jobs, handles, files and the stream are still
+    served, so a client can read what the close finishes, and a live view
+    already open keeps showing frames until the close finishes.
+    """
+
+    def __init__(self, stream: EventStream, jobs: JobRegistry, live: live_view.LiveView) -> None:
+        self._stream = stream
+        self._jobs = jobs
+        self._live = live
+        self.begun = False
+
+    def begin(self) -> None:
+        """Refuse every member asked from now on."""
+        self.begun = True
+
+    def finish(self) -> None:
+        """Send ``closing`` on every stream and end it, and end every live view. Called on the server's loop."""
+        self._stream.finish()
+        self._live.finish()
+
+    def join_jobs(self, timeout_s: float) -> list[str]:
+        """Wait up to *timeout_s* for the calls' threads; the names of those still running."""
+        return self._jobs.join(timeout_s)
+
+
+def build_app(session: ScopeSession) -> fastapi.FastAPI:
+    """The application serving *session*'s wire members under ``/api/v1/``.
+
+    The OpenAPI description is at ``/api/v1/openapi.json`` and the
+    interactive reference at ``/docs``. The event stream hears the scope
+    while the application is served, from its startup to its shutdown.
+    Its close is ``app.state.closing``; its live view ``app.state.live``.
+    """
+    # The session's one protocol runner is every client's: its id is kept.
+    registry = HandleRegistry(kept=lambda obj: isinstance(obj, ProtocolRunner))
+    handed_out = wire_encoding.handed_out(
+        ScopeSession, wire_encoding.project_classes(), wire_encoding.project_aliases()
+    )
+    stream = EventStream(
+        session, lambda value: _encoded_event(session, registry, value), handed_out
+    )
+
+    @contextlib.asynccontextmanager
+    async def served(_app: fastapi.FastAPI) -> AsyncIterator[None]:
+        stream.open(asyncio.get_running_loop())
+        try:
+            yield
+        finally:
+            stream.close()
+
+    app = fastapi.FastAPI(
+        title='Lumascope',
+        version=session.app_version or 'unknown',
+        openapi_url=f'{PREFIX}/openapi.json',
+        docs_url='/docs',
+        redoc_url=None,
+        lifespan=served,
+        responses=problems.OPENAPI_RESPONSES,
+    )
+
+    async def versions() -> dict[str, list[str]]:
+        """The API versions this server answers, each at ``/api/<version>/``."""
+        return {'versions': [VERSION]}
+
+    app.add_api_route(
+        '/api',
+        versions,
+        methods=['GET'],
+        tags=['server'],
+        response_model=None,
+        responses={200: {'model': Versions, 'description': 'The versions.'}},
+    )
+    app.middleware('http')(_identify_and_admit)
+    app.add_exception_handler(ServerRefusedError, _refused)
+    app.add_exception_handler(RequestValidationError, _body_does_not_fit)
+    app.add_exception_handler(StarletteHTTPException, _routing_refused)
+    app.add_exception_handler(Exception, _failed)
+
+    jobs = JobRegistry()
+    live = live_view.LiveView(session)
+    closing = Closing(stream, jobs, live)
+    app.state.closing = closing
+    app.state.live = live
+    _add_handle_routes(app, registry, handed_out)
+    _add_job_routes(app, jobs)
+    _add_event_route(app, stream, event_stream.published(session, handed_out))
+    _add_live_routes(app, live, closing)
+    _add_file_route(app, session)
+    session_routes = routes(ScopeSession, handed_out=handed_out)
+    shadowed = {r.path.split('/')[0] for r in session_routes} & SERVER_SEGMENTS
+    if shadowed:
+        raise TypeError(f"Session members {sorted(shadowed)} are named as the server's own routes")
+    for route in session_routes:
+        _add(app, session, registry, jobs, stream, closing, route)
+    for cls in sorted(handed_out, key=lambda c: c.__name__):
+        for route in routes(cls, handed_out=handed_out):
+            _add(app, session, registry, jobs, stream, closing, route)
+    return app
+
+
+def _encoded_event(session: ScopeSession, registry: HandleRegistry, value: object) -> object:
+    """An event's value in its wire form; an event carries no running call."""
+
+    def no_job(future: object) -> object:
+        raise wire_encoding.NoWireFormError(type(future).__name__)
+
+    return wire_encoding.encode(
+        value, live_folder=session.get_setting('live_folder'), handle=registry.mint, job=no_job
+    )
+
+
+def _add_file_route(app: fastapi.FastAPI, session: ScopeSession) -> None:
+    async def download(request: fastapi.Request, name: str) -> fastapi.Response:
+        """A file in the live folder, by its name there: its type from its extension, as an attachment.
+
+        The name is the one a listing and every returned path give, as path
+        segments. A range of the file is answered on its own (``Range``).
+        """
+        _refuse_query(request)
+        try:
+            path = await asyncio.to_thread(session.live_folder_path, name)
+        except Exception as e:
+            # Refused as a Python caller is: the same door, the same words.
+            return problems.answered_by_member(e, request.state.request_id).response()
+        if not await asyncio.to_thread(path.is_file):
+            raise problems.not_found(f'No file {name} is in the live folder.')
+        return FileResponse(path, filename=path.name)
+
+    app.add_api_route(
+        f'{PREFIX}/files/{{name:path}}',
+        download,
+        methods=['GET'],
+        tags=['files'],
+        **_not_json(
+            'application/octet-stream',
+            "The file's bytes, typed by its extension.",
+            {'type': 'string', 'format': 'binary'},
+        ),
+    )
+
+
+def _add_event_route(
+    app: fastapi.FastAPI, stream: EventStream, published: dict[str, type[pydantic.BaseModel]]
+) -> None:
+    async def events(request: fastapi.Request) -> StreamingResponse:
+        """Every event the scope sends, as ``text/event-stream``: first ``status``, then each as it happens.
+
+        A client that reconnects with ``Last-Event-ID`` is sent what it
+        missed, or ``reset`` and ``status`` once that is no longer held.
+        """
+        _refuse_query(request)
+        return StreamingResponse(
+            stream.read(request.headers.get('last-event-id')),
+            media_type='text/event-stream',
+            headers={'Cache-Control': 'no-cache'},
+        )
+
+    app.add_api_route(
+        f'{PREFIX}/events',
+        events,
+        methods=['GET'],
+        tags=['events'],
+        **_not_json('text/event-stream', event_stream.described(published)),
+    )
+    built = app.openapi
+
+    def openapi() -> dict:
+        """The description, with each event's data a component: no route answers one as JSON."""
+        if app.openapi_schema is None:
+            described = built()
+            _, schemas = pydantic.json_schema.models_json_schema(
+                [(m, 'serialization') for m in published.values()],
+                ref_template='#/components/schemas/{model}',
+            )
+            components = described.setdefault('components', {}).setdefault('schemas', {})
+            for name, schema in schemas.get('$defs', {}).items():
+                # A name already published is the same record (no two
+                # reachable classes share a name): a route's description of
+                # it stands, a parameter's included (``Remedy``).
+                components.setdefault(name, schema)
+        return app.openapi_schema
+
+    app.openapi = openapi
+
+
+def _add_live_routes(app: fastapi.FastAPI, live: live_view.LiveView, closing: Closing) -> None:
+    async def watch(request: fastapi.Request) -> fastapi.Response:
+        """The camera's frames as MJPEG (``multipart/x-mixed-replace``), each the newest when the client is ready for it.
+
+        ``max_width`` (pixels) bounds each frame's width; half the camera's
+        frame by default. Each part carries ``X-Frame-Ordinal`` and
+        ``X-Frame-Timestamp``. Display only: 8-bit grey, lossy, no metadata.
+        """
+        max_width = _max_width(request)
+        if closing.begun:
+            raise problems.server_closing()
+        try:
+            await live.watch()
+        except Exception as e:
+            # Refused as a Python caller is: the same door, the same words.
+            return problems.answered_by_member(e, request.state.request_id).response()
+        return live_view.Watching(live, max_width)
+
+    async def snapshot(request: fastapi.Request) -> fastapi.Response:
+        """The camera's newest frame as one JPEG; ``max_width`` as for ``/live``.
+
+        Answers 503 ``no_frame_yet`` when the camera sends no frame within
+        a short wait (it is not streaming, say).
+        """
+        max_width = _max_width(request)
+        if closing.begun:
+            raise problems.server_closing()
+        try:
+            shown = await live.snapshot(max_width)
+        except Exception as e:
+            return problems.answered_by_member(e, request.state.request_id).response()
+        if shown is None:
+            if closing.begun:
+                raise problems.server_closing()
+            raise problems.no_frame_yet(live_view.RETRY_AFTER_S)
+        frame, jpeg = shown
+        return fastapi.Response(
+            jpeg, media_type='image/jpeg', headers={'Cache-Control': 'no-cache', **frame.headers()}
+        )
+
+    app.add_api_route(
+        f'{PREFIX}/live',
+        watch,
+        methods=['GET'],
+        tags=['live'],
+        **_not_json('multipart/x-mixed-replace', 'The frames, each a JPEG part.'),
+    )
+    app.add_api_route(
+        f'{PREFIX}/live.jpg',
+        snapshot,
+        methods=['GET'],
+        tags=['live'],
+        **_not_json('image/jpeg', 'The newest frame.', {'type': 'string', 'format': 'binary'}),
+    )
+
+
+def _max_width(request: fastapi.Request) -> int | None:
+    """The live view's one query argument: a width in pixels above 0, or None when not given."""
+    unknown = sorted(set(request.query_params) - {'max_width'})
+    if unknown:
+        raise problems.invalid_request(f'The live view takes only max_width, not {unknown}.')
+    given = request.query_params.getlist('max_width')
+    if not given:
+        return None
+    if len(given) > 1:
+        raise problems.invalid_request('Give max_width once.')
+    if not given[0].isdigit() or int(given[0]) < 1:
+        raise problems.invalid_request(
+            f'max_width is a whole number of pixels above 0, not {given[0]!r}.'
+        )
+    return int(given[0])
+
+
+def _add_handle_routes(
+    app: fastapi.FastAPI, registry: HandleRegistry, handed_out: frozenset[type]
+) -> None:
+    async def held() -> list[dict[str, str]]:
+        """Every handle held, oldest first: a client that lost an answer finds its handle here."""
+        return registry.listing()
+
+    app.add_api_route(
+        f'{PREFIX}/handles',
+        held,
+        methods=['GET'],
+        tags=['handles'],
+        response_model=None,
+        responses={200: {'model': list[Handle], 'description': 'The handles.'}},
+    )
+    for cls in sorted(handed_out, key=lambda c: c.__name__):
+
+        async def forget(handle_id: str, cls: type = cls) -> fastapi.Response:
+            registry.forget(handle_id, cls)
+            return fastapi.Response(status_code=204)
+
+        forget.__signature__ = inspect.Signature(
+            [
+                inspect.Parameter(
+                    'handle_id',
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                    annotation=str,
+                    default=fastapi.Path(...),
+                )
+            ]
+        )
+        app.add_api_route(
+            f'{PREFIX}/handles/{cls.__name__}/{{handle_id}}',
+            forget,
+            methods=['DELETE'],
+            status_code=204,
+            name=f'handles/{cls.__name__}/forget',
+            operation_id=f'handles.{cls.__name__}.forget',
+            summary=f"Forget a {cls.__name__} handle's id, never its object.",
+            description=(
+                "A run goes on, and its stop is its own member. The session's protocol "
+                "runner is every client's, and its id is kept (409)."
+            ),
+            tags=['handles'],
+        )
+
+
+async def _identify_and_admit(
+    request: fastapi.Request, call_next: Callable[[fastapi.Request], Awaitable[fastapi.Response]]
+) -> fastapi.Response:
+    """Give the request its id, refuse a body that is not JSON before any route reads it, and log it.
+
+    Every answer carries the id as ``X-Request-ID`` (a problem also as its
+    ``instance``), and the REST log has one line per request under it. A
+    stream's line is written when its headers are sent.
+    """
+    request_id = str(uuid.uuid4())
+    request.state.request_id = request_id
+    request.state.requested = datetime.datetime.now().astimezone()
+    started = time.perf_counter()
+    media = request.headers.get('content-type', '').split(';')[0].strip().lower()
+    has_body = request.headers.get('content-length', '0') != '0' or (
+        'transfer-encoding' in request.headers
+    )
+    if has_body and media and media != 'application/json' and not media.endswith('+json'):
+        response = problems.refused_by_server(
+            problems.unsupported_media_type(f'A body is JSON (application/json), not {media}.'),
+            request_id,
+        ).response()
+    else:
+        response = await call_next(request)
+    response.headers['X-Request-ID'] = request_id
+    _request_log.info(
+        f'[{request_id}] {request.method} {request.url.path} -> {response.status_code} '
+        f'in {(time.perf_counter() - started) * 1000:.1f} ms',
+        extra={'api_request': True, 'request_id': request_id},
+    )
+    return response
+
+
+async def _refused(request: fastapi.Request, refusal: ServerRefusedError) -> JSONResponse:
+    return problems.refused_by_server(refusal, request.state.request_id).response()
+
+
+async def _body_does_not_fit(
+    request: fastapi.Request, error: RequestValidationError
+) -> JSONResponse:
+    """``invalid_request``, naming where and why each argument does not fit.
+
+    Each error's ``input`` is left out: it echoes what was sent, and a NaN
+    the reader took is no JSON, so the answer would fail where the refusal
+    is due.
+    """
+    errors = [{k: e[k] for k in ('loc', 'msg', 'type')} for e in error.errors()]
+    words = '; '.join(f'{"/".join(str(p) for p in e["loc"])}: {e["msg"]}' for e in errors)
+    return problems.refused_by_server(
+        problems.invalid_request(words, errors=errors), request.state.request_id
+    ).response()
+
+
+async def _routing_refused(request: fastapi.Request, error: StarletteHTTPException) -> JSONResponse:
+    """What the framework itself refused, by its status: a path no route answers (404), a
+    method its route does not (405), or a request it could not read (any other 4xx)."""
+    if error.status_code == 405:
+        refusal = problems.method_not_allowed(
+            f'{request.url.path} does not answer {request.method}.'
+        )
+    elif error.status_code == 404:
+        refusal = problems.not_found(f'No route answers {request.url.path}.')
+    else:
+        refusal = problems.invalid_request(str(error.detail))
+    return problems.refused_by_server(refusal, request.state.request_id).response()
+
+
+async def _failed(request: fastapi.Request, error: Exception) -> JSONResponse:
+    """The server's own failure, answered as the fault problem it is rather than as bare text."""
+    return problems.answered_by_member(error, request.state.request_id).response()
+
+
+def _add(
+    app: fastapi.FastAPI,
+    session: ScopeSession,
+    registry: HandleRegistry,
+    jobs: JobRegistry,
+    stream: EventStream,
+    closing: Closing,
+    route: Route,
+) -> None:
+    doc = inspect.cleandoc(route.member.doc)
+    member = route.member
+    on_handle = route.root is not ScopeSession
+    if on_handle:
+        path = f'handles/{route.root.__name__}/{{handle_id}}/{route.path}'
+        name = f'handles/{route.root.__name__}/{route.path}'
+        tag = '/'.join((f'handles/{route.root.__name__}', *route.segments))
+    else:
+        path, name, tag = route.path, route.path, '/'.join(route.segments) or 'session'
+    common = {
+        'path': f'{PREFIX}/{path}',
+        'name': name,
+        'operation_id': name.replace('/', '.'),
+        'summary': doc.split('\n', 1)[0] or None,
+        'description': doc or None,
+        'tags': [tag],
+        # The answer is encoded from the value (``wire_encoding.encode``) and
+        # sent as it is; the models only describe it, from the member's
+        # declared return type.
+        'response_model': None,
+        'responses': {
+            200: {'model': route.answer, 'description': "The member's answer."},
+            202: _ANSWERED_AS_JOB,
+        },
+    }
+
+    async def answer(
+        request: fastapi.Request, handle_id: str | None, act: Callable[[object, Progress], object]
+    ) -> JSONResponse:
+        """Run the call on its own thread; answer it, or hand out its job when it outlives the wait."""
+        _refuse_query(request)
+        if closing.begun:
+            raise problems.server_closing()
+        if member.hands_out:
+            registry.admit()
+        jobs.admit(returns_job=member.returns_job)
+        request_id = request.state.request_id
+        asked = request.url.path.removeprefix(f'{PREFIX}/')
+        loop = asyncio.get_running_loop()
+        progress = Progress()
+
+        def encoded(value: object) -> object:
+            return wire_encoding.encode(
+                value,
+                live_folder=session.get_setting('live_folder'),
+                handle=registry.mint,
+                job=lambda future: jobs.of_future(
+                    future, member=asked, answer=future_answer, loop=loop
+                ),
+            )
+
+        def future_answer(future: Future) -> Answer:
+            return _answered(lambda: encoded(future.result()), request_id)
+
+        def work() -> object:
+            owner = registry.get(handle_id, route.root) if on_handle else session
+            for segment in route.segments:
+                owner = getattr(owner, segment)
+                if owner is None:
+                    raise problems.not_found(f'{name}: this scope has no {segment}.')
+            return encoded(act(owner, progress))
+
+        answered = jobs.run(lambda: _answered(work, request_id), name, request_id)
+        wait = Wait.of(request.headers.get('prefer'))
+        await asyncio.wait({answered}, timeout=wait.seconds)
+        if answered.done():
+            reply = answered.result()
+            return dataclasses.replace(
+                reply, headers={**reply.headers, **wait.headers()}
+            ).response()
+        job = jobs.adopt(
+            answered,
+            member=asked,
+            requested=request.state.requested,
+            progress=progress if member.progress else None,
+        )
+        return JSONResponse(
+            job.view(),
+            status_code=202,
+            headers={
+                'Location': f'{PREFIX}/jobs/{job.id}',
+                'Retry-After': str(JOB_RETRY_AFTER_S),
+                **wait.headers(),
+            },
+        )
+
+    if member.read:
+
+        async def read(request: fastapi.Request, handle_id: str | None = None) -> JSONResponse:
+            return await answer(request, handle_id, lambda owner, _p: getattr(owner, member.name))
+
+        _sign(read, on_handle, None)
+        app.add_api_route(endpoint=read, methods=['GET'], **common)
+        return
+
+    async def call(
+        request: fastapi.Request, body: pydantic.BaseModel | None, handle_id: str | None = None
+    ) -> JSONResponse:
+        sent = body.model_dump(include=body.model_fields_set) if body is not None else {}
+
+        def invoke(owner: object, progress: Progress) -> object:
+            arguments = {
+                p.name: wire_encoding.decode(
+                    sent[p.name],
+                    p.alternatives,
+                    resolve_path=session.live_folder_path,
+                    handle=registry.get,
+                )
+                for p in member.parameters
+                if p.name in sent
+            }
+            if member.progress is not None:
+                arguments[member.progress] = progress
+            if member.run_events is None:
+                return getattr(owner, member.name)(**arguments)
+            # The run's events name it once the call has handed it out.
+            tag = stream.run_events()
+            arguments[member.run_events] = tag.events()
+            try:
+                value = getattr(owner, member.name)(**arguments)
+            except BaseException:
+                tag.settle(None)
+                raise
+            tag.settle(registry.mint(value) if member.hands_out and value is not None else None)
+            return value
+
+        return await answer(request, handle_id, invoke)
+
+    _sign(call, on_handle, route)
+    app.add_api_route(endpoint=call, methods=['POST'], **common)
+
+
+def _answered(work: Callable[[], object], request_id: str) -> Answer:
+    """*work*'s encoded result, or the problem it ended in: an answer, never a raise.
+
+    The server's own refusals (a handle not held) carry their own reasons;
+    any other exception is the member's outcome, as a Python caller gets it.
+    """
+    try:
+        return problems.result(work())
+    except ServerRefusedError as refusal:
+        return problems.refused_by_server(refusal, request_id)
+    except Exception as e:
+        return problems.answered_by_member(e, request_id)
+
+
+def _add_job_routes(app: fastapi.FastAPI, jobs: JobRegistry) -> None:
+    async def listing() -> list[dict[str, object]]:
+        """Every job held, newest first."""
+        return jobs.listing()
+
+    app.add_api_route(
+        f'{PREFIX}/jobs',
+        listing,
+        methods=['GET'],
+        tags=['jobs'],
+        response_model=None,
+        responses={200: {'model': list[Job], 'description': 'The jobs.'}},
+    )
+
+    async def read(request: fastapi.Request, job_id: str) -> JSONResponse:
+        """A job, waiting for it to end for what the client says it will wait (``Prefer: wait``).
+
+        200 whatever the job's status: a failed job's ``error`` is the
+        problem its call ended in.
+        """
+        job = jobs.get(job_id)
+        wait = Wait.of(request.headers.get('prefer'))
+        if not job.finished:
+            await asyncio.wait({job.answered}, timeout=wait.seconds)
+        return JSONResponse(job.view(), headers=wait.headers())
+
+    app.add_api_route(
+        f'{PREFIX}/jobs/{{job_id}}',
+        read,
+        methods=['GET'],
+        tags=['jobs'],
+        response_model=None,
+        responses={200: {'model': Job, 'description': 'The job.'}},
+    )
+
+    async def forget(job_id: str) -> fastapi.Response:
+        """Forget a finished job; one still running is 409, and its own member stops it."""
+        jobs.forget(job_id)
+        return fastapi.Response(status_code=204)
+
+    app.add_api_route(
+        f'{PREFIX}/jobs/{{job_id}}', forget, methods=['DELETE'], status_code=204, tags=['jobs']
+    )
+
+
+def _sign(endpoint: Callable, on_handle: bool, route: Route | None) -> None:
+    """Give *endpoint* the parameters FastAPI reads: the handle's id, and a call's body.
+
+    The body's model is the route's own, so FastAPI checks and describes it;
+    a member every one of whose parameters has a default also takes no body.
+    """
+    parameters = [
+        inspect.Parameter(
+            'request', inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=fastapi.Request
+        )
+    ]
+    if route is not None:
+        required = any(p.required for p in route.member.parameters)
+        parameters.append(
+            inspect.Parameter(
+                'body',
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                annotation=route.body if required else route.body | None,
+                default=fastapi.Body(...) if required else fastapi.Body(None),
+            )
+        )
+    if on_handle:
+        parameters.append(
+            inspect.Parameter(
+                'handle_id',
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                annotation=str,
+                default=fastapi.Path(...),
+            )
+        )
+    endpoint.__signature__ = inspect.Signature(parameters)
+
+
+def _refuse_query(request: fastapi.Request) -> None:
+    if request.url.query:
+        raise problems.invalid_request(
+            'A member takes no query string: send its arguments as a JSON object.'
+        )

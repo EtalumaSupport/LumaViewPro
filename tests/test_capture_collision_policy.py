@@ -31,15 +31,19 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
+from tests.protocol_drives import lent_run_claim
 from modules.common_utils import PostFunction
+from modules.run_events import RunEvents
+from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
+from modules.labware_loader import WellPlateLoader
+from modules.objectives_loader import ObjectiveLoader
 from modules.protocol import Protocol
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
 
 from tests.test_protocol_overwrite_guard import _build_tsv, _step_row
+from tests.scope_fakes import answer_auto_gain_like_the_api
 from tests.test_validate_steps import (
-    _DEFAULT_AXIS_LIMITS,
-    _STAGE_OFFSET,
     _make_protocol,
     _valid_step,
 )
@@ -79,7 +83,11 @@ def test_validate_for_run_refuses_two_steps_renamed_to_one_label():
             ),
         ]
     )
-    errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS, stage_offset=_STAGE_OFFSET)
+    errors = p.validate_for_run(
+        objective_helper=ObjectiveLoader(),
+        wellplate_loader=WellPlateLoader(),
+        led_max_ma=1000,
+    )
     collision_errors = [e for e in errors if 'would save captures' in e]
     assert len(collision_errors) == 1, errors
     msg = collision_errors[0]
@@ -105,7 +113,11 @@ def test_validate_for_run_allows_image_and_video_step_sharing_name():
             ),
         ]
     )
-    errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS, stage_offset=_STAGE_OFFSET)
+    errors = p.validate_for_run(
+        objective_helper=ObjectiveLoader(),
+        wellplate_loader=WellPlateLoader(),
+        led_max_ma=1000,
+    )
     assert not any('would save captures' in e for e in errors), errors
 
 
@@ -114,21 +126,11 @@ def test_validate_for_run_allows_image_and_video_step_sharing_name():
 # ---------------------------------------------------------------------------
 
 
-def test_load_warns_same_base_in_same_tile_group_and_still_loads(tmp_path, monkeypatch):
+def test_load_warns_same_base_in_same_tile_group_and_still_loads(tmp_path, centre_posts):
     # Two steps on DIFFERENT wells renamed to one label render the same
     # base. The load must NOT reject -- a load-time rejection would block
     # the in-app rename that is the remedy -- it warns once, and the run
     # itself is refused at start (validate_for_run), the data-loss gate.
-    from modules import protocol as protocol_mod
-
-    captured: list = []
-
-    class _RecordingNotifier:
-        def warning(self, category, title, message, **kw):
-            captured.append(message)
-
-    monkeypatch.setattr(protocol_mod, 'notifications', _RecordingNotifier())
-
     rows = ''
     rows += _step_row('Control', 'A1', '', -1, 0, 46.5, 34.6, 4972.9)
     rows += _step_row('Control', 'A2', '', -1, 0, 60.1, 34.6, 5001.7)
@@ -137,35 +139,10 @@ def test_load_warns_same_base_in_same_tile_group_and_still_loads(tmp_path, monke
 
     proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
     assert proto.num_steps() == 2, 'the file must load so the user can rename the steps'
+    captured = [n.message for n in centre_posts]
     assert len(captured) == 1, captured
     assert 'refused' in captured[0].lower()
     assert 'rename' in captured[0].lower()
-
-
-def test_load_soft_warns_same_base_across_tile_groups(tmp_path, monkeypatch):
-    from modules import protocol as protocol_mod
-
-    captured: list = []
-
-    class _RecordingNotifier:
-        def warning(self, category, title, message, **kw):
-            captured.append((category, title, message))
-
-    monkeypatch.setattr(protocol_mod, 'notifications', _RecordingNotifier())
-
-    rows = ''
-    rows += _step_row('Control', 'A1', '', -1, 0, 46.5, 34.6, 4972.9)
-    rows += _step_row('Control', 'A2', '', -1, 1, 60.1, 34.6, 5001.7)
-    tsv = tmp_path / 'renamed_cross_tgid.tsv'
-    tsv.write_text(_build_tsv(rows))
-
-    proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
-    assert proto.num_steps() == 2, 'the file must still load so the user can edit the names'
-    assert len(captured) == 1, captured
-    _category, _title, message = captured[0]
-    assert 'refused' in message.lower(), (
-        'the warning must say the run will be refused, not promise a rename suffix'
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -284,11 +261,11 @@ def test_post_processor_all_groups_colliding_refuses_with_reason(tmp_path, monke
     post_record.file_exists_in_records.return_value = False
     images_df = _fake_images_df(['A1_BF_zproj.tiff', 'A1_BF_zproj.tiff'])
 
-    result = _drive_load_folder(processor, tmp_path, monkeypatch, images_df, post_record)
+    with pytest.raises(PostProcessingRefusedError) as refused:
+        _drive_load_folder(processor, tmp_path, monkeypatch, images_df, post_record)
 
-    assert result['status'] is False
-    assert result['reason'] == 'collision'
-    assert 'No ZProject was generated' in result['message']
+    assert refused.value.reason == 'collision'
+    assert 'No ZProject was generated' in str(refused.value)
     assert processor.algorithm_calls == [], 'nothing may be generated when every group collides'
     assert processor.records_added == []
 
@@ -296,19 +273,21 @@ def test_post_processor_all_groups_colliding_refuses_with_reason(tmp_path, monke
 def test_post_processor_mixed_collision_refuses_only_colliding_groups(tmp_path, monkeypatch):
     # Per-group refusal: the colliding pair is refused (their artifact
     # would be indistinguishable) while the clean group still generates
-    # and is recorded. The operation succeeds with a note naming the
-    # refusal so an already-captured folder stays post-processable.
+    # and is recorded, so an already-captured folder stays post-processable;
+    # the build did not make everything asked of it, so it raises, naming
+    # the refused groups and carrying the one it made.
     processor = _FakePostProcessor()
     post_record = MagicMock()
     post_record.file_exists_in_records.return_value = False
     images_df = _fake_images_df(['A1_BF_zproj.tiff', 'A1_BF_zproj.tiff', 'B2_Green_zproj.tiff'])
 
-    result = _drive_load_folder(processor, tmp_path, monkeypatch, images_df, post_record)
+    with pytest.raises(PostProcessingFailedError) as incomplete:
+        _drive_load_folder(processor, tmp_path, monkeypatch, images_df, post_record)
 
-    assert result['status'] is True
-    assert result['message'].startswith('Success.')
-    assert 'refused' in result['message']
-    assert 'A1_BF_zproj.tiff' in result['message']
+    assert 'refused' in str(incomplete.value)
+    assert 'A1_BF_zproj.tiff' in str(incomplete.value)
+    assert len(incomplete.value.produced_paths) == 1
+    assert incomplete.value.produced_paths[0].endswith('B2_Green_zproj.tiff')
     assert processor.algorithm_calls == ['B2_Green_zproj.tiff'], 'only the clean group may generate'
     assert len(processor.records_added) == 1
     assert str(processor.records_added[0]).endswith('B2_Green_zproj.tiff')
@@ -471,13 +450,13 @@ def test_video_step_row_records_writers_actual_path(tmp_path, monkeypatch):
 
     listeners = {}
     scope = MagicMock()
+    answer_auto_gain_like_the_api(scope.imaging)
     scope.imaging.frames_until_valid.return_value = 0
     scope.imaging.active_cached = True
-    scope.imaging.camera_identity = {
-        'model': 'sim',
-        'serial': '0',
-        'timestamp_tick_frequency_hz': None,
-    }
+    scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {'focal_length': 45.0})
+    scope.capabilities.camera_model = 'sim'
+    scope.capabilities.camera_serial_number = '0'
+    scope.capabilities.camera_timestamp_tick_hz = None
     scope.imaging.frame_size_cached = {'width': 8, 'height': 8}
     scope.imaging.add_frame_listener = lambda cb, name=None: listeners.update(cb=cb)
 
@@ -499,14 +478,15 @@ def test_video_step_row_records_writers_actual_path(tmp_path, monkeypatch):
         timestamp_overlay=True,
         global_max_fps=0,
         autogain_settings={},
-        callbacks={},
+        events=RunEvents(),
         aborted_event=threading.Event(),
         is_run_in_progress=lambda: True,
         abort_run_fatal=MagicMock(),
-        abort_run_on_writer_death=MagicMock(),
         record_step_row=lambda **kw: rows.append(kw),
         record_dropped_capture=MagicMock(),
         clock=lambda: clock['t'],
+        run_claim=lent_run_claim(),
+        to_plate=None,
     )
 
     outcomes = []
@@ -565,7 +545,7 @@ def test_video_builder_create_video_reports_actual_output_file(tmp_path):
         frames_per_sec=5,
         enable_timestamp_overlay=False,
         output_file_loc=requested,
-        popup=None,
+        on_progress=None,
         total_groups=1,
         current_group=1,
     )
@@ -593,12 +573,10 @@ def test_loader_infers_tiling_from_tile_column(tmp_path):
     tsv.write_text(_build_tsv(rows))
 
     proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
-    assert proto._config['tiling'] == '2x2'
+    assert proto.tiling() == '2x2'
 
 
 def test_tile_shaped_names_with_empty_tile_column_infer_no_tiling(tmp_path):
-    from modules.tiling_config import TilingConfig
-
     # User step names embed tile-shaped segments, but the authoritative
     # Tile column is empty: no tiling may be inferred. The old name-parse
     # inference reported 2x2 here and the UI then refused to apply tiling
@@ -612,11 +590,8 @@ def test_tile_shaped_names_with_empty_tile_column_infer_no_tiling(tmp_path):
     tsv.write_text(_build_tsv(rows))
 
     proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
-    tc = TilingConfig(tiling_configs_file_loc=TILING_CONFIGS)
-    # Untiled inference is falsy-or-1x1; consumers apply `inferred or
-    # no_tiling_label()` (the same contract the old name-based inference
-    # had). Anything else here means a tiling was faked from the names.
-    assert (proto._config['tiling'] or tc.no_tiling_label()) == tc.no_tiling_label()
+    # Anything but the no-tiling label means a tiling was faked from the names.
+    assert proto.tiling() == '1x1'
     # The user text itself survives as the labels.
     assert list(proto.steps()['Label']) == ['Region_TA1', 'Region_TA2', 'Region_TB1', 'Region_TB2']
 
@@ -704,19 +679,9 @@ def test_load_sanitizes_labels_loudly(tmp_path, monkeypatch):
     assert any('removed unsupported characters' in w for w in warnings), warnings
 
 
-def test_labels_differing_only_in_stripped_chars_collide(tmp_path, monkeypatch):
+def test_labels_differing_only_in_stripped_chars_collide(tmp_path, centre_posts):
     # 'A.1' and 'A1' sanitize to one label; on different wells they render
     # one capture base, so the load warns and the run is refused at start.
-    from modules import protocol as protocol_mod
-
-    notified: list = []
-
-    class _RecordingNotifier:
-        def warning(self, category, title, message, **kw):
-            notified.append(message)
-
-    monkeypatch.setattr(protocol_mod, 'notifications', _RecordingNotifier())
-
     tsv = tmp_path / 'stripped_collision.tsv'
     tsv.write_text(
         _V8_HEADER
@@ -725,9 +690,14 @@ def test_labels_differing_only_in_stripped_chars_collide(tmp_path, monkeypatch):
     )
     proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
     assert list(proto.steps()['Label']) == ['A1', 'A1']
+    notified = [n.message for n in centre_posts]
     assert len(notified) == 1 and 'refused' in notified[0].lower(), notified
 
-    errors = proto.validate_for_run(axis_limits=None)
+    errors = proto.validate_for_run(
+        objective_helper=ObjectiveLoader(),
+        wellplate_loader=WellPlateLoader(),
+        led_max_ma=1000,
+    )
     assert any('would save captures' in e for e in errors), errors
 
 
@@ -737,17 +707,7 @@ def test_labels_differing_only_in_stripped_chars_collide(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_same_base_different_objective_is_not_a_collision(tmp_path, monkeypatch):
-    from modules import protocol as protocol_mod
-
-    notified: list = []
-
-    class _RecordingNotifier:
-        def warning(self, category, title, message, **kw):
-            notified.append(message)
-
-    monkeypatch.setattr(protocol_mod, 'notifications', _RecordingNotifier())
-
+def test_same_base_different_objective_is_not_a_collision(tmp_path, centre_posts):
     # Load leg: same rendered base, different Objective -> no warning.
     rows = ''
     rows += _step_row('A1_BF', 'A1', '', -1, 0, 46.5, 34.6, 4972.9).replace('20x Oly', '4x Oly')
@@ -756,7 +716,7 @@ def test_same_base_different_objective_is_not_a_collision(tmp_path, monkeypatch)
     tsv.write_text(_build_tsv(rows))
     proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
     assert proto.num_steps() == 2
-    assert notified == [], notified
+    assert centre_posts == [], centre_posts
 
     # Run leg: no collision errors either.
     p = _make_protocol(
@@ -765,7 +725,11 @@ def test_same_base_different_objective_is_not_a_collision(tmp_path, monkeypatch)
             _valid_step(Well='A1', X=60.0, Y=40.0, Z=5000.0, Objective='20x Oly'),
         ]
     )
-    errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS, stage_offset=_STAGE_OFFSET)
+    errors = p.validate_for_run(
+        objective_helper=ObjectiveLoader(),
+        wellplate_loader=WellPlateLoader(),
+        led_max_ma=1000,
+    )
     assert not any('would save captures' in e for e in errors), errors
 
 
@@ -776,41 +740,14 @@ def test_same_base_same_objective_still_refused_at_run_start():
             _valid_step(Well='A1', X=60.0, Y=40.0, Z=5000.0, Objective='4x Oly'),
         ]
     )
-    errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS, stage_offset=_STAGE_OFFSET)
+    errors = p.validate_for_run(
+        objective_helper=ObjectiveLoader(),
+        wellplate_loader=WellPlateLoader(),
+        led_max_ma=1000,
+    )
     collision_errors = [e for e in errors if 'would save captures' in e]
     assert len(collision_errors) == 1, errors
     assert 'Steps 1, 2' in collision_errors[0]
-
-
-# ---------------------------------------------------------------------------
-# UI routing: a 'collision' refusal surfaces its own message, never the
-# generic "No Z-Stack data found" folder advice.
-# ---------------------------------------------------------------------------
-
-
-def test_zprojection_callback_routes_collision_to_failure_message():
-    import ast
-
-    src_path = REPO / 'ui' / 'post_processing.py'
-    tree = ast.parse(src_path.read_text())
-    method = None
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and node.name == 'ZProjectionControls':
-            for child in node.body:
-                if isinstance(child, ast.FunctionDef) and child.name == 'zprojection_callback':
-                    method = child
-    assert method is not None, 'ZProjectionControls.zprojection_callback not found'
-    src = ast.unparse(method)
-    # Folder advice is attached to the ONE reason that means a bad folder.
-    # It used to be attached to everything that was not an error or a
-    # collision, so an unreadable source format was answered with "pick a
-    # folder that contains a Z-stack run" -- advice that does not fit the
-    # refusal -- and any reason added later inherited it by default.
-    assert "result.get('reason') == 'no_data'" in src, (
-        'the pick-a-different-folder advice must be gated on the no_data reason, '
-        'not applied to every refusal that is not an error or a collision'
-    )
-    assert 'Pick a folder that contains a Z-stack' in src, 'the bad-folder case keeps its advice'
 
 
 # ---------------------------------------------------------------------------

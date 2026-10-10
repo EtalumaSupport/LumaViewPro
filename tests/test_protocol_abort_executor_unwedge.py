@@ -9,16 +9,13 @@ every normal file op (composite, video, z-projection, manual save) is refused,
 so the post-processing operation hangs with its progress popup stuck open.
 
 ``end_protocol_mode()`` is the idempotent safety net -- it drains any remaining
-protocol items then returns the executor to normal-queue service.
-``SequencedCaptureRunner._cleanup_inner`` calls it on the cleanup skip-path so
-recovery is guaranteed on every teardown path, not just the normal drain.
+protocol items then returns the executor to normal-queue service. The run's
+own cleanup calls it on every path out, before the run ends.
 """
 
 import threading
 import time
-from types import SimpleNamespace
 
-from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 
@@ -95,34 +92,3 @@ def test_end_protocol_mode_is_noop_when_not_in_protocol_mode():
     ex.end_protocol_mode()
     assert not ex.protocol_running.is_set()
     assert not ex.protocol_finish.is_set()
-
-
-def test_cleanup_skip_path_ends_executor_protocol_mode():
-    """When run-in-progress is already clear, _cleanup_inner takes the skip
-    path and must still end both executors' protocol-mode -- otherwise an abort
-    that cleared the run flag without ending them leaves the workers wedged."""
-    io = SequentialIOExecutor(name='IO')
-    file_io = SequentialIOExecutor(name='FILE')
-    io.protocol_start()
-    file_io.protocol_start()
-
-    # _run_in_progress_event clear -> _cleanup_inner takes the early-return branch.
-    # The skip path releases the scan's LED lease before ending protocol-mode;
-    # stub it as a no-op since this test is about executor teardown, not LEDs.
-    stub = SimpleNamespace(
-        _run_in_progress_event=threading.Event(),
-        _io_executor=io,
-        file_io_executor=file_io,
-        _release_scan_led_lease=lambda: None,
-        _release_activity_claim=lambda: None,
-        # Same reason as the two above: the skip path settles the run's
-        # merge outcome before releasing, and this test is about executor
-        # teardown, not the outcome.
-        _settle_merge_outcome=lambda run_status: None,
-    )
-    # run_status feeds the end-reason plumbing on the full cleanup path;
-    # the skip path under test never reads it.
-    SequencedCaptureRunner._cleanup_inner(stub, run_status='aborted')
-
-    assert io.protocol_finish.is_set(), 'io executor not signalled out of protocol-mode'
-    assert file_io.protocol_finish.is_set(), 'file executor not signalled out of protocol-mode'

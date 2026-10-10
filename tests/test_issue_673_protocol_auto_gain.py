@@ -30,34 +30,23 @@ from __future__ import annotations
 
 import datetime
 import logging
-import sys
 import threading
 from unittest.mock import MagicMock
 
 import pytest
 
-_mock_settings_init = MagicMock()
-_mock_settings_init.settings = {
-    'BF': {'autofocus': False},
-    'PC': {'autofocus': False},
-    'DF': {'autofocus': False},
-    'Red': {'autofocus': False},
-    'Green': {'autofocus': False},
-    'Blue': {'autofocus': False},
-    'Lumi': {'autofocus': False},
-}
-sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
+from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
-from modules.lumascope_api import Lumascope
-from tests.scope_fakes import home_sim_scope
+from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from modules.protocol import Protocol
+from modules.run_events import RunEvents
 from modules.sequenced_capture_runner import (
     SequencedCaptureRunner,
     SequencedCaptureRunMode,
 )
 from modules.sequential_io_executor import SequentialIOExecutor
-from tests.protocol_drives import autofocus_snapshot
+from tests.scope_fakes import configure_turret_like_bringup
 
 
 def _build_single_step_ag_protocol(color='BF', auto_gain=True):
@@ -95,6 +84,8 @@ def _build_single_step_ag_protocol(color='BF', auto_gain=True):
         'Video Config': {'duration': 5, 'fps': 30},
         'Stim_Config': {},
         'Step Index': 0,
+        'Label': f'A1_{color}_AG',
+        'Auto_Named': False,
     }
 
     df = pd.DataFrame([step])
@@ -117,16 +108,19 @@ def _build_single_step_ag_protocol(color='BF', auto_gain=True):
 
 @pytest.fixture
 def scope():
-    s = home_sim_scope(Lumascope(simulate=True))
-    # The session registers the data root at bring-up; a runner over a
-    # bare scope needs it too, or the run refuses at start.
-    s.protocols.register_source_path('.')
+    # The data root is the scope's, given at construction; a runner over a
+    # bare scope reads its catalogues and tiling config from it.
+    s = home_sim_scope(build_scope(simulate=True, source_path='.'))
+    # A bare scope skipped bring-up, which fills the turret from the
+    # persisted slots; an empty turret addresses no glass at all.
+    configure_turret_like_bringup(s)
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
     s.imaging.start_streaming()
     yield s
-    s.imaging.stop_streaming()
+    # disconnect() stops the stream itself; a stop sent through the camera
+    # lane would be refused once the test's own lanes are shut.
     s.disconnect()
 
 
@@ -158,9 +152,6 @@ def executors():
 
 @pytest.fixture
 def executor(scope, executors):
-    from modules.coord_transformations import CoordinateTransformer
-    from modules.labware_loader import WellPlateLoader
-
     mock_af = MagicMock()
     mock_af.reset = MagicMock()
     mock_af.in_progress = MagicMock(return_value=False)
@@ -170,18 +161,15 @@ def executor(scope, executors):
     mock_af.best_focus_position = MagicMock(return_value=6247.4)
     mock_af.run_in_progress = MagicMock(return_value=False)
 
+    swap_lanes(scope, io=executors['io'], camera=executors['camera'])
     exc = SequencedCaptureRunner(
         scope=scope,
-        stage_offset={'x': 0.0, 'y': 0.0},
-        io_executor=executors['io'],
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
-        camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(is_running=False),
+        autofocus_thread=MagicMock(in_flight_sweep=None),
+        activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
     )
-    exc._wellplate_loader = WellPlateLoader()
-    exc._coordinate_transformer = CoordinateTransformer()
     return exc
 
 
@@ -202,13 +190,9 @@ def _run_protocol(executor, protocol, tmp_path):
     done = threading.Event()
     result_holder: dict = {}
 
-    def on_complete(**kwargs):
-        result_holder.update(kwargs)
+    def on_ended(outcome, run_dir, protocol):
+        result_holder.update(outcome=outcome, run_dir=run_dir, protocol=protocol)
         done.set()
-
-    callbacks = {
-        'run_complete': on_complete,
-    }
 
     plan = executor.prepare(
         protocol=protocol,
@@ -224,9 +208,7 @@ def _run_protocol(executor, protocol, tmp_path):
         },
         parent_dir=tmp_path / 'output',
         max_scans=1,
-        callbacks=callbacks,
-        leds_state_at_end='off',
-        autofocus_snapshot=autofocus_snapshot(),
+        events=RunEvents(run_ended=on_ended),
     )
     executor.start(plan)
 

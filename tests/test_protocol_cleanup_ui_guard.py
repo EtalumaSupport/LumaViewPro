@@ -1,114 +1,149 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A failing run-cleanup callback must not take the application down.
+"""A run event's handler that raises is reported once, as itself, and never
+takes the application down.
 
-Cleanup is deliberately fault-tolerant: every step runs regardless of any
-other failing, and the failures are collected into one summary. Callbacks
-handed to the UI scheduler escaped that contract, because they run on a
-later Clock tick -- the `try` that scheduled them has already returned,
-and the app's crash guard re-raises anything it cannot attribute to a
-plugin. So a cosmetic panel-restore step could, and did, terminate
-LumaViewPro at the end of every protocol run.
+A handler handed to the UI scheduler runs on a later Clock tick, after the
+call that scheduled it has returned, and the app's crash guard re-raises
+anything it cannot attribute to a plugin. So the catch has to sit inside the
+function the dispatcher runs, around the handler: a ``try`` around the
+scheduling call catches nothing on the GUI host. The report is the
+handler's own exception, under the event's name: a refusal stays a refusal
+and a fault a fault, never a run cleanup failure with LED, camera and stage
+advice.
 
 The re-raise is the right DEFAULT and is left alone everywhere else; a
-core bug should be loud. It is wrong for these six callbacks for the same
-reason the code around them is fault-tolerant: the run's images are
-already on disk by the time cleanup starts, and an unattended run must
-not lose its application to a restore step.
-
-The assertion shape: conftest replaces the whole `lvp_logger` module with
-a MagicMock, so log records are asserted through the mock rather than
-caplog.
+core bug should be loud.
 """
 
-import threading
+import contextlib
 
 import pytest
-from lvp_logger import logger
 
-from modules import kivy_utils, protocol_cleanup
-
-
-def _sent():
-    """A summary flag that has already fired -- the deferred GUI case."""
-    flag = threading.Event()
-    flag.set()
-    return flag
+from modules import kivy_utils
+from modules.exceptions import ProtocolRunRefusedError, RunCleanupFailedError
+from modules.notification_center import notifications
+from modules.run_events import deliver
+from modules.scope_session import ScopeSession
 
 
 @pytest.fixture
 def immediate_gui_dispatcher():
-    """Stand in for Clock.schedule_once, which runs callbacks unguarded.
-
-    The GUI branch is the one that matters here: the headless branch of
-    schedule_ui has caught and logged for a while, so a headless-only
-    test would pass against the very bug this file exists for.
-    """
-    previous = kivy_utils._ui_dispatcher
-    kivy_utils.set_ui_dispatcher(lambda func, timeout: func(timeout))
-    logger.reset_mock()
+    """Stand in for Clock.schedule_once, which runs callbacks unguarded."""
+    ScopeSession.set_ui_dispatcher(
+        kivy_utils.UiDispatcher(schedule=lambda func, timeout: func(timeout), thread=None)
+    )
     yield
-    kivy_utils.set_ui_dispatcher(previous)
+    ScopeSession.set_ui_dispatcher(None)
 
 
-def _boom(_dt):
-    raise RuntimeError('cleanup callback exploded')
-
-
-def test_a_raising_cleanup_callback_does_not_reach_the_event_loop(immediate_gui_dispatcher):
-    """This is the crash: the exception used to escape to Kivy and exit."""
-    protocol_cleanup._schedule_cleanup_ui(_boom, 'Sync layer panel', [], _sent())
-
-
-def test_a_raising_cleanup_callback_is_logged_with_its_step_name(immediate_gui_dispatcher):
-    protocol_cleanup._schedule_cleanup_ui(_boom, 'Sync layer panel', [], _sent())
-
-    assert logger.exception.called, (
-        'a cleanup callback that raised produced no log record; silent '
-        'swallowing is the failure mode this guard must not introduce'
+@pytest.fixture
+def deferring_gui_dispatcher():
+    """A dispatcher that runs what it is handed only when the test says: a later tick."""
+    queued = []
+    ScopeSession.set_ui_dispatcher(
+        kivy_utils.UiDispatcher(schedule=lambda func, timeout: queued.append(func), thread=None)
     )
-    logged = ' '.join(str(call) for call in logger.exception.call_args_list)
-    assert 'Sync layer panel' in logged, (
-        'the log must name WHICH cleanup step failed -- a bare traceback '
-        'from a deferred callback gives the reader no run context'
-    )
+    yield queued
+    ScopeSession.set_ui_dispatcher(None)
 
 
-def test_a_healthy_cleanup_callback_still_runs(immediate_gui_dispatcher):
+@pytest.fixture
+def reported(monkeypatch):
     seen = []
-    protocol_cleanup._schedule_cleanup_ui(lambda dt: seen.append(dt), 'Harmless step', [], _sent())
-
-    assert seen == [0], 'the guard must not change what a working callback does'
-    assert not logger.exception.called, (
-        'a callback that returned normally must not produce an exception record'
+    monkeypatch.setattr(
+        notifications, 'report_outcome', lambda ex, *a, **k: seen.append((ex, a, k))
     )
+    return seen
+
+
+def _raise(ex):
+    def _handler(*_args):
+        raise ex
+
+    return _handler
+
+
+def test_a_raising_handler_does_not_reach_the_event_loop(immediate_gui_dispatcher, reported):
+    """This is the crash: the exception used to escape to Kivy and exit."""
+    deliver(_raise(RuntimeError('handler exploded')), 'run_ended', None, None, None)
+
+
+def test_a_fault_is_reported_once_as_that_fault_under_the_events_name(
+    immediate_gui_dispatcher, reported
+):
+    fault = RuntimeError('handler exploded')
+    deliver(_raise(fault), 'files_written', None, 'written')
+
+    assert len(reported) == 1, reported
+    ex, _args, kwargs = reported[0]
+    assert ex is fault, "the report is the handler's own exception, not a wrapper"
+    assert not isinstance(ex, RunCleanupFailedError)
+    assert kwargs == {'solicited': False, 'category': 'files_written'}
+
+
+def test_a_refusal_is_reported_once_as_that_refusal(immediate_gui_dispatcher, reported):
+    refusal = ProtocolRunRefusedError(reason='run_not_live', title='Not Live', message='No.')
+    deliver(_raise(refusal), 'run_ended', None, None, None)
+
+    assert [ex for ex, _a, _k in reported] == [refusal]
+
+
+def test_a_handler_that_raises_after_the_scheduling_returned_is_still_caught(
+    deferring_gui_dispatcher, reported
+):
+    fault = RuntimeError('raised on a later tick')
+    deliver(_raise(fault), 'step_started', 0)
+    assert reported == [], 'nothing has run yet: the dispatcher deferred it'
+
+    (queued,) = deferring_gui_dispatcher
+    queued(0)
+
+    assert [ex for ex, _a, _k in reported] == [fault]
+
+
+def test_a_healthy_handler_runs_with_its_arguments(immediate_gui_dispatcher, reported):
+    seen = []
+    deliver(lambda *args: seen.append(args), 'scan_started', 1, 2, 'interval')
+
+    assert seen == [(1, 2, 'interval')]
+    assert reported == []
+
+
+def test_the_delivery_is_left_once_the_handler_and_its_report_are_done(
+    deferring_gui_dispatcher, reported
+):
+    marks = []
+
+    @contextlib.contextmanager
+    def _delivery():
+        marks.append('entered')
+        yield
+        marks.append('left')
+
+    deliver(_raise(RuntimeError('x')), 'run_ended', None, None, None, delivery=_delivery())
+    assert marks == [], 'the delivery is entered on the thread that runs the handler'
+    deferring_gui_dispatcher[0](0)
+    assert marks == ['entered', 'left'] and len(reported) == 1
+
+
+def test_no_handler_still_enters_and_leaves_the_delivery(reported):
+    marks = []
+
+    @contextlib.contextmanager
+    def _delivery():
+        marks.append('entered')
+        yield
+        marks.append('left')
+
+    deliver(None, 'run_ended', None, None, None, delivery=_delivery())
+    assert marks == ['entered', 'left'], 'a wait must never wait on a delivery that will not come'
 
 
 def test_the_unguarded_scheduler_still_propagates(immediate_gui_dispatcher):
-    """Why the guard has to exist, and that it stays narrowly scoped.
+    """Why the delivery's catch has to exist, and that it stays narrowly scoped.
 
     Raw schedule_ui on the GUI branch propagates -- that is the documented
-    app-wide policy and this change deliberately does not touch it. If
-    this test ever fails, the global policy moved and the guard above may
-    no longer be needed.
+    app-wide policy and the delivery deliberately does not touch it.
     """
     with pytest.raises(RuntimeError):
-        kivy_utils.schedule_ui(_boom, 0)
-
-
-def test_a_failure_before_the_summary_is_collected_not_self_reported(immediate_gui_dispatcher):
-    """Inline execution -- headless, REST, or a test dispatcher.
-
-    The summary has not gone out yet, so the failure belongs in it, worded
-    exactly as the surrounding except blocks word their own. Reporting it
-    separately here would drop the summary's count and split one run's
-    story across two messages.
-    """
-    errors: list[str] = []
-    not_sent = threading.Event()
-
-    protocol_cleanup._schedule_cleanup_ui(_boom, 'Restore layer shader', errors, not_sent)
-
-    assert len(errors) == 1, f'the failure must be collected for the summary; got {errors}'
-    assert errors[0].startswith('Restore layer shader: RuntimeError'), (
-        f'collected wording must match the surrounding except blocks; got {errors[0]!r}'
-    )
+        kivy_utils.schedule_ui(_raise(RuntimeError('boom')), 0)

@@ -22,8 +22,10 @@ from modules.config_helpers import (
     get_auto_gain_settings,
     get_current_objective_info,
 )
-from modules.exceptions import ConfigError
+from modules.exceptions import CatalogueNameRefusedError, ConfigError
 from modules.objectives_loader import ObjectiveLoader
+from modules.labware_loader import WellPlateLoader
+from modules.notification_center import Severity
 from modules.zstack_config import ZStackConfig
 from tests.settings_fixtures import complete_settings
 
@@ -31,6 +33,13 @@ from tests.settings_fixtures import complete_settings
 def _objective_helper_for(settings: dict):
     """The real loader -- the objective id comes from the shipped template."""
     return ObjectiveLoader()
+
+
+def _wellplate_loader():
+    """The real loader -- labware resolves through the catalogue the GUI lane
+    uses, so a plate it does not have is refused rather than reaching the
+    config as a bare empty string."""
+    return WellPlateLoader()
 
 
 class TestGetBinningFromSettings:
@@ -113,103 +122,52 @@ class TestGetImageCaptureConfig:
 
 
 class TestGetSelectedLabware:
-    """get_selected_labware_from_settings ALWAYS returns a valid plate per
-    Eric's 2026-04-25 directive -- never None. Falls back to the shipped
-    default, then to the first available plate, then raises only if the
-    loader is genuinely empty (broken install).
+    """get_selected_labware_from_settings answers the stored plate or
+    raises ConfigError naming it -- never None, and never a different
+    plate. A substituted plate has different geometry, so every well
+    position computed from it would be wrong while the protocol reads as
+    if it ran normally.
     """
 
     def test_reads_labware(self):
-        loader = MagicMock()
-        plate = MagicMock()
-        loader.get_plate.return_value = plate
-        settings = {'protocol': {'labware': '96-well'}}
+        loader = _wellplate_loader()
+        settings = {'protocol': {'labware': '24 well microplate'}}
         labware_id, obj = get_selected_labware_from_settings(settings, loader)
-        assert labware_id == '96-well'
-        assert obj is plate
+        assert labware_id == '24 well microplate'
+        assert obj.config == loader.get_plate('24 well microplate').config
 
-    def test_empty_settings_falls_back_to_default(self):
-        # No labware in settings -> use DEFAULT_LABWARE_ID '96 well microplate'.
-        loader = MagicMock()
-        plate = MagicMock()
-        loader.get_plate.return_value = plate
-        labware_id, obj = get_selected_labware_from_settings({}, loader)
-        assert labware_id == '96 well microplate'
-        assert obj is plate
-
-    def test_loader_keyerror_falls_back_to_default(self):
-        # Settings has a labware id but loader doesn't recognize it ->
-        # fall back to default.
-        loader = MagicMock()
-        default_plate = MagicMock()
-
-        def fake_get_plate(plate_key=None):
-            if plate_key == 'nonexistent':
-                raise KeyError('not found')
-            return default_plate
-
-        loader.get_plate.side_effect = fake_get_plate
-        settings = {'protocol': {'labware': 'nonexistent'}}
-        labware_id, obj = get_selected_labware_from_settings(settings, loader)
-        assert labware_id == '96 well microplate'
-        assert obj is default_plate
-
-    def test_unavailable_labware_notifies_user(self, monkeypatch):
-        # The substitution changes plate geometry, so the user must be told
-        # rather than have the protocol silently run on the wrong plate (EXC-M-9).
-        loader = MagicMock()
-        default_plate = MagicMock()
-
-        def fake_get_plate(plate_key=None):
-            if plate_key == 'nonexistent':
-                raise KeyError('not found')
-            return default_plate
-
-        loader.get_plate.side_effect = fake_get_plate
-
-        warnings = []
-        import modules.notification_center as nc
-
-        monkeypatch.setattr(
-            nc.notifications,
-            'warning',
-            lambda category, title, message, **k: warnings.append((category, title, message)),
+    def test_a_retired_spelling_answers_under_the_catalogue_key(self):
+        loader = _wellplate_loader()
+        labware_id, _ = get_selected_labware_from_settings(
+            {'protocol': {'labware': 'Center Dish'}}, loader
         )
+        assert labware_id == 'Center Plate'
 
-        get_selected_labware_from_settings({'protocol': {'labware': 'nonexistent'}}, loader)
-        assert any('Labware' in category for category, _, _ in warnings)
+    def test_settings_naming_no_plate_are_refused(self):
+        with pytest.raises(ConfigError, match='the settings name no plate'):
+            get_selected_labware_from_settings({}, _wellplate_loader())
 
-    def test_loader_keyerror_on_default_falls_back_to_first_available(self):
-        # Both requested AND default missing -> fall back to first plate
-        # in the loader's list.
-        loader = MagicMock()
-        first_plate = MagicMock()
+    def test_an_unknown_plate_is_refused_by_name(self):
+        with pytest.raises(
+            CatalogueNameRefusedError, match=r"labware catalogue.*'nonexistent' is not one"
+        ) as refused:
+            get_selected_labware_from_settings(
+                {'protocol': {'labware': 'nonexistent'}}, _wellplate_loader()
+            )
+        # The message lists what the user can pick instead.
+        assert '96 well microplate' in str(refused.value)
 
-        def fake_get_plate(plate_key=None):
-            if plate_key in ('requested-key', '96 well microplate'):
-                raise KeyError('not found')
-            return first_plate
+    def test_an_unknown_plate_posts_nothing(self, centre_posts):
+        # The raise is the report: the caller that waits on it shows it, once.
+        with pytest.raises(ConfigError):
+            get_selected_labware_from_settings(
+                {'protocol': {'labware': 'nonexistent'}}, _wellplate_loader()
+            )
+        assert [n for n in centre_posts if n.severity == Severity.WARNING] == []
 
-        loader.get_plate.side_effect = fake_get_plate
-        loader.get_plate_list.return_value = ['some-other-plate']
-        settings = {'protocol': {'labware': 'requested-key'}}
-        labware_id, obj = get_selected_labware_from_settings(settings, loader)
-        assert labware_id == 'some-other-plate'
-        assert obj is first_plate
-
-    def test_loader_completely_empty_raises_valueerror(self):
-        # Genuinely-broken install: labware.json missing entirely. The
-        # function must raise rather than return None -- caller can't
-        # recover from a missing labware database.
-        loader = MagicMock()
-        loader.get_plate.side_effect = KeyError('not found')
-        loader.get_plate_list.return_value = []
-        settings = {'protocol': {'labware': 'anything'}}
-        import pytest
-        from modules.exceptions import ConfigError
-
-        with pytest.raises(ConfigError, match='no plates registered'):
-            get_selected_labware_from_settings(settings, loader)
+    def test_an_empty_name_is_refused_not_defaulted(self):
+        with pytest.raises(CatalogueNameRefusedError, match=r"labware catalogue.*'' is not one"):
+            get_selected_labware_from_settings({'protocol': {'labware': ''}}, _wellplate_loader())
 
 
 class TestGetZstackParams:
@@ -304,6 +262,8 @@ class TestHeadlessTilingOverlap:
         config = get_sequenced_capture_config_from_settings(
             settings,
             objective_helper=_objective_helper_for(settings),
+            wellplate_loader=_wellplate_loader(),
+            current_z=0.0,
         )
         assert config['tiling_overlap_percent'] == 25.0
 

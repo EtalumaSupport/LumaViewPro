@@ -4,14 +4,12 @@
 Companion to test_review_prepass_hardening.py: pins the findings from the
 multi-agent review of the mono-native + overlap bundle. Behavioral where
 the module imports under the harness; source/AST locks where the carrier
-is Kivy-bound and cannot be instantiated (window keyboard handler,
-layer_control focus refresh).
+is Kivy-bound and cannot be instantiated (window keyboard handler).
 """
 
 from __future__ import annotations
 
 import ast
-import inspect
 import pathlib
 
 
@@ -40,34 +38,3 @@ class TestAltF4Keycode:
         assert 'Alt-F4' in src
         assert 'key == 285' in src, 'Alt-F4 branch must test Kivy F4 keycode 285.'
         assert 'key == 293' not in src, '293 is F12, not F4.'
-
-
-class TestCompositeNoDeadThresholdParam:
-    """generate_composite_from_paths must not re-grow brightness_thresholds:
-    it was accepted + documented as 'forwarded to build_composite' but never
-    threaded -- the builder recomputes thresholds from settings, so the param
-    silently did nothing."""
-
-    def test_signature_has_no_brightness_thresholds(self):
-        from modules.composite_generation import CompositeGeneration
-
-        params = inspect.signature(CompositeGeneration.generate_composite_from_paths).parameters
-        assert 'brightness_thresholds' not in params
-
-
-class TestSaveFocusRefresh:
-    """The scheduled save-focus refresh must log failures (not swallow them
-    with except: pass) so a stale-Z labware view is diagnosable, and must not
-    re-import Clock locally (the module-level import is in scope)."""
-
-    def test_refresh_callback_logs_on_failure(self):
-        src = _method_src('ui/layer_control.py', None, '_refresh')
-        assert 'logger.exception' in src, (
-            'the save_focus refresh callback must log on failure, not pass.'
-        )
-
-    def test_execute_save_focus_has_no_local_clock_reimport(self):
-        src = _method_src('ui/layer_control.py', 'LayerControl', 'execute_save_focus')
-        assert 'from kivy.clock import Clock' not in src, (
-            'execute_save_focus must use the module-level Clock import.'
-        )

@@ -3,7 +3,7 @@
 into the user's live layer settings; the panel re-syncs from settings at run
 end.
 
-The defect: the run's step executor navigates to every step through the
+The defect: the run's step executor navigated to every step through the
 GUI's ``go_to_step`` callback, which wrote the step's nine values into the
 user's live layer settings on every step, and the per-layer widget setter
 wrote two more (video and stim config). After a run the user's live
@@ -15,15 +15,15 @@ first slider touch, and the panel won.
 
 Contract under test:
 
-- ``go_to_step`` writes the layer's settings ONLY for manual navigation
-  (``called_from_protocol=False``); a protocol-cycle invocation displays the
-  step and leaves the settings alone.
+- ``go_to_step`` writes the layer's settings ONLY for a person's navigation
+  (``include_move=True``); the run's display of its step
+  (``include_move=False``) moves the step pointer and leaves the settings
+  alone.
 - ``LayerControl.set_step_state`` is a pure widget setter: it touches no
   settings.
-- At run end the cleanup schedules ``sync_layer_widgets`` exactly once,
-  outside the autofocus-restore loop and its empty-snapshot gate, and that
-  callback re-syncs every layer's widgets from its stored settings through
-  the one settings-to-widgets implementation (the startup loop, extracted).
+- At run end the GUI's ``run_ended`` handler re-syncs every layer's widgets
+  from its stored settings, once, through the one settings-to-widgets
+  implementation (the startup loop, extracted); the engine names no such chore.
 """
 
 from __future__ import annotations
@@ -73,56 +73,27 @@ def _make_step():
     }
 
 
-# The settings key each step column lands in under manual navigation.
-STEP_TO_SETTINGS = {
-    'Auto_Focus': 'autofocus',
-    'False_Color': 'false_color',
-    'Illumination': 'illumination_ma',
-    'Gain': 'gain_db',
-    'Auto_Gain': 'auto_gain',
-    'Exposure': 'exposure_ms',
-    'Sum': 'sum',
-    'Acquire': 'acquire',
-    'Z': 'focus',
-    'Video Config': 'video_config',
-}
-
-
-def _go_to_step(step, *, called_from_protocol, include_move=True):
+def _go_to_step(step, *, include_move=True):
     import ui.step_navigation as step_navigation
 
     protocol = SimpleNamespace(
         num_steps=MagicMock(return_value=1),
         step=MagicMock(return_value=step),
+        step_list_revision=0,
     )
+    # The panel shows this protocol: a completed move lands only on the
+    # protocol and step list it was sent for.
+    import modules.app_context as _app_ctx
+
+    _app_ctx.ctx.motion_settings.ids['protocol_settings_id']._protocol = protocol
     step_navigation.go_to_step(
         protocol,
         step_idx=0,
         include_move=include_move,
-        called_from_protocol=called_from_protocol,
     )
 
 
 class TestRunNavigationLeavesLayerSettingsAlone:
-    def test_run_navigation_leaves_layer_settings_alone(self, stepnav_env):
-        """A protocol-cycle invocation leaves the layer's settings exactly
-        as they were. The display still follows: the widget setter is
-        called once with the step -- the green half of this test, so a
-        future change cannot silence the display to satisfy the red half."""
-        env = stepnav_env
-        env.ctx.session.run_lockout = True
-        before = copy.deepcopy(env.ctx.settings['Green'])
-        step = _make_step()
-
-        _go_to_step(step, called_from_protocol=True)
-
-        assert env.ctx.settings['Green'] == before, (
-            "a protocol run must not write the step into the user's layer settings; "
-            f'changed: {sorted(k for k in before if env.ctx.settings["Green"].get(k) != before[k])}'
-        )
-        assert env.layer_obj.set_step_state.call_count == 1
-        assert env.layer_obj.set_step_state.call_args.args[0] is step
-
     def test_run_navigation_without_move_neither_writes_nor_displays(self, stepnav_env):
         """include_move=False skips the whole step block, the display update
         included. Recorded so a future caller cannot lose the display
@@ -131,41 +102,31 @@ class TestRunNavigationLeavesLayerSettingsAlone:
         env.ctx.session.run_lockout = True
         before = copy.deepcopy(env.ctx.settings['Green'])
 
-        _go_to_step(_make_step(), called_from_protocol=True, include_move=False)
+        _go_to_step(_make_step(), include_move=False)
 
         assert env.ctx.settings['Green'] == before
         assert env.layer_obj.set_step_state.call_count == 0
 
 
-class TestManualNavigationLoadsTheStepIntoTheLayer:
-    def test_manual_navigation_loads_the_step_into_the_layer(self, stepnav_env, monkeypatch):
-        """Manual navigation writes all eleven keys, the two config dicts as
-        deep copies, and the write lands BEFORE the manual-nav outcome is
-        applied (its apply_settings reads the settings)."""
+class TestManualNavigationWritesNothingInTheGui:
+    def test_the_write_is_the_sessions_and_the_apply_follows_it(self, stepnav_env):
+        """A person's navigation writes the step into its layer inside
+        ``ScopeSession.go_to_step`` (every key, the config dicts as copies:
+        tests/test_going_to_a_step_is_the_sessions_move.py); the GUI writes
+        no setting itself and applies the layer only once the Session has
+        gone, so the apply reads the step's values."""
         env = stepnav_env
-        seen_at_outcome = {}
+        before = copy.deepcopy(env.ctx.settings['Green'])
+        order = []
+        env.ctx.session.start_go_to_step.side_effect = lambda protocol, step_idx: order.append(
+            'session'
+        )
+        env.layer_obj.apply_settings.side_effect = lambda **kwargs: order.append('apply')
 
-        def _record_outcome(**kwargs):
-            seen_at_outcome.update(copy.deepcopy(kwargs['settings']['Green']))
+        _go_to_step(_make_step())
 
-        monkeypatch.setattr('ui.step_navigation._apply_manual_nav_outcome', _record_outcome)
-        step = _make_step()
-
-        _go_to_step(step, called_from_protocol=False)
-
-        green = env.ctx.settings['Green']
-        for column, key in STEP_TO_SETTINGS.items():
-            assert green[key] == step[column], f"{key} did not take the step's {column}"
-        assert green['stim_config'] == step['Stim_Config']['Green']
-        assert seen_at_outcome, 'the manual-nav outcome must be applied'
-        assert seen_at_outcome == green, 'the settings write must precede the outcome'
-
-        # Deep copies: the step's dicts are the protocol's; mutating them
-        # afterwards must not reach into the user's settings.
-        step['Video Config']['duration'] = 999
-        step['Stim_Config']['Green']['illumination_ma'] = 999
-        assert green['video_config']['duration'] == 30
-        assert green['stim_config']['illumination_ma'] == 200
+        assert env.ctx.settings['Green'] == before, 'the GUI wrote a setting itself'
+        assert order == ['session', 'apply']
 
 
 # Every widget id set_step_state writes, with the attribute it writes.
@@ -214,10 +175,26 @@ class _Widget:
         self.min = None
 
 
+def _scope_with_auto_gain(has_auto_gain):
+    """A scope whose camera does or does not have hardware auto-gain.
+
+    The API's own ``applied_auto_gain_for`` answers, over a camera stand that
+    reports only that capability, so the widget shows the real decision.
+    """
+    from tests.scope_fakes import answer_auto_gain_like_the_api
+
+    imaging = SimpleNamespace()
+    answer_auto_gain_like_the_api(imaging, has_auto_gain=has_auto_gain)
+    return SimpleNamespace(imaging=imaging)
+
+
 class _NoSettingsCtx:
     """A ctx whose settings cannot be read: a pure widget setter never asks."""
 
     settings_lock = threading.Lock()
+
+    def __init__(self, has_auto_gain=True):
+        self.scope = _scope_with_auto_gain(has_auto_gain)
 
     @property
     def settings(self):
@@ -225,15 +202,14 @@ class _NoSettingsCtx:
 
 
 class _LayerStand:
-    """A LayerControl stand-in: the widgets, the layer name, the capability
-    flag, and no-op visibility; the methods under test are called unbound."""
+    """A LayerControl stand-in: the widgets, the layer name, and no-op
+    visibility; the methods under test are called unbound."""
 
-    def __init__(self, layer, widget_ids, camera_autogain_support=True):
+    def __init__(self, layer, widget_ids):
         from ui.layer_control import LayerControl
 
         self.ids = {name: _Widget() for name in widget_ids}
         self.layer = layer
-        self.camera_autogain_support = camera_autogain_support
         self.show_stim_controls = None
         self._initializing = False
         self.visibility_calls = 0
@@ -298,8 +274,8 @@ class TestSetStepStateIsAPureWidgetSetter:
         with the control hidden there would be no way to un-grey them."""
         from ui.layer_control import LayerControl
 
-        monkeypatch.setattr('modules.app_context.ctx', _NoSettingsCtx())
-        stand = _LayerStand('Green', _STEP_WIDGETS, camera_autogain_support=False)
+        monkeypatch.setattr('modules.app_context.ctx', _NoSettingsCtx(has_auto_gain=False))
+        stand = _LayerStand('Green', _STEP_WIDGETS)
 
         LayerControl.set_step_state(stand, {'Auto_Gain': True})
 
@@ -379,7 +355,10 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
         }
         lock = _CountingLock()
         monkeypatch.setattr(
-            'modules.app_context.ctx', SimpleNamespace(settings=settings, settings_lock=lock)
+            'modules.app_context.ctx',
+            SimpleNamespace(
+                settings=settings, settings_lock=lock, scope=_scope_with_auto_gain(True)
+            ),
         )
         stand = _LayerStand(layer, _SETTINGS_WIDGETS)
         stand._initializing = True
@@ -423,11 +402,9 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
                 assert ids[box].visible is False and ids[box].opacity == 0
             assert stand.visibility_calls == 1
 
-    def test_cleanup_schedules_the_sync_once_outside_the_autofocus_restore(self):
-        """The schedule sits outside every loop and outside the
-        empty-snapshot gate: one call per run, whether or not any autofocus
-        state was restored."""
-        fn = find_def('modules/protocol_cleanup.py', 'run_cleanup')
+    def test_the_run_end_handler_syncs_once(self):
+        """The GUI's run_ended handler re-syncs the panel, once, outside every loop."""
+        fn = find_def('ui/ui_helpers.py', 'restore_display_after_run')
         assert fn is not None
         parents = {}
         for node in ast.walk(fn):
@@ -436,32 +413,25 @@ class TestRunEndResyncsEveryLayerOnceFromSettings:
         sites = [
             node
             for node in ast.walk(fn)
-            if isinstance(node, ast.Attribute) and node.attr == 'sync_layer_widgets'
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == 'sync_layer_widgets_from_settings'
         ]
-        assert sites, 'run_cleanup must schedule callbacks.sync_layer_widgets'
-        for site in sites:
-            node = site
-            while node in parents:
-                node = parents[node]
-                assert not isinstance(node, (ast.For, ast.While)), (
-                    'the sync must be scheduled once, not per restored layer'
-                )
-                if isinstance(node, ast.If):
-                    assert 'autofocus_snapshot.states' not in ast.unparse(node.test), (
-                        'the sync must not be gated on the autofocus snapshot'
-                    )
+        assert len(sites) == 1, 'restore_display_after_run must sync the layer widgets once'
+        node = sites[0]
+        while node in parents:
+            node = parents[node]
+            assert not isinstance(node, (ast.For, ast.While)), 'the sync must run once per run'
 
-    def test_callbacks_carry_sync_layer_widgets_not_reset_autofocus_btns(self):
-        tree = parse_module('modules/protocol_callbacks.py')
-        fields = {
-            stmt.target.id
+    def test_the_engine_names_no_layer_widget_sync(self):
+        """The sync is display work: the run's cleanup names no GUI chore."""
+        tree = parse_module('modules/protocol_cleanup.py')
+        names = {
+            node.attr if isinstance(node, ast.Attribute) else node.id
             for node in ast.walk(tree)
-            if isinstance(node, ast.ClassDef) and node.name == 'ProtocolCallbacks'
-            for stmt in node.body
-            if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name)
+            if isinstance(node, (ast.Attribute, ast.Name))
         }
-        assert 'sync_layer_widgets' in fields
-        assert 'reset_autofocus_btns' not in fields
+        assert not {'sync_layer_widgets', 'restore_layer_shader'} & names
 
 
 def _constant_key_path(target: ast.AST) -> str:
@@ -496,12 +466,14 @@ class TestStimIlluminationTextWritesTheSliderKey:
 
         slider_fn = find_def('ui/layer_control.py', 'stim_ill_slider', class_name='LayerControl')
         assert slider_fn is not None
+        # The slider writes f'{self.layer}.<path>' through the settings writer.
         slider_paths = {
-            _constant_key_path(target)
+            node.args[0].values[-1].value.removeprefix('.')
             for node in ast.walk(slider_fn)
-            if isinstance(node, ast.Assign)
-            for target in node.targets
-            if isinstance(target, ast.Subscript)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == 'update_settings'
+            and isinstance(node.args[0], ast.JoinedStr)
         }
 
         assert text_path == 'stim_config.illumination_ma'

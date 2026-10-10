@@ -1,40 +1,26 @@
 # Copyright Etaluma, Inc.
 import logging
-import pathlib
 
-from kivy.clock import Clock
+from kivy.properties import BooleanProperty
 
 from kivy.uix.floatlayout import FloatLayout
 
 import modules.common_utils as common_utils
 import modules.app_context as _app_ctx
-import modules.config_helpers as config_helpers
 from modules import gui_logger
-from modules.config_ui_getters import (
-    get_active_layer_config,
-    get_auto_gain_settings,
-    get_binning_from_ui,
-    get_current_frame_dimensions,
-    get_image_capture_config_from_ui,
-    get_selected_labware,
-    get_stim_configs,
-    get_zstack_params,
-    get_zstack_positions,
-    is_image_saving_enabled,
-)
-from modules.sequenced_capture_runner import SequencedCaptureRunMode
-from modules.tiling_config import TilingConfig
+from modules.config_ui_getters import is_image_saving_enabled
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from modules.sequenced_capture_runner import RunHandle
+from modules.run_events import RunEvents
 from ui.ui_helpers import (
-    _handle_ui_update_for_axis,
-    live_display_callbacks,
-    live_histo_off,
-    live_histo_reverse,
-    reset_title,
-    run_with_refusal_boundary,
     set_last_save_folder,
-    set_recording_title,
-    set_writing_title,
+    show_captured_frame,
+    show_video_progress,
+    submit_reported,
     sync_layer_widgets_from_settings,
+    typed_number,
 )
 from modules.zstack_config import ZStackConfig
 
@@ -42,49 +28,47 @@ logger = logging.getLogger('LVP.ui.zstack')
 
 
 class ZStack(FloatLayout):
+    # The handle this button's last start returned: what its Stop names.
+    # The engine answers whether it is still the live run.
+    _zstack_run: 'RunHandle | None' = None
+    # True while this button's own request is on its way to the engine; the
+    # button is disabled until that request's redraw.
+    zstack_pending = BooleanProperty(False)
+    # True while anything but this button's own run holds the scope -- another
+    # run, a recording, a diagnostic -- as the Session answers; greys the
+    # button, and its own run leaves it live as that run's Stop.
+    zstack_held = BooleanProperty(False)
+
     def set_steps(self):
         logger.info('[LVP Main  ] ZStack.set_steps()')
         settings = _app_ctx.ctx.settings
 
-        # This handler rewrites the widget only when it coerces a bad entry, so
-        # comparing the text before and after IS the coercion signal. The typed
-        # value itself is recorded by log_step_field, which the kv binds ahead
-        # of this handler on the same events so it reads the box first.
+        # This handler rewrites the widget only when it puts back an entry
+        # that is not a number, so comparing the text before and after IS the
+        # put-back signal. The typed value itself is recorded by
+        # log_step_field, which the kv binds ahead of this handler on the same
+        # events so it reads the box first.
         typed = {wid: self.ids[wid].text for wid in ('zstack_stepsize_id', 'zstack_range_id')}
 
-        try:
-            step_size = float(self.ids['zstack_stepsize_id'].text)
-            if step_size < 0:
-                step_size = 0
-                self.ids['zstack_stepsize_id'].text = str(step_size)
-        except Exception:
-            step_size = 0
-            self.ids['zstack_stepsize_id'].text = str(step_size)
-        finally:
-            with _app_ctx.ctx.settings_lock:
-                settings['zstack']['step_size'] = step_size
+        # A number is stored as typed, whatever its sign: a stack whose step
+        # or range is not above zero is refused when it is built, naming the
+        # values the person entered, and the Steps field reads 0 meanwhile.
+        for wid, key in (('zstack_stepsize_id', 'step_size'), ('zstack_range_id', 'range')):
+            box = self.ids[wid]
 
-        try:
-            step_range = float(self.ids['zstack_range_id'].text)
-            if step_range < 0:
-                step_range = 0
-                self.ids['zstack_range_id'].text = str(step_range)
-        except Exception:
-            step_range = 0
-            self.ids['zstack_range_id'].text = str(step_range)
-        finally:
-            with _app_ctx.ctx.settings_lock:
-                settings['zstack']['range'] = step_range
+            def put_back(box=box, key=key):
+                box.text = str(settings['zstack'][key])
 
-        from ui.ui_helpers import text_input_debounced
+            value = typed_number(box.text, float, put_back)
+            if value is not None:
+                _app_ctx.ctx.update_settings(f'zstack.{key}', value)
 
         for wid, name in (
             ('zstack_stepsize_id', 'ZSTACK_STEP_SIZE'),
             ('zstack_range_id', 'ZSTACK_RANGE'),
         ):
             if self.ids[wid].text != typed[wid]:
-                text_input_debounced(f'{name}_APPLIED', self.ids[wid].text)
-                gui_logger.note_write_back(name, self.ids[wid].text)
+                gui_logger.text_input(f'{name}_APPLIED', self.ids[wid].text)
 
         z_reference = common_utils.convert_zstack_reference_position_setting_to_config(
             text_label=self.ids['zstack_spinner'].text
@@ -107,210 +91,111 @@ class ZStack(FloatLayout):
         both whenever either committed. Logging from the binding keeps each
         field's record its own.
 
-        The value recorded is what the user typed. ``set_steps`` coerces a bad
-        entry to 0; that coercion is the system reacting, which belongs in the
-        main log, while this file records what the user did.
+        The value recorded is what the user typed. ``set_steps`` puts back an
+        entry that is not a number and records that under ``<NAME>_APPLIED``;
+        this records what the user did.
         """
-        from ui.ui_helpers import text_input_debounced
-
-        text_input_debounced(name, self.ids[widget_id].text)
+        gui_logger.text_input(name, self.ids[widget_id].text)
 
     def set_position(self) -> None:
         gui_logger.select('ZSTACK_REFERENCE_POSITION', self.ids['zstack_spinner'].text)
-        ctx = _app_ctx.ctx
-        with ctx.settings_lock:
-            ctx.settings['zstack']['position'] = self.ids['zstack_spinner'].text
-
-    def _reset_run_zstack_acquire_button(self, **kwargs):
-        self.ids['zstack_aqr_btn'].state = 'normal'
-        self.ids['zstack_aqr_btn'].text = 'Acquire'
-        live_histo_reverse()
-
-    def _cleanup_at_end_of_acquire(self):
-        ctx = _app_ctx.ctx
-        runner = ctx.sequenced_capture_runner
-        # On an abort, reset() returns immediately and the hardware
-        # teardown runs on the protocol thread; _zstack_run_complete
-        # (fired by cleanup) resets the button when it ends. Restoring
-        # the button here on the abort flavor would invite a new acquire
-        # while the old one is still tearing down (the start guard
-        # refuses it, but the label would lie about readiness).
-        deferred_to_cleanup = runner.run_in_progress()
-        runner.reset()
-        if deferred_to_cleanup:
-            self.ids['zstack_aqr_btn'].text = 'Stopping...'
-            return
-        self._reset_run_zstack_acquire_button()
-        live_histo_reverse()
-
-    def _zstack_run_complete(self, **kwargs):
-        self._reset_run_zstack_acquire_button()
-        live_histo_reverse()
+        _app_ctx.ctx.update_settings('zstack.position', self.ids['zstack_spinner'].text)
 
     def run_zstack_acquire_from_ui(self):
-        try:
-            gui_logger.button('ZSTACK')
-            logger.info('[LVP Main  ] ZStack.run_zstack_acquire_from_ui()')
-            ctx = _app_ctx.ctx
+        """Start a z-stack, or stop the one this button started.
 
-            live_histo_off()
+        Everything about the run -- the objective, the stack, the capture,
+        and every refusal of it -- is the member's, and the boundary shows
+        a refusal once. This button states only what a running GUI knows:
+        the open drawer, its own token, the live engineering flag and the
+        engineering panel's saving switch, all read here on the GUI thread.
 
-            settings = ctx.settings
+        Whether the press means Stop is the engine's answer -- is the run
+        this button started still live -- never the toggle's, which Kivy has
+        already flipped. The button changes nothing ahead of the engine's
+        answer; draw_zstack_button shows it.
+        """
+        gui_logger.button('ZSTACK')
+        logger.info('[LVP Main  ] ZStack.run_zstack_acquire_from_ui()')
+        ctx = _app_ctx.ctx
+        run = self._zstack_run
+        # The button is disabled until this request's own redraw, so a
+        # second press cannot race the first one to the pool.
+        self.zstack_pending = True
 
-            trigger_source = 'zstack'
-            run_not_started_func = self._reset_run_zstack_acquire_button
-            run_complete_func = self._zstack_run_complete
-
-            run_trigger_source = ctx.sequenced_capture_runner.run_trigger_source()
-            if ctx.sequenced_capture_runner.run_in_progress() and (
-                run_trigger_source != trigger_source
-            ):
-                run_not_started_func()
-                logger.warning(
-                    f'Cannot start Z-Stack acquire. Run already in progress from {run_trigger_source}'
-                )
-                return
-
-            if self.ids['zstack_aqr_btn'].state == 'normal':
-                self._cleanup_at_end_of_acquire()
-                return
-
-            # Immediate text while the first slice is being prepared.
-            # _zstack_progress (below) overwrites this with "Z {n}/{total}"
-            # as soon as the protocol_step_runner starts the first slice.
-            self.ids['zstack_aqr_btn'].text = 'Running Z-Stack'
-
-            labware_id, _ = get_selected_labware()
-            objective_id, _ = ctx.session.get_current_objective_info()
-            zstack_positions_valid, _ = get_zstack_positions()
-            zstack_params = get_zstack_params()
-            active_layer, active_layer_config = get_active_layer_config()
-            active_layer_config['acquire'] = 'image'
-            # Z-stack manages Z positions explicitly -- AF would override them
-            active_layer_config['autofocus'] = False
-
-            if not zstack_positions_valid:
-                _range = zstack_params.get('range', 0)
-                _step = zstack_params.get('step_size', 0)
-                if _range <= 0 or _step <= 0:
-                    msg = (
-                        f'Z-stack range ({_range}) and step size ({_step}) '
-                        f'must both be greater than zero.'
-                    )
-                else:
-                    msg = 'No Z-stack positions configured.'
-                logger.warning(f'[LVP Main  ] ZStack: {msg}')
-                from modules.notification_center import notifications
-
-                notifications.warning('Z-Stack', 'Z-Stack Not Configured', msg)
-                run_not_started_func()
-                return
-
-            curr_position = ctx.session.get_current_plate_position()
-            curr_position.update({'name': 'ZStack'})
-
-            positions = [
-                curr_position,
-            ]
-
-            tiling_config = TilingConfig(
-                tiling_configs_file_loc=pathlib.Path(ctx.source_path) / 'data' / 'tiling.json',
+        if run is not None and run.is_live:
+            submit_reported(
+                run.stop,
+                self._zstack_request_done,
+                'ZSTACK',
+                stop=True,
             )
+            return
 
-            config = config_helpers.build_sequenced_capture_config(
-                {
-                    'labware_id': labware_id,
-                    'positions': positions,
-                    'objective_id': objective_id,
-                    'zstack_params': zstack_params,
-                    'use_zstacking': True,
-                    'tiling': tiling_config.no_tiling_label(),
-                    'tiling_overlap_percent': 0.0,
-                    'layer_configs': {active_layer: active_layer_config},
-                    'period': None,
-                    'duration': None,
-                    'frame_dimensions': get_current_frame_dimensions(),
-                    'binning_size': get_binning_from_ui(),
-                    'stim_config': get_stim_configs(),
-                }
+        runner = ctx.session.create_protocol_runner()
+        layer = common_utils.get_opened_layer(ctx.image_settings)
+        enable_image_saving = is_image_saving_enabled()
+        events = RunEvents(
+            frame_captured=show_captured_frame,
+            # Each slice redraws the button, which reads the step from the
+            # engine: a redraw from any other edge draws the same thing.
+            step_started=lambda step_idx: self.draw_zstack_button(),
+            video_progress=show_video_progress,
+            run_ended=lambda *ended: sync_layer_widgets_from_settings(),
+        )
+
+        def _start():
+            started = runner.run_zstack(
+                layer=layer,
+                events=events,
+                run_trigger_source='zstack',
+                enable_image_saving=enable_image_saving,
             )
+            self._zstack_run = started
+            # A refusal raises out of run_zstack before this line, so the
+            # save folder can only ever point at THIS run's directory,
+            # never a previous run's stale data.
+            set_last_save_folder(dir=started.run_dir)
 
-            zstack_sequence = ctx.scope.protocols.create_protocol(input_config=config)
+        submit_reported(_start, self._zstack_request_done, 'ZSTACK')
 
-            autogain_settings = get_auto_gain_settings()
+    def _zstack_request_done(self):
+        self.zstack_pending = False
+        self.draw_zstack_button()
 
-            # Per-step progress indicator on the Acquire button. The
-            # protocol_step_runner fires update_step_number(step) per slice,
-            # where step is 1-indexed; the lambda captures total once at
-            # construction time. Clock.schedule_once marshals the text
-            # update back to the main thread because update_step_number
-            # fires from the protocol thread.
-            total_slices = zstack_sequence.num_steps()
-            zstack_btn = self.ids['zstack_aqr_btn']
+    def draw_zstack_button(self):
+        """Show the z-stack this button started, as the engine reports it.
 
-            def _zstack_progress(step_num):
-                Clock.schedule_once(
-                    lambda dt: setattr(zstack_btn, 'text', f'Z {step_num}/{total_slices}'),
-                    0,
-                )
+        The only code that styles the button: after each of its own
+        requests, on every slice, and on every run-state edge -- including
+        the run's return to idle. "Z n/total" is the run's own step and
+        count, asked of the engine, because the member built the protocol
+        and this widget never holds it.
+        """
+        ctx = _app_ctx.ctx
+        self.zstack_held = ctx.session.held_by_other(self._zstack_run)
+        button = self.ids['zstack_aqr_btn']
+        label = _running_label(self._zstack_run)
+        if label is None:
+            button.state = 'normal'
+            button.text = 'Acquire'
+            return
+        button.state = 'down'
+        button.text = label
 
-            callbacks = {
-                **live_display_callbacks(),
-                'move_position': _handle_ui_update_for_axis,
-                'run_complete': run_complete_func,
-                'update_step_number': _zstack_progress,
-                # LED observer handles UI sync -- no manual callbacks needed
-                'sync_layer_widgets': sync_layer_widgets_from_settings,
-                'set_recording_title': set_recording_title,
-                'set_writing_title': set_writing_title,
-                'reset_title': reset_title,
-                'pause_live_ui': lambda: (
-                    ctx.scope_display.stop(),
-                    Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
-                ),
-                'resume_live_ui': lambda: (
-                    ctx.scope_display.start(),
-                    Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
-                    Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 0.1),
-                ),
-            }
 
-            parent_dir = pathlib.Path(settings['live_folder']).resolve() / 'Manual' / 'Z-Stacks'
+def _running_label(run: 'RunHandle | None') -> str | None:
+    """What the button says while its run is live; None when it is not.
 
-            initial_position = ctx.session.get_current_plate_position()
-            image_capture_config = get_image_capture_config_from_ui()
-
-            def prepare_and_start():
-                plan = ctx.sequenced_capture_runner.prepare(
-                    protocol=zstack_sequence,
-                    run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
-                    run_trigger_source=trigger_source,
-                    max_scans=1,
-                    sequence_name='zstack',
-                    parent_dir=parent_dir,
-                    image_capture_config=image_capture_config,
-                    enable_image_saving=is_image_saving_enabled(),
-                    autogain_settings=autogain_settings,
-                    callbacks=callbacks,
-                    return_to_position=initial_position,
-                    leds_state_at_end='return_to_original',
-                    engineering_mode=ctx.engineering_mode,
-                    autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
-                        settings, ctx.settings_lock
-                    ),
-                    **config_helpers.get_sequenced_run_settings(
-                        settings, run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK
-                    ),
-                )
-                ctx.sequenced_capture_runner.start(plan)
-                # A refusal raises out of prepare before this line, so the
-                # save folder can only ever point at THIS run's directory,
-                # never a previous run's stale data.
-                set_last_save_folder(dir=ctx.sequenced_capture_runner.run_dir())
-
-            run_with_refusal_boundary(prepare_and_start, on_refused=run_not_started_func)
-        except Exception as e:
-            logger.error(f'[UI] run_zstack_acquire_from_ui failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(title='Error', message=str(e))
+    None also when the run ended between the live read and the progress
+    reads -- its progress is None then -- so the button draws what it read
+    rather than a running label for a run that has ended.
+    """
+    if run is None or not run.is_live:
+        return None
+    if run.is_stopping:
+        return 'Stopping...'
+    step, total = run.step_number, run.num_steps
+    if step is None or total is None:
+        return None
+    return f'Z {step}/{total}'

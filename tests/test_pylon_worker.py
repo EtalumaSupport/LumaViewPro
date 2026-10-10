@@ -48,6 +48,10 @@ class _FakeGrabResult:
         arr.copy.return_value = arr
         return arr
 
+    def GetPayloadSize(self):
+        # The bytes this grab carried on the link; the store counts them.
+        return 4321
+
     def GetPixelType(self):
         # Real pypylon PixelType_Mono8 value; the worker reads this to stamp
         # the frame's depth (pylon.BitDepth maps it to 8).
@@ -164,6 +168,8 @@ class TestProcessFrame(unittest.TestCase):
         ts = 12345.0
         worker._process_frame(gr, ts)
         base._store_frame.assert_called_once()
+        # The wire bytes are the grab result's own payload, not the array's.
+        assert base._store_frame.call_args.kwargs['wire_bytes'] == 4321
         success, _, got_ts, _seq = frame_queue.get_nowait()
         self.assertTrue(success)
         self.assertEqual(got_ts, ts)

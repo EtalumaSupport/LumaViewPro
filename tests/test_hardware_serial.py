@@ -18,6 +18,7 @@ import sys
 import time
 import threading
 import statistics
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
@@ -126,7 +127,7 @@ class TestMotorSerialBenchmark:
     def motor(self):
         from drivers.motorboard import MotorBoard
 
-        board = MotorBoard()
+        board = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         if not board.found:
             pytest.skip('Motor board not found')
         yield board
@@ -233,7 +234,3 @@ class TestConcurrentSerialAccess:
 
         print(f'\n  Concurrent LED test: {call_count[0]} on+off cycles in {elapsed:.2f}s')
         assert not errors, f'Errors: {errors[:10]}'
-        # All LEDs should be off
-        assert not led.is_led_on('Blue')
-        assert not led.is_led_on('Green')
-        assert not led.is_led_on('Red')

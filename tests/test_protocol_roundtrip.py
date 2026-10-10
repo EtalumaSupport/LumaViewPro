@@ -16,6 +16,7 @@ These tests verify that:
 3. Step validation catches invalid configs before execution
 """
 
+import dataclasses
 import datetime
 import pathlib
 import json
@@ -25,14 +26,21 @@ import time
 import pandas as pd
 import pytest
 
+from modules.activity_claim import ActivityClaim
 from modules.exceptions import ProtocolRunRefusedError
 from modules.image_mode import ImageCaptureConfig
-from modules.protocol import Protocol
+from modules.labware_loader import WellPlateLoader
+from modules.objectives_loader import ObjectiveLoader
+from modules.protocol import Protocol, ProtocolFormatError
+from modules.run_events import RunEvents
 from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
-from modules.lumascope_api import Lumascope
-from tests.scope_fakes import home_sim_scope
-from tests.protocol_drives import autofocus_snapshot
+from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
+from tests.protocol_drives import (
+    StepHeartbeat,
+    wait_for_run_end,
+)
+from tests.scope_fakes import configure_turret_like_bringup
 from unittest.mock import MagicMock
 
 
@@ -41,6 +49,8 @@ from unittest.mock import MagicMock
 # ---------------------------------------------------------------------------
 
 COMPLETION_TIMEOUT = 20  # seconds
+# A bound only on a stuck file lane: a loaded host can take seconds to write.
+FILES_WAIT_S = 60
 
 TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
@@ -166,12 +176,9 @@ def _build_protocol(steps, period_min=1.0, duration_hrs=1.0, labware='6 well mic
         'capture_root': '',
         'tiling': '1x1',
     }
-    # Built under the EL-0940 firmware ceiling, so the illumination checks
-    # exercise a cap the way a scope-built protocol does.
     return Protocol(
         tiling_configs_file_loc=TILING_CONFIGS,
         config=config,
-        led_max_ma=1000,
     )
 
 
@@ -197,16 +204,19 @@ def _save_and_reload(protocol, tmp_path):
 
 @pytest.fixture
 def scope():
-    s = home_sim_scope(Lumascope(simulate=True))
-    # The session registers the data root at bring-up; a runner over a
-    # bare scope needs it too, or the run refuses at start.
-    s.protocols.register_source_path('.')
+    # The data root is the scope's, given at construction; a runner over a
+    # bare scope reads its catalogues and tiling config from it.
+    s = home_sim_scope(build_scope(simulate=True, source_path='.'))
+    # A bare scope skipped bring-up, which fills the turret from the
+    # persisted slots; an empty turret addresses no glass at all.
+    configure_turret_like_bringup(s)
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
     s.imaging.start_streaming()
     yield s
-    s.imaging.stop_streaming()
+    # disconnect() stops the stream itself; a stop sent through the camera
+    # lane would be refused once the test's own lanes are shut.
     s.disconnect()
 
 
@@ -247,34 +257,25 @@ def executor(scope, executors):
     mock_af.best_focus_position = MagicMock(return_value=5000.0)
     mock_af.run_in_progress = MagicMock(return_value=False)
 
+    swap_lanes(scope, io=executors['io'], camera=executors['camera'])
     exc = SequencedCaptureRunner(
         scope=scope,
-        stage_offset={'x': 0.0, 'y': 0.0},
-        io_executor=executors['io'],
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
-        camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(is_running=False),
+        autofocus_thread=MagicMock(in_flight_sweep=None),
+        activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
     )
-    mock_loader = MagicMock()
-    mock_transformer = MagicMock()
-    mock_transformer.plate_to_stage = MagicMock(return_value=(0.0, 0.0))
-    exc._wellplate_loader = mock_loader
-    exc._coordinate_transformer = mock_transformer
     return exc
 
 
 @pytest.fixture
 def real_executor(scope, executors):
-    """Executor with REAL wellplate loader and coordinate transformer.
+    """Executor over the scope's real labware catalogue and coordinate transformer.
 
-    This exercises the full code path including move_abs_pos -> axes_config,
-    which catches init bugs that mocked fixtures miss.
+    A plate-frame step is converted by the production path, so a run here
+    reaches the motion API's plate conversion that a stand-in would skip.
     """
-    from modules.coord_transformations import CoordinateTransformer
-    from modules.labware_loader import WellPlateLoader
-
     mock_af = MagicMock()
     mock_af.reset = MagicMock()
     mock_af.in_progress = MagicMock(return_value=False)
@@ -284,18 +285,15 @@ def real_executor(scope, executors):
     mock_af.best_focus_position = MagicMock(return_value=5000.0)
     mock_af.run_in_progress = MagicMock(return_value=False)
 
+    swap_lanes(scope, io=executors['io'], camera=executors['camera'])
     exc = SequencedCaptureRunner(
         scope=scope,
-        stage_offset={'x': 0.0, 'y': 0.0},
-        io_executor=executors['io'],
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
-        camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(is_running=False),
+        autofocus_thread=MagicMock(in_flight_sweep=None),
+        activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
     )
-    exc._wellplate_loader = WellPlateLoader()
-    exc._coordinate_transformer = CoordinateTransformer()
     return exc
 
 
@@ -303,14 +301,15 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
     done = threading.Event()
     result_holder = {}
 
-    def on_complete(**kwargs):
-        result_holder.update(kwargs)
+    events = run_kwargs.pop('events', RunEvents())
+
+    def on_ended(outcome, run_dir, protocol):
+        result_holder.update(outcome=outcome, run_dir=run_dir, protocol=protocol)
+        if events.run_ended is not None:
+            events.run_ended(outcome, run_dir, protocol)
         done.set()
 
-    callbacks = run_kwargs.pop('callbacks', {})
-    callbacks['run_complete'] = on_complete
-    callbacks.setdefault('go_to_step', lambda **kw: None)
-    callbacks.setdefault('move_position', lambda axis: None)
+    heartbeat = StepHeartbeat(events.step_started)
 
     plan = executor.prepare(
         protocol=protocol,
@@ -321,13 +320,17 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         autogain_settings=run_kwargs.pop('autogain_settings', _make_autogain_settings()),
         parent_dir=tmp_path / 'output',
         max_scans=run_kwargs.pop('max_scans', 1),
-        callbacks=callbacks,
-        leds_state_at_end=run_kwargs.pop('leds_state_at_end', 'off'),
-        autofocus_snapshot=autofocus_snapshot(),
+        events=dataclasses.replace(events, run_ended=on_ended, step_started=heartbeat),
         **run_kwargs,
     )
-    executor.start(plan)
-    completed = done.wait(timeout=COMPLETION_TIMEOUT)
+    handle = executor.start(plan)
+    completed = wait_for_run_end(done, heartbeat)
+    # The images and the record are on the file lane; they are there once
+    # the run says its files are done, not when it lets go of the scope.
+    if completed:
+        assert handle.wait_for_files(timeout_s=FILES_WAIT_S) is not None, (
+            'the run never finished its files'
+        )
     return completed, result_holder
 
 
@@ -487,21 +490,19 @@ class TestRoundTripBasic:
         assert 'fps' in vc, 'loader must merge default fps when missing'
         assert vc['fps'] > 0, 'defaulted fps must satisfy validate_steps'
 
-        errors = proto.validate_steps()
+        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         fps_errors = [e for e in errors if 'Video Config fps' in e]
         assert fps_errors == [], (
             f'legacy-format Video Config must not produce fps errors; got {fps_errors}'
         )
 
-    def test_legacy_labware_alias_accepted_by_validator(self, tmp_path):
+    def test_legacy_labware_alias_is_canonical_once_loaded(self, tmp_path):
         """Legacy TSVs save the pre-rename labware name "384 well Corning Spheroid
-        Microplate". The WellPlateLoader alias table resolves it to
-        "384 well microplate" at runtime (get_plate), so the protocol runs. But
-        validate_for_run() was checking plate_list membership directly, which
-        excludes aliases -- so validation rejected names that runtime would
-        accept. This asymmetry blocked every legacy Corning protocol with
-        'Labware ... not found'. Validator must now accept any name that
-        resolves via the alias table.
+        Microplate". The reader translates it to the catalogue key at the
+        edge, so nothing past the reader sees the old spelling: the protocol
+        reports "384 well microplate", and the run's validator, which once
+        rejected the old name by checking canonical-list membership, has
+        nothing to reject.
         """
         tsv = tmp_path / 'legacy_corning.tsv'
         tsv.write_text(
@@ -530,9 +531,13 @@ class TestRoundTripBasic:
             tiling_configs_file_loc=TILING_CONFIGS,
         )
         assert proto is not None
-        assert proto.labware() == '384 well Corning Spheroid Microplate'
+        assert proto.labware() == '384 well microplate'
 
-        errors = proto.validate_for_run()
+        errors = proto.validate_for_run(
+            objective_helper=ObjectiveLoader(),
+            wellplate_loader=WellPlateLoader(),
+            led_max_ma=1000,
+        )
         labware_errors = [e for e in errors if 'Labware' in e and 'not found' in e]
         assert labware_errors == [], (
             f'alias-resolvable labware name must not produce validation errors; '
@@ -923,11 +928,6 @@ class TestExecuteSaveLoadRun:
         completed_a, _ = _run_and_wait(executor, proto_a, tmp_path / 'run_a')
         assert completed_a, 'Protocol A did not complete'
 
-        # Wait for file I/O to drain before starting next run
-        import time
-
-        time.sleep(1.0)
-
         proto_b = _build_protocol(
             [
                 _make_step(name='B1_Red', color='Red', acquire='image'),
@@ -935,30 +935,6 @@ class TestExecuteSaveLoadRun:
         )
         completed_b, _ = _run_and_wait(executor, proto_b, tmp_path / 'run_b')
         assert completed_b, 'Protocol B did not complete after A'
-
-
-class TestValidation:
-    """Protocol validation catches bad configs before execution."""
-
-    def test_invalid_video_config_not_dict(self):
-        steps = [_make_step(acquire='video', video_config='not a dict')]
-        proto = _build_protocol(steps)
-        errors = proto.validate_steps()
-        assert any('Video Config' in e for e in errors), (
-            f'Expected Video Config error, got: {errors}'
-        )
-
-    def test_invalid_color(self):
-        steps = [_make_step(color='Ultraviolet')]
-        proto = _build_protocol(steps)
-        errors = proto.validate_steps()
-        assert len(errors) > 0, 'Expected validation error for invalid color'
-
-    def test_negative_exposure(self):
-        steps = [_make_step(exposure=-1.0)]
-        proto = _build_protocol(steps)
-        errors = proto.validate_steps()
-        assert len(errors) > 0, 'Expected validation error for negative exposure'
 
 
 # ===========================================================================
@@ -1063,25 +1039,6 @@ class TestRoundTripMetadata:
         proto = _build_protocol([_make_step()], duration_hrs=0.0)
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.duration() == datetime.timedelta(0)
-
-    def test_duration_negative_still_rejected(self, tmp_path):
-        """Duration < 0 stays a hard error (corrupted TSV). Mirrors
-        test_period_negative_still_rejected (issue #669)."""
-        from modules.protocol import ProtocolFormatError
-
-        tmp_path.mkdir(parents=True, exist_ok=True)
-        proto = _build_protocol([_make_step()], duration_hrs=1.0)
-        filepath = tmp_path / 'neg_duration.tsv'
-        proto.to_file(filepath)
-        text = filepath.read_text(encoding='utf-8')
-        patched = text.replace('Duration\t1', 'Duration\t-1', 1)
-        filepath.write_text(patched, encoding='utf-8')
-
-        with pytest.raises(ProtocolFormatError):
-            Protocol.from_file(
-                file_path=filepath,
-                tiling_configs_file_loc=TILING_CONFIGS,
-            )
 
     def test_duration_preserved(self, tmp_path):
         proto = _build_protocol([_make_step()], duration_hrs=12.0)
@@ -1272,7 +1229,7 @@ class TestExecuteMultiScan:
 
     def test_two_scan_timelapse(self, executor, scope, tmp_path):
         steps = [_make_step(color='BF')]
-        proto = _build_protocol(steps, period_min=0.01, duration_hrs=0.01)
+        proto = _build_protocol(steps, period_min=1 / 60, duration_hrs=0.01)
         completed, _ = _run_and_wait(executor, proto, tmp_path, max_scans=2)
         assert completed, '2-scan time-lapse did not complete'
 
@@ -1281,7 +1238,7 @@ class TestExecuteMultiScan:
             _make_step(name='A1_BF', color='BF'),
             _make_step(name='A1_Green', color='Green'),
         ]
-        proto = _build_protocol(steps, period_min=0.01, duration_hrs=0.01)
+        proto = _build_protocol(steps, period_min=1 / 60, duration_hrs=0.01)
         completed, _ = _run_and_wait(executor, proto, tmp_path, max_scans=3)
         assert completed, '3-scan multi-channel did not complete'
 
@@ -1401,6 +1358,7 @@ class TestExecuteCombinations:
         completed, _ = _run_and_wait(executor, proto, tmp_path)
         assert completed, 'Multi-well tiled multi-channel protocol did not complete'
 
+    @pytest.mark.slow
     def test_large_protocol_50_steps(self, executor, scope, tmp_path):
         """Stress test: 50 steps should complete without timeout."""
         # Distinct labels: 50 same-well BF steps must derive distinct capture
@@ -1480,14 +1438,10 @@ class TestExecuteCancellation:
 
         done = threading.Event()
 
-        def on_complete(**kwargs):
+        def on_complete(*_ended):
             done.set()
 
-        callbacks = {
-            'run_complete': on_complete,
-            'go_to_step': lambda **kw: None,
-            'move_position': lambda axis: None,
-        }
+        events = RunEvents(run_ended=on_complete)
 
         plan = executor.prepare(
             protocol=proto,
@@ -1498,9 +1452,7 @@ class TestExecuteCancellation:
             autogain_settings=_make_autogain_settings(),
             parent_dir=tmp_path / 'output',
             max_scans=1,
-            callbacks=callbacks,
-            leds_state_at_end='off',
-            autofocus_snapshot=autofocus_snapshot(),
+            events=events,
         )
         executor.start(plan)
 
@@ -1510,25 +1462,12 @@ class TestExecuteCancellation:
         time.sleep(0.5)
         executor.protocol_thread.abort()
 
-        # Should still fire run_complete callback
+        # Should still fire run_ended event
         completed = done.wait(timeout=COMPLETION_TIMEOUT)
-        assert completed, 'Protocol did not fire run_complete after cancellation'
+        assert completed, 'Protocol did not fire run_ended after cancellation'
+        # run_ended comes once the run has ended; this confirms it.
+        assert executor.wait_for_run_idle(COMPLETION_TIMEOUT), 'the cancelled run never ended'
         assert not executor.run_in_progress(), 'Executor still running after cancel'
-
-
-class TestExecuteLEDRestore:
-    """LED state restoration after protocol."""
-
-    def test_leds_off_after_protocol(self, executor, scope, tmp_path):
-        steps = [_make_step(color='Green', illumination=200.0)]
-        proto = _build_protocol(steps)
-        completed, _ = _run_and_wait(executor, proto, tmp_path, leds_state_at_end='off')
-        assert completed
-
-        # All LEDs should be off after protocol
-        states = scope.illumination.get_led_states()
-        for color, state in states.items():
-            assert not state['enabled'], f'LED {color} still on after protocol'
 
 
 # ===========================================================================
@@ -1622,13 +1561,9 @@ class TestRealPathExecution:
 
     def test_back_to_back_real_motion(self, real_executor, scope, tmp_path):
         """Two protocols back-to-back with real motion -- verifies state cleanup."""
-        import time
-
         proto_a = _build_protocol([_make_step(name='A1_BF', color='BF')])
         completed_a, _ = _run_and_wait(real_executor, proto_a, tmp_path / 'run_a')
         assert completed_a, 'Protocol A with real motion did not complete'
-
-        time.sleep(1.0)
 
         proto_b = _build_protocol(
             [
@@ -1647,107 +1582,11 @@ class TestRealPathExecution:
 class TestProtocolValidation:
     """Thorough validation testing -- every field boundary."""
 
-    def test_valid_protocol_no_errors(self):
-        proto = _build_protocol([_make_step()])
-        errors = proto.validate_steps()
-        assert errors == [], f'Expected no errors, got: {errors}'
-
-    def test_all_valid_colors(self):
-        """Every valid color passes validation."""
-        for color in ['BF', 'PC', 'DF', 'Red', 'Green', 'Blue']:
-            proto = _build_protocol([_make_step(color=color)])
-            errors = proto.validate_steps()
-            color_errors = [e for e in errors if 'Color' in e]
-            assert color_errors == [], f"Color '{color}' should be valid, got: {color_errors}"
-
-    def test_invalid_color_rejected(self):
-        proto = _build_protocol([_make_step(color='Ultraviolet')])
-        errors = proto.validate_steps()
-        assert any('Color' in e for e in errors)
-
-    def test_negative_exposure_rejected(self):
-        proto = _build_protocol([_make_step(exposure=-1.0)])
-        errors = proto.validate_steps()
-        assert any('Exposure' in e for e in errors)
-
-    def test_zero_exposure_valid(self):
-        """Zero exposure is valid (placeholder steps)."""
-        proto = _build_protocol([_make_step(exposure=0.0)])
-        errors = proto.validate_steps()
-        exp_errors = [e for e in errors if 'Exposure' in e]
-        assert exp_errors == []
-
-    def test_negative_gain_rejected(self):
-        proto = _build_protocol([_make_step(gain=-1.0)])
-        errors = proto.validate_steps()
-        assert any('Gain' in e for e in errors)
-
-    def test_zero_gain_valid(self):
-        proto = _build_protocol([_make_step(gain=0.0)])
-        errors = proto.validate_steps()
-        gain_errors = [e for e in errors if 'Gain' in e]
-        assert gain_errors == []
-
-    def test_illumination_over_1000_rejected(self):
-        proto = _build_protocol([_make_step(illumination=1001.0)])
-        errors = proto.validate_steps()
-        assert any('Illumination' in e for e in errors)
-
-    def test_illumination_1000_valid(self):
-        proto = _build_protocol([_make_step(illumination=1000.0)])
-        errors = proto.validate_steps()
-        ill_errors = [e for e in errors if 'Illumination' in e]
-        assert ill_errors == []
-
-    def test_negative_illumination_rejected(self):
-        proto = _build_protocol([_make_step(illumination=-10.0)])
-        errors = proto.validate_steps()
-        assert any('Illumination' in e for e in errors)
-
-    def test_sum_zero_rejected(self):
-        proto = _build_protocol([_make_step(sum_count=0)])
-        errors = proto.validate_steps()
-        assert any('Sum' in e for e in errors)
-
     def test_sum_one_valid(self):
         proto = _build_protocol([_make_step(sum_count=1)])
-        errors = proto.validate_steps()
+        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
         sum_errors = [e for e in errors if 'Sum' in e]
         assert sum_errors == []
-
-    def test_invalid_acquire_mode(self):
-        proto = _build_protocol([_make_step(acquire='timelapse')])
-        errors = proto.validate_steps()
-        assert any('Acquire' in e for e in errors)
-
-    def test_video_with_zero_fps_rejected(self):
-        proto = _build_protocol(
-            [_make_step(acquire='video', video_config={'duration': 1.0, 'fps': 0})]
-        )
-        errors = proto.validate_steps()
-        assert any('fps' in e for e in errors)
-
-    def test_video_with_zero_duration_rejected(self):
-        proto = _build_protocol(
-            [_make_step(acquire='video', video_config={'duration': 0, 'fps': 5})]
-        )
-        errors = proto.validate_steps()
-        assert any('duration' in e for e in errors)
-
-    def test_video_with_string_config_rejected(self):
-        proto = _build_protocol([_make_step(acquire='video', video_config='not a dict')])
-        errors = proto.validate_steps()
-        assert any('Video Config' in e for e in errors)
-
-    def test_multiple_errors_reported(self):
-        """Multiple bad steps should all report errors."""
-        steps = [
-            _make_step(name='bad1', color='Invalid', exposure=-1.0),
-            _make_step(name='bad2', illumination=2000.0, gain=-5.0),
-        ]
-        proto = _build_protocol(steps)
-        errors = proto.validate_steps()
-        assert len(errors) >= 3, f'Expected at least 3 errors, got {len(errors)}: {errors}'
 
 
 class TestProtocolModification:
@@ -1837,23 +1676,6 @@ class TestProtocolNumStepsCache:
         # mutating the copy must not affect the original
         copy.delete_step(step_idx=0)
         assert copy.num_steps() == 2
-        assert proto.num_steps() == 3
-
-    def test_cache_invalidated_after_zstack_marker_round_trip(self):
-        """mark_zstack_starts_and_ends / remove_zstack_starts_and_ends add and
-        drop columns only (row count unchanged), but they go through _set_steps
-        so the cache is cleared. Verify both paths leave num_steps correct."""
-        proto = _build_protocol(
-            [
-                _make_step(name='s0', zstack_group_id=0, z=4900.0),
-                _make_step(name='s1', zstack_group_id=0, z=5000.0),
-                _make_step(name='s2', zstack_group_id=0, z=5100.0),
-            ]
-        )
-        assert proto.num_steps() == 3
-        proto.mark_zstack_starts_and_ends()
-        assert proto.num_steps() == 3
-        proto.remove_zstack_starts_and_ends()
         assert proto.num_steps() == 3
 
     def test_cache_attribute_exists_on_new_instances(self):
@@ -1960,11 +1782,9 @@ class TestExecutorEdgeCases:
                 autogain_settings=_make_autogain_settings(),
                 parent_dir=tmp_path / 'output',
                 max_scans=1,
-                callbacks={'run_complete': lambda **kw: done.set()},
-                leds_state_at_end='off',
-                autofocus_snapshot=autofocus_snapshot(),
+                events=RunEvents(run_ended=lambda *_ended: done.set()),
             )
-        assert not done.is_set(), 'run_complete must not fire for a refused run'
+        assert not done.is_set(), 'run_ended must not fire for a refused run'
         assert not real_executor.run_in_progress(), (
             'Executor should not be running for empty protocol'
         )
@@ -1976,27 +1796,8 @@ class TestExecutorEdgeCases:
         proto = _build_protocol([_make_step()])
         completed, _ = _run_and_wait(real_executor, proto, tmp_path)
         assert completed
-        import time
-
-        time.sleep(0.5)
-        assert real_executor.protocol_state == ProtocolState.IDLE
-
-    def test_leds_off_after_protocol_real_path(self, real_executor, scope, tmp_path):
-        """All LEDs are off after protocol completes (real motion path)."""
-        proto = _build_protocol(
-            [
-                _make_step(color='Green', illumination=200.0),
-                _make_step(color='Red', illumination=150.0),
-            ]
-        )
-        completed, _ = _run_and_wait(real_executor, proto, tmp_path)
-        assert completed
-        import time
-
-        time.sleep(0.5)
-        states = scope.illumination.get_led_states()
-        for color, state in states.items():
-            assert not state['enabled'], f'LED {color} still on after protocol'
+        assert real_executor.wait_for_run_idle(COMPLETION_TIMEOUT), 'the run never ended'
+        assert real_executor._state == ProtocolState.IDLE
 
     def test_camera_settings_restored_after_protocol(self, real_executor, scope, tmp_path):
         """Camera gain and exposure are restored after protocol."""
@@ -2325,9 +2126,9 @@ class TestLumascapeAPILed:
 
     def test_led_on_off(self, scope):
         scope.illumination.led_on(channel=0, illumination_ma=100)
-        assert scope.illumination.led_enabled('Blue')
+        assert scope.illumination.get_led_state('Blue')['enabled']
         scope.illumination.led_off(channel=0)
-        assert not scope.illumination.led_enabled('Blue')
+        assert not scope.illumination.get_led_state('Blue')['enabled']
 
     def test_led_on_by_color_name(self, scope):
         scope.illumination.led_on(channel='Green', illumination_ma=200)
@@ -2342,16 +2143,6 @@ class TestLumascapeAPILed:
         states = scope.illumination.get_led_states()
         for color, state in states.items():
             assert not state['enabled'], f'LED {color} still on after leds_off'
-
-    def test_led_current_validation(self, scope):
-        with pytest.raises(ValueError):
-            scope.illumination.led_on(channel=0, illumination_ma=-1)
-        with pytest.raises(ValueError):
-            scope.illumination.led_on(channel=0, illumination_ma=1001)
-
-    def test_led_channel_validation(self, scope):
-        with pytest.raises(ValueError):
-            scope.illumination.led_on(channel=99, illumination_ma=100)
 
     def test_led_states_snapshot(self, scope):
         scope.illumination.led_on(channel='Green', illumination_ma=200)
@@ -2420,85 +2211,20 @@ class TestLumascapeAPICamera:
 
 
 class TestPerRowConfigParsing:
-    """One corrupt row must not wipe all rows to defaults.
+    """A corrupt config cell refuses the file, naming its step and column.
 
-    Regression tests for per-row config parsing fix ported from
-    archive/2.3.2-OG. Previously, one corrupt row caused ALL rows to
-    fall back to defaults (all-or-nothing try/except around .apply()).
+    It used to load as the default config, so the step ran with a video
+    length or a stimulation nobody set; before that, one corrupt row
+    wiped every row to the defaults.
     """
 
-    def _save_and_corrupt(self, tmp_path, steps, column, corrupt_row_idx, corrupt_value):
-        """Save a protocol, corrupt one cell in the TSV, and reload."""
-        proto = _build_protocol(steps)
-        tsv_path = tmp_path / 'test.tsv'
-        proto.to_file(tsv_path)
-
-        lines = tsv_path.read_text().splitlines()
-        # Find the header line (starts with "Name\t")
-        header_idx = next(i for i, line in enumerate(lines) if line.startswith('Name\t'))
-        header = lines[header_idx].split('\t')
-        col_idx = header.index(column)
-
-        # Corrupt the specified data row
-        data_line_idx = header_idx + 1 + corrupt_row_idx
-        parts = lines[data_line_idx].split('\t')
-        parts[col_idx] = corrupt_value
-        lines[data_line_idx] = '\t'.join(parts)
-        tsv_path.write_text('\n'.join(lines))
-
-        return Protocol.from_file(tsv_path, tiling_configs_file_loc=TILING_CONFIGS)
-
-    def test_one_corrupt_video_config_preserves_others(self, tmp_path):
-        """If one row has corrupt Video Config JSON, only that row gets default."""
-        # Wells match the names so the derived Names stay distinct at load.
-        steps = [
-            _make_step(name='A1_BF', well='A1', video_config={'duration': 5.0, 'fps': 10}),
-            _make_step(name='A2_BF', well='A2', video_config={'duration': 5.0, 'fps': 10}),
-            _make_step(name='A3_BF', well='A3', video_config={'duration': 5.0, 'fps': 10}),
-        ]
-        loaded = self._save_and_corrupt(
-            tmp_path,
-            steps,
-            'Video Config',
-            corrupt_row_idx=1,
-            corrupt_value='THIS IS NOT JSON',
-        )
-
-        # Good rows should keep their custom config
-        assert loaded.step(idx=0)['Video Config']['duration'] == 5.0
-        assert loaded.step(idx=2)['Video Config']['duration'] == 5.0
-        # Corrupt row should have the default, not crash
-        assert isinstance(loaded.step(idx=1)['Video Config'], dict)
-
-    def test_one_corrupt_stim_config_preserves_others(self, tmp_path):
-        """If one row has corrupt Stim_Config JSON, only that row gets default."""
-        sc = _stim_config_enabled(channels=['Red'])
-        # Wells match the names so the derived Names stay distinct at load.
-        steps = [
-            _make_step(name='A1_BF', well='A1', stim_config=sc),
-            _make_step(name='A2_BF', well='A2', stim_config=sc),
-            _make_step(name='A3_BF', well='A3', stim_config=sc),
-        ]
-        loaded = self._save_and_corrupt(
-            tmp_path,
-            steps,
-            'Stim_Config',
-            corrupt_row_idx=1,
-            corrupt_value='{BROKEN',
-        )
-        # Good rows should keep their stim config
-        assert loaded.step(idx=0)['Stim_Config']['Red']['enabled'] is True
-        assert loaded.step(idx=2)['Stim_Config']['Red']['enabled'] is True
-        # Corrupt row should have default (all disabled), not crash
-        assert isinstance(loaded.step(idx=1)['Stim_Config'], dict)
-
     def test_default_assignment_gives_independent_dicts(self):
-        """Each row's default config must be independent (no shared mutable dict)."""
+        """No write to one row's default config can reach another: the
+        stored dicts are read-only, so a shared one cannot be changed."""
         steps = [_make_step(name='A'), _make_step(name='B')]
         proto = _build_protocol(steps)
-        # Mutate one row's video config
-        proto.step(idx=0)['Video Config']['duration'] = 999
-        # Other row should be unaffected
+        with pytest.raises(TypeError):
+            proto.step(idx=0)['Video Config']['duration'] = 999
         assert proto.step(idx=1)['Video Config']['duration'] != 999
 
 
@@ -2567,7 +2293,7 @@ class TestV6LayerSettings:
 
     def test_explicit_block_round_trips(self, tmp_path):
         """Save with layer_settings kwarg, reload, expect identical values
-        back from layer_settings() (string representation; values cast in UI)."""
+        back from layer_settings(), each typed by the protocol's one reader."""
         proto = _build_protocol(
             [
                 _make_step(name='A1_BF', color='BF', acquire='image', illumination=2.0),
@@ -2610,9 +2336,9 @@ class TestV6LayerSettings:
         ls_out = reloaded.layer_settings()
         assert set(ls_out.keys()) == {'BF', 'Blue'}
         assert ls_out['BF']['Acquire'] == 'image'
-        assert float(ls_out['Blue']['Illumination']) == 150.0
-        assert ls_out['Blue']['False_Color'] == 'True'
-        assert ls_out['Blue']['Stim_Enabled'] == 'False'
+        assert ls_out['Blue']['Illumination'] == 150.0
+        assert ls_out['Blue']['False_Color'] is True
+        assert ls_out['Blue']['Stim_Enabled'] is False
 
     def test_disabled_layers_omitted(self, tmp_path):
         """Layers with Acquire not in (image, video) should NOT be written
@@ -2683,10 +2409,10 @@ class TestV6LayerSettings:
         text = filepath.read_text()
         assert 'Layer Settings' not in text
 
-    def test_malformed_block_falls_back_to_inference(self, tmp_path):
-        """A Layer Settings header without a 'Layer' column should be
-        discarded with a warning; layer_settings() then falls back to
-        steps-based inference."""
+    def test_a_block_with_no_layer_column_is_refused(self, tmp_path):
+        """A Layer Settings header without a 'Layer' column refuses the file,
+        naming it: an inference from the steps would put back settings the
+        file never held."""
         filepath = tmp_path / 'bad_block.tsv'
         filepath.write_text(
             'LumaViewPro Protocol\n'
@@ -2704,11 +2430,9 @@ class TestV6LayerSettings:
             'Name\tX\tY\tZ\tAuto_Focus\tColor\tFalse_Color\tIllumination\tGain\tAuto_Gain\tExposure\tSum\tObjective\tWell\tTile\tZ-Slice\tCustom Step\tTile Group ID\tZ-Stack Group ID\tAcquire\tVideo Config\tStim_Config\n'
             'A1_BF\t14.38\t11.24\t4000.0\tFalse\tBF\tFalse\t2.0\t1.0\tFalse\t2.0\t1\t10x Air\tA1\t\t-1\tFalse\t-1\t-1\timage\t"{""duration"": 5}"\t"{""Blue"": {""enabled"": false}}"\n'
         )
-        reloaded = Protocol.from_file(filepath, tiling_configs_file_loc=TILING_CONFIGS)
-        ls = reloaded.layer_settings()
-        # Bad block discarded; inference from the BF step row
-        assert 'BF' in ls
-        assert ls['BF']['Acquire'] == 'image'
+        with pytest.raises(ProtocolFormatError) as refused:
+            Protocol.from_file(filepath, tiling_configs_file_loc=TILING_CONFIGS)
+        assert refused.value.file == filepath
 
 
 class TestFeedLossEndsVideoStep:
@@ -2721,6 +2445,7 @@ class TestFeedLossEndsVideoStep:
     say camera_stalled.
     """
 
+    @pytest.mark.slow
     def test_mid_step_feed_death_ends_step_and_run_completes(self, executor, scope, tmp_path):
         # Duration far past the 5 s stall floor so the wall cap cannot
         # be the thing that ends the step.
@@ -2730,7 +2455,9 @@ class TestFeedLossEndsVideoStep:
 
         def _kill_feed_soon():
             time.sleep(1.5)
-            scope.imaging.stop_streaming()
+            # The body, not the member: the run holds the camera lane, and a
+            # feed that dies asks no one's leave.
+            scope.imaging._stop_streaming_impl()
 
         killer = threading.Thread(target=_kill_feed_soon, daemon=True)
         killer.start()

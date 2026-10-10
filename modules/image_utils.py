@@ -1,11 +1,13 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 import ast
+import contextlib
 import datetime
 import enum
 import functools
 import json
 import pathlib
 import re
+import struct
 from typing import TYPE_CHECKING
 import xml.etree.ElementTree as ET
 
@@ -29,6 +31,11 @@ if TYPE_CHECKING:
 
 TIFF_SUFFIXES = frozenset({'.tif', '.tiff'})
 
+# Every image load_pixels reads: a TIFF through tifffile, the rest through
+# cv2.imread. A superset of TIFF_SUFFIXES, so the two cannot disagree about
+# what a TIFF is.
+IMAGE_SUFFIXES = TIFF_SUFFIXES | frozenset({'.png', '.jpg', '.jpeg', '.bmp'})
+
 # The OME UnitsLength token for micrometres is the MICRO SIGN form; the
 # ASCII 'um' shorthand is schema-invalid and a strict OME parser refuses
 # the whole file (Bio-Formats' lenient parsing long hid this). Escaped so
@@ -49,6 +56,16 @@ def is_tiff(path: pathlib.Path | str) -> bool:
     it twice.
     """
     return pathlib.Path(path).suffix.lower() in TIFF_SUFFIXES
+
+
+def is_image(path: pathlib.Path | str) -> bool:
+    """True when this path names an image the project can read (``IMAGE_SUFFIXES``).
+
+    The single answer to "is this an image", for every folder scan and every
+    file picker. Case-blind, as ``is_tiff`` is: a folder count that compared
+    suffixes as written skipped ``IMG.TIF`` without saying so.
+    """
+    return pathlib.Path(path).suffix.lower() in IMAGE_SUFFIXES
 
 
 def find_tiff_files(
@@ -250,33 +267,6 @@ def click_offset_to_um(
     return (frame_pos - frame_extent / 2.0) * pixel_size_um
 
 
-def center_crop(image: np.ndarray, x0: int, y0: int, width: int, height: int) -> np.ndarray:
-    """Return the ``[y0:y0+height, x0:x0+width]`` sub-rectangle of ``image``.
-
-    The oversize-then-crop framing path acquires a slightly larger AOI than the
-    caller requested and removes the surplus here so the delivered frame is
-    exactly the requested size. Unlike ``fit_frame_to_shape`` (which keeps the
-    top-left corner), this keeps a caller-chosen window, so the kept region can
-    stay centered on the sensor's optical axis. The leading two axes are sliced,
-    so any channel axis passes through untouched.
-
-    Raises ValueError if the window does not fully fit the image -- a window that
-    ran off the array would otherwise be silently truncated by numpy, delivering
-    a wrong-sized frame instead of failing loudly.
-
-    Returns a VIEW into the larger acquisition buffer, so the surplus rows/cols
-    stay resident as long as the result is held. A caller that retains the frame
-    beyond the current grab (a cache, history ring, async queue) MUST copy it
-    (e.g. np.ascontiguousarray) so the oversized source can be freed.
-    """
-    if x0 < 0 or y0 < 0 or x0 + width > image.shape[1] or y0 + height > image.shape[0]:
-        raise ValueError(
-            f'crop window x0={x0} y0={y0} {width}x{height} does not fit '
-            f'image {image.shape[1]}x{image.shape[0]}'
-        )
-    return image[y0 : y0 + height, x0 : x0 + width]
-
-
 # The one false-color table: which layer labels place the mono signal
 # into an RGB channel. A label absent from this table -- the transmitted
 # layers (BF, PC, DF) and any unknown name -- renders grayscale: there
@@ -429,8 +419,36 @@ def read_tiff_significant_bits(path: pathlib.Path) -> int:
     stored values were left-justified to fill the container, for which
     container-width scaling is the correct interpretation.
     """
-    with tf.TiffFile(str(path)) as tif:
+    with _open_saved_tiff(path) as tif:
         return _significant_bits_from_open(tif)
+
+
+@contextlib.contextmanager
+def _open_saved_tiff(path: pathlib.Path):
+    """Open a saved TIFF whose first page can be decoded, or raise ValueError.
+
+    A file read while it is still being written, or a damaged one, fails inside
+    tifffile with whatever its parser hit first: a short header raises
+    struct.error, a header with no page yet IndexError, and a page whose header
+    tifffile has reserved but not yet filled in has no pixel type at all. The
+    readers promise ValueError for an undecodable file, which is what their
+    callers catch to skip it, so every such state is raised as that, naming the
+    file, with tifffile's own error chained.
+    """
+    try:
+        tif = tf.TiffFile(str(path))
+    except struct.error as ex:
+        raise ValueError(f'Could not decode image: {path}') from ex
+    except ValueError as ex:
+        raise ValueError(f'Could not decode image: {path}: {ex}') from ex
+    with tif:
+        try:
+            page = tif.pages[0]
+        except IndexError as ex:
+            raise ValueError(f'Could not decode image: {path}: it has no page') from ex
+        if page.dtype is None:
+            raise ValueError(f'Could not decode image: {path}: its first page has no pixel type')
+        yield tif
 
 
 def _significant_bits_from_open(tif: 'tf.TiffFile') -> int:
@@ -555,8 +573,13 @@ def _load_pixels_and_timestamp(
         # second open just for the depth tag -- or the timestamp -- would double
         # the file opens and IFD parses of every post-processing or video run.
         timestamp = None
-        with tf.TiffFile(str(path)) as tif:
-            image = tif.asarray()
+        with _open_saved_tiff(path) as tif:
+            try:
+                image = tif.asarray()
+            except RuntimeError as ex:
+                # The compression codecs (deflate, LZW) raise their own
+                # RuntimeError subclasses on pixel data cut short.
+                raise ValueError(f'Could not decode image: {path}: {ex}') from ex
             sig = _significant_bits_from_open(tif)
             if read_timestamp:
                 try:
@@ -613,12 +636,13 @@ def read_image_geometry(path: pathlib.Path) -> tuple[tuple[int, ...], np.dtype]:
 
     Raises:
         FileNotFoundError: the path does not exist.
+        ValueError: the file cannot be decoded as an image.
     """
     path = pathlib.Path(path)
     if not path.exists():
         raise FileNotFoundError(f'No such pixel file: {path}')
     if is_tiff(path):
-        with tf.TiffFile(str(path)) as tif:
+        with _open_saved_tiff(path) as tif:
             page = tif.pages[0]
             return tuple(page.shape), page.dtype
     image, _ = load_pixels(path, collapse_legacy_false_color=False)
@@ -658,16 +682,61 @@ def resolve_output_depth(input_depths) -> int:
     return max(depths)
 
 
+def summed_significant_bits(frames_summed: int, frame_bits: int) -> int:
+    """The depth a sum of frames is tagged with: the bits its largest value needs.
+
+    A sum of N frames of b bits reaches N x (2^b - 1), so that is the range its
+    file claims -- 10 bits for four 8-bit frames, 14 for four 12-bit ones --
+    up to the 16-bit container the sum is stored in, where it saturates. A
+    single frame is its own depth. Tagging a sum with the container width
+    instead would scale it against a range it never reaches and render it
+    near-black wherever the tag sets the scale.
+
+    Args:
+        frames_summed: How many frames the sum holds; 1 for a single frame.
+        frame_bits: The depth of each summed frame, as delivered.
+
+    Returns:
+        The significant bits the summed frame carries.
+    """
+    if frames_summed < 1:
+        raise ValueError(f'a frame holds at least one capture, not {frames_summed}')
+    return min(16, (frames_summed * ((1 << frame_bits) - 1)).bit_length())
+
+
+def summed_full_scale(frames_summed: int, frame_bits: int) -> int:
+    """The largest value a sum of frames can hold: where it saturates.
+
+    N frames at full scale, or the uint16 container's ceiling where that comes
+    first. A sum's saturation is measured against this, never against its tag:
+    the tag is a whole number of bits, so for N not a power of two a sum of
+    blown frames sits well below the tag's maximum (three blown 8-bit frames
+    are 765 of a 10-bit 1023) and would read as unsaturated.
+
+    Args:
+        frames_summed: How many frames the sum holds; 1 for a single frame.
+        frame_bits: The depth of each summed frame, as delivered.
+
+    Returns:
+        The full-scale value of the summed frame.
+    """
+    if frames_summed < 1:
+        raise ValueError(f'a frame holds at least one capture, not {frames_summed}')
+    return min(frames_summed * ((1 << frame_bits) - 1), int(np.iinfo(np.uint16).max))
+
+
 def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
     """Recover the flat metadata dict from a tifffile-auto-OME description.
 
     tifffile's auto-OME serializer preserves only a subset of the structured
     metadata into the ImageDescription XML: Plane PositionX/Y/Z + ExposureTime,
     Pixels PhysicalSizeX, and Channel Name. Gain/Illumination, Objective,
-    Instrument, and Plate are dropped at write and cannot be recovered -- they
-    take the same sentinel defaults build_postproc_output_metadata applies when
-    no structured metadata is present. Returns None on a parse failure or a
-    missing Plane position so the caller falls back to defaults.
+    Instrument, and Plate are dropped at write and cannot be recovered, so the
+    result states none of them, and a scale or exposure the XML does not carry
+    is absent too: a derived output states only what its input did. Returns
+    None on a parse failure, or when there is no Pixels / Plane element to read
+    at all. A Plane that simply states no position is NOT a parse failure:
+    the position is optional here because it is optional at the writer.
     """
     try:
         root = ET.fromstring(ome_xml)
@@ -694,23 +763,23 @@ def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
 
     pos_x = _float(plane.attrib, 'PositionX')
     pos_y = _float(plane.attrib, 'PositionY')
-    if pos_x is None or pos_y is None:
-        return None
     pos_z = _float(plane.attrib, 'PositionZ')
     exposure = _float(plane.attrib, 'ExposureTime')
     pixel_size = _float(pixels.attrib, 'PhysicalSizeX')
 
-    flat: dict = {
-        'plate_pos_mm': {'x': pos_x, 'y': pos_y},
-        'z_pos_um': pos_z if pos_z is not None else 0.0,
-        # Dropped by tifffile's auto-OME serializer; default to match the
-        # no-structured-metadata path so the derived output is consistent.
-        'objective': {},
-        'exposure_time_ms': exposure if exposure is not None else 0.0,
-        'gain_db': 0.0,
-        'illumination_ma': 0.0,
-        'pixel_size_um': pixel_size if pixel_size is not None else 1.0,
-    }
+    # The objective is dropped by tifffile's auto-OME serializer; {} is the
+    # writer's "none". The scale is a hard key whose None the writer reads as
+    # no PhysicalSize.
+    flat: dict = {'objective': {}, 'pixel_size_um': pixel_size}
+    if exposure is not None:
+        flat['exposure_time_ms'] = exposure
+    # Position is optional on the way in because it is optional on the way
+    # out: a capture with no coordinate writes no Plane position, and a file
+    # that honestly states no position must not be discarded for it.
+    if pos_x is not None and pos_y is not None:
+        flat['plate_pos_mm'] = {'x': pos_x, 'y': pos_y}
+    if pos_z is not None:
+        flat['z_pos_um'] = pos_z
     if channel is not None and channel.attrib.get('Name'):
         flat['channel'] = channel.attrib['Name']
         # ExcitationWavelength is a schema OME Channel attribute, so it
@@ -814,22 +883,32 @@ def read_pixel_size_um(path: pathlib.Path) -> float | None:
             ome_xml = tif.ome_metadata
     except Exception:
         return None
+    return _stated_pixel_size_um(structured, ome_xml)
 
-    pixel_size_um = None
+
+def _stated_pixel_size_um(structured: dict | None, ome_xml: str | None) -> float | None:
+    """The scale a file states, in um/pixel, or None when it states none.
+
+    The one reading of a file's scale, for every reader. The writer omits
+    PhysicalSizeX when it measured no scale, so a file without one is a file
+    saying "no scale", and None is how the metadata dict says the same:
+    write_tiff takes it as no PhysicalSize and no absolute resolution unit.
+    """
+    stated = None
     if structured is not None:
         # Stills serialize the OME spelling; video frames pass the flat dict
         # through untouched, so the same fact arrives under either name.
-        pixel_size_um = structured.get('PhysicalSizeX', structured.get('pixel_size_um'))
+        stated = structured.get('PhysicalSizeX', structured.get('pixel_size_um'))
     elif ome_xml:
         flat = _read_ome_input_metadata(ome_xml, None)
-        pixel_size_um = flat.get('pixel_size_um') if flat else None
+        stated = flat['pixel_size_um'] if flat else None
 
-    if pixel_size_um is None:
+    if stated is None:
         return None
-    pixel_size_um = float(pixel_size_um)
+    stated = float(stated)
     # A non-positive scale is not a measurement; treat it as absent rather than
     # dividing by it downstream.
-    return pixel_size_um if pixel_size_um > 0 else None
+    return stated if stated > 0 else None
 
 
 def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
@@ -843,7 +922,8 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
     Returns None when the input has no recoverable structured metadata
     (bare ``tifffile.imwrite`` outputs that carry only ``{'shape': ...}``,
     or files written by a non-LumaViewPro pipeline). Returns None on any
-    parse failure so callers can fall back to defaults without crashing.
+    parse failure, and the caller's output then states nothing it read.
+    A scale the input does not state reads back as ``pixel_size_um`` None.
 
     Args:
         path: TIFF file path.
@@ -866,9 +946,12 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
         # context in the auto-OME ImageDescription XML instead. Recover what
         # tifffile's serializer preserved so an OME tile still forwards
         # acquisition context to derived outputs.
-        if ome_xml:
-            return _read_ome_input_metadata(ome_xml, datetime_value)
-        return None
+        if not ome_xml:
+            return None
+        flat = _read_ome_input_metadata(ome_xml, datetime_value)
+        if flat is not None:
+            flat['pixel_size_um'] = _stated_pixel_size_um(None, ome_xml)
+        return flat
     if 'Plane' not in structured:
         # Bare tifffile.imwrite (only carries 'shape') or other non-LVP
         # producer; no acquisition context to forward.
@@ -877,34 +960,41 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
     plane = structured['Plane']
     try:
         flat: dict = {
-            'plate_pos_mm': {
-                'x': plane['PositionX'],
-                'y': plane['PositionY'],
-            },
-            'z_pos_um': plane['PositionZ'],
             'objective': plane.get('Objective', {}),
-            'pixel_size_um': structured['PhysicalSizeX'],
+            'pixel_size_um': _stated_pixel_size_um(structured, None),
             'channel': structured['Channel']['Name'][0],
         }
     except (KeyError, IndexError, TypeError):
         # Structured TIFF present but missing required acquisition keys
         # (older LVP file, third-party producer, or a non-acquisition
-        # frame type); fall back to defaults rather than crashing the
-        # post-processing job, per this function's documented contract.
+        # frame type); the derived output then states nothing it read,
+        # rather than crashing the post-processing job, per this
+        # function's documented contract.
         return None
-    # Exposure, gain, and illumination are the writer's optional fields:
-    # the producer omits the key when the value was genuinely unknown at
-    # capture (a failed camera read; an LED that was off, as on every
-    # dark or luminescence frame). Mirror that here -- reconstruct them
-    # only when present -- so such a frame still forwards its positions
-    # and pixel size, and no fabricated stand-in value is invented on
-    # the way back out to a derived output.
+    # Position, exposure, gain and illumination are the writer's optional
+    # fields: the producer omits the key when the value was genuinely unknown
+    # at capture (a failed camera read; an LED that was off, as on every dark
+    # or luminescence frame; an axis that had lost its reference, or a scope
+    # with no X and Y). Mirror that here -- reconstruct them only
+    # when present -- so such a frame still forwards everything it DOES state
+    # and no fabricated stand-in is invented on the way back out to a derived
+    # output. Discarding the whole file over one absent field is the
+    # expensive failure: the derived output then loses everything the
+    # file did state.
+    if 'PositionX' in plane and 'PositionY' in plane:
+        flat['plate_pos_mm'] = {'x': plane['PositionX'], 'y': plane['PositionY']}
+    if 'PositionZ' in plane:
+        flat['z_pos_um'] = plane['PositionZ']
     if 'Illumination' in plane:
         flat['illumination_ma'] = plane['Illumination']
     if 'ExposureTime' in plane:
         flat['exposure_time_ms'] = plane['ExposureTime']
     if 'Gain' in plane:
         flat['gain_db'] = plane['Gain']
+    if 'BlackLevel' in plane:
+        flat['black_level'] = plane['BlackLevel']
+    if 'FramesSummed' in plane:
+        flat['frames_summed'] = plane['FramesSummed']
     if datetime_value is not None:
         flat['datetime'] = datetime_value
 
@@ -938,7 +1028,6 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
             'manufacturer': microscope.get('Manufacturer'),
             'model': microscope.get('Model'),
             'serial_number': microscope.get('SerialNumber'),
-            'firmware_version': microscope.get('FirmwareVersion'),
             'camera_model': detector.get('Model'),
         }
 
@@ -967,7 +1056,7 @@ def read_tiff_depth_and_timestamp(path: pathlib.Path) -> tuple[int, 'datetime.da
     is None when the file carries no readable capture time (both helpers
     resolve absent / unparseable metadata to None by contract).
     """
-    with tf.TiffFile(str(path)) as tif:
+    with _open_saved_tiff(path) as tif:
         sig = _significant_bits_from_open(tif)
         timestamp = _timestamp_from_structured(_structured_metadata(tif))
     return sig, timestamp
@@ -1071,9 +1160,10 @@ def build_postproc_output_metadata(
 
     Callers in stitcher pass ``plate_pos_mm_override`` with the stitched
     region's geometric center; zprojector leaves both overrides None and
-    inherits the input slice's position. Falls back to sentinel defaults
-    when the input has no structured metadata (test fixtures, external
-    files).
+    inherits the input slice's position. An input with no structured
+    metadata (an external PNG, a bare TIFF) gives an output that states no
+    position, acquisition setting or scale: unknown stays unknown, because a
+    number in a TIFF tag is read downstream as a measurement.
 
     Args:
         input_path: First-input TIFF; metadata is read from here.
@@ -1092,15 +1182,8 @@ def build_postproc_output_metadata(
     """
     metadata = read_postproc_input_metadata(input_path)
     if metadata is None:
-        metadata = {
-            'plate_pos_mm': {'x': 0.0, 'y': 0.0},
-            'z_pos_um': 0.0,
-            'objective': {},
-            'exposure_time_ms': 0.0,
-            'gain_db': 0.0,
-            'illumination_ma': 0.0,
-            'pixel_size_um': 1.0,
-        }
+        # The writer's two hard keys, each in its "none" form.
+        metadata = {'objective': {}, 'pixel_size_um': None}
     else:
         for per_capture_field in (
             'timestamp_iso',
@@ -1174,8 +1257,9 @@ def build_composite_output_metadata(
     """Build a write_tiff metadata dict for a composite output.
 
     Composite outputs merge multiple input channels with different
-    per-channel exposure / gain / illumination, so those fields zero
-    out -- they describe the source captures, not the merged image.
+    per-channel exposure / gain / illumination, so the output states none
+    of them -- they describe the source captures, not the merged image,
+    and a zero would read as a setting.
     Shared acquisition context (objective, position, pixel size,
     instrument, plate, well_label) propagates from the reference input;
     composite input channels share these at the same site.
@@ -1199,9 +1283,8 @@ def build_composite_output_metadata(
         channel='Composite',
         significant_bits=significant_bits,
     )
-    metadata['exposure_time_ms'] = 0.0
-    metadata['gain_db'] = 0.0
-    metadata['illumination_ma'] = 0.0
+    for per_channel_field in ('exposure_time_ms', 'gain_db', 'black_level', 'illumination_ma'):
+        metadata.pop(per_channel_field, None)
     return metadata
 
 
@@ -1276,14 +1359,27 @@ def build_hyperstack_output_metadata(
             colormap_type = LvpColormap.GRAY
         channel_colors.append(_lvp_colormap_to_ome_rgba(colormap_type))
 
-    plane: dict = {
-        'PositionX': plane_positions['PositionX'],
-        'PositionY': plane_positions['PositionY'],
-        'PositionZ': plane_positions['PositionZ'],
-        'PositionXUnit': ['mm'] * num_planes,
-        'PositionYUnit': ['mm'] * num_planes,
-        'PositionZUnit': [OME_UNIT_MICROMETER] * num_planes,
-    }
+    # A position is written only when every plane has one, like the timing
+    # below: tifffile writes a missing value as the literal PositionX="None",
+    # which no OME reader accepts as a number. A recording whose position the
+    # scope did not know, or a scope with no stage, states no position. X and
+    # Y travel as a pair because half a plate coordinate is not one; Z is
+    # independent.
+    # A pandas column holding a missing value hands it back as NaN, not None.
+    def _every_plane_has(values) -> bool:
+        return all(v is not None and not np.isnan(v) for v in values)
+
+    plane: dict = {}
+    if _every_plane_has(plane_positions['PositionX']) and _every_plane_has(
+        plane_positions['PositionY']
+    ):
+        plane['PositionX'] = plane_positions['PositionX']
+        plane['PositionY'] = plane_positions['PositionY']
+        plane['PositionXUnit'] = ['mm'] * num_planes
+        plane['PositionYUnit'] = ['mm'] * num_planes
+    if _every_plane_has(plane_positions['PositionZ']):
+        plane['PositionZ'] = plane_positions['PositionZ']
+        plane['PositionZUnit'] = [OME_UNIT_MICROMETER] * num_planes
     # Timing is written only when the caller measured it (per-plane
     # seconds from the earliest plane; DeltaT is a required key, None when
     # unmeasured). Like the pixel-size claim below, an absent DeltaT is
@@ -1324,7 +1420,6 @@ def build_hyperstack_output_metadata(
                 'Manufacturer': instrument.get('manufacturer') or 'Etaluma',
                 'Model': instrument.get('model') or '',
                 'SerialNumber': instrument.get('serial_number') or '',
-                'FirmwareVersion': instrument.get('firmware_version') or '',
             },
             'Objective': {
                 'Model': objective_dict.get('model') or '',
@@ -1587,7 +1682,14 @@ def encode_image(image: np.ndarray, fmt: str = 'png', jpeg_quality: int = 80) ->
     return buf.tobytes()
 
 
-def encode_display_jpg(array, color, significant_bits: int, jpeg_quality: int = 90) -> bytes:
+def encode_display_jpg(
+    array: np.ndarray,
+    color: str,
+    significant_bits: int,
+    jpeg_quality: int = 90,
+    *,
+    white_bits: int | None = None,
+) -> bytes:
     """Encode an image to JPEG bytes the way it appears on screen.
 
     JPEG is 8-bit and cannot carry the mono-pixels-plus-color-metadata
@@ -1602,14 +1704,17 @@ def encode_display_jpg(array, color, significant_bits: int, jpeg_quality: int = 
         array: Source image (2D mono, 8/12/16-bit) for one channel.
         color: Channel color label (BF, Blue, Green, Red, Lumi, ...).
         significant_bits: Payload depth of ``array`` so the 8-bit downconvert
-            scales against the real range -- a summed 16-bit frame is not
-            indexed as 12-bit (out of range) and a 10-bit frame is not crushed.
+            scales against the real range -- a summed frame is not indexed as
+            12-bit (out of range) and a 10-bit frame is not crushed.
         jpeg_quality: JPEG quality, 1-100.
+        white_bits: The depth whose full scale is white, below
+            ``significant_bits`` for a sum: one frame's depth, so the JPG of a
+            sum is as bright as it is on screen. None is ``significant_bits``.
 
     Returns:
         bytes: JPEG-encoded image.
     """
-    img8 = convert_to_8bit(array, significant_bits)
+    img8 = convert_to_8bit(array, significant_bits, white_bits=white_bits)
     if img8.ndim == 3:
         # Already a display RGB image (e.g. a crosshairs / bullseye
         # overlay). These share the false-color RGB convention, so take
@@ -1633,41 +1738,58 @@ def convert_12bit_to_8bit(image, out=None):
 
 
 @functools.cache
-def _lut_to_8bit(significant_bits: int) -> np.ndarray:
-    """Build (once per depth) a payload-to-8-bit LUT sized to the value range.
+def _lut_to_8bit(significant_bits: int, white_bits: int) -> np.ndarray:
+    """Build (once per depth pair) a payload-to-8-bit LUT sized to the value range.
 
     The table spans ``0 .. (1 << significant_bits) - 1`` so every legal payload
-    value indexes in bounds, and full scale maps to 255. Cached: the handful of
-    depths in use (8/10/12/16) each build a single shared table.
+    value indexes in bounds, and ``(1 << white_bits) - 1`` maps to 255: full
+    scale when the two are equal, one frame's white for a sum, whose values
+    above it are white. Cached: the handful of depth pairs in use each build a
+    single shared table.
     """
     max_value = (1 << significant_bits) - 1
-    # Linear rescale (value / max * 255) then a truncating .astype(uint8),
+    white_value = (1 << white_bits) - 1
+    # Linear rescale (value / white * 255) then a truncating .astype(uint8),
     # chosen over the legacy >>8 (i.e. /256) used for 16-bit. Both truncate and
     # map full scale to 255; they differ by at most 1 LSB at 32640 of the 65536
     # 16-bit inputs because the divisor differs (65535 vs 65536), NOT because one
     # rounds. The rescale carries a systematic ~0.5-LSB low bias against the exact
     # real-valued map -- it is the deliberate choice, and the converter pin test
-    # locks the <=1-LSB bound so a change is caught here.
-    return np.clip(np.arange(max_value + 1, dtype=np.float64) / max_value * 255, 0, 255).astype(
+    # locks the <=1-LSB bound so a change is caught here. A white below full
+    # scale puts the values above it past 255, and they render white.
+    return np.clip(np.arange(max_value + 1, dtype=np.float64) / white_value * 255, 0, 255).astype(
         np.uint8
     )
 
 
-def convert_to_8bit(image, significant_bits: int, out=None):
+def convert_to_8bit(
+    image: np.ndarray,
+    significant_bits: int,
+    out: np.ndarray | None = None,
+    *,
+    white_bits: int | None = None,
+) -> np.ndarray:
     """Downconvert a frame to 8-bit, scaling against its significant bits.
 
     ``significant_bits`` names the meaningful payload range -- 12 for a Mono12
-    frame, 16 for a frame summed into a 16-bit container -- so the divisor and
-    the LUT span both follow the real depth. This is what keeps a summed 12-bit
-    value (which exceeds 4095) from indexing the 12-bit table out of range, and
-    what maps a 10-bit full-white frame to 255 instead of treating it as 12-bit.
-    Already-8-bit frames pass through. ``out`` reuses a caller buffer to avoid a
-    per-call allocation on the preview path.
+    frame, 10 for four 8-bit frames summed -- so the LUT span follows the real
+    depth: a value above it is a depth-contract violation and raises, and a
+    10-bit full-white frame maps to 255 instead of being treated as 12-bit.
+    ``white_bits`` puts white lower than full scale, which is how a sum is
+    rendered: against one frame's white, brighter than one frame, white
+    wherever it passes that (``convert_sum_to_8bit``). Already-8-bit frames
+    pass through. ``out`` reuses a caller buffer to avoid a per-call
+    allocation on the preview path.
     """
     if image.dtype == np.uint8:
         return image
     significant_bits = int(significant_bits)
-    lut = _lut_to_8bit(significant_bits)
+    white_bits = significant_bits if white_bits is None else int(white_bits)
+    if white_bits > significant_bits:
+        raise ValueError(
+            f'white at {white_bits} bits lies above the {significant_bits}-bit range it renders'
+        )
+    lut = _lut_to_8bit(significant_bits, white_bits)
     # The LUT has exactly one entry per in-range value, so a payload above the
     # declared depth indexes it out of range and raises. Re-raise that as a typed
     # FrameDepthError so a depth-contract violation is loud and named -- without a
@@ -1682,6 +1804,31 @@ def convert_to_8bit(image, significant_bits: int, out=None):
         return lut[image]
     except IndexError:
         raise FrameDepthError(int(image.max()), significant_bits) from None
+
+
+def convert_sum_to_8bit(
+    image: np.ndarray, frames_summed: int, frame_bits: int, out: np.ndarray | None = None
+) -> np.ndarray:
+    """Render a captured frame to 8 bits the way it is shown: a sum brighter.
+
+    Summing is for a brighter image, so a sum of N frames is rendered against
+    one frame's white: N times brighter than one frame, and white wherever it
+    passes one frame's white. Its full range stays in the frame (and in a
+    full-depth file); only the rendering saturates. A single frame renders
+    against its own depth, as ``convert_to_8bit`` does.
+
+    Args:
+        image: The captured frame, a sum or a single frame.
+        frames_summed: How many frames it holds.
+        frame_bits: The depth of each frame, as delivered.
+        out: Optional caller buffer, as for ``convert_to_8bit``.
+    """
+    return convert_to_8bit(
+        image,
+        summed_significant_bits(frames_summed, frame_bits),
+        out=out,
+        white_bits=frame_bits,
+    )
 
 
 def convert_16bit_to_8bit(image):
@@ -2176,16 +2323,26 @@ def generate_tiff_data(
     # write -- and ImageJ's own convention is 'um'.
     micron = OME_UNIT_MICROMETER if image_type == 'ome' else 'um'
 
-    # Shared plane metadata for all structured image types
+    # Shared plane metadata for all structured image types. The position
+    # follows the same optional-fields contract as the exposure, gain and
+    # illumination below it: a producer that has no position omits the keys,
+    # and a stand-in written here would be measured off the file downstream
+    # as the place the capture was taken. A capture whose axis has lost its
+    # reference, or a scope with no X and Y, is exactly that producer.
     plane = {
-        'PositionX': metadata['plate_pos_mm']['x'],
-        'PositionY': metadata['plate_pos_mm']['y'],
-        'PositionZ': metadata['z_pos_um'],
-        'PositionXUnit': 'mm',
-        'PositionYUnit': 'mm',
-        'PositionZUnit': micron,
         'Objective': metadata['objective'],
     }
+    # Each unit travels with the value it describes, as ExposureTimeUnit and
+    # GainUnit do below: a unit standing alone declares a measurement the file
+    # does not carry.
+    if 'plate_pos_mm' in metadata:
+        plane['PositionX'] = metadata['plate_pos_mm']['x']
+        plane['PositionY'] = metadata['plate_pos_mm']['y']
+        plane['PositionXUnit'] = 'mm'
+        plane['PositionYUnit'] = 'mm'
+    if 'z_pos_um' in metadata:
+        plane['PositionZ'] = metadata['z_pos_um']
+        plane['PositionZUnit'] = micron
     # Exposure, gain, and illumination share the optional-fields contract
     # with the per-frame timestamps below: the producer omits the key when
     # the value is genuinely unknown (a failed camera read, an LED that is
@@ -2202,11 +2359,19 @@ def generate_tiff_data(
     if 'gain_db' in metadata:
         plane['Gain'] = metadata['gain_db']
         plane['GainUnit'] = 'dB'
+    # The camera's own black level parameter, in the camera's own units: no
+    # unit is written because none is common to every camera.
+    if 'black_level' in metadata:
+        plane['BlackLevel'] = metadata['black_level']
+    # ExposureTime is per frame; a summed image integrates this many of them,
+    # and without the count the file's exposure understates its integration.
+    if 'frames_summed' in metadata:
+        plane['FramesSummed'] = metadata['frames_summed']
 
     # Per-frame timestamps. Each is optional -- callers that don't capture
     # them (older static metadata builders, Stage 2-pending paths) simply
     # omit the keys and the corresponding TIFF fields don't appear.
-    # timestamp_iso is host wall-clock at metadata-build time;
+    # timestamp_iso is host wall-clock when the frame was grabbed;
     # timestamp_camera_ticks is the camera-side ChunkTimestamp value;
     # timestamp_camera_tick_hz is the camera tick frequency for converting
     # ticks to seconds (1 GHz on Basler USB3, GevTimestampTickFrequency on
@@ -2285,7 +2450,6 @@ def generate_tiff_data(
                 'Manufacturer': instrument.get('manufacturer') or 'Etaluma',
                 'Model': instrument.get('model') or '',
                 'SerialNumber': instrument.get('serial_number') or '',
-                'FirmwareVersion': instrument.get('firmware_version') or '',
             },
             'Objective': {
                 'Model': objective_dict.get('model') or '',
@@ -2337,7 +2501,6 @@ def generate_tiff_data(
             'Device': metadata.get('microscope', ''),
             'Model': metadata.get('microscope_model', '') or '',
             'SerialNumber': instrument.get('serial_number') or '',
-            'FirmwareVersion': instrument.get('firmware_version') or '',
             'CameraModel': instrument.get('camera_model') or '',
             'PlateName': plate.get('name') or '',
             'PlateRows': plate.get('rows') or '',
@@ -2525,9 +2688,9 @@ def _compute_scale_bar_overlay(
         scale_bar_value = 255
     else:
         # White bar = the payload max for this frame's depth, so it downconverts
-        # to full 8-bit white. A summed frame rides in a 16-bit container (depth
-        # 16 -> 65535); a single 12-bit frame is 4095. A fixed 4095 would render
-        # a summed-frame bar as a dim ~16/255 gray.
+        # to full 8-bit white. A sum is tagged with the bits it can reach (four
+        # 12-bit frames: 14 -> 16383); a single 12-bit frame is 4095. A fixed
+        # 4095 would render a summed-frame bar gray in its full-depth file.
         scale_bar_value = (1 << significant_bits) - 1
 
     x_end = width - scale_bar_right_offset

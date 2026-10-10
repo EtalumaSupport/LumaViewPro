@@ -18,6 +18,9 @@ import pathlib
 
 import pytest
 
+from modules.labware_loader import WellPlateLoader
+from modules.objectives_loader import ObjectiveLoader
+
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 PROTOCOL_SETTINGS_SRC = REPO / 'ui' / 'protocol_settings.py'
@@ -76,7 +79,11 @@ def test_new_protocol_keeps_each_channel_tuned_z(scale_capabilities):
     prev = {('A1', 'BF'): 7000.0, ('A1', 'Green'): 8000.0, ('A1', 'Red'): 9000.0}
     cfg = _build_input_config(previous_well_z=prev)
     df = Protocol.from_config(
-        input_config=cfg, tiling_configs_file_loc=TILING_CONFIGS, capabilities=scale_capabilities
+        input_config=cfg,
+        tiling_configs_file_loc=TILING_CONFIGS,
+        capabilities=scale_capabilities,
+        objective_helper=ObjectiveLoader(),
+        wellplate_loader=WellPlateLoader(),
     ).steps()
 
     assert _well_channel_z(df, 'A1', 'BF') == pytest.approx(7000.0, abs=1e-6)
@@ -92,7 +99,11 @@ def test_tuned_channel_does_not_clobber_siblings(scale_capabilities):
     # Only BF tuned in A1; Green/Red were never focused there.
     cfg = _build_input_config(previous_well_z={('A1', 'BF'): 7000.0})
     df = Protocol.from_config(
-        input_config=cfg, tiling_configs_file_loc=TILING_CONFIGS, capabilities=scale_capabilities
+        input_config=cfg,
+        tiling_configs_file_loc=TILING_CONFIGS,
+        capabilities=scale_capabilities,
+        objective_helper=ObjectiveLoader(),
+        wellplate_loader=WellPlateLoader(),
     ).steps()
 
     assert _well_channel_z(df, 'A1', 'BF') == pytest.approx(7000.0, abs=1e-6)
@@ -107,7 +118,11 @@ def test_no_carry_over_uses_each_channels_focus(scale_capabilities):
 
     cfg = _build_input_config()  # no previous_well_z
     df = Protocol.from_config(
-        input_config=cfg, tiling_configs_file_loc=TILING_CONFIGS, capabilities=scale_capabilities
+        input_config=cfg,
+        tiling_configs_file_loc=TILING_CONFIGS,
+        capabilities=scale_capabilities,
+        objective_helper=ObjectiveLoader(),
+        wellplate_loader=WellPlateLoader(),
     ).steps()
 
     assert (df[df['Color'] == 'BF']['Z'] == 100.0).all()

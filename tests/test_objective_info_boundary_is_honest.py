@@ -1,0 +1,64 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+"""The objective-metadata boundary refuses by name, and declares it.
+
+`ObjectiveLoader.get_objective_info` refuses an id the catalogue does not hold
+with a `CatalogueNameRefusedError`, a `ConfigError`, the type the launch path
+already recovers from. The API
+method in front of it forwards the answer unchanged, so its signature promises
+the dict it returns and its docstring names the refusal -- that pair is the
+contract REST and the SDK inherit. An L2 caller reading `-> dict` may
+subscript without guarding, because there is no None to guard against.
+
+An annotation is not executable, so the signature is read statically; the
+behavioural half, that the refusal crosses the boundary untouched, is
+asserted beside it.
+"""
+
+import inspect
+import typing
+from types import SimpleNamespace
+
+import pytest
+
+from modules.exceptions import CatalogueNameRefusedError
+from modules.lumascope_api.runtime_state import RuntimeState
+from modules.objectives_loader import ObjectiveLoader
+
+
+def _turretless_state():
+    # A scope with no turret: the selected objective is the store, and the
+    # state never asks the scope for a slot, so the scope stand-in carries
+    # only the objective catalogue the state reads.
+    state = RuntimeState(scope=SimpleNamespace(objective_helper=ObjectiveLoader()))
+    state.set_turreted(False)
+    return state
+
+
+def _return_annotation(method):
+    return typing.get_type_hints(method).get('return')
+
+
+def test_the_boundary_promises_a_dict_and_nothing_else():
+    """The signature admits no None, because the call cannot produce one."""
+    assert _return_annotation(RuntimeState.get_objective_info) is dict
+
+
+def test_the_loader_it_forwards_promises_the_same():
+    """The premise above, asserted rather than assumed: the two move together."""
+    assert _return_annotation(ObjectiveLoader.get_objective_info) is dict
+
+
+def test_an_unknown_objective_id_is_refused_through_the_boundary():
+    """The refusal crosses the boundary as itself, not wrapped or swallowed."""
+    api = _turretless_state()
+    with pytest.raises(CatalogueNameRefusedError) as refused:
+        api.get_objective_info(objective_id='not-a-real-objective')
+    assert refused.value.reason == 'objective_not_in_catalogue'
+    assert refused.value.value == 'not-a-real-objective'
+
+
+def test_the_docstring_names_the_refusal():
+    """A docstring silent about the raise is the same gap in prose."""
+    doc = inspect.getdoc(RuntimeState.get_objective_info) or ''
+    assert 'CatalogueNameRefusedError' in doc
+    assert 'None' not in doc.split('Raises:')[0], 'the Returns section must not promise a None'

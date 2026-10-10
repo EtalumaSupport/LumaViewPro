@@ -1,7 +1,7 @@
 # Copyright Etaluma, Inc.
 import copy
+import functools
 import logging
-import os
 
 import numpy as np
 
@@ -14,13 +14,8 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 from modules import gui_logger
-from modules.config_ui_getters import (
-    firmware_stim_supported,
-    get_exposure_text_max,
-    get_layer_illumination_text_max,
-)
-from modules.exceptions import ProtocolError
-from modules.sequential_io_executor import IOTask
+from modules.config_ui_getters import firmware_stim_supported
+from ui.ui_helpers import run_reported, submit_reported, typed_number
 
 logger = logging.getLogger('LVP.ui.layer_control')
 
@@ -48,33 +43,14 @@ _LAYER_VALUE_WIDGETS = (
 # in drivers/fx2driver.py (byte-level wire trace) and
 # modules/lumascope_api/illumination.py (cache-equality check).
 # Toggle by either:
-#   * set fx2_debug_wire_enabled: true in data/settings.json
+#   * set fx2_debug_wire_enabled: true in the settings
 #   * flip _FX2_DEBUG_WIRE = True  below
 # ------------------------------------------------------------------
 _FX2_DEBUG_WIRE = False
 
 
-def _read_fx2_wire_setting() -> bool:
-    """Read fx2_debug_wire_enabled from settings.json at module import.
-
-    Replaces the prior LVP_FX2_DEBUG_WIRE environment-variable gate.
-    """
-    from modules.settings_init import load_fx2_debug_wire_setting
-
-    try:
-        import lvp_logger
-
-        base_dir = lvp_logger.lvp_appdata
-    except (ImportError, AttributeError):
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return load_fx2_debug_wire_setting(base_dir)
-
-
-_FX2_WIRE_SETTING = _read_fx2_wire_setting()
-
-
-def _fx2_wire_debug_enabled() -> bool:
-    return _FX2_DEBUG_WIRE or _FX2_WIRE_SETTING
+def _fx2_wire_debug_enabled(settings: dict) -> bool:
+    return _FX2_DEBUG_WIRE or settings['fx2_debug_wire_enabled']
 
 
 class LayerControl(BoxLayout):
@@ -91,6 +67,18 @@ class LayerControl(BoxLayout):
     # scope-change; AND-ed with the per-layer static autogain_support in the kv.
     camera_autogain_support = BooleanProperty(True)
     exposure_summing_support = BooleanProperty(False)
+    # Hides the focus and autofocus rows on a scope with no Z axis; set from
+    # scope.capabilities.has_focus when the scope's features are applied.
+    focus_support = BooleanProperty(True)
+    # Orthogonal runtime gate (like camera_autogain_support): hides the LED
+    # toggle and the illumination current on a scope that came up without
+    # its LED board; set from scope.capabilities when the camera's
+    # capabilities are synced. AND-ed with the static illumination_support.
+    led_controller_support = BooleanProperty(True)
+    # Disables the gain, exposure and auto-gain controls on a scope with no
+    # camera connected; set from scope.camera_connected when the camera's
+    # capabilities are synced.
+    camera_connected = BooleanProperty(True)
     show_camera_controls = BooleanProperty(True)
     # Drives the 8-bit summing depth-loss hint row; the row height follows the
     # label's wrapped texture so the multi-line warning is not clipped.
@@ -163,12 +151,16 @@ class LayerControl(BoxLayout):
         settings_key: str,
         cast=float,
         settings_path: str | None = None,
-        value_max: float | None = None,
     ) -> bool:
-        """Shared validation for text input -> slider -> settings update.
+        """Hand a typed layer value to the settings writer; True when the store changed.
 
-        Parses text, clips to slider range, updates slider + text + settings,
-        and applies. Returns True on success, False on invalid input.
+        Parses the text and writes it through ``update_settings``. The Session
+        decides what is stored: it refuses a value outside the setting's range
+        (an illumination past the LED board's maximum among them), telling
+        the person, and stores a gain or exposure past the camera's limit as
+        the intent, which the apply drives at the limit. The box and its
+        slider then show what is stored, whatever the call did; the slider's
+        own range is display and never narrows what was typed.
 
         Args:
             text_id: Kivy widget id for the text input (e.g., 'gain_text')
@@ -177,15 +169,8 @@ class LayerControl(BoxLayout):
             cast: Type to cast the text value (float or int)
             settings_path: Dot-separated sub-path for nested settings
                           (e.g., 'video_config.duration' or 'stim_config.frequency')
-            value_max: Optional upper bound for the typed value when it should
-                       exceed the slider's own max -- the slider is a coarse
-                       quick-pick (e.g. video duration up to 60s) while the
-                       text box accepts a larger precise value (e.g. a
-                       multi-minute protocol video). The slider then pins at
-                       its own max; the setting + text keep the typed value.
         """
         settings = _app_ctx.ctx.settings
-        slider = self.ids[slider_id]
 
         # The log name is derived from the widget id rather than passed in:
         # every text box here is '<name>_text' and its slider twin already logs
@@ -203,67 +188,55 @@ class LayerControl(BoxLayout):
         # carry what the user actually typed rather than what we made of it.
         typed_text = self.ids[text_id].text
 
-        from ui.ui_helpers import text_input_debounced
+        path = f'{self.layer}.{settings_path or settings_key}'
 
-        try:
-            raw = cast(typed_text)
-        except (ValueError, TypeError):
-            logger.debug(f'[LVP Main  ] Invalid {settings_key} input: {self.ids[text_id].text!r}')
-            # Reset to current valid value (M21)
-            if settings_path:
-                parts = settings_path.split('.')
-                val = settings[self.layer]
-                for p in parts:
-                    val = val[p]
-            else:
-                val = settings[self.layer][settings_key]
-            self._initializing = True
-            try:
-                self.ids[text_id].text = str(val)
-            finally:
-                self._initializing = False
-            # An unparseable entry is still a user action, and until now it left
-            # no trace at all -- the handler reset the box and returned. Both
-            # halves are recorded: what was typed, and what the box was put back
-            # to. Separate names because the debounce table is keyed by name and
-            # cancels a pending line for it, so one name would discard the other.
-            text_input_debounced(record_name, typed_text)
-            text_input_debounced(f'{record_name}_APPLIED', val)
-            gui_logger.note_write_back(record_name, val)
+        def stored_value():
+            val = settings[self.layer]
+            for p in (settings_path or settings_key).split('.'):
+                val = val[p]
+            return val
+
+        def show_stored():
+            # The display half, read back from the store: what the writer
+            # kept, or left in place when it refused, is what the box and
+            # slider show.
+            self._show_value_on_widgets(slider_id, text_id, stored_value(), cast=cast)
+
+        val = stored_value()
+        raw = typed_number(typed_text, cast, show_stored)
+        if raw is None:
+            # An unparseable entry is still a user action, and the reset above
+            # would otherwise leave no trace of it. Both halves are recorded:
+            # what was typed, and what the box was put back to. Separate names
+            # because both lines have to survive -- the pair is what says the
+            # entry was refused rather than accepted.
+            gui_logger.text_input(record_name, typed_text)
+            gui_logger.text_input(f'{record_name}_APPLIED', val)
             return False
 
-        upper = slider.max if value_max is None else value_max
-        clipped = cast(np.clip(raw, slider.min, upper))
+        # The kv fires this handler on focus LOSS, not on edit
+        # (`on_focus: if not self.focus: root.gain_text()`), so clicking into
+        # a box and out again arrives here with the untouched stored value.
+        # No edit, no commit; the box already shows the stored value.
+        if raw == val:
+            return False
 
-        # Update settings
-        if settings_path:
-            parts = settings_path.split('.')
-            target = settings[self.layer]
-            for p in parts[:-1]:
-                target = target[p]
-            target[parts[-1]] = clipped
-        else:
-            settings[self.layer][settings_key] = clipped
-
-        # The settings write above is the commit; this is the display half.
-        self._show_value_on_widgets(slider_id, text_id, clipped, cast=cast)
+        run_reported(lambda: _app_ctx.ctx.update_settings(path, raw), show_stored, record_name)
+        stored = stored_value()
 
         # text_input (not slider): this is a typed commit, and the twin slider
         # emits SLIDER for the same setting, so sharing the verb would make a
-        # drag and a keystroke indistinguishable in the bundle. Debounced
-        # because the kv binds both on_text_validate and on_focus, so one Enter
-        # runs this handler twice; the debounce collapses the pair to one line.
-        text_input_debounced(record_name, typed_text)
+        # drag and a keystroke indistinguishable in the bundle.
+        gui_logger.text_input(record_name, typed_text)
 
-        # Only when clipping actually moved the value. The comparison is on the
-        # PARSED number, not the strings: '5' typed into a float box becomes
-        # 5.0, which is the same value and must not look like a correction.
-        if raw != clipped:
-            text_input_debounced(f'{record_name}_APPLIED', clipped)
+        # Only when the writer refused and left the stored value in place.
+        # The comparison is on the PARSED number, not the strings: '5' typed
+        # into a float box becomes 5.0, which is the same value and must not
+        # look like a correction.
+        if raw != stored:
+            gui_logger.text_input(f'{record_name}_APPLIED', stored)
 
-        gui_logger.note_write_back(record_name, clipped)
-
-        return True
+        return stored != val
 
     def _init_ui(self, dt=0):
         ctx = _app_ctx.ctx
@@ -327,7 +300,7 @@ class LayerControl(BoxLayout):
             return
         # Early return on programmatic updates (#617): when another code
         # path sets ill_slider.value directly (load_settings, ill_text,
-        # set_step_state, camera listener), on_value fires and re-enters
+        # set_step_state), on_value fires and re-enters
         # here. Without this guard, the handler overwrites the caller's
         # settings write and schedules a redundant apply_settings. Callers
         # are responsible for writing settings explicitly when they use
@@ -340,7 +313,7 @@ class LayerControl(BoxLayout):
         # fail bench investigation. See _FX2_DEBUG_WIRE block at top
         # of this file. INFO level -- this is a key divergence point
         # (int from slider vs float from text).
-        if _fx2_wire_debug_enabled():
+        if _fx2_wire_debug_enabled(settings):
             logger.info(
                 '[FX2 LED diag] ill_slider ENTRY layer=%s raw_value=%r '
                 'raw_type=%s -> illumination=%r type=%s source=slider',
@@ -351,7 +324,7 @@ class LayerControl(BoxLayout):
                 type(illumination).__name__,
             )
         gui_logger.slider(f'ILLUMINATION_{self.layer}', illumination)
-        settings[self.layer]['illumination_ma'] = illumination
+        _app_ctx.ctx.update_settings(f'{self.layer}.illumination_ma', illumination)
 
         # Update text only if changed to reduce ScrollView recalculations
         new_text = str(illumination)
@@ -362,69 +335,34 @@ class LayerControl(BoxLayout):
     def ill_text(self) -> None:
         settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.ill_text()')
-        # Logged before validation and with the raw text: a rejected entry
-        # returns early below, and until now this box produced no record of its
-        # own at all -- a typed illumination was credited to the LED toggle that
-        # apply_settings happens to reach, which reads as a button press.
-        from ui.ui_helpers import text_input_debounced
-
-        text_input_debounced(f'ILLUMINATION_{self.layer}', self.ids['ill_text'].text)
-        ill_min = self.ids['ill_slider'].min
-        # Before the scope is built the slider's placeholder is the only bound.
-        ill_max = get_layer_illumination_text_max(self.layer)
-        if ill_max is None:
-            ill_max = self.ids['ill_slider'].max
-        try:
-            ill_val = float(self.ids['ill_text'].text)
-        except Exception:
-            logger.debug(f'[LVP Main  ] Invalid illumination input: {self.ids["ill_text"].text!r}')
-            # Show current valid value so user knows input was rejected (M21)
-            self._initializing = True
-            try:
-                self.ids['ill_text'].text = str(settings[self.layer]['illumination_ma'])
-            finally:
-                self._initializing = False
-            text_input_debounced(
-                f'ILLUMINATION_{self.layer}_APPLIED', settings[self.layer]['illumination_ma']
-            )
-            gui_logger.note_write_back(
-                f'ILLUMINATION_{self.layer}', settings[self.layer]['illumination_ma']
-            )
+        typed_text = self.ids['ill_text'].text
+        if not self._validate_and_apply_text_input(
+            'ill_text',
+            'ill_slider',
+            'illumination_ma',
+        ):
             return
-
-        illumination = float(np.clip(ill_val, ill_min, ill_max))
-
-        # Only when clipping moved it; comparing parsed numbers, not strings.
-        if ill_val != illumination:
-            text_input_debounced(f'ILLUMINATION_{self.layer}_APPLIED', illumination)
         # Text-entry divergence trace for the > ~150 mA silent-fail
         # bench investigation. See _FX2_DEBUG_WIRE block at top of
         # this file. INFO level -- this is the other key divergence
         # point (float from text vs int from slider).
-        if _fx2_wire_debug_enabled():
+        if _fx2_wire_debug_enabled(settings):
+            illumination = settings[self.layer]['illumination_ma']
             logger.info(
                 '[FX2 LED diag] ill_text ENTRY layer=%s raw_text=%r '
-                'parsed_val=%r -> illumination=%r type=%s source=text',
+                '-> illumination=%r type=%s source=text',
                 self.layer,
-                self.ids['ill_text'].text,
-                ill_val,
+                typed_text,
                 illumination,
                 type(illumination).__name__,
             )
-        settings[self.layer]['illumination_ma'] = illumination
-
-        self._show_value_on_widgets('ill_slider', 'ill_text', illumination)
-
-        gui_logger.note_write_back(f'ILLUMINATION_{self.layer}', illumination)
-
         self.apply_settings()
 
     def sum_slider(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.sum_slider()')
         total = int(self.ids['sum_slider'].value)
         gui_logger.slider(f'SUM_{self.layer}', total)
-        settings[self.layer]['sum'] = total
+        _app_ctx.ctx.update_settings(f'{self.layer}.sum', total)
         self._refresh_sum_depth_hint()
         self.apply_settings()
 
@@ -435,11 +373,10 @@ class LayerControl(BoxLayout):
             self.apply_settings()
 
     def video_duration_slider(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.video_duration_slider()')
         duration = self.ids['video_duration_slider'].value
         gui_logger.slider(f'VIDEO_DURATION_{self.layer}', duration)
-        settings[self.layer]['video_config']['duration'] = duration
+        _app_ctx.ctx.update_settings(f'{self.layer}.video_config.duration', duration)
         self.apply_settings()
 
     def video_duration_text(self):
@@ -450,77 +387,35 @@ class LayerControl(BoxLayout):
             'duration',
             cast=int,
             settings_path='video_config.duration',
-            # Slider quick-picks up to 60s; the text box accepts longer
-            # protocol videos (no protocol cap) up to a 1-hour sanity bound.
-            value_max=3600,
         ):
             self.apply_settings()
 
-    def update_auto_gain(self, init: bool = False):
+    def update_auto_gain(self):
         logger.info('[LVP Main  ] LayerControl.update_auto_gain()')
-        if self.ids['auto_gain'].state == 'down':
-            state = True
-        else:
-            state = False
-        if not init:
-            gui_logger.toggle(f'AUTO_GAIN_{self.layer}', state)
+        enabled = self.ids['auto_gain'].state == 'down'
+        gui_logger.toggle(f'AUTO_GAIN_{self.layer}', enabled)
 
-        # Leaving auto-gain asks the API to lock the standing arm and
-        # hands the result to the write-back below. Program start loads
-        # the stored settings, never the camera's, and entering auto-gain
-        # has nothing to lock (the arm happens in apply_settings), so
-        # neither asks.
-        lock = None
-        if not init and not state:
-            lock = _app_ctx.ctx.scope.imaging.lock_auto_gain()
-        self.update_auto_gain_cb(result=(init, lock))
+        # Leaving auto-gain locks the camera's arm and stores what it reached;
+        # the Session does both, so a script leaving auto-gain stores the same
+        # thing. The lock waits on the camera, so it runs on the camera lane.
+        # The redraw shows whatever the store holds afterwards -- the reached
+        # values, or the old ones if the lock was refused -- and the apply
+        # re-syncs the box and arms the camera when auto-gain went on.
+        ctx = _app_ctx.ctx
+        layer = self.layer
 
-    def update_auto_gain_cb(self, result=None, exception=None):
-        settings = _app_ctx.ctx.settings
-        if exception is not None:
-            logger.error(f'LVP Main] Update_auto_gain error: {exception}')
-            return
+        def redraw():
+            self.render_layer_values_from_settings()
+            self.apply_settings()
 
-        init, lock = result
-        state = self.ids['auto_gain'].state == 'down'
-
-        # Only a toggle OFF that locked a standing arm writes back what
-        # the auto loop achieved; the API has already told the user about
-        # a limit state or a failed lock.
-        if not init and not state and lock is not None and lock.state is not None:
-            gain = lock.gain_db
-            exp = lock.exposure_ms
-            # A FAILED lock carries no values; keep the previous settings
-            # for that field rather than push a non-physical one.
-            gain_known = common_utils.is_valid_gain_db(gain)
-            exp_known = common_utils.is_valid_exposure_ms(exp)
-            # Rounded to the resolution the control has: an achieved value
-            # carrying more digits than any path can re-enter would make the
-            # store and every widget showing it disagree forever.
-            if gain_known:
-                settings[self.layer]['gain_db'] = round(gain, 1)
-            if exp_known:
-                # The API decided the value (the achieved exposure floored
-                # to the class's usable floor); what is STORED is that value
-                # reconciled against the camera's own range, which is what
-                # this slider's bounds carry. The raw value reaches the user
-                # through the lock's state below.
-                stored = float(
-                    np.clip(
-                        lock.stored_exposure_ms,
-                        self.ids['exp_slider'].min,
-                        self.ids['exp_slider'].max,
-                    )
-                )
-                settings[self.layer]['exposure_ms'] = round(stored, 2)
-            if gain_known or exp_known:
-                self.render_layer_values_from_settings()
-
-        settings[self.layer]['auto_gain'] = state
-        self.apply_settings()
+        submit_reported(
+            lambda: ctx.session.set_layer_auto_gain(layer, enabled),
+            redraw,
+            f'AUTO_GAIN_{layer}',
+            lane=ctx.camera_executor,
+        )
 
     def gain_slider(self):
-        settings = _app_ctx.ctx.settings
         if _app_ctx.ctx.session.run_lockout:
             return
         # See ill_slider -- programmatic updates must not re-enter (#617).
@@ -529,7 +424,7 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.gain_slider()')
         gain = round(self.ids['gain_slider'].value, 1)  # Round to 1 decimal (step=0.1)
         gui_logger.slider(f'GAIN_{self.layer}', gain)
-        settings[self.layer]['gain_db'] = gain
+        _app_ctx.ctx.update_settings(f'{self.layer}.gain_db', gain)
         # Update text only if changed to reduce ScrollView recalculations
         new_text = str(gain)
         if self.ids['gain_text'].text != new_text:
@@ -544,11 +439,12 @@ class LayerControl(BoxLayout):
             self.apply_gain_slider()
 
     def composite_threshold_slider(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.composite_threshold_slider()')
         composite_threshold = self.ids['composite_threshold_slider'].value
         gui_logger.slider(f'COMPOSITE_THRESHOLD_{self.layer}', composite_threshold)
-        settings[self.layer]['composite_brightness_threshold'] = composite_threshold
+        _app_ctx.ctx.update_settings(
+            f'{self.layer}.composite_brightness_threshold', composite_threshold
+        )
 
     def composite_threshold_text(self):
         logger.info('[LVP Main  ] LayerControl.composite_threshold_text()')
@@ -559,7 +455,6 @@ class LayerControl(BoxLayout):
         )
 
     def exp_slider(self):
-        settings = _app_ctx.ctx.settings
         if _app_ctx.ctx.session.run_lockout:
             return
         # See ill_slider -- programmatic updates must not re-enter (#617).
@@ -569,7 +464,7 @@ class LayerControl(BoxLayout):
         exposure = round(self.ids['exp_slider'].value, 2)  # Round to 2 decimals (step=0.01)
         gui_logger.slider(f'EXPOSURE_{self.layer}', exposure)
         # exposure = 10 ** self.ids['exp_slider'].value # slider is log_10(ms)
-        settings[self.layer]['exposure_ms'] = exposure  # exposure in ms
+        _app_ctx.ctx.update_settings(f'{self.layer}.exposure_ms', exposure)  # exposure in ms
         # Update text only if changed to reduce ScrollView recalculations
         new_text = str(exposure)
         if self.ids['exp_text'].text != new_text:
@@ -578,88 +473,34 @@ class LayerControl(BoxLayout):
             self.apply_exp_slider()
 
     def exp_text(self) -> None:
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.exp_text()')
-        # Logged before validation, and with the raw text: an entry this
-        # handler rejects still returns early, and a rejected keystroke is
-        # exactly the user action a forensic reader needs to see. The layer
-        # suffix is required -- the debounce table is keyed by record name and
-        # cancels a pending line on a repeat, so two channels sharing a name
-        # would silently discard one of them.
-        from ui.ui_helpers import text_input_debounced
-
-        text_input_debounced(f'EXPOSURE_{self.layer}', self.ids['exp_text'].text)
-        exp_min = self.ids['exp_slider'].min
-        # The box is bounded by what the sensor can actually honor, not by the
-        # slider's manual range. With no camera to report a cap there is no
-        # honest ceiling, so the slider's bound is the only one there is.
-        exp_max = get_exposure_text_max()
-        if exp_max is None:
-            exp_max = self.ids['exp_slider'].max
-
-        try:
-            exp_val = float(self.ids['exp_text'].text)
-        except Exception:
-            logger.debug(f'[LVP Main  ] Invalid exposure input: {self.ids["exp_text"].text!r}')
-            # Show current valid value so user knows input was rejected (M21)
-            self._initializing = True
-            try:
-                self.ids['exp_text'].text = str(settings[self.layer]['exposure_ms'])
-            finally:
-                self._initializing = False
-            text_input_debounced(
-                f'EXPOSURE_{self.layer}_APPLIED', settings[self.layer]['exposure_ms']
-            )
-            gui_logger.note_write_back(
-                f'EXPOSURE_{self.layer}', settings[self.layer]['exposure_ms']
-            )
-            return
-
-        exposure = float(np.clip(exp_val, exp_min, exp_max))
-
-        # Only when clipping moved it; comparing parsed numbers, not strings.
-        if exp_val != exposure:
-            text_input_debounced(f'EXPOSURE_{self.layer}_APPLIED', exposure)
-
-        settings[self.layer]['exposure_ms'] = exposure
-
-        self._show_value_on_widgets('exp_slider', 'exp_text', exposure)
-
-        gui_logger.note_write_back(f'EXPOSURE_{self.layer}', exposure)
-
-        self.apply_exp_slider()
+        # The typed exposure is the layer's intent, stored as typed. The
+        # sensor's ceiling is applied where the value reaches the camera
+        # (ImagingAPI.applied_exposure_ms_for, under apply_exp_slider), with
+        # the intent kept, exactly as a value loaded from the file is; the
+        # box no longer carries a second copy of that ceiling.
+        if self._validate_and_apply_text_input('exp_text', 'exp_slider', 'exposure_ms'):
+            self.apply_exp_slider()
 
     def stim_freq_slider(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.stim_freq_slider()')
         frequency = self.ids['stim_freq_slider'].value
         gui_logger.slider(f'STIM_FREQ_{self.layer}', frequency)
-        try:
-            settings[self.layer]['stim_config']['frequency'] = frequency
-        except Exception as e:
-            logger.error(f'[LVP Main  ] LayerControl.stim_freq_slider() -> {e}')
+        _app_ctx.ctx.update_settings(f'{self.layer}.stim_config.frequency', frequency)
         self.apply_settings()
 
     def stim_pulse_count_slider(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.stim_pulse_count_slider()')
         pulse_count = int(self.ids['stim_pulse_count_slider'].value)
         gui_logger.slider(f'STIM_PULSE_COUNT_{self.layer}', pulse_count)
-        try:
-            settings[self.layer]['stim_config']['pulse_count'] = pulse_count
-        except Exception as e:
-            logger.error(f'[LVP Main  ] LayerControl.stim_pulse_count_slider() -> {e}')
+        _app_ctx.ctx.update_settings(f'{self.layer}.stim_config.pulse_count', pulse_count)
         self.apply_settings()
 
     def stim_pulse_width_slider(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.stim_pulse_width_slider()')
         pulse_width = int(self.ids['stim_pulse_width_slider'].value)
         gui_logger.slider(f'STIM_PULSE_WIDTH_{self.layer}', pulse_width)
-        try:
-            settings[self.layer]['stim_config']['pulse_width'] = pulse_width
-        except Exception as e:
-            logger.error(f'[LVP Main  ] LayerControl.stim_pulse_width_slider() -> {e}')
+        _app_ctx.ctx.update_settings(f'{self.layer}.stim_config.pulse_width', pulse_width)
         self.apply_settings()
 
     def stim_freq_text(self):
@@ -695,14 +536,10 @@ class LayerControl(BoxLayout):
             self.apply_settings()
 
     def stim_ill_slider(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.stim_ill_slider()')
         illumination = round(self.ids['stim_ill_slider'].value)
         gui_logger.slider(f'STIM_ILL_{self.layer}', illumination)
-        try:
-            settings[self.layer]['stim_config']['illumination_ma'] = illumination
-        except Exception as e:
-            logger.error(f'[LVP Main  ] LayerControl.stim_ill_slider() -> {e}')
+        _app_ctx.ctx.update_settings(f'{self.layer}.stim_config.illumination_ma', illumination)
         new_text = str(illumination)
         if self.ids['stim_ill_text'].text != new_text:
             self.ids['stim_ill_text'].text = new_text
@@ -720,11 +557,10 @@ class LayerControl(BoxLayout):
             self.apply_settings()
 
     def false_color(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.false_color()')
         enabled = bool(self.ids['false_color'].active)
         gui_logger.toggle(f'FALSE_COLOR_{self.layer}', enabled)
-        settings[self.layer]['false_color'] = enabled
+        _app_ctx.ctx.update_settings(f'{self.layer}.false_color', enabled)
         self.apply_settings()
 
     def log_histogram_scale(self) -> None:
@@ -747,22 +583,12 @@ class LayerControl(BoxLayout):
             mode = 'none'
         gui_logger.select(f'ACQUIRE_{self.layer}', mode)
 
-        if mode == 'image':
-            settings[self.layer]['acquire'] = 'image'
-            if 'stim_config' in settings[self.layer]:
-                settings[self.layer]['stim_config']['enabled'] = False
+        # The Session stops the layer stimulating when it acquires; the
+        # stimulation switch is drawn off to match.
+        _app_ctx.ctx.session.set_layer_acquire(self.layer, None if mode == 'none' else mode)
+        if mode != 'none':
             self.ids['stim_disable_btn'].active = True
             self.show_stim_controls = False
-
-        elif mode == 'video':
-            settings[self.layer]['acquire'] = 'video'
-            if 'stim_config' in settings[self.layer]:
-                settings[self.layer]['stim_config']['enabled'] = False
-                self.ids['stim_disable_btn'].active = True
-            self.ids['stim_disable_btn'].active = True
-            self.show_stim_controls = False
-        else:
-            settings[self.layer]['acquire'] = None
 
         if 'stim_config' in settings[self.layer]:
             self.update_stim_controls_visibility()
@@ -790,209 +616,73 @@ class LayerControl(BoxLayout):
         self.update_stim_controls_visibility()
 
     def update_autofocus(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.update_autofocus()')
         enabled = bool(self.ids['autofocus'].active)
         gui_logger.toggle(f'AUTOFOCUS_ENABLED_{self.layer}', enabled)
-        settings[self.layer]['autofocus'] = enabled
+        _app_ctx.ctx.update_settings(f'{self.layer}.autofocus', enabled)
 
     def save_focus(self):
         gui_logger.button(f'SAVE_FOCUS_{self.layer}')
         ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] LayerControl.save_focus()')
-        # The selected-step index is captured HERE, at click time on the main
-        # thread: "the selected step" must mean the one the user was looking
-        # at when they clicked, not whatever is selected when the queued task
-        # eventually runs (the two diverge if the user navigates or deletes
-        # steps in the click-to-execute window). This also keeps the worker
-        # thread out of the widget tree.
-        protocol_settings = ctx.motion_settings.ids.get('protocol_settings_id')
-        selected_step = int(protocol_settings.curr_step) if protocol_settings is not None else -1
-        ctx.io_executor.put(
-            IOTask(action=self.execute_save_focus, kwargs={'selected_step': selected_step})
+        # The selected step and the protocol are taken at the click: the
+        # step the user was looking at, in the protocol the panel holds now
+        # (the panel replaces its protocol on New and Load). The panel's -1
+        # is no step selected.
+        protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
+        protocol = protocol_settings._protocol
+        selected_step = int(protocol_settings.curr_step)
+        step_idx = selected_step if selected_step >= 0 else None
+        run_reported(
+            lambda: ctx.session.save_focus(protocol, self.layer, step_idx=step_idx),
+            lambda: self._refresh_step_views(ctx, protocol),
+            f'SAVE_FOCUS_{self.layer}',
         )
 
-    def execute_save_focus(self, selected_step: int = -1):
-        # Stage 3.5+ pattern: hardware-touching executor actions wrap their
-        # body in try/except, log the full error to lumaviewpro.log (per
-        # the "all info in the production log" rule), and post a friendly
-        # user-facing notification. The exception itself is NOT re-raised
-        # because we're inside an executor task -- re-raising would just
-        # log the same error twice (once here, once via the executor's
-        # default handler). See `feedback_logging_policy.md` and
-        # `project_lumaviewclassic_repo.md` in auto-memory.
-        ctx = _app_ctx.ctx
-        settings = ctx.settings
-        try:
-            pos = ctx.scope.motion.get_current_position('Z')
-            with ctx.settings_lock:
-                settings[self.layer]['focus'] = pos
-            # Save Focus writes the layer default (what future steps of this
-            # channel are born with) plus the SELECTED step's Z -- never any
-            # other step. Sibling steps once inherited the value through a
-            # baseline-equality guess, which collapsed distinct per-step
-            # focus values into the last save: every step of a layer is
-            # born at the identical layer focus, so equality is the default
-            # state, not evidence of user intent. Only an explicit
-            # selection earns the write.
-            protocol = getattr(ctx, 'protocol', None)
-            if protocol is not None and selected_step >= 0:
-                if selected_step >= protocol.num_steps():
-                    logger.info(
-                        f'[LVP Main  ] save_focus: selected step {selected_step} is '
-                        f'out of range; layer {self.layer} focus saved, no step updated'
-                    )
-                    return
-                try:
-                    step = protocol.step(idx=selected_step)
-                except ProtocolError:
-                    # Steps changed between the range check and the read (a
-                    # deletion on the main thread while this task ran).
-                    logger.info(
-                        f'[LVP Main  ] save_focus: selected step {selected_step} no '
-                        f'longer exists; layer {self.layer} focus saved, no step updated'
-                    )
-                    return
-                if step['Color'] != self.layer:
-                    logger.info(
-                        f'[LVP Main  ] save_focus: selected step {selected_step} is '
-                        f'{step["Color"]}, not {self.layer}; layer focus saved, '
-                        'step untouched'
-                    )
-                    return
-                protocol.modify_step_z_height(step_idx=selected_step, z=pos)
-                logger.info(
-                    f'[LVP Main  ] save_focus: layer={self.layer} Z={pos} saved to '
-                    f'selected step {selected_step}'
-                )
-                self._schedule_step_views_refresh(ctx, protocol, context='save_focus')
-        except Exception as e:
-            logger.exception(f'[LVP Main  ] save_focus failed for layer {self.layer}: {e}')
-            try:
-                from modules.notification_center import notifications
-
-                notifications.error(
-                    'Motion',
-                    'Save focus failed',
-                    "Couldn't read the Z position. Check the USB cable and power, then try again.",
-                )
-            except Exception:
-                pass
-
-    def _schedule_step_views_refresh(self, ctx, protocol, context: str):
-        """Schedule a main-thread refresh of the stage view + step editor.
+    def _refresh_step_views(self, ctx, protocol):
+        """Redraw the stage view and the step editor from *protocol*.
 
         Shared by every focus action that changes step Z values so the
         labware view and the step editor's focus readout update together.
+        It is the redraw of run_reported, which runs it on this thread and
+        reports whatever it raises.
         """
-
-        # Refresh the stage labware view + the steps table so the
-        # updated Z values are visible immediately.
-        def _refresh(_dt):
-            try:
-                ctx.stage.set_protocol_steps(df=protocol.steps())
-                ctx.motion_settings.ids['protocol_settings_id'].update_step_ui()
-            except Exception:
-                # Scheduled main-thread callback: the steps table
-                # can be mid-rebuild on this tick. Log so a stale-Z
-                # labware view / step editor is diagnosable instead
-                # of failing silently.
-                logger.exception(
-                    f'[LVP Main  ] {context}: stage / step-editor refresh '
-                    f'failed for layer {self.layer}; Z readouts may show '
-                    'stale values until the next UI update'
-                )
-
-        Clock.schedule_once(_refresh, 0)
+        ctx.stage.set_protocol_steps(protocol)
+        ctx.motion_settings.ids['protocol_settings_id'].update_step_ui()
 
     def apply_focus_to_channel_steps(self):
         gui_logger.button(f'APPLY_FOCUS_TO_STEPS_{self.layer}')
-        logger.info('[LVP Main  ] LayerControl.apply_focus_to_channel_steps()')
-        _app_ctx.ctx.io_executor.put(IOTask(action=self.execute_apply_focus_to_channel_steps))
-
-    def execute_apply_focus_to_channel_steps(self):
-        # See execute_save_focus comment for the pattern rationale.
         ctx = _app_ctx.ctx
-        settings = ctx.settings
-        try:
-            pos = ctx.scope.motion.get_current_position('Z')
-            with ctx.settings_lock:
-                settings[self.layer]['focus'] = pos
-            protocol = getattr(ctx, 'protocol', None)
-            if protocol is None:
-                logger.info(
-                    f'[LVP Main  ] apply_focus_to_channel_steps: no protocol '
-                    f'loaded; layer {self.layer} focus saved only'
-                )
-                return
-            updated = protocol.apply_focus_all_layer_steps(layer=self.layer, z=pos)
-            logger.info(
-                f'[LVP Main  ] apply_focus_to_channel_steps: layer={self.layer} '
-                f'Z={pos} applied to {updated} step(s)'
-            )
-            if updated > 0:
-                self._schedule_step_views_refresh(
-                    ctx, protocol, context='apply_focus_to_channel_steps'
-                )
-        except Exception as e:
-            logger.exception(
-                f'[LVP Main  ] apply_focus_to_channel_steps failed for layer {self.layer}: {e}'
-            )
-            try:
-                from modules.notification_center import notifications
-
-                notifications.error(
-                    'Motion',
-                    'Apply focus failed',
-                    "Couldn't read the Z position. Check the USB cable and power, then try again.",
-                )
-            except Exception:
-                pass
-
-    def goto_focus(self):
-        gui_logger.button(f'GOTO_FOCUS_{self.layer}')
-        io_executor = _app_ctx.ctx.io_executor
-        logger.info('[LVP Main  ] LayerControl.goto_focus()')
-        io_executor.put(
-            IOTask(
-                action=self.execute_goto_focus,
-            )
+        logger.info('[LVP Main  ] LayerControl.apply_focus_to_channel_steps()')
+        # As Save Focus: the protocol the panel holds at the click.
+        protocol = ctx.motion_settings.ids['protocol_settings_id']._protocol
+        run_reported(
+            lambda: ctx.session.apply_focus_to_layer_steps(protocol, self.layer),
+            lambda: self._refresh_step_views(ctx, protocol),
+            f'APPLY_FOCUS_TO_STEPS_{self.layer}',
         )
 
-    def execute_goto_focus(self):
-        # See execute_save_focus comment for the pattern rationale.
+    def goto_focus(self):
         from ui.ui_helpers import move_absolute
 
-        settings = _app_ctx.ctx.settings
-        try:
-            pos = settings[self.layer]['focus']
-            move_absolute('Z', pos)  # set current z height in usteps
-        except KeyError:
-            logger.warning(f'[LVP Main  ] goto_focus: no saved focus for layer {self.layer}')
-            try:
-                from modules.notification_center import notifications
+        gui_logger.button(f'GOTO_FOCUS_{self.layer}')
+        logger.info('[LVP Main  ] LayerControl.goto_focus()')
+        run_reported(
+            lambda: move_absolute('Z', _app_ctx.ctx.session.saved_focus(self.layer)),
+            None,
+            f'GOTO_FOCUS_{self.layer}',
+        )
 
-                notifications.warning(
-                    'Motion',
-                    'No saved focus',
-                    f"Layer '{self.layer}' has no saved focus position. Use SAVE first.",
-                )
-            except Exception:
-                pass
-        except Exception as e:
-            logger.exception(f'[LVP Main  ] goto_focus failed for layer {self.layer}: {e}')
-            try:
-                from modules.notification_center import notifications
+    def led_toggle(self):
+        """The Enable LED button's press: record it, then drive the LED.
 
-                notifications.error(
-                    'Motion',
-                    'Focus move failed',
-                    "Couldn't move Z to the saved focus. Check the USB cable and power, then try again.",
-                )
-            except Exception:
-                pass
-
-    _suppressing_led_log = False  # Class-level flag to prevent duplicate logging
+        The record is here and not in update_led_state, because every
+        apply_settings also runs that, and an apply is not a press. Writing
+        the button's state is not a press either: it never dispatches
+        on_release, so the app may set it without a guard.
+        """
+        gui_logger.toggle(f'LED_{self.layer}', self.ids['enable_led_btn'].state == 'down')
+        self.update_led_state()
 
     def update_led_state(self, apply_settings=True):
         ctx = _app_ctx.ctx
@@ -1001,58 +691,34 @@ class LayerControl(BoxLayout):
         # a scan (e.g. the exposure field losing focus when the AF button is
         # clicked) cannot turn off the channel AF is using. The lease is the
         # structural guard; an early-return here would only duplicate it.
-        # Skip hardware commands during programmatic state changes
-        # (e.g., disable_leds_for_other_layers toggling buttons).
-        if LayerControl._suppressing_led_log or self._initializing:
+        if self._initializing:
             return
         settings = ctx.settings
-        camera_executor = ctx.camera_executor
         enabled = self.ids['enable_led_btn'].state == 'down'
-        gui_logger.toggle(f'LED_{self.layer}', enabled)
         illumination = settings[self.layer]['illumination_ma']
 
         if apply_settings:
             self.apply_settings(update_led=False)
 
-        camera_executor.put(
-            IOTask(
-                action=self.set_led_state, kwargs={'enabled': enabled, 'illumination': illumination}
-            )
+        # The colour string goes to the seam unmapped: the illumination API
+        # owns colour-to-channel resolution, so turning OFF a colour this scope
+        # cannot drive is a no-op there, and turning one ON fails with the
+        # colour named instead of a sentinel channel.
+        illumination_api = ctx.scope.illumination
+        layer = self.layer
+        if enabled:
+            logger.info(f'[LVP Main  ] update_led_state: led_on({layer}, {illumination})')
+            call = functools.partial(illumination_api.led_on, layer, illumination)
+        else:
+            call = functools.partial(illumination_api.led_off, layer)
+        # The toggle shows what the API reports lit once the command has
+        # landed, so a refused one goes back.
+        submit_reported(
+            call,
+            ctx.ui_listener_bridge.reconcile_led_buttons,
+            f'LED_{layer}',
+            lane=ctx.io_executor,
         )
-        # self.set_led_state(enabled=enabled, illumination=illumination)
-
-        # self.apply_settings()
-
-    def set_led_state(self, enabled: bool, illumination: float):
-        # Hardware-touching action. See execute_save_focus for the
-        # try/except + log + notify pattern rationale.
-        ctx = _app_ctx.ctx
-        try:
-            # The colour string goes to the seam unmapped: the illumination
-            # API owns colour-to-channel resolution, so turning OFF a colour
-            # this scope cannot drive is a no-op there, and turning one ON
-            # fails with the colour named instead of a sentinel channel.
-            if not enabled:
-                ctx.scope.illumination.led_off_async(self.layer)
-            else:
-                logger.info(f'[LVP Main  ] set_led_state: led_on({self.layer}, {illumination})')
-                ctx.scope.illumination.led_on_async(self.layer, illumination)
-        except Exception as e:
-            logger.exception(
-                f'[LVP Main  ] set_led_state failed for layer '
-                f'{self.layer} (enabled={enabled}, illumination={illumination}): {e}'
-            )
-            try:
-                from modules.notification_center import notifications
-
-                notifications.error(
-                    'LED',
-                    f'{self.layer} LED command failed',
-                    f"Couldn't {'enable' if enabled else 'disable'} the {self.layer} channel. "
-                    f'Check the USB cable and power, then try again.',
-                )
-            except Exception:
-                pass
 
     # update_led_toggle_ui() removed -- LED observer handles UI sync.
     # See Phase 1 commit 96defe3.
@@ -1095,9 +761,10 @@ class LayerControl(BoxLayout):
                 # The box drives the gain/exposure widgets' enabled state in
                 # the kv; on a camera whose Auto Gain control is hidden a
                 # ticked box would grey them with nothing to un-grey them.
-                self.ids['auto_gain'].active = bool(
-                    step['Auto_Gain'] and self.camera_autogain_support
-                )
+                # So it shows what the camera will run, not what was stored.
+                self.ids['auto_gain'].active = _app_ctx.ctx.scope.imaging.applied_auto_gain_for(
+                    step['Auto_Gain']
+                ).applied
 
             if 'Exposure' in step:
                 self._show_value_on_widgets('exp_slider', 'exp_text', step['Exposure'])
@@ -1282,17 +949,17 @@ class LayerControl(BoxLayout):
     def effective_auto_gain(self) -> bool:
         """The auto-gain enable actually in force for this layer's camera.
 
-        The saved preference (settings[layer]['auto_gain']) gated by the
-        camera's hardware capability (camera_autogain_support -- the same gate
-        the kv visibility uses). On a camera without hardware AG/AE the Auto
-        Gain/Exp control is hidden, so its stored preference resolves to off
-        here. Derived on read, never written back, so a capable camera's saved
-        preference survives a swap to an AG-less body and back.
+        The API's answer for the saved preference (settings[layer]['auto_gain']):
+        a camera without hardware auto-gain runs manual, and its Auto Gain/Exp
+        control is hidden. Read, never written back, so a capable camera's
+        saved preference survives a swap to a camera without it and back.
         """
-        settings = _app_ctx.ctx.settings
-        return bool(settings[self.layer]['auto_gain'] and self.camera_autogain_support)
+        ctx = _app_ctx.ctx
+        return ctx.scope.imaging.applied_auto_gain_for(
+            ctx.settings[self.layer]['auto_gain']
+        ).applied
 
-    def apply_settings(self, ignore_auto_gain=False, update_led=True, protocol=False):
+    def apply_settings(self, update_led=True):
 
         # Skip apply_settings if layer is still initializing
         if getattr(self, '_initializing', False):
@@ -1302,26 +969,8 @@ class LayerControl(BoxLayout):
 
         ctx = _app_ctx.ctx
 
-        # While autofocus owns the camera, a live UI apply -- e.g. the
-        # exposure field losing focus because the AF button itself was
-        # clicked -- must not push values to the camera mid-scan. The LED
-        # leaf (update_led_state) carries the same guard; gating the shared
-        # funnel covers every input that routes through here (exposure /
-        # gain / illumination text and sliders, stim fields). Programmatic
-        # protocol applies are exempt: the runner coordinates with AF
-        # itself.
-        if not protocol and ctx.scope.imaging.is_focusing:
-            logger.debug(
-                f'[LVP Main  ] {self.layer}_LayerControl.apply_settings '
-                'suppressed -- autofocus owns the camera'
-            )
-            return
-
-        settings = ctx.settings
         camera_executor = ctx.camera_executor
         from ui.image_settings import set_histogram_layer
-
-        lumaview = ctx.lumaview
 
         def update_shader(dt=None):
             thread = getattr(ctx, 'scope_display_thread', None)
@@ -1345,35 +994,26 @@ class LayerControl(BoxLayout):
                 # a plain slider move, and this layer's own LED is never
                 # disturbed (its current is owned by update_led_state).
                 if not ctx.session.run_lockout:
+                    illumination_api = ctx.scope.illumination
                     for layer in common_utils.get_layers():
                         if layer == self.layer:
                             continue
-                        try:
-                            state = ctx.scope.illumination.get_led_state(channel=layer)
-                            if state.get('enabled', False):
-                                ctx.scope.illumination.led_off_async(layer)
-                        except Exception as e:
-                            # Defensive: if get_led_state fails for any
-                            # layer (e.g. null driver, hardware fault),
-                            # don't block the rest of apply_settings.
-                            # Log so the failure is visible in the
-                            # production log per the "all info in the
-                            # log" rule (was previously silent pass).
-                            logger.warning(
-                                f'[LVP Main  ] get_led_state({layer}) '
-                                f'failed during disable_leds_for_other_layers: {e}'
+                        # None with no LED board installed: nothing is lit.
+                        state = illumination_api.get_led_state(channel=layer)
+                        if state is not None and state['enabled']:
+                            submit_reported(
+                                lambda lit=layer: illumination_api.led_off(lit),
+                                None,
+                                f'LED_{layer}_OFF',
+                                lane=ctx.io_executor,
                             )
                 # Update button states (visual only -- hardware already handled)
-                LayerControl._suppressing_led_log = True
-                try:
-                    for layer in common_utils.get_layers():
-                        if layer != self.layer:
-                            layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-                            btn = layer_obj.ids['enable_led_btn']
-                            if btn.state != 'normal':
-                                btn.state = 'normal'
-                finally:
-                    LayerControl._suppressing_led_log = False
+                for layer in common_utils.get_layers():
+                    if layer != self.layer:
+                        layer_obj = ctx.image_settings.layer_lookup(layer=layer)
+                        btn = layer_obj.ids['enable_led_btn']
+                        if btn.state != 'normal':
+                            btn.state = 'normal'
 
         if ctx.session.run_lockout:
             # Protocol actively running -- capture() handles camera settings
@@ -1385,26 +1025,13 @@ class LayerControl(BoxLayout):
             Clock.schedule_once(disable_leds_for_other_layers, 0)
             Clock.schedule_once(update_shader, 0)
             return
-        if protocol and not settings.get('protocol_led_on', False):
-            # Protocol preview mode with LEDs OFF -- no need to apply camera
-            # settings since there's nothing to display.
-            logger.debug(
-                f'[APPLY_SETTINGS DIAG] {self.layer} -- early return '
-                f'(protocol preview, LEDs off). Camera settings NOT applied.'
-            )
-            Clock.schedule_once(disable_leds_for_other_layers, 0)
-            Clock.schedule_once(update_shader, 0)
-            return
         # All other cases: apply camera settings normally.
-        # This includes protocol preview with LEDs ON (#613) -- user needs
-        # correct gain/exposure to see the step's channel properly.
 
         # global gain_vals
 
         # update illumination to currently selected settings
         # -----------------------------------------------------
-        if not protocol:
-            set_histogram_layer(active_layer=self.layer)
+        set_histogram_layer(active_layer=self.layer)
 
         # Queue IO task and update UI after completing IO
         if update_led and not ctx.session.run_lockout:
@@ -1412,14 +1039,8 @@ class LayerControl(BoxLayout):
 
         disable_leds_for_other_layers()
 
-        # update exposure to currently selected settings
-        # -----------------------------------------------------
-
-        exposure = settings[self.layer]['exposure_ms']
-        gain = settings[self.layer]['gain_db']
-
         if not ctx.session.run_lockout:
-            # Effective enable = saved preference gated by camera capability
+            # Effective enable = the API's answer for the saved preference
             # (effective_auto_gain): on a camera without hardware AG/AE the
             # control is hidden, so a stored True must read as off here -- else
             # the gain/exposure sliders below stay disabled with no UI to clear
@@ -1438,39 +1059,17 @@ class LayerControl(BoxLayout):
             # an imperative .disabled write here was erased whenever the run
             # lockout cleared, because that rule re-fires on the edge.
             self.ids['auto_gain'].active = auto_gain_enabled
-            autogain_settings = None
-            if not ignore_auto_gain:
-                from modules.config_ui_getters import (
-                    get_ag_ae_max_exposure_ms,
-                    get_ag_ae_min_exposure_ms,
-                    get_auto_gain_settings,
+            # With no camera connected its controls are disabled and there is
+            # nothing to apply; bring-up has already said it is missing.
+            if ctx.scope.camera_connected:
+                session = ctx.session
+                layer = self.layer
+                submit_reported(
+                    lambda: session.apply_layer_camera(layer),
+                    None,
+                    f'CAMERA_SETTINGS_{layer}',
+                    lane=camera_executor,
                 )
-
-                autogain_settings = get_auto_gain_settings()
-                # Cap how far AG/AE may drive exposure for this layer's
-                # channel class (issue #655): without it AG runs exposure
-                # to the sensor max on dim scenes, washing out brightfield
-                # and making the live auto loop hunt.
-                autogain_settings['max_exposure_ms'] = get_ag_ae_max_exposure_ms(self.layer)
-                # The class floor rides beside the ceiling so an auto-gain
-                # lock can say whether exposure bottomed out of the
-                # usable range (AT_MINIMUM), not only whether it topped.
-                autogain_settings['min_exposure_ms'] = get_ag_ae_min_exposure_ms(self.layer)
-            camera_executor.put(
-                IOTask(
-                    # The task runs ON the camera worker: bind the impl --
-                    # the public dispatcher would self-dispatch on this
-                    # same lane and stall against its own queue slot.
-                    action=lumaview.scope.imaging._apply_layer_camera_settings_impl,
-                    kwargs={
-                        'layer': self.layer,
-                        'gain_db': gain,
-                        'exposure_ms': exposure,
-                        'auto_gain': auto_gain_enabled,
-                        'auto_gain_settings': autogain_settings,
-                    },
-                )
-            )
 
         # update false color to currently selected settings and shader
         # -----------------------------------------------------

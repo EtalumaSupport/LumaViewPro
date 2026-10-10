@@ -24,36 +24,15 @@ independent of rendering, at every seam and in every identity field.
 import ast
 import inspect
 import json
-import sys
-import types
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 import tifffile as tf
 
 from modules import image_save
-from modules.labware_loader import WellPlateLoader
 from tests.ast_seams import find_def
-
-
-# ui.composite_capture is a Kivy widget module; conftest mocks `kivy` but not
-# the uix submodules, and CompositeCapture subclasses FloatLayout (a bare
-# MagicMock cannot be subclassed).
-class _StubWidget:
-    def __init__(self, **kwargs):
-        pass
-
-
-for _name in ('kivy.clock', 'kivy.uix'):
-    sys.modules.setdefault(_name, MagicMock())
-
-_floatlayout = types.ModuleType('kivy.uix.floatlayout')
-_floatlayout.FloatLayout = _StubWidget
-sys.modules.setdefault('kivy.uix.floatlayout', _floatlayout)
-
-import modules.app_context as _app_ctx
+from tests.frame_records import frame_record, plate
+from tests.scope_fakes import bind_settings_like_a_session
 
 
 LAYER = 'Green'
@@ -69,10 +48,12 @@ def identity_scope(sim_scope):
     generate_image_metadata before a channel is ever written, so it cannot
     observe this invariant at all.
     """
-    loader = WellPlateLoader()
-    sim_scope.runtime_state.set_objective('20x Oly')
-    sim_scope.runtime_state.set_labware(loader.get_plate(PLATE))
-    sim_scope.runtime_state.set_stage_offset({'x': 0.0, 'y': 0.0})
+    bind_settings_like_a_session(
+        sim_scope,
+        objective_id='20x Oly',
+        protocol={'labware': PLATE},
+        stage_offset={'x': 0.0, 'y': 0.0},
+    )
     return sim_scope
 
 
@@ -114,58 +95,30 @@ def _read_channel(path) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _capture_ctx(tmp_path, scope, false_color_active, use_crosshairs):
-    ctx = MagicMock()
-    ctx.settings = {
-        'live_folder': str(tmp_path),
-        'separate_folder_per_channel': False,
-        'image_output_format': {'live': 'TIFF'},
-        'jpg_quality': 90,
-    }
-    ctx.scope = scope
-    ctx.scope_display.use_bullseye = False
-    ctx.scope_display.use_crosshairs = use_crosshairs
-    ctx.scope_display.add_crosshairs.side_effect = lambda img: img
-    ctx.scope_display.transform_to_bullseye.side_effect = lambda img: img
-    return ctx
-
-
 def _run_manual_capture(tmp_path, scope, *, false_color_active, use_crosshairs):
-    """Drive the real capture path with the real save underneath it.
+    """Drive the one manual-capture path with the real save underneath it.
 
-    Deliberately does NOT patch save_image / save_live_image: the defect lives
-    in what reaches the file, so a test that patches the save cannot see it.
+    Deliberately does NOT patch save_image: the defect lives in what reaches
+    the file, so a test that patches the save cannot see it. The layer under
+    test is the open drawer; the settings are the shipped template with the
+    capture written to this test's folder at 8 bits.
     """
-    from ui.composite_capture import CompositeCapture
+    from modules.manual_capture import ManualCaptureController
+    from tests.settings_fixtures import complete_settings
 
-    capture_config = SimpleNamespace(capture_depth=8, save_encoding='8bit')
-    ctx = _capture_ctx(tmp_path, scope, false_color_active, use_crosshairs)
-
-    original = _app_ctx.ctx
-    _app_ctx.ctx = ctx
-    try:
-        with (
-            patch('ui.composite_capture.set_last_save_folder'),
-            patch(
-                'modules.config_ui_getters.get_layer_configs',
-                return_value={LAYER: {'exposure_ms': 10, 'sum': 1, 'illumination_ma': 100}},
-            ),
-            patch(
-                'modules.config_ui_getters.get_image_capture_config_from_ui',
-                return_value=capture_config,
-            ),
-        ):
-            # The four keywords are what the button snapshots on the main
-            # thread: the layer under test is the open drawer.
-            CompositeCapture._live_capture_impl(
-                object(),
-                layer=LAYER,
-                false_color_on=false_color_active,
-                use_bullseye=False,
-                use_crosshairs=use_crosshairs,
-            )
-    finally:
-        _app_ctx.ctx = original
+    settings = complete_settings(
+        live_folder=str(tmp_path),
+        separate_folder_per_channel=False,
+        image_output_format={'live': 'TIFF', 'sequenced': 'TIFF'},
+        image_mode='8bit',
+    )
+    settings[LAYER].update({'exposure_ms': 10, 'sum': 1, 'illumination_ma': 100})
+    capture = ManualCaptureController(
+        scope=scope, settings_snapshot=lambda: settings, engineering_mode=lambda: False
+    )
+    capture.capture(
+        layer=LAYER, false_color_on=false_color_active, crosshairs=use_crosshairs
+    ).result(timeout=30)
 
     return sorted((tmp_path / 'Manual').glob('*.tiff'))
 
@@ -242,6 +195,10 @@ def test_manual_and_protocol_captures_of_one_frame_agree(identity_scope, tmp_pat
         output_format='TIFF',
         save_encoding='8bit',
         significant_bits=8,
+        objective_id=identity_scope.runtime_state.get_current_objective_id(),
+        frame_record=frame_record(),
+        labware=plate(),
+        well_label=None,
     )
     protocol = image_save.save_image(
         identity_scope,
@@ -255,6 +212,10 @@ def test_manual_and_protocol_captures_of_one_frame_agree(identity_scope, tmp_pat
         output_format='TIFF',
         save_encoding='8bit',
         significant_bits=8,
+        objective_id=identity_scope.runtime_state.get_current_objective_id(),
+        frame_record=frame_record(),
+        labware=plate(),
+        well_label=None,
     )
 
     assert _read_channel(manual) == _read_channel(protocol) == LAYER, (
@@ -271,7 +232,6 @@ def test_manual_and_protocol_captures_of_one_frame_agree(identity_scope, tmp_pat
 SEAMS = [
     image_save.prepare_image_for_saving,
     image_save.save_image,
-    image_save.save_live_image,
 ]
 
 
@@ -314,6 +274,10 @@ def test_save_image_rejects_a_missing_channel(identity_scope):
             save_encoding='8bit',
             significant_bits=8,
             false_color_on=False,
+            objective_id=identity_scope.runtime_state.get_current_objective_id(),
+            frame_record=frame_record(),
+            labware=plate(),
+            well_label=None,
         )
 
 
@@ -321,7 +285,17 @@ def test_metadata_rejects_a_channel_outside_the_vocabulary(identity_scope):
     """The seam is a public surface once channel is required; an index or a
     typo must not reach durable metadata as an identity."""
     with pytest.raises(ValueError, match='unknown channel'):
-        image_save.generate_image_metadata(identity_scope, channel=3, x=0, y=0, z=0)
+        image_save.generate_image_metadata(
+            identity_scope,
+            channel=3,
+            plate_x_mm=0,
+            plate_y_mm=0,
+            stage_z_um=0,
+            objective_id=identity_scope.runtime_state.get_current_objective_id(),
+            frame_record=frame_record(),
+            labware=plate(),
+            well_label=None,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -345,6 +319,10 @@ def test_composite_export_stamps_composite(identity_scope, tmp_path):
         output_format='TIFF',
         save_encoding='8bit',
         significant_bits=8,
+        objective_id=identity_scope.runtime_state.get_current_objective_id(),
+        frame_record=frame_record(),
+        labware=plate(),
+        well_label=None,
     )
     assert _read_identity(path)['Name'] == 'Composite', (
         'a multi-channel composite must record Composite, not brightfield'
@@ -365,6 +343,10 @@ def test_single_channel_composite_export_stamps_that_channel(identity_scope, tmp
         output_format='TIFF',
         save_encoding='8bit',
         significant_bits=8,
+        objective_id=identity_scope.runtime_state.get_current_objective_id(),
+        frame_record=frame_record(),
+        labware=plate(),
+        well_label=None,
     )
     assert _read_identity(path)['Name'] == LAYER, (
         'a single-channel composite export records the channel it holds'
@@ -400,6 +382,10 @@ def test_false_colour_off_does_not_rewrite_recorded_identity(identity_scope, tmp
             output_format='TIFF',
             save_encoding='right_aligned',
             significant_bits=12,
+            objective_id=identity_scope.runtime_state.get_current_objective_id(),
+            frame_record=frame_record(),
+            labware=plate(),
+            well_label=None,
         )
 
     on = _read_identity(_save(True, 'on_'))

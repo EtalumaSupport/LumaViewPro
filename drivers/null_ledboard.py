@@ -128,6 +128,11 @@ class NullLEDBoard:
         guard runs."""
         return 0
 
+    def commanded_ma(self, mA: float) -> float:
+        """No board, so nothing is commanded. Unreached for the same reason
+        as ``max_ma``."""
+        return 0.0
+
     def wait_until_on(self, timeout_s=5.0) -> None:
         """Null implementation: no-op."""
         pass

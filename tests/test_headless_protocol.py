@@ -29,18 +29,6 @@ from unittest.mock import MagicMock
 # gets purged below -- this test deliberately verifies the protocol chain
 # loads without any kivy module present.
 
-_mock_settings_init = MagicMock()
-_mock_settings_init.settings = {
-    'BF': {'autofocus': False},
-    'PC': {'autofocus': False},
-    'DF': {'autofocus': False},
-    'Red': {'autofocus': False},
-    'Green': {'autofocus': False},
-    'Blue': {'autofocus': False},
-    'Lumi': {'autofocus': False},
-}
-sys.modules.setdefault('modules.settings_init', _mock_settings_init)
-
 
 # ---------------------------------------------------------------------------
 # CRITICAL: remove any Kivy modules that might have been loaded by a previous
@@ -59,23 +47,25 @@ _purge_kivy_from_sys_modules()
 
 
 # Now import the protocol execution chain -- these MUST not require Kivy
+from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
-from modules.lumascope_api import Lumascope
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_runner import (
     SequencedCaptureRunner,
     SequencedCaptureRunMode,
 )
 from modules.protocol import Protocol
+from modules.run_events import RunEvents
 from modules.kivy_utils import schedule_ui
 import modules.kivy_utils as _kivy_utils
+from modules.scope_session import ScopeSession
 
 # The purge above poisons the rest of the session: conftest installed the
 # kivy stubs once, before any file was collected, and every later-collected
 # test file that imports a ui/ module relies on them still being present.
 # Re-install (idempotent) now that the kivy-free imports are proven.
 from tests.conftest import install_mock_deps
-from tests.protocol_drives import autofocus_snapshot
+from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
 
 install_mock_deps()
 
@@ -143,8 +133,7 @@ class TestHeadlessImports:
 
     def test_schedule_ui_falls_back_to_direct_invocation(self):
         """Without a UI dispatcher, schedule_ui calls the function directly."""
-        # Clear any dispatcher set by previous tests
-        _kivy_utils._ui_dispatcher = None
+        ScopeSession.set_ui_dispatcher(None)
 
         called = []
 
@@ -161,7 +150,9 @@ class TestHeadlessImports:
         def fake_dispatcher(func, timeout):
             calls.append((func, timeout))
 
-        _kivy_utils.set_ui_dispatcher(fake_dispatcher)
+        ScopeSession.set_ui_dispatcher(
+            _kivy_utils.UiDispatcher(schedule=fake_dispatcher, thread=None)
+        )
         try:
 
             def my_func(dt):
@@ -172,7 +163,7 @@ class TestHeadlessImports:
             assert calls[0][0] is my_func
             assert calls[0][1] == 0.5
         finally:
-            _kivy_utils._ui_dispatcher = None
+            ScopeSession.set_ui_dispatcher(None)
 
 
 class TestHeadlessProtocolExecution:
@@ -231,6 +222,8 @@ class TestHeadlessProtocolExecution:
                 'Video Config': {'duration': 1, 'fps': 5},
                 'Stim_Config': {},
                 'Step Index': 0,
+                'Label': 'A1_BF',
+                'Auto_Named': False,
             }
         ]
         df = pd.DataFrame(rows)
@@ -249,20 +242,21 @@ class TestHeadlessProtocolExecution:
         """Full protocol run must not cause Kivy to be loaded at any point."""
         with _kivy_purged():
             # Ensure no dispatcher leaked from previous test
-            _kivy_utils._ui_dispatcher = None
+            ScopeSession.set_ui_dispatcher(None)
 
-            from modules.coord_transformations import CoordinateTransformer
-            from modules.labware_loader import WellPlateLoader
-
-            scope = Lumascope(simulate=True)
-            # The session registers the data root at bring-up; a runner over a
-            # bare scope needs it too, or the run refuses at start.
-            scope.protocols.register_source_path('.')
+            # The data root is the scope's, given at construction; a runner
+            # over a bare scope reads its catalogues and tiling config from it.
+            scope = build_scope(simulate=True, source_path='.')
+            # A bare scope skipped bring-up, which fills the turret from the
+            # persisted slots; an empty turret addresses no glass at all.
+            configure_turret_like_bringup(scope)
             # Speed up the simulator for test runtime
             scope._led_driver.set_timing_mode('fast')
             scope._motion_driver.set_timing_mode('fast')
             scope._camera_driver.set_timing_mode('fast')
-            scope._camera_driver.grab()
+            # Bring-up starts the grab; a bare scope skipped it, and a run
+            # on a camera that is not grabbing is refused.
+            scope._camera_driver.start_grabbing()
 
             execs = self._make_executors()
             try:
@@ -275,30 +269,21 @@ class TestHeadlessProtocolExecution:
                 mock_af.best_focus_position = MagicMock(return_value=5000.0)
                 mock_af.run_in_progress = MagicMock(return_value=False)
 
+                swap_lanes(scope, io=execs['io'], camera=execs['camera'])
                 executor = SequencedCaptureRunner(
                     scope=scope,
-                    stage_offset={'x': 0.0, 'y': 0.0},
-                    io_executor=execs['io'],
                     protocol_thread=execs['protocol'],
                     file_io_executor=execs['file_io'],
-                    camera_executor=execs['camera'],
-                    autofocus_thread=MagicMock(is_running=False),
+                    autofocus_thread=MagicMock(in_flight_sweep=None),
+                    activity_claim=ActivityClaim(),
                     autofocus_runner=mock_af,
                 )
-                executor._wellplate_loader = WellPlateLoader()
-                executor._coordinate_transformer = CoordinateTransformer()
-
                 protocol = self._make_protocol()
 
                 done = threading.Event()
 
-                def on_complete(**kwargs):
+                def on_ended(outcome, run_dir, protocol):
                     done.set()
-
-                callbacks = {
-                    'run_complete': on_complete,
-                    'move_position': lambda axis: None,
-                }
 
                 autogain_settings = {
                     'target_brightness': 0.3,
@@ -318,10 +303,8 @@ class TestHeadlessProtocolExecution:
                     autogain_settings=autogain_settings,
                     parent_dir=tmp_path / 'output',
                     max_scans=1,
-                    callbacks=callbacks,
-                    leds_state_at_end='off',
+                    events=RunEvents(run_ended=on_ended),
                     enable_image_saving=False,
-                    autofocus_snapshot=autofocus_snapshot(),
                 )
                 executor.start(plan)
 

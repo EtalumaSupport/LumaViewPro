@@ -24,17 +24,12 @@ exactly what the state reached so far justifies -- no more.
 
 from __future__ import annotations
 
-import sys
-from unittest.mock import MagicMock
 
 import pytest
 
-_mock_settings_init = MagicMock()
-_mock_settings_init.settings = {'BF': {'autofocus': False}, 'Green': {'autofocus': False}}
-sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.lumascope_api.illumination import LedTransition
-from tests.af_drives import AF_CENTER_Z, af_runner_and_scope, drive_af
+from tests.af_drives import AF_CENTER_Z, af_lease, af_runner_and_scope, drive_af
 
 
 class SetupError(Exception):
@@ -73,7 +68,7 @@ SETUP_CALLS_IN_SOURCE_ORDER = [
 def _break(runner, scope, seam, monkeypatch):
     """Make one setup statement raise, leaving the other four intact."""
     if seam == 'objective':
-        runner._objective_loader.get_objective_info.side_effect = _raise
+        scope.objective_helper.get_objective_info.side_effect = _raise
     elif seam == 'position_read':
         # The scan centre is the first thing _calculate_params reads.
         scope.motion.get_current_position.side_effect = _raise
@@ -88,7 +83,7 @@ def _break(runner, scope, seam, monkeypatch):
 def _z_moves(scope):
     return [
         call.args[1]
-        for call in scope.motion._move_absolute_impl.call_args_list
+        for call in scope.motion.move_absolute.call_args_list
         if call.args and call.args[0] == 'Z'
     ]
 
@@ -130,7 +125,7 @@ class TestSetupFailureReleasesTheRunner:
             drive_af(runner)
 
         # Heal every seam, then run for real.
-        runner._objective_loader.get_objective_info.side_effect = None
+        scope.objective_helper.get_objective_info.side_effect = None
         scope.motion.get_current_position.side_effect = None
         scope.illumination.save_led_state.side_effect = None
         scope.imaging.save_camera_state.side_effect = None
@@ -195,7 +190,7 @@ class TestTheCameraArmIsPutBackWhenItWasTakenAndNotOtherwise:
 
     def test_a_failure_at_the_lock_still_restores_the_snapshot(self, monkeypatch):
         runner, scope = af_runner_and_scope()
-        scope.imaging._lock_auto_gain_impl.side_effect = _raise
+        scope.imaging.lock_auto_gain.side_effect = _raise
 
         with pytest.raises(SetupError):
             drive_af(runner)
@@ -305,7 +300,7 @@ def _break_unwind(scope, seam):
     earlier version of this file made exactly that mistake.
     """
     if seam == 'led_apply':
-        lease = scope.illumination.acquire_led_lease.return_value
+        lease = af_lease(scope)
 
         def _raise_on_af_end(transition, ctx):
             if transition is LedTransition.AF_TO_CAPTURE:
@@ -358,7 +353,7 @@ class TestEveryUnwindFailureStillReleasesTheClaim:
 
         drive_af(runner)
 
-        scope.illumination.acquire_led_lease.return_value.apply.side_effect = None
+        af_lease(scope).apply.side_effect = None
         scope.imaging.restore_camera_state.side_effect = None
 
         assert drive_af(runner) == AF_CENTER_Z, (
@@ -492,9 +487,7 @@ def test_a_clean_exit_still_runs_every_restore_step(monkeypatch):
     assert drive_af(runner, keep_led_on=True, led_color='Green') == AF_CENTER_Z
 
     assert scope.motion.set_precision_mode.called, 'the precision restore must still run'
-    assert scope.illumination.acquire_led_lease.return_value.apply.called, (
-        'the AF-end LED transition must still run'
-    )
+    assert af_lease(scope).apply.called, 'the AF-end LED transition must still run'
     assert scope.imaging.restore_camera_state.called, 'the camera restore must still run'
 
 

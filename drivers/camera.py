@@ -1,9 +1,12 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 import contextlib
+from dataclasses import dataclass
 import re
 import threading
 import time
+from typing import Any
 
 import numpy as np
 
@@ -17,9 +20,59 @@ except ImportError:
     # are unguarded, so a None fallback turns every one into an AttributeError the
     # moment the dedicated camera logger is unavailable.
     _cam_log = logger
+from drivers.aoi_geometry import AoiPlan, center_crop, plan_aoi
 from drivers.camera_profiles import CameraProfile, lookup_profile
 
 default_max_exposure = 1_000  # in ms
+
+
+@dataclass(frozen=True)
+class FrameGrid:
+    """The hardware windows a camera can acquire at its current binning, in displayed pixels.
+
+    ``plan_aoi`` reads it: the legal sizes are ``size_min + k * step`` up to
+    ``max_size``, and the legal offsets ``offset_min + k * offset_step``. A
+    camera that centres its own window (``offset_step`` 1) is handed offsets
+    it does not write; the crop centres on the window either way.
+    """
+
+    step: tuple[int, int]
+    max_size: tuple[int, int]
+    size_min: tuple[int, int] = (0, 0)
+    offset_step: tuple[int, int] = (1, 1)
+    offset_min: tuple[int, int] = (0, 0)
+    bias: tuple[int, int] = (0, 0)
+
+
+@dataclass(frozen=True)
+class FrameWindow:
+    """The window a camera acquires and the part of it the camera delivers.
+
+    The acquired size travels with the crop, so a frame of any other size, made
+    under a window no longer set, is recognised and not stored rather than
+    cropped wrong. ``crop`` is ``(x0, y0, width, height)``, or None when the
+    acquired window is the delivered one.
+    """
+
+    acquired_width: int
+    acquired_height: int
+    crop: tuple[int, int, int, int] | None
+
+    @property
+    def size(self) -> dict:
+        """The delivered size, ``{'width', 'height'}``."""
+        if self.crop is None:
+            return {'width': self.acquired_width, 'height': self.acquired_height}
+        return {'width': self.crop[2], 'height': self.crop[3]}
+
+    @classmethod
+    def from_plan(cls, plan: AoiPlan) -> 'FrameWindow':
+        crop = (
+            (plan.crop_x0, plan.crop_y0, plan.crop_width, plan.crop_height)
+            if plan.needs_crop
+            else None
+        )
+        return cls(plan.acq_width, plan.acq_height, crop)
 
 
 class ImageHandlerBase:
@@ -55,8 +108,17 @@ class ImageHandlerBase:
         # step, a VM resume), and a settle count measured against a timestamp
         # that jumped forward never completes.
         self._frames_delivered = 0
+        # The bytes those frames took on the link, counted beside them so the
+        # wire rate is measured over the same frames as the frame rate.
+        self._bytes_delivered = 0
         self.last_img_seq = None
         self._failed_grabs = 0
+        # The camera's window, pushed here by the camera (set_frame_size, a
+        # binning change, a rebuilt handler). None stores every frame as it
+        # arrives.
+        self.frame_window: FrameWindow | None = None
+        self._frames_of_another_window = 0
+        self._reported_window: FrameWindow | None = None
         # Per-frame consumers (manual record today; per-frame plugins later).
         # Snapshotted-then-released under _frame_lock at _store_frame time so
         # a slow callback never holds the SDK thread.
@@ -88,6 +150,16 @@ class ImageHandlerBase:
         """
         with self._frame_lock:
             return self._frames_delivered
+
+    @property
+    def delivered_counts(self) -> tuple[int, int]:
+        """``(frames, wire bytes)`` this handler has stored since construction.
+
+        Read together under the lock, so a rate taken from two readings
+        counts the bytes of exactly the frames it counts.
+        """
+        with self._frame_lock:
+            return self._frames_delivered, self._bytes_delivered
 
     def _detached(self) -> bool:
         """True when the buffered frame's device is no longer attached.
@@ -170,13 +242,13 @@ class ImageHandlerBase:
             self.last_img_seq = None
         self._failed_grabs = 0
 
-    def register_frame_callback(self, cb) -> None:
+    def register_frame_callback(self, cb: Callable[[Any, Any, Any], None]) -> None:
         """Register a per-frame callback fired after every successful grab.
 
         Callback signature: ``cb(image, timestamp, chunks)``. Runs on the
         worker thread that processes SDK callbacks (Pylon
         ``PylonImageGrabWorker`` for Stage B of the OnImageGrabbed split
-        / IDS grab loop / simulated pump). The Pylon SDK's native grab
+        / IDS grab loop / simulated acquisition thread). The Pylon SDK's native grab
         thread (``PylonImageGrab``) only enqueues to Stage B and does
         not fire callbacks directly. Callbacks MUST NOT block -- they
         share the worker thread with the next frame. Heavy work (file IO,
@@ -197,7 +269,15 @@ class ImageHandlerBase:
         with self._frame_lock, contextlib.suppress(ValueError):
             self._frame_callbacks.remove(cb)
 
-    def _store_frame(self, image, timestamp, chunks: dict | None = None, *, significant_bits: int):
+    def _store_frame(
+        self,
+        image,
+        timestamp,
+        chunks: dict | None = None,
+        *,
+        significant_bits: int,
+        wire_bytes: int,
+    ):
         """Called by subclass when a new frame is successfully grabbed.
 
         Args:
@@ -213,7 +293,25 @@ class ImageHandlerBase:
                 that deliver true container-depth frames), so the depth and the
                 pixels stay together and a later format switch cannot make the
                 buffered frame's depth read wrong.
+            wire_bytes: the bytes THIS frame took on the link -- REQUIRED, so
+                the wire rate cannot be left uncounted for a driver. The
+                transport's own figure for the frame (the grab result's
+                payload, the buffer's filled size, the bytes the stream
+                carried), never the host array's size: a packed format is
+                smaller on the link than in memory, and the link carries the
+                whole acquired window before any crop below.
+
+        The frame is cropped to the camera's window here, the one place every
+        driver's frames are stored; a frame of another size than the window
+        acquires was made under a window no longer set and is not stored.
         """
+        window = self.frame_window
+        if window is not None:
+            if image.shape[:2] != (window.acquired_height, window.acquired_width):
+                self._skip_frame_of_another_window(image, window)
+                return
+            if window.crop is not None:
+                image = center_crop(image, *window.crop)
         _tracing = profile_trace.ENABLE_PROFILE_TRACE
         if _tracing:
             _arrive_t = time.perf_counter()
@@ -230,6 +328,7 @@ class ImageHandlerBase:
             self.last_img_significant_bits = significant_bits
             self.last_chunks = chunks
             self._frames_delivered += 1
+            self._bytes_delivered += wire_bytes
             self.last_img_seq = self._frames_delivered
             cbs = list(self._frame_callbacks)
         self._failed_grabs = 0
@@ -254,6 +353,17 @@ class ImageHandlerBase:
                 ]
             )
 
+    def _skip_frame_of_another_window(self, image, window: FrameWindow) -> None:
+        """Count a frame made under another window, said once per window."""
+        self._frames_of_another_window += 1
+        if self._reported_window is not window:
+            self._reported_window = window
+            _cam_log.info(
+                f'[CAM Class ] a {image.shape[1]}x{image.shape[0]} frame arrived for the '
+                f'{window.acquired_width}x{window.acquired_height} window: made before the '
+                f'window changed, not stored ({self._frames_of_another_window} so far)'
+            )
+
     def _record_failure(self):
         """Called by subclass when a grab fails.
 
@@ -266,6 +376,64 @@ class ImageHandlerBase:
         if self._failed_grabs % 5 == 1:
             _cam_log.warning(f'[CAM Class ] Grab failed ({self._failed_grabs} consecutive)')
         return self._failed_grabs >= self.MAX_CONSECUTIVE_FAILURES
+
+
+# The SDKs' names for a link, as the one vocabulary a caller compares: Basler's
+# device class, GenICam's DeviceTLType. A name not listed passes through as the
+# SDK gave it rather than being guessed into one of these.
+_TRANSPORT_NAMES = {
+    'BaslerUsb': 'USB3',
+    'BaslerGigE': 'GigE',
+    'USB3Vision': 'USB3',
+    'GigEVision': 'GigE',
+}
+
+
+def declared_unit(genicam_unit: str) -> str | None:
+    """A GenICam node's unit as the node declares it; the empty string
+    GenICam returns for a node with no unit is None, the unit unknown."""
+    return genicam_unit if genicam_unit else None
+
+
+def link_info(
+    *,
+    transport: str | None = None,
+    link_speed: float | None = None,
+    link_speed_unit: str | None = None,
+    packet_size_bytes: int | None = None,
+    inter_packet_delay: int | None = None,
+) -> dict:
+    """The one shape of a camera's link report; None where the camera does
+    not report a field. ``transport`` is mapped to 'USB3' / 'GigE' / 'USB2'
+    where the SDK's name is a known one.
+
+    The speed is carried with the unit the camera declares for it, never
+    converted: Basler's DeviceLinkSpeed is in a unit that varies by model
+    (bits per second on newer bodies), so a fixed conversion would be wrong
+    on some. A camera that declares no unit reports ``link_speed_unit``
+    None.
+    """
+    return {
+        'transport': _TRANSPORT_NAMES.get(transport, transport),
+        'link_speed': link_speed,
+        'link_speed_unit': link_speed_unit,
+        'packet_size_bytes': packet_size_bytes,
+        'inter_packet_delay': inter_packet_delay,
+    }
+
+
+def no_hardware_auto_mode(driver: str, member: str, mode: str) -> NotImplementedError:
+    """The error an auto-mode member raises on a camera with no such mode.
+
+    Its profile declares the mode absent and the API reads the profile
+    before any auto-mode call, so reaching one of these members is a caller
+    that skipped that read. An answer here would be a lie: nothing was
+    written, and there is no loop to report on.
+    """
+    return NotImplementedError(
+        f'{driver} {member}: this camera has no hardware {mode}; '
+        'the API reads the camera profile and never asks'
+    )
 
 
 class Camera(ABC):
@@ -295,6 +463,7 @@ class Camera(ABC):
         self.cam_image_handler: ImageHandlerBase | None = None
         self.model_name = None
         self._device_removed = False
+        self._async_teardown_started = False
         self._device_serial = None
         # Camera-side timestamp tick rate (Hz). Set by the driver at init
         # if the camera supports a Timestamp chunk; None for cameras
@@ -318,6 +487,10 @@ class Camera(ABC):
         # before connect() below, which re-applies it on the first handler.
         self._frame_callback_lock = threading.Lock()
         self._registered_frame_callbacks: list = []
+        # The window set_frame_size planned, owned here for the same reason:
+        # a driver sets its window before it builds a handler, and rebuilds
+        # the handler on a reconnect.
+        self._frame_window: FrameWindow | None = None
 
         # Start gate: the camera-lifecycle split. connect() returns the
         # camera CONFIGURED but NOT grabbing; streaming begins exactly once
@@ -335,13 +508,15 @@ class Camera(ABC):
         # refresh (it used to be assigned once here and never recomputed).
 
     @property
-    def active(self):
+    def active(self) -> Any:
         """Thread-safe access to camera active state.
 
         Three-state semantics:
           False  -- not connected (initial state)
           <obj>  -- connected camera instance (truthy; e.g. pylon.InstantCamera)
-          None   -- disconnected / device removed (set by _mark_disconnected)
+          None   -- disconnected or a connect failed (after a removal this
+                    lags ``is_device_removed()``, which _mark_disconnected sets;
+                    the handle is released later, by disconnect())
 
         Returns:
             False, the connected camera instance, or None.
@@ -392,11 +567,9 @@ class Camera(ABC):
             self.array = np.array([])
 
     def __del__(self):
-        # Subclass __init__ may raise before super().__init__() runs (e.g.
-        # FX2Camera grabs _FX2Connection.get() first so it has self._fx2
-        # ready for the base class's self.connect() call -- if that get()
-        # raises on the Pylon-fallback path, this instance is partially
-        # constructed and _state_lock + _active never got set). Python
+        # Subclass __init__ may raise before super().__init__() runs, leaving
+        # a partially constructed instance whose _state_lock + _active never
+        # got set. Python
         # still runs __del__ on the partial object; the hasattr gate
         # short-circuits to a clean no-op instead of firing a misleading
         # "__del__ disconnect failed: no attribute _state_lock" warning.
@@ -444,6 +617,44 @@ class Camera(ABC):
             self._device_removed = True
         if was_connected:
             _cam_log.error('[CAM Class ] Camera disconnected')
+
+    def _schedule_async_teardown(self) -> None:
+        """Run disconnect() on a daemon thread of its own, once per removal.
+
+        Called with ``_mark_disconnected`` by whatever noticed the removal: an
+        SDK callback, a presence probe, a grab loop. None of those threads may
+        tear the camera down itself -- an SDK callback that closes its own
+        device deadlocks or aborts natively, and a grab loop cannot join
+        itself -- so the teardown runs here, after a short delay that lets
+        the caller return first.
+
+        One-shot while a teardown is in flight: a second trigger (a callback
+        racing a probe) is a no-op. The latch re-arms when the teardown ends,
+        so a removal after a later reconnect is torn down too; a trigger
+        arriving after the teardown still finds the camera marked removed.
+        """
+        with self._state_lock:
+            if self._async_teardown_started:
+                return
+            self._async_teardown_started = True
+
+        def _run_teardown():
+            try:
+                time.sleep(0.05)
+                _cam_log.info('[CAM Class ] removal teardown: calling disconnect()')
+                self.disconnect()
+            except BaseException as e:
+                # Nothing above this daemon thread can act on the failure, so
+                # it is reported here, where an operator reading the log sees
+                # that the camera was not released cleanly.
+                _cam_log.warning(f'[CAM Class ] removal teardown failed: {type(e).__name__}: {e}')
+            finally:
+                with self._state_lock:
+                    self._async_teardown_started = False
+
+        threading.Thread(
+            target=_run_teardown, name=f'{type(self).__name__}RemovalTeardown', daemon=True
+        ).start()
 
     @abstractmethod
     def connect(self) -> bool:
@@ -587,24 +798,77 @@ class Camera(ABC):
         """
         pass
 
-    @abstractmethod
     def set_frame_size(self, w: int, h: int) -> dict | bool:
-        """Set the output frame size.
+        """Deliver frames of exactly ``w`` x ``h``: acquire the next window up and crop back.
 
-        Drivers clamp or snap the request to their legal geometry grid, so
-        the delivered size can differ from the request. Returning it from the
-        write itself lets callers cache the real geometry without a follow-up
-        getter round-trip.
+        A camera sets its window on a grid, so a size off it cannot be
+        acquired. The window planned is the next legal one up, centred, and
+        every stored frame is cropped back to the request (``_store_frame``).
+        The window is recorded before the hardware is written, so a frame
+        made under the old window after the write is not stored at the old
+        size. Only a request within one grid step of the camera's maximum
+        comes back smaller: no legal window holds it.
 
         Args:
             w: Frame width in pixels.
             h: Frame height in pixels.
 
         Returns:
-            The delivered size ``{'width': int, 'height': int}`` on success;
-            ``False`` when the camera is inactive or the apply fails.
+            The delivered size ``{'width': int, 'height': int}`` on success, so
+            a caller records it without a read-back; ``False`` when the camera
+            is inactive or the hardware refuses the window, in which case
+            frames are stored as they arrive until a window is set.
         """
-        pass
+        grid = self._frame_grid()
+        if grid is None:
+            _cam_log.warning(f'[CAM Class ] Cannot set frame size {w}x{h}: camera inactive')
+            return False
+        target = (int(w), int(h))
+        plan = plan_aoi(
+            target=target,
+            step=grid.step,
+            max_size=grid.max_size,
+            offset_step=grid.offset_step,
+            size_min=grid.size_min,
+            offset_min=grid.offset_min,
+            bias=grid.bias,
+        )
+        window = FrameWindow.from_plan(plan)
+        self._set_frame_window(window)
+        if not self._set_hardware_window(plan):
+            self._set_frame_window(None)
+            return False
+        if (plan.crop_width, plan.crop_height) != target:
+            _cam_log.warning(
+                f'[CAM Class ] set_frame_size delivers {plan.crop_width}x{plan.crop_height}, '
+                f'smaller than the {target[0]}x{target[1]} asked for: no window on the '
+                f'camera grid holds it'
+            )
+        _cam_log.info(
+            f'[CAM Class ] set_frame_size {target[0]}x{target[1]}: acquires '
+            f'{plan.acq_width}x{plan.acq_height}, crop {window.crop}'
+        )
+        return window.size
+
+    def _set_frame_window(self, window: FrameWindow | None) -> None:
+        """Record the window and hand it to the handler that stores frames."""
+        self._frame_window = window
+        handler = self.cam_image_handler
+        if handler is not None:
+            handler.frame_window = window
+
+    @abstractmethod
+    def _frame_grid(self) -> FrameGrid | None:
+        """The windows this camera can acquire now; None when it is inactive."""
+
+    @abstractmethod
+    def _set_hardware_window(self, plan: AoiPlan) -> bool:
+        """Acquire ``plan.acq_width`` x ``plan.acq_height``, centred.
+
+        Returns:
+            True once the camera acquires the window; False when it refused
+            or the write failed.
+        """
 
     @abstractmethod
     def get_min_frame_size(self) -> dict:
@@ -624,14 +888,23 @@ class Camera(ABC):
         """
         pass
 
-    @abstractmethod
-    def get_frame_size(self) -> dict:
-        """Return the current frame size.
+    def get_frame_size(self) -> dict | None:
+        """Return the size of the frames the camera delivers.
 
         Returns:
-            dict: ``{'width': int, 'height': int}``.
+            dict: ``{'width': int, 'height': int}``: the window's delivered
+                size, or the camera's own window while none is set. What the
+                driver's own read returns when the camera cannot answer.
         """
-        pass
+        acquired = self._hardware_frame_size()
+        window = self._frame_window
+        if not acquired or window is None:
+            return acquired
+        return window.size
+
+    @abstractmethod
+    def _hardware_frame_size(self) -> dict | None:
+        """The window the camera acquires, ``{'width', 'height'}``."""
 
     @abstractmethod
     def set_pixel_format(self, pixel_format: str) -> bool:
@@ -754,11 +1027,30 @@ class Camera(ABC):
         return stamped if stamped is not None else self.significant_bits
 
     @abstractmethod
-    def exposure_t(self, exposure_ms: float) -> None:
-        """Set exposure time.
+    def exposure_t(self, exposure_ms: float) -> float | bool | None:
+        """Set exposure time and report the value actually in effect.
+
+        A driver may not be able to honor the request exactly: the node
+        has a minimum it clamps up to, an increment it snaps to, or a
+        row-time grid it quantizes onto. The caller records a chunk-match
+        target from the return, so a driver that reports the request
+        instead of what it applied makes every subsequent frame fail the
+        match and be rejected forever.
 
         Args:
-            exposure_ms: Exposure time in milliseconds.
+            exposure_ms: Requested exposure time in milliseconds.
+
+        Returns:
+            float: Microseconds now in effect -- what the hardware will
+                stamp into frame chunk data. Returned on the no-write
+                path too (a short-circuited write still leaves that
+                value in effect).
+            False: The write was refused and the hardware did NOT move.
+                The caller must not record a target for a value the
+                camera never took.
+            None: Applied, but the effective value is unknown -- drivers
+                that cannot report one. The caller falls back to the
+                request.
         """
         pass
 
@@ -772,13 +1064,22 @@ class Camera(ABC):
         pass
 
     @abstractmethod
-    def auto_exposure_t(self, state: bool = True) -> None:
+    def auto_exposure_t(self, state: bool = True) -> bool | None:
         """Enable or disable hardware auto-exposure.
 
         Args:
             state: True to enable, False to disable.
+
+        Returns:
+            bool | None: Applied, refused or not attempted, as
+                ``Camera.gain`` defines them.
         """
         pass
+
+    @property
+    def device_serial(self) -> str | None:
+        """The serial number the camera reported at connect, or None."""
+        return self._device_serial
 
     def get_model_name(self) -> str | None:
         """Return the cached camera model name.
@@ -795,10 +1096,23 @@ class Camera(ABC):
 
         Returns:
             dict: Sensor-name-keyed temperatures in degrees Celsius.
-                Empty dict when the camera does not expose temperature
-                telemetry.
+                Empty only for a camera with no temperature sensor
+                (``supports_temperature`` False), never for a read that
+                failed.
+
+        Raises:
+            HardwareError: No camera is active, or a sensor the camera
+                lists could not be read.
         """
         pass
+
+    def supports_temperature(self) -> bool:
+        """Whether the camera has a temperature sensor to read.
+
+        Raises:
+            HardwareError: The probe failed.
+        """
+        return False
 
     def get_sdk_info(self) -> dict:
         """Return the camera SDK provenance label for diagnostic snapshots.
@@ -845,7 +1159,7 @@ class Camera(ABC):
         truth. The profile's value is the sensor-datasheet ceiling by
         default and may be overwritten by `_query_dynamic_capabilities()`
         at connect time with an SDK-queried or driver-narrowed cap
-        (e.g. FX2's 178 ms safe-frame ceiling).
+        (e.g. FX2's 1000 ms ceiling).
         """
         if self.profile and self.profile.exposure_max_us:
             return self.profile.exposure_max_us / 1000.0
@@ -897,6 +1211,20 @@ class Camera(ABC):
             return float(self.profile.gain.total_max_db)
         return 48.0  # legacy kv default -- kept for cameras without a profile
 
+    @property
+    def min_gain(self) -> float | None:
+        """Minimum gain in dB, or None if the profile declares none.
+
+        Derived from `profile.gain.total_min_db`, which the drivers fill at
+        connect from the SDK's own range (pylon, IDS) or the sensor datasheet
+        (FX2). Unlike `max_gain` there is no fallback: a missing floor is
+        not a floor of zero, and a caller checking a request against one
+        must be able to tell that it has no floor to check.
+        """
+        if self.profile and self.profile.gain and self.profile.gain.total_min_db is not None:
+            return float(self.profile.gain.total_min_db)
+        return None
+
     def get_max_gain(self) -> float:
         """Return the maximum gain cap in dB.
 
@@ -904,6 +1232,40 @@ class Camera(ABC):
             float: Same value as the ``max_gain`` property.
         """
         return self.max_gain
+
+    def get_resulting_frame_rate(self) -> float | None:
+        """Read the frame rate the camera reports its current settings
+        allow, live, in frames per second.
+
+        The camera's own figure, not a measurement: what was delivered is
+        counted from the frames stored (``delivered_counts``). The default
+        describes a camera that reports none.
+
+        Returns:
+            float | None: Frames per second; None when the camera reports
+                none.
+
+        Raises:
+            HardwareError: The camera reports one and the read failed.
+        """
+        return None
+
+    def get_link_info(self) -> dict | None:
+        """Read the camera's link, live: ``{transport, link_speed,
+        link_speed_unit, packet_size_bytes, inter_packet_delay}``
+        (``link_info``), None where
+        the camera does not report a field. The default describes a camera
+        that reports none.
+
+        Returns:
+            dict | None: The link; None when the camera is inactive.
+
+        Raises:
+            HardwareError: A field the camera reports could not be read.
+        """
+        if not self.active:
+            return None
+        return link_info()
 
     @abstractmethod
     def set_max_acquisition_frame_rate(self, enabled: bool, fps: float = 1.0) -> None:
@@ -915,9 +1277,12 @@ class Camera(ABC):
         """
         pass
 
-    @abstractmethod
     def set_binning_size(self, size: int) -> bool:
         """Set hardware binning factor.
+
+        A change of binning resizes the frames the camera makes, so the
+        window set before it no longer fits them: frames are stored as they
+        arrive until a frame size is set at the new binning.
 
         Args:
             size: Binning factor (1, 2, 4, ...).
@@ -925,7 +1290,15 @@ class Camera(ABC):
         Returns:
             bool: True on success.
         """
-        pass
+        before = self.get_binning_size()
+        applied = self._set_hardware_binning(size)
+        if applied and size != before:
+            self._set_frame_window(None)
+        return applied
+
+    @abstractmethod
+    def _set_hardware_binning(self, size: int) -> bool:
+        """Write the binning factor to the camera; True on success."""
 
     @abstractmethod
     def get_binning_size(self) -> int:
@@ -952,6 +1325,16 @@ class Camera(ABC):
         """
         handler = self.cam_image_handler
         return handler.frames_delivered if handler is not None else 0
+
+    @property
+    def delivered_counts(self) -> tuple[int, int]:
+        """``(frames, wire bytes)`` this camera has delivered since the handler was built.
+
+        The imaging API's delivered and wire rates are the change in these
+        between two readings. ``(0, 0)`` before a handler exists.
+        """
+        handler = self.cam_image_handler
+        return handler.delivered_counts if handler is not None else (0, 0)
 
     def grab(self) -> tuple:
         """Grab the most recent frame from the image handler.
@@ -1039,13 +1422,12 @@ class Camera(ABC):
             _cam_log.exception(f'[CAM Class ] grab_latest() failed: {ex}')
             return False, None, None, None, None
 
-    def register_frame_callback(self, cb) -> None:
+    def register_frame_callback(self, cb: Callable[[Any, Any, Any], None]) -> None:
         """Register a per-frame callback.
 
         Records the callback in the Camera's durable registry (so it survives a
         handler rebuild) AND applies it to the current handler for immediate
-        dispatch. Idempotent for the same callable. SimulatedCamera extends this
-        to also drive its host-side pump.
+        dispatch. Idempotent for the same callable.
         """
         with self._frame_callback_lock:
             if cb not in self._registered_frame_callbacks:
@@ -1063,17 +1445,18 @@ class Camera(ABC):
             self.cam_image_handler.unregister_frame_callback(cb)
 
     def _reapply_frame_callbacks(self) -> None:
-        """Re-register the durable callback set onto the current handler.
+        """Re-register the durable callback set and the window onto the current handler.
 
         A driver calls this immediately after building a new cam_image_handler
         (connect / recovery). The handler owns the dispatch list and starts
         empty, so without this every listener registered before the rebuild
-        stops receiving frames. No-op when the driver has no handler
-        (SimulatedCamera, which delivers via its own pump reading the registry).
+        stops receiving frames, and frames go uncropped. No-op when the driver
+        has no handler yet.
         """
         handler = self.cam_image_handler
         if handler is None:
             return
+        handler.frame_window = self._frame_window
         # Hold the registry lock ACROSS the re-push, not just the snapshot: an
         # unregister interleaving here (e.g. a per-frame plugin auto-dropped on
         # the SDK callback thread mid-reconnect) must not lose to a stale
@@ -1104,12 +1487,16 @@ class Camera(ABC):
         pass
 
     @abstractmethod
-    def update_auto_gain_target_brightness(self, auto_target_brightness: float) -> None:
+    def update_auto_gain_target_brightness(self, auto_target_brightness: float) -> bool | None:
         """Update the target brightness for the auto-gain loop.
 
         Args:
             auto_target_brightness: Normalized target brightness (0.0
                 to 1.0).
+
+        Returns:
+            bool | None: Applied, refused or not attempted, as
+                ``Camera.gain`` defines them.
         """
         pass
 
@@ -1135,13 +1522,92 @@ class Camera(ABC):
         pass
 
     @abstractmethod
-    def gain(self, value: float) -> None:
-        """Set the camera gain.
+    def gain(self, value: float) -> float | bool | None:
+        """Set the camera gain, and report the gain now in effect.
+
+        The caller records the answer in its camera cache, as the
+        frame-validity chunk target and as the value its listeners hear. A
+        driver may not be able to honour the request exactly -- a node that
+        clamps to its range, a register that quantizes -- so a driver that
+        answered only "applied" would leave all three naming a gain the
+        sensor is not at, and on a camera that reports gain in chunk data
+        every subsequent frame would then fail the match. So a driver that
+        can tell a refusal from a success says which, and when it applied
+        the value it says what it applied.
+
+        This is also the canonical statement of the three-case return the
+        bool-reporting setters share (the auto-mode setters point here):
+        ``True`` applied, ``False`` refused, ``None`` not attempted. ``gain``
+        and ``exposure_t`` answer with the value in effect in place of
+        ``True``.
 
         Args:
             value: Gain in dB.
+
+        Returns:
+            float: Applied -- the gain in dB the hardware now holds,
+                including when the write was skipped because it already
+                held it.
+            True: Applied, but the value in effect could not be read back
+                (the write succeeded and the confirming read failed). The
+                caller keeps the request as its best knowledge.
+            False: Refused -- the hardware did NOT move. The caller must
+                not record the request as truth.
+            None: Not attempted, because no camera is active. Not a
+                refusal: nothing was asked of any hardware.
         """
         pass
+
+    # Black level is the camera's own offset parameter, in the camera's own
+    # units (Basler's step in DN differs by model and sensor bit depth; IDS
+    # states DN of the current format), never converted to output DN here:
+    # no probe supplies the factor. The defaults describe a camera that
+    # neither reports nor offers one; each driver overrides what it has.
+
+    def supports_black_level(self) -> bool:
+        """Whether the black level can be set on this camera.
+
+        Raises:
+            HardwareError: The probe failed.
+        """
+        return False
+
+    def get_black_level(self) -> float | None:
+        """Read the black level in effect, live.
+
+        Returns:
+            float | None: The camera's black level parameter; None when the
+                camera does not report one.
+
+        Raises:
+            HardwareError: The camera reports one and the read failed.
+        """
+        return None
+
+    def get_black_level_range(self) -> tuple[float, float] | None:
+        """Read the settable black level range, live: it can change with the
+        pixel format.
+
+        Returns:
+            tuple[float, float] | None: ``(minimum, maximum)``; None when the
+                black level cannot be set.
+
+        Raises:
+            HardwareError: The read failed.
+        """
+        return None
+
+    def set_black_level(self, value: float) -> float | bool | None:
+        """Set the black level, and report the value now in effect.
+
+        Called only when ``supports_black_level`` is True and ``value`` is
+        inside ``get_black_level_range``. Returns as ``gain`` does: ``False``
+        is the camera's refusal, or the camera lost.
+
+        Raises:
+            HardwareError: The write or its read-back failed.
+        """
+        raise NotImplementedError(f'{type(self).__name__} offers no black level setting')
 
     @abstractmethod
     def auto_gain(
@@ -1151,7 +1617,7 @@ class Camera(ABC):
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
         ae_max_exposure_ms: float | None = None,
-    ) -> None:
+    ) -> bool | None:
         """Enable or disable continuous auto-gain.
 
         Args:
@@ -1162,6 +1628,10 @@ class Camera(ABC):
             ae_max_exposure_ms: Optional per-channel-class upper bound (ms)
                 on the exposure auto-exposure may drive to. Honored where
                 the driver supports auto-exposure bounds; ignored otherwise.
+
+        Returns:
+            bool | None: Applied, refused or not attempted, as
+                ``Camera.gain`` defines them.
         """
         pass
 
@@ -1173,7 +1643,7 @@ class Camera(ABC):
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
         ae_max_exposure_ms: float | None = None,
-    ) -> None:
+    ) -> bool | None:
         """Run a single auto-gain iteration.
 
         Args:
@@ -1183,6 +1653,10 @@ class Camera(ABC):
             max_gain_db: Optional upper bound in dB.
             ae_max_exposure_ms: Optional per-channel-class exposure upper
                 bound (ms); honored where the driver supports it.
+
+        Returns:
+            bool | None: Applied, refused or not attempted, as
+                ``Camera.gain`` defines them.
         """
         pass
 

@@ -1,9 +1,11 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import csv
 import ctypes
 import dataclasses
 import enum
 import gc
+import io
 import json
 import numbers
 import os
@@ -12,12 +14,11 @@ import platform
 import re
 import threading
 import time as _time
-from typing import TYPE_CHECKING, ClassVar, Protocol
+from typing import TYPE_CHECKING, ClassVar, Final, Protocol
 
 import numpy as np
 import psutil
 
-from lvp_logger import logger
 from modules.exceptions import ConfigError
 from modules.video_cadence import effective_recording_fps
 
@@ -382,43 +383,58 @@ def recover_step_label(step) -> tuple[str, bool]:
     return name, False
 
 
-def resolve_step_rename(raw_text: str, sanitize) -> str | None:
-    """Resolve a step-name field value to the name to persist, or None.
+def resolve_step_rename(raw_text: str) -> str | None:
+    """Resolve a step-name field value to the name to rename to, or None.
 
     Auto-named custom steps blank the name field so the default name shows
     as a hint placeholder rather than editable text. A blank field
     therefore means "no rename intended": persisting the empty string
     would wipe the auto-assigned name, leaving added steps unnamed and
     colliding on the same default name. Returns None for a blank field so
-    callers keep the existing name; a non-empty entry is a real rename and
-    is returned sanitized.
+    callers keep the existing name; anything else is a real rename, passed
+    as typed, and the protocol cleans it or refuses it.
 
     Args:
         raw_text: the raw text from the step-name input field.
-        sanitize: callable that cleans a name (e.g. strips invalid chars).
 
     Returns:
-        The sanitized name to persist, or None if the field is blank.
+        The text to rename to, or None if the field is blank.
     """
-    cleaned = sanitize(raw_text)
-    return cleaned if cleaned else None
+    return raw_text if raw_text.strip() else None
+
+
+# The z-stack position labels the settings store, each with the reference a
+# stack is built from. The one vocabulary: the settings writer refuses any
+# other label (``settings_paths``), and the reader below converts them.
+ZSTACK_POSITION_LABELS: Final[dict[str, str]] = {
+    'Current Position at Top': 'top',
+    'Current Position at Center': 'center',
+    'Current Position at Bottom': 'bottom',
+}
 
 
 def convert_zstack_reference_position_setting_to_config(text_label: str) -> str:
-    LABEL_MAP = {
-        'Current Position at Top': 'top',
-        'Current Position at Center': 'center',
-        'Current Position at Bottom': 'bottom',
-    }
-
-    if text_label in LABEL_MAP:
-        return LABEL_MAP[text_label]
+    if text_label in ZSTACK_POSITION_LABELS:
+        return ZSTACK_POSITION_LABELS[text_label]
 
     # ConfigError, not a bare Exception: this refusal now reaches the settings
     # lane as well as the widget lane, and REST middleware can only map the
     # typed error onto a response. A bare Exception surfaces as an unhandled
     # server fault for what is a bad value in the caller's config.
     raise ConfigError(f'Unknown Z-stack position reference: {text_label}')
+
+
+def first_few(items: list[str], *, separator: str, limit: int = 5) -> str:
+    """The first *limit* of *items*, then how many more there are.
+
+    A refusal that names everything it found grows with the protocol: a
+    96-step list is taller than the popup that shows it, and the count it
+    opens with scrolls out of sight. Keep the order the caller gives, so the
+    names read in the order the person built them.
+    """
+    shown = separator.join(items[:limit])
+    remaining = len(items) - limit
+    return f'{shown}{separator}and {remaining} more' if remaining > 0 else shown
 
 
 def is_valid_gain_db(value) -> bool:
@@ -482,47 +498,6 @@ def is_valid_binning_size(value) -> bool:
     least 1x1 on real hardware.
     """
     return isinstance(value, numbers.Real) and value >= 1
-
-
-# Distinct non-format inputs raw_bytes_per_pixel has already warned about;
-# the caller cadence is per-stats-tick, so an unknown format warns once per
-# distinct value instead of flooding the log every second.
-_RAW_BPP_WARNED: set[str] = set()
-
-
-def raw_bytes_per_pixel(pixel_format: str, is_color_native: bool = False) -> int:
-    """Bytes per pixel of the RAW camera buffer (for data-rate readouts).
-
-    Mono8 is one byte; every other Mono format (Mono10 / Mono12 / Mono16 and
-    the packed variants such as Mono10g40IDS) is delivered in a uint16
-    container, so two bytes. Color-native cameras (none in the shipping fleet)
-    carry three channels.
-
-    A non-string input (the pixel-format cache before any format was ever
-    read) is warned about and treated as a 2-byte container: the camera value
-    getters answer last-known-good, so a sentinel reaching this math means a
-    consumer bypassed that containment -- loud, not silently classified.
-
-    Args:
-        pixel_format: SDK pixel-format name (e.g. 'Mono8', 'Mono12', 'Mono16').
-        is_color_native: Whether the camera delivers 3-channel color frames.
-
-    Returns:
-        Bytes occupied by one pixel of the raw camera frame.
-    """
-    if not is_valid_pixel_format(pixel_format):
-        marker = repr(pixel_format)
-        if marker not in _RAW_BPP_WARNED:
-            _RAW_BPP_WARNED.add(marker)
-            logger.warning(
-                f'raw_bytes_per_pixel: no pixel format known ({marker}); '
-                f'assuming a 2-byte container for the data-rate readout'
-            )
-        bytes_per_channel = 2
-    else:
-        bytes_per_channel = 1 if pixel_format == 'Mono8' else 2
-    channels = 3 if is_color_native else 1
-    return bytes_per_channel * channels
 
 
 def get_layers() -> list[str]:
@@ -612,16 +587,52 @@ def resolve_channel_identity(illumination: 'IlluminationAPI', open_layer: str | 
     would otherwise be unnameable. With more than one LED lit, the first in
     the driver's channel order wins.
 
-    get_led_states() returns {} when no LED board is present, so a
-    board-less scope falls through to the layer with no special case.
+    get_led_states() answers None when no LED board is installed: nothing
+    is lit, so a board-less scope falls through to the layer.
 
     Shared by the manual still capture and the manual recording so the two
     outputs can never disagree about what one frame is.
     """
-    for color, state in illumination.get_led_states().items():
-        if state.get('enabled'):
-            return color
+    states = illumination.get_led_states()
+    if states is not None:
+        for color, state in states.items():
+            if state['enabled']:
+                return color
     return open_layer or DEFAULT_LAYER
+
+
+def read_table(text: str, *, sep: str) -> tuple[list[str], list[list[str]]]:
+    """The header and rows of a delimited table, every cell the text written.
+
+    The inverse of ``csv.writer``, which every LumaViewPro table writer is:
+    no cell is turned into a missing value, a number or a date here, so a
+    step named ``NA`` reads back as ``NA``; each reader types its own
+    columns by its own rule. Blank lines are skipped.
+
+    Raises:
+        ValueError: the text has no header, a header naming one column
+            twice, a NUL, a quote the csv module cannot close, or a row
+            whose cell count is not the header's. No LumaViewPro writer
+            produces any of them.
+    """
+    if '\x00' in text:
+        raise ValueError('it holds a NUL character, which no table cell can hold')
+    try:
+        rows = [row for row in csv.reader(io.StringIO(text), delimiter=sep, strict=True) if row]
+    except csv.Error as e:
+        raise ValueError(f'it is not a well-formed table ({e})') from None
+    if not rows:
+        raise ValueError('its table has no header row')
+    header, body = rows[0], rows[1:]
+    repeated = sorted({column for column in header if header.count(column) > 1})
+    if repeated:
+        raise ValueError(f'its table header names {", ".join(map(repr, repeated))} more than once')
+    for number, row in enumerate(body, 2):
+        if len(row) != len(header):
+            raise ValueError(
+                f'row {number} of its table has {len(row)} cells where the header has {len(header)}'
+            )
+    return header, body
 
 
 def to_bool(val) -> bool:
@@ -1215,20 +1226,12 @@ _tracemalloc_started = False
 
 
 def _read_tracemalloc_gate():
-    # Reuse lvp_logger.lvp_appdata so the production-installed path
-    # (~/Documents/LumaViewPro <version>/data/) resolves the same way
-    # the logger's debug-mode gate does. Fall back to the source root
-    # when lvp_logger isn't importable (e.g. unit tests that exercise
-    # this module in isolation).
+    # The data root, so an installed build reads its Documents settings as
+    # the logger's debug-mode gate does.
+    from modules import path_utils
     from modules.settings_init import load_tracemalloc_setting
 
-    try:
-        import lvp_logger
-
-        base_dir = lvp_logger.lvp_appdata
-    except (ImportError, AttributeError):
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return load_tracemalloc_setting(base_dir)
+    return load_tracemalloc_setting(str(path_utils.get_source_root()))
 
 
 # Read once at import from the tracemalloc_enabled setting. This is a
@@ -1632,8 +1635,31 @@ MIN_PER_WRITE_DISK_MB = 500
 # speed. Shared by both recording controllers.
 DISK_FLOOR_CHECK_INTERVAL_S = 2.0
 
+# Step count above which a protocol is large enough to tell the user about
+# before they run it. Advisory only -- it never refuses anything, and a
+# legitimate large protocol proceeds untouched. Distinct from the disk
+# floors above: those decide whether a run may start, this decides whether
+# the user is told how big the thing they just built is.
+PROTOCOL_SIZE_ADVISORY_STEPS = 10_000
 
-def check_disk_space_ok(path, required_mb: float) -> tuple[bool, float]:
+
+def format_disk_size_mb(mb: float) -> str:
+    """Render a megabyte figure for a human, in binary units.
+
+    Binary throughout, matching what MB already means here -- check_disk_space_ok
+    reads free space as ``disk.free / (1024**2)``, so a decimal rendering would
+    print a number the disk checks disagree with. GB up to 1024 GB, TB above,
+    one decimal place.
+    """
+    if mb < 1024:
+        return f'{mb:.1f} MB'
+    gb = mb / 1024
+    if gb < 1024:
+        return f'{gb:.1f} GB'
+    return f'{gb / 1024:.1f} TB'
+
+
+def check_disk_space_ok(path: str | os.PathLike, required_mb: float) -> tuple[bool, float]:
     """Probe free disk space and compare against a threshold.
 
     Single canonical disk probe shared by protocol_image_writer, the
@@ -1644,7 +1670,10 @@ def check_disk_space_ok(path, required_mb: float) -> tuple[bool, float]:
     mounts) or unit conversion.
 
     Args:
-        path: Filesystem path to probe (str or pathlib.Path).
+        path: Filesystem path to probe (str or pathlib.Path). It need not
+            exist yet: a run's output folder is often made only when its
+            first file is written, and it lands on the volume of its
+            nearest existing ancestor, which is what is measured.
         required_mb: Minimum free space the caller needs, in MB.
 
     Returns:
@@ -1655,7 +1684,10 @@ def check_disk_space_ok(path, required_mb: float) -> tuple[bool, float]:
             callers can decide whether to swallow (best-effort probes)
             or abort (load-bearing probes).
     """
-    disk = psutil.disk_usage(str(path))
+    probe = pathlib.Path(path)
+    while not probe.exists() and probe.parent != probe:
+        probe = probe.parent
+    disk = psutil.disk_usage(str(probe))
     free_mb = disk.free / (1024**2)
     return (free_mb >= required_mb, free_mb)
 

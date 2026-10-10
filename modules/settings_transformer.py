@@ -1,5 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+from collections.abc import Mapping
+
 
 class SettingsTransformer:
     def __init__(self, to_direction):
@@ -91,11 +93,18 @@ class SettingsTransformer:
             'area': self._transform_area(settings=settings['area'], pixels_per_um=pixels_per_um),
         }
 
-    def transform(self, settings):
+    def transform(self, settings: Mapping, pixels_per_um: float | None) -> dict:
+        """The method in pixel units, at *pixels_per_um*.
+
+        *pixels_per_um* is the scale the count measures this image at (the
+        method's override, else the image's own). None counts in pixels: the
+        area and perimeter bounds are then open, which the caller refuses
+        otherwise, so nothing is converted.
+        """
         return {
             'context': self._transform_context(settings=settings['context']),
             'segmentation': self._transform_segmentation(settings=settings['segmentation']),
             'filters': self._transform_filters(
-                settings=settings['filters'], pixels_per_um=settings['context']['pixels_per_um']
+                settings=settings['filters'], pixels_per_um=pixels_per_um
             ),
         }

@@ -11,6 +11,7 @@ from datetime import timedelta
 
 from lvp_logger import logger
 from modules import common_utils
+from modules.exceptions import ConfigError
 from modules.objectives_loader import ObjectiveLoader
 
 
@@ -130,15 +131,9 @@ class ProtocolTimeEstimate:
 class ProtocolTimeEstimator:
     """Estimates total imaging time for a protocol."""
 
-    def __init__(self, objectives_loader: ObjectiveLoader = None):
-        if objectives_loader is None:
-            try:
-                objectives_loader = ObjectiveLoader()
-            except Exception as e:
-                logger.debug(
-                    f'[TimeEstimator] Could not load objectives (estimates may be less accurate): {e}'
-                )
-                objectives_loader = None
+    def __init__(self, objectives_loader: ObjectiveLoader):
+        # The scope's catalogue, handed in: an estimate must use the
+        # objectives of the installation the protocol will run on.
         self._objectives = objectives_loader
 
     def estimate(self, protocol) -> ProtocolTimeEstimate:
@@ -294,10 +289,10 @@ class ProtocolTimeEstimator:
 
     def _get_objective_info(self, objective_id: str) -> dict | None:
         """Look up objective parameters."""
-        if not self._objectives or not objective_id:
+        if not objective_id:
             return None
         try:
             return self._objectives.get_objective_info(objective_id=objective_id)
-        except Exception as e:
+        except ConfigError as e:
             logger.debug(f"[TimeEstimator] Could not get objective info for '{objective_id}': {e}")
             return None

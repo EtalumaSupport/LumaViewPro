@@ -12,7 +12,7 @@ stayed empty -- "queued" is not "delivered"
 (tests/test_af_char_save_on_all_exits.py pins queued-on-a-mock, which
 is exactly the blind spot the drop lived in).
 
-The standalone button now starts a one-position SINGLE_AUTOFOCUS_SCAN
+The standalone button now starts a one-position SINGLE_AUTOFOCUS
 run, so the file executor is in protocol mode for the AF's whole
 window and the save rides the run's file queue.  This pin drives that
 engine path end to end -- real simulated scope, real executors, real
@@ -24,35 +24,18 @@ from __future__ import annotations
 
 import datetime
 import pathlib
-import sys
 import threading
-import time
-from unittest.mock import MagicMock
 
-# Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
-# tests/conftest.py at module-import time. Mock settings_init before
-# sequenced_capture_runner imports it. (Harness mirrors
-# tests/test_run_refusal_contract.py.)
-_mock_settings_init = MagicMock()
-_mock_settings_init.settings = {
-    'BF': {'autofocus': False},
-    'PC': {'autofocus': False},
-    'DF': {'autofocus': False},
-    'Red': {'autofocus': False},
-    'Green': {'autofocus': False},
-    'Blue': {'autofocus': False},
-    'Lumi': {'autofocus': False},
-}
-sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
+from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
-from modules.lumascope_api import Lumascope
-from tests.scope_fakes import home_sim_scope
+from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
-from tests.protocol_drives import autofocus_snapshot
+from tests.scope_fakes import configure_turret_like_bringup
+from modules.run_events import RunEvents
 
 COMPLETION_TIMEOUT = 60  # seconds -- a real AF sweep runs in sim time
 
@@ -86,6 +69,8 @@ def _make_af_step_protocol():
         'Video Config': {'duration': 1, 'fps': 5},
         'Stim_Config': {},
         'Step Index': 0,
+        'Label': 'AF_test',
+        'Auto_Named': False,
     }
     config = {
         'version': Protocol.CURRENT_VERSION,
@@ -103,14 +88,14 @@ class TestStandaloneAfDeliversCharacterizationData:
     def test_af_run_delivers_characterization_data_to_disk(self, tmp_path):
         from modules.autofocus_runner import AutofocusRunner
         from modules.autofocus_thread import AutofocusThread
-        from modules.coord_transformations import CoordinateTransformer
-        from modules.labware_loader import WellPlateLoader
         from modules.protocol_thread import ProtocolThread
 
-        scope = home_sim_scope(Lumascope(simulate=True))
-        # The session registers the data root at bring-up; a runner over a
-        # bare scope needs it too, or the run refuses at start.
-        scope.protocols.register_source_path('.')
+        # The data root is the scope's, given at construction; a runner over a
+        # bare scope reads its catalogues and tiling config from it.
+        scope = home_sim_scope(build_scope(simulate=True, source_path='.'))
+        # A bare scope skipped bring-up, which fills the turret from the
+        # persisted slots; an empty turret addresses no glass at all.
+        configure_turret_like_bringup(scope)
         scope._led_driver.set_timing_mode('fast')
         scope._motion_driver.set_timing_mode('fast')
         scope._camera_driver.set_timing_mode('fast')
@@ -126,25 +111,19 @@ class TestStandaloneAfDeliversCharacterizationData:
 
         af_runner = AutofocusRunner(
             scope=scope,
-            camera_executor=camera_executor,
-            io_executor=io_executor,
-            file_io_executor=file_io_executor,
         )
         af_thread = AutofocusThread(afe=af_runner)
         af_thread.start()
 
+        swap_lanes(scope, io=io_executor, camera=camera_executor)
         runner = SequencedCaptureRunner(
             scope=scope,
-            stage_offset={'x': 0.0, 'y': 0.0},
-            io_executor=io_executor,
             protocol_thread=protocol_thread,
             file_io_executor=file_io_executor,
-            camera_executor=camera_executor,
             autofocus_thread=af_thread,
+            activity_claim=ActivityClaim(),
             autofocus_runner=af_runner,
         )
-        runner._wellplate_loader = WellPlateLoader()
-        runner._coordinate_transformer = CoordinateTransformer()
 
         char_dir = tmp_path / 'Autofocus Characterization'
         done = threading.Event()
@@ -153,7 +132,7 @@ class TestStandaloneAfDeliversCharacterizationData:
             plan = runner.prepare(
                 protocol=_make_af_step_protocol(),
                 run_trigger_source='autofocus',
-                run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
+                run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
                 sequence_name='autofocus',
                 image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
                 autogain_settings={
@@ -167,36 +146,18 @@ class TestStandaloneAfDeliversCharacterizationData:
                 disable_saving_artifacts=True,
                 save_autofocus_data=True,
                 max_scans=1,
-                callbacks={
-                    'go_to_step': lambda **kw: None,
-                    'move_position': lambda axis: None,
-                    'run_complete': lambda **kw: done.set(),
-                    'files_complete': lambda **kw: files_done.set(),
-                },
-                leds_state_at_end='off',
-                autofocus_snapshot=autofocus_snapshot(
-                    states={
-                        'BF': True,
-                        'PC': False,
-                        'DF': False,
-                        'Red': False,
-                        'Green': False,
-                        'Blue': False,
-                        'Lumi': False,
-                    },
+                events=RunEvents(
+                    run_ended=lambda *_: done.set(),
+                    files_written=lambda *_: files_done.set(),
                 ),
             )
             runner.start(plan)
             assert done.wait(timeout=COMPLETION_TIMEOUT), 'AF run did not complete'
-            assert files_done.wait(timeout=COMPLETION_TIMEOUT), 'AF run files_complete did not fire'
+            assert files_done.wait(timeout=COMPLETION_TIMEOUT), 'AF run files_written did not fire'
 
-            deadline = time.monotonic() + 10.0
-            files = []
-            while time.monotonic() < deadline:
-                files = [p for p in char_dir.rglob('*') if p.is_file()]
-                if files:
-                    break
-                time.sleep(0.1)
+            # files_written comes after the run's last write lands, and the
+            # data rides the run's writes: it is on disk now or never.
+            files = [p for p in char_dir.rglob('*') if p.is_file()]
             assert files, (
                 'an AF run with save_autofocus_data=True must leave its '
                 'characterization data on disk; an empty folder means the '
@@ -210,5 +171,6 @@ class TestStandaloneAfDeliversCharacterizationData:
                     e.shutdown()
                 except Exception:
                     pass
-            scope.imaging.stop_streaming()
+            # disconnect() stops the stream itself; a stop sent through the
+            # camera lane would be refused, the lane being shut just above.
             scope.disconnect()

@@ -40,6 +40,8 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
+from tests.settings_fixtures import settings_writer
+
 
 REPO = pathlib.Path(__file__).parent.parent
 LAYER_CONTROL_SRC = REPO / 'ui' / 'layer_control.py'
@@ -139,6 +141,7 @@ def settings(handler_globals):
         },
     }
     handler_globals['_app_ctx'].ctx.settings = s
+    handler_globals['_app_ctx'].ctx.update_settings = settings_writer(s)
     return s
 
 
@@ -160,7 +163,8 @@ def pulse_width_handler(handler_globals):
 class TestPulseCountSliderWritesInt:
     """Slider path must cast to int, matching the text path's cast=int."""
 
-    @pytest.mark.parametrize('slider_val', [7.5, 10.3, 0.9, 42.0, 99.999])
+    # Within the writer's 1..300: a slider never delivers a value past its own range.
+    @pytest.mark.parametrize('slider_val', [7.5, 10.3, 1.9, 42.0, 299.999])
     def test_slider_stores_int_type(self, settings, pulse_count_handler, slider_val):
         fake = _make_fake_self('Blue')
         fake.ids['stim_pulse_count_slider'] = _make_slider_mock(slider_val)
@@ -176,7 +180,8 @@ class TestPulseCountSliderWritesInt:
 
 
 class TestPulseWidthSliderWritesInt:
-    @pytest.mark.parametrize('slider_val', [7.5, 10.3, 0.9, 42.0, 99.999])
+    # Within the writer's 5..25 ms: a slider never delivers a value past its own range.
+    @pytest.mark.parametrize('slider_val', [7.5, 10.3, 5.9, 12.0, 24.999])
     def test_slider_stores_int_type(self, settings, pulse_width_handler, slider_val):
         fake = _make_fake_self('Blue')
         fake.ids['stim_pulse_width_slider'] = _make_slider_mock(slider_val)
@@ -241,6 +246,6 @@ class TestHandlerStillAppliesSettings:
 
     def test_pulse_width_calls_apply(self, settings, pulse_width_handler):
         fake = _make_fake_self('Blue')
-        fake.ids['stim_pulse_width_slider'] = _make_slider_mock(3.0)
+        fake.ids['stim_pulse_width_slider'] = _make_slider_mock(12.0)
         pulse_width_handler(fake)
         fake.apply_settings.assert_called_once()

@@ -2,6 +2,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import logging
+import math
 import re
 import threading
 import time
@@ -9,12 +10,28 @@ from typing import ClassVar
 from lvp_logger import logger
 from drivers.exceptions import HardwareError
 from drivers.serialboard import SerialBoard
+from drivers.serial_backend import PYSERIAL, SerialBackend
 from drivers.registry import led_registry
 
 # The firmware's CH_MAX: the absolute per-channel current limit the
 # EL-0940 LED command accepts. One home in LVP; the simulated board
 # imports it because it emulates this firmware.
 FIRMWARE_LED_CH_MAX_MA = 1000
+
+
+def firmware_commanded_ma(mA: float) -> float:
+    """The current the LED firmware is commanded for a request, in mA.
+
+    The field firmware parses ``LEDn_<mA>`` as an integer, so a request goes
+    to the nearest whole mA, a half going up. A request above zero but under
+    1 mA goes to 1 mA: rounding it to 0 would leave a channel dark that was
+    asked to light. 0 stays 0. The simulated board answers with this same
+    function, because it emulates this firmware.
+    """
+    if mA <= 0:
+        return 0.0
+    return float(max(1, math.floor(float(mA) + 0.5)))
+
 
 # Same dedicated serial logger SerialBoard.exchange_command() writes to, so
 # the bespoke STIM capability probe (which scans multiple lines and cannot
@@ -28,8 +45,8 @@ class LEDBoard(SerialBoard):
     # ----------------------------------------------------------
     # Initialize connection through microcontroller
     # ----------------------------------------------------------
-    def __init__(self, **kwargs):
-        super().__init__(vid=0x0424, pid=0x704C, label='[LED Class ]')
+    def __init__(self, backend: SerialBackend = PYSERIAL, **kwargs):
+        super().__init__(vid=0x0424, pid=0x704C, label='[LED Class ]', backend=backend)
 
         self._state_lock = threading.Lock()
         self.led_ma = {
@@ -41,8 +58,9 @@ class LEDBoard(SerialBoard):
             'Green': -1,
         }
 
-        # Set by _safety_leds_off() at connect time. None when LEDS_OFF
-        # send succeeded; "ExceptionType: message" when it failed. API
+        # Set by _safety_leds_off() at connect time. None when the board
+        # confirmed LEDS_OFF; the reason when it did not answer, or
+        # "ExceptionType: message" when the exchange raised. API
         # layer reads this on construction to fire a notification.
         self.last_safety_off_error: str | None = None
 
@@ -57,11 +75,13 @@ class LEDBoard(SerialBoard):
         # label varies.
         self.last_command_error: dict | None = None
 
-        try:
-            self.connect()
-        except Exception:
-            logger.error('[LED Class ] Failed to connect to LED controller')
-            raise
+        # A board the port search did not find, or whose connect failed, is
+        # sent nothing: the registry judges it and bring-up reports it once.
+        if not self.found:
+            return
+        self.connect()
+        if not self.is_connected():
+            return
 
         # Safety: immediately turn off all LEDs after connecting.
         # Old crashed LED firmware (pre-v3.0.4) can leave all LEDs stuck on
@@ -77,15 +97,19 @@ class LEDBoard(SerialBoard):
         Guards against pre-v3.0.4 LED firmware that could leave channels
         stuck on at full current after a crash / interrupted session,
         risking thermal damage (62 degC measured at 3 A continuous) and
-        sample photobleaching. Uses fire-and-forget write to minimize
-        delay. If the board doesn't respond, this is a best-effort
-        attempt; the failure is recorded in self.last_safety_off_error
-        so the API layer can fire a user-visible notification.
+        sample photobleaching. The reply is read like any other command's:
+        a reply left unread is taken by the next command as its own. If
+        the board doesn't answer, the failure is recorded in
+        self.last_safety_off_error so the API layer can fire a
+        user-visible notification.
         """
         try:
-            self._write_command_fast('LEDS_OFF')
-            logger.info('[LED Class ] Safety LEDS_OFF sent on connect')
-            self.last_safety_off_error = None
+            self.leds_off()
+            if self.last_command_error is not None:
+                self.last_safety_off_error = self.last_command_error['reason']
+            else:
+                logger.info('[LED Class ] Safety LEDS_OFF confirmed on connect')
+                self.last_safety_off_error = None
         except Exception as e:
             logger.error(f'[LED Class ] Safety LEDS_OFF failed: {e}')
             self.last_safety_off_error = f'{type(e).__name__}: {e}'
@@ -174,7 +198,7 @@ class LEDBoard(SerialBoard):
         """
         command = 'LEDS_ENT'
         response = self.exchange_command(command)
-        if response is None:
+        if not response:
             logger.error('[LED Class ] leds_enable() got no response')
             self.last_command_error = {
                 'op': 'leds_enable',
@@ -195,7 +219,7 @@ class LEDBoard(SerialBoard):
         command = 'LEDS_ENF'
         response = self.exchange_command(command)
 
-        if response is not None:
+        if response:
             with self._state_lock:
                 for color in self.led_ma:
                     self.led_ma[color] = -1
@@ -318,6 +342,9 @@ class LEDBoard(SerialBoard):
     def max_ma(self) -> int:
         return self._MAX_MA
 
+    def commanded_ma(self, mA: float) -> float:
+        return firmware_commanded_ma(mA)
+
     def _validate_and_build_led_cmd(self, channel, mA):
         """Validate channel/mA and return (color, command) string.
 
@@ -350,9 +377,14 @@ class LEDBoard(SerialBoard):
             ValueError: ``channel`` or ``mA`` is outside the safe range.
         """
         color, command = self._validate_and_build_led_cmd(channel, mA)
+        if mA == 0:
+            # The field firmware drives ``LEDn_0`` at its DAC offset, not off;
+            # only the board's off command darkens the channel.
+            self.led_off(channel)
+            return
         response = self.exchange_command(command)
 
-        if response is not None:
+        if response:
             self._update_state_cache(color, mA)
             self.last_command_error = None
         else:
@@ -401,7 +433,7 @@ class LEDBoard(SerialBoard):
                     break
                 time.sleep(0.01)
                 response = self.exchange_command(command)
-                if response is not None:
+                if response:
                     self._update_state_cache(color, mA)
 
     def led_off(self, channel: int) -> None:
@@ -415,7 +447,7 @@ class LEDBoard(SerialBoard):
         command = 'LED' + str(int(channel)) + '_OFF'
         response = self.exchange_command(command)
 
-        if response is not None:
+        if response:
             self._update_state_cache(color, -1)
             self.last_command_error = None
         else:
@@ -464,7 +496,7 @@ class LEDBoard(SerialBoard):
         command = 'LEDS_OFF'
         response = self.exchange_command(command)
 
-        if response is not None:
+        if response:
             with self._state_lock:
                 for color in self.led_ma:
                     self.led_ma[color] = -1
@@ -501,8 +533,9 @@ class LEDBoard(SerialBoard):
 
         Raises:
             HardwareError: No response from the LED board (timeout or
-                disconnect), or the firmware did not present a Y/N
-                prompt (likely too old to support engineering mode).
+                disconnect), the firmware did not present a Y/N
+                prompt (likely too old to support engineering mode),
+                or it did not print its engineering-mode banner after Y.
         """
         resp = self.exchange_multiline(
             'FACTORY', timeout=timeout, end_markers=['Y/N', 'y/n', 'FACTORY']
@@ -517,10 +550,26 @@ class LEDBoard(SerialBoard):
                 f'firmware may be too old to support engineering mode. '
                 f'Response: {resp!r}'
             )
-        # Confirm with Y
-        self.exchange_multiline(
-            'Y', timeout=timeout, end_markers=['FACTORY', 'Engineering', 'RAW', 'ADC']
+        # The firmware asks with input(), which on MicroPython 1.19 ends a
+        # line on a carriage return only: a Y ended by a newline leaves
+        # factory() waiting, and every command after it goes unanswered.
+        # A bare CR, not CRLF: once input() returns, a trailing newline
+        # would reach the main loop as an empty command.
+        confirm = self.exchange_multiline(
+            'Y',
+            timeout=timeout,
+            end_markers=['FACTORY', 'Engineering', 'RAW', 'ADC'],
+            line_end=b'\r',
         )
+        if confirm is None or 'ENGINEERING MODE' not in confirm.upper():
+            # A caller told entry failed has no reason to call exit, so the
+            # board is brought back here: out of factory() if it is still
+            # waiting there, back to safe mode if it declined.
+            self.exit_engineering_mode()
+            raise HardwareError(
+                f'enter_engineering_mode(): the LED board did not enter engineering '
+                f'mode after Y. Response: {confirm!r}'
+            )
         # Drain any remaining help text
         time.sleep(0.5)
         with self._lock:
@@ -531,7 +580,7 @@ class LEDBoard(SerialBoard):
         logger.info('[LED Class ] Entered engineering mode')
         return True
 
-    def exit_engineering_mode(self) -> str | None:
+    def exit_engineering_mode(self) -> bool:
         """Exit engineering mode back to safe mode (Q command).
 
         The EL-0925 Gen3 firmware (2024-06-05ESWEA) has a `factory()`
@@ -544,15 +593,16 @@ class LEDBoard(SerialBoard):
         recovery inline.
 
         Returns:
-            str | None: Raw Q response, or None if no response was
-                received. Returns even when post-Q recovery had to
-                fire -- caller can ignore the value.
+            bool: True once INFO confirms the board is back in safe
+                mode, with or without the recovery. The Q reply itself
+                is not the answer: a wedged board can echo Q and stay in
+                factory(), and a board that left it may not answer Q.
 
         Raises:
             HardwareError: Q failed AND the Ctrl-D soft reset did not
                 bring the firmware back. Power-cycle is needed.
         """
-        resp = self.exchange_command('Q', timeout=3)
+        self.exchange_command('Q', timeout=3)
         time.sleep(0.3)
         # Drain any remaining output from Q (firmware may print help).
         with self._lock:
@@ -562,7 +612,7 @@ class LEDBoard(SerialBoard):
                     self.driver.read(stale)
 
         # Verify firmware actually returned from factory(). INFO is the
-        # cheap responsiveness probe -- a wedged firmware returns ''
+        # cheap responsiveness probe -- a wedged firmware gives no reply
         # or garbage; a healthy firmware responds with the version
         # banner whose first line begins with 'Version:' (followed by
         # 'EL-0925 Gen3 LED Controller' or similar -- the exact
@@ -571,7 +621,7 @@ class LEDBoard(SerialBoard):
         info_resp = self.exchange_command('INFO', timeout=2)
         if info_resp and 'Version' in info_resp:
             logger.info('[LED Class ] Exited engineering mode')
-            return resp
+            return True
 
         # Wedged inside factory(). Run the Ctrl-C/B/D soft-reset
         # recovery sequence inline. Same shape as SerialBoard
@@ -601,7 +651,7 @@ class LEDBoard(SerialBoard):
         info_resp2 = self.exchange_command('INFO', timeout=3)
         if info_resp2 and 'Version' in info_resp2:
             logger.info('[LED Class ] Exited engineering mode (after Ctrl-D recovery)')
-            return resp
+            return True
 
         logger.error(
             f'[LED Class ] exit_engineering_mode: INFO still returns '

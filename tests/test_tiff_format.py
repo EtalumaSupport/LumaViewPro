@@ -1007,10 +1007,10 @@ class TestOmeMetadataReadback:
         )
         recovered = image_utils.read_postproc_input_metadata(path)
         # Gain / Illumination / Objective are dropped by tifffile's auto-OME
-        # serializer, so they take sentinel defaults rather than the input's
-        # values.
-        assert recovered['gain_db'] == 0.0
-        assert recovered['illumination_ma'] == 0.0
+        # serializer, so the read-back states none of them: no invented zero
+        # gain or illumination, and the writer's empty objective.
+        assert 'gain_db' not in recovered
+        assert 'illumination_ma' not in recovered
         assert recovered['objective'] == {}
 
 
@@ -1065,6 +1065,16 @@ class TestStructuredReadbackOptionalGainExposure:
         assert recovered is not None
         assert recovered['exposure_time_ms'] == pytest.approx(metadata['exposure_time_ms'])
         assert recovered['gain_db'] == pytest.approx(metadata['gain_db'])
+
+    def test_black_level_round_trips_and_its_absence_stays_absent(
+        self, img_8bit, metadata, tmp_tiff
+    ):
+        stated = tmp_tiff()
+        self._write(img_8bit, {**metadata, 'black_level': 4.0}, stated)
+        assert image_utils.read_postproc_input_metadata(stated)['black_level'] == 4.0
+        unstated = tmp_tiff()
+        self._write(img_8bit, metadata, unstated)
+        assert 'black_level' not in image_utils.read_postproc_input_metadata(unstated)
 
 
 # Largest value a signed-32-bit reader (Bioformats) treats as positive. A TIFF

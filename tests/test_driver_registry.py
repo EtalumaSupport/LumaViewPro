@@ -12,6 +12,7 @@ Lumascope.__init__. These tests cover:
 """
 
 import logging
+import sys
 import threading
 
 # Heavy deps (lvp_logger, ...) are mocked by tests/conftest.py at
@@ -19,8 +20,15 @@ import threading
 
 import pytest
 
-from drivers.registry import DriverRegistry, motor_registry, led_registry, camera_registry
+from drivers.registry import (
+    DriverNotLiveError,
+    DriverRegistry,
+    motor_registry,
+    led_registry,
+    camera_registry,
+)
 from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
+from tests.scope_fakes import build_scope
 
 
 class TestDriverRegistryUnit:
@@ -115,6 +123,95 @@ class TestDriverRegistryUnit:
 
         instance = reg.create('auto')
         assert isinstance(instance, Null)
+
+    def test_the_fallback_names_its_cause_beside_the_null_driver(self):
+        """A null driver says only that nothing is connected; the verdict
+        beside it says why, so a record of the bring-up can carry it."""
+        from drivers.registry import DriverFallback
+
+        reg = DriverRegistry('fake')
+
+        @reg.register('unfound', priority=100)
+        class Unfound:
+            def __init__(self, **kw):
+                self.found = False
+
+        @reg.register('held', priority=50)
+        class Held:
+            def __init__(self, **kw):
+                self.found = True
+
+            def is_connected(self):
+                return False
+
+        @reg.register('null', priority=0)
+        class Null:
+            pass
+
+        instance, fallback = reg.create_with_fallback('auto')
+        assert isinstance(instance, Null)
+        assert fallback == DriverFallback('port_in_use', ('Unfound', 'Held'))
+
+    def test_a_driver_that_raised_is_the_fallback_s_detail(self):
+        from drivers.registry import DriverFallback
+
+        reg = DriverRegistry('fake')
+
+        @reg.register('broken', priority=100)
+        class Broken:
+            def __init__(self, **kw):
+                raise RuntimeError('no hardware')
+
+        @reg.register('null', priority=0)
+        class Null:
+            pass
+
+        _instance, fallback = reg.create_with_fallback('auto')
+        assert fallback == DriverFallback(
+            'connect_failed', ('Broken',), 'RuntimeError: no hardware'
+        )
+
+    def test_a_board_that_was_found_outranks_a_driver_that_raised(self):
+        """The LED registry holds the FX2 driver wherever pyusb is installed, and
+        it raises when no FX2 is attached; that raise must not hide what the
+        EL-0940 board said about itself (its port held by another program)."""
+        from drivers.registry import DriverFallback
+
+        reg = DriverRegistry('fake')
+
+        @reg.register('fx2like', priority=100)
+        class Fx2Like:
+            def __init__(self, **kw):
+                raise RuntimeError('No Lumascope FX2 device was found')
+
+        @reg.register('held', priority=50)
+        class Held:
+            def __init__(self, **kw):
+                self.found = True
+
+            def is_connected(self):
+                return False
+
+        @reg.register('null', priority=0)
+        class Null:
+            pass
+
+        _instance, fallback = reg.create_with_fallback('auto')
+        assert fallback == DriverFallback(
+            'port_in_use', ('Fx2Like', 'Held'), 'RuntimeError: No Lumascope FX2 device was found'
+        )
+
+    def test_a_real_driver_comes_with_no_fallback(self):
+        reg = DriverRegistry('fake')
+
+        @reg.register('works', priority=50)
+        class Works:
+            def __init__(self, **kw):
+                pass
+
+        instance, fallback = reg.create_with_fallback('auto')
+        assert isinstance(instance, Works)
+        assert fallback is None
 
     def test_auto_skips_found_false_drivers(self):
         """Drivers that signal failure via .found=False (SerialBoard
@@ -396,12 +493,11 @@ class TestLumascopeUsesRegistry:
     via the registry, not via hardcoded class references."""
 
     def test_simulate_true_yields_simulated_drivers(self):
-        from modules.lumascope_api import Lumascope
         from drivers.simulated_motorboard import SimulatedMotorBoard
         from drivers.simulated_ledboard import SimulatedLEDBoard
         from drivers.simulated_camera import SimulatedCamera
 
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         assert isinstance(scope._motion_driver, SimulatedMotorBoard)
         assert isinstance(scope._led_driver, SimulatedLEDBoard)
         assert isinstance(scope._camera_driver, SimulatedCamera)
@@ -409,9 +505,8 @@ class TestLumascopeUsesRegistry:
     def test_simulated_scope_satisfies_protocols(self):
         """Cross-check with B1: whatever the registry returns in
         simulate mode must still satisfy the driver protocols."""
-        from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         assert isinstance(scope._motion_driver, MotorBoardProtocol)
         assert isinstance(scope._led_driver, LEDBoardProtocol)
 
@@ -422,10 +517,15 @@ class TestLumascopeUsesRegistry:
         Motor and LED have full coverage (rp2040 / sim / null) on any
         platform. Camera 'ids' is optional -- it only registers if the
         `ids_peak` SDK is installed (Windows/Linux with IDS drivers).
-        On macOS dev machines without ids_peak, the ImportError guard
-        in `lumascope_api.py` skips the `drivers.idscamera` import,
-        so the decorator never runs and 'ids' is absent from the
-        registry. That's correct graceful-degradation behavior."""
+        On macOS the scope never imports `drivers.idscamera` (IDS peak
+        has no macOS build; `_register_ids_camera` in `_lumascope.py`),
+        and elsewhere a failed import skips it, so the decorator never
+        runs and 'ids' is absent from the registry. That's correct
+        graceful-degradation behavior.
+
+        The test suite stubs `ids_peak`, so whether the SDK imports says
+        nothing here; 'ids' is registered exactly when the driver module
+        was imported, by the scope or by an earlier test."""
         assert 'rp2040' in motor_registry.registered_names()
         assert 'sim' in motor_registry.registered_names()
         assert 'null' in motor_registry.registered_names()
@@ -436,15 +536,8 @@ class TestLumascopeUsesRegistry:
 
         assert 'pylon' in camera_registry.registered_names()
         assert 'sim' in camera_registry.registered_names()
-        # 'ids' only present if ids_peak SDK is installed.
-        try:
-            import ids_peak  # noqa: F401
-
-            ids_available = True
-        except ImportError:
-            ids_available = False
-        if ids_available:
-            assert 'ids' in camera_registry.registered_names()
+        ids_loaded = 'drivers.idscamera' in sys.modules
+        assert ('ids' in camera_registry.registered_names()) == ids_loaded
 
 
 class TestRegistryAccommodatesCompositeHardware:
@@ -544,3 +637,66 @@ class TestRegistryAccommodatesCompositeHardware:
 
         _ = local_reg.create('lazy')
         assert FakeConn._instance is not None
+
+
+class TestTheRegistryNamePath:
+    def test_a_named_driver_that_is_not_live_raises(self):
+        reg = DriverRegistry('fake')
+
+        @reg.register('dead', priority=50)
+        class Dead:
+            def __init__(self, **kw):
+                self.disconnected = False
+
+            def is_connected(self):
+                return False
+
+            def disconnect(self):
+                self.disconnected = True
+
+        with pytest.raises(DriverNotLiveError, match=r"fake driver Dead \('dead'\)"):
+            reg.create('dead')
+
+    def test_a_named_driver_that_is_not_live_is_disconnected_before_the_refusal(self):
+        reg = DriverRegistry('fake')
+        built = []
+
+        @reg.register('dead', priority=50)
+        class Dead:
+            def __init__(self, **kw):
+                self.disconnected = False
+                built.append(self)
+
+            def is_connected(self):
+                return False
+
+            def disconnect(self):
+                self.disconnected = True
+
+        with pytest.raises(DriverNotLiveError):
+            reg.create('dead')
+        assert [driver.disconnected for driver in built] == [True]
+
+    def test_a_named_driver_that_is_mute_raises(self):
+        reg = DriverRegistry('fake')
+
+        @reg.register('mute', priority=50)
+        class Mute:
+            def is_connected(self):
+                return True
+
+            def is_responsive(self):
+                return False
+
+        with pytest.raises(DriverNotLiveError, match='not responding'):
+            reg.create('mute')
+
+    def test_a_named_driver_that_reports_found_false_raises(self):
+        reg = DriverRegistry('fake')
+
+        @reg.register('absent', priority=50)
+        class Absent:
+            found = False
+
+        with pytest.raises(DriverNotLiveError, match='found=False'):
+            reg.create('absent')

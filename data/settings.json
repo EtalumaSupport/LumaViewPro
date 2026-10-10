@@ -1,5 +1,6 @@
 {
     "microscope": "LS850",
+    "simulator_tier": "realistic",
     "image_mode": "8bit",
     "image_output_format": {
         "live": "TIFF",
@@ -31,7 +32,7 @@
     },
     "BF": {
         "file_root": "BF_",
-        "focus": 4950.0,
+        "focus": null,
         "autofocus": false,
         "false_color": false,
         "illumination_ma": 5.0,
@@ -47,7 +48,7 @@
     },
     "PC": {
         "file_root": "PC_",
-        "focus": 4950.0,
+        "focus": null,
         "autofocus": false,
         "false_color": false,
         "illumination_ma": 50.0,
@@ -63,7 +64,7 @@
     },
     "DF": {
         "file_root": "DF_",
-        "focus": 4950.0,
+        "focus": null,
         "autofocus": false,
         "false_color": false,
         "illumination_ma": 50.0,
@@ -79,7 +80,7 @@
     },
     "Blue": {
         "file_root": "B_",
-        "focus": 4950.0,
+        "focus": null,
         "autofocus": false,
         "false_color": true,
         "illumination_ma": 250.0,
@@ -103,12 +104,12 @@
     },
     "Green": {
         "file_root": "G_",
-        "focus": 4950.0,
+        "focus": null,
         "autofocus": false,
         "false_color": true,
         "illumination_ma": 250.0,
         "sum": 1,
-        "gain_db": 20.0,
+        "gain_db": 10.0,
         "auto_gain": false,
         "exposure_ms": 100.0,
         "acquire": null,
@@ -127,12 +128,12 @@
     },
     "Red": {
         "file_root": "R_",
-        "focus": 4950.0,
+        "focus": null,
         "autofocus": false,
         "false_color": true,
         "illumination_ma": 350.0,
         "sum": 1,
-        "gain_db": 30.0,
+        "gain_db": 10.0,
         "auto_gain": false,
         "exposure_ms": 100.0,
         "acquire": null,
@@ -151,12 +152,12 @@
     },
     "Lumi": {
         "file_root": "LM_",
-        "focus": 4950.0,
+        "focus": null,
         "autofocus": false,
         "false_color": true,
         "illumination_ma": 0.0,
         "sum": 1,
-        "gain_db": 48.0,
+        "gain_db": 10.0,
         "auto_gain": false,
         "exposure_ms": 100.0,
         "acquire": null,
@@ -232,6 +233,11 @@
 
     "show_tooltips": false,
     "live_view_fps": 30,
+    "ag_ae_max_exposure_ms": {
+        "transmitted": 50.0,
+        "fluorescence": 200.0,
+        "luminescence": 1000.0
+    },
     "tiling_overlap_percent": 0.0,
     "show_step_locations": false,
     "protocol_led_on": false,

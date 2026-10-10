@@ -69,7 +69,7 @@ def test_every_post_processing_panel_is_scroll_wrapped():
     """Guard against controls clipping at the minimum application window size."""
     content = KV_PATH.read_text(encoding='utf-8')
     lines = _rule_block(content, '<PostProcessingAccordion>:').splitlines()
-    item_indices = [i for i, ln in enumerate(lines) if ln.strip() == 'AccordionItem:']
+    item_indices = [i for i, ln in enumerate(lines) if ln.strip() == 'LoggedAccordionItem:']
     assert len(item_indices) >= 6, 'expected the six post-processing accordion items'
 
     for idx in item_indices:

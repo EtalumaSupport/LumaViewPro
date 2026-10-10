@@ -17,19 +17,26 @@ from unittest.mock import MagicMock
 
 import numpy as np
 
+from tests.protocol_drives import lent_run_claim
+from tests.frame_records import plate
+from modules.protocol_image_writer import RunWriteBatch
 from modules.image_mode import ImageCaptureConfig
-from modules.protocol_callbacks import ProtocolCallbacks
 from modules.protocol_image_writer import ProtocolImageWriter
+from modules.run_events import RunEvents
+
+
+from modules.run_outcome import EndingLatch
 
 
 def _drive_capture(monkeypatch, debug_enabled):
     writer = ProtocolImageWriter(
         scope=MagicMock(),
-        callbacks=ProtocolCallbacks(),
+        events=RunEvents(),
         aborted=threading.Event(),
-        file_io_executor=MagicMock(),
+        write_batch=RunWriteBatch(MagicMock()),
         abort_fn=lambda: None,
         fatal_abort_event=threading.Event(),
+        ending=EndingLatch(),
         execution_record=None,
         leds_off_fn=lambda: None,
         is_run_in_progress_fn=lambda: True,
@@ -37,11 +44,17 @@ def _drive_capture(monkeypatch, debug_enabled):
         timestamp_overlay=True,
         video_max_fps=0,
         engineering_mode=False,
+        run_claim=lent_run_claim(),
+        labware=plate(),
+        to_plate=None,
+        captures_asked=1,
     )
     scope = writer._scope
+    # The objective the frame is taken with, read at capture.
+    scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
     scope.capabilities.has_turret = False
     scope.led_connected = False
-    scope.imaging._capture_and_wait_impl.return_value = np.zeros((4, 4), dtype=np.uint8)
+    scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
 
     def quiet(*args, **kwargs):
         return None

@@ -7,13 +7,16 @@ used to leave the toggle 'down' with nothing recording: the next press
 flipped it to 'normal', which reads as "the user is stopping a live
 recording", and the stop branch returns silently when there is nothing to
 stop. The user pressed Record and nothing happened -- twice.
+
+The toggle no longer decides: whether a press means Stop is the API's
+answer (is a recording open), a start and its refusal go through the
+boundary, and one redraw draws the toggle from the controller. A refusal
+is a warning in the API's words, shown once.
 """
 
 import sys
 from types import ModuleType
 from unittest.mock import MagicMock
-
-import pytest
 
 
 class _StubWidget:
@@ -36,7 +39,9 @@ _real_base_module('kivy.uix.floatlayout', FloatLayout=_StubWidget)
 
 import modules.app_context as _app_ctx
 import ui.main_display as main_display
+import ui.ui_helpers as ui_helpers
 from modules.exceptions import RecordingRefusedError
+from tests.pool_fakes import run_task_now
 
 
 class _FakeToggle:
@@ -65,9 +70,11 @@ class _Controller:
         self.start_calls += 1
         if self.error is not None:
             raise self.error
+        self.is_recording = True
 
     def stop(self):
         self.stop_calls += 1
+        self.is_recording = False
 
 
 class _ImmediateClock:
@@ -87,47 +94,52 @@ class _ImmediateClock:
 
 
 def _make_display(monkeypatch, controller):
+    from modules.sequential_io_executor import ENQUEUED
+
     display = main_display.MainDisplay.__new__(main_display.MainDisplay)
     toggle = _FakeToggle()
     display.ids = {'record_btn': toggle}
     display._recording_poll = None
 
     monkeypatch.setattr(main_display, 'Clock', _ImmediateClock)
+    monkeypatch.setattr(main_display.gui_logger, 'button', lambda *a, **kw: None)
+    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
     ctx = MagicMock()
     ctx.session.manual_recording = controller
+
+    def _run_now(task):
+        run_task_now(task)
+        return ENQUEUED
+
+    ctx.worker_pool.put.side_effect = _run_now
     monkeypatch.setattr(_app_ctx, 'ctx', ctx)
     return display, toggle, ctx
 
 
 class TestRecordButtonRecovery:
-    def test_first_press_records_after_failed_start(self, monkeypatch):
+    def test_first_press_records_after_failed_start(self, monkeypatch, centre_posts):
         controller = _Controller(error=RuntimeError('scripted post-commit failure'))
-        display, toggle, ctx = _make_display(monkeypatch, controller)
+        display, toggle, _ctx = _make_display(monkeypatch, controller)
 
         toggle.press()
         display.record_button()
-        assert ctx.camera_executor.put.called
 
-        # The executor runs this; the failure must reach it, not be
-        # swallowed, because the executor is what reports it to the user.
-        with pytest.raises(RuntimeError):
-            display._start_recording_task()
+        assert len(centre_posts) == 1, 'the failure is reported once, by the boundary'
         assert toggle.state == 'normal'
 
-        # The next press. A 'down' toggle here would flip to 'normal' and
-        # take the stop branch instead.
+        # The next press. A 'down' toggle here would flip to 'normal', and
+        # a toggle-decided button would take the stop branch instead.
         controller.error = None
-        ctx.camera_executor.put.reset_mock()
         toggle.press()
         display.record_button()
 
-        assert ctx.camera_executor.put.called
+        assert controller.start_calls == 2
         assert controller.stop_calls == 0
+        assert toggle.state == 'down'
 
-    def test_refusal_still_resets_without_escaping(self, monkeypatch):
-        # Preservation: a refusal is reported and handled, not re-raised --
-        # the executor's generic popup would name it worse than its own
-        # title and message do.
+    def test_a_refusal_is_one_warning_and_the_button_draws_idle(self, monkeypatch, centre_posts):
+        from modules.notification_center import Severity
+
         refusal = RecordingRefusedError(
             reason='recording_active',
             title='Recording Active',
@@ -137,5 +149,58 @@ class TestRecordButtonRecovery:
         display, toggle, _ctx = _make_display(monkeypatch, controller)
 
         toggle.press()
-        display._start_recording_task()
+        display.record_button()
+
+        assert [(n.title, n.severity) for n in centre_posts] == [
+            ('Recording Active', Severity.WARNING)
+        ]
         assert toggle.state == 'normal'
+
+
+class TestStartOrStopIsTheApisAnswer:
+    def test_a_press_while_recording_stops_whatever_the_toggle_reads(self, monkeypatch):
+        controller = _Controller()
+        controller.is_recording = True
+        display, toggle, _ctx = _make_display(monkeypatch, controller)
+        toggle.state = 'normal'
+        toggle.press()  # a redraw had not yet caught up: the press reads 'down'
+
+        display.record_button()
+
+        assert controller.stop_calls == 1
+        assert controller.start_calls == 0
+        assert toggle.state == 'normal'
+
+    def test_a_press_with_nothing_recording_starts_whatever_the_toggle_reads(self, monkeypatch):
+        controller = _Controller()
+        display, toggle, _ctx = _make_display(monkeypatch, controller)
+        toggle.state = 'down'
+        toggle.press()
+
+        display.record_button()
+
+        assert controller.start_calls == 1
+        assert controller.stop_calls == 0
+        assert toggle.state == 'down'
+
+    def test_the_start_runs_on_the_pool_not_the_camera_lane(self, monkeypatch):
+        controller = _Controller()
+        display, toggle, ctx = _make_display(monkeypatch, controller)
+
+        toggle.press()
+        display.record_button()
+
+        assert ctx.worker_pool.put.called
+        assert not ctx.camera_executor.put.called
+
+    def test_a_started_recording_starts_the_status_poll_once(self, monkeypatch):
+        controller = _Controller()
+        display, toggle, _ctx = _make_display(monkeypatch, controller)
+
+        toggle.press()
+        display.record_button()
+        poll = display._recording_poll
+        display.draw_record_button()
+
+        assert poll is not None
+        assert display._recording_poll is poll

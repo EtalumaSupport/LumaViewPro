@@ -26,7 +26,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 #               mocks the test conftest installs before collection
 # The sys.path line serves the standalone form; in-suite it is a no-op.
 
-from modules.lumascope_api import Lumascope
+from modules.exceptions import ConfigError, HardwareCommandRefusedError, HomingFailedError
+from modules.scope_session import ScopeSession
 
 
 # Z-stack parameters (all values in micrometers)
@@ -41,18 +42,35 @@ EXPOSURE_MS = 50  # Exposure time (ms)
 
 
 def main():
-    # Create scope in simulate mode -- no hardware required
-    scope = Lumascope(simulate=True)
-    print('Scope initialized (simulate=True)')
+    # create(simulate=True) is the supported factory for a simulated session: it
+    # wires the simulated drivers, configures the scope from settings and
+    # releases the camera start gate, so there is no separate bring-up and no
+    # start_streaming() call to make here.
+    #
+    # source_path defaults to the working directory, which must be an LVP
+    # installation root. ConfigError is caught to say so beside its own words:
+    # running from the wrong directory is the usual cause.
+    try:
+        session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
+    except ConfigError as exc:
+        print(f'Could not create a headless session: {exc}')
+        print(
+            'Run this from a LumaViewPro installation root -- a directory '
+            'holding data/settings.json.'
+        )
+        raise SystemExit(1) from exc
 
-    # Begin the live camera feed (required before capture on every backend).
-    scope.imaging.start_streaming()
+    scope = session.scope
+    print('Headless session created (simulate=True)')
 
     # Home before commanding any move. Until an axis has been homed its
     # position is unknown, and a move against an unknown reference frame
-    # is refused with AxisStateUnknownError rather than driven blind.
-    if not scope.motion.move_home_and_wait('ALL'):
-        print('Homing failed -- cannot move safely')
+    # is refused with AxisStateUnknownError rather than driven blind. A home
+    # that could not establish the reference raises and says why.
+    try:
+        scope.motion.home('ALL')
+    except (HomingFailedError, HardwareCommandRefusedError) as exc:
+        print(f'Homing failed -- cannot move safely: {exc}')
         scope.disconnect()
         return
 
@@ -70,12 +88,8 @@ def main():
     z_pos_um = Z_START_UM
 
     for i in range(num_slices):
-        # Move Z to target position (um) and wait for completion
-        scope.motion.move_absolute(
-            'Z',
-            z_pos_um,
-            wait_until_complete=True,
-        )
+        # Move Z to target position (um); returns once Z has arrived
+        scope.motion.move_absolute('Z', z_pos_um)
 
         # Read back the actual position (um, from the push-based cache)
         actual_z_um = scope.motion.get_current_position('Z')
@@ -108,8 +122,13 @@ def main():
 
     # Clean up
     scope.illumination.leds_off()
-    scope.disconnect()
-    print('Scope disconnected')
+
+    # shutdown() tears down everything the factory built: the LEDs drain
+    # through the io lane while its worker is still alive, motion stops, the
+    # scope disconnects, and the consumer threads stop before the lanes they
+    # consume. A bare scope.disconnect() would leave the lanes running.
+    session.shutdown()
+    print('Session shut down')
 
 
 if __name__ == '__main__':

@@ -29,32 +29,37 @@ no startup motion).
 
 from __future__ import annotations
 
+import pathlib
 import threading
 
 import pytest
 
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import IOTask
+from tests.settings_fixtures import complete_settings
+from tests.protocol_drives import run_identity
 
 
 @pytest.fixture
-def headless_session():
+def headless_session(tmp_path):
     """A real headless session, torn down whatever the test does."""
-    session = ScopeSession.create_headless()
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path)), source_path='.', simulate=True
+    )
     try:
         yield session
     finally:
         try:
-            session.shutdown_executors()
+            session.shutdown()
         except Exception:
-            # Teardown must not mask the test's own failure; a session
-            # whose executors never started is the normal case here.
+            # Teardown must not mask the test's own failure; a test may
+            # already have shut the lanes down itself.
             pass
         session.scope.disconnect()
 
 
 class TestCreateHeadlessComposesARealSession:
-    """`create_headless()` must return a session that can actually work.
+    """`create(simulate=True)` must return a session that can actually work.
 
     A factory that returns a half-wired object is the failure mode here:
     every field it forgets shows up much later as a None-deref or a
@@ -63,10 +68,17 @@ class TestCreateHeadlessComposesARealSession:
 
     def test_scope_is_a_real_lumascope_on_simulated_drivers(self, headless_session):
         from modules.lumascope_api import Lumascope
+        from drivers.ledboard import LEDBoard
+        from drivers.sim_wire.backend import SimWireBackend
         from drivers.simulated_ledboard import SimulatedLEDBoard
 
         assert isinstance(headless_session.scope, Lumascope)
-        assert isinstance(headless_session.scope._led_driver, SimulatedLEDBoard)
+        # Simulated on either tier: the Python stand-in, or the production
+        # driver against the firmware emulator; never a real port.
+        led = headless_session.scope._led_driver
+        assert isinstance(led, SimulatedLEDBoard) or (
+            isinstance(led, LEDBoard) and isinstance(led._backend, SimWireBackend)
+        )
 
     def test_streaming_is_released(self, headless_session):
         """connect() leaves the sim camera configured but not grabbing.
@@ -77,16 +89,12 @@ class TestCreateHeadlessComposesARealSession:
         """
         assert headless_session.scope.imaging.is_streaming()
 
-    def test_all_three_executor_handles_are_registered_on_the_scope(self, headless_session):
-        """`scope.X_async` lands on a real queue, not None.
-
-        The session holding an executor is not enough: the SCOPE has to
-        know about it too, or the async paths silently have nowhere to
-        put work.
-        """
-        assert headless_session.scope._io_executor is not None
-        assert headless_session.scope._camera_executor is not None
-        assert headless_session.scope._file_io_executor is not None
+    def test_the_session_s_lanes_are_the_scope_s(self, headless_session):
+        """The scope's commands and the session's run go through one IO and
+        one CAMERA lane, the scope's own: a second pair would serialize
+        nothing against the first."""
+        assert headless_session.io_executor is headless_session.scope.io_lane()
+        assert headless_session.camera_executor is headless_session.scope.camera_lane()
 
     def test_file_io_executor_is_the_bundle_s_one_instance(self, headless_session):
         """One FILE executor, not a duplicate per consumer.
@@ -101,7 +109,7 @@ class TestCreateHeadlessComposesARealSession:
         )
 
     def test_source_path_is_registered(self, headless_session):
-        assert headless_session.source_path == '.'
+        assert headless_session.source_path == pathlib.Path('.')
 
     def test_settings_is_a_dict(self, headless_session):
         """Resolved from current.json, then settings.json, then empty.
@@ -114,44 +122,32 @@ class TestCreateHeadlessComposesARealSession:
 
 
 class TestExecutorLifecycle:
-    """`start_executors` / `shutdown_executors` must really start and stop.
+    """The scope's lanes really run work, and the session's `shutdown` really stops them.
 
     Proven by running work, not by reading a thread flag.
     """
 
     def test_started_io_executor_runs_queued_work(self, headless_session):
-        headless_session.start_executors()
         ran = threading.Event()
         headless_session.io_executor.put(IOTask(action=ran.set))
         assert ran.wait(timeout=5.0), 'io_executor did not execute a queued task'
 
     def test_started_camera_executor_runs_queued_work(self, headless_session):
-        headless_session.start_executors()
         ran = threading.Event()
         headless_session.camera_executor.put(IOTask(action=ran.set))
         assert ran.wait(timeout=5.0), 'camera_executor did not execute a queued task'
 
     def test_shutdown_stops_the_worker_threads(self, headless_session):
-        headless_session.start_executors()
         ran = threading.Event()
         headless_session.io_executor.put(IOTask(action=ran.set))
         assert ran.wait(timeout=5.0)
 
-        headless_session.shutdown_executors()
+        headless_session.shutdown()
         for executor in (headless_session.io_executor, headless_session.camera_executor):
             worker = executor._worker_thread
             if worker is not None:
                 worker.join(timeout=5.0)
                 assert not worker.is_alive(), f'{executor.executor_name} still running'
-
-    def test_shutdown_without_start_does_not_raise(self, headless_session):
-        """Teardown paths call this without knowing whether start ran.
-
-        An abort during bring-up reaches shutdown with executors that
-        were never started, and raising there would mask the original
-        failure.
-        """
-        headless_session.shutdown_executors()
 
 
 class TestIsProtocolRunning:
@@ -166,17 +162,19 @@ class TestIsProtocolRunning:
         assert headless_session.is_protocol_running is False
 
     def test_tracks_the_claim_in_both_directions(self, headless_session):
-        assert headless_session.activity_claim.try_claim('protocol')
+        held = headless_session.activity_claim.try_claim('protocol', run=run_identity())
+        assert held
         assert headless_session.is_protocol_running is True
-        headless_session.activity_claim.release('protocol')
+        held.release()
         assert headless_session.is_protocol_running is False
 
     def test_a_recording_claim_is_not_a_run(self, headless_session):
-        assert headless_session.activity_claim.try_claim('recording')
+        held = headless_session.activity_claim.try_claim('recording')
+        assert held
         try:
             assert headless_session.is_protocol_running is False
         finally:
-            headless_session.activity_claim.release('recording')
+            held.release()
 
     def test_is_read_only(self, headless_session):
         """No setter, so no second writer for run state."""

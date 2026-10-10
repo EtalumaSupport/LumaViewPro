@@ -1,15 +1,17 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 import os
+from collections.abc import Callable
 import pathlib
 
 import numpy as np
 import pandas as pd
 
 import modules.image_utils as image_utils
+import modules.image_mode as image_mode
 import modules.common_utils as common_utils
 import modules.recording_frames as recording_frames
 from modules.common_utils import PostFunction
-from modules.exceptions import CaptureError
+from modules.exceptions import CaptureError, HyperstacksSavedNotice, HyperstacksSavingNotice
 from modules.notification_center import notifications
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
@@ -21,34 +23,64 @@ logger = logging.getLogger('lvp_logger')
 
 
 def build_hyperstacks_for_run(
-    run_dir: pathlib.Path, has_turret: bool, tiling_configs_file_loc: pathlib.Path
+    run_dir: pathlib.Path,
+    has_turret: bool,
+    tiling_configs_file_loc: pathlib.Path,
+    wait_for_images: Callable[[], None],
+    save_encoding: str,
 ) -> None:
-    """Build per-well hyperstacks from a finished run's folder.
+    """Build per-well hyperstacks from a finished run's folder, and tell the person.
 
     The below-UI entry point the run trigger calls: config and paths come
     from the caller, never the live UI or the process's script root, so
     a headless / L2 run builds the same stacks a GUI run does against the
-    tiling config its session was built with.
-    load_folder emits its own start / done / failed notifications on the
-    unattended (popup-less) path; the backstop below covers only faults
-    before or around the build. Runs on the caller's (background) thread.
+    tiling config its session was built with. Runs on the caller's
+    (background) thread.
+
+    ``wait_for_images`` blocks until the run's images are all on disk and
+    raises when they will not be -- the bound expired, or some were
+    abandoned. It is waited on after the announcement, so a build waiting
+    on a slow disk is not a silent hang, and its raise is answered here
+    like any other: a stack built from a folder still filling would
+    silently miss planes.
+
+    ``save_encoding`` is the run's: the per-step files were written in it,
+    and a stack that mixes 8-bit and 16-bit planes needs it to bring the
+    8-bit ones into the 16-bit stack the way the run wrote the others.
+
+    Nobody waits on this build, so this is where its outcome is reported:
+    announced as it starts, so a multi-minute build is not a silent hang,
+    then answered -- the stacks saved, or what went wrong in its own words
+    -- under the same operation key, so the answer replaces the
+    announcement rather than opening beside it.
     """
-    logger.info('Building OME-TIFF Hyperstacks from captured data')
+    builder = StackBuilder(has_turret=has_turret)
+    key = builder.operation_key
+    notifications.report_outcome(
+        HyperstacksSavingNotice(), solicited=False, category='Post-processing', operation_key=key
+    )
     try:
-        StackBuilder(has_turret=has_turret).load_folder(
+        wait_for_images()
+        result = builder.load_folder(
             path=run_dir,
             tiling_configs_file_loc=tiling_configs_file_loc,
+            save_encoding=save_encoding,
         )
-        logger.info('Hyperstack creation complete')
     except Exception as ex:
-        # Background-thread boundary: without this the user never sees a
-        # result for the build the completion notice announced.
-        logger.exception(f'Error building hyperstacks: {ex}')
-        notifications.error(
-            'Post-processing',
-            'Hyperstack build failed',
-            'Could not create hyperstacks. See the log for details; source files are untouched.',
+        notifications.report_outcome(
+            ex,
+            solicited=False,
+            category='Post-processing',
+            fault_title='Hyperstacks Not Saved',
+            operation_key=key,
         )
+        return
+    notifications.report_outcome(
+        HyperstacksSavedNotice(result),
+        solicited=False,
+        category='Post-processing',
+        operation_key=key,
+    )
 
 
 class StackBuilder(ProtocolPostProcessor):
@@ -146,6 +178,7 @@ class StackBuilder(ProtocolPostProcessor):
                 path=path,
                 df=df,
                 output_file_loc=kwargs['output_file_loc'],
+                save_encoding=kwargs['save_encoding'],
             )
         )
 
@@ -313,6 +346,8 @@ class StackBuilder(ProtocolPostProcessor):
         path: pathlib.Path,
         df: pd.DataFrame,
         output_file_loc: pathlib.Path,
+        *,
+        save_encoding: str,
         sort_order: list[str] | None = None,
     ):
         if sort_order is None:
@@ -341,24 +376,31 @@ class StackBuilder(ProtocolPostProcessor):
         # captured at the same z-slices and scan counts, exactly once each. A
         # protocol that z-stacks one channel but single-shots another leaves
         # holes the dense array could only pad with black planes -- fake data
-        # in a scientific image. Refuse the whole well through the post-
-        # processor's status=False failure path, naming the well so the user
-        # can align the protocol or build each channel separately.
+        # in a scientific image. Refuse the whole set through the post-
+        # processor's status=False failure path, naming what was refused so
+        # the user can align the protocol or build each channel separately.
+        # A protocol's frame set names its well; a manual recording's has no
+        # well, and its one way to be non-rectangular is a channel change
+        # while it recorded, which each frame's row records truthfully.
         expected_planes = num_t * num_z * num_c
         captured_cells = df.groupby(['Scan Count', 'Z-Slice', 'Color']).ngroups
         if len(df) != expected_planes or captured_cells != expected_planes:
-            well = df['Well'].iloc[0]
-            return {
-                'status': False,
-                'error': (
-                    f'Cannot build a hyperstack for well {well}: its channels '
-                    f'were not all captured at the same z-slices and scan '
-                    f'counts ({len(df)} images for a {num_t} x {num_z} x '
-                    f'{num_c} grid). Use the same z-stack settings on every '
-                    f'channel in the well, or build each channel separately.'
-                ),
-                'metadata': {},
-            }
+            if 'Well' in df.columns:
+                error = (
+                    f'Cannot build a hyperstack for well {df["Well"].iloc[0]}: its '
+                    f'channels were not all captured at the same z-slices and scan '
+                    f'counts ({len(df)} images for a {num_t} x {num_z} x {num_c} '
+                    f'grid). Use the same z-stack settings on every channel in the '
+                    f'well, or build each channel separately.'
+                )
+            else:
+                error = (
+                    f'Cannot build a hyperstack for this recording: its frames were '
+                    f'not all lit by one channel ({len(df)} frames across {num_c} '
+                    f'channels). The frames are saved as recorded; keep one channel '
+                    f'lit for the whole recording to get a hyperstack.'
+                )
+            return {'status': False, 'error': error, 'metadata': {}}
 
         _, color_idx_map = np.unique(df['Color'], return_inverse=True)
         df['Color Index'] = color_idx_map
@@ -369,7 +411,21 @@ class StackBuilder(ProtocolPostProcessor):
         sample_image_file_loc = path / row0['Filepath']
         sample_image, _ = StackBuilder._load_plane(sample_image_file_loc)
         h, w = sample_image.shape[0], sample_image.shape[1]
-        stack_dtype = sample_image.dtype
+        # A stack whose planes mix uint8 and uint16 (an unsummed channel
+        # beside a summed one on an 8-bit camera) is built at uint16, and the
+        # writer needs the dtype before the first plane: the OME header is
+        # written first, so every plane's dtype is read from its header here.
+        # That pair is the one mixture a stack promotes; any other is refused
+        # below, plane by plane.
+        plane_dtypes = {image_utils.read_image_geometry(path / fp)[1] for fp in df['Filepath']}
+        promotes_uint8 = plane_dtypes == {np.dtype(np.uint8), np.dtype(np.uint16)}
+        stack_dtype = np.dtype(np.uint16) if promotes_uint8 else sample_image.dtype
+        # The run's encoding decides how an 8-bit plane enters that stack. A
+        # container-filling encoding (scaled, RGB) wrote each 16-bit plane
+        # filling its container, so the 8-bit plane fills its container too,
+        # as each plane's own file shows it; right-aligned keeps it at its
+        # counts, beside the others' counts.
+        fill_container = image_mode.encoding_fills_container(save_encoding)
 
         # The output's depth claim and per-plane timing resolve from every
         # input's header before the write starts -- neither can be collected
@@ -427,10 +483,17 @@ class StackBuilder(ProtocolPostProcessor):
                     operation='assemble this hyperstack',
                 )
 
-                # Mixed pixel types cannot share one stack. The cube build
-                # silently CAST mismatched planes into the stack dtype (uint16
-                # into uint8 truncates) -- wrong data under a success status.
-                if image.dtype != stack_dtype:
+                if promotes_uint8 and image.dtype == np.uint8:
+                    # Widening, so nothing is lost: the plane enters the
+                    # uint16 stack at its counts, or filling its container.
+                    image = image.astype(np.uint16)
+                    if fill_container:
+                        image <<= 8
+                elif image.dtype != stack_dtype:
+                    # Any other mixture cannot share one stack: a cast into
+                    # the stack dtype would truncate (uint16 into uint8) or
+                    # reinterpret (float into an integer) -- wrong data under
+                    # a success status.
                     raise CaptureError(
                         f'hyperstack input frame {row["Filepath"]} is {image.dtype} but '
                         f'this stack is {stack_dtype}: mixed pixel types cannot share one '
@@ -469,7 +532,9 @@ class StackBuilder(ProtocolPostProcessor):
         df: pd.DataFrame,
         path: pathlib.Path,
         output_file_loc: pathlib.Path,
-    ):
+        *,
+        save_encoding: str,
+    ) -> dict:
         # Manual-recording entry point: sorts by Scan Count alone (Z and
         # Color axes collapse to single values for single recordings)
         # and accepts an absolute output_file_loc that the caller has
@@ -486,6 +551,7 @@ class StackBuilder(ProtocolPostProcessor):
             path=path,
             df=df,
             output_file_loc=rel_loc,
+            save_encoding=save_encoding,
             sort_order=['Scan Count'],
         )
 
@@ -496,4 +562,6 @@ if __name__ == '__main__':
     stack_builder.load_folder(
         path=os.getenv('SAMPLE_IMAGE_FOLDER'),
         tiling_configs_file_loc=tiling_configs_file_loc,
+        # The sample folder is a scientific (right-aligned) capture.
+        save_encoding=image_mode.SAVE_ENCODING_RIGHT_ALIGNED,
     )

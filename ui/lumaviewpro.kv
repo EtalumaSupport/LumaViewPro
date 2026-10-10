@@ -141,6 +141,42 @@
             points: [self.right - dp(20), self.center_y + dp(3), self.right - dp(10), self.center_y + dp(3), self.right - dp(15), self.center_y - dp(3)]
 
 # -----------------------
+# HOMING BANNER
+# -----------------------
+# A turning arc beside the words, on a dark rounded backing. Neither a
+# Label nor a BoxLayout takes touches, so the banner blocks nothing.
+<HomingBanner>:
+    orientation: 'horizontal'
+    size_hint: None, None
+    size: self.minimum_width, dp(84)
+    padding: dp(28), dp(18)
+    spacing: dp(18)
+    canvas.before:
+        Color:
+            rgba: 0.08, 0.08, 0.08, 0.85
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(12)]
+    Widget:
+        size_hint: None, None
+        size: dp(36), dp(36)
+        pos_hint: {'center_y': 0.5}
+        canvas:
+            Color:
+                rgba: 0.18, 0.66, 0.85, 1
+            Line:
+                width: dp(3)
+                circle: (self.center_x, self.center_y, dp(15), root.angle, root.angle + 270)
+    Label:
+        text: 'System Homing...'
+        font_size: '28sp'
+        bold: True
+        size_hint: None, None
+        size: self.texture_size
+        pos_hint: {'center_y': 0.5}
+
+# -----------------------
 # MAIN DISPLAY
 # -----------------------
 <MainDisplay>:
@@ -149,27 +185,58 @@
     # Primary Display of Camera Results
     ShaderViewer:
         id: viewer_id
-        pos: 0, 0
+        pos: 0, root.status_line_height
         size_hint: None, None
-        size: root.width, root.height
+        size: root.width, root.height - root.status_line_height
         auto_bring_to_front: False
         do_rotation: False
         do_translation: True
 
+    # The status line: the live readouts, along the bottom below the live
+    # view and the panels, so it covers no image. Roboto, the default font, draws
+    # every digit and the figure space at one width, so a readout padded to
+    # its largest value holds still as its value changes.
+    Label:
+        id: status_line_id
+        text: viewer_id.status_text
+        size_hint: None, None
+        size: root.width, root.status_line_height
+        pos: 0, 0
+        font_size: '13sp'
+        halign: 'center'
+        valign: 'middle'
+        text_size: self.size
+        canvas.before:
+            Color:
+                rgba: 0.13, 0.13, 0.13, 1
+            Rectangle:
+                pos: self.pos
+                size: self.size
+
+    # Says a home holds the scope, over the middle of the window; hidden
+    # otherwise. pos_hint, not center: the layout re-centres it whenever its
+    # size changes, where a bound center is applied once, before the label
+    # has measured its text, and the box then grows from that left edge.
+    HomingBanner:
+        id: homing_banner_id
+        active: app.homing
+        opacity: 1 if self.active else 0
+        pos_hint: {'center_x': 0.5, 'center_y': 0.5}
+
 	MotionSettings:
         id: motionsettings_id
         size_hint: None, None
-        size: self.settings_width, root.height
+        size: self.settings_width, root.height - root.status_line_height
         # Open by default -- per Eric 2026-04-17. Toggle button state
         # starts 'down' to match (kept in sync via motion_settings.py).
-        pos: 0, 0
+        pos: 0, root.status_line_height
 
     ImageSettings:
         id: imagesettings_id
         size_hint: None, None
-        size: self.settings_width, root.height
+        size: self.settings_width, root.height - root.status_line_height
         # Open by default -- see MotionSettings note above.
-        pos: root.width-self.settings_width, 0
+        pos: root.width-self.settings_width, root.status_line_height
 
 
     # Camera Controls
@@ -178,7 +245,7 @@
         orientation: 'horizontal'
         padding: '5dp'
         spacing: '5dp'
-        pos: (root.width - 9*dp(40))/2, 0
+        pos: (root.width - 9*dp(40))/2, root.status_line_height
 
 		Button:
 			id: open_last_save_folder
@@ -237,7 +304,7 @@
 
         ToggleButton:
             id: composite_btn
-            disabled: app.recording_active
+            disabled: root.composite_held or root.composite_pending
 			tooltip_text: 'Acquire composite fluorescence image for channels set to acquire\nincluding either bright field or phase contrast'
             border: 0, 0, 0, 0
             background_normal: './data/icons/composite.png' # Press to Capture Composite Image
@@ -297,6 +364,8 @@
 
 <AccordionItemXyStageControl>:
 	title: 'XY Stage Control'
+	log_group: 'SETTINGS_SECTION'
+	log_item: 'XY_STAGE'
 	XYStageControl:
 		id: xy_stagecontrol_id
 
@@ -316,8 +385,10 @@
 		# (run buttons, autofocus, z-stack acquire) deliberately escape it.
 
         # MICROSCOPE SETTINGS
-        AccordionItem:
+        LoggedAccordionItem:
             id: motionsettings_microscope_accordion_id
+            log_group: 'SETTINGS_SECTION'
+            log_item: 'MICROSCOPE'
             title: 'Microscope Settings'
             collapse: False
 			on_collapse: root.accordion_collapse()
@@ -325,24 +396,30 @@
                 id: microscope_settings_id
 
         # FOCUS SETTINGS
-		AccordionItem:
+		LoggedAccordionItem:
 			id: objective_control_accordion_id
+			log_group: 'SETTINGS_SECTION'
+			log_item: 'OBJECTIVE'
 			title: 'Objective Control'
 			on_collapse: root.accordion_collapse()
 			VerticalControl:
 				id: verticalcontrol_id
 
         # PROTOCOL SETTINGS
-		AccordionItem:
+		LoggedAccordionItem:
 			title: 'Protocol'
 			id: motionsettings_protocol_accordion_id
+			log_group: 'SETTINGS_SECTION'
+			log_item: 'PROTOCOL'
 			on_collapse: root.accordion_collapse()
 			ProtocolSettings:
                 id: protocol_settings_id
 
 		# POST PROCESSING
-		AccordionItem:
+		LoggedAccordionItem:
 			id: motionsettings_postprocessing_accordion_id
+			log_group: 'SETTINGS_SECTION'
+			log_item: 'POST_PROCESSING'
 			title: 'Post Processing'
 			on_collapse: root.accordion_collapse()
 			PostProcessingAccordion:
@@ -382,18 +459,25 @@
 			size: self.size
 			pos: self.pos
 	Label:
+		id: adjust_focus_label
 		text:'Adjust Focus'
 		font_size: '16sp'
 		size_hint_y: None
-		height: '30dp'
+		height: '30dp' if self.visible else 0
+		opacity: 1 if self.visible else 0
+		disabled: not self.visible
+		visible: True
 		spacing: '5dp'
 		color: [51/255, 181/255, 229/255, 1]
 
 	BoxLayout:
+		id: focus_block
 		orientation: 'horizontal'
 		size_hint_y: None
-		height: '170dp'
-		disabled: app.controls_locked
+		height: '170dp' if self.visible else 0
+		opacity: 1 if self.visible else 0
+		disabled: (not self.visible) or app.controls_locked
+		visible: True
 
 		BoxLayout:
 		    orientation: 'vertical'
@@ -486,8 +570,7 @@
 				halign: 'center'
             	input_filter: 'float'
 		        text: ''
-                on_text_validate: root.set_position(self.text)
-				on_focus: if not self.focus: root.set_position(self.text)
+				on_focus: if not self.focus: root.set_position_text(self.text)
 
 			BoxLayout:
 				orientation:'horizontal'
@@ -531,10 +614,12 @@
 		id: autofocus_id
 		tooltip_text: 'Autofocus live image, make sure objective is set correctly and the starting focus is within a reasonable range of the true focus'
 		size_hint_y: None
-		height: '30dp'
+		height: '30dp' if self.visible else 0
+		opacity: 1 if self.visible else 0
 		font_size: '12sp'
 		text: 'Autofocus'
-		disabled: app.recording_active
+		disabled: (not self.visible) or root.autofocus_held or root.autofocus_pending
+		visible: True
 		on_release: root.run_autofocus_from_ui()
 
 	Label:
@@ -560,25 +645,24 @@
 
 		RoundedToggleButton:
 			id: turret_pos_1_btn
-			text: '1'
+			text: '< 1 >'
 			tooltip_text: 'Select turret position 1'
-			state: 'down'
-            on_release: root.turret_select(1)
+            on_release: root.turret_gesture(1)
 		RoundedToggleButton:
 			id: turret_pos_2_btn
-			text: '2'
+			text: '< 2 >'
 			tooltip_text: 'Select turret position 2'
-            on_release: root.turret_select(2)
+            on_release: root.turret_gesture(2)
 		RoundedToggleButton:
 			id: turret_pos_3_btn
-			text: '3'
+			text: '< 3 >'
 			tooltip_text: 'Select turret position 3'
-            on_release: root.turret_select(3)
+            on_release: root.turret_gesture(3)
 		RoundedToggleButton:
 			id: turret_pos_4_btn
-			text: '4'
+			text: '< 4 >'
 			tooltip_text: 'Select turret position 4'
-            on_release: root.turret_select(4)
+            on_release: root.turret_gesture(4)
 
 	BoxLayout:
         orientation: 'horizontal'
@@ -590,27 +674,20 @@
             size_hint_x: None
             width: '120dp'
 			font_size: '12sp'
-	    Spinner:
+	    PickSpinner:
 			id: objective_spinner2
 			sync_height: True
-	        text: 'Select'
+	        text: 'Unknown'
 			font_size:'12sp'
 			option_cls: "SpinnerOption0"
 			# #631: text_autoupdate: True caused .values reassignment to reset
 			# .text to the alphabetically-first option, firing on_text with the
 			# wrong objective_id and tripping the misleading turret warning.
-			# Text is authoritatively driven by settings['objective_id'].
+			# Text shows the active objective the API derives, and only that:
+			# a person's pick arrives as on_pick and reaches the Session, and
+			# the display follows the Session's answer.
 	        on_release: root.load_objectives()
-	        on_text: root.select_objective()
-
-	RoundedButton:
-		id: set_turret_objective_btn
-		text: 'Set Turret Objective'
-		size_hint_y: None
-		height: '30dp'
-		font_size: '12sp'
-		disabled: app.controls_locked
-        on_release: root.set_turret_objective()
+	        on_pick: root.pick_objective(args[1])
 
 	RoundedButton:
 		id: reset_turret_objective_btn
@@ -623,6 +700,9 @@
             
 	ZStack:
 		id: zstack_id
+		opacity: 1 if self.visible else 0
+		disabled: not self.visible
+		visible: True
 
 
 # Z-Stack Settings
@@ -664,7 +744,6 @@
 
 			TextInput:
 				id: zstack_stepsize_id
-				on_text_validate: root.log_step_field('ZSTACK_STEP_SIZE', 'zstack_stepsize_id')
 				on_focus: if not self.focus: root.log_step_field('ZSTACK_STEP_SIZE', 'zstack_stepsize_id')
 				tooltip_text: 'Z-stack slice spacing'
 	        	multiline: False
@@ -674,12 +753,10 @@
 				halign: 'center'
 	        	input_filter: 'float'
 				text: '0'
-	            on_text_validate: root.set_steps()
 	            on_focus: if not self.focus: root.set_steps()
 
 			TextInput:
 				id: zstack_range_id
-				on_text_validate: root.log_step_field('ZSTACK_RANGE', 'zstack_range_id')
 				on_focus: if not self.focus: root.log_step_field('ZSTACK_RANGE', 'zstack_range_id')
 				tooltip_text: 'Total stack depth'
 	        	multiline: False
@@ -689,7 +766,6 @@
 				halign: 'center'
 	        	input_filter: 'float'
 				text: '0'
-	            on_text_validate: root.set_steps()
 	            on_focus: if not self.focus: root.set_steps()
 
 			TextInput:
@@ -726,7 +802,7 @@
 			text: 'Acquire'
 			tooltip_text: 'Acquire Z-stack'
 			font_size: '12sp'
-			disabled: app.recording_active
+			disabled: root.zstack_held or root.zstack_pending
 			on_release: root.run_zstack_acquire_from_ui()
 
 		Label:
@@ -797,7 +873,6 @@
 				halign: 'center'
 				input_filter: 'float'
 				text: ''
-				on_text_validate: root.set_xposition(self.text)
 				on_focus: if not self.focus: root.set_xposition(self.text)
 			
 			# Set X Bookmark
@@ -885,7 +960,6 @@
 				halign: 'center'
 				input_filter: 'float'
 				text: ''
-				on_text_validate: root.set_yposition(self.text)
 				on_focus: if not self.focus: root.set_yposition(self.text)
 
 			# Set Y Bookmark
@@ -1025,8 +1099,6 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(5, '.3g')
-					on_text: root.commit_period()
-					on_text_validate: root.update_period()
 					on_focus: if not self.focus: root.update_period()
 				Label:
 					text: 'minutes'
@@ -1056,8 +1128,6 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(48, '.3g')
-					on_text: root.commit_duration()
-					on_text_validate: root.update_duration()
 					on_focus: if not self.focus: root.update_duration()
 				Label:
 					text: 'hours'
@@ -1129,6 +1199,28 @@
 					disabled: app.run_lockout
 					on_release: self.choose('saveas_protocol')
 
+			# Protocol size advisory -- shown when the session reports a protocol
+			# large enough to be worth mentioning before it is run. Advisory only:
+			# nothing here refuses or blocks, and the row collapses to zero height
+			# with nothing to say. The height follows the wrapped texture so a long
+			# sentence is not clipped in a narrow panel.
+			BoxLayout:
+				id: protocol_size_advisory_row
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: protocol_size_advisory_label.texture_size[1] + dp(6) if root.protocol_size_advisory_active else 0
+				opacity: 1 if root.protocol_size_advisory_active else 0
+				Label:
+					id: protocol_size_advisory_label
+					text: ''
+					color: 1, 0.6, 0, 1
+					font_size: '11sp'
+					halign: 'left'
+					valign: 'middle'
+					size_hint_y: None
+					text_size: self.width, None
+					height: self.texture_size[1]
+
 			# Stage Display
 			FloatLayout:
 				padding: '5dp'
@@ -1186,7 +1278,6 @@
 					halign: 'center'
 					multiline: False
 					hint_text: 'Filename prefix'
-					on_text_validate: root.update_capture_root(self.text)
 					on_focus: if not self.focus: root.update_capture_root(self.text)
 				
 
@@ -1214,7 +1305,6 @@
 					halign: 'center'
 					multiline: False
 					hint_text: 'Step Name'
-					on_text_validate: root.step_name_validation(self.text)
 					on_focus: if not self.focus: root.step_name_validation(self.text)
 
 			BoxLayout:
@@ -1251,7 +1341,6 @@
 					halign: 'center'
 					multiline: False
 					input_filter: 'int'
-					on_text_validate: root.handle_step_ui_input_change()
 					on_focus: if not self.focus: root.handle_step_ui_input_change()
 					valign: 'center'
 				Label:
@@ -1286,9 +1375,13 @@
 					on_release: root.next_step()
 			
 			BoxLayout:
+				id: step_focus_row_id
 				orientation: 'horizontal'
 				size_hint_y: None
-				height: '20dp'
+				height: '20dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: not self.visible
+				visible: True
 				spacing: '3dp'
 				Label:
 					text: 'Focus'
@@ -1389,8 +1482,10 @@
 				orientation: 'horizontal'
 				id: protocol_zstacking_box_layout_id
 				size_hint_y: None
-				height: '30dp'
-				opacity: 1
+				height: '30dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: not self.visible
+				visible: True
 				spacing: '5dp'
 			
 				Label:
@@ -1419,9 +1514,13 @@
 								
 			# Z-stack
 			BoxLayout:
+				id: protocol_acquire_zstack_box_id
 				orientation: 'horizontal'
 				size_hint_y: None
-				height: '30dp'
+				height: '30dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: not self.visible
+				visible: True
 				spacing: '5dp'
 							
 				CheckBox:
@@ -1574,9 +1673,11 @@
 			text: 'Autofocus All Steps'
 			tooltip_text: 'Perform autofocus on all Steps\nand save focus for each Step\nno images are saved '
 			size_hint_y: None
-			height: '30dp'
+			height: '30dp' if self.visible else 0
+			opacity: 1 if self.visible else 0
 			font_size: '12sp'
-			disabled: app.recording_active
+			disabled: (not self.visible) or root.autofocus_scan_held or root.autofocus_scan_pending
+			visible: True
 			on_release: root.run_autofocus_scan_from_ui()
 
 		Label:
@@ -1594,7 +1695,7 @@
 			size_hint_y: None
 			height: '30dp'
 			font_size: '12sp'
-			disabled: app.recording_active
+			disabled: root.scan_held or root.scan_pending
 			on_release: root.run_scan_from_ui()
 
 		RoundedToggleButton:
@@ -1605,7 +1706,7 @@
 			height: '60dp'
 			halign: 'center'
 			font_size: '12sp'
-			disabled: app.recording_active
+			disabled: root.protocol_held or root.protocol_pending
 			on_release: root.run_protocol_from_ui()
 			background_down: 'atlas://data/images/defaulttheme/button_pressed'
 
@@ -1654,7 +1755,6 @@
 			
         TextInput:
             id: video_gen_fps_id
-            on_text_validate: root.log_video_gen_fps()
             on_focus: if not self.focus: root.log_video_gen_fps()
 			multiline: False
 			padding: ['2dp', (self.height-self.line_height)/2]
@@ -1917,8 +2017,10 @@
 		orientation: 'vertical'
 		id: post_processing_accordion_id
 
-		AccordionItem:
+		LoggedAccordionItem:
 			id: create_avi_accordion_id
+			log_group: 'POST_PROCESSING_TOOL'
+			log_item: 'VIDEO'
 			title: 'Create Video'
 			on_collapse: root.accordion_collapse()
 			background_normal: './data/icons/post_processing_background.png'
@@ -1928,8 +2030,10 @@
 				VideoCreationControls:
 					id: video_creation_controls_id
 			
-		AccordionItem:
+		LoggedAccordionItem:
 			id: stitch_accordion_id
+			log_group: 'POST_PROCESSING_TOOL'
+			log_item: 'STITCH'
 			title: 'Stitch'
 			on_collapse: root.accordion_collapse()
 			background_normal: './data/icons/post_processing_background.png'
@@ -1938,8 +2042,10 @@
 				StitchControls:
 					id: stitch_controls_id
 
-		AccordionItem:
+		LoggedAccordionItem:
 			id: composite_gen_accordion_id
+			log_group: 'POST_PROCESSING_TOOL'
+			log_item: 'COMPOSITE'
 			title: 'Composite Generation'
 			on_collapse: root.accordion_collapse()
 			background_normal: './data/icons/post_processing_background.png'
@@ -1948,8 +2054,10 @@
 				CompositeGenControls:
 					id: composite_gen_controls_id
 
-		AccordionItem:
+		LoggedAccordionItem:
 			id: zprojection_accordion_id
+			log_group: 'POST_PROCESSING_TOOL'
+			log_item: 'Z_PROJECTION'
 			title: 'Z-Projection'
 			on_collapse: root.accordion_collapse()
 			background_normal: './data/icons/post_processing_background.png'
@@ -1958,8 +2066,10 @@
 				ZProjectionControls:
 					id: zprojection_controls_id
 
-		AccordionItem:
+		LoggedAccordionItem:
 			id: quick_enhance_accordion_id
+			log_group: 'POST_PROCESSING_TOOL'
+			log_item: 'QUICK_ENHANCE'
 			title: 'Quick Enhance'
 			on_collapse: root.accordion_collapse()
 			background_normal: './data/icons/post_processing_background.png'
@@ -1991,8 +2101,10 @@
 
 		# 		Widget:
 
-		AccordionItem:
+		LoggedAccordionItem:
 			id: cell_count_accordion_id
+			log_group: 'POST_PROCESSING_TOOL'
+			log_item: 'OBJECT_ANALYSIS'
 			title: 'Object Analysis'
 			on_collapse: root.accordion_collapse()
 			background_normal: './data/icons/post_processing_background.png'
@@ -2040,6 +2152,8 @@
 
 <AccordionItemImageSettingsBlueControl>:
 	id: Blue_accordion
+	log_group: 'IMAGE_LAYER'
+	log_item: 'Blue'
 	title: 'Blue Channel Control'
 	on_collapse: root.accordion_collapse()
 	LayerControl:
@@ -2050,6 +2164,8 @@
 
 <AccordionItemImageSettingsGreenControl>:
 	id: Green_accordion
+	log_group: 'IMAGE_LAYER'
+	log_item: 'Green'
 	title: 'Green Channel Control'
 	on_collapse: root.accordion_collapse()
 	LayerControl:
@@ -2060,6 +2176,8 @@
 
 <AccordionItemImageSettingsRedControl>:
 	id: Red_accordion
+	log_group: 'IMAGE_LAYER'
+	log_item: 'Red'
 	title: 'Red Channel Control'
 	on_collapse: root.accordion_collapse()
 	collapse: False
@@ -2071,6 +2189,8 @@
 
 <AccordionItemImageSettingsDfControl>:
 	id: DF_accordion
+	log_group: 'IMAGE_LAYER'
+	log_item: 'DF'
 	title: 'Low Mag Darkfield Control'
 	on_collapse: root.accordion_collapse()
 	LayerControl:
@@ -2082,6 +2202,8 @@
 
 <AccordionItemImageSettingsLumiControl>:
 	id: Lumi_accordion
+	log_group: 'IMAGE_LAYER'
+	log_item: 'Lumi'
 	title: 'Luminescence Control'
 	on_collapse: root.accordion_collapse()
 	collapse: False
@@ -2126,8 +2248,10 @@
         disabled: app.controls_locked
 
         # BRIGHTFIELD SETTINGS
-        AccordionItem:
+        LoggedAccordionItem:
 			id: BF_accordion
+			log_group: 'IMAGE_LAYER'
+			log_item: 'BF'
             title: 'Brightfield Control'
 			on_collapse: root.accordion_collapse()
             LayerControl:
@@ -2136,8 +2260,10 @@
                 bg_color: 0.5, 0.5, 0.5,  1
 
        # PHASE CONTRAST SETTINGS
-        AccordionItem:
+        LoggedAccordionItem:
 			id: PC_accordion
+			log_group: 'IMAGE_LAYER'
+			log_item: 'PC'
             title: 'Phase Contrast Control'
 			on_collapse: root.accordion_collapse()
             LayerControl:
@@ -2178,7 +2304,7 @@
 				size_hint_y: None
 				height: '30dp'
 				Label:
-					text: 'Lumascope Model: ' + root.current_scope_model
+					text: 'Lumascope Model: ' + root.current_scope_model + (' (' + root.next_start_model + ' at next start)' if root.next_start_model else '')
 					tooltip_text: 'Current scope model. Change it in Advanced Settings.'
 					halign: 'left'
 					valign: 'middle'
@@ -2205,14 +2331,13 @@
 
 				TextInput:
 					id: frame_width_id
-					disabled: app.run_lockout
+					disabled: app.run_lockout or not root.camera_connected
 					multiline: False
 					padding: ['2dp', (self.height-self.line_height)/2]
 					halign: 'center'
 					input_filter: 'int'
 					text: '1900'
-					on_text_validate: root.frame_size()
-					on_focus: if not self.focus: root.frame_size()
+					on_focus: if not self.focus: root.frame_size('frame_width_id')
 					font_size: '12sp'
 				Label:
 					text: 'x'
@@ -2223,14 +2348,13 @@
 					halign: 'center'
 				TextInput:
 					id: frame_height_id
-					disabled: app.run_lockout
+					disabled: app.run_lockout or not root.camera_connected
 					multiline: False
 					padding: ['5dp', (self.height-self.line_height)/2]
 					halign: 'center'
 					input_filter: 'int'
 					text: '1900'
-					on_text_validate: root.frame_size()
-					on_focus: if not self.focus: root.frame_size()
+					on_focus: if not self.focus: root.frame_size('frame_height_id')
 					font_size: '12sp'
 			
 			# Field of View
@@ -2391,7 +2515,7 @@
 				Label:
 					font_size: '12sp'
 					text: 'Image Mode'
-					tooltip_text: 'Pixel depth and how images are saved:\n8-bit; 12-bit scientific (right-aligned, dark in\nWindows); 12-bit scaled (bright everywhere); or\n12-bit RGB (false colour). 12-bit options appear only\non cameras that support 12-bit capture.'
+					tooltip_text: 'How images are saved: 8-bit; or at full depth,\nkeeping the pixel depth the camera delivers (and a\nsum\'s added range): scientific (right-aligned, dark\nin Windows), scaled (bright everywhere) or RGB\n(false colour).'
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
@@ -2409,13 +2533,14 @@
 				id: image_mode_jpg_hint_row
 				orientation: 'horizontal'
 				size_hint_y: None
-				# Shown only when a 12-bit mode is paired with a JPG output
-				# format: JPG is 8-bit, so it cannot carry the 12-bit capture
-				# at full depth. Collapse height + hide rather than grey out.
-				height: '30dp' if '12-bit' in image_mode_spinner.text and (live_image_output_format_spinner.text == 'JPG' or sequenced_image_output_format_spinner.text == 'JPG') else 0
-				opacity: 1 if '12-bit' in image_mode_spinner.text and (live_image_output_format_spinner.text == 'JPG' or sequenced_image_output_format_spinner.text == 'JPG') else 0
+				# Shown (toggled via jpg_depth_hint_active, the API's predicate)
+				# only when a full-depth mode is paired with a JPG output format:
+				# JPG is 8-bit, so it cannot carry the payload at full depth.
+				# Collapse height + hide rather than grey out.
+				height: '30dp' if root.jpg_depth_hint_active else 0
+				opacity: 1 if root.jpg_depth_hint_active else 0
 				Label:
-					text: 'JPG saves 8-bit; the 12-bit capture is not preserved at full depth.'
+					text: 'JPG saves 8-bit; the full-depth payload is kept only in TIFF.'
 					color: 1, 0.6, 0, 1
 					font_size: '11sp'
 					halign: 'left'
@@ -2435,7 +2560,7 @@
 					font_size: '12sp'
 				Spinner:
 					id: binning_spinner
-					disabled: app.run_lockout
+					disabled: app.run_lockout or not root.camera_connected
 					sync_height: True
 					text: 'Select'
 					font_size:'12sp'
@@ -2459,7 +2584,7 @@
 				opacity: 1 if root.binning_depth_hint_active else 0
 				Label:
 					id: binning_depth_hint_label
-					text: '8-bit mode saves at 8-bit -- the added range from summing/binning is not kept. Switch to a 12-bit mode to preserve it.'
+					text: '8-bit mode saves at 8-bit -- the added range from summing/binning is not kept. Switch to a full-depth mode to preserve it.'
 					color: 1, 0.6, 0, 1
 					font_size: '11sp'
 					halign: 'left'
@@ -2666,7 +2791,7 @@
 				# spacing: '5dp'
 				color: root.bg_color
 				opacity: 1 if self.visible else 0
-				visible: True if root.illumination_support else False
+				visible: True if root.illumination_support and root.led_controller_support else False
 
 			BoxLayout:
 				orientation: 'horizontal'
@@ -2676,7 +2801,7 @@
 				spacing: '5dp'
 				opacity: 1 if self.visible else 0
 				disabled: False if self.visible else True
-				visible: True if root.illumination_support else False
+				visible: True if root.illumination_support and root.led_controller_support else False
 
 				Label:
 					id: LED_label
@@ -2696,7 +2821,7 @@
 					valign: 'middle'
 					background_normal: './data/icons/ToggleL.png'
 					background_down: './data/icons/ToggleR.png'
-					on_release: root.update_led_state()
+					on_release: root.led_toggle()
 
 			BoxLayout:
 				orientation: 'horizontal'
@@ -2706,7 +2831,7 @@
 				spacing: '5dp'
 				opacity: 1 if self.visible else 0
 				disabled: False if self.visible else True
-				visible: True if root.illumination_support else False
+				visible: True if root.illumination_support and root.led_controller_support else False
 
 				Label:
 					text: 'Illumination (mA)'
@@ -2741,7 +2866,6 @@
 					padding: ['4dp', (self.height-self.line_height)/2]
 					halign: 'right'
 					input_filter: 'float'
-					on_text_validate: root.ill_text()
 					on_focus: if not self.focus: root.ill_text()
 
 			# Stimulation
@@ -2852,7 +2976,6 @@
 					halign: 'right'
 					input_filter: 'int'
 					text: str(int(stim_ill_slider.value))
-					on_text_validate: root.stim_ill_text()
 					on_focus: if not self.focus: root.stim_ill_text()
 
 			BoxLayout:
@@ -2899,7 +3022,6 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(stim_freq_slider.value, '.4g')
-					on_text_validate: root.stim_freq_text()
 					on_focus: if not self.focus: root.stim_freq_text()
 
 			BoxLayout:
@@ -2946,7 +3068,6 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(stim_pulse_width_slider.value, '.4g')
-					on_text_validate: root.stim_pulse_width_text()
 					on_focus: if not self.focus: root.stim_pulse_width_text()
 
 			
@@ -2994,7 +3115,6 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(stim_pulse_count_slider.value, '.4g')
-					on_text_validate: root.stim_pulse_count_text()
 					on_focus: if not self.focus: root.stim_pulse_count_text()
 
 			# Camera
@@ -3004,7 +3124,7 @@
 					Color:
 						rgba: root.bg_color
 					Rectangle:
-						size: self.width, 1 if root.illumination_support else 0
+						size: self.width, 1 if root.illumination_support and root.led_controller_support else 0
 						pos: self.x, self.y+self.height
 				text:'Camera'
 				font_size: '16sp'
@@ -3028,7 +3148,7 @@
 
 				CheckBox:
 					id: auto_gain
-					disabled: app.run_lockout
+					disabled: app.run_lockout or not root.camera_connected
 					size_hint_x: None
 					width: '25dp'
 					tooltip_text: 'Turn on autogain/exposure for this channel\nillumination should be between 10-30 for transmitted channels\nand 50-400 for fluorescence channels'
@@ -3068,7 +3188,7 @@
 					text_size: self.size
 				ModSlider:
 					id: gain_slider # 0 to 48, default 0, based on camera limits
-					disabled: app.run_lockout or auto_gain.active
+					disabled: app.run_lockout or auto_gain.active or not root.camera_connected
 					min: 0.
 					max: 48.
 					value: 0.
@@ -3082,7 +3202,7 @@
 					on_value: root.gain_slider()
 				TextInput:
 					id: gain_text
-					disabled: app.run_lockout or auto_gain.active
+					disabled: app.run_lockout or auto_gain.active or not root.camera_connected
 					size_hint_x: None
 					width: '45dp'
 					multiline: False
@@ -3090,7 +3210,6 @@
 					padding: ['4dp', (self.height-self.line_height)/2]
 					halign: 'right'
 					input_filter: 'float'
-					on_text_validate: root.gain_text()
 					on_focus: if not self.focus: root.gain_text()
 
 			# Exposure
@@ -3115,7 +3234,7 @@
 					text_size: self.size
 				ModSlider:
 					id: exp_slider
-					disabled: app.run_lockout or auto_gain.active
+					disabled: app.run_lockout or auto_gain.active or not root.camera_connected
 					min: 0.01
 					max: 1000. # values are in ms
 					value: 100.
@@ -3134,7 +3253,7 @@
 					on_value: root.exp_slider()
 				TextInput:
 					id: exp_text
-					disabled: app.run_lockout or auto_gain.active
+					disabled: app.run_lockout or auto_gain.active or not root.camera_connected
 					size_hint_x: None
 					width: '45dp'
 					multiline: False
@@ -3143,7 +3262,6 @@
 					halign: 'right'
 					input_filter: 'float'
 					# text: format(10 ** exp_slider.value, '.3g')
-					on_text_validate: root.exp_text()
 					on_focus: if not self.focus: root.exp_text()
 				
 			# Exposure Summing
@@ -3190,7 +3308,6 @@
 					halign: 'right'
 					input_filter: "int"
 					text: "{:d}".format(int(sum_slider.value))
-					on_text_validate: root.sum_text()
 					on_focus: if not self.focus: root.sum_text()
 
 			BoxLayout:
@@ -3205,7 +3322,7 @@
 				opacity: 1 if root.sum_depth_hint_active else 0
 				Label:
 					id: sum_depth_hint_label
-					text: '8-bit mode saves at 8-bit -- the added range from summing/binning is not kept. Switch to a 12-bit mode to preserve it.'
+					text: '8-bit mode saves at 8-bit -- the added range from summing/binning is not kept. Switch to a full-depth mode to preserve it.'
 					color: 1, 0.6, 0, 1
 					font_size: '11sp'
 					halign: 'left'
@@ -3217,7 +3334,7 @@
 
 			# Focus
 			Label:
-				visible: True if root.show_camera_controls else False
+				visible: True if root.show_camera_controls and root.focus_support else False
 				canvas:
 					Color:
 						rgba: root.bg_color
@@ -3241,7 +3358,7 @@
 				spacing: '5dp' if self.visible else 0
 				opacity: 1 if self.visible else 0
 				disabled: False if self.visible else True
-				visible: True if root.show_camera_controls else False
+				visible: True if root.show_camera_controls and root.focus_support else False
 
 				RoundedButton:
 					size_hint_y: None
@@ -3270,7 +3387,7 @@
 			
 			# Protocol Settings
 			Label:
-				visible: True if root.show_camera_controls else False
+				visible: True if root.show_camera_controls and root.focus_support else False
 				canvas:
 					Color:
 						rgba: root.bg_color
@@ -3293,7 +3410,7 @@
 				spacing: '5dp' if self.visible else 0
 				opacity: 1 if self.visible else 0
 				disabled: False if self.visible else True
-				visible: True if root.show_camera_controls else False
+				visible: True if root.show_camera_controls and root.focus_support else False
 
 				CheckBox:
 					id: autofocus
@@ -3373,7 +3490,6 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(video_duration_slider.value, '.4g')
-					on_text_validate: root.video_duration_text()
 					on_focus: if not self.focus: root.video_duration_text()
 
 			# Acquire Settings
@@ -3504,7 +3620,6 @@
 					halign: 'right'
 					input_filter: 'float'
 					text: format(composite_threshold_slider.value, '.3g')
-					on_text_validate: root.composite_threshold_text()
 					on_focus: if not self.focus: root.composite_threshold_text()
 				
 			FloatLayout:
@@ -3672,7 +3787,6 @@
 
 			TextInput:
 				id: graph_title_input
-				on_text_validate: root.log_text_commit('GRAPH_TITLE', 'graph_title_input')
 				on_focus: if not self.focus: root.log_text_commit('GRAPH_TITLE', 'graph_title_input')
 				valign: 'center'
 				text: root.graph_title
@@ -3704,7 +3818,6 @@
 
 			TextInput:
 				id: x_axis_label_input
-				on_text_validate: root.log_text_commit('GRAPH_X_AXIS_LABEL', 'x_axis_label_input')
 				on_focus: if not self.focus: root.log_text_commit('GRAPH_X_AXIS_LABEL', 'x_axis_label_input')
 				valign: 'center'
 				text: root.x_axis_label
@@ -3735,14 +3848,12 @@
 
 			Spinner:
 				id: graphing_x_axis_spinner
-				text_autoupdate: True
 				sync_height: True
 				size_hint_y: None
 				font_size: '12sp'
 				height: '30dp'
 				text: 'X-Axis'
 				on_text: root.set_x_axis()
-				values: root.available_axes
 
 		# Pad
 		Widget:
@@ -3766,7 +3877,6 @@
 
 			TextInput:
 				id: y_axis_label_input
-				on_text_validate: root.log_text_commit('GRAPH_Y_AXIS_LABEL', 'y_axis_label_input')
 				on_focus: if not self.focus: root.log_text_commit('GRAPH_Y_AXIS_LABEL', 'y_axis_label_input')
 				valign: 'center'
 				text: root.y_axis_label
@@ -3797,14 +3907,12 @@
 
 			Spinner:
 				id: graphing_y_axis_spinner
-				text_autoupdate: True
 				sync_height: True
 				size_hint_y: None
 				height: '30dp'
 				font_size: '12sp'
 				text: 'Y-Axis'
 				on_text: root.set_y_axis()
-				values: root.available_axes
 
 		# Pad
 		Widget:
@@ -3828,7 +3936,6 @@
 			
 			Spinner:
 				id: trendline_spinner
-				text_autoupdate: True
 				sync_height: True
 				size_hint_y: None
 				height: '30dp'
@@ -3915,16 +4022,15 @@
 
 			TextInput:
 				id: text_cell_count_pixels_per_um_id
-				on_text_validate: root.log_pixels_per_um()
-				on_focus: if not self.focus: root.log_pixels_per_um()
+				on_focus: if not self.focus: root.commit_pixels_per_um()
 				valign: 'center'
-				text: "1.0"
+				text: ''
+				hint_text: 'image'
 				size_hint_x: None
 				size_hint_y: None
 				height: '35dp'
 				width: '60dp'
 				multiline: False
-				on_text: root.pixel_conversion_adjustment()
 			
 			Label:
 				text: 'pixels/um'
@@ -4008,8 +4114,8 @@
 					orientation: 'horizontal'
 					value1: 0
 					value2: 100
-					on_touch_up: root.slider_adjustment_area()
-					on_touch_move: root.slider_adjustment_area()
+					on_release: root.slider_adjustment_area()
+					on_touch_move: if args[1].grab_current is self: root.show_area_range_dragged()
 				Label:
 					id: label_cell_count_area_id
 					size_hint_x: None
@@ -4035,8 +4141,8 @@
 					orientation: 'horizontal'
 					value1: 0
 					value2: 100
-					on_touch_up: root.slider_adjustment_perimeter()
-					on_touch_move: root.slider_adjustment_perimeter()
+					on_release: root.slider_adjustment_perimeter()
+					on_touch_move: if args[1].grab_current is self: root.show_perimeter_range_dragged()
 				Label:
 					id: label_cell_count_perimeter_id
 					size_hint_x: None
@@ -4062,7 +4168,7 @@
 					orientation: 'horizontal'
 					value1: 0
 					value2: 1.0
-					on_touch_up: root.slider_adjustment_sphericity()
+					on_release: root.slider_adjustment_sphericity()
 				Label:
 					id: label_cell_count_sphericity_id
 					text: f"{round(slider_cell_count_sphericity_id.value[0],2)}-{round(slider_cell_count_sphericity_id.value[1],2)}"
@@ -4089,7 +4195,7 @@
 					orientation: 'horizontal'
 					value1: 0
 					value2: 100
-					on_touch_up: root.slider_adjustment_min_intensity()
+					on_release: root.slider_adjustment_min_intensity()
 				Label:
 					id: label_cell_count_min_intensity_id
 					text: f"{int(slider_cell_count_min_intensity_id.value[0])}-{int(slider_cell_count_min_intensity_id.value[1])} %"
@@ -4116,7 +4222,7 @@
 					orientation: 'horizontal'
 					value1: 0
 					value2: 100
-					on_touch_up: root.slider_adjustment_mean_intensity()
+					on_release: root.slider_adjustment_mean_intensity()
 				Label:
 					id: label_cell_count_mean_intensity_id
 					text: f"{int(slider_cell_count_mean_intensity_id.value[0])}-{int(slider_cell_count_mean_intensity_id.value[1])} %"
@@ -4143,7 +4249,7 @@
 					orientation: 'horizontal'
 					value1: 0
 					value2: 100
-					on_touch_up: root.slider_adjustment_max_intensity()
+					on_release: root.slider_adjustment_max_intensity()
 				Label:
 					id: label_cell_count_max_intensity_id
 					text: f"{int(slider_cell_count_max_intensity_id.value[0])}-{int(slider_cell_count_max_intensity_id.value[1])} %"

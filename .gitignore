@@ -15,6 +15,8 @@ run_simulate.bat
 run.sh
 run_simulate.sh
 build/
+# Built where it runs (scripts/build_sim_runtime.sh); only the macOS runtime is committed.
+drivers/sim_wire/runtime/linux-x86_64/
 dist/
 tmp/
 .DS_Store

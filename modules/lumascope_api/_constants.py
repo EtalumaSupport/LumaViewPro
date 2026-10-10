@@ -12,14 +12,128 @@ so existing callers (`scope._VALID_AXIS_NAMES`, tests reading the
 class attribute) keep working.
 """
 
+import numbers
+from typing import NamedTuple
+
+from modules.exceptions import (
+    AccelerationLimitRefusedError,
+    ArgumentRefusedError,
+    PositionOutOfRangeError,
+)
+from modules.api_surface import api_fields
+
 # Structural axis-name vocabulary used only for input sanity checks
 # ("did the caller pass a real axis letter?"). NOT a capability query --
 # use `scope.capabilities.axes` for "what does this scope have?".
 _VALID_AXIS_NAMES = ('X', 'Y', 'Z', 'T')
 
+
+def refuse_unknown_axis(axis: object, names: tuple[str, ...] = _VALID_AXIS_NAMES) -> None:
+    """Refuse a name that is not one of the axis names a member takes.
+
+    The one check of an axis name, asked by every member that takes one
+    before it asks whether the scope has the axis: a name that is no axis
+    is the request's fault on every scope, while an axis this model lacks
+    is the hardware's answer (``MotionAPI._refuse_absent``) or, for a
+    read, the answer a missing axis gives. Names are exact: ``'x'`` is not
+    ``'X'``, so each axis has one spelling in every log and on every wire.
+
+    Args:
+        axis: The name given.
+        names: The names the member takes, when not every axis: a home
+            takes ``'ALL'`` and no X or Y, a jog no T.
+
+    Raises:
+        ArgumentRefusedError: ``'axis_unknown'``, offering ``names``.
+    """
+    if not isinstance(axis, str) or axis not in names:
+        raise ArgumentRefusedError('axis_unknown', argument='axis', value=axis, offered=names)
+
+
+# The simulated boards a simulated scope can be built on: a Python
+# stand-in with no timing; the production driver against the real firmware
+# in a MicroPython process, its motors moving at once; and the same
+# firmware with its motors moving at the ramp fitted to bench moves, so a
+# move or a home takes seconds rather than none. A home starts with the
+# axes mid-travel, so it is shorter than a stage's (an LS850's 5 s against
+# under 20 s). The session validates the setting against this tuple and
+# the constructor dispatches on it.
+SIMULATOR_TIERS = ('fast', 'firmware', 'realistic')
+
 # Absolute position bounds in um -- generous outer limits. Per-axis
 # travel limits are enforced by the motor board itself.
 MOTOR_POSITION_LIMIT = 1_000_000  # 1 meter in um
+
+# The turret's four positions. Unlike X/Y/Z this is not travel and not um:
+# the T axis publishes no limits, so the um-based range check cannot refuse
+# anything for it and the motor's answer to a nonsense slot is to drive
+# there -- 99 is 24.5 revolutions. Both refusal sites in motion.py read this
+# rather than spelling the range twice: they guard the same illegal state at
+# two depths of one call chain, and drifting apart would leave one door open.
+TURRET_SLOT_MIN = 1
+TURRET_SLOT_MAX = 4
+
+# The acceleration limit a caller may ask for, as a percentage of the
+# firmware's own maximum. The API refuses outside it before any board is
+# commanded: held in the real motor driver alone, the simulated and absent
+# boards took any number and the Session stored it.
+ACCELERATION_PCT_MIN = 1
+ACCELERATION_PCT_MAX = 100
+
+
+def refuse_acceleration_pct(val_pct: object) -> None:
+    """Refuse an acceleration limit no board may be given.
+
+    The one check of the range, for every place a limit enters: the motion
+    API's setter, a stored value at load and a settings dict handed to a
+    session.
+
+    Raises:
+        AccelerationLimitRefusedError: ``val_pct`` is not a number, or is
+            outside ``ACCELERATION_PCT_MIN`` to ``ACCELERATION_PCT_MAX``. A
+            ValueError, so a caller catching a bad argument keeps working.
+    """
+    # bool is excluded by name: True is an int, and a number to Real.
+    if (
+        isinstance(val_pct, bool)
+        or not isinstance(val_pct, numbers.Real)
+        or not ACCELERATION_PCT_MIN <= val_pct <= ACCELERATION_PCT_MAX
+    ):
+        raise AccelerationLimitRefusedError(val_pct, ACCELERATION_PCT_MIN, ACCELERATION_PCT_MAX)
+
+
+def is_turret_slot(position: object) -> bool:
+    """Whether ``position`` names a turret slot.
+
+    A bool is excluded explicitly: it is an int in Python, so ``True``
+    would otherwise pass as slot 1.
+    """
+    return (
+        isinstance(position, int)
+        and not isinstance(position, bool)
+        and TURRET_SLOT_MIN <= position <= TURRET_SLOT_MAX
+    )
+
+
+def refuse_unless_turret_slot(position: object) -> None:
+    """Refuse ``position`` unless it names a turret slot.
+
+    The one refusal of a slot, for every member that takes one, so a bad
+    slot reads the same whether it was sent to move the turret, to assign
+    an objective, or as the preferred slot at bring-up.
+
+    Raises:
+        PositionOutOfRangeError: ``position`` is not a whole number 1-4.
+    """
+    if not is_turret_slot(position):
+        raise PositionOutOfRangeError(
+            'T',
+            position,
+            TURRET_SLOT_MIN,
+            TURRET_SLOT_MAX,
+            bound='turret slots',
+            quantity='slot',
+        )
 
 
 class AxisState:
@@ -29,3 +143,17 @@ class AxisState:
     IDLE = 'idle'  # At known position, not moving
     MOVING = 'moving'  # Move commanded, not yet arrived
     HOMING = 'homing'  # Homing sequence in progress
+
+
+@api_fields('position', 'state')
+class AxisPosition(NamedTuple):
+    """One axis's state and its position, read together.
+
+    ``position`` is None unless the axis is IDLE or MOVING: an axis whose
+    reference is lost or still being established keeps answering the last
+    number it reported, and a caller writing a position into a file must
+    not be handed it.
+    """
+
+    state: str
+    position: float | int | None

@@ -13,17 +13,16 @@ Tests the fixes in ledboard.py and motorboard.py for:
 import pytest
 import threading
 import time
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch, PropertyMock
 import serial
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
-import pathlib
 from drivers.ledboard import LEDBoard
 from drivers.motorboard import MotorBoard
 from drivers.motorconfig import MotorConfig
-
-_MOTORCONFIG_DEFAULTS = pathlib.Path('data/motorconfig_defaults.json')
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 
 # ---------------------------------------------------------------------------
@@ -72,6 +71,38 @@ def _make_led_readline(*result_lines):
 
     cycle = itertools.cycle(responses)
     return lambda: next(cycle)
+
+
+# What a board answers once every axis has homed: FULLINFO with each axis
+# present and homed, and every status read at its target (bit 9). home() and
+# thome() confirm a success against FULLINFO and then wait for arrival.
+_HOMED_FULLINFO = (
+    'Model: LS850T Serial: 1'
+    ' X homed: True   X present: True   Y homed: True   Y present: True'
+    ' Z homed: True   Z present: True   T homed: True   T present: True'
+)
+
+
+def _reply_for(home_reply):
+    """The board's answer to each command, given its answer to the home."""
+
+    def reply(command, *args, **kwargs):
+        command = command.strip()
+        if command == 'FULLINFO':
+            return _HOMED_FULLINFO
+        if command.startswith('STATUS_R'):
+            return str(1 << 9)
+        return home_reply
+
+    return reply
+
+
+def _answer_homes(board, home_reply):
+    """Answer at the port: each readline replies to the last command written."""
+    written = []
+    board.driver.write.side_effect = lambda data: written.append(data.decode())
+    reply = _reply_for(home_reply)
+    board.driver.readline.side_effect = lambda: reply(written[-1]).encode() + b'\n'
 
 
 # ---------------------------------------------------------------------------
@@ -251,11 +282,9 @@ class TestMotorBoardSafety:
         """Create a MotorBoard with a mock serial driver."""
         # MotorBoard imported at module level
         board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
+        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         board.found = True
         board._state_lock = threading.Lock()
-        board.overshoot = False
-        board.backlash = 25
         board._has_turret = False
         board.initial_homing_complete = False
         board.initial_t_homing_complete = False
@@ -497,11 +526,9 @@ class TestMotorBoardCommands:
 
     def _make_board(self):
         board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
+        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         board.found = True
         board._state_lock = threading.Lock()
-        board.overshoot = False
-        board.backlash = 25
         board._has_turret = False
         board.initial_homing_complete = False
         board.initial_t_homing_complete = False
@@ -516,7 +543,7 @@ class TestMotorBoardCommands:
         board.timeout = 30
         board.write_timeout = 5
         board.driver = _make_mock_serial()
-        board._fullinfo = None
+        board._fullinfo = {'model': 'unknown', 'serial_number': 'unknown', 'present_axes': []}
         board._connect_fails = 0
         board.axes_config = {
             'Z': {'limits': {'min': 0.0, 'max': 14000.0}, 'move_func': board.z_um2ustep},
@@ -553,22 +580,16 @@ class TestMotorBoardCommands:
     def test_home_sends_home(self):
         """home() should send 'HOME\\n'."""
         board = self._make_board()
-        board.driver.readline.return_value = b'XYZ home complete\n'
+        _answer_homes(board, 'XYZ home complete')
         board.home()
-        board.driver.write.assert_called_with(b'HOME\n')
+        board.driver.write.assert_any_call(b'HOME\n')
 
     def test_thome_sends_thome(self):
         """thome() should send 'THOME\\n'."""
         board = self._make_board()
-        board.driver.readline.return_value = b'T home successful\n'
+        _answer_homes(board, 'T home successful')
         board.thome()
-        board.driver.write.assert_called_with(b'THOME\n')
-
-    def test_xycenter_sends_center(self):
-        """xycenter() should send 'CENTER\\n'."""
-        board = self._make_board()
-        board.xycenter()
-        board.driver.write.assert_called_with(b'CENTER\n')
+        board.driver.write.assert_any_call(b'THOME\n')
 
     def test_current_pos_sends_actual_read(self):
         """current_pos('Z') should send 'ACTUAL_RZ\\n'."""
@@ -610,11 +631,9 @@ class TestMotorBoardHoming:
 
     def _make_board(self):
         board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
+        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         board.found = True
         board._state_lock = threading.Lock()
-        board.overshoot = False
-        board.backlash = 25
         board._has_turret = False
         board.initial_homing_complete = False
         board.initial_t_homing_complete = False
@@ -643,7 +662,7 @@ class TestMotorBoardHoming:
     def test_home_sets_flag_on_success(self):
         """home() should set initial_homing_complete when firmware confirms."""
         board = self._make_board()
-        board.driver.readline.return_value = b'XYZ home complete\n'
+        _answer_homes(board, 'XYZ home complete')
         board.home()
         assert board.has_homed() is True
 
@@ -652,7 +671,7 @@ class TestMotorBoardHoming:
         firmware homed Z (and T if present) before reporting that X or Y
         is not physically wired on this board (LS820 case, #618 follow-up)."""
         board = self._make_board()
-        board.driver.readline.return_value = b'ERROR: X not present\n'
+        _answer_homes(board, 'ERROR: X not present')
         board.home()
         assert board.has_homed() is True, (
             'Partial home (Z homed before firmware reported missing X/Y) '
@@ -686,7 +705,7 @@ class TestMotorBoardHoming:
     def test_thome_sets_flag_on_success(self):
         """thome() should set initial_t_homing_complete when firmware confirms."""
         board = self._make_board()
-        board.driver.readline.return_value = b'T home successful\n'
+        _answer_homes(board, 'T home successful')
         board.thome()
         assert board.has_thomed() is True
 
@@ -704,7 +723,7 @@ class TestMotorBoardHoming:
     def test_has_thomed_true_after_home(self):
         """has_thomed() should return True if home() completed (it homes T too)."""
         board = self._make_board()
-        board.driver.readline.return_value = b'XYZ home complete\n'
+        _answer_homes(board, 'XYZ home complete')
         board.home()
         assert board.has_thomed() is True
 
@@ -719,11 +738,9 @@ class TestMotorBoardFullinfo:
 
     def _make_board(self):
         board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
+        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         board.found = True
         board._state_lock = threading.Lock()
-        board.overshoot = False
-        board.backlash = 25
         board._has_turret = False
         board.initial_homing_complete = False
         board.initial_t_homing_complete = False
@@ -793,7 +810,7 @@ class TestMotorBoardConversions:
 
     def _make_board(self):
         board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
+        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         return board
 
     def test_z_roundtrip(self):
@@ -847,15 +864,18 @@ class TestMotorBoardConversions:
 
 
 class TestMotorBoardMovement:
-    """Verify move_abs_pos limit clamping and overshoot logic."""
+    """Verify move_abs_pos drives the target it is given, and overshoot logic.
+
+    Travel is refused by the motion API before it reaches the driver; a
+    driver that clamped instead made a refused move look like one that
+    succeeded and stopped short.
+    """
 
     def _make_board(self):
         board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
+        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         board.found = True
         board._state_lock = threading.Lock()
-        board.overshoot = False
-        board.backlash = 25
         board._has_turret = False
         board.initial_homing_complete = False
         board.initial_t_homing_complete = False
@@ -880,50 +900,26 @@ class TestMotorBoardMovement:
         }
         return board
 
-    def test_z_clamped_to_max(self):
-        """move_abs_pos('Z', 99999) should clamp to Z max (14000um)."""
+    def test_z_above_travel_is_driven_not_clamped(self):
+        """move_abs_pos('Z', 99999) writes 99999, not the 14000um max."""
         board = self._make_board()
-        board.move_abs_pos('Z', 99999, overshoot_enabled=False)
-        expected_ustep = board.z_um2ustep(14000)
-        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode())
-
-    def test_z_clamped_to_min(self):
-        """move_abs_pos('Z', -100) should clamp to Z min (0um)."""
-        board = self._make_board()
-        board.move_abs_pos('Z', -100, overshoot_enabled=False)
-        expected_ustep = board.z_um2ustep(0)
-        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode())
-
-    def test_x_clamped_to_max(self):
-        """move_abs_pos('X', 200000) should clamp to X max (120000um)."""
-        board = self._make_board()
-        board.move_abs_pos('X', 200000, overshoot_enabled=False)
-        expected_ustep = board.xy_um2ustep(120000)
-        board.driver.write.assert_called_with(f'TARGET_WX{expected_ustep}\n'.encode())
-
-    def test_ignore_limits(self):
-        """move_abs_pos with ignore_limits=True should not clamp."""
-        board = self._make_board()
-        board.move_abs_pos('Z', 99999, overshoot_enabled=False, ignore_limits=True)
+        board.move_abs_pos('Z', 99999)
         expected_ustep = board.z_um2ustep(99999)
+        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode())
+
+    def test_z_below_travel_is_driven_not_clamped(self):
+        """move_abs_pos('Z', -100) writes -100, not the 0um min."""
+        board = self._make_board()
+        board.move_abs_pos('Z', -100)
+        # A negative target goes to the firmware in two's complement.
+        expected_ustep = board.z_um2ustep(-100) + 0x100000000
         board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode())
 
     def test_unsupported_axis_raises(self):
         """move_abs_pos with unknown axis should raise."""
         board = self._make_board()
         with pytest.raises(Exception, match='Unsupported axis'):
-            board.move_abs_pos('Q', 100, overshoot_enabled=False)
-
-    def test_move_rel_pos(self):
-        """move_rel_pos should add relative distance to current target."""
-        board = self._make_board()
-        # target_pos reads TARGET_R, return 50000um in usteps
-        target_ustep = board.xy_um2ustep(50000)
-        board.driver.readline.return_value = f'{target_ustep}\n'.encode()
-        board.move_rel_pos('X', 10000, overshoot_enabled=False)
-        # Should move to 60000um
-        expected_ustep = board.xy_um2ustep(60000)
-        board.driver.write.assert_called_with(f'TARGET_WX{expected_ustep}\n'.encode())
+            board.move_abs_pos('Q', 100)
 
     def test_target_status_position_reached(self):
         """target_status should return True when position_reached bit is set."""
@@ -1104,11 +1100,9 @@ class TestMotorFirmwareVersion:
 
     def _make_board(self):
         board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
+        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         board.found = True
         board._state_lock = threading.Lock()
-        board.overshoot = False
-        board.backlash = 25
         board._has_turret = False
         board.initial_homing_complete = False
         board.initial_t_homing_complete = False
@@ -1187,14 +1181,16 @@ class TestSimulatorFirmwareVersion:
     def test_motor_simulator_default_v2(self):
         from drivers.simulated_motorboard import SimulatedMotorBoard
 
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         assert board.firmware_version == '2.0.1'
         assert board.is_v2 is True
 
     def test_motor_simulator_legacy(self):
         from drivers.simulated_motorboard import SimulatedMotorBoard
 
-        board = SimulatedMotorBoard(firmware_version=None)
+        board = SimulatedMotorBoard(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, firmware_version=None
+        )
         assert board.firmware_version is None
         assert board.is_v2 is False
 
@@ -1205,7 +1201,13 @@ class TestSimulatorFirmwareVersion:
 
 
 class TestLEDNoneHandling:
-    """Verify LED methods handle None from exchange_command without crashing."""
+    """Verify LED methods treat an unusable reply as a failed command.
+
+    Unusable means None (port closed, write timeout, silent-board reject) OR
+    the empty string, which is what a readline() timeout yields: a board whose
+    firmware is wedged accepts the write and never answers, and the LED is not
+    energized. Both must reach last_command_error.
+    """
 
     def _make_board(self):
         board = LEDBoard.__new__(LEDBoard)
@@ -1271,6 +1273,43 @@ class TestLEDNoneHandling:
         # Should return without sending any commands
         board.wait_until_on()
         board.driver.write.assert_not_called()
+
+    @pytest.mark.parametrize(
+        'op,call',
+        [
+            ('leds_enable', lambda b: b.leds_enable()),
+            ('leds_disable', lambda b: b.leds_disable()),
+            ('led_on', lambda b: b.led_on(channel=3, mA=5)),
+            ('led_off', lambda b: b.led_off(channel=3)),
+            ('leds_off', lambda b: b.leds_off()),
+        ],
+    )
+    def test_empty_reply_is_not_an_ack(self, op, call):
+        """A wedged board answers every command with an empty line, not silence.
+
+        readline() returns b'' on timeout, so exchange_command hands back ''
+        rather than None. Treating that as success cleared the error field and
+        left the API reporting a channel lit while the hardware was dark -- the
+        18-minute wedge in the SNlogs-2026-05-14-134147 bundle.
+        """
+        board = self._make_board()
+        board.driver.readline.return_value = b''
+        board.last_command_error = None
+
+        call(board)
+
+        assert board.last_command_error is not None, f'{op}: empty reply recorded as success'
+        assert board.last_command_error['op'].startswith(op)
+
+    def test_real_reply_still_acks(self):
+        """The ordinary path is untouched: a firmware reply confirms."""
+        board = self._make_board()
+        board.driver.readline.return_value = b'LED 3 set to 5 mA.\r\n'
+        board.last_command_error = {'op': 'stale', 'reason': 'stale'}
+
+        board.led_on(channel=3, mA=5)
+
+        assert board.last_command_error is None
 
 
 # ==========================================================================
@@ -1573,7 +1612,11 @@ class TestSilentBoardHandling:
         contribute nothing to a mock-driver test."""
         import drivers.serialboard
 
-        monkeypatch.setattr(drivers.serialboard.time, 'sleep', lambda _: None)
+        monkeypatch.setattr(
+            drivers.serialboard,
+            'time',
+            SimpleNamespace(monotonic=time.monotonic, sleep=lambda _: None),
+        )
 
     def _make_silent_board(self):
         """Build an LEDBoard whose serial driver returns zero bytes
@@ -1868,11 +1911,10 @@ class TestExchangeCommandStopOnEmpty:
         board = self._make_led_board()
         board.driver.readline.side_effect = [b'', b'', b'', b'', b'', b'']
         resp = board.exchange_command('INFO', response_numlines=6, stop_on_empty=True)
-        assert isinstance(resp, list)
-        assert len(resp) == 6
-        assert all(ln == '' for ln in resp)
-        # Phase B's silent detection sees 6 empty lines and concludes
-        # "silent board" regardless of whether we break or not.
+        assert board.driver.readline.call_count == 6
+        # No line at all is no reply, which silent detection reads as a
+        # silent board.
+        assert resp is None
 
     def test_default_behavior_unchanged(self):
         """Regression: stop_on_empty defaults to False. Existing
@@ -1892,15 +1934,13 @@ class TestMotorBoardStateLock:
 
     def _make_board(self):
         board = MotorBoard.__new__(MotorBoard)
-        board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
+        board.motorconfig = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         board.found = True
         board._state_lock = threading.Lock()
-        board.overshoot = False
-        board.backlash = 25
         board._has_turret = False
         board.initial_homing_complete = False
         board.initial_t_homing_complete = False
-        board._fullinfo = {'model': 'LS720', 'serial_number': '12345'}
+        board._fullinfo = {'model': 'LS820', 'serial_number': '12345', 'present_axes': []}
         board.port = '/dev/fake'
         board._lock = threading.RLock()
         board._label = '[XYZ Class ]'
@@ -1923,14 +1963,14 @@ class TestMotorBoardStateLock:
     def test_home_sets_homing_complete_under_lock(self):
         """home() should set initial_homing_complete under _state_lock."""
         board = self._make_board()
-        board.exchange_command = MagicMock(return_value='XYZ home complete')
+        board.exchange_command = MagicMock(side_effect=_reply_for('XYZ home complete'))
         board.home()
         assert board.has_homed() is True
 
     def test_thome_sets_t_homing_complete_under_lock(self):
         """thome() should set initial_t_homing_complete under _state_lock."""
         board = self._make_board()
-        board.exchange_command = MagicMock(return_value='T home successful')
+        board.exchange_command = MagicMock(side_effect=_reply_for('T home successful'))
         board.thome()
         assert board.has_thomed() is True
 
@@ -1953,22 +1993,22 @@ class TestMotorBoardStateLock:
     def test_get_microscope_model_reads_under_lock(self):
         """get_microscope_model() should read _fullinfo under _state_lock."""
         board = self._make_board()
-        assert board.get_microscope_model() == 'LS720'
+        assert board.get_microscope_model() == 'LS820'
 
     def test_fullinfo_sets_has_turret_for_T_model(self):
         """fullinfo() should set _has_turret when model ends in T."""
         board = self._make_board()
         board.exchange_command = MagicMock(
-            return_value='Etaluma Motor Controller Board Model: LS720T Serial: 99999'
+            return_value='Etaluma Motor Controller Board Model: LS820T Serial: 99999'
         )
         info = board.fullinfo()
-        assert info['model'] == 'LS720T'
+        assert info['model'] == 'LS820T'
         assert board.has_turret() is True
 
     def test_concurrent_homing_flag_access(self):
         """Concurrent reads/writes of homing flags should not raise."""
         board = self._make_board()
-        board.exchange_command = MagicMock(return_value='XYZ home complete')
+        board.exchange_command = MagicMock(side_effect=_reply_for('XYZ home complete'))
         errors = []
 
         def do_home():
@@ -2034,8 +2074,11 @@ class TestCameraStateLock:
             def is_grabbing(self):
                 return False
 
-            def set_frame_size(self, w, h):
-                pass
+            def _frame_grid(self):
+                return None
+
+            def _set_hardware_window(self, plan):
+                return True
 
             def get_min_frame_size(self):
                 return {'w': 1, 'h': 1}
@@ -2043,7 +2086,7 @@ class TestCameraStateLock:
             def get_max_frame_size(self):
                 return {'w': 4096, 'h': 4096}
 
-            def get_frame_size(self):
+            def _hardware_frame_size(self):
                 return {'w': 1024, 'h': 1024}
 
             def set_pixel_format(self, f):
@@ -2070,7 +2113,7 @@ class TestCameraStateLock:
             def set_max_acquisition_frame_rate(self, enabled, fps=1.0):
                 pass
 
-            def set_binning_size(self, size):
+            def _set_hardware_binning(self, size):
                 return True
 
             def get_binning_size(self):
@@ -2142,8 +2185,11 @@ class TestCameraStateLock:
             def is_grabbing(self):
                 return False
 
-            def set_frame_size(self, w, h):
-                pass
+            def _frame_grid(self):
+                return None
+
+            def _set_hardware_window(self, plan):
+                return True
 
             def get_min_frame_size(self):
                 return {'w': 1, 'h': 1}
@@ -2151,7 +2197,7 @@ class TestCameraStateLock:
             def get_max_frame_size(self):
                 return {'w': 4096, 'h': 4096}
 
-            def get_frame_size(self):
+            def _hardware_frame_size(self):
                 return {'w': 1024, 'h': 1024}
 
             def set_pixel_format(self, f):
@@ -2178,7 +2224,7 @@ class TestCameraStateLock:
             def set_max_acquisition_frame_rate(self, enabled, fps=1.0):
                 pass
 
-            def set_binning_size(self, size):
+            def _set_hardware_binning(self, size):
                 return True
 
             def get_binning_size(self):
@@ -2247,8 +2293,11 @@ class TestCameraStateLock:
             def is_grabbing(self):
                 return False
 
-            def set_frame_size(self, w, h):
-                pass
+            def _frame_grid(self):
+                return None
+
+            def _set_hardware_window(self, plan):
+                return True
 
             def get_min_frame_size(self):
                 return {'w': 1, 'h': 1}
@@ -2256,7 +2305,7 @@ class TestCameraStateLock:
             def get_max_frame_size(self):
                 return {'w': 4096, 'h': 4096}
 
-            def get_frame_size(self):
+            def _hardware_frame_size(self):
                 return {'w': 1024, 'h': 1024}
 
             def set_pixel_format(self, f):
@@ -2283,7 +2332,7 @@ class TestCameraStateLock:
             def set_max_acquisition_frame_rate(self, enabled, fps=1.0):
                 pass
 
-            def set_binning_size(self, size):
+            def _set_hardware_binning(self, size):
                 return True
 
             def get_binning_size(self):

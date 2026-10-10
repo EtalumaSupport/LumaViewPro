@@ -12,6 +12,21 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 VENV_DIR="$PROJECT_DIR/venv"
 
+# FX2 scopes (LS560/LS620/LS720) run on the libusb that requirements.txt
+# installs (libusb-package); nothing outside pip is needed. The driver's own
+# availability gate reports whether it loaded, so the installer never guesses.
+fx2_driver_py() {
+    (cd "$PROJECT_DIR" && "$VENV_DIR/bin/python" -c "$1")
+}
+
+setup_fx2_usb() {
+    echo ""
+    echo "Checking USB support for FX2 scopes (LS560/LS620/LS720)..."
+    # A driver that fails to import aborts the install here (set -e) rather
+    # than printing a readiness line it could not compute.
+    fx2_driver_py 'from drivers.fx2driver import fx2_readiness_line; print(fx2_readiness_line())'
+}
+
 echo "========================================="
 echo " LumaViewPro Installer"
 echo "========================================="
@@ -42,15 +57,13 @@ if [ ${#FOUND[@]} -eq 0 ]; then
         else
             echo "Error: Python 3.$py_minor found, but LumaViewPro requires 3.12 or 3.13."
             echo "Install a supported version:"
-            echo "  brew install python@3.13"
-            echo "  or: https://www.python.org/downloads/macos/"
+            echo "  https://www.python.org/downloads/macos/"
             exit 1
         fi
     else
         echo "Error: No Python installation found."
         echo "Install Python 3.12+:"
-        echo "  brew install python@3.13"
-        echo "  or: https://www.python.org/downloads/macos/"
+        echo "  https://www.python.org/downloads/macos/"
         exit 1
     fi
 fi
@@ -104,6 +117,7 @@ if [ -f "$VENV_DIR/bin/python" ]; then
         echo "Updating existing virtual environment..."
         "$VENV_DIR/bin/python" -m pip install --upgrade pip --quiet
         "$VENV_DIR/bin/pip" install -r "$PROJECT_DIR/requirements.txt"
+        setup_fx2_usb
         echo ""
         echo "Update complete!"
         exit 0
@@ -124,6 +138,8 @@ echo "Installing dependencies..."
 echo ""
 echo "Verifying core packages..."
 "$VENV_DIR/bin/python" -c "import kivy; import numpy; import cv2; import serial; print('All core packages verified.')"
+
+setup_fx2_usb
 
 # --- Create run script ---
 cat > "$PROJECT_DIR/run.sh" << 'RUNEOF'

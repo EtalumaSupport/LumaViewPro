@@ -40,5 +40,119 @@
     "Optics": {
         "LensFocalLength": 47.8,
         "PixelSize": 2.0
+    },
+    "TMCM-6110": {
+        "Axis Travel Limit": {
+            "X": 123.71,
+            "Y": 79.79,
+            "Z": 12.03
+        },
+        "Travel Margin": 1.0,
+        "Index Position": {
+            "X": 117.69,
+            "Y": 0.95,
+            "Z": 0.0
+        },
+        "Axis Direction": {
+            "X": 1,
+            "Y": -1,
+            "Z": -1
+        },
+        "Axis Drive": {
+            "X": {
+                "Full Steps per Motor Revolution": 200,
+                "Motor Revolutions per Drive Revolution": 1,
+                "mm per Drive Revolution": 1.0
+            },
+            "Y": {
+                "Full Steps per Motor Revolution": 200,
+                "Motor Revolutions per Drive Revolution": 1,
+                "mm per Drive Revolution": 1.0
+            },
+            "Z": {
+                "Full Steps per Motor Revolution": 400,
+                "Motor Revolutions per Drive Revolution": 3.7,
+                "mm per Drive Revolution": 2.6
+            }
+        },
+        "Axis Parameters": {
+            "X": {
+                "Max Current": 16,
+                "Standby Current": 2,
+                "Microstep Resolution": 5,
+                "Ramp Divisor": 9,
+                "Pulse Divisor": 3,
+                "Max Positioning Speed": 1000,
+                "Max Acceleration": 500,
+                "Soft Stop Flag": 0,
+                "Right Limit Switch Disable": 0,
+                "Left Limit Switch Disable": 0
+            },
+            "Y": {
+                "Max Current": 16,
+                "Standby Current": 4,
+                "Microstep Resolution": 5,
+                "Ramp Divisor": 9,
+                "Pulse Divisor": 3,
+                "Max Positioning Speed": 1000,
+                "Max Acceleration": 500,
+                "Soft Stop Flag": 0,
+                "Right Limit Switch Disable": 0,
+                "Left Limit Switch Disable": 0
+            },
+            "Z": {
+                "Max Current": 48,
+                "Standby Current": 8,
+                "Microstep Resolution": 5,
+                "Ramp Divisor": 9,
+                "Pulse Divisor": 3,
+                "Max Positioning Speed": 250,
+                "Max Acceleration": 2000,
+                "Soft Stop Flag": 0,
+                "Right Limit Switch Disable": 0,
+                "Left Limit Switch Disable": 0
+            }
+        },
+        "Homing": {
+            "X": {
+                "Switch Pre-move": {
+                    "Max Positioning Speed": 2047,
+                    "Reference Search Mode": 65,
+                    "Reference Search Speed": 1000,
+                    "Reference Switch Speed": 50
+                },
+                "Index Search": {
+                    "Approach Speeds": [
+                        1000,
+                        100
+                    ],
+                    "Back-off Microsteps": 10000,
+                    "Max Acceleration": 50,
+                    "Reference Search Mode": 5,
+                    "Reference Search Speed": 4,
+                    "Reference Switch Speed": 1
+                }
+            },
+            "Y": {
+                "Index Search": {
+                    "Approach Speeds": [
+                        1000,
+                        100
+                    ],
+                    "Back-off Microsteps": 10000,
+                    "Max Acceleration": 50,
+                    "Reference Search Mode": 5,
+                    "Reference Search Speed": 4,
+                    "Reference Switch Speed": 1
+                }
+            },
+            "Z": {
+                "Switch Search": {
+                    "Reference Search Mode": 65,
+                    "Reference Search Speed": 500,
+                    "Back-off Microsteps": 3643
+                }
+            }
+        }
     }
 }

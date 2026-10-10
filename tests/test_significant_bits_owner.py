@@ -25,7 +25,10 @@ import pytest
 
 from modules import image_utils
 from modules.exceptions import FrameDepthError
-from modules.lumascope_api import Lumascope
+from modules.recording_frames import FrameFact
+from tests.scope_fakes import build_scope, bind_settings_like_a_session
+
+_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
 
 
 def _configure_sim(scope, pixel_format, pattern='White'):
@@ -43,8 +46,12 @@ def make_scope():
     """Factory for simulated scopes at a chosen pixel format; auto-teardown."""
     scopes = []
 
-    def _make(pixel_format, pattern='White'):
-        scope = _configure_sim(Lumascope(simulate=True), pixel_format, pattern)
+    def _make(pixel_format, pattern='White', offered=None):
+        scope = build_scope(simulate=True)
+        bind_settings_like_a_session(scope)
+        if offered is not None:
+            scope._camera_driver.profile.pixel_formats = list(offered)
+        scope = _configure_sim(scope, pixel_format, pattern)
         scopes.append(scope)
         return scope
 
@@ -118,7 +125,10 @@ class TestDisplayDownconvertGenericDepth:
         Treating a 10-bit value (max 1023) as 12-bit divides by 4095 and crushes
         white to ~63. The display divisor must come from the significant bits.
         """
-        scope = make_scope('Mono10')
+        # LVP has no 10-bit mode; 10 is the rule's non-12 example, on a
+        # simulated camera made to offer a 10-bit format.
+        scope = make_scope('Mono10', offered=('Mono8', 'Mono10', 'Mono12'))
+        assert scope._camera_driver.get_pixel_format() == 'Mono10'
         img = scope.imaging.get_image(force_to_8bit=True, sum_count=1)
         assert img is not None
         assert img.dtype == np.uint8
@@ -509,6 +519,7 @@ class TestVideoFrameCarriesDepth:
             chunks=None,
             tick_freq_hz=None,
             pixel_size_um=None,
+            fact=_FACT,
         )
         image_utils.write_tiff(
             data=arr,
@@ -585,7 +596,7 @@ class TestCellCountConverterRouting:
             mock.patch('modules.image_utils.convert_to_8bit', side_effect=_StopError) as canonical,
             pytest.raises(_StopError),
         ):
-            cc.process_image(img, settings={}, significant_bits=16)
+            cc.process_image(img, settings={}, significant_bits=16, pixels_per_um=None)
 
         canonical.assert_called_once()
         args, kwargs = canonical.call_args

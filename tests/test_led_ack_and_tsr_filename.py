@@ -180,12 +180,12 @@ class TestTsrLedEngineeringRoutesThroughDriver:
         diag = FirmwareDiagnostics.__new__(FirmwareDiagnostics)
         fake_scope = MagicMock()
         fake_scope.led_connected = True
-        fake_scope.diagnostics.enter_led_engineering_mode.return_value = True
+        fake_scope.diagnostics.enter_led_engineering_mode.return_value = None
         diag._scope = fake_scope
 
         result = diag._enter_engineering()
 
-        assert result is True
+        assert result is None, 'None: the board is in engineering mode'
         fake_scope.diagnostics.enter_led_engineering_mode.assert_called_once()
         # Must NOT use the open-coded send_diagnostic_command path with
         # 'FACTORY' or 'Y' as the command.
@@ -214,20 +214,22 @@ class TestTsrLedEngineeringRoutesThroughDriver:
             args, _ = call
             assert 'Q' not in args, f'Open-coded Q send_diagnostic_command call leaked: {call}'
 
-    def test_enter_engineering_returns_false_when_led_absent(self):
-        """Guard: no LED board connected -> early return, no driver call."""
+    def test_enter_engineering_answers_the_refusals_words_when_led_absent(self):
+        """No LED board connected: the member's own refusal is the answer, in its words."""
+        from modules.exceptions import HardwareCommandRefusedError, MissingPart
         from modules.tech_support_report import FirmwareDiagnostics
 
         diag = FirmwareDiagnostics.__new__(FirmwareDiagnostics)
         fake_scope = MagicMock()
-        fake_scope.led_connected = False
-        fake_scope._led_driver = None
+        part = MissingPart.LED_CONTROLLER
+        fake_scope.diagnostics.enter_led_engineering_mode.side_effect = HardwareCommandRefusedError(
+            part.reason, 'enter_led_engineering_mode', missing=part
+        )
         diag._scope = fake_scope
 
         result = diag._enter_engineering()
 
-        assert result is False
-        fake_scope.diagnostics.enter_led_engineering_mode.assert_not_called()
+        assert result == part.sentence
 
 
 class TestBundleFilenameByReportType:

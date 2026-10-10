@@ -17,12 +17,18 @@ real module loads. Hardware tests are gated by markers (`ids_hardware`,
 `pylon_hardware`) -- see `pytest_collection_modifyitems` below.
 """
 
+import faulthandler
+import functools
 import os
 import sys
 import tempfile
+import threading
+import time
+from pathlib import Path
 from types import ModuleType
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+import psutil
 import pytest
 
 # Keep Kivy from writing anything to ~/.kivy/logs/ during tests. App code
@@ -39,6 +45,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Typed pypylon stand-in (real handler bases + exception types). Needs the
 # repo-root path insert above.
 from tests import pypylon_stub as _pypylon_stub
+from tests.scope_fakes import build_scope
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +92,13 @@ for _flag, _mods in _HARDWARE_FLAG_MOCKS.items():
 
 
 def install_mock_deps():
-    """Install MagicMock entries for heavy deps not present on dev machines.
+    """Install MagicMock stand-ins for the layers a test never has: the GUI
+    (kivy), the camera SDKs, the USB bus, the network client (requests), the
+    user directories (platformdirs) and the logger.
+
+    Never a library the test runner itself reads: pytest-xdist takes its
+    auto worker count from psutil.cpu_count(), and a mock there builds zero
+    workers (tests/guards/test_psutil_is_real.py).
 
     Idempotent. Skips SDK mocks when the corresponding --run-*-hardware
     flag is set, so the real SDK can load.
@@ -109,7 +122,6 @@ def install_mock_deps():
         'lvp_logger': mock_lvp_logger,
         'requests': MagicMock(),
         'requests.structures': MagicMock(),
-        'psutil': MagicMock(),
         'kivy': MagicMock(),
         'kivy.clock': MagicMock(),
         # EventLoop.status must read as a RUNNING loop: the pre-mainloop
@@ -169,6 +181,7 @@ def _install_kivy_uix_stubs():
     it.
     """
     for name in (
+        'kivy.animation',
         'kivy.core',
         'kivy.core.text',
         'kivy.core.window',
@@ -184,21 +197,25 @@ def _install_kivy_uix_stubs():
     ):
         sys.modules.setdefault(name, MagicMock())
 
-    # One name per `from kivy.uix.<mod> import <Base>` in ui/, modules/,
-    # plugins/, lumaviewpro.py -- keep in sync with that import set.
+    # One name per `from kivy.uix.<mod> import <Base>` in ui/ (ui/sim_walk.py
+    # included), modules/, plugins/, lumaviewpro.py -- keep in sync with that
+    # import set.
     bases = {
-        'accordion': ('AccordionItem',),
+        'accordion': ('Accordion', 'AccordionItem'),
+        'behaviors': ('ButtonBehavior',),
         'boxlayout': ('BoxLayout',),
         'button': ('Button',),
         'dropdown': ('DropDown',),
         'floatlayout': ('FloatLayout',),
         'image': ('Image',),
         'label': ('Label',),
+        'modalview': ('ModalView',),
         'popup': ('Popup',),
         'scatter': ('Scatter',),
         'scrollview': ('ScrollView',),
         'slider': ('Slider',),
         'spinner': ('Spinner', 'SpinnerOption'),
+        'textinput': ('TextInput',),
         'togglebutton': ('ToggleButton',),
         'widget': ('Widget',),
     }
@@ -209,9 +226,382 @@ def _install_kivy_uix_stubs():
             setattr(mod, class_name, StubWidget)
         sys.modules.setdefault(full_name, mod)
 
+    # ui/sim_walk.py drives the window with Kivy's test touch; the class is a
+    # stand-in here like every other Kivy name, so the real driver module
+    # imports and a test patches the one member it asks.
+    tests_pkg = ModuleType('kivy.tests')
+    common = ModuleType('kivy.tests.common')
+    common.UnitTestTouch = StubWidget
+    sys.modules.setdefault('kivy.tests', tests_pkg)
+    sys.modules.setdefault('kivy.tests.common', common)
+
 
 # Run at conftest import time -- before any test file is collected.
 install_mock_deps()
+
+
+def _install_host_absent_production_modules():
+    """A production module this host cannot import gets an importable shell.
+
+    ``drivers/winusb_iso.py`` imports ``ctypes.windll`` at module scope, so on
+    macOS and Linux the import raises; ``drivers/fx2driver.py`` reaches it
+    only on Windows. A test of the WinUSB transport patches the one class the
+    transport asks for, ``WinUsbIsoReader``, on the module, the same call on
+    every host; here the module exists to be patched. The guard
+    ``tests/guards/test_no_test_installs_a_module_stand_in.py`` keeps this
+    the one place.
+    """
+    try:
+        import drivers.winusb_iso
+    except ImportError:
+        import drivers
+
+        shell = ModuleType('drivers.winusb_iso')
+        shell.WinUsbIsoReader = None
+        sys.modules.setdefault('drivers.winusb_iso', shell)
+        # The dotted form of monkeypatch.setattr walks the package's attributes.
+        drivers.winusb_iso = sys.modules['drivers.winusb_iso']
+
+
+_install_host_absent_production_modules()
+
+
+# ---------------------------------------------------------------------------
+# A real serial port is unreachable from a test
+# ---------------------------------------------------------------------------
+# Both boards connect inside their constructors: SerialBoard enumerates with
+# list_ports.comports and opens the match with serial.Serial. A test that
+# reaches a real board therefore opens the bench's port when a scope is
+# attached (two concurrent full-suite runs held both boards' ports and
+# interrupted the motor firmware) and passes quietly through the no-port
+# path when none is, so the suite behaved differently by what was plugged
+# in. Unless --run-hardware is set, enumeration finds nothing and the open
+# raises, and the TOUCH fails the test at its end: the driver registry's
+# auto mode and create_diagnostic both swallow a failed constructor into a
+# null driver, so an exception alone would let the test go green on a null
+# board, which is the quiet pass again.
+SERIAL_REFUSAL_BANNER = 'REAL SERIAL PORT REACHED'
+_serial_touches: list[tuple[str, str]] = []
+
+
+def _install_serial_refusers():
+    import serial
+    import serial.tools.list_ports as list_ports
+
+    real_serial = serial.Serial
+
+    def refused_comports(*args, **kwargs):
+        _serial_touches.append(('enumerate', 'serial.tools.list_ports.comports'))
+        return []
+
+    class RefusedSerial(real_serial):
+        # A subclass, so a Mock(spec=serial.Serial) keeps the real methods;
+        # only the open is intercepted.
+        def __init__(self, *args, **kwargs):
+            port = kwargs.get('port') or (args[0] if args else '?')
+            _serial_touches.append(('open', str(port)))
+            raise serial.SerialException(f'{SERIAL_REFUSAL_BANNER}: {port} (no --run-hardware)')
+
+    list_ports.comports = refused_comports
+    serial.Serial = RefusedSerial
+
+
+if not _flag_in_argv('--run-hardware'):
+    _install_serial_refusers()
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    if not _serial_touches:
+        return
+    touches = list(_serial_touches)
+    _serial_touches.clear()
+    kind, detail = touches[0]
+    report = outcome.get_result()
+    report.outcome = 'failed'
+    report.longrepr = (
+        f'{SERIAL_REFUSAL_BANNER}: {item.nodeid} reached the real serial layer during '
+        f'{call.when} ({len(touches)} touch(es); first: {kind} {detail}). Build the scope '
+        'with simulate=True or a simulated driver, or give a bare SerialBoard a port; '
+        'a real port is opened only under --run-hardware.'
+    )
+
+
+@pytest.fixture(autouse=True)
+def _fresh_notification_dedup():
+    """Each test starts with the notification centre's show-once memory empty.
+
+    The centre is one process-wide object, and it drops a repeat of the same
+    (category, title) inside its dedup window. Two tests that each end in the
+    same notice then pass alone and fail together: the second test's listener
+    sees nothing because the first test's notice is still remembered. A module
+    nobody has imported yet holds no memory, so it is not imported here.
+    """
+    center = sys.modules.get('modules.notification_center')
+    if center is not None:
+        center.notifications._dedup.clear()
+    yield
+
+
+class CentrePosts(list):
+    """The notifications the centre posted during one test, in order.
+
+    ``threads[i]`` names the thread that posted ``self[i]``, so a post that
+    arrives from a worker after the test's own events can be told apart.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.threads = []
+
+    def clear(self):
+        super().clear()
+        self.threads.clear()
+
+
+@pytest.fixture
+def centre_posts():
+    """Every post the notification centre makes during the test, as a client sees it.
+
+    A listener on the real singleton at DEBUG, the way the GUI's popup bridge
+    and REST's outcome subscription observe it, so a post is seen whichever
+    internal path made it and whichever module bound the centre at import. A
+    test that replaced a posting method instead watched one door; when the
+    reporter posted through another, a "nothing posted" assertion passed with
+    nothing watching. The listener only appends: an assertion raised inside a
+    listener is swallowed by the centre's listener guard.
+    """
+    from modules.notification_center import Severity, notifications
+
+    posts = CentrePosts()
+
+    def heard(notification):
+        posts.threads.append(threading.current_thread().name)
+        posts.append(notification)
+
+    notifications.add_listener(heard, min_severity=Severity.DEBUG)
+    yield posts
+    notifications.remove_listener(heard)
+
+
+@pytest.fixture
+def unattended_run():
+    """The real centre judges the test's posts as an unattended run's, closed at teardown."""
+    from modules.notification_center import notifications
+
+    notifications.open_run_scope(attended=False)
+    yield
+    notifications.close_run_scope()
+
+
+@pytest.fixture(autouse=True)
+def _no_refused_edit_outlives_its_test():
+    """Each test starts with no refused edit on record for the input being handled.
+
+    The boundary remembers the frame of the last refused request, and a
+    button pressed in that frame does not act. Kivy's frame count does not
+    advance under the suite, so one test's refused edit would be "this
+    input" for every later test on the worker. Not imported here when no
+    test has.
+    """
+    helpers = sys.modules.get('ui.ui_helpers')
+    if helpers is not None:
+        helpers._unanswered_frame = None
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _no_settings_replacement_outlives_its_test():
+    """Each test starts with no stored-value replacement waiting to be reported.
+
+    A preparation that replaced one leaves it for the next session to report;
+    a test that prepared settings and built no session would hand it to the
+    next test's session.
+    """
+    init = sys.modules.get('modules.settings_init')
+    if init is not None:
+        init.take_stored_replacements()
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _disconnect_the_scopes_a_test_built():
+    """Each scope a test built through `build_scope` is disconnected when the test ends.
+
+    A scope runs threads of its own until it is disconnected, so a suite of
+    tests that each leave one behind accumulates them in every worker; the
+    lanes `give_stub_lanes` gave a stub are shut the same way. A
+    module-scoped fixture's scope was built before this mark and is left to
+    the fixture.
+    """
+    from tests.scope_fakes import tear_down_since, teardown_mark
+
+    mark = teardown_mark()
+    yield
+    tear_down_since(mark)
+
+
+@pytest.fixture(scope='session', autouse=True)
+def _every_simulated_camera_is_disconnected_by_its_test():
+    """Every simulated camera, however a test built it, is disconnected when that test ends.
+
+    A grabbing simulated camera free-runs on its own thread until it is
+    disconnected. Hundreds of tests construct one directly, so the teardown
+    is attached to the construction itself rather than to each site; a
+    camera built by a module-scoped fixture before the test began is left to
+    that fixture, as a scope is.
+    """
+    from drivers.simulated_camera import SimulatedCamera
+    from tests.scope_fakes import disconnect_when_the_test_ends
+
+    built = SimulatedCamera.__init__
+
+    @functools.wraps(built)
+    def built_and_queued(self, *args, **kwargs):
+        built(self, *args, **kwargs)
+        disconnect_when_the_test_ends(self)
+
+    with patch.object(SimulatedCamera, '__init__', built_and_queued):
+        yield
+
+
+@pytest.fixture(scope='session', autouse=True)
+def _every_session_is_shut_down_by_its_test():
+    """Every session, however a test built it, is shut down when that test ends.
+
+    See `tests.scope_fakes.shut_down_when_the_test_ends`. Attached to the
+    construction for the reason the simulated camera's is; a session built by
+    a module-scoped fixture before the test began is left to that fixture.
+    """
+    from modules.scope_session import ScopeSession
+    from tests.scope_fakes import shut_down_when_the_test_ends
+
+    built = ScopeSession.__init__
+
+    @functools.wraps(built)
+    def built_and_queued(self, *args, **kwargs):
+        built(self, *args, **kwargs)
+        shut_down_when_the_test_ends(self)
+
+    with patch.object(ScopeSession, '__init__', built_and_queued):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _no_test_leaves_the_popups_muted():
+    """A test that ends with the notification centre judging posts for a run fails.
+
+    Starting a run opens the centre's process-wide run scope and only that
+    run's cleanup closes it. A test that leaves a run live leaves it open,
+    and every later test on the worker finds its notices muted or counted
+    as already shown -- a failure far from its cause. It is reported here,
+    on the test that left it, and closed so the next test starts clean.
+    """
+    yield
+    center = sys.modules.get('modules.notification_center')
+    if center is not None and center.notifications._run_scope is not None:
+        center.notifications.close_run_scope()
+        pytest.fail('the test left a run live: the notification centre still judges posts as its')
+
+
+@pytest.fixture
+def diagnostic_scope():
+    """Lumascope.create_diagnostic() with each board connect answered by its
+    null driver, as on a machine with no scope. The diagnostic path's own
+    wiring is what a test reads; the real boards are unreachable from a test."""
+    from drivers.null_ledboard import NullLEDBoard
+    from drivers.null_motorboard import NullMotionBoard
+    from drivers.registry import DriverFallback
+    from modules.lumascope_api import _lumascope
+
+    absent = DriverFallback('not_detected', ())
+    with (
+        patch.object(
+            _lumascope.led_registry,
+            'create_with_fallback',
+            lambda name='auto', **kw: (NullLEDBoard(), absent),
+        ),
+        patch.object(
+            _lumascope.motor_registry,
+            'create_with_fallback',
+            lambda name='auto', **kw: (NullMotionBoard(), absent),
+        ),
+    ):
+        instance = _lumascope.Lumascope.create_diagnostic()
+    try:
+        yield instance
+    finally:
+        instance.disconnect()
+
+
+# ---------------------------------------------------------------------------
+# Memory cap
+# ---------------------------------------------------------------------------
+# A test that loops or accumulates when a run it expects to start is refused
+# can grow one xdist worker past the machine's RAM while its state stays R
+# and its output stays quiet; three such workers reached about 114 GB on a
+# 48 GB machine before a person killed them, and the run that followed
+# reported a tainted result as if it were one. macOS refuses every rlimit
+# form (RLIMIT_AS and RLIMIT_DATA raise, `ulimit -v` fails), so the cap is
+# a watchdog: every pytest process, controller or worker, polls its own
+# resident size once a second and, over the cap, writes the running test
+# and every thread's stack, then exits with a status nothing reads as
+# success. 5 GiB: a normal worker measures about 75 MB.
+MEMORY_CAP_BYTES = 5 * 1024**3
+MEMORY_CAP_EXIT_STATUS = 3
+MEMORY_CAP_BANNER = 'MEMORY CAP EXCEEDED'
+# Bound at import so a test that swaps psutil in sys.modules cannot blind
+# the watchdog.
+_MEMCAP_PROCESS = psutil.Process()
+_memcap_running = {'nodeid': None}
+
+
+def _memcap_watch(cap_bytes, report_dir, capman):
+    while True:
+        time.sleep(1.0)
+        rss = _MEMCAP_PROCESS.memory_info().rss
+        if rss > cap_bytes:
+            _memcap_fail(rss, cap_bytes, report_dir, capman)
+
+
+def _memcap_fail(rss, cap_bytes, report_dir, capman):
+    line = (
+        f'{MEMORY_CAP_BANNER}: pid {os.getpid()} resident {rss / 2**30:.2f} GiB, '
+        f'cap {cap_bytes / 2**30:.2f} GiB, while running {_memcap_running["nodeid"]}'
+    )
+    report_dir.mkdir(parents=True, exist_ok=True)
+    path = report_dir / f'memcap_{os.getpid()}.txt'
+    with open(path, 'w') as fh:
+        fh.write(line + '\n\n')
+        faulthandler.dump_traceback(file=fh, all_threads=True)
+    # pytest's fd capture owns stderr during a test; the write goes to the
+    # real one or it is lost with the process.
+    if capman is not None:
+        with capman.global_and_fixture_disabled():
+            sys.stderr.write(f'\n{line}\nthread stacks: {path}\n')
+            sys.stderr.flush()
+    else:
+        sys.stderr.write(f'\n{line}\nthread stacks: {path}\n')
+        sys.stderr.flush()
+    os._exit(MEMORY_CAP_EXIT_STATUS)
+
+
+def _memcap_reports_since(report_dir, started):
+    if not report_dir.is_dir():
+        return []
+    return sorted(
+        path for path in report_dir.glob('memcap_*.txt') if path.stat().st_mtime >= started
+    )
+
+
+def pytest_runtest_logstart(nodeid, location):
+    _memcap_running['nodeid'] = nodeid
+    _serial_touches.clear()
+
+
+def pytest_runtest_logfinish(nodeid, location):
+    _memcap_running['nodeid'] = None
 
 
 # ---------------------------------------------------------------------------
@@ -253,10 +643,25 @@ def pytest_addoption(parser):
         help='Run FX2 hardware tests (pyusb/libusb1 + connected LS620/LS560)',
     )
     _safe(
+        '--run-tmcm6110-hardware',
+        action='store_true',
+        default=False,
+        help="Run TMCM-6110 hardware tests (the LS720's stage controller on USB)",
+    )
+    _safe(
         '--run-timing-sensitive',
         action='store_true',
         default=False,
         help='Run wall-clock timing-sensitive tests (can be flaky under load)',
+    )
+    _safe(
+        '--memory-cap-bytes',
+        type=int,
+        default=MEMORY_CAP_BYTES,
+        help='Resident-memory cap per pytest process (controller and each xdist '
+        'worker); over it the process writes the running test and every '
+        f"thread's stack to build/memcap_<pid>.txt and exits {MEMORY_CAP_EXIT_STATUS}. "
+        'Lowered only by the guard test that proves the cap fires.',
     )
     _safe(
         '--driver-log',
@@ -289,12 +694,30 @@ def pytest_configure(config):
     )
     config.addinivalue_line(
         'markers',
+        "tmcm6110_hardware: requires the LS720's TMCM-6110 on USB "
+        '(only runs with --run-tmcm6110-hardware)',
+    )
+    config.addinivalue_line(
+        'markers',
         'timing_sensitive: measures wall-clock timing and can be flaky '
         'under CI/load (only runs with --run-timing-sensitive)',
     )
 
     if config.getoption('--driver-log', default=False):
         _enable_driver_logging(config)
+
+    config._memcap_started = time.time()
+    config._memcap_report_dir = Path(config.rootpath) / 'build'
+    threading.Thread(
+        target=_memcap_watch,
+        args=(
+            config.getoption('--memory-cap-bytes'),
+            config._memcap_report_dir,
+            config.pluginmanager.getplugin('capturemanager'),
+        ),
+        name='memory-cap',
+        daemon=True,
+    ).start()
 
 
 def _enable_driver_logging(config):
@@ -364,6 +787,16 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     """
     from tests import ratchets
 
+    # A worker the cap killed is reported by xdist as a crash; this names the
+    # cap and the test so the log cannot read as an ordinary failure.
+    reports = _memcap_reports_since(config._memcap_report_dir, config._memcap_started)
+    if reports:
+        terminalreporter.section(MEMORY_CAP_BANNER, sep='!', red=True)
+        for path in reports:
+            with open(path) as fh:
+                terminalreporter.line(fh.readline().rstrip())
+            terminalreporter.line(f'thread stacks: {path}')
+
     lines = ratchets.summary_lines()
     if not lines:
         return
@@ -378,6 +811,7 @@ def pytest_collection_modifyitems(config, items):
         ('ids_hardware', '--run-ids-hardware'),
         ('pylon_hardware', '--run-pylon-hardware'),
         ('fx2_hardware', '--run-fx2-hardware'),
+        ('tmcm6110_hardware', '--run-tmcm6110-hardware'),
         ('timing_sensitive', '--run-timing-sensitive'),
     ]
     for marker, flag in gates:
@@ -396,10 +830,19 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture
 def sim_scope():
-    """Lumascope with simulated hardware in fast timing mode."""
-    from modules.lumascope_api import Lumascope
+    """Lumascope with simulated hardware in fast timing mode.
 
-    s = Lumascope(simulate=True)
+    An LS850: the LS850T without the turret. Its users select an objective
+    directly, which only a scope with no turret can do -- on a turret scope
+    the objective is the slot's assignment. Bound to the template's
+    settings, as a session binds the scope it brings up; a test names its
+    own plate or objective with ``bind_settings_like_a_session``.
+    """
+
+    from tests.scope_fakes import bind_settings_like_a_session, record_turret_answer
+
+    s = record_turret_answer(build_scope(simulate=True, sim_model='LS850'))
+    bind_settings_like_a_session(s)
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
@@ -408,6 +851,32 @@ def sim_scope():
     yield s
     s.imaging.stop_streaming()
     s.disconnect()
+
+
+@pytest.fixture(scope='module')
+def sim_turreted_session(tmp_path_factory):
+    """A homed LS850T session on the simulator, with the shipped template's plate and stage offset.
+
+    The template's 96-well plate and its 5500/4000 um stage offset give the
+    plate frame its reachable band, and the turret carries the test
+    objectives. Module-scoped: a refusal leaves nothing behind, and a test
+    that moves an axis reads where it landed in the same test, so the
+    tests of one module share one bring-up. A test that needs other
+    settings builds its own session.
+    """
+    from modules.scope_session import ScopeSession
+    from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
+    from tests.settings_fixtures import complete_settings
+
+    settings = complete_settings(
+        microscope='LS850T',
+        turret_objectives=dict(TEST_TURRET_OBJECTIVES),
+        live_folder=str(tmp_path_factory.mktemp('turreted')),
+    )
+    session = ScopeSession.create(settings, simulate=True)
+    home_sim_scope(session.scope)
+    yield session
+    session.shutdown()
 
 
 @pytest.fixture

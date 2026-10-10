@@ -22,6 +22,7 @@ import pathlib
 import sys
 
 import numpy as np
+from tests.scope_fakes import bind_settings_like_a_session
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
@@ -36,7 +37,7 @@ class TestImageHandlerBaseCouplesDepth:
 
         h = ImageHandlerBase()
         img = np.zeros((4, 4), dtype=np.uint16)
-        h._store_frame(img, timestamp=1.0, chunks=None, significant_bits=12)
+        h._store_frame(img, timestamp=1.0, chunks=None, significant_bits=12, wire_bytes=0)
         result, _out_img, _out_ts, sig, _seq = h.get_last_image()
         assert result is True
         assert sig == 12
@@ -48,7 +49,9 @@ class TestImageHandlerBaseCouplesDepth:
         # buffered frame must still report 12 (its own depth), not be re-derived
         # from whatever the camera reports now.
         h = ImageHandlerBase()
-        h._store_frame(np.zeros((4, 4), dtype=np.uint16), timestamp=1.0, significant_bits=12)
+        h._store_frame(
+            np.zeros((4, 4), dtype=np.uint16), timestamp=1.0, significant_bits=12, wire_bytes=0
+        )
         # (no new frame stored under the new format)
         _, _, _, sig, _seq = h.get_last_image()
         assert sig == 12
@@ -59,16 +62,19 @@ class TestGrabLatestCarriesDepth:
 
     def test_sim_grab_latest_returns_format_depth(self):
         from drivers.simulated_camera import SimulatedCamera
+        from tests.camera_fakes import grab_a_frame_made_after_now
 
         cam = SimulatedCamera()
         cam.connect()
         assert cam.set_pixel_format('Mono12')
         cam.start_grabbing()
+        grab_a_frame_made_after_now(cam)
         result, _img, _ts, sig, _seq = cam.grab_latest()
         assert result is True
         assert sig == 12
 
         assert cam.set_pixel_format('Mono8')
+        grab_a_frame_made_after_now(cam)
         result, _img, _ts, sig, _seq = cam.grab_latest()
         assert sig == 8
 
@@ -96,6 +102,7 @@ class TestGetImageFromBufferUsesFrameDepth:
         monkeypatch.setattr(SimulatedCamera, 'significant_bits', property(lambda self: 8))
 
         scope = Lumascope.__new__(Lumascope)
+        bind_settings_like_a_session(scope)
         scope._camera_driver = cam
         scope.runtime_state = RuntimeState(scope)
         imaging = ImagingAPI(scope, cam)

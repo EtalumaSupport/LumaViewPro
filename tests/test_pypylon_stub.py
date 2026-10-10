@@ -40,6 +40,7 @@ class TestDriverHandlersConstructible:
     def _make_parent(self):
         from drivers.pyloncamera import PylonCamera
 
+        # a stand-in by design: the subject is the stub the handler classes build on
         parent = PylonCamera.__new__(PylonCamera)
         return parent
 
@@ -56,6 +57,7 @@ class TestDriverHandlersConstructible:
         parent._mark_disconnected = MagicMock()
         parent._schedule_async_teardown = MagicMock()
         handler = pyloncamera._CameraRemovalHandler(parent)
+        # a stand-in by design: the SDK's event argument, read by nothing here
         handler.OnCameraDeviceRemoved(camera=MagicMock())
         parent._mark_disconnected.assert_called_once()
         parent._schedule_async_teardown.assert_called_once()

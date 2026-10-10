@@ -1,12 +1,17 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-import json
+import copy
 import logging
 import pathlib
-from typing import ClassVar
+import typing
 
 import modules.labware as labware
-from modules.path_utils import resolve_data_file
+from modules.exceptions import CatalogueNameRefusedError, ConfigError
+from modules.path_utils import read_installation_file, resolve_data_file
+from modules.api_surface import api
+
+if typing.TYPE_CHECKING:
+    from modules.settings_init import SettingValue
 
 logger = logging.getLogger('LVP.modules.labware_loader')
 
@@ -20,16 +25,42 @@ _REQUIRED_WELLPLATE_FIELDS = {
 
 _REQUIRED_DIMENSION_FIELDS = {'x': (int, float), 'y': (int, float)}
 
+# The plate of a scope with no XY stage: one field, at the centre, with no
+# wells to move between.
+CENTER_PLATE = 'Center Plate'
 
-def _validate_labware(labware: dict, filepath: str) -> None:
+# Plate names the catalogue has retired, and the key each now lives under.
+# A protocol or settings file written before a rename still carries the old
+# spelling; it is translated wherever a name enters the program, once, so
+# nothing past that edge ever compares an old spelling to a key.
+_LABWARE_ALIASES = {
+    '384 well Corning Spheroid Microplate': '384 well microplate',
+    # The catalogue's own rename: 'Center Dish' shipped, then became
+    # 'Center Plate'; files saved before that carry the old key.
+    'Center Dish': CENTER_PLATE,
+}
+
+
+def canonical_plate_name(plate_key: object) -> object:
+    """The catalogue spelling of ``plate_key``; a name the table does not
+    know is returned as given.
+
+    This translates and does not judge: it needs no catalogue, so settings
+    preparation can call it before any helper exists. Whether the plate
+    exists is ``WellPlateLoader.resolve_plate_key``'s question.
+    """
+    if not isinstance(plate_key, str):
+        return plate_key
+    return _LABWARE_ALIASES.get(plate_key, plate_key)
+
+
+def _validate_labware(labware: dict, filepath: pathlib.Path) -> None:
     """Validate labware.json: check structure and required fields per entry.
 
     Only 'Wellplate' entries require the full columns/rows/dimensions/spacing/
     offset schema. Slide and Petri dish have simpler structures and are not
     validated beyond type.
     """
-    if not isinstance(labware, dict):
-        raise ValueError(f'labware.json at {filepath}: expected dict, got {type(labware).__name__}')
     for category, items in labware.items():
         if not isinstance(items, dict):
             logger.warning(f"[Labware   ] category '{category}' should be dict in {filepath}")
@@ -73,20 +104,7 @@ class LabwareLoader:
 
         # Load all Possible Labware from JSON
         filepath = resolve_data_file('labware.json', source_path=source_path)
-        try:
-            with open(filepath) as read_file:
-                self.labware = json.load(read_file)
-        except FileNotFoundError as e:
-            logger.error(f'[Labware   ] labware.json not found at {filepath}')
-            raise RuntimeError(
-                f'Required file labware.json not found at {filepath}. '
-                'Please reinstall or restore from backup.'
-            ) from e
-        except json.JSONDecodeError as e:
-            logger.error(f'[Labware   ] labware.json is corrupt: {e}')
-            raise RuntimeError(
-                f'labware.json is corrupt ({e}). Please restore from backup or reinstall.'
-            ) from e
+        self.labware = read_installation_file(filepath)
 
         _validate_labware(self.labware, filepath)
 
@@ -102,34 +120,57 @@ class SlideLoader(LabwareLoader):
 class WellPlateLoader(LabwareLoader):
     """A class that stores and computes actions for wellplate labware"""
 
-    # Compatibility aliases for labware names that were renamed.
-    # Protocols saved with the old name still load correctly.
-    _LABWARE_ALIASES: ClassVar[dict] = {
-        '384 well Corning Spheroid Microplate': '384 well microplate',
-    }
-
     def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
         super().__init__(*arg, source_path=source_path)
 
-    def get_plate_list(self):
+    @api
+    def get_plate_list(self) -> list[str]:
         return list(self.labware['Wellplate'].keys())
 
-    def is_known_plate(self, plate_key) -> bool:
-        """Return True if plate_key resolves to a known plate (directly or via alias).
+    @api
+    def resolve_plate_key(self, plate_key: str) -> str:
+        """The catalogue key for ``plate_key``, whatever spelling it arrived in.
+
+        Raises:
+            CatalogueNameRefusedError: ``'labware_unknown'``, ``plate_key``
+                names a plate this catalogue does not have; ``offered``
+                carries the plates it has.
+        """
+        resolved_key = canonical_plate_name(plate_key)
+        if resolved_key not in self.labware['Wellplate']:
+            raise CatalogueNameRefusedError(
+                'labware_unknown',
+                argument='plate_key',
+                value=plate_key,
+                offered=tuple(self.get_plate_list()),
+            )
+        return resolved_key
+
+    @api
+    def is_known_plate(self, plate_key: 'SettingValue') -> bool:
+        """Whether ``plate_key`` resolves to a plate, directly or under a retired spelling.
 
         Use this for validation so callers accept exactly what get_plate() accepts.
         get_plate_list() returns only canonical keys and would reject legacy/alias
-        names that get_plate() would resolve correctly at runtime.
+        names that get_plate() would resolve correctly at runtime. Takes
+        whatever a stored setting can hold, since bring-up asks it of the
+        stored plate: a value that is not a name is no plate.
         """
-        resolved_key = self._LABWARE_ALIASES.get(plate_key, plate_key)
-        return resolved_key in self.labware['Wellplate']
+        if not isinstance(plate_key, str):
+            return False
+        try:
+            self.resolve_plate_key(plate_key)
+        except ConfigError:
+            return False
+        return True
 
-    def get_plate(self, plate_key):
-        # Apply alias mapping for backwards compatibility
-        resolved_key = self._LABWARE_ALIASES.get(plate_key, plate_key)
-        if resolved_key != plate_key:
-            logger.info(f"[Labware   ] Aliased labware '{plate_key}' -> '{resolved_key}'")
-        return labware.WellPlate(config=self.labware['Wellplate'][resolved_key])
+    @api
+    def get_plate(self, plate_key: str) -> labware.WellPlate:
+        # The caller's own copy of the row: a changed plate would otherwise
+        # change the catalogue every later reader gets.
+        return labware.WellPlate(
+            config=copy.deepcopy(self.labware['Wellplate'][self.resolve_plate_key(plate_key)])
+        )
 
 
 class PitriDishLoader(LabwareLoader):

@@ -27,6 +27,8 @@ import modules.common_utils as common_utils
 import modules.image_save as image_save
 from modules.tiling_config import TilingConfig
 from tests.ast_seams import parse_module
+from tests.frame_records import frame_record, plate
+from tests.scope_fakes import bind_settings_like_a_session
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 TILING_CONFIGS = REPO / 'data' / 'tiling.json'
@@ -42,11 +44,13 @@ class TestAHeadlessImageCarriesItsScale:
     def test_metadata_from_a_scope_that_knows_its_optics(self, sim_scope, no_context):
         """The defect itself: a scope that can report its optics wrote images
         with no scale whenever no GUI context existed in the process."""
-        from modules.labware_loader import WellPlateLoader
 
-        sim_scope.runtime_state.set_objective('20x Oly')
-        sim_scope.runtime_state.set_labware(WellPlateLoader().get_plate('96 well microplate'))
-        sim_scope.runtime_state.set_stage_offset({'x': 0.0, 'y': 0.0})
+        bind_settings_like_a_session(
+            sim_scope,
+            objective_id='20x Oly',
+            protocol={'labware': '96 well microplate'},
+            stage_offset={'x': 0.0, 'y': 0.0},
+        )
         objective = sim_scope.runtime_state.get_current_objective()
         caps = sim_scope.capabilities
         expected = (
@@ -55,7 +59,17 @@ class TestAHeadlessImageCarriesItsScale:
             * sim_scope.imaging._binning_size
         )
 
-        metadata = image_save.generate_image_metadata(sim_scope, channel='BF', x=0, y=0, z=0)
+        metadata = image_save.generate_image_metadata(
+            sim_scope,
+            channel='BF',
+            plate_x_mm=0,
+            plate_y_mm=0,
+            stage_z_um=0,
+            objective_id=sim_scope.runtime_state.get_current_objective_id(),
+            frame_record=frame_record(),
+            labware=plate(),
+            well_label=None,
+        )
 
         assert metadata['pixel_size_um'] == pytest.approx(expected, abs=1e-4), metadata.get(
             'pixel_size_um'

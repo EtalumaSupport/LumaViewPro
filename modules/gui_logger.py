@@ -27,8 +27,8 @@ def note_write_back(name: str, value: object) -> None:
     - a spinner whose options or text are set during panel setup, which
       dispatches once per assignment;
     - a text box whose handler corrects a typed value and writes the correction
-      back, since one Enter runs that handler twice and the second pass reads
-      what the first wrote.
+      back into the box, so a record carrying the corrected value is the app's
+      write and not the user's entry.
 
     The writer declares the value; the next record for that name carrying
     exactly it is recognised as the app's own and dropped. Exactly one is
@@ -95,14 +95,14 @@ def select(name: str, value: object) -> None:
     _log.info(f'SELECT {name} {value}')
 
 
-def frame_size(width, height, binning):
+def frame_size(width: int, height: int, binning: int) -> None:
     """Log a framing change -- the displayed (post-binning) frame size + binning.
 
-    Wired from ``MicroscopeSettings._apply_displayed_frame``, the single
-    chokepoint both the frame-field edit (``frame_size``) and the binning
-    toggle (``select_binning_size``) flow through, so one call covers every
-    framing change the user makes -- including the frame-box resize that was
-    previously absent from the GUI log.
+    Wired from ``MicroscopeSettings._framing_applied``, the redraw both the
+    frame-field edit (``frame_size``) and the binning pick
+    (``select_binning_size``) end in, so one call covers every framing change
+    the user makes -- including the frame-box resize that was once absent
+    from the GUI log. It records the framing stored once the camera answered.
     """
     _log.info(f'FRAME_SIZE {width}x{height} binning={binning}')
 
@@ -125,17 +125,12 @@ def one_line(text: object) -> str:
 
 
 def notification(severity: str, title: str, message: str, source: str = '') -> None:
-    """Log every popup / notification the user sees.
+    """Log a notification posted to the user, at its severity.
 
-    Wired from every path that produces visible UI:
-    - ``modules.notification_center.NotificationCenter.notify`` -- every
-      ``notifications.warning/error/critical`` call (which reaches the
-      listener-registered popup bridge in lumaviewpro.py:on_start).
-    - ``ui.notification_popup`` helpers for direct popup calls
-      (``show_notification_popup``, ``show_confirmation_popup``,
-      ``show_confirmation_w_ack_popup``).
-    - Engineering plugin and other modal-prompt entry points, via their
-      use of the canonical ``ui.notification_popup`` helpers.
+    Written by ``modules.notification_center.NotificationCenter.notify``,
+    once per notification, whether or not it is shown; the popup that
+    shows one is recorded separately by ``dialog``. The severity is the
+    notification's, so this is the one GUI record that carries a level.
 
     Pipe character separates fields so log-scrapers can split cleanly
     when titles or messages contain colons.
@@ -145,10 +140,21 @@ def notification(severity: str, title: str, message: str, source: str = '') -> N
     _log.info(f'NOTIFICATION {sev_str} | {one_line(title)} | {one_line(message)}{src_suffix}')
 
 
+def dialog(title: str, body: str) -> None:
+    """Log a dialog as it opens: what was on the screen.
+
+    Written from the one place every dialog opens (``ui.notification_popup``,
+    the patched ``Popup.open``), whoever built it. A dialog has no severity:
+    a question asks, and a notice's level is its notification's, recorded
+    by ``notification``.
+    """
+    _log.info(f'DIALOG | {one_line(title)} | {one_line(body)}')
+
+
 def popup_response(title: str, response: str) -> None:
     """Log the user's response to a modal popup (OK / Cancel / Ack / dismiss).
 
-    Pairs with ``notification`` -- one entry when the popup is shown,
+    Pairs with ``dialog`` -- one entry when the popup is shown,
     one when the user resolves it. Without the response, post-mortem
     can tell what the user saw but not what they did with it.
     """
@@ -158,16 +164,62 @@ def popup_response(title: str, response: str) -> None:
 def text_input(name: str, value: object) -> None:
     """Log a text field's final committed value.
 
-    Callers debounce before calling: ``on_text`` fires per keystroke, and
-    only the value the user stopped on belongs in gui_interactions.log.
-    The debounce needs a GUI timer, so it lives GUI-side; the log line's
-    shape stays here with every other entry in this module.
+    Call this once per commit, from the handler the box's ``on_focus`` binding
+    reaches, with what the box holds BEFORE the handler transforms it. The
+    emit is synchronous and unconditional: the record lands in the file ahead
+    of whatever the entry goes on to do, so a bundle reads in the order the
+    user acted, and the last thing typed before a freeze or a crash is already
+    written.
+
+    A handler that CORRECTS the entry -- a clamp, a sanitiser, a substitution
+    for something unparseable -- records the correction under
+    ``<name>_APPLIED``. The pair is the contract, and both halves are needed:
+    alone, the first says the user asked for something the app never did, and
+    the second asserts they typed a value they did not. Emit ``_APPLIED`` only
+    when the value actually moved, comparing the PARSED values rather than the
+    strings, or every float box reports '5' -> 5.0 as a correction.
 
     ``value`` is whatever the field holds -- text from the protocol fields,
     a parsed number from the video ones -- and is only interpolated, so it
     is typed by what this needs of it rather than by today's callers.
     """
     _log.info(f'TEXT_INPUT {name} {value}')
+
+
+def walk_scripted(source: str) -> None:
+    """Log that the presses which follow are a scripted sim walk's, not a person's.
+
+    The walk driver (``ui.sim_walk``) touches widgets through the same handlers a
+    person's touch reaches, so its presses record exactly as a person's would --
+    that is what a walk checks. This one line, written before the first step, is
+    what tells a reader of the log that no person made them.
+    """
+    _log.info(f'WALK SCRIPTED {source}')
+
+
+_shown: dict[str, str] = {}
+
+
+def display(name: str, value: object) -> None:
+    """Log a change in what the window shows, as it changes.
+
+    A press is recorded where the person made it; what the window then shows
+    -- the controls greyed, the homing banner, the title's event text -- is
+    decided by the app and was in no record, so whether it appeared could only
+    be asked of whoever was watching. Recorded only when the value differs from
+    the last one recorded for ``name``, so a writer that runs on every edge
+    adds a line only when the screen changed.
+
+    A count inside the value (a recording's elapsed seconds, a drain's files
+    left) is progress, not a change of what is shown: it is compared with its
+    digits blanked, so the record names each stage once.
+    """
+    shown = one_line(value)
+    stage = ''.join('#' if c.isdigit() else c for c in shown)
+    if _shown.get(name) == stage:
+        return
+    _shown[name] = stage
+    _log.info(f'DISPLAY {name} {shown}')
 
 
 def window_event(event_name: str, detail: str = '') -> None:

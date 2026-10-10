@@ -53,12 +53,13 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 # absence of the OLD value, so it needs no authoritative store of the new one.
 _SUPERSEDED_MINOR = 11
 
-# Declaration idioms only. A bare `3.11` happens to have no false positives
-# today, but the same pattern shape at `3.10` matches "Stage 3.6", "3.8 GB"
-# and matplotlib 3.10.9, so the set stays anchored to how a floor is actually
-# written down rather than to a bare version string.
+# Declaration idioms only. The same pattern shape at `3.10` matches "Stage
+# 3.6", "3.8 GB" and matplotlib 3.10.9, so the set stays anchored to how a
+# floor is actually written down rather than to a bare version string. The
+# version itself is bounded on both sides: a bare `3.11` also matched inside
+# recorded measurements (23.114 ms, 7500.666311 um) in test data.
 _PATTERNS = [
-    rf'3\.{_SUPERSEDED_MINOR}',  # prose, YAML, requires-python, docs
+    rf'(^|[^0-9.])3\.{_SUPERSEDED_MINOR}($|[^0-9])',  # prose, YAML, requires-python, docs
     rf'3, {_SUPERSEDED_MINOR}',  # sys.version_info tuple comparison
     rf'py3{_SUPERSEDED_MINOR}',  # ruff target-version
     rf'MIN_MINOR={_SUPERSEDED_MINOR}',  # install_linux.sh

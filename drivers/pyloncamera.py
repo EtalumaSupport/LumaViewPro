@@ -2,6 +2,7 @@
 
 import contextlib
 import datetime
+import math
 import os
 import queue
 import threading
@@ -10,7 +11,13 @@ from typing import Any
 
 from pypylon import genicam, pylon
 
-from drivers.camera import Camera, ImageHandlerBase
+from drivers.camera import (
+    Camera,
+    FrameGrid,
+    ImageHandlerBase,
+    declared_unit,
+    link_info,
+)
 from drivers.exceptions import HardwareError
 from drivers.registry import camera_registry
 from lib.log_helpers import log_to
@@ -120,6 +127,53 @@ def describe_device_info(dev_info: Any) -> str:
     return ' '.join(_parts)
 
 
+def _accepted_range(node, name: str) -> tuple[float, float]:
+    """Return a node's (min, max) narrowed to values it will actually accept.
+
+    A GenICam float node reports its range in continuous units but accepts
+    only steps of its own increment, and the reported maximum can carry a
+    float tail past the last real step -- a 48 dB gain node reports
+    48.00000004350822. Published raw, that tail becomes the slider cap and
+    is persisted to the settings store, so a user who types the advertised
+    maximum has it written back as a long decimal, and the camera rejects
+    the very value it advertised.
+
+    The maximum is snapped DOWN to the last accepted step. It is never
+    snapped up: a bound must be a value the camera takes, and rounding to
+    nearest can land past the ceiling.
+
+    A node whose increment is not a single fixed step is published exactly
+    as reported. `listIncrement` means the legal values are an arbitrary
+    list and `noIncrement` means the range really is continuous; in both
+    cases there is no step to snap to, and inventing one would narrow a
+    range the camera did not narrow. `GetInc()` is only meaningful under
+    `fixedIncrement`, and an `IInteger` node has no `HasInc` at all, so
+    the increment MODE is the thing to ask.
+    """
+    low, high = node.GetMin(), node.GetMax()
+    try:
+        if node.GetIncMode() != genicam.fixedIncrement:
+            return low, high
+        increment = node.GetInc()
+    except Exception as e:
+        logger.debug(f'[CAM Class ] {name}: no usable increment ({e}); range as reported')
+        return low, high
+
+    if not increment or increment <= 0 or high < low:
+        return low, high
+
+    steps = math.floor((high - low) / increment)
+    decimals = max(0, -math.floor(math.log10(increment)))
+    snapped = round(low + steps * increment, decimals)
+
+    if snapped != high:
+        logger.info(
+            f'[CAM Class ] {name}: max {high} is not on the {increment} step grid; '
+            f'publishing {snapped}'
+        )
+    return low, snapped
+
+
 # Pylon SDK error code returned by grabResult.GetErrorCode() when a
 # buffer is cancelled by StopGrabbing in flight. Value 0xE2000102.
 # USB3-Vision transport namespace (high byte 0xE2). Per Basler
@@ -226,58 +280,12 @@ class PylonCamera(Camera):
 
     # _mark_disconnected() inherited from Camera base class
 
-    def _schedule_async_teardown(self) -> None:
-        """Spawn a daemon thread that runs disconnect() in a safe context.
-
-        Used from OnImageGrabbed (and any other Pylon-callback path)
-        when we detect device removal. The SDK callback thread MUST
-        NOT call StopGrabbing on itself -- it deadlocks or triggers
-        a native abort (pypylon issue #225). Spawning a daemon thread
-        lets the callback return to the SDK immediately while teardown
-        runs in a Python-owned context where Close() / DestroyDevice()
-        are safe to call.
-
-        Idempotent: a second call while a teardown thread is already
-        running is a no-op (the in-flight thread does the work).
-        Re-entrant safe via _async_teardown_started flag under
-        _state_lock.
-        """
-        with self._state_lock:
-            if getattr(self, '_async_teardown_started', False):
-                return
-            self._async_teardown_started = True
-
-        def _run_teardown():
-            try:
-                # Small delay so the in-flight OnImageGrabbed callback
-                # that scheduled us has time to return to the SDK
-                # before we touch the camera handle from outside.
-                time.sleep(0.05)
-                _cam_log.info(
-                    '[CAM Class ] async teardown after device removal: '
-                    'calling disconnect() from daemon thread'
-                )
-                # disconnect() does the full safe sequence:
-                # stop_grabbing -> wait_for_acquisition_idle -> Close
-                # -> DetachDevice -> DestroyDevice, each independently
-                # guarded.
-                self.disconnect()
-            except BaseException as e:
-                # Best-effort log of the teardown failure. If logging
-                # itself raises, suppress -- daemon thread death must
-                # not leak. Done daemon, so process exit is fine if
-                # everything below also fails.
-                _log_safely(f'async teardown raised {type(e).__name__}: {e}')
-            finally:
-                with self._state_lock:
-                    self._async_teardown_started = False
-
-        t = threading.Thread(
-            target=_run_teardown,
-            name='PylonAsyncTeardown',
-            daemon=True,
-        )
-        t.start()
+    # _schedule_async_teardown() inherited from Camera: the Pylon callback
+    # thread must never call StopGrabbing on itself -- it deadlocks or aborts
+    # natively (pypylon issue #225) -- so OnImageGrabbed and the removal
+    # callback hand the teardown to the base's thread. disconnect() then runs
+    # stop_grabbing -> wait_for_acquisition_idle -> Close -> DetachDevice ->
+    # DestroyDevice, each independently guarded.
 
     def _query_dynamic_capabilities(self):
         """Query Pylon SDK for gain/exposure ranges and merge into profile."""
@@ -291,8 +299,9 @@ class PylonCamera(Camera):
             try:
                 gain_node = nm.GetNode('Gain')
                 if gain_node is not None:
-                    self.profile.gain.total_min_db = gain_node.GetMin()
-                    self.profile.gain.total_max_db = gain_node.GetMax()
+                    low, high = _accepted_range(gain_node, 'Gain')
+                    self.profile.gain.total_min_db = low
+                    self.profile.gain.total_max_db = high
                     logger.info(
                         f'[CAM Class ] Gain range: {self.profile.gain.total_min_db:.1f} - '
                         f'{self.profile.gain.total_max_db:.1f} dB'
@@ -304,14 +313,29 @@ class PylonCamera(Camera):
             try:
                 exp_node = nm.GetNode('ExposureTime')
                 if exp_node is not None:
-                    self.profile.exposure_min_us = exp_node.GetMin()
-                    self.profile.exposure_max_us = exp_node.GetMax()
+                    low, high = _accepted_range(exp_node, 'ExposureTime')
+                    self.profile.exposure_min_us = low
+                    self.profile.exposure_max_us = high
                     logger.info(
                         f'[CAM Class ] Exposure range: {self.profile.exposure_min_us:.0f} - '
                         f'{self.profile.exposure_max_us:.0f} us'
                     )
             except Exception as e:
                 logger.debug(f'[CAM Class ] Could not query exposure range: {e}')
+
+            # The formats this body offers, as the IDS driver records them: the
+            # profile's list is what capabilities publish, so it is the camera's
+            # answer, not the static entry's. An unreadable list keeps the
+            # documented one, said here.
+            supported = self.get_supported_pixel_formats()
+            if supported:
+                self.profile.pixel_formats = list(supported)
+                logger.info(f'[CAM Class ] Supported PixelFormat entries: {list(supported)}')
+            else:
+                _cam_log.warning(
+                    '[CAM Class ] PixelFormat entries unreadable; the profile keeps '
+                    f'its documented formats {self.profile.pixel_formats}'
+                )
 
             # Sensor pixel pitch (micrometers). Read live so the micron scale
             # bar and click-to-center distance are correct for ANY Basler body,
@@ -1262,19 +1286,21 @@ class PylonCamera(Camera):
             )
 
     def get_all_temperatures(self) -> dict:
-        """Return {selector: degC, ...} per DeviceTemperatureSelector entry; {} if unreadable."""
+        """Return {selector: degC, ...} per DeviceTemperatureSelector entry.
+
+        {} for a camera without the temperature nodes. See
+        ``Camera.get_all_temperatures``.
+        """
         if not self.active:
-            _cam_log.warning('[CAM Class ] get_all_temperatures(): inactive camera')
-            return {}
+            raise HardwareError('Camera temperature read: no camera is active')
 
         try:
             nodemap = self.active.GetNodeMap()
+            if not self._has_temperature_nodes(nodemap):
+                return {}
 
             selector = nodemap.GetNode('DeviceTemperatureSelector')
             temp = nodemap.GetNode('DeviceTemperature')
-
-            if selector is None or temp is None:
-                return {}
 
             temps: dict[str, float] = {}
 
@@ -1290,8 +1316,12 @@ class PylonCamera(Camera):
                 if genicam.IsReadable(temp):
                     temps[name] = temp.GetValue()
 
+            # The camera has the nodes, so it has a sensor: an empty answer
+            # would read as "no sensor" to every caller.
+            if not temps:
+                raise HardwareError('no listed temperature sensor was readable')
             return temps
-        except genicam.RuntimeException as e:
+        except Exception as e:
             # Intentionally NO disconnect teardown here: this getter used to
             # latch the device-removed flag (no reset short of a full
             # reconnect) on a single possibly-transient node read, which
@@ -1300,11 +1330,22 @@ class PylonCamera(Camera):
             # DEVICE_NOT_FOUND / consecutive-failure paths, which still fire
             # on a real unplug; a read failure here only means this VALUE is
             # unavailable right now.
-            _cam_log.error(f'[CAM Class ] Failed to read camera temperatures: {e}')
-            return {}
+            raise HardwareError(f'Camera temperature read failed: {type(e).__name__}: {e}') from e
+
+    def supports_temperature(self) -> bool:
+        """True if the camera exposes the temperature selector and reading nodes."""
+        if not self.active:
+            return False
+        try:
+            return self._has_temperature_nodes(self.active.GetNodeMap())
         except Exception as e:
-            _cam_log.exception(f'[CAM Class ] Unexpected error reading temperatures: {e}')
-            return {}
+            # No disconnect teardown, as in the read above.
+            raise HardwareError(f'Temperature probe failed: {type(e).__name__}: {e}') from e
+
+    def _has_temperature_nodes(self, nodemap) -> bool:
+        return self._has_node(nodemap, 'DeviceTemperatureSelector') and self._has_node(
+            nodemap, 'DeviceTemperature'
+        )
 
     def get_sdk_info(self) -> dict:
         """Basler pylon SDK provenance (name + versions) for diagnostics.
@@ -2114,7 +2155,10 @@ class PylonCamera(Camera):
                 _cam_log.info(f'pylon PixelFormat.SetValue({pixel_format!r}) (geometry-realloc)')
             with self.update_camera_config():
                 self.active.PixelFormat.SetValue(pixel_format)
-            self._pixel_format_cache = pixel_format
+                # Inside the config guard, while the grab is stopped: its
+                # __exit__ restarts grabbing and logs the delivered format
+                # from this cache, which would otherwise still name the old one.
+                self._pixel_format_cache = pixel_format
             return True
         except genicam.RuntimeException as e:
             if _cam_log is not None:
@@ -2184,7 +2228,7 @@ class PylonCamera(Camera):
             _cam_log.exception(f'[CAM Class ] Unexpected error reading pixel formats: {e}')
             return ()
 
-    def set_binning_size(self, size: int) -> bool:
+    def _set_hardware_binning(self, size: int) -> bool:
         """Set camera pixel binning size.
 
         Args:
@@ -2426,6 +2470,112 @@ class PylonCamera(Camera):
             )
             return False
 
+    def supports_black_level(self) -> bool:
+        """True if the camera exposes the BlackLevel node."""
+        if not self.active:
+            return False
+        try:
+            return self._has_node(self.active.GetNodeMap(), 'BlackLevel')
+        except Exception as e:
+            # No disconnect teardown, as in the probes above.
+            raise HardwareError(f'BlackLevel probe failed: {type(e).__name__}: {e}') from e
+
+    def get_black_level(self) -> float | None:
+        """Read BlackLevel live. See ``Camera.get_black_level``.
+
+        A failed read raises and does not tear the camera down: a transient
+        read must not latch a removal (the probes above say why).
+        """
+        if not self.active:
+            return None
+        try:
+            if not self._has_node(self.active.GetNodeMap(), 'BlackLevel'):
+                return None
+            return float(self.active.BlackLevel.GetValue())
+        except Exception as e:
+            raise HardwareError(f'BlackLevel read failed: {type(e).__name__}: {e}') from e
+
+    def get_black_level_range(self) -> tuple[float, float] | None:
+        """BlackLevel's minimum and maximum, live. See ``Camera.get_black_level_range``."""
+        if not self.active:
+            return None
+        try:
+            if not self._has_node(self.active.GetNodeMap(), 'BlackLevel'):
+                return None
+            node = self.active.BlackLevel
+            return float(node.GetMin()), float(node.GetMax())
+        except Exception as e:
+            raise HardwareError(f'BlackLevel range read failed: {type(e).__name__}: {e}') from e
+
+    def set_black_level(self, value: float) -> float | bool | None:
+        """Set BlackLevel, with BlackLevelSelector 'All' where the body has
+        the selector (Basler black-level.html). Returns as ``gain`` does."""
+        if self.active is None:
+            _cam_log.warning(f'[CAM Class ] Cannot set black level {value}: camera inactive')
+            return None
+        try:
+            if self._has_node(self.active.GetNodeMap(), 'BlackLevelSelector'):
+                self.active.BlackLevelSelector.SetValue('All')
+            if _cam_log is not None:
+                _cam_log.info(f'pylon BlackLevel.SetValue({float(value):g})')
+            self.active.BlackLevel.SetValue(float(value))
+            # Read back, as gain does: the node may snap to its increment.
+            return float(self.active.BlackLevel.GetValue())
+        except genicam.RuntimeException as e:
+            _cam_log.error(
+                f'[CAM Class ] Camera communication error setting BlackLevel {value}: {e}'
+            )
+            self._mark_disconnected()
+            return False
+        except Exception as e:
+            raise HardwareError(f'BlackLevel {value} write failed: {type(e).__name__}: {e}') from e
+
+    def get_resulting_frame_rate(self) -> float | None:
+        """Read the resulting frame rate live. See ``Camera.get_resulting_frame_rate``.
+
+        ace 2 / boost / dart name it ``BslResultingAcquisitionFrameRate``,
+        legacy ace ``ResultingFrameRate`` (Basler
+        resulting-acquisition-frame-rate.html). A failed read raises and does
+        not tear the camera down, as ``get_black_level``.
+        """
+        if not self.active:
+            return None
+        try:
+            nodemap = self.active.GetNodeMap()
+            for name in ('BslResultingAcquisitionFrameRate', 'ResultingFrameRate'):
+                if self._has_node(nodemap, name):
+                    return float(getattr(self.active, name).GetValue())
+            return None
+        except Exception as e:
+            raise HardwareError(f'Resulting frame rate read failed: {type(e).__name__}: {e}') from e
+
+    def get_link_info(self) -> dict | None:
+        """The device class, DeviceLinkSpeed and, on GigE, the stream packet
+        size and inter-packet delay, live. See ``Camera.get_link_info``."""
+        if not self.active:
+            return None
+        try:
+            nodemap = self.active.GetNodeMap()
+
+            def _read(name):
+                if not self._has_node(nodemap, name):
+                    return None
+                return getattr(self.active, name).GetValue()
+
+            speed = speed_unit = None
+            if self._has_node(nodemap, 'DeviceLinkSpeed'):
+                speed = self.active.DeviceLinkSpeed.GetValue()
+                speed_unit = declared_unit(self.active.DeviceLinkSpeed.GetUnit())
+            return link_info(
+                transport=self.active.GetDeviceInfo().GetDeviceClass(),
+                link_speed=speed,
+                link_speed_unit=speed_unit,
+                packet_size_bytes=_read('GevSCPSPacketSize'),
+                inter_packet_delay=_read('GevSCPD'),
+            )
+        except Exception as e:
+            raise HardwareError(f'Link info read failed: {type(e).__name__}: {e}') from e
+
     def init_auto_gain_focus(
         self,
         auto_target_brightness: float = 0.5,
@@ -2541,7 +2691,7 @@ class PylonCamera(Camera):
     def update_auto_gain_target_brightness(
         self,
         auto_target_brightness: float,
-    ) -> None:
+    ) -> bool | None:
         """Update `AutoTargetBrightness` without an over-stop cycle.
 
         Live-writable per Basler -- no `update_camera_config()` wrap
@@ -2568,7 +2718,7 @@ class PylonCamera(Camera):
                         f'pylon AutoTargetBrightness.SetValue'
                         f'({auto_target_brightness:.3f}) short-circuited'
                     )
-                return
+                return True
         except (genicam.RuntimeException, genicam.TimeoutException) as e:
             logger.debug(
                 f'[CAM Class ] AutoTargetBrightness short-circuit read failed; '
@@ -2579,6 +2729,7 @@ class PylonCamera(Camera):
             if _cam_log is not None:
                 _cam_log.info(f'pylon AutoTargetBrightness.SetValue({auto_target_brightness:.3f})')
             self.active.AutoTargetBrightness.SetValue(auto_target_brightness)
+            return True
         except genicam.RuntimeException as e:
             if _cam_log is not None:
                 _cam_log.error(
@@ -2589,6 +2740,7 @@ class PylonCamera(Camera):
                 f'update_auto_gain_target_brightness({auto_target_brightness}): {e}'
             )
             self._mark_disconnected()
+            return False
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.error(
@@ -2597,6 +2749,7 @@ class PylonCamera(Camera):
             _cam_log.exception(
                 f'[CAM Class ] Unexpected error in update_auto_gain_target_brightness: {e}'
             )
+            return False
 
     def update_auto_gain_min_max(
         self,
@@ -2808,36 +2961,46 @@ class PylonCamera(Camera):
                     recording_id=profile_trace.NO_RECORDING,
                 )
 
-    def set_frame_size(self, w, h) -> None:
-        """Set camera frame size to ``w`` x ``h`` and recenter the ROI.
+    def _frame_grid(self) -> FrameGrid | None:
+        """The Width / Height nodes' grid at the current binning.
 
-        Width and height are clamped to the camera's reported maxima
-        and rounded down to the nearest multiple of 4 (Pylon
-        constraint on most current models). The
-        ``BslCenterX`` / ``BslCenterY`` execute calls keep the ROI
+        None when the camera is inactive or the nodes cannot be read.
+        """
+        camera = self.active
+        if camera is None:
+            return None
+        try:
+            return FrameGrid(
+                step=(camera.Width.GetInc(), camera.Height.GetInc()),
+                max_size=(camera.Width.GetMax(), camera.Height.GetMax()),
+                size_min=(camera.Width.GetMin(), camera.Height.GetMin()),
+            )
+        except genicam.RuntimeException as e:
+            # Intentionally NO disconnect teardown, as for the other node
+            # reads: removal is owned by the SDK removal callback and the grab
+            # loop's definitive paths.
+            _cam_log.error(f'[CAM Class ] Failed to read the frame size grid: {e}')
+            return None
+
+    def _set_hardware_window(self, plan) -> bool:
+        """Set Width and Height to the planned acquisition and recenter the ROI.
+
+        The ``BslCenterX`` / ``BslCenterY`` execute calls keep the ROI
         centered on the sensor after the size change. Wrapped in
         ``update_camera_config()`` because Width/Height require a
         buffer realloc.
 
-        Args:
-            w: Requested frame width in pixels.
-            h: Requested frame height in pixels.
-
         Returns:
-            The delivered size ``{'width': int, 'height': int}`` (the
-            clamped/rounded geometry just applied, or already in place) on
-            success, so the caller knows what was actually applied without
-            a read-back; ``False`` when the camera is inactive or the
-            apply fails.
+            True once the window is set (or already in place); False when
+            the camera is inactive or the apply fails.
         """
         camera = self.active
         if camera is None:
-            _cam_log.warning(f'[CAM Class ] Cannot set frame size {w}x{h}: camera inactive')
             return False
+        w, h = plan.acq_width, plan.acq_height
 
         try:
-            width = int(min(int(w), camera.Width.Max) / 4) * 4
-            height = int(min(int(h), camera.Height.Max) / 4) * 4
+            width, height = w, h
 
             # Short-circuit when geometry already matches: Width/Height SetValue
             # requires update_camera_config() buffer realloc + grab-loop bounce.
@@ -2852,7 +3015,7 @@ class PylonCamera(Camera):
                             'short-circuited'
                         )
                     _log_cam('info', f'[CAM Class ] Frame size already at {width}x{height}')
-                    return {'width': width, 'height': height}
+                    return True
             except (genicam.RuntimeException, genicam.TimeoutException) as e:
                 logger.debug(
                     f'[CAM Class ] Frame-size short-circuit read failed; '
@@ -2871,7 +3034,7 @@ class PylonCamera(Camera):
                 camera.BslCenterY.Execute()
 
             _log_cam('info', f'[CAM Class ] Frame size set to {width}x{height}')
-            return {'width': width, 'height': height}
+            return True
         except genicam.RuntimeException as e:
             _cam_log.error(
                 f'[CAM Class ] Camera communication error during set_frame_size({w}x{h}): {e}'
@@ -2910,8 +3073,8 @@ class PylonCamera(Camera):
     def get_max_frame_size(self) -> dict:
         """Return sensor-driven max frame dims; {} on inactive / read failure.
 
-        Lens-driven ceiling (typically tighter) lives at the API layer in
-        `data/scopes.json` ``max_usable_roi``.
+        A model whose lens images less than the sensor declares its own
+        ceiling in `data/scopes.json` ``MaxFrame``; the API takes the smaller.
         """
         camera = self.active
         if camera is None:
@@ -2931,7 +3094,7 @@ class PylonCamera(Camera):
             _cam_log.exception(f'[CAM Class ] Unexpected error reading max frame size: {e}')
             return {}
 
-    def get_frame_size(self) -> dict | None:
+    def _hardware_frame_size(self) -> dict | None:
         """Return active dims as {'width': int, 'height': int}; None on inactive / read failure."""
         camera = self.active
         if camera is None:
@@ -3012,11 +3175,21 @@ class PylonCamera(Camera):
             return False
         return True
 
-    def gain(self, value) -> None:
+    def gain(self, value: float) -> float | bool | None:
         """Set Gain in dB. Asserts GainSelector='All' first (Basler gain.html three-step).
 
         Caller is responsible for ``GainAuto=Off``. GainSelector write
         failures are tolerated (cameras without the selector).
+
+        The GenICam classes a refused value arrives as -- OutOfRange,
+        Access, InvalidArgument, LogicalError -- are siblings of
+        RuntimeException, not subclasses, so they land in the general
+        handler below with the camera still live and streaming. That
+        handler reports the refusal rather than falling through it.
+
+        Returns:
+            float | bool | None: See ``Camera.gain``. The dB written, or the
+                dB already in effect on the short-circuit path.
         """
         if self.active is None:
             if _cam_log is not None:
@@ -3033,11 +3206,12 @@ class PylonCamera(Camera):
             # above) so the read matches the requested write. Tolerance 1e-3 dB
             # is below GenICam Gain increment on ace 2 / dart.
             try:
-                if abs(float(self.active.Gain.GetValue()) - float(value)) < 1e-3:
+                current = float(self.active.Gain.GetValue())
+                if abs(current - float(value)) < 1e-3:
                     if _cam_log is not None:
                         _cam_log.info(f'pylon Gain.SetValue({float(value):.3f}) short-circuited')
                     _log_cam('info', f'[CAM Class ] Gain already at {value}')
-                    return
+                    return current
             except (genicam.RuntimeException, genicam.TimeoutException) as e:
                 logger.debug(
                     f'[CAM Class ] Gain short-circuit read failed; '
@@ -3046,25 +3220,44 @@ class PylonCamera(Camera):
             if _cam_log is not None:
                 _cam_log.info(f'pylon Gain.SetValue({float(value):.3f})')
             self.active.Gain.SetValue(float(value))
-            _log_cam('debug', f'[CAM Class ] Gain set to {value}')
+            # Read back rather than echo the request: bodies with a Gain
+            # increment snap an off-increment value, and the caller records
+            # this answer as the gain in effect. A read that fails after the
+            # write succeeded is not a refusal -- the node took the write --
+            # so it answers applied-unconfirmed; lost comms still reach the
+            # disconnect handler below.
+            try:
+                applied = float(self.active.Gain.GetValue())
+            except genicam.RuntimeException:
+                raise
+            except Exception as e:
+                _cam_log.warning(
+                    f'[CAM Class ] Gain {value} written but the read-back failed; '
+                    f'the gain in effect is unconfirmed: {e}'
+                )
+                return True
+            _log_cam('debug', f'[CAM Class ] Gain set to {applied} (requested {value})')
+            return applied
         except genicam.RuntimeException as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon Gain.SetValue({value}) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] Camera communication error during gain({value}): {e}')
             self._mark_disconnected()
+            return False
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon Gain.SetValue({value}) FAILED: {e}')
             _cam_log.exception(f'[CAM Class ] Unexpected error in gain: {e}')
+            return False
 
     def auto_gain(
         self,
-        state=True,
+        state: bool = True,
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
         ae_max_exposure_ms: float | None = None,
-    ) -> None:
+    ) -> bool | None:
         """Enable or disable continuous auto-gain + auto-exposure.
 
         When enabled, ``GainAuto`` and ``ExposureAuto`` are set to
@@ -3121,20 +3314,23 @@ class PylonCamera(Camera):
                 if _cam_log is not None:
                     _cam_log.info('pylon GainAuto.SetValue(Off) ExposureAuto.SetValue(Off)')
             _log_cam('info', f'[CAM Class ] Auto gain {"enabled" if state else "disabled"}')
+            return True
         except genicam.RuntimeException as e:
             _cam_log.error(f'[CAM Class ] Auto gain({state}) failed: {e}')
             self._mark_disconnected()
+            return False
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in auto_gain: {e}')
+            return False
 
     def auto_gain_once(
         self,
-        state=True,
+        state: bool = True,
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
         ae_max_exposure_ms: float | None = None,
-    ) -> None:
+    ) -> bool | None:
         """Run a single-shot auto-gain + auto-exposure pass.
 
         ``GainAuto`` and ``ExposureAuto`` are set to ``Once`` -- the
@@ -3173,13 +3369,16 @@ class PylonCamera(Camera):
                 self.active.GainAuto.SetValue('Off')
                 self.active.ExposureAuto.SetValue('Off')
             _log_cam('info', f'[CAM Class ] Auto gain once {"enabled" if state else "disabled"}')
+            return True
         except genicam.RuntimeException as e:
             _cam_log.error(f'[CAM Class ] Auto gain once({state}) failed: {e}')
             self._mark_disconnected()
+            return False
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in auto_gain_once: {e}')
+            return False
 
-    def exposure_t(self, exposure_ms) -> None:
+    def exposure_t(self, exposure_ms: float) -> float | bool | None:
         """Set the camera's exposure time in milliseconds.
 
         Pylon's ``ExposureTime`` node uses microseconds; this method
@@ -3187,8 +3386,19 @@ class PylonCamera(Camera):
         ``self.max_exposure`` are rejected with a warning. Sub-minimum
         values are clamped to ``ExposureTime.Min``.
 
+        Because the clamp means the applied value can differ from the
+        request, the microseconds actually in effect are RETURNED -- the
+        caller stamps them as the frame-validity chunk target, and a
+        request-derived target would never match the chunk the camera
+        reports.
+
         Args:
             exposure_ms: Exposure time in milliseconds.
+
+        Returns:
+            float | bool | None: See ``Camera.exposure_t``. Microseconds
+                in effect on both the write and short-circuit paths;
+                ``False`` where the write was refused or failed.
         """
         if self.active is None:
             if _cam_log is not None:
@@ -3196,7 +3406,7 @@ class PylonCamera(Camera):
                     f'pylon ExposureTime.SetValue({exposure_ms}ms) SKIPPED: active=None'
                 )
             _cam_log.warning(f'[CAM Class ] Cannot set exposure {exposure_ms}ms: camera inactive')
-            return
+            return False
 
         if exposure_ms > self.max_exposure:
             if _cam_log is not None:
@@ -3207,7 +3417,7 @@ class PylonCamera(Camera):
             _cam_log.warning(
                 f'[CAM Class ] Exposure {exposure_ms}ms exceeds max ({self.max_exposure}ms)'
             )
-            return
+            return False
 
         # Pylon takes time in microseconds, so multiply by 1000 to convert
         try:
@@ -3222,7 +3432,7 @@ class PylonCamera(Camera):
                             f'pylon ExposureTime.SetValue({us_value:.0f}us) short-circuited'
                         )
                     _log_cam('info', f'[CAM Class ] Exposure already at {exposure_ms}ms')
-                    return
+                    return us_value
             except (genicam.RuntimeException, genicam.TimeoutException) as e:
                 logger.debug(
                     f'[CAM Class ] ExposureTime short-circuit read failed; '
@@ -3232,6 +3442,7 @@ class PylonCamera(Camera):
                 _cam_log.info(f'pylon ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms)')
             self.active.ExposureTime.SetValue(us_value)
             _log_cam('debug', f'[CAM Class ] Exposure set to {exposure_ms}ms')
+            return us_value
         except genicam.RuntimeException as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon ExposureTime.SetValue({exposure_ms}ms) FAILED: {e}')
@@ -3239,8 +3450,10 @@ class PylonCamera(Camera):
                 f'[CAM Class ] Camera communication error during exposure_t({exposure_ms}ms): {e}'
             )
             self._mark_disconnected()
+            return False
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in exposure_t: {e}')
+            return False
 
     def get_exposure_t(self) -> float:
         """Read the camera's currently-active exposure time in ms.
@@ -3311,7 +3524,7 @@ class PylonCamera(Camera):
             _cam_log.exception(f'[CAM Class ] Unexpected error reading exposure time: {e}')
             return -1
 
-    def auto_exposure_t(self, state=True) -> None:
+    def auto_exposure_t(self, state: bool = True) -> bool | None:
         """Enable or disable continuous auto-exposure.
 
         When ``state=True``, ``ExposureAuto`` is set to ``Continuous``;
@@ -3334,11 +3547,14 @@ class PylonCamera(Camera):
             else:
                 self.active.ExposureAuto.SetValue('Off')
             _log_cam('info', f'[CAM Class ] Auto exposure {"enabled" if state else "disabled"}')
+            return True
         except genicam.RuntimeException as e:
             _cam_log.error(f'[CAM Class ] Auto exposure({state}) failed: {e}')
             self._mark_disconnected()
+            return False
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in auto_exposure_t: {e}')
+            return False
 
     def set_test_pattern(
         self,
@@ -4388,7 +4604,13 @@ class _PylonImageGrabWorker:
         # switch cannot make this buffered frame downconvert at the wrong depth,
         # because the depth came from the frame, not the camera's current state.
         significant_bits = pylon.BitDepth(grabResult.GetPixelType())
-        self._base._store_frame(img, ts, chunks=chunks, significant_bits=significant_bits)
+        self._base._store_frame(
+            img,
+            ts,
+            chunks=chunks,
+            significant_bits=significant_bits,
+            wire_bytes=grabResult.GetPayloadSize(),
+        )
         # Read back the ordinal the store just assigned, so the queued copy
         # and the buffered one describe the same frame by the same number.
         seq = self._base.last_img_seq

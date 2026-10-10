@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 
 from modules import image_utils
-from modules.post_processing import PostProcessing
+from modules.post_processing import PostProcessing, default_cell_count_method
 
 
 def _meta(significant_bits):
@@ -51,11 +51,20 @@ def _capture_depth(post):
     """Replace the leaf process_image with a recorder; return the capture dict."""
     captured = {}
 
-    def fake_process_image(image, settings, include_images=None, significant_bits=16):
+    def fake_process_image(
+        image, settings, significant_bits=16, pixels_per_um=None, include_images=None
+    ):
         captured['significant_bits'] = significant_bits
         return (
             {'filtered_contours': np.zeros((8, 8, 3), dtype=np.uint8)},
-            {'summary': {'num_regions': 0, 'total_object_area': 0, 'total_object_intensity': 0.0}},
+            {
+                'summary': {
+                    'num_regions': 0,
+                    'total_object_area': 0,
+                    'area_unit': 'px2',
+                    'total_object_intensity': 0.0,
+                }
+            },
         )
 
     post._cell_count.process_image = fake_process_image
@@ -68,7 +77,7 @@ def test_folder_walk_threads_12bit_depth(tmp_path):
     post = PostProcessing()
     captured = _capture_depth(post)
 
-    list(post.apply_cell_count_to_folder(path=str(tmp_path), settings={}))
+    list(post.apply_cell_count_to_folder(path=str(tmp_path), settings=default_cell_count_method()))
 
     assert captured['significant_bits'] == 12
 
@@ -79,6 +88,6 @@ def test_folder_walk_legacy_file_defaults_to_container_width(tmp_path):
     post = PostProcessing()
     captured = _capture_depth(post)
 
-    list(post.apply_cell_count_to_folder(path=str(tmp_path), settings={}))
+    list(post.apply_cell_count_to_folder(path=str(tmp_path), settings=default_cell_count_method()))
 
     assert captured['significant_bits'] == 16

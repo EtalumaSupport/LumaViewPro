@@ -25,35 +25,6 @@ import pytest
 
 from tests.ast_seams import parse_module
 
-# ui.notification_popup imports Kivy widget classes at module scope; conftest
-# mocks `kivy` but not these submodules.
-#
-# These are REAL stub classes, not MagicMocks, and that distinction is
-# load-bearing across the whole suite: sys.modules entries planted here
-# outlive this module, and ui/file_dialogs.py does
-# `class FileChooseBTN(HoverBehavior, Button)`. A MagicMock Button makes that
-# a metaclass conflict at import time, which surfaces as errors in whichever
-# unrelated test file happens to import file_dialogs later.
-
-
-class _StubWidget:
-    def __init__(self, *args, **kwargs):
-        pass
-
-
-for _name, _attr in (
-    ('kivy.uix.boxlayout', 'BoxLayout'),
-    ('kivy.uix.button', 'Button'),
-    ('kivy.uix.label', 'Label'),
-    ('kivy.uix.popup', 'Popup'),
-):
-    if _name not in sys.modules:
-        _module = ModuleType(_name)
-        setattr(_module, _attr, type(_attr, (_StubWidget,), {}))
-        sys.modules[_name] = _module
-
-sys.modules.setdefault('kivy.uix', MagicMock())
-
 import ui.notification_popup as notification_popup
 from modules.notification_center import Notification, Severity
 
@@ -190,17 +161,31 @@ class TestBothEndsNameTheSameOperation:
         Walks the AST rather than the text, so a reformatted or line-wrapped
         call still counts and a mention inside a comment does not.
         """
-        tree = parse_module('modules/protocol_post_processor.py')
+        tree = parse_module('modules/stack_builder.py')
+        (boundary,) = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == 'build_hyperstacks_for_run'
+        ]
+        key_names = {
+            target.id
+            for node in ast.walk(boundary)
+            if isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Attribute)
+            and node.value.attr == 'operation_key'
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
         from_the_property = 0
         hand_spelled = []
-        for node in ast.walk(tree):
+        for node in ast.walk(boundary):
             if not isinstance(node, ast.Call):
                 continue
             for keyword in node.keywords:
                 if keyword.arg != 'operation_key':
                     continue
                 value = keyword.value
-                if isinstance(value, ast.Attribute) and value.attr == '_unattended_operation_key':
+                if isinstance(value, ast.Name) and value.id in key_names:
                     from_the_property += 1
                 else:
                     hand_spelled.append(node.lineno)
@@ -215,3 +200,144 @@ class TestBothEndsNameTheSameOperation:
             f'key; found {from_the_property}. The failure path is the one that '
             'gets forgotten, and no sim run reaches it.'
         )
+
+
+class TestARefusalThatNamesItsRemedyIsAnOffer:
+    """A notification carrying a remedy is shown as a confirmation whose confirm
+    asks the Session to apply it; the bridge renders the record and decides
+    nothing. It is a refusal popup like any other, so the next refusal replaces
+    it rather than stacking on it."""
+
+    @pytest.fixture
+    def offers(self, popup_surface, monkeypatch):
+        opened = []
+
+        def _fake_confirm(title, message, confirm_text, cancel_text, on_confirm, on_cancel=None):
+            popup = _FakePopup(title)
+            popup.confirm_text = confirm_text
+            popup.cancel_text = cancel_text
+            popup.confirm = on_confirm
+            opened.append(popup)
+            return popup
+
+        monkeypatch.setattr(notification_popup, 'show_confirmation_popup', _fake_confirm)
+        return opened
+
+    @staticmethod
+    def _refusal(title, *, timestamp, remedy=None):
+        from modules.notification_center import REFUSAL_OPERATION_KEY
+
+        return Notification(
+            severity=Severity.WARNING,
+            category='Protocol',
+            title=title,
+            message='body',
+            timestamp=timestamp,
+            operation_key=REFUSAL_OPERATION_KEY,
+            solicited=True,
+            remedy=remedy,
+        )
+
+    def test_the_offer_s_confirm_applies_the_remedy_through_the_session(self, offers, monkeypatch):
+        import modules.app_context as app_context
+        import ui.ui_helpers as ui_helpers
+        from modules.exceptions import Remedy
+
+        remedy = Remedy(
+            member='recover_file_writer',
+            confirm_text='Discard 3 unsaved and unlock',
+            cancel_text='Keep waiting',
+        )
+        session = MagicMock()
+        monkeypatch.setattr(app_context, 'ctx', SimpleNamespace(session=session), raising=False)
+        submitted = []
+        monkeypatch.setattr(
+            ui_helpers,
+            'submit_reported',
+            lambda call, redraw, label, **kw: submitted.append((call, label)),
+        )
+
+        notification_popup.notification_popup_bridge(
+            self._refusal('File Writer Stalled', timestamp=1.0, remedy=remedy)
+        )
+
+        (offer,) = offers
+        assert (offer.confirm_text, offer.cancel_text) == (
+            'Discard 3 unsaved and unlock',
+            'Keep waiting',
+        )
+        offer.confirm()
+        ((call, _label),) = submitted
+        call()
+        session.apply_remedy.assert_called_once_with(remedy)
+
+    def test_the_next_refusal_replaces_the_offer(self, offers, popup_surface):
+        from modules.exceptions import Remedy
+
+        remedy = Remedy(member='recover_file_writer', confirm_text='Go', cancel_text='Wait')
+        notification_popup.notification_popup_bridge(
+            self._refusal('File Writer Stalled', timestamp=1.0, remedy=remedy)
+        )
+        notification_popup.notification_popup_bridge(
+            self._refusal('Files Still Writing', timestamp=2.0)
+        )
+
+        (offer,) = offers
+        assert offer.dismissed, 'the offer outlived the refusal that replaced it'
+        assert len(popup_surface) == 1 and not popup_surface[0].dismissed
+
+
+class TestTheConfirmationHandsBackWhatItOpens:
+    def test_the_popup_returned_is_the_one_opened(self, monkeypatch):
+        """The supersession bookkeeping dismisses what the opener returned; a
+        confirmation that returned nothing would be dismissed as None by the
+        next refusal, raising inside the clock callback."""
+
+        opened = []
+
+        class _Widget:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            def add_widget(self, widget):
+                pass
+
+            def bind(self, **kwargs):
+                pass
+
+            def open(self):
+                opened.append(self)
+
+        for name in ('Label', 'BoxLayout', 'Button', 'Popup'):
+            monkeypatch.setattr(notification_popup, name, _Widget)
+
+        returned = notification_popup.show_confirmation_popup(
+            title='File Writer Stalled',
+            message='body',
+            confirm_text='Go',
+            cancel_text='Wait',
+            on_confirm=lambda: None,
+        )
+
+        assert opened == [returned]
+
+
+def test_a_notification_the_api_did_not_show_opens_nothing(popup_surface):
+    """Every listener hears a muted post, so the bridge receives it too; it
+    opens only what the API says is shown, and a muted one never replaces a
+    shown one."""
+    import dataclasses
+
+    notification_popup.notification_popup_bridge(
+        _notification('Saving Hyperstacks', operation_key=KEY, timestamp=1.0)
+    )
+    muted = dataclasses.replace(
+        _notification(
+            'Hyperstack Save Failed', operation_key=KEY, timestamp=2.0, severity=Severity.ERROR
+        ),
+        shown=False,
+    )
+    notification_popup.notification_popup_bridge(muted)
+
+    assert [popup.title for popup in popup_surface] == ['Saving Hyperstacks']
+    assert not popup_surface[0].dismissed

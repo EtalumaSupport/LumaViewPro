@@ -92,7 +92,7 @@ Install scripts are provided in the `scripts/` folder. They check your Python ve
 | macOS | `scripts/install_mac.sh` | `bash scripts/install_mac.sh` |
 | Linux | `scripts/install_linux.sh` | `bash scripts/install_linux.sh` |
 
-Add `--venv` to install in a virtual environment instead of system Python (e.g. `bash scripts/install_mac.sh --venv`).
+The macOS and Linux scripts always install into a virtual environment (`venv/`). On Windows, add `--venv` to install in a virtual environment instead of system Python (`scripts\install_windows.bat --venv`).
 
 **Note:** Camera SDK (Basler Pylon) must still be installed separately -- see platform instructions below.
 
@@ -133,10 +133,15 @@ Add `--venv` to install in a virtual environment instead of system Python (e.g. 
    ```bash
    brew install python@3.13
    ```
+   To profile LumaViewPro or dump the stacks of a hung one on a Mac
+   (`tools/profiling/`, py-spy, austin), start it from a Homebrew Python:
+   macOS refuses a profiler's attach, even under `sudo`, to the python.org
+   build, which is signed with the hardened runtime.
 
 2. **Install camera SDK**
    - [Basler Pylon for macOS](https://docs.baslerweb.com/pylon-software-suite)
    - [IDS Peak for macOS](https://en.ids-imaging.com/ids-peak.html) (if using an IDS camera)
+   - For an LS560, LS620 or LS720, nothing extra: the USB library comes with the Python requirements.
 
 3. **Download LumaViewPro**
    ```bash

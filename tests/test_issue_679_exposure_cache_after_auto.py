@@ -33,6 +33,7 @@ import pytest
 from drivers.simulated_camera import SimulatedCamera
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
+from tests.scope_fakes import give_camera_capabilities, give_stub_lanes
 
 
 @pytest.fixture
@@ -43,7 +44,8 @@ def sim_imaging():
     cam.active = True
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
-    scope._camera_executor = None
+    give_camera_capabilities(scope, cam)
+    give_stub_lanes(scope)
     scope._cam_lock = threading.RLock()
     scope._state_lock = threading.RLock()
     imaging = ImagingAPI(scope, cam)

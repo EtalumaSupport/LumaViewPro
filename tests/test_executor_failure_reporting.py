@@ -92,11 +92,31 @@ def test_failure_produces_one_task_failed_record_not_two(caplog):
     def pull_shot():
         raise ValueError('portafilter empty')
 
-    records = _run_failing_task(pull_shot, caplog)
-    task_failed = [r for r in records if 'task failed' in r.lower()]
-    assert len(task_failed) == 1, (
-        "The raise record must not duplicate the notification record's "
-        f"'task failed' wording, or counting failures double-counts: {records!r}"
+    with caplog.at_level(logging.INFO, logger='LVP.gui_interactions'):
+        records = _run_failing_task(pull_shot, caplog)
+        shown = [
+            r.getMessage()
+            for r in caplog.records
+            if r.name == 'LVP.gui_interactions' and r.getMessage().startswith('NOTIFICATION ')
+        ]
+
+    # One ERROR record, the reporter's: it names the symbol and the
+    # exception type for a developer. The display post writes no second
+    # ERROR line saying the same thing; what the user was shown is recorded
+    # once, in the interaction log.
+    assert len(records) == 1, f'exactly one ERROR record expected: {records!r}'
+    assert 'pull_shot' in records[0] and 'ValueError' in records[0], (
+        f'the record must name the symbol and the type for a developer: {records!r}'
+    )
+    # The interaction record reads 'NOTIFICATION <severity> | <category>/<title>
+    # | <message>'. The category is the dedup identity and is deliberately
+    # the symbol -- it is never shown to anyone. The title and message are
+    # what the user read, and they must not be spelled from the callable.
+    assert len(shown) == 1, f'exactly one user-facing record expected: {shown!r}'
+    _, where, message = shown[0].split(' | ', 2)
+    user_facing = f'{where.split("/", 1)[1]} {message}'
+    assert 'pull_shot' not in user_facing, (
+        f'the user-facing wording is a Python symbol: {user_facing!r}'
     )
 
 

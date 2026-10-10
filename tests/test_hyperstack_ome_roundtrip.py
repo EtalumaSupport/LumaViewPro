@@ -21,6 +21,9 @@ import tifffile as tf
 from modules import image_utils, recording_frames
 from modules.stack_builder import StackBuilder
 from tests.test_hyperstack_video_grouping import _frame_path, _stack_df
+from modules.recording_frames import FrameFact
+
+_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
 
 
 def _write_timestamped_frames(tmp_path, df, base_s=1_755_000_000.0, spacing_s=0.5):
@@ -36,6 +39,7 @@ def _write_timestamped_frames(tmp_path, df, base_s=1_755_000_000.0, spacing_s=0.
             chunks=None,
             tick_freq_hz=None,
             pixel_size_um=None,
+            fact=_FACT,
         )
         image_utils.write_tiff(
             data=np.full((4, 4), n, dtype=np.uint8),
@@ -56,6 +60,7 @@ def _build(tmp_path, df, out_name='out.ome.tiff'):
         path=tmp_path,
         df=group.reset_index(drop=True),
         output_file_loc=pathlib.Path(out_name),
+        save_encoding='right_aligned',
     )
     assert result.status, f'stack build failed: {result.error}'
     with tf.TiffFile(str(tmp_path / out_name)) as tif:

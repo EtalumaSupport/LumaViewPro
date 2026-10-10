@@ -22,6 +22,9 @@ import tifffile as tf
 import modules.image_utils as image_utils
 import modules.recording_frames as recording_frames
 from modules.video_builder import VideoBuilder
+from modules.recording_frames import FrameFact
+
+_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
 
 
 def _ts(frame_num: int) -> datetime.datetime:
@@ -70,6 +73,7 @@ def _write_manual_frame(folder, frame_num, *, include_iso=True, value=20000):
         chunks=None,
         tick_freq_hz=None,
         pixel_size_um=None,
+        fact=_FACT,
     )
     if not include_iso:
         # Older recordings predate the ISO timestamp; drop it to exercise the
@@ -151,16 +155,23 @@ def test_build_from_folder_manual_creates_video_excluding_hyperstack(tmp_path):
     out = _find_video(folder, folder.name)
     # 3 numbered frames; the HyperStack.ome.tiff must be excluded.
     assert _frame_count(out) == 3
+    # It says what it made, as a protocol folder's build does: the file, where it landed.
+    assert [pathlib.Path(p) for p in result['artifact_paths']] == [pathlib.Path(out)]
+    assert (result['new_count'], result['output_root']) == (1, str(folder))
 
 
-def test_build_from_folder_empty_returns_status_false(tmp_path):
+def test_build_from_folder_empty_is_refused(tmp_path):
+    import pytest
+
+    from modules.exceptions import PostProcessingRefusedError
+
     folder = tmp_path / 'empty'
     folder.mkdir()
     builder = VideoBuilder(has_turret=False)
-    result = builder.build_from_folder(folder, tmp_path / 'tiling.json', None)
-    # No manual frames -> falls through to load_folder, which reports no
-    # protocol data / no images rather than raising.
-    assert result['status'] is False
+    # No manual frames -> falls through to load_folder, which refuses a
+    # folder holding no protocol data.
+    with pytest.raises(PostProcessingRefusedError):
+        builder.build_from_folder(folder, tmp_path / 'tiling.json', None)
 
 
 def test_build_from_folder_routes_protocol_to_load_folder(tmp_path, monkeypatch):
@@ -174,7 +185,7 @@ def test_build_from_folder_routes_protocol_to_load_folder(tmp_path, monkeypatch)
 
     called = {}
 
-    def fake_load_folder(path, tiling_configs_file_loc, popup=None, **kwargs):
+    def fake_load_folder(path, tiling_configs_file_loc, on_progress=None, **kwargs):
         called['path'] = path
         return {'status': True, 'message': 'Success'}
 
@@ -348,7 +359,7 @@ def test_overlay_off_skips_to_pydatetime(tmp_path):
         frames_per_sec=5,
         enable_timestamp_overlay=False,
         output_file_loc=pathlib.Path('out.mp4'),
-        popup=None,
+        on_progress=None,
         total_groups=1,
         current_group=1,
     )
@@ -367,7 +378,7 @@ def test_overlay_off_skips_to_pydatetime(tmp_path):
         frames_per_sec=5,
         enable_timestamp_overlay=True,
         output_file_loc=pathlib.Path('out.mp4'),
-        popup=None,
+        on_progress=None,
         total_groups=1,
         current_group=1,
     )
@@ -401,7 +412,7 @@ def test_create_video_missing_timestamp_no_crash(tmp_path):
         frames_per_sec=5,
         enable_timestamp_overlay=True,
         output_file_loc=pathlib.Path('out.mp4'),
-        popup=None,
+        on_progress=None,
         total_groups=1,
         current_group=1,
     )

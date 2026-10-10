@@ -142,11 +142,16 @@ class ZProjector(ProtocolPostProcessor):
         return zprojection.ZProjectMethod.list()
 
     def _zproject_for_multi_channel(
-        self, images_data: list[np.ndarray], method: str
+        self, images_data: list[np.ndarray], method: zprojection.ZProjectMethod
     ) -> np.ndarray | None:
         sample_image = images_data[0]
         used_color_planes = image_utils.get_used_color_planes(image=sample_image)
-        out_image = np.zeros_like(sample_image, dtype=sample_image.dtype)
+        # Allocated at the projection's dtype, not the input's: a Sum of uint8
+        # planes is uint16 and would wrap in a uint8 canvas.
+        out_image = np.zeros(
+            sample_image.shape,
+            dtype=zprojection.projected_dtype(method, sample_image.dtype),
+        )
 
         for used_color_plane in used_color_planes:
             images_for_color_plane = []
@@ -214,7 +219,14 @@ class ZProjector(ProtocolPostProcessor):
             )
             orig_images.append(image)
             input_depths.append(significant_bits)
-        output_depth = image_utils.resolve_output_depth(input_depths)
+        input_depth = image_utils.resolve_output_depth(input_depths)
+        # A Sum reaches past its inputs' range and is tagged with the bits it
+        # can reach, by the rule a summed capture is tagged with; every other
+        # method keeps its values within the inputs' range.
+        if method == zprojection.ZProjectMethod.Sum:
+            output_depth = image_utils.summed_significant_bits(len(input_depths), input_depth)
+        else:
+            output_depth = input_depth
 
         try:
             # If working with color images, split the list of color images

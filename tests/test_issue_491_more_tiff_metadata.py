@@ -12,7 +12,7 @@ WellSite; the OME path had no Plate or Instrument blocks at all.
 Fix
 ---
 Per the Option-A scope agreed with Eric:
-- ImageJ Document block gets Model, SerialNumber, FirmwareVersion,
+- ImageJ Document block gets Model, SerialNumber,
   CameraModel, PlateName, PlateRows, PlateColumns.
 - OME tiff_metadata gets a top-level Instrument dict (Microscope +
   Objective + Detector sub-blocks) and a top-level Plate dict
@@ -70,7 +70,6 @@ def _build_metadata():
             'manufacturer': 'Etaluma',
             'model': 'LS850',
             'serial_number': 'EL0940-05',
-            'firmware_version': '3.0.7',
             'camera_model': 'Basler a2A3536-31umBAS',
         },
         'plate': {
@@ -100,7 +99,7 @@ def test_ome_path_has_instrument_microscope_block():
     assert micro['Manufacturer'] == 'Etaluma'
     assert micro['Model'] == 'LS850'
     assert micro['SerialNumber'] == 'EL0940-05'
-    assert micro['FirmwareVersion'] == '3.0.7'
+    assert 'FirmwareVersion' not in micro
 
 
 def test_ome_path_has_instrument_objective_block():
@@ -155,7 +154,7 @@ def test_imagej_document_block_extended():
     # New keys per #491.
     assert doc['Model'] == 'LS850'
     assert doc['SerialNumber'] == 'EL0940-05'
-    assert doc['FirmwareVersion'] == '3.0.7'
+    assert 'FirmwareVersion' not in doc
     assert doc['CameraModel'] == 'Basler a2A3536-31umBAS'
     assert doc['PlateName'] == '96 well microplate'
     assert doc['PlateRows'] == 8

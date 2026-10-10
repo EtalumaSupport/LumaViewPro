@@ -27,6 +27,7 @@ import os
 import pytest
 
 from modules import settings_init
+from modules.exceptions import InstallationFileError
 
 
 @pytest.fixture
@@ -45,7 +46,7 @@ def appdata(tmp_path):
         json.dump(template, f, indent=4)
 
     user = dict(template)
-    user['live_folder'] = '/tmp/the-users-own-folder'
+    user['live_folder'] = '/the-users-own-folder'
     with open(data / 'current.json', 'w') as f:
         json.dump(user, f, indent=4)
     return tmp_path
@@ -71,7 +72,7 @@ def _break(appdata, how):
     current = appdata / 'data' / 'current.json'
     if how == 'unparseable':
         with open(current, 'w') as f:
-            f.write('{"live_folder": "/tmp/the-users-own-folder",,,')
+            f.write('{"live_folder": "/the-users-own-folder",,,')
     elif how == 'missing_required':
         with open(current) as f:
             loaded = json.load(f)
@@ -101,12 +102,12 @@ class TestTheFileSurvives:
         settings_init.load_lvp_settings(__import__('logging').getLogger('t'), str(appdata))
         # The user's marker is gone -- that is the whole hazard, and why
         # saving is refused until they are told.
-        assert settings_init.settings['live_folder'] != '/tmp/the-users-own-folder'
+        assert settings_init.settings['live_folder'] != '/the-users-own-folder'
 
     def test_a_healthy_file_is_not_provisional(self, appdata):
         settings_init.load_lvp_settings(__import__('logging').getLogger('t'), str(appdata))
         assert not settings_init.settings_are_provisional()
-        assert settings_init.settings['live_folder'] == '/tmp/the-users-own-folder'
+        assert settings_init.settings['live_folder'] == '/the-users-own-folder'
 
     def test_a_second_load_does_not_inherit_the_verdict(self, appdata):
         log = __import__('logging').getLogger('t')
@@ -248,30 +249,51 @@ class TestShapeValidation:
     def test_an_unreadable_template_does_not_condemn_a_good_config(self, appdata):
         # A settings.json truncated by a bad upgrade must not be reported as
         # "current.json could not be used", sending the user to delete the
-        # one file that was still readable.
+        # one file that was still readable. It is the installation's fault,
+        # and the refusal names the template.
+        current = appdata / 'data' / 'current.json'
+        before = current.read_bytes()
         with open(appdata / 'data' / 'settings.json', 'w') as f:
             f.write('{"truncated": ')
 
-        self._load(appdata)
+        with pytest.raises(InstallationFileError) as refused:
+            self._load(appdata)
 
+        assert refused.value.file_path.name == 'settings.json'
+        assert current.read_bytes() == before
         assert not settings_init.settings_are_provisional()
-        assert settings_init.settings['live_folder'] == '/tmp/the-users-own-folder'
 
-    def test_the_healthy_shipped_template_validates_against_itself(self, appdata):
-        # If the rule rejects the app's own shipped config, the rule is wrong.
-        with open(appdata / 'data' / 'settings.json') as f:
-            template = json.load(f)
-        assert settings_init._check_container_shape(template, template) == []
+    def test_a_missing_template_is_refused_not_skipped(self, appdata):
+        # Without the template the merge has nothing to add, and the user's
+        # file would run without every key added since it was written.
+        os.remove(appdata / 'data' / 'settings.json')
+
+        with pytest.raises(InstallationFileError) as refused:
+            self._load(appdata)
+
+        assert refused.value.file_path.name == 'settings.json'
+
+    def test_a_fresh_install_with_an_unreadable_template_is_refused(self, appdata):
+        os.remove(appdata / 'data' / 'current.json')
+        with open(appdata / 'data' / 'settings.json', 'w') as f:
+            f.write('{"truncated": ')
+
+        with pytest.raises(InstallationFileError) as refused:
+            self._load(appdata)
+
+        assert refused.value.file_path.name == 'settings.json'
 
 
 class TestALateRejectionGetsTheSamePolicy:
     """A value that parses and is still unusable arrives AFTER the load.
 
-    prepare_settings can only reject what it can see: a file that will not
-    parse, or containers of the wrong kind. A binning label naming no
-    factor the arithmetic accepts survives all of that and is only found
-    when something tries to configure a scope from it -- so the recovery
-    needs a second trigger, running the same policy.
+    prepare_settings rejects what it can see: a file that will not parse,
+    containers of the wrong kind, and a stored value outside a range the
+    writer holds, replaced for its key alone. A ConfigError bring-up still
+    raises for a prepared file (a key the shipped template lacks, an
+    installation whose shipped objective is not in its catalogue) reaches
+    the host, so the recovery has a second trigger running the same policy;
+    the reason strings below are samples of that trigger's message.
     """
 
     def test_the_store_is_mutated_in_place_not_rebound(self, appdata):
@@ -281,14 +303,14 @@ class TestALateRejectionGetsTheSamePolicy:
         # settings_init saw the template -- one store with two contents.
         settings_init.load_lvp_settings(logging.getLogger('t'), str(appdata))
         store = settings_init.settings
-        assert store['live_folder'] == '/tmp/the-users-own-folder'
+        assert store['live_folder'] == '/the-users-own-folder'
 
         settings_init.fall_back_to_template(
             logging.getLogger('t'), str(appdata), "binning size is not square: '2x4'"
         )
 
         assert settings_init.settings is store, 'the store was rebound; aliases now diverge'
-        assert store['live_folder'] != '/tmp/the-users-own-folder', (
+        assert store['live_folder'] != '/the-users-own-folder', (
             'the store still holds the rejected configuration'
         )
 
@@ -323,5 +345,5 @@ class TestALateRejectionGetsTheSamePolicy:
         settings_init.load_lvp_settings(logging.getLogger('t'), str(appdata))
         os.remove(appdata / 'data' / 'settings.json')
 
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(InstallationFileError):
             settings_init.fall_back_to_template(logging.getLogger('t'), str(appdata), 'unusable')

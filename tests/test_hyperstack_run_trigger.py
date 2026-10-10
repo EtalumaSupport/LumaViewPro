@@ -5,18 +5,20 @@ The build trigger lived in the GUI tier (five protocol-settings call
 sites plus zstack), read its config from the live UI, and therefore
 never fired for a headless / L2 run. The runner owns every other
 end-of-run action, holds the run's own immutable config snapshot, and
-holds the file executor whose idle protocol queue is the
-all-files-flushed signal -- so the trigger lives there, and a run
-started from any host gets its stacks.
+holds the run's write batch whose completion is the all-files-written
+signal -- so the trigger lives there, and a run started from any host
+gets its stacks.
 """
 
 import datetime
 import threading
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
 from modules.image_mode import OUTPUT_FORMAT_HYPERSTACK, ImageCaptureConfig
+from modules.notification_center import OutcomeKind
+from modules.protocol_image_writer import RunWriteBatch
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.protocol_drives import bare_capture_runner
 
@@ -31,7 +33,9 @@ def _hyperstack_runner(tmp_path, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL)
     # The run resolved its data root at start; the build reads the tiling
     # config from there, not from wherever the process happens to live.
     runner._tiling_configs_file_loc = tmp_path / 'data' / 'tiling.json'
-    runner.file_io_executor.is_protocol_queue_active.return_value = False
+    # The run's writes, ended with nothing outstanding: its images are written.
+    runner._write_batch = RunWriteBatch(MagicMock())
+    runner._write_batch.close()
     runner._scope.capabilities.has_turret = False
     return runner
 
@@ -52,20 +56,36 @@ class TestRunnerHyperstackTrigger:
             run_dir=tmp_path,
             has_turret=False,
             tiling_configs_file_loc=tmp_path / 'data' / 'tiling.json',
+            wait_for_images=ANY,
+            save_encoding='8bit',
         )
 
-    def test_waits_for_the_protocol_file_queue_to_drain(self, tmp_path, monkeypatch):
+    def test_a_held_batch_builds_nothing_and_reports_the_timeout(
+        self, tmp_path, monkeypatch, centre_posts
+    ):
+        # The stacks are read back off the run's images: a build that
+        # started before the run's last write landed would silently miss
+        # planes. With a write held past the bound, the build waits, reads
+        # nothing, and says why under its own announcement.
         import modules.sequenced_capture_runner as scr
+        import modules.stack_builder as stack_builder
 
-        monkeypatch.setattr(scr, '_HYPERSTACK_QUEUE_POLL_S', 0.01)
+        monkeypatch.setattr(scr, '_POST_RUN_WRITES_WAIT_S', 0.05)
         runner = _hyperstack_runner(tmp_path)
-        # Queue active for the first two polls, then idle.
-        runner.file_io_executor.is_protocol_queue_active.side_effect = [True, True, False]
-        with patch('modules.stack_builder.build_hyperstacks_for_run') as build:
-            thread = runner._start_hyperstack_build()
-            _join(thread)
-        build.assert_called_once()
-        assert runner.file_io_executor.is_protocol_queue_active.call_count == 3
+        runner._write_batch = RunWriteBatch(MagicMock())
+        runner._write_batch.submit(lambda: None, {}, what='an image', pace_until=None)
+        runner._write_batch.close()
+        builder = MagicMock()
+        builder.operation_key = 'hyperstack_build'
+        monkeypatch.setattr(stack_builder, 'StackBuilder', lambda has_turret: builder)
+
+        _join(runner._start_hyperstack_build())
+
+        builder.load_folder.assert_not_called()
+        # The announcement is reported too; what went wrong is the rest.
+        (failure,) = [n for n in centre_posts if n.kind is not OutcomeKind.NOTICE]
+        assert (failure.kind, failure.reason) == (OutcomeKind.FAULT, 'write_batch_timeout')
+        assert failure.operation_key == builder.operation_key
 
     def test_the_build_holds_the_path_the_run_armed_it_with(self, tmp_path, monkeypatch):
         # The build runs on a daemon thread that outlives the run: the
@@ -74,24 +94,37 @@ class TestRunnerHyperstackTrigger:
         # Capturing the value at arming is what makes that impossible.
         import modules.sequenced_capture_runner as scr
 
-        monkeypatch.setattr(scr, '_HYPERSTACK_QUEUE_POLL_S', 0.01)
         runner = _hyperstack_runner(tmp_path)
         armed = runner._tiling_configs_file_loc
-        # The queue stays busy until this test has moved the field on,
-        # so the build cannot reach it before the successor's value is
-        # in place.
-        drained = threading.Event()
-        runner.file_io_executor.is_protocol_queue_active.side_effect = lambda: not drained.is_set()
+        armed_batch = MagicMock()
+        runner._write_batch = armed_batch
+        # The build step is held unstarted until this test has moved the
+        # fields on, so the build cannot reach them before the successor's
+        # values are in place.
+        held = []
+        monkeypatch.setattr(
+            runner, '_spawn_post_run_step', lambda name, build_fn: held.append(build_fn)
+        )
 
         with patch('modules.stack_builder.build_hyperstacks_for_run') as build:
-            thread = runner._start_hyperstack_build()
+            runner._start_hyperstack_build()
             runner._tiling_configs_file_loc = tmp_path / 'next_run' / 'data' / 'tiling.json'
-            drained.set()
-            _join(thread)
+            successor_batch = MagicMock()
+            runner._write_batch = successor_batch
+            (build_fn,) = held
+            build_fn()
 
         build.assert_called_once_with(
-            run_dir=tmp_path, has_turret=False, tiling_configs_file_loc=armed
+            run_dir=tmp_path,
+            has_turret=False,
+            tiling_configs_file_loc=armed,
+            wait_for_images=ANY,
+            save_encoding='8bit',
         )
+        # The images it waits for are its own run's, not the successor's.
+        build.call_args.kwargs['wait_for_images']()
+        armed_batch.wait_until_written.assert_called_once_with(scr._POST_RUN_WRITES_WAIT_S)
+        successor_batch.wait_until_written.assert_not_called()
 
     @pytest.mark.parametrize(
         'mutate',
@@ -179,6 +212,10 @@ RUN_MODE_ENGINE_BEHAVIOR = {
     },
     SequencedCaptureRunMode.SINGLE_ZSTACK: {
         'blocks_hyperstack_build': False,
+        'derives_scans_from_duration': False,
+    },
+    SequencedCaptureRunMode.SINGLE_AUTOFOCUS: {
+        'blocks_hyperstack_build': True,
         'derives_scans_from_duration': False,
     },
     SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN: {

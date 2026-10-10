@@ -13,7 +13,7 @@ hasattr/None-guard pattern, showing the gap was an omission.
 
 Fix
 ---
-Guard update_period, update_duration, prev_step, and next_step with the same
+Guard the period and duration edit (_edit_schedule), prev_step, and next_step with the same
 `hasattr(self, '_protocol') and self._protocol is not None` check before the
 first self._protocol.<...> call, returning early otherwise.
 
@@ -36,7 +36,7 @@ import pytest
 REPO = pathlib.Path(__file__).resolve().parents[1]
 PROTOCOL_SETTINGS_SRC = REPO / 'ui' / 'protocol_settings.py'
 
-GUARDED_HANDLERS = ['update_period', 'update_duration', 'prev_step', 'next_step']
+GUARDED_HANDLERS = ['_edit_schedule', 'prev_step', 'next_step']
 
 
 def _method_node(class_name: str, method_name: str) -> ast.FunctionDef:
@@ -60,19 +60,22 @@ def _guard_linenos(method: ast.FunctionDef) -> list[int]:
     return out
 
 
+def _is_self_attr(node: ast.AST, attr: str) -> bool:
+    return (
+        isinstance(node, ast.Attribute)
+        and node.attr == attr
+        and isinstance(node.value, ast.Name)
+        and node.value.id == 'self'
+    )
+
+
 def _protocol_deref_linenos(method: ast.FunctionDef) -> list[int]:
-    """Line numbers of `self._protocol.<attr>` accesses (the crashing use)."""
-    out = []
-    for node in ast.walk(method):
-        if (
-            isinstance(node, ast.Attribute)
-            and isinstance(node.value, ast.Attribute)
-            and node.value.attr == '_protocol'
-            and isinstance(node.value.value, ast.Name)
-            and node.value.value.id == 'self'
-        ):
-            out.append(node.lineno)
-    return out
+    """Line numbers of `self._protocol.<attr>` accesses."""
+    return [
+        node.lineno
+        for node in ast.walk(method)
+        if isinstance(node, ast.Attribute) and _is_self_attr(node.value, '_protocol')
+    ]
 
 
 @pytest.mark.parametrize('handler', GUARDED_HANDLERS)

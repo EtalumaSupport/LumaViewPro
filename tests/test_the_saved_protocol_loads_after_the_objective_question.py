@@ -1,0 +1,295 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+"""The saved protocol is loaded once the objective is settled, not before.
+
+Whether the scope can perform a protocol depends on what the turret
+carries. On a turreted scope, the slot at the current position is only
+assigned when the startup objective question is answered -- and the panel
+used to load the saved protocol from its own constructor, before that
+question was even asked. So the protocol was judged against a turret
+configuration that was about to change.
+
+The question is asked from three places: startup, the provisional-settings
+dialog resolving, and the turret arriving at an unassigned slot. Each is a
+good reason to ask again; none is a reason to re-load the saved protocol
+over whatever the user has done since. Hence the latch.
+
+And the continuation cannot hang on the answer alone. A question that
+raises is reported to the user and answers nothing, and the renderer
+returns when no question is owed -- a load hung only on an answer would
+never run on either, leaving the app with no protocol and no reason given.
+"""
+
+from __future__ import annotations
+
+import ast
+
+from tests.ast_seams import find_def, parse_module
+
+
+class TestTheStartupOrder:
+    def test_the_panel_does_not_load_the_saved_protocol_in_init(self):
+        """_init_ui runs from the panel's constructor, before the question."""
+        init_ui = find_def('ui/protocol_settings.py', '_init_ui')
+        assert init_ui is not None
+
+        calls = [
+            node.func.attr
+            for node in ast.walk(init_ui)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        ]
+        assert 'load_protocol' not in calls, (
+            '_init_ui loads the saved protocol again, before the objective '
+            'question has said what the turret carries'
+        )
+        assert 'load_persisted_protocol' not in calls, (
+            '_init_ui calls the startup loader directly; the startup sequence owns when that runs'
+        )
+
+    def test_the_startup_sequence_hangs_the_load_on_the_question(self):
+        fn = find_def('lumaviewpro.py', '_prompt_objective_if_needed')
+        assert fn is not None
+        src = ast.unparse(fn)
+
+        assert 'on_resolved' in src, (
+            'the startup prompt no longer passes a continuation, so the saved '
+            'protocol is never loaded'
+        )
+        assert '_load_persisted_protocol_once' in src
+
+
+class TestTheLatch:
+    def test_the_load_runs_once_however_often_the_question_is_asked(self):
+        """The turret re-ask and the settings re-ask must not re-load."""
+        loads = []
+
+        class _Panel:
+            def load_persisted_protocol(self):
+                loads.append(1)
+
+        class _App:
+            _persisted_protocol_loaded = False
+            _load_persisted_protocol_once = __import__(
+                'lumaviewpro', fromlist=['LumaViewProApp']
+            ).LumaViewProApp._load_persisted_protocol_once
+
+        import modules.app_context as _app_ctx
+
+        app = _App()
+        panel = _Panel()
+        original = _app_ctx.ctx
+        try:
+            _app_ctx.ctx = type(
+                'C',
+                (),
+                {'motion_settings': type('M', (), {'ids': {'protocol_settings_id': panel}})()},
+            )()
+            import lumaviewpro
+
+            lumaviewpro.ctx = _app_ctx.ctx
+            app._load_persisted_protocol_once()
+            app._load_persisted_protocol_once()
+            app._load_persisted_protocol_once()
+        finally:
+            _app_ctx.ctx = original
+
+        assert loads == [1], f'the saved protocol was loaded {len(loads)} times'
+
+    def test_the_latch_is_set_before_the_load_not_after(self):
+        """A load that raises must not leave the door open for a re-ask."""
+        fn = find_def('lumaviewpro.py', '_load_persisted_protocol_once')
+        assert fn is not None
+        body = ast.unparse(fn)
+
+        latch_at = body.index('_persisted_protocol_loaded = True')
+        load_at = body.index('load_persisted_protocol()')
+        assert latch_at < load_at, (
+            'the latch is set after the load, so a raising load lets the next question try again'
+        )
+
+
+class TestTheContinuationRunsOnEveryOutcome:
+    def _prompt_source(self) -> str:
+        fn = find_def('ui/vertical_control.py', 'prompt_if_objective_unknown')
+        assert fn is not None
+        return ast.unparse(fn)
+
+    def test_it_runs_when_no_question_is_owed(self):
+        src = self._prompt_source()
+        assert '_resolve_objective' in src, (
+            'nothing resolves the continuation when no question is owed, so an '
+            'already-confirmed scope never loads its saved protocol'
+        )
+
+    def test_it_is_withheld_while_settings_are_provisional(self):
+        """The one None that must NOT resolve: the host re-asks later."""
+        src = self._prompt_source()
+        assert 'settings_are_provisional' in src, (
+            'the continuation runs even while settings are provisional, where '
+            'the question is owed but its answer could not be kept'
+        )
+
+    # A question that raises -- refused or faulted -- is reported and still
+    # runs the continuation once: run against the real renderer in
+    # test_objective_selection_prompt.py, TestTheContinuationFollowsTheQuestion.
+
+    def test_it_runs_after_the_answer_even_if_rendering_it_fails(self):
+        fn = find_def('ui/vertical_control.py', '_apply_objective_answer')
+        assert fn is not None
+        finallies = [node for node in ast.walk(fn) if isinstance(node, ast.Try) and node.finalbody]
+        assert finallies, (
+            'the answer path has no finally, so a widget write that raises '
+            'strands the startup step waiting on the answer'
+        )
+        names = [
+            node.func.attr
+            for f in finallies
+            for node in ast.walk(ast.Module(body=f.finalbody, type_ignores=[]))
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        ]
+        assert '_resolve_objective' in names
+
+
+class TestAnEmptyPathIsNoSavedProtocol:
+    def test_nothing_is_loaded_and_nothing_is_reported(self, monkeypatch, caplog):
+        """A run of an unsaved protocol leaves the remembered path empty.
+        Path('') is the working folder and exists, so loading it raised and
+        an ERROR with a traceback said a fault happened where none did. The
+        Session answers None for an empty path without loading
+        (test_the_remembered_protocol_is_forgotten_only_when_gone); the
+        panel then adopts the empty protocol and reports nothing."""
+        import logging
+        from types import SimpleNamespace
+
+        import modules.app_context as _app_ctx
+        from tests.settings_fixtures import protocol_filepath_writer, settings_writer
+        from ui.protocol_settings import ProtocolSettings
+
+        empty = object()
+        settings = {'protocol': {'filepath': ''}}
+        monkeypatch.setattr(
+            _app_ctx,
+            'ctx',
+            SimpleNamespace(
+                settings=settings,
+                update_settings=settings_writer(settings),
+                set_protocol_filepath=protocol_filepath_writer(settings),
+                session=SimpleNamespace(
+                    create_empty_protocol=lambda: empty,
+                    open_remembered_protocol=lambda: None,
+                ),
+            ),
+        )
+        adopted = []
+        drawn = []
+        stand = SimpleNamespace(
+            _adopt_protocol=lambda *a, **kw: adopted.append(a),
+            _show_schedule=lambda: drawn.append('schedule'),
+            update_step_ui=lambda: drawn.append('steps'),
+        )
+
+        with caplog.at_level(logging.INFO):
+            ProtocolSettings.load_persisted_protocol(stand)
+
+        assert adopted == []
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert any('No saved protocol loaded at startup' in r.getMessage() for r in caplog.records)
+        assert settings['protocol']['filepath'] == ''
+        # The panel still adopts the empty protocol and draws it.
+        assert stand._protocol is empty
+        assert drawn == ['schedule', 'steps']
+
+
+class TestARefusedStartupLoadKeepsThePath:
+    def test_the_panel_leaves_the_remembered_path_to_the_session(self):
+        """Which failure forgets the path is the Session's rule
+        (open_remembered_protocol, tested in
+        test_the_remembered_protocol_is_forgotten_only_when_gone): the panel
+        asks it to open the protocol and never writes the path itself."""
+        fn = find_def('ui/protocol_settings.py', 'load_persisted_protocol')
+        assert fn is not None, 'the startup loader is gone'
+        src = ast.unparse(fn)
+
+        assert 'open_remembered_protocol()' in src
+        assert 'set_protocol_filepath' not in src
+        assert 'exists()' not in src
+
+    def test_a_kept_path_is_also_shown(self):
+        """Keeping the path in settings is no use if the panel reads blank.
+
+        load_protocol writes the filename label only on the branch where it
+        succeeds, so the branch that keeps a refused protocol's path has to
+        put the name on screen itself.
+        """
+        fn = find_def('ui/protocol_settings.py', 'load_persisted_protocol')
+        src = ast.unparse(fn)
+
+        assert 'protocol_filename' in src, (
+            'the refused-but-kept branch leaves the panel showing no filename '
+            'while settings still hold the path'
+        )
+
+
+class TestAdoptingIsNotNavigating:
+    """Adopting the saved protocol must not drive the stage.
+
+    The stage move used to be gated on ``ctx.initializing`` -- "am I still
+    booting?" -- which answered the same as "did a person ask for this?"
+    only while the load ran from the panel's constructor. Once the load
+    moved behind the objective question it ran after ``ready`` flips, so
+    the guard went on answering a question it could no longer see: a
+    protocol with steps drove X, Y and Z the instant the user confirmed an
+    objective, with Z travel nobody asked for.
+
+    The caller now states which kind of load this is, because that is the
+    fact the decision actually needs and the only one a future call site
+    cannot get wrong by accident.
+    """
+
+    @staticmethod
+    def _navigate_kwarg(fn):
+        """The ``navigate=`` value passed to the load or adoption call in ``fn``."""
+        for node in ast.walk(fn):
+            if not isinstance(node, ast.Call):
+                continue
+            name = getattr(node.func, 'attr', getattr(node.func, 'id', None))
+            if name not in ('load_protocol', '_adopt_protocol'):
+                continue
+            for kw in node.keywords:
+                if kw.arg == 'navigate':
+                    return ast.literal_eval(kw.value)
+            return 'ABSENT'
+        return 'NO CALL'
+
+    def test_the_startup_adoption_does_not_navigate(self):
+        fn = find_def(
+            'ui/protocol_settings.py', 'load_persisted_protocol', class_name='ProtocolSettings'
+        )
+        assert fn is not None
+
+        assert self._navigate_kwarg(fn) is False
+
+    def test_a_load_the_user_asked_for_does_navigate(self):
+        """The file dialog is a person asking; that behaviour is unchanged."""
+        assert self._navigate_kwarg(parse_module('ui/file_dialogs.py')) is True
+
+    def test_every_caller_must_say_which_kind_of_load_this_is(self):
+        """Keyword-only and undefaulted: a third call site has to decide
+        rather than inherit an answer nobody chose for it."""
+        fn = find_def('ui/protocol_settings.py', 'load_protocol', class_name='ProtocolSettings')
+
+        assert 'navigate' in [a.arg for a in fn.args.kwonlyargs], 'must be keyword-only'
+        index = [a.arg for a in fn.args.kwonlyargs].index('navigate')
+        assert fn.args.kw_defaults[index] is None, 'must have no default'
+
+    def test_the_decision_no_longer_asks_whether_the_app_is_booting(self):
+        """The proxy is gone, not merely bypassed -- leaving it would invite
+        the next reader to trust it again."""
+        fn = find_def('ui/protocol_settings.py', 'load_protocol', class_name='ProtocolSettings')
+
+        reads = [
+            node.attr
+            for node in ast.walk(fn)
+            if isinstance(node, ast.Attribute) and node.attr == 'initializing'
+        ]
+
+        assert reads == []

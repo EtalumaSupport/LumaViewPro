@@ -10,30 +10,45 @@ Three layers of readiness:
   runner._step_executor.scan_iterate() / scan_loop() directly.
 - run_loop_ready_runner(): additionally RUNNING state, zero period,
   go_to_step callback, and a mocked _cleanup -- drive
-  runner._run_loop_executor.run_loop() synchronously on the test
-  thread (cleanup behavior is covered separately on run_cleanup).
-
-autofocus_snapshot() builds the per-layer autofocus states and their
-restorer that prepare() requires, so the 20-odd drive sites carry one
-builder instead of one copy of the layer catalogue each.
+  runner._run_loop_executor.run_loop(runner.run_outcome()) synchronously
+  on the test thread (cleanup behavior is covered separately on
+  run_cleanup).
 """
 
 from __future__ import annotations
 
 import datetime
+import threading
 import time
 from unittest.mock import MagicMock
 
+from modules.activity_claim import ActivityClaim, RunIdentity
 from modules.image_mode import ImageCaptureConfig
+from modules.run_outcome import CaptureTally
+from tests.scope_fakes import swap_lanes
+from tests.settings_fixtures import complete_settings
+
+
+def held_run_claim():
+    """A run's activity claim, as the run holds it: what a top-level LED
+    lease is taken under. Each call is a fresh claim, so two leases never
+    share one; release() it to strand a lease taken under it."""
+    return ActivityClaim().try_claim('protocol', run=run_identity('test'))
+
+
+def lent_run_claim():
+    """A run's activity claim, lent: what the run's writer and its video
+    steps receive, so they record under the run's claim."""
+    return held_run_claim().lend()
 
 
 def wait_until_not_running(session, timeout: float = 5.0) -> bool:
     """Wait for a finished run to release the activity claim.
 
-    `run_complete` fires DURING cleanup; the claim -- and with it
-    `session.is_protocol_running` -- releases at cleanup END, a moment
-    later. A test that waits on the callback and then asserts the state
-    immediately is asserting mid-teardown, and passes or fails on timing.
+    `run_ended` and `handle.wait()` come only once the claim -- and
+    with it `session.is_protocol_running` -- is released, so after either
+    this returns at once; it confirms the release for a test that asserts
+    the state without having waited on the run itself.
 
     Shared because two test modules assert this same state after a
     completed run, and a second copy is a second thing to drift.
@@ -46,28 +61,45 @@ def wait_until_not_running(session, timeout: float = 5.0) -> bool:
     return True
 
 
-def _noop_restore(*, layer, value):
-    """A restorer that accepts the cleanup call and drops the value.
+# The longest a run may go without starting a step before it is called
+# stalled. One simulated step takes about 150 ms alone; this is far past a
+# step slowed by a loaded host, and short enough that a hang fails promptly.
+STEP_STALL_S = 15.0
 
-    For drives whose subject is not where the autofocus states land.
+
+class StepHeartbeat:
+    """A run's step_started handler that also notes when each step starts.
+
+    The runner sends step_started once per step, so the time since the last
+    one says whether the run is still moving. Wraps the test's own handler,
+    if it has one.
     """
-    return None
+
+    def __init__(self, inner=None):
+        self._inner = inner
+        self._last = time.monotonic()
+
+    def __call__(self, step_idx):
+        self._last = time.monotonic()
+        if self._inner is not None:
+            self._inner(step_idx)
+
+    def idle_s(self) -> float:
+        return time.monotonic() - self._last
 
 
-def autofocus_snapshot(states: dict | None = None, restore=None):
-    """The autofocus snapshot prepare() requires.
+def wait_for_run_end(done: threading.Event, heartbeat: StepHeartbeat) -> bool:
+    """Wait for a run to end; False only when it stopped starting steps.
 
-    States default to the whole layer catalogue with autofocus off --
-    what a settings dict straight off the shipped template yields -- and
-    the restorer defaults to a no-op, so a drive that does not care where
-    the values land still hands the runner a complete object.
+    A bound on the whole run fails a long run on a loaded host: the 50-step
+    runs take about 8 s alone and failed their 15 s bound whenever another
+    suite shared the machine. A run that keeps starting steps is not hung,
+    however slowly it goes, so only a stall of STEP_STALL_S fails it.
     """
-    import modules.common_utils as common_utils
-    from modules.config_helpers import AutofocusSnapshot
-
-    if states is None:
-        states = dict.fromkeys(common_utils.get_layers(), False)
-    return AutofocusSnapshot(states=states, restore=restore or _noop_restore)
+    while not done.wait(timeout=0.25):
+        if heartbeat.idle_s() > STEP_STALL_S:
+            return done.is_set()
+    return True
 
 
 def protocol_step(**overrides):
@@ -93,27 +125,43 @@ def protocol_step(**overrides):
     return step
 
 
+def run_identity(trigger: str = 'test', words: str = 'scan') -> RunIdentity:
+    """A run's identity for a test that takes or dispatches as a run."""
+    return RunIdentity(trigger=trigger, words=words)
+
+
 def bare_capture_runner(**overrides):
     """SequencedCaptureRunner with MagicMock deps."""
     from modules.sequenced_capture_runner import SequencedCaptureRunner
 
     kwargs = {
         'scope': MagicMock(),
-        'stage_offset': {},
-        'io_executor': MagicMock(),
         'protocol_thread': MagicMock(),
         'file_io_executor': MagicMock(),
-        'camera_executor': MagicMock(),
-        'autofocus_thread': MagicMock(is_running=False),
+        'autofocus_thread': MagicMock(in_flight_sweep=None),
+        'activity_claim': ActivityClaim(),
         'autofocus_runner': MagicMock(),
     }
     kwargs.update(overrides)
+    if 'scope' not in overrides:
+        # A run is refused, and a capture raises, while any axis position is
+        # unknown; a bare mock answers that question with a truthy mock, so
+        # the default scope states the homed answer. A test about position
+        # passes its own scope.
+        kwargs['scope'].motion.axes_without_position.return_value = {}
+    # The engine reads IO and CAMERA from its scope; a test that passes its
+    # own lane puts it there.
+    swap_lanes(
+        kwargs['scope'],
+        io=kwargs.pop('io_executor', None),
+        camera=kwargs.pop('camera_executor', None),
+    )
     runner = SequencedCaptureRunner(**kwargs)
-    runner.file_io_executor.is_protocol_queue_active.return_value = False
-    # The real executor returns an int drop count (0 on a clean run); the mock
-    # must too, or run-end cleanup compares a MagicMock against an int.
-    runner.file_io_executor.protocol_dropped_count.return_value = 0
-    runner.file_io_executor.protocol_backpressure_blocked_s.return_value = 0.0
+    # A run takes the camera only once the camera lane is idle; a bare mock
+    # answers "busy" and "stalled" with truthy mocks, so the default lane
+    # states the idle answer. A test about the lane passes its own executor.
+    runner.camera_executor.is_busy.return_value = False
+    runner.camera_executor.in_flight_task_stalled.return_value = False
     return runner
 
 
@@ -132,6 +180,9 @@ def scr_run_kwargs(**overrides):
     protocol.period.return_value = datetime.timedelta(0)
     protocol.duration.return_value = datetime.timedelta(hours=1)
     protocol.copy_for_execution.return_value = protocol
+    # The run hands its writer the plate the protocol names, so the plate
+    # is a catalogue name, as a real protocol's is after validate_for_run.
+    protocol.labware.return_value = '96 well microplate'
     kwargs = {
         'protocol': protocol,
         'run_trigger_source': 'test',
@@ -143,18 +194,37 @@ def scr_run_kwargs(**overrides):
         'disable_saving_artifacts': True,
     }
     kwargs.update(overrides)
-    # Built only when the caller did not speak for it, so a drive whose
-    # subject IS the absent snapshot can pass None and drop the key
-    # without the builder quietly constructing one behind it.
-    if 'autofocus_snapshot' not in kwargs:
-        kwargs['autofocus_snapshot'] = autofocus_snapshot(states={})
     return kwargs
+
+
+def stand_in_step_targets(scope, *, plate_to_stage=(0.0, 0.0)):
+    """Answer ``scope.protocols``' step conversion from the protocol's own rows.
+
+    A mock scope's protocols API cannot convert a plate position (its plate
+    catalogue is a mock); this answers every step's X/Y with
+    *plate_to_stage* and its Z from the step, with no turret slot.
+    """
+    from modules.lumascope_api.protocols import StepTargets
+
+    scope.protocols.plate_to_stage.side_effect = lambda protocol, px, py, stage_offset=None: (
+        plate_to_stage
+    )
+    scope.protocols.step_targets.side_effect = lambda protocol, step_idx, stage_offset=None: (
+        StepTargets(
+            turret_slot=None,
+            x=plate_to_stage[0],
+            y=plate_to_stage[1],
+            z=protocol.step(idx=step_idx)['Z'],
+        )
+    )
 
 
 def scan_ready_runner(step, **state):
     """Runner advanced to the scan-ready state prepare()+start()
     normally establish, with a single-step protocol mock returning *step*.
     Keyword args land as runner attributes (e.g. _n_scans=2)."""
+    from modules.protocol_state_machine import ProtocolState, SequencedCaptureRunMode
+
     runner = bare_capture_runner()
     runner._scope.motion.is_moving.return_value = False
     runner._scope.led_connected = False
@@ -164,21 +234,24 @@ def scan_ready_runner(step, **state):
     runner._protocol = protocol
     runner._n_scans = 1
     runner._scan_in_progress.set()
-    runner._run_in_progress_event.set()
-    runner._autogain_settings = {}
+    runner._state = ProtocolState.RUNNING
+    # prepare() always carries the target the takeover writes to the camera.
+    runner._autogain_settings = {'target_brightness': 0.5}
     runner._image_writer = MagicMock()
+    # This drive saves nothing, so its run is asked for no captures.
+    runner._image_writer.capture_tally = CaptureTally(asked=0, captured=0, failed=())
     runner._disable_saving_artifacts = True
     runner._enable_image_saving = False
     runner._image_capture_config = ImageCaptureConfig.from_image_mode('8bit')
     runner._separate_folder_per_channel = False
     runner._video_as_frames = False
-    runner._leds_state_at_end = 'off'
+    runner._run_mode = SequencedCaptureRunMode.FULL_PROTOCOL
     runner._keep_led_between_steps = False
-    runner._ag_ae_max_exposure_ms = {}
-    runner._update_z_pos_from_autofocus = False
+    runner._ag_ae_max_exposure_ms = complete_settings()['ag_ae_max_exposure_ms']
+    runner._write_focus_to = None
     runner._save_autofocus_data = False
     runner._parent_dir = None
-    runner._run_trigger_source = 'test'
+    runner._run_identity = run_identity()
     for key, value in state.items():
         setattr(runner, key, value)
     return runner
@@ -186,10 +259,11 @@ def scan_ready_runner(step, **state):
 
 def run_loop_ready_runner(step, n_scans=1, **state):
     """Runner ready for a synchronous run_loop() drive: RUNNING state,
-    zero-period protocol, go_to_step handled by a callback mock, and
+    zero-period protocol, step_started handled by a mock, and
     _cleanup mocked out (its behavior is covered on run_cleanup)."""
-    from modules.protocol_callbacks import ProtocolCallbacks
+    from modules.run_events import RunEvents
     from modules.protocol_state_machine import ProtocolState
+    from modules.run_outcome import PendingRunOutcome
 
     runner = scan_ready_runner(step, **state)
     runner._scan_in_progress.clear()
@@ -197,7 +271,18 @@ def run_loop_ready_runner(step, n_scans=1, **state):
     runner._protocol.period.return_value = datetime.timedelta(0)
     # _start_t is a monotonic timestamp (seconds), matching the run loop's pacing.
     runner._start_t = time.monotonic()
-    runner._callbacks = ProtocolCallbacks(go_to_step=MagicMock())
+    runner._events = RunEvents(step_started=MagicMock())
+    # The run moves every step itself: a turretless scope on a flat plate
+    # frame, its moves queued on the io executor mock.
+    runner._scope.capabilities.has_turret = False
+    stand_in_step_targets(runner._scope, plate_to_stage=(0.0, 0.0))
     runner._cleanup = MagicMock()
+    # The loop's first act takes the camera: it snapshots the camera and
+    # takes the auto-gain arm out of that snapshot. A bare mock snapshot
+    # answers the arm with a mock, which the arm take cannot apply, so the
+    # default snapshot states the common case: no standing arm.
+    runner._scope.imaging.save_camera_state.return_value = {'auto_gain_arm': None}
+    # The run the loop is dispatched for: every cleanup it asks for names it.
+    runner._run_outcome = PendingRunOutcome()
     runner._set_state(ProtocolState.RUNNING)
     return runner

@@ -39,7 +39,25 @@ $ErrorActionPreference = "Stop"
 # folder that orphaned the user's settings, and `TIFF strings must be
 # 7-bit ASCII` on every save. A diagnostic has no business sharing a file
 # with a path-critical string; v2 must not build this branch.
-$script_version = 3
+#
+# v4: the clone's commit is written into .git_archival.txt, which the release
+# spec bundles, so the installed banner's Git: line names the commit through
+# LVP's one reader. A v3 build of this branch ships with Git: unknown.
+#
+# v5: the venv is built from requirements-build.txt (the app's requirements
+# plus the pinned PyInstaller and its hooks), no longer requirements-dev.txt,
+# and a cached venv is rebuilt when the branch's requirements change. v4
+# installs the dev file, so the test runner, linter and profiler sit in the
+# venv PyInstaller packs from, where any library's optional import can collect
+# one into the installer (scipy's and scikit-image's testers import pytest).
+#
+# v6: PyInstaller's DEBUG output and the pip freeze are written to their own
+# files beside the warn file and TOCs, and the console shows PyInstaller at
+# INFO and above. v5 left them only in the transcript, and a second build in
+# one Windows PowerShell 5.1 window transcribed no native program's output,
+# so that build kept no record of what it packed or where each binary came
+# from.
+$script_version = 6
 
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
 $script_dir = Split-Path -Parent $PSCommandPath
@@ -472,14 +490,24 @@ if (Test-Path $min_file) {
 
 Remove-Item "$clone\.git*" -Recurse -Force -ErrorAction SilentlyContinue
 
+# The installed banner names its commit through LVP's one reader, which reads
+# .git_archival.txt beside the bundled code. Written after the .git* removal
+# above, which would take it too, and with no byte-order mark (see v3). An
+# installer that cannot name its commit is refused, not shipped.
+if (-not $git_sha) {
+    Write-Host "ERROR: the clone's commit could not be read; an installer must name the commit it was built from."
+    Exit 1
+}
+[System.IO.File]::WriteAllText((Join-Path $clone ".git_archival.txt"), "node: $git_sha`n", (New-Object System.Text.UTF8Encoding $false))
+
 # ---------------------------------------------------------------------------
 # Read version
 # ---------------------------------------------------------------------------
 $ver_raw = (Get-Content "$clone\version.txt" -TotalCount 1).Trim()
 if ($ver_raw -match '^\S+') { $version = $matches[0] } else { Write-Host "ERROR: Can't parse version.txt"; Exit 1 }
 
-# Stamp a real BUILD identity. version.txt lines 2-4 are written by the
-# pre-commit hook and identify a COMMIT (line 4's "GUID" is random per
+# Stamp a real BUILD identity. version.txt lines 2-3 are written by the
+# pre-commit hook and identify a COMMIT (line 3's "GUID" is random per
 # commit, not per build), so every rebuild of one SHA produced banners
 # that were byte-identical -- three builds of f17cac2a on 2026-08-17 all
 # reported the same GUID, and the only way to tell them apart was an
@@ -591,46 +619,84 @@ Rename-Item $clone $product
 # Create build venv and install dependencies
 # ---------------------------------------------------------------------------
 Write-Phase "Build Environment"
-$recreate_build_env = $BuildType -eq "Release"
 
-if ($recreate_build_env -and (Test-Path $venv)) {
-    Write-Host "Removing cached build environment for release build..."
-    Remove-Item $venv -Recurse -Force
+# What the venv is built from. A branch older than requirements-build.txt
+# pins PyInstaller in its dev file, so it is built from that, as it always was.
+if (Test-Path "$src\requirements-build.txt") {
+    $requirements_file = "$src\requirements-build.txt"
+} elseif (Test-Path "$src\requirements-dev.txt") {
+    $requirements_file = "$src\requirements-dev.txt"
+    Write-Host "This branch has no requirements-build.txt; installing its requirements-dev.txt, as builds of it always have."
+} else {
+    Write-Host "ERROR: this branch has neither requirements-build.txt nor requirements-dev.txt, so nothing pins PyInstaller."
+    Set-Location $build_dir
+    Exit 1
 }
 
-$venv_python = Join-Path $venv "Scripts\python.exe"
-$venv_exists = Test-Path $venv_python
+# A cached venv is reused only if it was built from these requirements:
+# pip install -r adds and changes packages but never removes one, so a venv
+# kept across a requirements change keeps everything the old ones installed.
+# The stamp names every requirements*.txt at the branch root, not only the
+# files the install reads, because following -r lines here would be a second
+# requirements parser; the cost is a rebuild when only the dev file changes.
+$stamp_file = Join-Path $venv "lvp_requirements.stamp"
+$stamp_lines = @("python $($python.Version) $($python.Executable)")
+foreach ($req in Get-ChildItem "$src\requirements*.txt" | Sort-Object Name) {
+    $stamp_lines += "$($req.Name) $((Get-FileHash $req.FullName -Algorithm SHA256).Hash)"
+}
+$stamp = $stamp_lines -join "`n"
 
-if (-not $venv_exists) {
-    Write-Host "Creating build venv..."
+$venv_python = Join-Path $venv "Scripts\python.exe"
+$recreate_reason = if ($BuildType -eq "Release") {
+    "release build"
+} elseif (-not (Test-Path $venv_python)) {
+    "no cached environment"
+} elseif (-not (Test-Path $stamp_file)) {
+    "the cached environment records no requirements"
+} elseif ([System.IO.File]::ReadAllText($stamp_file) -ne $stamp) {
+    "this branch's requirements differ from the cached environment's"
+} else {
+    $null
+}
+
+if ($recreate_reason) {
+    if (Test-Path $venv) {
+        Write-Host "Removing cached build environment..."
+        Remove-Item $venv -Recurse -Force
+    }
+    Write-Host "Creating build venv: $recreate_reason"
     & $python.Command @($python.Args + @("-m", "venv", $venv))
     if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Failed to create venv"; Exit 1 }
 } else {
-    Write-Host "Reusing cached build environment: $venv"
+    Write-Host "Reusing cached build environment, built from these requirements: $venv"
 }
-
-$venv_python = Join-Path $venv "Scripts\python.exe"
 
 Write-Host "Upgrading pip..."
 & $venv_python -m pip install --upgrade pip --quiet
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Failed to upgrade pip in build venv"; Set-Location $build_dir; Exit 1 }
 
-if (Test-Path "$src\requirements-dev.txt") {
-    Write-Host "Installing build dependencies..."
-    & $venv_python -m pip install -r "$src\requirements-dev.txt"
-} else {
-    Write-Host "Installing runtime dependencies..."
-    & $venv_python -m pip install -r "$src\requirements.txt"
-    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: pip install failed"; Set-Location $build_dir; Exit 1 }
-
-    Write-Host "Installing PyInstaller..."
-    & $venv_python -m pip install pyinstaller
-}
+Write-Host "Installing build dependencies from $(Split-Path -Leaf $requirements_file)..."
+& $venv_python -m pip install -r $requirements_file
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: pip install failed"; Set-Location $build_dir; Exit 1 }
 
 # Verify PyInstaller is available
 & $venv_python -m PyInstaller --version
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: PyInstaller not available in build venv"; Set-Location $build_dir; Exit 1 }
+
+# The packing environment, versions included: the TOC manifests name the
+# files that shipped, and this is the one record of which release of each
+# package they came from. Its own file in the output folder, because the
+# transcript does not reliably hold a native program's output.
+$freeze = & $venv_python -m pip freeze
+if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: pip freeze failed"; Set-Location $build_dir; Exit 1 }
+$freeze_file = Join-Path $output_dir "pip_freeze_${version}_$build_log_ts.txt"
+[System.IO.File]::WriteAllLines($freeze_file, [string[]]$freeze)
+Write-Host "Build environment packages ($freeze_file):"
+$freeze | ForEach-Object { Write-Host $_ }
+
+# Written last, once the environment is complete and recorded, so an install
+# that failed part-way is never taken for a finished one by the next build.
+[System.IO.File]::WriteAllText($stamp_file, $stamp)
 
 # ---------------------------------------------------------------------------
 # Build EXE
@@ -670,19 +736,38 @@ if ($fx2_libusb_dll) {
 } else {
     $env:FX2_LIBUSB_DLL = ""
 }
-# DEBUG level so the transcript names PyInstaller's binary-dependency
-# search directories -- the record of WHERE each collected DLL came
-# from. At WARN those lines are suppressed and a bad collected binary
-# (e.g. a stale C runtime scavenged from the build box) is
-# undiagnosable after the fact.
-& $venv_python -m PyInstaller --log-level DEBUG .\lumaviewpro.spec
-$pyi_exit = $LASTEXITCODE
+# DEBUG level so the record names PyInstaller's binary-dependency search
+# directories -- WHERE each collected DLL came from. At WARN those lines are
+# suppressed and a bad collected binary (e.g. a stale C runtime scavenged
+# from the build box) is undiagnosable after the fact.
+#
+# Every line goes to its own file in the output folder; the console shows
+# INFO and above. Written by this script, not left to the transcript, which
+# in a reused Windows PowerShell 5.1 window holds no native output. Stderr is
+# merged so PyInstaller's log reaches the file, which on 5.1 turns each line
+# into an error record: "Continue" keeps the first one from ending the build,
+# and the exit code decides.
+$pyi_log = Join-Path $output_dir "pyinstaller_${version}_$build_log_ts.log"
+$pyi_writer = New-Object System.IO.StreamWriter($pyi_log, $false, (New-Object System.Text.UTF8Encoding($false)))
+$ErrorActionPreference = "Continue"
+try {
+    & $venv_python -m PyInstaller --log-level DEBUG .\lumaviewpro.spec 2>&1 | ForEach-Object {
+        $line = "$_"
+        $pyi_writer.WriteLine($line)
+        if ($line -notmatch '^\d+ DEBUG: ' -and $line -notmatch '^\[DEBUG') { Write-Host $line }
+    }
+    $pyi_exit = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = "Stop"
+    $pyi_writer.Close()
+}
+Write-Host "PyInstaller log: $pyi_log"
 $env:FX2_LIBUSB_DLL = $null
 if ($pyi_exit -ne 0) { Write-Host "ERROR: PyInstaller failed"; Set-Location $build_dir; Exit 1 }
 
-# The transcript is the ONLY artifact that survives the _tmp cleanup, so
-# every freeze diagnostic must land in it (and a copy of the warn file
-# lands next to the build log). Losing the warn file cost a full client
+# Only the output folder survives the _tmp cleanup, so every freeze
+# diagnostic must land in it: the warn file is copied there and echoed into
+# the transcript. Losing the warn file cost a full client
 # round-trip diagnosing a module PyInstaller had flagged at build time.
 Write-Host "--- PyInstaller warn file ---"
 $warn_file = Get-ChildItem ".\build\lumaviewpro\warn-*.txt" -ErrorAction SilentlyContinue | Select-Object -First 1

@@ -191,7 +191,7 @@ def test_pre_v7_compose_and_compare_recovers_flag_per_row(tmp_path):
 # ---------------------------------------------------------------------------
 
 _ZSTACK = {'range': 100.0, 'step_size': 20.0, 'z_reference': 'center'}
-_WIDE_Z = {'Z': {'limits': {'min': 0.0, 'max': 10000.0}}}
+_WIDE_Z = {'Z': {'min': 0.0, 'max': 10000.0}}
 
 
 def _labeled_step(label='Treatment_10x', **kwargs):
@@ -210,7 +210,7 @@ def _labeled_step(label='Treatment_10x', **kwargs):
 
 def test_zstack_children_keep_parent_label():
     proto = _build_protocol([_labeled_step(z=5000.0)])
-    proto.apply_zstacking(zstack_params=_ZSTACK, axes_config=_WIDE_Z)
+    proto.apply_zstacking(zstack_params=_ZSTACK, axis_limits=_WIDE_Z)
     steps = proto.steps()
     assert len(steps) == 6
     assert list(steps['Label']) == ['Treatment_10x'] * 6
@@ -220,25 +220,25 @@ def test_zstack_children_keep_parent_label():
 
 def test_tiling_children_keep_parent_label(scale_capabilities):
     from modules.labware_loader import WellPlateLoader
+    from modules.objectives_loader import ObjectiveLoader
 
     labware = WellPlateLoader().get_plate('6 well microplate')
-    axes_config = {
-        'X': {'limits': {'min': -1_000_000.0, 'max': 1_000_000.0}},
-        'Y': {'limits': {'min': -1_000_000.0, 'max': 1_000_000.0}},
+    axis_limits = {
+        'X': {'min': -1_000_000.0, 'max': 1_000_000.0},
+        'Y': {'min': -1_000_000.0, 'max': 1_000_000.0},
     }
     proto = _build_protocol([_labeled_step(x=60.0, y=40.0)])
-    status = proto.apply_tiling(
+    proto.apply_tiling(
         tiling='2x2',
         frame_dimensions={'width': 1900, 'height': 1900},
         binning_size=1,
-        curr_step_idx=0,
-        axes_config=axes_config,
+        axis_limits=axis_limits,
         labware=labware,
         stage_offset={'x': 0, 'y': 0},
         overlap_percent=0.0,
         capabilities=scale_capabilities,
+        objective_helper=ObjectiveLoader(),
     )
-    assert status['tiles_skipped'] == 0
     steps = proto.steps()
     assert len(steps) == 4, f'2x2 tiling must expand to 4 steps, got {len(steps)}'
     assert list(steps['Label']) == ['Treatment_10x'] * 4
@@ -422,9 +422,10 @@ def test_recover_label_post_record_output_adjusted_rows_stay_machine():
 
 
 # ---------------------------------------------------------------------------
-# Fix 2: a blank Z-Slice cell forces the column to float64 at read; the
-# loader must normalize to the int / -1-sentinel form so compose-and-compare
-# still matches ('Z3' not 'Z3.0') and names never render float tokens.
+# Fix 2: Z-Slice is read as a whole number, so compose-and-compare matches
+# ('Z3' not 'Z3.0') and names never render float tokens. A blank Z-Slice is
+# a cell of the wrong type -- no shipped writer left one blank -- and refuses
+# the file rather than being guessed as -1.
 # ---------------------------------------------------------------------------
 
 _V6_ZFLOAT = (
@@ -445,9 +446,16 @@ _V6_ZFLOAT = (
 )
 
 
-def test_float_zslice_column_does_not_misclassify_names(tmp_path):
+def test_a_blank_zslice_refuses_the_file(tmp_path):
     src = tmp_path / 'v6_zfloat.tsv'
     src.write_text(_V6_ZFLOAT)
+    with pytest.raises(ProtocolFormatError, match='Z-Slice'):
+        Protocol.from_file(file_path=src, tiling_configs_file_loc=TILING_CONFIGS)
+
+
+def test_zslice_reads_as_a_whole_number_and_names_render_from_it(tmp_path):
+    src = tmp_path / 'v6_zint.tsv'
+    src.write_text(_V6_ZFLOAT.replace('A3\t\t\t', 'A3\t\t-1\t'))
     proto = Protocol.from_file(file_path=src, tiling_configs_file_loc=TILING_CONFIGS)
     steps = proto.steps()
     # The Z3 row must still compose-and-compare as machine (Label '') and
@@ -733,6 +741,8 @@ def test_unreadable_post_record_moved_aside_and_fresh_record_started(tmp_path, m
     corrupt_path.write_text(corrupt_text)
 
     helper = ProtocolPostProcessingHelper()
+    exec_record = MagicMock()
+    exec_record.num_records.return_value = 1
     monkeypatch.setattr(
         helper,
         '_find_protocol_tsvs',
@@ -740,15 +750,11 @@ def test_unreadable_post_record_moved_aside_and_fresh_record_started(tmp_path, m
             'protocol_root_dir': tmp_path,
             'protocol': tmp_path / 'protocol.tsv',
             'protocol_execution_record': tmp_path / 'protocol_execution_record.tsv',
+            'execution_record': exec_record,
             'protocol_post_record': corrupt_path,
         },
     )
     monkeypatch.setattr(pph.Protocol, 'from_file', staticmethod(lambda **kwargs: MagicMock()))
-    exec_record = MagicMock()
-    exec_record.num_records.return_value = 1
-    monkeypatch.setattr(
-        pph.ProtocolExecutionRecord, 'from_file', staticmethod(lambda **kwargs: exec_record)
-    )
     monkeypatch.setattr(
         helper, '_get_image_filenames_from_folder', lambda **kwargs: {'raw': [], 'post': []}
     )

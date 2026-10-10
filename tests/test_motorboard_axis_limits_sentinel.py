@@ -25,6 +25,7 @@ import ast
 import pathlib
 
 import pytest
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +47,7 @@ class TestMotorBoardReturnsSentinelForNoLimits:
         # __init__ and inject a minimal axes_config. The driver method
         # under test reads only self.axes_config.
         with patch.object(MotorBoard, '__init__', lambda self, *a, **kw: None):
-            mb = MotorBoard()
+            mb = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
             mb.axes_config = {
                 'X': {'limits': {'min': 0, 'max': 100000}, 'move_func': lambda x: x},
                 'Y': {'limits': {'min': 0, 'max': 100000}, 'move_func': lambda x: x},
@@ -91,7 +92,7 @@ class TestSimulatedMotorBoardReturnsSentinelForNoLimits:
     def test_t_axis_returns_none_not_raises(self):
         from drivers.simulated_motorboard import SimulatedMotorBoard
 
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         result = board.get_axis_limits('T')
         assert result is None, (
             "SimulatedMotorBoard.get_axis_limits('T') must return None "
@@ -101,17 +102,18 @@ class TestSimulatedMotorBoardReturnsSentinelForNoLimits:
     def test_xyz_still_returns_limits_dict(self):
         from drivers.simulated_motorboard import SimulatedMotorBoard
 
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         for axis in ('X', 'Y', 'Z'):
             limits = board.get_axis_limits(axis)
             assert limits is not None
             assert 'min' in limits and 'max' in limits
 
-    def test_unsupported_axis_still_raises(self):
+    def test_unsupported_axis_raises_as_the_real_driver_does(self):
+        from drivers.exceptions import HardwareError
         from drivers.simulated_motorboard import SimulatedMotorBoard
 
-        board = SimulatedMotorBoard()
-        with pytest.raises(Exception):  # noqa: B017 -- deliberately asserts some exception is raised for an invalid axis
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
+        with pytest.raises(HardwareError, match='Unsupported axis'):
             board.get_axis_limits('Q')
 
 
@@ -146,70 +148,4 @@ class TestNoErrorLogForExpectedNoLimitsCase:
             'drivers/motorboard.py::get_axis_limits must not log '
             "'No limits defined' at ERROR -- that case is now a "
             'sentinel return, not an error condition.'
-        )
-
-
-# ---------------------------------------------------------------------------
-# Caller in sequenced_capture_runner: None-check pattern
-# ---------------------------------------------------------------------------
-
-
-class TestSequencedCaptureRunnerHandlesNoneFromGetAxisLimits:
-    """Lock the caller's None-handling contract: an axis whose driver
-    returns None (no configured limits -- T is the canonical case) is
-    skipped, not treated as an error, and pre-run validation still runs
-    on the remaining axes."""
-
-    def test_caller_skips_axes_without_limits(self, monkeypatch):
-        from unittest.mock import MagicMock
-
-        from modules.exceptions import ProtocolRunRefusedError
-        from modules.image_mode import ImageCaptureConfig
-        from modules.notification_center import notifications
-        from modules.sequenced_capture_runner import (
-            SequencedCaptureRunMode,
-            SequencedCaptureRunner,
-        )
-        from tests.protocol_drives import autofocus_snapshot
-
-        monkeypatch.setattr(notifications, 'error', lambda *a, **k: None)
-        runner = SequencedCaptureRunner(
-            scope=MagicMock(),
-            stage_offset={},
-            io_executor=MagicMock(),
-            protocol_thread=MagicMock(),
-            file_io_executor=MagicMock(),
-            camera_executor=MagicMock(),
-            autofocus_thread=MagicMock(is_running=False),
-            autofocus_runner=MagicMock(),
-        )
-        runner.file_io_executor.is_protocol_queue_active.return_value = False
-        scope = runner._scope
-        scope.capabilities.axes = ['X', 'Y', 'Z', 'T']
-        per_axis = {
-            'X': {'min': 0, 'max': 100000},
-            'Y': {'min': 0, 'max': 100000},
-            'Z': {'min': 0, 'max': 14000},
-            'T': None,
-        }
-        scope.motion.get_axis_limits.side_effect = lambda axis: per_axis[axis]
-        protocol = MagicMock()
-        protocol.num_steps.return_value = 1
-        # Halt prepare() right after validation (the refusal raises) so
-        # the test exercises only the axis-limits collection.
-        protocol.validate_for_run.return_value = ['halt here']
-        with pytest.raises(ProtocolRunRefusedError):
-            runner.prepare(
-                protocol=protocol,
-                run_trigger_source='test',
-                run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
-                sequence_name='seq',
-                image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
-                autogain_settings={},
-                autofocus_snapshot=autofocus_snapshot(),
-            )
-        passed = protocol.validate_for_run.call_args.kwargs['axis_limits']
-        assert set(passed) == {'X', 'Y', 'Z'}, (
-            'axes with limits must be collected for validation; the None '
-            f'(no-limits) T axis must be skipped, not crash the run; got {passed}'
         )

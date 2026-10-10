@@ -95,7 +95,7 @@ def test_manual_leg_orders_frames_numerically_across_10k(tmp_path):
 
     def _capture_df(self, path, df, **kwargs):
         captured['order'] = [int(name.split('_')[2]) for name in df['Filepath']]
-        return {'status': True}
+        return {'status': True, 'actual_output_file_loc': path / f'{path.name}.mp4'}
 
     with patch.object(VideoBuilder, '_create_video', _capture_df):
         builder = VideoBuilder(has_turret=False)

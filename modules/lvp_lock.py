@@ -1,5 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import pathlib
 import socket
 
 
@@ -50,3 +51,20 @@ class LvpLock:
 
     def __del__(self):
         self.close()
+
+
+def take_instance_lock(source_path: str | pathlib.Path | None) -> LvpLock | None:
+    """Take this installation's single-instance lock; None when another process holds it.
+
+    Every host that drives the scope takes it before it opens anything: two
+    processes on one scope trample each other's serial ports, so the GUI and
+    the REST server refuse to start beside each other or themselves. The
+    returned lock is held for as long as the caller keeps it.
+    """
+    from modules.app_config import get_lvp_lock_port
+
+    lock = LvpLock(lock_port=get_lvp_lock_port(source_path))
+    if not lock.lock():
+        lock.close()
+        return None
+    return lock

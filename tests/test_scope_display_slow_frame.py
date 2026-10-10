@@ -66,6 +66,7 @@ import numpy as np
 from ui.scope_display import (
     FRAME_SPIKE_FLOOR_MS,
     FRAME_SPIKE_LOG_MIN_GAP_S,
+    FRAME_SPIKE_MIN_SAMPLES,
     FRAME_SPIKE_RATIO,
     FRAME_SPIKE_WINDOW,
     ScopeDisplay,
@@ -88,6 +89,7 @@ class _Stand:
         self._last_ok_compute = None
         self._spike_median_cache = None
         self._spike_median_refresh = 0.0
+        self._spike_min_samples = FRAME_SPIKE_MIN_SAMPLES
         self._slow_frame_last_log = 0.0
 
 
@@ -106,7 +108,7 @@ def _primed(baseline_ms, *, prev_time=1000.0, prev_compute=_PREV_COMPUTE):
 def _feed(stand, cycle_start, caplog, *, grab=1.0, proc=3.0, eng=0.0):
     caplog.clear()
     with caplog.at_level(logging.WARNING, logger='LVP.ui.scope_display'):
-        stand._check_slow_frame(cycle_start, grab_ms=grab, proc_ms=proc, eng_ms=eng)
+        stand._check_slow_frame(cycle_start, grab_ms=grab, proc_ms=proc, eng_ms=eng, settled=True)
     return [r.getMessage() for r in caplog.records if '[SLOW FRAME]' in r.getMessage()]
 
 
@@ -195,7 +197,7 @@ def _feed_held(stand, cycle_start, caplog, held_ms, *, grab=1.0, proc=3.0, eng=0
     caplog.clear()
     with caplog.at_level(logging.WARNING, logger='LVP.ui.scope_display'):
         stand._check_slow_frame(
-            cycle_start, grab_ms=grab, proc_ms=proc, eng_ms=eng, held_ms=held_ms
+            cycle_start, grab_ms=grab, proc_ms=proc, eng_ms=eng, settled=True, held_ms=held_ms
         )
     return [r.getMessage() for r in caplog.records if '[SLOW FRAME]' in r.getMessage()]
 

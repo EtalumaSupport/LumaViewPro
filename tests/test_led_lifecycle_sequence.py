@@ -11,7 +11,7 @@ This test builds that missing guard. It runs real protocol / autofocus /
 manual-nav paths on a real ``Lumascope(simulate=True)`` with real
 ``SequentialIOExecutor`` workers and asserts the **LED-only command substream**
 recorded by a driver listener. The substream is the sequence of
-``(color, enabled, mA, owner)`` events that actually reached the LED driver, in
+``(color, enabled, mA)`` events that actually reached the LED driver, in
 order. Because a no-op (a channel already at target) emits no driver command,
 the listener is a direct measure of "did the LED blink / hold / switch".
 
@@ -36,37 +36,27 @@ from __future__ import annotations
 
 import datetime
 import logging
-import sys
 import threading
+import time
 from unittest.mock import MagicMock
 
 import pytest
 
-# Mirror conftest pattern (heavy deps already mocked there): a settings_init
-# stub so the protocol stack imports without a real settings file.
-_mock_settings_init = MagicMock()
-_mock_settings_init.settings = {
-    'BF': {'autofocus': False},
-    'PC': {'autofocus': False},
-    'DF': {'autofocus': False},
-    'Red': {'autofocus': False},
-    'Green': {'autofocus': False},
-    'Blue': {'autofocus': False},
-    'Lumi': {'autofocus': False},
-}
-sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
+from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
-from modules.lumascope_api import Lumascope
-from tests.scope_fakes import home_sim_scope
+from tests.af_drives import park_z
+from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.protocol import Protocol
+from modules.run_events import RunEvents
 from modules.sequenced_capture_runner import (
     SequencedCaptureRunner,
     SequencedCaptureRunMode,
 )
 from modules.sequential_io_executor import SequentialIOExecutor
-from tests.protocol_drives import autofocus_snapshot
+from tests.protocol_drives import held_run_claim
+from tests.scope_fakes import configure_turret_like_bringup
 
 
 # Plate coordinates in mm for distinct well positions.
@@ -108,6 +98,7 @@ def _step_dict(name, x, y, z, color, idx, *, auto_focus=False, zstack_group=-1, 
         'Stim_Config': {},
         'Step Index': idx,
         'Label': '',
+        'Auto_Named': True,
     }
 
 
@@ -144,7 +135,7 @@ def _build_protocol(step_specs):
 class LedSubstream:
     """Thread-safe recorder of the LED-only command substream.
 
-    Records (color, enabled, mA, owner) for every driver command, in order.
+    Records (color, enabled, mA) for every driver command, in order.
     The listener fires from whichever worker thread issued the command, so the
     append is locked.
     """
@@ -153,9 +144,9 @@ class LedSubstream:
         self._events: list[tuple] = []
         self._lock = threading.Lock()
 
-    def __call__(self, color, enabled, illumination_ma, owner):
+    def __call__(self, color, enabled, illumination_ma):
         with self._lock:
-            self._events.append((color, bool(enabled), illumination_ma, owner))
+            self._events.append((color, bool(enabled), illumination_ma))
 
     @property
     def events(self) -> list[tuple]:
@@ -166,10 +157,10 @@ class LedSubstream:
         """The enabled (True/False) sequence for one color, with consecutive
         duplicates collapsed. This is the migration-invariant view: it ignores
         whether an off was emitted as a per-channel command or as part of a
-        nuclear leds_off, and it ignores owner. A regression that fails to turn
+        nuclear leds_off. A regression that fails to turn
         a color off (or blinks it) still changes this sequence."""
         out: list[bool] = []
-        for c, e, _m, _o in self.events:
+        for c, e, _m in self.events:
             if c != color:
                 continue
             if not out or out[-1] != e:
@@ -199,12 +190,12 @@ class LedSubstream:
         """(color, mA) for every ON command, in order -- the lit sequence.
         Never-lit channels and offs do not appear. mA is preserved because the
         authority migration preserves the (op, channel, mA) target stream."""
-        return [(c, m) for c, e, m, _o in self.events if e]
+        return [(c, m) for c, e, m in self.events if e]
 
     def final_lit(self) -> set:
         """The set of colors lit at the end of the stream (the run end-state)."""
         lit: set[str] = set()
-        for c, e, _m, _o in self.events:
+        for c, e, _m in self.events:
             if e:
                 lit.add(c)
             else:
@@ -215,7 +206,7 @@ class LedSubstream:
         """Replay the stream; assert at most one color is ever lit at a time
         (the mutual-exclusion invariant -- no double illumination)."""
         lit: set[str] = set()
-        for c, e, _m, _o in self.events:
+        for c, e, _m in self.events:
             if e:
                 lit.add(c)
             else:
@@ -226,18 +217,20 @@ class LedSubstream:
 
     def render(self) -> str:
         lines = []
-        for c, e, m, o in self.events:
+        for c, e, m in self.events:
             verb = 'ON ' if e else 'OFF'
-            lines.append(f'  {verb} {c:<6} mA={m} owner={o!r}')
+            lines.append(f'  {verb} {c:<6} mA={m}')
         return '\n'.join(lines) if lines else '  (no LED events)'
 
 
 @pytest.fixture
 def scope():
-    s = Lumascope(simulate=True)
-    # The session registers the data root at bring-up; a runner over a
-    # bare scope needs it too, or the run refuses at start.
-    s.protocols.register_source_path('.')
+    # The data root is the scope's, given at construction; a runner over a
+    # bare scope reads its catalogues and tiling config from it.
+    s = build_scope(simulate=True, source_path='.')
+    # A bare scope skipped bring-up, which fills the turret from the
+    # persisted slots; an empty turret addresses no glass at all.
+    configure_turret_like_bringup(s)
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
@@ -248,24 +241,18 @@ def scope():
     s.disconnect()
 
 
-def _make_executors(file_queue_maxsize=0):
+def _make_executors():
     """Set up + tear down the executor set (a generator: ``yield from`` it).
 
     No 'autofocus' executor: the AF-off protocol path uses a mocked AF runner
     (autofocus_thread / autofocus_runner below), so a real AF worker would be
     dead state. The AF-on lifecycle tests (s5-s7) build their own runner.
-
-    file_queue_maxsize=0 keeps the file worker's protocol queue unbounded
-    (the historical default); the wedged-writer test (s11) passes 1 so the
-    queue can be filled to make the blocking write submit stall for real.
     """
     from modules.protocol_thread import ProtocolThread
 
     execs = {
         'io': SequentialIOExecutor(name='TEST_IO'),
-        'file_io': SequentialIOExecutor(
-            name='TEST_FILE', protocol_queue_maxsize=file_queue_maxsize
-        ),
+        'file_io': SequentialIOExecutor(name='TEST_FILE'),
         'camera': SequentialIOExecutor(name='TEST_CAMERA'),
     }
     for e in execs.values():
@@ -307,22 +294,16 @@ def _make_runner(scope, execs):
     """A real SequencedCaptureRunner with real executors and a mocked AF
     runner -- faithful for AF-off scenarios (production does not invoke the AF
     runner when Auto_Focus is False). Takes the executor set as an argument so
-    a test can substitute e.g. a bounded file-IO executor (s11)."""
-    from modules.coord_transformations import CoordinateTransformer
-    from modules.labware_loader import WellPlateLoader
-
+    a test can substitute its own."""
+    swap_lanes(scope, io=execs['io'], camera=execs['camera'])
     exc = SequencedCaptureRunner(
         scope=scope,
-        stage_offset={'x': 0.0, 'y': 0.0},
-        io_executor=execs['io'],
         protocol_thread=execs['protocol'],
         file_io_executor=execs['file_io'],
-        camera_executor=execs['camera'],
-        autofocus_thread=MagicMock(is_running=False),
+        autofocus_thread=MagicMock(in_flight_sweep=None),
+        activity_claim=ActivityClaim(),
         autofocus_runner=_mock_af_runner(),
     )
-    exc._wellplate_loader = WellPlateLoader()
-    exc._coordinate_transformer = CoordinateTransformer()
     return exc
 
 
@@ -336,30 +317,28 @@ def _run_protocol(
     protocol,
     tmp_path,
     *,
-    leds_state_at_end='off',
+    run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
     keep_led_between_steps=False,
     max_scans=1,
     timeout=30,
 ):
-    """Run a protocol to completion (SINGLE_SCAN) and block on the done Event.
+    """Run a protocol to completion (a scan by default) and block on the done Event.
 
     max_scans > 1 runs a multi-scan (timelapse-shaped) session; pair it with
     _build_two_scan_protocol's near-zero period so it finishes in test time.
     """
     done = threading.Event()
-    result_holder: dict = {}
+    ended: list = []
 
-    def on_complete(**kwargs):
-        result_holder.update(kwargs)
+    def on_ended(outcome, run_dir, protocol):
+        ended.append(outcome)
         done.set()
-
-    callbacks = {'run_complete': on_complete}
 
     plan = runner.prepare(
         keep_led_between_steps=keep_led_between_steps,
         protocol=protocol,
         run_trigger_source='test',
-        run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
+        run_mode=run_mode,
         sequence_name='led_lifecycle',
         image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
         autogain_settings={
@@ -370,14 +349,12 @@ def _run_protocol(
         },
         parent_dir=tmp_path / 'output',
         max_scans=max_scans,
-        callbacks=callbacks,
-        leds_state_at_end=leds_state_at_end,
-        autofocus_snapshot=autofocus_snapshot(),
+        events=RunEvents(run_ended=on_ended),
     )
     runner.start(plan)
 
     completed = done.wait(timeout=timeout)
-    return completed, result_holder
+    return completed, ended[0] if ended else None
 
 
 # ---------------------------------------------------------------------------
@@ -395,15 +372,15 @@ def _recorded_run(
     specs,
     *,
     keep_led_between_steps=False,
-    leds_state_at_end='off',
+    run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
     prelit=None,
 ):
     sub = LedSubstream()
     if prelit:
-        # A pre-run Live LED so leds_state_at_end='return_to_original' has
-        # something to restore (the snapshot is taken at lease acquire).
+        # A pre-run Live LED so a one-position run has something to
+        # restore (the snapshot is taken at lease acquire).
         scope.illumination.led_on(
-            channel=scope.illumination.color2ch(prelit[0]), illumination_ma=prelit[1], owner='ui'
+            channel=scope.illumination.color2ch(prelit[0]), illumination_ma=prelit[1]
         )
     scope.illumination.add_led_listener(sub)
     protocol = _build_protocol(specs)
@@ -411,7 +388,7 @@ def _recorded_run(
         runner,
         protocol,
         tmp_path,
-        leds_state_at_end=leds_state_at_end,
+        run_mode=run_mode,
         keep_led_between_steps=keep_led_between_steps,
     )
     assert completed, f'protocol did not complete in time\n{sub.render()}'
@@ -505,27 +482,26 @@ def test_s4_two_color_one_lit_at_a_time(scope, runner, tmp_path):
 
 
 def test_s10_run_end_off_leaves_all_dark(scope, runner, tmp_path):
-    """leds_state_at_end='off': every channel dark at run end."""
+    """A scan: every channel dark at run end."""
     sub = _recorded_run(
         scope,
         runner,
         tmp_path,
         [('A1', 'Green', {})],
-        leds_state_at_end='off',
     )
     assert sub.on_events() == [('Green', 250.0)], sub.render()
     assert sub.final_lit() == set(), sub.render()
 
 
 def test_s10_run_end_return_to_original_relights_prerun_channel(scope, runner, tmp_path):
-    """leds_state_at_end='return_to_original': a pre-run Live channel is re-lit
-    at the final boundary (no blink), distinct from the 'off' policy."""
+    """A one-position run (a z-stack): a pre-run Live channel is re-lit at
+    the final boundary (no blink), distinct from a scan's dark end."""
     sub = _recorded_run(
         scope,
         runner,
         tmp_path,
         [('A1', 'Green', {})],
-        leds_state_at_end='return_to_original',
+        run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
         prelit=('Blue', 120.0),
     )
     assert sub.on_events() == [('Green', 250.0), ('Blue', 120.0)], sub.render()
@@ -543,28 +519,27 @@ def test_s10_run_end_return_to_original_relights_prerun_channel(scope, runner, t
 
 
 def test_s8_live_write_refused_while_run_holds_lease(scope):
-    """While a 'protocol' lease is held, an out-of-turn live write (empty owner)
+    """While a 'protocol' lease is held, an out-of-turn live write (no lease)
     is refused: no driver command, the run's channel unchanged (pins the lease
     enforcement, ffd5a83c). The refused write emits nothing to the listener."""
     ill = scope.illumination
     sub = LedSubstream()
     ill.add_led_listener(sub)
 
-    lease = ill.acquire_led_lease('protocol', alive=lambda: True)
+    lease = ill.acquire_led_lease('protocol', claim=held_run_claim())
     assert lease is not None
-    ill.led_on(channel=ill.color2ch('Green'), illumination_ma=250.0, owner='protocol')
+    ill._led_on_impl(channel=ill.color2ch('Green'), illumination_ma=250.0, _lease=lease)
 
-    # Out-of-turn live writes (empty owner) while the run holds the lease. Both
-    # are refused by the LEASE check (_lease_violation), not by per-owner
-    # ownership -- an empty owner skips the ownership gate, so the lease is the
+    # Out-of-turn live writes (no lease) while the run holds the lease. Both
+    # are refused by the LEASE check (_lease_violation) -- the lease is the
     # only thing that can refuse them. The off is NOT a no-op skip: Green is lit,
     # so if the lease did not refuse it Green would go dark and the assertions
     # below would fail -- the refusal is what keeps Green lit.
-    ill.led_on(channel=ill.color2ch('Red'), illumination_ma=350.0, owner='')  # refused by lease
-    ill.led_off(channel=ill.color2ch('Green'), owner='')  # refused by lease
+    ill.led_on(channel=ill.color2ch('Red'), illumination_ma=350.0)  # refused by lease
+    ill.led_off(channel=ill.color2ch('Green'))  # refused by lease
 
-    assert ill.led_enabled('Green'), 'protocol channel was disturbed by a live write'
-    assert not ill.led_enabled('Red'), 'live write lit a channel despite the lease'
+    assert ill.get_led_state('Green')['enabled'], 'protocol channel was disturbed by a live write'
+    assert not ill.get_led_state('Red')['enabled'], 'live write lit a channel despite the lease'
     # Exactly one command reached the driver (the protocol's Green on): the two
     # refused writes emitted nothing -- no Red blink, no Green off.
     assert sub.on_events() == [('Green', 250.0)], sub.render()
@@ -576,7 +551,7 @@ def test_s8_live_write_refused_while_run_holds_lease(scope):
 
 # ---------------------------------------------------------------------------
 # Manual-nav preview (transitions 13/14). Driven via the production authority
-# call apply_transition_async(MANUAL_STEP, ctx) -- the exact call
+# call apply_transition(MANUAL_STEP, ctx) -- the exact call
 # ui/step_navigation.py makes when settings['protocol_led_on'] is True. The full
 # go_to_step UI drive (the settings->preview gate) is UI-thread-bound and stays
 # covered by the issue locks; here the LED-substream invariant is what matters.
@@ -585,17 +560,8 @@ def test_s8_live_write_refused_while_run_holds_lease(scope):
 
 @pytest.fixture
 def scope_io(scope):
-    ex = SequentialIOExecutor(name='TEST_LED_IO')
-    ex.start()
-    scope.register_executors(io_executor=ex)
-    yield scope
-    ex.shutdown(wait=True)
-
-
-def _run_async(fn, *args, timeout=5, **kwargs):
-    done = threading.Event()
-    fn(*args, callback=lambda *a, **k: done.set(), **kwargs)
-    assert done.wait(timeout), 'async LED task did not complete in time'
+    """The scope; its own io lane runs the LED members end to end."""
+    return scope
 
 
 def test_s9_manual_nav_preview_lights_holds_and_switches(scope_io):
@@ -608,8 +574,7 @@ def test_s9_manual_nav_preview_lights_holds_and_switches(scope_io):
     ill.add_led_listener(sub)
 
     def _preview(color, illumination_ma):
-        return _run_async(
-            ill.apply_transition_async,
+        return ill.apply_transition(
             LedTransition.MANUAL_STEP,
             LedTransitionCtx(
                 channel=ill.color2ch(color), illumination_ma=illumination_ma, preview_on=True
@@ -618,7 +583,7 @@ def test_s9_manual_nav_preview_lights_holds_and_switches(scope_io):
 
     # Preview to a Green step.
     _preview('Green', 250.0)
-    assert ill.led_enabled('Green')
+    assert ill.get_led_state('Green')['enabled']
     assert sub.lit_transitions('Green') == [True], sub.render()
 
     # Re-navigate to the same color: idempotent hold, no blink.
@@ -647,14 +612,12 @@ def test_s9_manual_nav_preview_lights_holds_and_switches(scope_io):
 def _af_runner(scope):
     from modules.autofocus_runner import AutofocusRunner
 
+    park_z(scope, 5000.0)
     r = AutofocusRunner(
         scope=scope,
-        camera_executor=MagicMock(),
-        io_executor=MagicMock(),
-        file_io_executor=MagicMock(),
     )
-    r._objective_loader = MagicMock()
-    r._objective_loader.get_objective_info.return_value = {
+    scope.objective_helper = MagicMock()
+    scope.objective_helper.get_objective_info.return_value = {
         'AF_range': 50.0,
         'AF_max': 10.0,
         'AF_min': 5.0,
@@ -690,7 +653,7 @@ def test_s5_protocol_af_same_channel_holds_to_capture(scope):
     sub = LedSubstream()
     ill.add_led_listener(sub)
 
-    lease = ill.acquire_led_lease('protocol', alive=lambda: True)
+    lease = ill.acquire_led_lease('protocol', claim=held_run_claim())
     _drive_af(
         _af_runner(scope),
         led_color='Green',
@@ -716,7 +679,7 @@ def test_s6_protocol_af_then_different_color_no_stale_channel(scope):
     sub = LedSubstream()
     ill.add_led_listener(sub)
 
-    lease = ill.acquire_led_lease('protocol', alive=lambda: True)
+    lease = ill.acquire_led_lease('protocol', claim=held_run_claim())
     _drive_af(
         _af_runner(scope),
         led_color='Green',
@@ -727,7 +690,7 @@ def test_s6_protocol_af_then_different_color_no_stale_channel(scope):
     )
     # Next-color step light (the protocol's STEP_LIGHT for a Red step): the
     # exclusive-Red diff the run drives on the held lease.
-    ill._emit_led_diff(frozenset({(ill.color2ch('Red'), 350.0)}), owner='protocol', block=False)
+    ill._emit_led_diff(frozenset({(ill.color2ch('Red'), 350.0)}), lease=lease, block=False)
 
     assert sub.on_events() == [('Green', 250.0), ('Red', 350.0)], sub.render()
     assert sub.lit_transitions('Green') == [True, False], sub.render()
@@ -744,16 +707,17 @@ def test_s7_interactive_af_restores_prerun_live_channel(scope):
     restores the pre-AF Live channel on exit -- no stale AF channel, original
     Live state back (pins #695 restore path)."""
     ill = scope.illumination
-    ill.led_on(channel=ill.color2ch('Blue'), illumination_ma=120.0, owner='ui')
+    ill.led_on(channel=ill.color2ch('Blue'), illumination_ma=120.0)
 
     sub = LedSubstream()
     ill.add_led_listener(sub)
+    # Interactive AF runs as a one-step run, so it nests under that run's lease.
     _drive_af(
         _af_runner(scope),
         led_color='Green',
         led_illumination=250.0,
         keep_led_on=False,
-        led_lease=None,
+        led_lease=ill.acquire_led_lease('protocol', claim=held_run_claim()),
         run_trigger_source='manual',
     )
     assert sub.on_events() == [('Green', 250.0), ('Blue', 120.0)], sub.render()
@@ -773,107 +737,40 @@ def test_s7_interactive_af_restores_prerun_live_channel(scope):
 
 
 def test_run_recovers_a_stranded_led_lease(scope, runner, tmp_path, caplog):
-    """A lease whose owner is provably dead (its liveness probe answers False)
+    """A lease whose owner is provably dead (its claim is no longer held)
     must not lock out the next run: the run's acquire reclaims the stack,
     logging the dead owner and the evidence, and the run completes normally."""
     ill = runner._scope.illumination
     # Simulate a hard-killed prior run: a 'protocol' lease left on the stack
-    # whose in-flight probe still answers True at acquire time...
-    holder_alive = {'value': True}
-    stranded = ill.acquire_led_lease('protocol', alive=lambda: holder_alive['value'])
+    # whose claim is still held at acquire time...
+    holder_claim = held_run_claim()
+    stranded = ill.acquire_led_lease('protocol', claim=holder_claim)
     assert stranded is not None
-    assert ill.acquire_led_lease('other', alive=lambda: True) is None, (
-        'precondition: a live holder refuses a second acquire'
-    )
-    # ...and then the owning run dies without releasing.
-    holder_alive['value'] = False
+    with pytest.raises(RuntimeError, match='two live activities'):
+        ill.acquire_led_lease('other', claim=held_run_claim())  # precondition: live holder
+    # ...and then the owning run's claim ends without the lease released.
+    holder_claim.release()
 
     with caplog.at_level(logging.WARNING, logger='LVP.api'):
         completed, result = _run_protocol(runner, _build_protocol([('A1', 'Green', {})]), tmp_path)
 
     assert completed, 'the run must complete after reclaiming the stranded lease'
-    assert result.get('status') == 'completed', f'run must complete normally; got {result}'
+    assert result.status == 'completed', f'run must complete normally; got {result}'
     assert not stranded.held, 'the stranded lease must be dropped by the reclaim'
-    assert ill.led_lease_owner is None, 'the completed run must have released its lease'
+    # run_ended comes once the lease is released and the run has left
+    # its run phase; the poll confirms it.
+    deadline = time.monotonic() + 5.0
+    while runner.run_in_progress() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert not runner.run_in_progress(), 'the completed run must end its cleanup'
+    assert ill.led_lease_purpose is None, 'the completed run must have released its lease'
     reclaims = [
         r.getMessage() for r in caplog.records if 'reclaimed from stranded owner' in r.getMessage()
     ]
     assert reclaims, 'the reclaim must be logged as a warning'
-    assert any("'protocol'" in m and 'liveness probe returned False' in m for m in reclaims), (
-        f'the warning must name the dead owner and the evidence; got {reclaims}'
-    )
-
-
-def test_run_start_refused_by_live_lease_holder_fails_itself(scope, runner, tmp_path, monkeypatch):
-    """A run started while a LIVE owner holds the LED lease must fail itself
-    (run_complete fires exactly once with status 'failed_at_start', the user is
-    notified) instead of stealing the lease: the holder keeps illumination
-    authority and its applies still drive the LEDs."""
-    import modules.notification_center as notification_center
-
-    notified = []
-    monkeypatch.setattr(
-        notification_center.notifications,
-        'error',
-        lambda *args, **kwargs: notified.append(('error', args)),
-    )
-    monkeypatch.setattr(
-        notification_center.notifications,
-        'warning',
-        lambda *args, **kwargs: notified.append(('warning', args)),
-    )
-
-    ill = scope.illumination
-    af_lease = ill.acquire_led_lease('autofocus', alive=lambda: True)
-    assert af_lease is not None
-
-    completions = []
-    done = threading.Event()
-
-    def on_complete(**kwargs):
-        completions.append(kwargs)
-        done.set()
-
-    plan = runner.prepare(
-        keep_led_between_steps=False,
-        protocol=_build_protocol([('A1', 'Green', {})]),
-        run_trigger_source='test',
-        run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
-        sequence_name='led_lease_live_holder',
-        image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
-        autogain_settings={
-            'target_brightness': 0.3,
-            'min_gain_db': 0.0,
-            'max_gain_db': 20.0,
-            'max_duration': datetime.timedelta(seconds=1),
-        },
-        parent_dir=tmp_path / 'output',
-        max_scans=1,
-        callbacks={'run_complete': on_complete},
-        leds_state_at_end='off',
-        autofocus_snapshot=autofocus_snapshot(),
-    )
-    runner.start(plan)
-
-    assert done.wait(timeout=30), 'the refused run must still terminate'
-    assert len(completions) == 1, (
-        f'run_complete must fire exactly once for the refused run; got {completions}'
-    )
-    assert completions[0].get('status') == 'failed_at_start', (
-        f'the lease refusal must fail the run at start; got {completions[0]}'
-    )
-    assert notified, 'the failed start must notify the user'
-    assert not runner.run_in_progress()
-
-    # The live holder was not disturbed: its lease is held and still drives LEDs.
-    assert af_lease.held, 'the live holder lease must survive the refused run'
-    assert ill.led_lease_owner == 'autofocus'
-    af_lease.apply(
-        LedTransition.AF_ENTER,
-        LedTransitionCtx(channel=ill.color2ch('Green'), illumination_ma=250.0),
-    )
-    assert ill.led_enabled('Green'), "the holder's apply must still drive the LEDs"
-    af_lease.release(leave_on=False)
+    assert any(
+        "'protocol'" in m and 'its activity claim is no longer held' in m for m in reclaims
+    ), f'the warning must name the dead owner and the evidence; got {reclaims}'
 
 
 # ---------------------------------------------------------------------------
@@ -886,56 +783,44 @@ def test_run_start_refused_by_live_lease_holder_fails_itself(scope, runner, tmp_
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def bounded_file_executors():
-    """Executor set whose file-IO worker has a 1-slot bounded protocol queue.
-
-    Production bounds the file queue too (the registry passes 32); maxsize=1
-    makes the full-queue condition reachable with one wedge task plus one
-    filler instead of 32 in-flight writes.
-    """
-    yield from _make_executors(file_queue_maxsize=1)
-
-
-@pytest.fixture
-def bounded_runner(scope, bounded_file_executors):
-    return _make_runner(scope, bounded_file_executors)
-
-
 def _build_two_scan_protocol(specs):
-    """A protocol whose period is near zero, so the next scan starts as soon
-    as the run loop's pacing check passes -- multi-scan runs finish in test
-    time instead of waiting the builder's default 20-minute period."""
+    """A protocol on the shortest period a protocol runs, one second, so
+    multi-scan runs finish in test time instead of waiting the builder's
+    default 20-minute period."""
     protocol = _build_protocol(specs)
     protocol.modify_time_params(
-        period=datetime.timedelta(milliseconds=10),
+        period=datetime.timedelta(seconds=1),
         duration=datetime.timedelta(hours=48.0),
     )
     return protocol
 
 
-def test_s11_wedged_writer_aborts_run_and_goes_dark(scope, bounded_runner, tmp_path, monkeypatch):
+def test_s11_wedged_writer_aborts_run_and_goes_dark(scope, runner, tmp_path, monkeypatch):
     """A wedged file writer mid-run declares a stall: the capture fails, a
     fatal 'File Writer Stalled' notification fires, the run aborts, and the
     abort's cleanup leaves no LED lit on the sample. No capture is ever
-    silently dropped -- the old queue-full drop path is unreachable by
-    design now that the write submit blocks for a slot.
+    silently dropped -- the frame the wedge refused is counted in the
+    run's write batch as abandoned.
 
-    Drives the REAL wedge path: a bounded file queue (maxsize=1) with the
-    worker parked on a wedge task and the single slot occupied by a filler,
-    so the write's blocking submit finds no slot and no task ever retires.
-    The stall budget is shrunk so the wedge declares in test time."""
+    Drives the REAL wedge path: the run's write backlog shrunk to one, the
+    file worker parked on a wedge task and the backlog's single place taken
+    by a filler write of the run's own, so the capture's paced submit finds
+    no room and no write ever lands. Production bounds the backlog at 32;
+    one makes the full backlog reachable with one filler instead of 32
+    in-flight writes. The stall budget is shrunk so the wedge declares in
+    test time."""
     import modules.protocol_image_writer as piw
     from modules.notification_center import Severity, notifications
-    from modules.sequential_io_executor import IOTask, PROTOCOL_ENQUEUED
+    from modules.sequential_io_executor import ENQUEUED, IOTask
 
     monkeypatch.setattr(piw, 'WRITE_STALL_FATAL_S', 0.5)
+    monkeypatch.setattr(piw, 'WRITE_BACKLOG_BOUND', 1)
 
     ill = scope.illumination
     sub = LedSubstream()
     ill.add_led_listener(sub)
 
-    file_io = bounded_runner.file_io_executor
+    file_io = runner.file_io_executor
     wedge_started = threading.Event()
     wedge_release = threading.Event()
     installed = threading.Event()
@@ -949,17 +834,21 @@ def test_s11_wedged_writer_aborts_run_and_goes_dark(scope, bounded_runner, tmp_p
 
     def _capture_and_wait_with_wedge(*args, **kwargs):
         # Runs on the protocol worker right before the grab -- i.e. before
-        # this step's write is submitted, and only once the run is in session
-        # (protocol_put drops tasks outside one). First call installs the
-        # wedge: the worker parks on _wedge_task and a no-op filler occupies
-        # the single queue slot, so the write's blocking submit can never get
-        # a slot and the stall declares. Event-gated, no sleeps; results are
+        # this step's write is submitted, and only once the run's write batch
+        # exists. First call installs the wedge: the worker parks on
+        # _wedge_task and a no-op filler write of the run's takes the
+        # backlog's single place, so the write's paced submit can never get
+        # room and the stall declares. Event-gated, no sleeps; results are
         # recorded (not asserted) here because a raise on this thread would
         # be classified as a transient scan failure, not a test failure.
         if not installed.is_set():
-            install_results.append(file_io.protocol_put(IOTask(action=_wedge_task)))
+            install_results.append(file_io.put(IOTask(action=_wedge_task)))
             install_results.append(wedge_started.wait(timeout=10))
-            install_results.append(file_io.protocol_put(IOTask(action=lambda: None)))
+            install_results.append(
+                runner.write_batch().submit(
+                    lambda: None, {}, what='The filler write', pace_until=None
+                )
+            )
             installed.set()
         return real_capture_and_wait(*args, **kwargs)
 
@@ -973,7 +862,7 @@ def test_s11_wedged_writer_aborts_run_and_goes_dark(scope, bounded_runner, tmp_p
 
     try:
         completed, result = _run_protocol(
-            bounded_runner,
+            runner,
             _build_two_scan_protocol([('A1', 'Green', {})]),
             tmp_path,
             max_scans=2,
@@ -984,16 +873,24 @@ def test_s11_wedged_writer_aborts_run_and_goes_dark(scope, bounded_runner, tmp_p
         wedge_release.set()
         notifications.remove_listener(listener)
 
-    assert completed, f'run_complete never fired after the wedge abort\n{sub.render()}'
-    assert result.get('status') == 'aborted', (
-        f'a wedged writer must abort the run; status={result.get("status")!r}'
+    assert completed, f'run_ended never fired after the wedge abort\n{sub.render()}'
+    assert result.status == 'failed', (
+        f'a wedged writer is a fault the instrument imposed, not a stop the '
+        f'user asked for; status={result.status!r}'
     )
-    assert install_results == [PROTOCOL_ENQUEUED, True, PROTOCOL_ENQUEUED], (
+    assert result.reason == 'file_writer_stalled', (
+        f'the run must name the fault that killed it; got {result!r}'
+    )
+    assert install_results == [ENQUEUED, True, ENQUEUED], (
         f'wedge install did not follow the expected sequence: {install_results}'
     )
-    # The old contract dropped the capture silently; the new one never does.
-    assert file_io.protocol_dropped_count() == 0, (
-        'back-pressure must not silently drop a capture, even against a wedged writer'
+    # The old contract dropped the capture silently; the new one never does:
+    # the frame the wedge refused is counted, and the run's files end
+    # abandoned once the unparked filler lands.
+    batch = runner.write_batch()
+    assert batch.wait_complete(10), "the run's write batch never completed"
+    assert batch.outcome == 'incomplete', (
+        'a frame refused by a wedged writer must be counted not written, never silently dropped'
     )
     stall_notes = [n for n in fired if n.title == 'File Writer Stalled']
     assert len(stall_notes) == 1, f'expected one fatal stall notification, saw {fired}'
@@ -1054,7 +951,7 @@ def test_s12_transient_scan_failure_goes_dark_before_retry(scope, runner, tmp_pa
 # correct behaviour for it. The API deliberately permits several at once: an L2
 # caller that wants two channels lit may have them. That is not an accident of
 # the implementation -- _led_on_impl writes its own entry and never clears a
-# peer, and leds_off / leds_off_owned only mean something if plural-lit is
+# peer, and leds_off / a lease release only mean something if plural-lit is
 # reachable -- but until these tests nothing pinned it, so a later stage could
 # have removed the capability by "simplifying" the diff or by pushing the GUI's
 # mutual exclusion down into the API, and the suite would have stayed green.
@@ -1084,7 +981,7 @@ def test_multi_channel_lit_diff_clears_only_non_target_channels(scope):
         f'the test is gone, not the diff\n{sub.render()}'
     )
 
-    ill._emit_led_diff(frozenset({(ill.color2ch('Red'), 350.0)}), owner='', block=False)
+    ill._emit_led_diff(frozenset({(ill.color2ch('Red'), 350.0)}), lease=None, block=False)
 
     assert sub.final_lit() == {'Red'}, sub.render()
     # Red was already at its target current, so the diff must emit nothing for
@@ -1106,7 +1003,7 @@ def test_multi_channel_target_lights_several_and_clears_the_rest(scope):
 
     ill._emit_led_diff(
         frozenset({(ill.color2ch('Green'), 250.0), (ill.color2ch('Red'), 350.0)}),
-        owner='',
+        lease=None,
         block=False,
     )
 

@@ -11,7 +11,7 @@ Two defects these pin, both found on the 2026-08-17 Windows bench trip:
    success and an app failing every IDS connect with
    ``GENICAM_GENTLN_PATH environment variable not found``. Both silent.
 
-2. ``version.txt`` line 4 is written per COMMIT by the pre-commit hook but
+2. ``version.txt``'s GUID line is written per COMMIT by the pre-commit hook but
    was labelled ``BuildGUID``. Three builds of one SHA produced
    byte-identical banners, so a rebuild that changed only bundled inputs
    could not be told apart from its predecessor.
@@ -208,6 +208,36 @@ def test_build_script_version_gate_bumped_for_the_build_id_file():
     )
 
 
+def test_an_installer_carries_the_commit_it_was_built_from():
+    """The installed banner's Git: line names the commit, through LVP's one reader.
+
+    The build reads the clone's SHA and then removes ``.git*``, which takes
+    ``.git_archival.txt`` with it; so the archival file is written after the
+    removal, the release spec bundles it beside version.txt, and an older
+    build script, which writes none, is refused by the version gate. A clone
+    whose commit cannot be read stops the build. (The written lines were run
+    under pwsh on 2026-10-09: the SHA, a newline, no byte-order mark.)
+    """
+    text = _build_ps1_text()
+    removal = text.index('Remove-Item "$clone\\.git*"')
+    write = text.index('Join-Path $clone ".git_archival.txt"')
+    assert removal < write, 'the archival file is written before the .git* removal that deletes it'
+    assert 'UTF8Encoding $false' in text[write - 200 : write + 200], (
+        'written with a byte-order mark'
+    )
+    assert 'an installer must name the commit it was built from' in text[removal:write]
+    script_version = int(re.search(r'\$script_version\s*=\s*(\d+)', text).group(1))
+    min_version = int(MIN_VERSION_FILE.read_text().strip())
+    assert script_version >= 4 and min_version >= 4, 'a v3 build script writes no archival file'
+    # pin-justified: the spec is executed by PyInstaller, not imported.
+    spec = (
+        REPO_ROOT / 'scripts' / 'appBuild' / 'config' / 'lumaviewpro_win_release.spec'
+    ).read_text()
+    assert "('.git_archival.txt', '.')" in spec, (
+        'the release spec does not bundle the archival file'
+    )
+
+
 def test_build_ps1_writes_the_build_id_to_its_own_file():
     """The build must write build_id.txt; nothing else in the chain does."""
     text = _build_ps1_text()
@@ -256,17 +286,16 @@ class TestBannerIdentityContract:
     against an empty capture.
 
     Importing the real module under an alias to get around that was
-    rejected: ``lvp_logger`` installs a global ``sys.excepthook`` at
-    import, and a bench log has already been polluted once by an
-    out-of-app script inheriting that hook. Trading a suite-wide hazard
-    for four tests is a bad deal.
+    rejected: ``lvp_logger`` attaches its log files to the root logger at
+    import, so the whole suite's logging would land in them. Trading a
+    suite-wide hazard for four tests is a bad deal.
 
     The sibling ``test_lvp_logger_marker_lookup.py`` pins this module the
     same way for the same reason.
     """
 
-    def test_line_four_is_reported_as_a_commit_identity(self):
-        """Line 4 is a commit fingerprint and must not be labelled a build one.
+    def test_the_guid_line_is_reported_as_a_commit_identity(self):
+        """The GUID line is a commit fingerprint and must not be labelled a build one.
 
         The pre-commit hook that writes it says so itself: "random per
         commit". Labelling it BuildGUID is what let three builds of one
@@ -299,9 +328,9 @@ class TestBannerIdentityContract:
         _, _, tail = text.partition('_build_id_str')
         assert tail, 'lvp_logger derives no build-ID display string'
         branch = tail[:600]
-        assert 'lvp_installed' in branch, (
-            'the absent-build-ID path does not branch on lvp_installed, so an '
-            'installed exe and a source run would report the same thing'
+        assert 'app_runtime().frozen' in branch, (
+            'the absent-build-ID path does not ask whether this is a built bundle, '
+            'so an installed exe and a source run would report the same thing'
         )
         assert 'build script' in branch, 'the stale-builder case is never named'
         assert 'source / dev' in branch, 'the source-run case is never named'

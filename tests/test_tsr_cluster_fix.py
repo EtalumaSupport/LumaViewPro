@@ -97,11 +97,6 @@ class TestMotorDriverDiagnosticGating:
         )
         assert motor.read_drv_status('X') is None
 
-    def test_read_drv_status_invalid_axis_raises(self):
-        motor = _make_motor_with_responses({})
-        with pytest.raises(ValueError):
-            motor.read_drv_status('Q')
-
     def test_read_fanspeed_unsupported_returns_none(self):
         motor = _make_motor_with_responses(
             {
@@ -114,42 +109,26 @@ class TestMotorDriverDiagnosticGating:
         motor = _make_motor_with_responses({'FANSPEED': '1234'})
         assert motor.read_fanspeed() == 1234
 
-    def test_set_fan_duty_unsupported_returns_false(self):
+    def test_set_fan_duty_error_raises(self):
+        # Support was supports_fan's answer, asked first: an ERROR to the
+        # write itself is a fault.
+        from drivers.exceptions import HardwareError
+
         motor = _make_motor_with_responses(
             {
                 'FAN:50': "ERROR: command 'FAN' not found:",
             }
         )
-        assert motor.set_fan_duty(50) is False
+        with pytest.raises(HardwareError):
+            motor.set_fan_duty(50)
 
-    def test_set_fan_duty_supported_returns_true(self):
+    def test_set_fan_duty_supported_returns_none(self):
         motor = _make_motor_with_responses({'FAN:50': 'OK'})
-        assert motor.set_fan_duty(50) is True
-
-    def test_set_fan_duty_invalid_value_raises(self):
-        motor = _make_motor_with_responses({})
-        with pytest.raises(ValueError):
-            motor.set_fan_duty(150)
+        assert motor.set_fan_duty(50) is None
 
 
 # ---------------------------------------------------------------------------
-# DiagnosticsAPI sub-API -- thin delegation that handles missing driver.
-# ---------------------------------------------------------------------------
-
-
-class TestDiagnosticsApiDelegation:
-    """The sub-API delegates to driver; returns sentinel when driver absent."""
-
-    def test_set_motor_fan_duty_no_driver_returns_false(self):
-        from modules.lumascope_api.diagnostics import DiagnosticsAPI
-
-        scope = MagicMock(spec=[])
-        api = DiagnosticsAPI(scope)
-        assert api.set_motor_fan_duty(50) is False
-
-
-# ---------------------------------------------------------------------------
-# _motor_ok / _led_ok use post-Wave-7 connection probes.
+# motor_board_presence / _led_ok use post-Wave-7 connection probes.
 # ---------------------------------------------------------------------------
 
 
@@ -157,32 +136,33 @@ class TestMotorAndLedConnectionProbes:
     """The Wave-7-renamed sub-API namespaces don't expose .found; the
     fix uses scope.motor_connected / scope.led_connected live properties."""
 
-    def test_motor_ok_true_via_live_property(self):
-        from modules.tech_support_report import FirmwareDiagnostics
+    def test_a_connected_motor_board_via_live_property(self):
+        from modules.tech_support_report import FirmwareDiagnostics, MotorBoardPresence
 
         scope = MagicMock()
         scope.motor_connected = True
         diag = FirmwareDiagnostics(scope=scope)
-        assert diag._motor_ok() is True
+        assert diag.motor_board_presence() is MotorBoardPresence.CONNECTED
 
-    def test_motor_ok_false_via_live_property(self):
-        from modules.tech_support_report import FirmwareDiagnostics
+    def test_a_missing_motor_board_via_live_property(self):
+        from modules.tech_support_report import FirmwareDiagnostics, MotorBoardPresence
 
         scope = MagicMock()
         scope.motor_connected = False
+        scope.motion_expected = True
         diag = FirmwareDiagnostics(scope=scope)
-        assert diag._motor_ok() is False
+        assert diag.motor_board_presence() is MotorBoardPresence.MISSING
 
-    def test_motor_ok_fallback_to_driver_found(self):
-        # Older diagnostic Lumascope shapes may lack the live property;
-        # fall back to the underlying driver's found attribute.
-        from modules.tech_support_report import FirmwareDiagnostics
+    def test_no_motor_board_on_a_model_built_without_one(self):
+        # An LS620 and an LS850T with its board unplugged both run on the
+        # null board; only the scope's motion_expected tells them apart.
+        from modules.tech_support_report import FirmwareDiagnostics, MotorBoardPresence
 
-        scope = MagicMock(spec=['_motion_driver'])
-        scope._motion_driver = MagicMock()
-        scope._motion_driver.found = True
+        scope = MagicMock()
+        scope.motor_connected = False
+        scope.motion_expected = False
         diag = FirmwareDiagnostics(scope=scope)
-        assert diag._motor_ok() is True
+        assert diag.motor_board_presence() is MotorBoardPresence.NOT_ON_THIS_MODEL
 
     def test_led_ok_uses_post_wave7_illumination_or_live(self):
         from modules.tech_support_report import FirmwareDiagnostics

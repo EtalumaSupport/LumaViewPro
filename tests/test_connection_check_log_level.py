@@ -13,8 +13,8 @@ swapping a recording logger into the module under test rather than caplog.
 
 import pytest
 
-from modules.lumascope_api import Lumascope
 from modules.lumascope_api import _lumascope as lumascope_mod
+from tests.scope_fakes import build_scope
 
 
 class _RecordingLogger:
@@ -47,7 +47,7 @@ class _RecordingLogger:
 
 @pytest.fixture
 def sim_scope_with_log(monkeypatch):
-    scope = Lumascope(simulate=True)
+    scope = build_scope(simulate=True)
     recorder = _RecordingLogger()
     monkeypatch.setattr(lumascope_mod, 'logger', recorder)
     yield scope, recorder

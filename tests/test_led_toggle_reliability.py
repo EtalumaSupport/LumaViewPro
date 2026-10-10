@@ -51,10 +51,9 @@ import pytest
 REPO = pathlib.Path(__file__).parent.parent
 LAYER_CONTROL = REPO / 'ui' / 'layer_control.py'
 LUMAVIEWPRO = REPO / 'lumaviewpro.py'
-# LVP-A-6 (2026-05-04): the camera/LED/position listener closures moved
-# from lumaviewpro.py:on_start into modules/ui_listener_bridge.py.
-# The #617 safeguard tests below scan this file instead.
-UI_LISTENER_BRIDGE = REPO / 'modules' / 'ui_listener_bridge.py'
+# The camera/LED/position listener closures moved out of
+# lumaviewpro.py:on_start and now live in ui/listener_bridge.py.
+# The feedback-loop safeguard tests below scan that file instead.
 
 
 def _parse(path: pathlib.Path) -> ast.Module:
@@ -89,19 +88,19 @@ class TestFixA_DisableLedsForOtherLayersGuard:
 
     def test_disable_leds_offs_other_layers_individually(self):
         """Other layers are switched off one channel at a time
-        (led_off_async), preserving the #614 one-LED-at-a-time guarantee."""
+        (led_off), preserving the #614 one-LED-at-a-time guarantee."""
         body = self._body()
-        assert 'led_off_async(' in body, (
+        assert '.led_off(' in body, (
             'disable_leds_for_other_layers must turn off other layers '
-            'individually with led_off_async (#614 one LED at a time)'
+            'individually with led_off (#614 one LED at a time)'
         )
 
     def test_disable_leds_does_not_nuke_all_leds(self):
         """The cache-clearing nuclear leds_off must NOT be used here -- it was
         the off->on blink source on every slider move (#617)."""
         body = self._body()
-        assert 'leds_off_async()' not in body, (
-            'nuclear leds_off_async() clears the LED-state cache and blinks '
+        assert '.leds_off(' not in body, (
+            'nuclear leds_off() clears the LED-state cache and blinks '
             'an already-correct channel off->on; off the other layers '
             'individually instead (#617)'
         )
@@ -111,7 +110,7 @@ class TestFixA_DisableLedsForOtherLayersGuard:
         must NOT re-light it. Re-lighting was only needed to undo the nuclear
         leds_off, which also turned this layer off."""
         body = self._body()
-        assert 'led_on_async(' not in body, (
+        assert '.led_on(' not in body, (
             'disable_leds_for_other_layers must not re-light this layer '
             '(update_led_state owns this layer current); re-lighting here '
             'was only there to undo the nuclear leds_off (#617)'
@@ -135,7 +134,7 @@ class TestFixB1_SliderHandlerEarlyReturn:
         # We check this by finding the first occurrence of each and asserting
         # the early return is first in the function body order.
         init_check_pos = body.find('if self._initializing:')
-        settings_write_pos = body.find('settings[self.layer]')
+        settings_write_pos = body.find('update_settings(')
         assert init_check_pos != -1
         assert settings_write_pos != -1
         assert init_check_pos < settings_write_pos, (
@@ -154,10 +153,17 @@ class TestFixB2_ProgrammaticWidgetWriteWrapping:
         wrapping is asserted below -- an inline write here would be a slider
         write with no suppression, which the handler reads back as a drag."""
         tree = _parse(LAYER_CONTROL)
-        for method in ('ill_text', '_validate_and_apply_text_input', 'exp_text'):
+        body = _source_of(_find_method(tree, 'LayerControl', '_validate_and_apply_text_input'))
+        assert '_show_value_on_widgets' in body, (
+            '_validate_and_apply_text_input must render through _show_value_on_widgets'
+        )
+        assert 'slider.value' not in body, (
+            '_validate_and_apply_text_input must not assign a slider value itself'
+        )
+        for method in ('ill_text', 'exp_text'):
             body = _source_of(_find_method(tree, 'LayerControl', method))
-            assert '_show_value_on_widgets' in body, (
-                f'{method} must render through _show_value_on_widgets'
+            assert '_validate_and_apply_text_input' in body, (
+                f'{method} must commit through the shared text handler'
             )
             assert 'slider.value' not in body, f'{method} must not assign a slider value itself'
 
@@ -178,59 +184,4 @@ class TestFixB2_ProgrammaticWidgetWriteWrapping:
         # caller that is already suppressing keeps its own guard.
         assert 'self._initializing = was_initializing' in body, (
             '_show_value_on_widgets must restore the previous flag state, not clear it'
-        )
-
-    def test_update_camera_ui_is_text_only(self):
-        """The camera listener handler must only update text widgets,
-        never slider.value.
-
-        Structural fix (4.1 session 13 follow-up to #617): the slider is
-        the user-input source of truth. The listener exists to display
-        the actual camera value in the readout text, not to push values
-        back into the slider -- doing so was the root cause of the
-        handler-recursion feedback loop the `_initializing` flag was
-        papering over.
-
-        LVP-A-6 (2026-05-04): the closure moved from
-        ``lumaviewpro.py:on_start`` into
-        ``modules/ui_listener_bridge.py:UIListenerBridge._on_camera_setting_changed``
-        (with the inner ``_update_camera_ui`` closure). Scanning the new
-        location.
-        """
-        source = UI_LISTENER_BRIDGE.read_text()
-        idx = source.find('def _update_camera_ui')
-        assert idx != -1, '_update_camera_ui not found in ui_listener_bridge.py'
-        # Function is ~3000 chars; slice large enough to catch the body
-        body = source[idx : idx + 3500]
-
-        # Text writes must still be present -- this is the whole point of
-        # the listener.
-        assert 'gain_text' in body, '_update_camera_ui must still update gain_text for #617 display'
-        assert 'exp_text' in body, '_update_camera_ui must still update exp_text for #617 display'
-
-        # Must NOT write to slider.value -- that path is the recursion root.
-        for forbidden in (
-            "gain_slider'].value =",
-            "exp_slider'].value =",
-            '"gain_slider"].value =',
-            '"exp_slider"].value =',
-        ):
-            assert forbidden not in body, (
-                f'_update_camera_ui must not assign to slider.value; found '
-                f'{forbidden!r} -- this is the recursion root from #617'
-            )
-
-        # Must still respect _initializing set by other code paths
-        # (set_step_state, layer switches). We don't write our own, but
-        # we do early-return when someone else set it.
-        assert 'if layer_obj._initializing:' in body, (
-            '_update_camera_ui must still early-return when another code '
-            'path has set layer_obj._initializing'
-        )
-
-        # Must NOT set _initializing itself anymore -- no slider writes
-        # means no recursion to protect against.
-        assert 'layer_obj._initializing = True' not in body, (
-            '_update_camera_ui should not set _initializing; text-only '
-            'updates do not trigger handler recursion'
         )

@@ -1,10 +1,9 @@
-"""Regression for #431 (Z half): applying z-stacking must not create slices
-outside the Z travel range.
+"""A z-stack inside Z's travel builds whole: every slice kept, none skipped.
 
-XY tiling already skips out-of-bounds tiles; the matching Z-stack bounds check
-was never implemented, so a z-stack range wider than the Z travel pushed the
-protocol to the end of travel and crashed the run. apply_zstacking now skips
-out-of-range slices and reports the count so the UI can warn.
+The refusal of a stack with a slice outside the travel is pinned in
+test_a_build_outside_the_travel_is_refused.py; this is its admit side. A
+stack that skipped its out-of-range ends and reported a count would have
+projected as if whole (#431).
 
 Reuses the Protocol builders from test_protocol_roundtrip.
 """
@@ -22,24 +21,10 @@ def _proto():
     return _build_protocol([_make_step(name='A1_BF', z=5000.0, z_slice=-1)])
 
 
-def test_out_of_range_zslices_are_skipped_and_counted():
-    proto = _proto()
-    axes_config = {'Z': {'limits': {'min': 4960.0, 'max': 5040.0}}}
-
-    status = proto.apply_zstacking(zstack_params=_ZSTACK, axes_config=axes_config)
-
-    # 4950 and 5050 fall outside [4960, 5040].
-    assert status['zslices_skipped'] == 2
-    z_values = proto.steps()['Z'].tolist()
-    assert len(z_values) == 4
-    assert all(4960.0 <= z <= 5040.0 for z in z_values), z_values
-
-
 def test_all_in_range_zslices_kept_no_skips():
     proto = _proto()
-    axes_config = {'Z': {'limits': {'min': 0.0, 'max': 10000.0}}}
+    axis_limits = {'Z': {'min': 0.0, 'max': 10000.0}}
 
-    status = proto.apply_zstacking(zstack_params=_ZSTACK, axes_config=axes_config)
+    proto.apply_zstacking(zstack_params=_ZSTACK, axis_limits=axis_limits)
 
-    assert status['zslices_skipped'] == 0
     assert len(proto.steps()) == 6

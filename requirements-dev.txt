@@ -1,7 +1,8 @@
 # Development and testing dependencies (not needed in production)
 # Install with: pip install -r requirements-dev.txt
 
--r requirements.txt
+# The build file includes requirements.txt and pins PyInstaller.
+-r requirements-build.txt
 
 # A pin's job is to make CI run what local verification actually ran. This one
 # had drifted a full major behind the interpreter that produces every green
@@ -9,7 +10,12 @@
 # never used. Bump this whenever the development environment moves; a pin that
 # disagrees with the environment that validates the suite is worse than none.
 pytest==9.0.2
-pyinstaller==6.19.0
+
+# The suite's parallel runner (`pytest -n auto`). Required, not optional:
+# the pytest addopts carry `--dist loadgroup`, which is an xdist option, so
+# without it pytest refuses the command line. Without `-n` the option is
+# inert and the suite runs serially.
+pytest-xdist==3.8.0
 
 # Linter + formatter. PINNED EXACTLY, and the pin is load-bearing: ruff
 # changes its rule set and its formatting between releases, so a floating
@@ -33,8 +39,17 @@ pyflakes==3.4.0
 # loads a derandomized profile when CI is set so CI runs are reproducible.
 hypothesis==6.165.2
 
+# The HTTP client the REST tests use: FastAPI's TestClient is built on it,
+# and the event-stream tests read a real uvicorn server through it.
+httpx==0.28.1
+
 # Profiling — see Firmware/docs/PROFILING_PRACTICE.md
 # py-spy: sampling profiler, attaches to live LVP process without restart,
 # low overhead so it can run for hours without warping timing data.
 py-spy>=0.4
+# austin: the profiler's sampler on macOS, where py-spy counts a sleeping thread
+# as CPU (tools/profiling/profile_session.py); austin-python carries its
+# mojo2austin converter. Both GPL-3.0: run as separate programs, never imported.
+austin-dist==4.0.0; sys_platform == "darwin"
+austin-python==2.3.0; sys_platform == "darwin"
 ome-types==0.6.3

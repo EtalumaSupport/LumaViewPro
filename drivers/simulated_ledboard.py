@@ -19,7 +19,7 @@ import threading
 import time
 from typing import ClassVar
 from lvp_logger import logger
-from drivers.ledboard import FIRMWARE_LED_CH_MAX_MA
+from drivers.ledboard import FIRMWARE_LED_CH_MAX_MA, firmware_commanded_ma
 from drivers.registry import led_registry
 
 # SIM-SERIAL-LOG: emit the same serial.log line shape that the real
@@ -54,11 +54,15 @@ class SimulatedLEDBoard:
     def max_ma(self) -> int:
         return self._MAX_MA
 
+    def commanded_ma(self, mA: float) -> float:
+        return firmware_commanded_ma(mA)
+
     def __init__(
         self,
         delay: float = 0.0,
         timing: str = 'fast',
-        firmware_version: str = '2.0.1',
+        firmware_version: str | None = '2.0.1',
+        firmware_date: str | None = None,
         protocol_version: str = 'legacy',  # v3.0 STUB: 'legacy' or 'v3'
         supports_firmware_stim: bool = False,
         fail_after: int | None = None,
@@ -73,6 +77,10 @@ class SimulatedLEDBoard:
         self.driver = True  # truthy sentinel -- not a real serial port
         self._delay = delay
         self.firmware_version = firmware_version  # Configurable for testing old firmware paths
+        # The date INFO carries; None as the original firmware's version is.
+        self.firmware_date = firmware_date
+        # The simulated board always answers INFO, as a connected real one does.
+        self.firmware_responding = True
         self.protocol_version = protocol_version  # v3.0 STUB: for future v3.0 simulation testing
         self._supports_firmware_stim = supports_firmware_stim
 
@@ -240,13 +248,20 @@ class SimulatedLEDBoard:
             _serial_log.info(f'[LED Sim] {command} -> {resp_repr} ({elapsed_ms:.1f}ms)')
             return response
 
-    def exchange_multiline(self, command, timeout=60, end_markers=None):
+    def exchange_multiline(
+        self,
+        command: str,
+        timeout: float = 60,
+        end_markers: list[str] | None = None,
+        line_end: bytes = b'\n',
+    ) -> str | None:
         """Simulated multi-line response.
 
         Args:
             command: Command string to dispatch.
             timeout: Accepted for API parity; ignored by the simulator.
             end_markers: Accepted for API parity; ignored by the simulator.
+            line_end: Accepted for API parity; ignored by the simulator.
 
         Returns:
             Response string from ``exchange_command()``.
@@ -416,6 +431,10 @@ class SimulatedLEDBoard:
             mA: Drive current in milliamps.
             block: Accepted for API parity; ignored by the simulator.
         """
+        if mA == 0:
+            # As the real board does: 0 is sent as the board's off.
+            self.led_off(channel)
+            return
         color = self.ch2color(channel)
         self.led_ma[color] = mA
         self._channel_states[channel] = mA
@@ -485,14 +504,16 @@ class SimulatedLEDBoard:
         logger.info('[LED Sim   ] enter_engineering_mode()')
         return True
 
-    def exit_engineering_mode(self) -> str:
-        """Simulated engineering mode exit.
+    def exit_engineering_mode(self) -> bool:
+        """Simulated engineering mode exit. Mirrors
+        `LEDBoard.exit_engineering_mode`: the simulated board is always
+        back in safe mode.
 
         Returns:
-            str: Always ``'Q'`` (mirrors the firmware Q command).
+            bool: Always True.
         """
         logger.info('[LED Sim   ] exit_engineering_mode()')
-        return 'Q'
+        return True
 
     def selftest(self, timeout: float = 180) -> list:
         """Simulated SELFTEST -- returns fake result lines.

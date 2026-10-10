@@ -42,8 +42,8 @@ FunctionDef from the file and supplies only the module globals it closes
 over, so the production body runs verbatim.
 """
 
+import pathlib
 import ast
-import importlib
 import json
 import logging
 import shutil
@@ -57,12 +57,13 @@ import modules.notification_center as notification_center
 import modules.settings_init as settings_init
 import ui.notification_popup as notification_popup
 from modules import gui_logger
-from modules.exceptions import SettingsSaveRefusedError
+from modules.exceptions import SettingsFileNotReplacedError, SettingsSaveRefusedError
 from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
-from tests.ast_seams import REPO_ROOT, parse_module
+from tests.ast_seams import REPO_ROOT, direct_call_names, parse_module
 from tests.settings_fixtures import complete_settings
-from tests.test_objective_prompt_single_flight import _direct_call_names
+from tests.installation_fixtures import copy_installation_files
+from ui.ui_helpers import run_reported
 from ui.vertical_control import VerticalControl
 
 SHIPPED_TEMPLATE = REPO_ROOT / 'data' / 'settings.json'
@@ -111,7 +112,7 @@ def _mixin_methods() -> dict:
 def _self_call_names(fn) -> list[str]:
     """``self.<name>()`` called in this function's OWN body.
 
-    Modelled on _direct_call_names, but attribute-qualified: the plain
+    Modelled on direct_call_names, but attribute-qualified: the plain
     walker cannot tell ``self.stop()`` from ``popup.stop()``, and a
     reachability walk that followed every attribute name would resolve
     unrelated objects' methods to LumaViewProApp's.
@@ -190,16 +191,16 @@ class _VerticalControlStand:
     prompt_if_objective_unknown = VerticalControl.prompt_if_objective_unknown
     _render_objective_question = VerticalControl._render_objective_question
     _apply_objective_answer = VerticalControl._apply_objective_answer
+    # Borrowed, not stubbed: it decides whether a startup step waiting
+    # on the objective runs at all.
+    _resolve_objective = VerticalControl._resolve_objective
 
     def __init__(self):
         self.ids = {'objective_spinner2': SimpleNamespace(values=list(CATALOGUE), text='')}
         for position in range(1, 5):
             self.ids[f'turret_pos_{position}_btn'] = SimpleNamespace(text=str(position))
 
-    def _refresh_fov(self, objective_id):
-        pass
-
-    def update_all_turret_btn_states(self, position):
+    def show_turret_state(self, prompt=True):
         pass
 
 
@@ -210,6 +211,17 @@ class _AppStand:
         self.re_asked = 0
         self.objective_prompts = 0
         self.stopped = 0
+        self.protocol_loads = 0
+        self._persisted_protocol_loaded = False
+
+    def _load_persisted_protocol_once(self):
+        # The real one is latched for the same reason: the objective
+        # question is asked from several places and only the first may
+        # load the saved protocol.
+        if self._persisted_protocol_loaded:
+            return
+        self._persisted_protocol_loaded = True
+        self.protocol_loads += 1
 
     def _ask_about_rejected_settings(self):
         self.re_asked += 1
@@ -264,11 +276,12 @@ def session(tmp_path, monkeypatch):
     shutil.copy(SHIPPED_TEMPLATE, data / 'current.json')
     # The factory builds the session's helpers from this root and refuses
     # to configure the scope without them.
-    for name in ('objectives.json', 'labware.json'):
-        shutil.copy(SHIPPED_TEMPLATE.parent / name, data / name)
+    copy_installation_files(data)
     monkeypatch.setattr(settings_init, 'settings', None)
     monkeypatch.setattr(settings_init, 'rejected_current_json', None)
-    return ScopeSession.create_headless(source_path=str(tmp_path))
+    return ScopeSession.create(
+        ScopeSession.load_user_settings(str(tmp_path)), source_path=str(tmp_path), simulate=True
+    )
 
 
 def _current_json(tmp_path) -> str:
@@ -301,20 +314,20 @@ def untouched(session, tmp_path):
     return _check
 
 
+def _set_connected(session, monkeypatch, connected):
+    # The real scope with its connection flags forced, so the save still
+    # reads the live runtime state it records the turret slot from.
+    for flag in ('camera_connected', 'motor_connected', 'led_connected'):
+        monkeypatch.setattr(type(session.scope), flag, property(lambda self: connected))
+
+
 def _with_hardware(session, monkeypatch):
-    monkeypatch.setattr(
-        session,
-        'scope',
-        SimpleNamespace(camera_connected=True, motor_connected=True, led_connected=True),
-    )
+    _set_connected(session, monkeypatch, True)
 
 
 def _without_hardware(session, monkeypatch):
-    monkeypatch.setattr(
-        session,
-        'scope',
-        SimpleNamespace(camera_connected=False, motor_connected=False, led_connected=False),
-    )
+    # Nothing found at bring-up: the gate's question, not what is connected now.
+    monkeypatch.setattr(type(session.scope), 'no_hardware', property(lambda self: True))
 
 
 def _make_provisional(monkeypatch, tmp_path):
@@ -338,7 +351,7 @@ class TestTheQuestionIsAskable:
         build = _app_methods().get('build')
         assert build is not None, 'lumaviewpro.py: LumaViewProApp.build is gone'
 
-        assert '_ask_about_rejected_settings' not in _direct_call_names(build)
+        assert '_ask_about_rejected_settings' not in direct_call_names(build)
 
     def test_the_question_is_deferred_and_its_failure_stays_fatal(self):
         """Deferral alone would drop the fatal property: after the move,
@@ -413,38 +426,42 @@ class TestTheQuestionIsAskable:
         offenders = [
             (owner, call)
             for owner, fn in walked.items()
-            for call in _direct_call_names(fn)
+            for call in direct_call_names(fn)
             if call.startswith('show_') and call.endswith('_popup')
         ]
         assert offenders == [], f'popup(s) opened before the root attaches: {offenders}'
 
-    def test_the_answer_path_survives_a_locked_file(self, monkeypatch, tmp_path):
+    def test_the_answer_path_survives_a_locked_file(self, monkeypatch, tmp_path, centre_posts):
         """The retire is a file rename. Under a Windows AV/indexer lock
         it raises -- from a button callback, where an escape kills the
         process with no teardown. It must say so, re-present the
         question, and NOT go on to the objective prompt: settings are
-        still provisional, so that answer still could not be kept."""
+        still provisional, so that answer still could not be kept.
+
+        What it says is the retire's own typed fault, shown once by the
+        one reporter: the handler writes no popup and no log line of its
+        own, and names the OS's reason rather than guessing one."""
         _make_provisional(monkeypatch, tmp_path)
 
-        def _locked():
-            raise PermissionError('current.json is in use by another program')
+        def _locked(src, dst):
+            raise PermissionError(13, 'The process cannot access the file', src)
+
+        monkeypatch.setattr(settings_init.os, 'replace', _locked)
+        from modules.lumascope_api.bring_up import BringUpRecord, SettingsSetAside
 
         ctx = SimpleNamespace(
             session=SimpleNamespace(
-                settings_are_provisional=lambda: True,
-                retire_rejected_settings=_locked,
+                settings_are_provisional=settings_init.settings_are_provisional,
+                retire_rejected_settings=settings_init.retire_rejected_current_json,
+                bring_up_record=lambda: BringUpRecord(
+                    parts=(),
+                    settings_set_aside=SettingsSetAside(*settings_init.rejected_current_json),
+                ),
             )
         )
         clock = _FakeClock()
         log = MagicMock()
         stand = _AppStand()
-
-        errors = []
-        monkeypatch.setattr(
-            notification_center.notifications,
-            'error',
-            lambda category, title, message, **kw: errors.append((category, title, message)),
-        )
 
         shown = {}
         monkeypatch.setattr(
@@ -453,7 +470,13 @@ class TestTheQuestionIsAskable:
             lambda **kwargs: shown.update(kwargs),
         )
 
-        ask = _app_method('_ask_about_rejected_settings', ctx=ctx, logger=log, Clock=clock)
+        ask = _app_method(
+            '_ask_about_rejected_settings',
+            ctx=ctx,
+            logger=log,
+            Clock=clock,
+            run_reported=run_reported,
+        )
         ask(stand)
 
         # Nothing opened yet -- the whole point of the deferral.
@@ -465,12 +488,37 @@ class TestTheQuestionIsAskable:
         shown['on_confirm']()
 
         assert stand.stopped == 0, 'a locked file is recoverable; it must not stop the app'
-        assert log.error.called
-        assert errors and errors[0][1] == 'Settings file could not be replaced'
+        assert not log.error.called, 'the handler logs nothing of its own beside the report'
+        assert [(n.title, n.severity) for n in centre_posts] == [
+            ('Settings File Not Replaced', notification_center.Severity.ERROR)
+        ]
+        assert 'The process cannot access the file' in centre_posts[0].message
+        assert 'in use by another program' not in centre_posts[0].message
         assert stand.re_asked == 1, 'the unresolved question must be put back to the user'
         assert stand.objective_prompts == 0, (
             'settings are still provisional, so the objective answer still could not be kept'
         )
+
+    def test_a_failed_retire_raises_its_own_fault_and_keeps_the_settings_provisional(
+        self, monkeypatch, tmp_path
+    ):
+        """The retire is the API an L2 caller reaches too, so the failure
+        is raised there, typed and chained from the OS's error, and the
+        state it would have changed is left as it was."""
+        _make_provisional(monkeypatch, tmp_path)
+        locked = PermissionError(13, 'Permission denied', 'current.json')
+
+        def _locked(src, dst):
+            raise locked
+
+        monkeypatch.setattr(settings_init.os, 'replace', _locked)
+
+        with pytest.raises(SettingsFileNotReplacedError) as raised:
+            settings_init.retire_rejected_current_json()
+
+        assert raised.value.__cause__ is locked
+        assert 'Permission denied' in str(raised.value)
+        assert settings_init.settings_are_provisional()
 
 
 # ---------------------------------------------------------------------------
@@ -491,11 +539,13 @@ class TestTheSaveRefusalIsAudible:
 
         def _retire():
             calls.append(True)
-            return '/data/current.json.rejected-20260831-120000'
+            return pathlib.Path('/data/current.json.rejected-20260831-120000')
 
         monkeypatch.setattr(settings_init, 'retire_rejected_current_json', _retire)
 
-        assert session.retire_rejected_settings() == '/data/current.json.rejected-20260831-120000'
+        assert session.retire_rejected_settings() == pathlib.Path(
+            '/data/current.json.rejected-20260831-120000'
+        )
         assert calls == [True]
 
     def test_a_provisional_save_raises(self, session, monkeypatch, tmp_path, untouched):
@@ -561,12 +611,13 @@ class TestTheSaveRefusalIsAudible:
             assert json.load(f)['live_folder'] == '/data/should_not_persist'
 
     def test_shutdown_survives_a_refused_save(self, session, monkeypatch, tmp_path):
-        """Two halves, because on_stop cannot be driven headlessly: it
+        """Two halves, because the app's close cannot be driven headlessly: it
         tears down executors, threads, notification listeners and real
         hardware. The BEHAVIOUR half proves the refusal is an exception
         that would abort an unguarded caller; the STRUCTURAL half proves
-        on_stop catches exactly that type and still reaches the hardware
-        teardown after it."""
+        the close's save catches exactly that type, and that both ways the
+        app closes -- the window's close and on_stop -- save before they
+        reach the session's teardown, which is the session's alone."""
         _without_hardware(session, monkeypatch)
         _make_provisional(monkeypatch, tmp_path)
 
@@ -576,21 +627,21 @@ class TestTheSaveRefusalIsAudible:
             session.save_settings('./data/current.json')
         assert excinfo.value.reason == 'settings_provisional'
 
-        on_stop = _app_methods()['on_stop']
+        methods = _app_methods()
+        prepare = methods['_prepare_the_close']
         guards = [
             node
-            for node in ast.walk(on_stop)
+            for node in ast.walk(prepare)
             if isinstance(node, ast.Try)
             and any(
                 h.type is not None and ast.unparse(h.type) == 'SettingsSaveRefusedError'
                 for h in node.handlers
             )
         ]
-        assert len(guards) == 1, 'on_stop must catch the refusal around its save'
-        guard = guards[0]
+        assert len(guards) == 1, 'the close must catch the refusal around its save'
         assert 'save_settings' in [
             n.func.attr
-            for n in ast.walk(guard)
+            for n in ast.walk(guards[0])
             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
         ]
 
@@ -604,30 +655,44 @@ class TestTheSaveRefusalIsAudible:
                 out.append(value.id)
             return out
 
-        calls = [
-            node
-            for node in ast.walk(on_stop)
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-        ]
-        teardown = [
-            node.lineno
-            for node in calls
-            if node.func.attr == 'shutdown' and _chain(node.func.value) == ['session', 'ctx']
-        ]
-        assert teardown, 'on_stop must still tear the session (and its hardware) down'
-        assert min(teardown) > guard.end_lineno, (
-            'the session teardown must sit AFTER the guarded save, not inside it'
-        )
-        # The teardown is the session's, whole: on_stop stops no thread,
-        # lane or hardware itself.
-        stray = [
-            (node.lineno, ast.unparse(node.func))
-            for node in calls
-            if node.func.attr in ('disconnect', 'shutdown_threads', 'stop_motion', 'stop_metrics')
-            or (node.func.attr == 'shutdown' and _chain(node.func.value) != ['session', 'ctx'])
-            or (node.func.attr == 'stop' and _chain(node.func.value) != ['profiling_helper'])
-        ]
-        assert stray == [], f'on_stop performs teardown steps itself: {stray}'
+        def _calls(method):
+            return [
+                node
+                for node in ast.walk(method)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            ]
+
+        teardown = methods['_shut_the_session_down']
+        assert any(
+            node.func.attr == 'shutdown' and _chain(node.func.value) == ['session', 'ctx']
+            for node in _calls(teardown)
+        ), 'the close must still tear the session (and its hardware) down'
+
+        # Each way the app closes saves first, then reaches the teardown:
+        # on_stop calls it; the window's close starts the thread that runs it.
+        for name in ('on_stop', '_close_the_session'):
+            method = methods[name]
+            saved = [n.lineno for n in _calls(method) if n.func.attr == '_prepare_the_close']
+            torn = [
+                n.lineno
+                for n in ast.walk(method)
+                if isinstance(n, ast.Attribute) and n.attr == '_shut_the_session_down'
+            ]
+            assert saved and torn, f'{name} must save, then reach the teardown'
+            assert min(saved) < min(torn), f'{name} must save BEFORE the teardown'
+
+        # The teardown is the session's, whole: no part of the app's close
+        # stops a thread, lane or hardware itself.
+        for name in ('on_stop', '_prepare_the_close', '_shut_the_session_down'):
+            stray = [
+                (node.lineno, ast.unparse(node.func))
+                for node in _calls(methods[name])
+                if node.func.attr
+                in ('disconnect', 'shutdown_threads', 'stop_motion', 'stop_metrics')
+                or (node.func.attr == 'shutdown' and _chain(node.func.value) != ['session', 'ctx'])
+                or (node.func.attr == 'stop' and _chain(node.func.value) != ['profiling_helper'])
+            ]
+            assert stray == [], f'{name} performs teardown steps itself: {stray}'
 
     def test_the_periodic_flush_survives_a_refused_save(self, monkeypatch):
         """A 300 s timer must not turn an expected condition into a
@@ -712,16 +777,16 @@ def event_loop_status(monkeypatch):
     BOTH cases arrange it; neither trusts the ambient conftest stub.
     Two facts make ambient unknowable from here: a dev/CI machine may
     have real Kivy installed, and another test file (test_audit_fixes)
-    purges and restores the kivy stubs, so which object
-    ``from kivy.base import EventLoop`` resolves to depends on suite
-    ORDER. A negative test that trusted the stub was green alone and red
-    after that file -- green for the wrong reason either way, since the
-    real loop is 'idle' under pytest and would have marked every popup.
+    purges and restores the kivy stubs, so which object ``kivy.base``
+    names depends on suite ORDER. A negative test that trusted the stub
+    was green alone and red after that file -- green for the wrong reason
+    either way, since the real loop is 'idle' under pytest and would have
+    marked every popup. The detector reads the name its own module bound
+    at import, so that name is the one set here.
     """
 
     def _set(status):
-        module = importlib.import_module('kivy.base')
-        monkeypatch.setattr(module, 'EventLoop', SimpleNamespace(status=status), raising=False)
+        monkeypatch.setattr(notification_popup, 'EventLoop', SimpleNamespace(status=status))
 
     return _set
 
@@ -734,7 +799,7 @@ class TestThePreMainloopDetector:
         popup_log = captured_logs('LVP.ui.notification_popup')
         gui = captured_logs('LVP.gui_interactions')
 
-        notification_popup._log_show('confirm', 'WARNING', 'Settings', 'nobody can see this')
+        notification_popup._log_show('confirm', 'Settings', 'nobody can see this')
 
         assert len(popup_log) == 1
         assert popup_log[0].levelno == logging.ERROR
@@ -748,12 +813,26 @@ class TestThePreMainloopDetector:
         popup_log = captured_logs('LVP.ui.notification_popup')
         gui = captured_logs('LVP.gui_interactions')
 
-        notification_popup._log_show('confirm', 'WARNING', 'Settings', 'the user can see this')
+        notification_popup._log_show('confirm', 'Settings', 'the user can see this')
 
         assert len(popup_log) == 1
         assert popup_log[0].levelno == logging.INFO
         assert '(pre-mainloop)' not in popup_log[0].getMessage()
         assert gui and '(pre-mainloop)' not in gui[0].getMessage()
+
+
+class TestADialogRecordNamesNoLevel:
+    def test_the_gui_record_of_a_dialog_is_a_dialog_record(self, event_loop_status, captured_logs):
+        """A dialog has no severity: a question asks, and a notice's level is
+        its notification's, which the notification center records once. The
+        dialog's record read 'NOTIFICATION INFO' for every dialog, so a
+        refusal the main log had at WARNING read INFO beside it."""
+        event_loop_status('started')
+        gui = captured_logs('LVP.gui_interactions')
+
+        notification_popup._log_show('dialog', 'Protocol Refused', 'x.tsv was not loaded')
+
+        assert [r.getMessage() for r in gui] == ['DIALOG | Protocol Refused | x.tsv was not loaded']
 
 
 # ---------------------------------------------------------------------------
@@ -809,14 +888,15 @@ class TestTheDoubleDeferralFrame:
         # The decision to withhold the question is the Session's, so the
         # case runs a real one: a fresh install on a turret model, whose
         # question is owed and must still not be asked while provisional.
-        session = ScopeSession.create_headless(
-            settings=complete_settings(
+        session = ScopeSession.create(
+            complete_settings(
                 microscope='LS850T',
                 objective_confirmed=False,
                 turret_position=1,
                 turret_objectives={'1': None, '2': None, '3': None, '4': None},
                 objective_id='20x Oly',
-            )
+            ),
+            simulate=True,
         )
         request_shutdown = session.shutdown
         try:

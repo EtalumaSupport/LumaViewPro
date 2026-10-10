@@ -9,13 +9,13 @@ hardware-presence gate that came with it.
 import json
 import os
 import shutil
-from types import SimpleNamespace
 
 import pytest
 
 import modules.settings_init as settings_init
 from modules.exceptions import SettingsSaveRefusedError
 from modules.scope_session import ScopeSession
+from tests.installation_fixtures import copy_installation_files
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHIPPED_TEMPLATE = os.path.join(REPO_ROOT, 'data', 'settings.json')
@@ -29,19 +29,18 @@ def session(tmp_path, monkeypatch):
     shutil.copy(SHIPPED_TEMPLATE, data / 'current.json')
     # The factory builds the session's helpers from this root and refuses
     # to configure the scope without them.
-    for name in ('objectives.json', 'labware.json'):
-        shutil.copy(os.path.join(os.path.dirname(SHIPPED_TEMPLATE), name), data / name)
+    copy_installation_files(data)
     monkeypatch.setattr(settings_init, 'settings', None)
     monkeypatch.setattr(settings_init, 'rejected_current_json', None)
-    return ScopeSession.create_headless(source_path=str(tmp_path))
+    return ScopeSession.create(
+        ScopeSession.load_user_settings(str(tmp_path)), source_path=str(tmp_path), simulate=True
+    )
 
 
 def _disconnect(session, monkeypatch):
-    monkeypatch.setattr(
-        session,
-        'scope',
-        SimpleNamespace(camera_connected=False, motor_connected=False, led_connected=False),
-    )
+    # The real scope with no hardware found at its bring-up, so the save
+    # still reads the live runtime state it records the turret slot from.
+    monkeypatch.setattr(type(session.scope), 'no_hardware', property(lambda self: True))
 
 
 def test_a_deliberate_save_reaches_disk(session, tmp_path):
@@ -50,12 +49,6 @@ def test_a_deliberate_save_reaches_disk(session, tmp_path):
 
     with open(tmp_path / 'data' / 'current.json') as f:
         assert json.load(f)['live_folder'] == '/data/run7'
-
-
-def test_a_relative_path_resolves_against_the_session_source(session, tmp_path):
-    """Not the working directory -- an installed build cannot write beside itself."""
-    session.save_settings(force=True)
-    assert (tmp_path / 'data' / 'current.json').exists()
 
 
 def test_no_hardware_this_session_skips_the_write(session, tmp_path, monkeypatch):
@@ -87,28 +80,20 @@ def test_force_overrides_the_hardware_gate(session, tmp_path, monkeypatch):
         assert json.load(f)['live_folder'] == '/data/deliberate'
 
 
-def test_running_on_the_template_declines_even_when_forced(session, tmp_path, monkeypatch):
-    """current.json is the user's only copy; do not overwrite what we could not read."""
-    monkeypatch.setattr(
-        settings_init, 'rejected_current_json', (str(tmp_path / 'data' / 'current.json'), 'garbled')
-    )
-    before = (tmp_path / 'data' / 'current.json').read_text()
+def test_the_plugins_receive_what_was_written(session, monkeypatch):
+    """A session's plugins are told what was written; a session without plugins tells no one."""
+    session.save_settings(force=True)  # no plugins: nothing to tell, nothing raised
 
-    session.settings['live_folder'] = '/data/template_values'
-    with pytest.raises(SettingsSaveRefusedError) as excinfo:
-        session.save_settings(force=True)
+    from modules.plugins import PluginRegistry
 
-    assert excinfo.value.reason == 'settings_provisional'
-    assert (tmp_path / 'data' / 'current.json').read_text() == before
-
-
-def test_the_saved_hook_receives_what_was_written(session):
-    """The host's plugin notifier is a callback, so a headless session has none."""
     seen = []
-    session._settings_saved_hook = seen.append
-
+    session.plugins = PluginRegistry()
+    monkeypatch.setattr(
+        session.plugins, 'settings_saved', lambda host, settings: seen.append((host, settings))
+    )
     session.settings['live_folder'] = '/data/hooked'
     session.save_settings(force=True)
 
     assert len(seen) == 1
-    assert seen[0]['live_folder'] == '/data/hooked'
+    assert seen[0][0] is session
+    assert seen[0][1]['live_folder'] == '/data/hooked'

@@ -26,6 +26,10 @@ def add_popup_close(popup) -> None:
     drop an unread error). The X is their explicit escape hatch; it does
     not change the click-outside policy.
 
+    A popup that sets ``must_answer = True`` gets no X: it is a question
+    with no cancel path, and closing it unanswered would skip the answer
+    and drop the work waiting on it.
+
     Wired app-wide from a global '<Popup>: on_open' rule (below) instead of
     a kv child widget: Kivy merges the built-in <Popup> rule with ours, and
     a second top-level child is routed to `content`, raising PopupException
@@ -33,7 +37,7 @@ def add_popup_close(popup) -> None:
     into the already-built internal GridLayout sidesteps that. Idempotent --
     on_open fires on every open.
     """
-    if getattr(popup, '_etaluma_close_added', False):
+    if getattr(popup, 'must_answer', False) or getattr(popup, '_etaluma_close_added', False):
         return
     container = getattr(popup, '_container', None)
     if container is None or container.parent is None:

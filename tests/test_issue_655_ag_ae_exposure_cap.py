@@ -16,9 +16,9 @@ AG/AE gets its own per-channel-class exposure ceiling, separate from
 the manual exposure-slider limits:
   transmitted (BF/PC/DF) = 50 ms, fluorescence = 200 ms,
   luminescence = 1000 ms.
-The ceiling is resolved by config_helpers.get_ag_ae_max_exposure_ms
-(per-install override via settings['ag_ae_max_exposure_ms'][<class>],
-else the documented default) and plumbed down to the driver, which
+The ceilings ship in settings['ag_ae_max_exposure_ms'][<class>], set per
+install there; config_helpers.get_ag_ae_max_exposure_ms resolves a
+layer's from that map, and the ceiling is plumbed down to the driver, which
 sets AutoExposureTimeUpperLimit to that cap (in microseconds, clamped
 to the node's physical range) instead of the sensor max.
 
@@ -33,12 +33,16 @@ Bench verification gates the actual stability claim (diag/issue-655).
 
 from __future__ import annotations
 
+import json
 import pathlib
+import threading
 from unittest.mock import MagicMock
 
+from tests.protocol_drives import lent_run_claim
 import modules.config_helpers as config_helpers
 
 from tests.camera_fakes import bare_pylon_camera
+from tests.scope_fakes import give_camera_capabilities
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -50,8 +54,10 @@ PYLON_SRC = REPO / 'drivers' / 'pyloncamera.py'
 # --------------------------------------------------------------------------
 
 
-def test_default_caps_per_channel_class():
-    """Transmitted 50 ms, fluorescence 200 ms, luminescence 1000 ms."""
+def test_the_shipped_ceilings_per_channel_class():
+    """Transmitted 50 ms, fluorescence 200 ms, luminescence 1000 ms, from
+    the shipped settings, the one store of the ceilings."""
+    shipped = json.loads((REPO / 'data' / 'settings.json').read_text())['ag_ae_max_exposure_ms']
     expected = {
         'BF': 50.0,
         'PC': 50.0,
@@ -62,50 +68,23 @@ def test_default_caps_per_channel_class():
         'Lumi': 1000.0,
     }
     for layer, cap in expected.items():
-        assert config_helpers.get_ag_ae_max_exposure_ms(layer) == cap, (
-            f'{layer} AG/AE cap should default to {cap} ms'
+        assert config_helpers.get_ag_ae_max_exposure_ms(layer, shipped) == cap, (
+            f'{layer} AG/AE cap should ship at {cap} ms'
         )
 
 
-def test_settings_override_honored_per_class():
-    overrides = {'fluorescence': 150}
-    assert config_helpers.get_ag_ae_max_exposure_ms('Red', overrides) == 150.0
-    # A class without an override key falls back to its default.
-    assert config_helpers.get_ag_ae_max_exposure_ms('BF', overrides) == 50.0
+def test_each_layer_takes_its_class_from_the_map():
+    """The resolver is handed the per-class map itself, not the settings
+    dict that holds it, and answers each layer with its class's entry."""
+    ceilings = {'transmitted': 11.0, 'fluorescence': 123.0, 'luminescence': 456.0}
+    assert config_helpers.get_ag_ae_max_exposure_ms('BF', ceilings) == 11.0
+    assert config_helpers.get_ag_ae_max_exposure_ms('Red', ceilings) == 123.0
+    assert config_helpers.get_ag_ae_max_exposure_ms('Lumi', ceilings) == 456.0
 
 
-def test_override_map_is_the_flat_per_class_map():
-    """The resolver is handed the per-class override MAP itself, not the
-    settings dict that contains it. The map is what a run carries and what
-    the GUI getter reads off the app context; a resolver that dug one more
-    level out of a settings dict would silently return the table default
-    for every caller holding only the map. (#655)"""
-    assert config_helpers.get_ag_ae_max_exposure_ms('Blue', {'fluorescence': 123.0}) == 123.0
-
-
-def test_gui_getter_passes_the_override_map(monkeypatch):
-    """The live-view AG/AE arm resolves its ceiling through
-    config_ui_getters, which reads the per-install override map off the app
-    context. This is the regression guard for that caller: it passes today
-    and must keep passing, because the resolver's second parameter takes the
-    per-class map and a caller handing it a whole settings dict would
-    silently fall back to the table default. (#655)"""
-    from types import SimpleNamespace
-
-    import modules.config_ui_getters as config_ui_getters
-
-    monkeypatch.setattr(
-        config_ui_getters._app_ctx,
-        'ctx',
-        SimpleNamespace(settings={'ag_ae_max_exposure_ms': {'fluorescence': 123.0}}),
-    )
-    assert config_ui_getters.get_ag_ae_max_exposure_ms('Blue') == 123.0, (
-        'the GUI getter must reach the per-install fluorescence ceiling'
-    )
-
-
-def test_unknown_layer_falls_back_to_fluorescence_cap():
-    assert config_helpers.get_ag_ae_max_exposure_ms('Nonexistent') == 200.0
+def test_unknown_layer_takes_the_fluorescence_cap():
+    ceilings = {'transmitted': 11.0, 'fluorescence': 123.0, 'luminescence': 456.0}
+    assert config_helpers.get_ag_ae_max_exposure_ms('Nonexistent', ceilings) == 123.0
 
 
 # --------------------------------------------------------------------------
@@ -185,6 +164,7 @@ def test_api_set_auto_gain_forwards_cap_from_settings_dict():
     cam.connect()
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
+    give_camera_capabilities(scope, cam)
     imaging = ImagingAPI(scope, cam)
 
     recorded = {}
@@ -213,14 +193,6 @@ def test_api_set_auto_gain_forwards_cap_from_settings_dict():
     )
 
 
-def test_live_caller_injects_per_class_cap():
-    src = (REPO / 'ui' / 'layer_control.py').read_text()
-    assert 'get_ag_ae_max_exposure_ms' in src and 'max_exposure_ms' in src, (
-        'layer_control.apply_settings must inject the per-class AG/AE cap '
-        'into the auto-gain settings dict. (#655)'
-    )
-
-
 def test_protocol_caller_injects_per_class_cap(monkeypatch):
     """The AG arm tick must write the per-class cap (resolved via
     config_helpers) into the settings dict the apply carries. (#655)"""
@@ -232,35 +204,69 @@ def test_protocol_caller_injects_per_class_cap(monkeypatch):
     )
     runner = scan_ready_runner(protocol_step(Auto_Gain=True))
     runner._step_executor.scan_iterate()
-    applies = [
-        c.args[0]
-        for c in runner._io_executor.protocol_put.call_args_list
-        if c.args[0].action is runner._scope.imaging._apply_layer_camera_settings_impl
-    ]
-    assert applies, 'the AG step must queue the apply on the io executor'
+    applies = runner._scope.imaging.apply_layer_camera_settings.call_args_list
+    assert applies, 'the AG step must make the apply'
     assert applies[0].kwargs['auto_gain_settings']['max_exposure_ms'] == 456.0, (
         "the step's channel-class cap must reach the AG apply. (#655)"
     )
 
 
-def test_run_carries_the_per_install_cap_from_settings():
-    """A run started over settings carrying a per-install fluorescence
-    ceiling must land that ceiling on the runner. The ceiling travels with
-    the run because the AG arm ticks on the protocol thread, where no
-    process-wide settings store is available -- headless, that store is
-    unset and every cap silently collapses to the table default. (#655)"""
-    from modules.protocol_state_machine import SequencedCaptureRunMode
-    from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
+def test_a_run_arms_the_camera_at_the_ceiling_the_settings_hold(tmp_path, monkeypatch):
+    """A run reads the ceilings from its session's settings at prepare,
+    and a fluorescence step with auto-gain arms the camera at that class's
+    ceiling: the whole chain, settings to driver, on the simulated scope.
+    No caller hands the map in, so none can leave it out."""
+    from modules.run_events import RunEvents
+    from modules.scope_session import ScopeSession
+    from tests.protocol_drives import wait_until_not_running
+    from tests.scope_fakes import home_sim_scope
+    from tests.settings_fixtures import complete_settings
+    from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT
+    from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol
 
-    settings = {'ag_ae_max_exposure_ms': {'fluorescence': 123.0}}
-    run_settings = config_helpers.get_sequenced_run_settings(
-        settings, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL
+    step = dict(_make_single_step_protocol(color='Blue').step(0))
+    step['Auto_Gain'] = True
+    session = ScopeSession.create(
+        complete_settings(
+            live_folder=str(tmp_path),
+            objective_id='10x Oly',
+            ag_ae_max_exposure_ms={
+                'transmitted': 50.0,
+                'fluorescence': 123.0,
+                'luminescence': 1000.0,
+            },
+        ),
+        simulate=True,
     )
-    runner = bare_capture_runner()
-    runner.start(runner.prepare(**scr_run_kwargs(), **run_settings))
-    assert runner._ag_ae_max_exposure_ms == {'fluorescence': 123.0}, (
-        'the run must carry the per-install AG/AE override map. (#655)'
-    )
+    try:
+        home_sim_scope(session.scope)
+        camera = session.scope.imaging._driver
+        armed = []
+        real_auto_gain = camera.auto_gain
+
+        # a stand-in by design: the simulated camera takes the AE ceiling
+        # for interface parity and keeps nothing of it (a Goal 5 gap), so
+        # the arm is recorded at the driver's door and passed through.
+        def record_auto_gain(state, **kwargs):
+            if state:
+                armed.append(kwargs.get('ae_max_exposure_ms'))
+            return real_auto_gain(state, **kwargs)
+
+        monkeypatch.setattr(camera, 'auto_gain', record_auto_gain)
+        done = threading.Event()
+        started = session.create_protocol_runner().run_single_scan(
+            protocol=_build_real_protocol([dict(step)]),
+            sequence_name='ag_ae_ceiling',
+            parent_dir=str(tmp_path),
+            events=RunEvents(run_ended=lambda *_ended: done.set()),
+        )
+        assert done.wait(timeout=COMPLETION_TIMEOUT), 'the run did not end'
+        settled = started.wait(timeout_s=COMPLETION_TIMEOUT)
+        assert (settled.status, settled.reason) == ('completed', 'completed')
+        assert wait_until_not_running(session)
+        assert armed and set(armed) == {123.0}, f'the camera was armed at {armed}'
+    finally:
+        session.shutdown()
 
 
 def test_protocol_arm_resolves_the_cap_from_the_run():
@@ -275,12 +281,8 @@ def test_protocol_arm_resolves_the_cap_from_the_run():
         _ag_ae_max_exposure_ms={'fluorescence': 123.0},
     )
     runner._step_executor.scan_iterate()
-    applies = [
-        c.args[0]
-        for c in runner._io_executor.protocol_put.call_args_list
-        if c.args[0].action is runner._scope.imaging._apply_layer_camera_settings_impl
-    ]
-    assert applies, 'the AG step must queue the apply on the io executor'
+    applies = runner._scope.imaging.apply_layer_camera_settings.call_args_list
+    assert applies, 'the AG step must make the apply'
     assert applies[0].kwargs['auto_gain_settings']['max_exposure_ms'] == 123.0, (
         "the run's per-install fluorescence ceiling must reach the AG apply. (#655)"
     )
@@ -293,15 +295,15 @@ def _video_session_autogain_call(autogain_settings):
 
     import modules.protocol_recording as protocol_recording
     from modules.protocol_recording import ProtocolVideoStep
+    from modules.run_events import RunEvents
 
     scope = MagicMock()
     scope.imaging.frames_until_valid.return_value = 0
     scope.imaging.active_cached = False  # wait loop exits on its first tick
-    scope.imaging.camera_identity = {
-        'model': 'sim',
-        'serial': '0',
-        'timestamp_tick_frequency_hz': None,
-    }
+    scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {'focal_length': 45.0})
+    scope.capabilities.camera_model = 'sim'
+    scope.capabilities.camera_serial_number = '0'
+    scope.capabilities.camera_timestamp_tick_hz = None
     scope.imaging.frame_size_cached = {'width': 8, 'height': 8}
     step = {
         'Auto_Gain': True,
@@ -322,21 +324,22 @@ def _video_session_autogain_call(autogain_settings):
         timestamp_overlay=True,
         global_max_fps=0,
         autogain_settings=autogain_settings,
-        callbacks={},
+        events=RunEvents(),
         aborted_event=threading.Event(),
         is_run_in_progress=lambda: True,
         abort_run_fatal=MagicMock(),
-        abort_run_on_writer_death=MagicMock(),
         record_step_row=MagicMock(),
         record_dropped_capture=MagicMock(),
+        run_claim=lent_run_claim(),
+        to_plate=None,
     )
     from unittest.mock import patch
 
     with patch.object(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999)):
         outcome = recorder.run_blocking()
     assert outcome == protocol_recording.NO_FRAMES
-    assert scope.imaging._auto_gain_once_impl.called, 'the first-frame AG re-arm must fire'
-    return scope.imaging._auto_gain_once_impl.call_args.kwargs
+    assert scope.imaging.auto_gain_once.called, 'the first-frame AG re-arm must fire'
+    return scope.imaging.auto_gain_once.call_args.kwargs
 
 
 def test_video_capture_rearm_forwards_cap():

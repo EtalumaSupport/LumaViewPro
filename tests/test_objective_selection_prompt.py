@@ -15,6 +15,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 import modules.app_context as _app_ctx
 import ui.notification_popup as notification_popup
 import ui.vertical_control as vc
@@ -31,16 +33,24 @@ CHOICES = ('4x Oly', '10x Oly', '20x Oly')
 class _ScriptedSession:
     """The Session as the renderer sees it: a question, and an answer."""
 
-    def __init__(self, question=None, *, changed=True):
+    def __init__(self, question=None, *, changed=True, provisional=False):
         self.question = question
         self.changed = changed
+        self.provisional = provisional
         self.confirmed = []
+        self.cleared = []
         self.is_protocol_running = False
 
     def objective_question(self):
         if isinstance(self.question, Exception):
             raise self.question
         return self.question
+
+    def settings_are_provisional(self):
+        # The renderer asks this before running a startup continuation on a
+        # question that is not owed: while settings are provisional the host
+        # re-asks later, so nothing may be hung on this pass.
+        return self.provisional
 
     def confirm_objective(self, objective_id, turret_position=None):
         if isinstance(self.changed, Exception):
@@ -51,6 +61,9 @@ class _ScriptedSession:
     def get_objective_info(self, objective_id):
         return {'magnification': 10, 'focal_length': 18.0}
 
+    def clear_current_turret_objective(self):
+        self.cleared.append('current')
+
 
 class _Stand:
     """The real renderer methods; the widget tree and the FOV refresh stood in."""
@@ -58,19 +71,27 @@ class _Stand:
     prompt_if_objective_unknown = VerticalControl.prompt_if_objective_unknown
     _render_objective_question = VerticalControl._render_objective_question
     _apply_objective_answer = VerticalControl._apply_objective_answer
+    # Borrowed, not stubbed: it decides whether a startup step waiting on
+    # the objective runs, and a stub here would answer for that.
+    _resolve_objective = VerticalControl._resolve_objective
+    reset_turret_objective = VerticalControl.reset_turret_objective
 
     def __init__(self):
-        self.ids = {'objective_spinner2': SimpleNamespace(text='')}
-        for position in range(1, 5):
-            self.ids[f'turret_pos_{position}_btn'] = SimpleNamespace(text=str(position))
-        self.fov_refreshes = []
-        self.turret_states = []
+        self.shown = []
 
-    def _refresh_fov(self, objective_id):
-        self.fov_refreshes.append(objective_id)
+    def show_turret_state(self, prompt=True):
+        # The display is the API's answer; its own tests run it against a
+        # real session. Here only that the widget hands over to it.
+        self.shown.append(prompt)
 
-    def update_all_turret_btn_states(self, position):
-        self.turret_states.append(position)
+
+class _ImmediateClock:
+    """Kivy's Clock with the delay taken out, for tests that must see
+    what a scheduled callback did."""
+
+    @staticmethod
+    def schedule_once(callback, timeout=0):
+        callback(0)
 
 
 class _Harness:
@@ -96,6 +117,15 @@ class _Harness:
             lambda kind, value: self.gui_log.append(('SELECT', kind, value)),
         )
         monkeypatch.setattr(vc, 'logger', self.logger)
+        monkeypatch.setattr(
+            vc.gui_logger,
+            'button',
+            lambda name: self.gui_log.append(('BUTTON', name)),
+        )
+        # The reset handler SCHEDULES its follow-up rather than calling
+        # it, so a test that never runs the callback cannot tell a live
+        # trigger from a deleted one. Run it inline.
+        monkeypatch.setattr(vc, 'Clock', _ImmediateClock)
 
     def prompt(self):
         self.stand.prompt_if_objective_unknown()
@@ -130,14 +160,88 @@ class TestTheQuestionIsRendered:
         h.prompt()
         assert 'turret position' not in h.popups[0]['message']
 
-    def test_a_failed_query_is_one_notification_and_no_question(self, monkeypatch):
+    def test_a_failed_query_is_one_notification_and_no_question(self, monkeypatch, centre_posts):
+        from modules.notification_center import Severity
+
         h = _Harness(monkeypatch, _ScriptedSession(ConfigError('the objective catalogue is empty')))
         h.prompt()
         assert h.popups == []
-        assert len(h.error_popups) == 1
-        shown = h.error_popups[0]
-        assert 'not confirmed' in shown['title']
-        assert 'catalogue is empty' in shown['message'] and 'scale' in shown['message']
+        assert [(n.severity, n.message) for n in centre_posts] == [
+            (Severity.ERROR, 'the objective catalogue is empty')
+        ]
+        assert h.error_popups == []
+
+
+class TestTheContinuationFollowsTheQuestion:
+    """The startup step hung on the question runs once the objective is
+    settled -- answered, not owed, or the question raised -- and never
+    while the question is still on screen or settings are provisional."""
+
+    def _prompt(self, h):
+        runs = []
+        h.stand.prompt_if_objective_unknown(on_resolved=lambda: runs.append(1))
+        return runs
+
+    def test_a_refusal_is_shown_in_its_own_words_and_the_continuation_runs_once(
+        self, monkeypatch, centre_posts
+    ):
+        from modules.exceptions import ObjectiveUnknownError
+
+        h = _Harness(monkeypatch, _ScriptedSession(ObjectiveUnknownError('slot_unknown')))
+        runs = self._prompt(h)
+        assert [n.title for n in centre_posts] == ['Objective Unknown']
+        assert 'home the turret' in centre_posts[0].message
+        assert h.popups == [] and h.error_popups == []
+        assert runs == [1]
+
+    def test_a_fault_is_shown_once_and_the_continuation_runs_once(self, monkeypatch, centre_posts):
+
+        h = _Harness(monkeypatch, _ScriptedSession(ConfigError('the objective catalogue is empty')))
+        runs = self._prompt(h)
+        assert len(centre_posts) == 1
+        assert runs == [1]
+
+    def test_a_rendered_question_runs_nothing_until_it_is_answered(self, monkeypatch):
+        question = ObjectiveQuestion(turret_position=2, proposed='10x Oly', choices=CHOICES)
+        h = _Harness(monkeypatch, _ScriptedSession(question))
+        runs = self._prompt(h)
+        assert runs == []
+        h.answer('20x Oly')
+        assert runs == [1]
+
+    def test_a_rendered_question_runs_it_once_when_folded(self, monkeypatch):
+        question = ObjectiveQuestion(turret_position=2, proposed='10x Oly', choices=CHOICES)
+        h = _Harness(monkeypatch, _ScriptedSession(question))
+        runs = self._prompt(h)
+        assert runs == []
+        h.popups[0]['on_folded']()
+        assert runs == [1]
+
+    def test_no_question_owed_runs_it_once(self, monkeypatch):
+        h = _Harness(monkeypatch, _ScriptedSession(None))
+        assert self._prompt(h) == [1]
+
+    def test_provisional_settings_run_nothing(self, monkeypatch):
+        h = _Harness(monkeypatch, _ScriptedSession(None, provisional=True))
+        assert self._prompt(h) == []
+
+    def test_a_continuation_that_raises_with_no_question_owed_runs_once(
+        self, monkeypatch, centre_posts
+    ):
+        """The question's boundary would run the continuation again if the
+        continuation's own raise reached it; it must not, and the raise must
+        not leave the Clock callback."""
+
+        h = _Harness(monkeypatch, _ScriptedSession(None))
+        runs = []
+
+        def _continuation():
+            runs.append(1)
+            raise RuntimeError('the saved protocol would not load')
+
+        h.stand.prompt_if_objective_unknown(on_resolved=_continuation)
+        assert runs == [1]
+        assert len(centre_posts) == 1
 
 
 class TestTheAnswerReachesTheSession:
@@ -150,42 +254,49 @@ class TestTheAnswerReachesTheSession:
         h.prompt()
         h.answer('20x Oly')
         assert session.confirmed == [('20x Oly', 2)]
-        assert h.stand.ids['objective_spinner2'].text == '20x Oly'
-        assert h.stand.turret_states == [2]
-        assert h.stand.ids['turret_pos_2_btn'].text == '10x'
+        # The display follows the Session's answer, once. It may ask again
+        # -- the Session decides -- if the objective is still unknown: the
+        # turret moved to an unassigned slot while this question was shown.
+        assert h.stand.shown == [True]
 
-    def test_a_changed_objective_logs_and_refreshes(self, monkeypatch):
+    def test_the_answer_is_recorded_once_by_the_popup_not_again_here(self, monkeypatch):
+        # The popup's response line is the interaction record. A second
+        # record here, and the spinner write that used to reach the Session
+        # a second time, made one answer read as two in the bundle.
         h = _Harness(monkeypatch, _ScriptedSession(self._question(), changed=True))
         h.prompt()
         h.answer('20x Oly')
-        assert ('SELECT', 'OBJECTIVE', '20x Oly') in h.gui_log
-        assert ('SELECT', 'TURRET_OBJECTIVE', '20x Oly') in h.gui_log
-        assert any('select_objective()' in line for line in h.info_lines())
-        assert h.stand.fov_refreshes == ['20x Oly']
+        assert h.gui_log == []
 
-    def test_an_unchanged_objective_binds_the_slot_and_nothing_else(self, monkeypatch):
+    def test_an_unchanged_objective_logs_no_change(self, monkeypatch):
         h = _Harness(monkeypatch, _ScriptedSession(self._question(), changed=False))
         h.prompt()
         h.answer('10x Oly')
-        assert ('SELECT', 'OBJECTIVE', '10x Oly') not in h.gui_log
-        assert ('SELECT', 'TURRET_OBJECTIVE', '10x Oly') in h.gui_log
         assert not any('select_objective()' in line for line in h.info_lines())
-        assert h.stand.fov_refreshes == []
+        assert h.stand.shown == [True]
 
-    def test_no_position_means_no_slot_rendering(self, monkeypatch):
-        h = _Harness(monkeypatch, _ScriptedSession(self._question(position=None)))
+    def test_no_position_hands_the_answer_over_without_one(self, monkeypatch):
+        session = _ScriptedSession(self._question(position=None))
+        h = _Harness(monkeypatch, session)
         h.prompt()
         h.answer('20x Oly')
-        assert h.stand.turret_states == []
-        assert not any(kind == 'TURRET_OBJECTIVE' for _, kind, _ in h.gui_log)
+        assert session.confirmed == [('20x Oly', None)]
+        assert h.stand.shown == [True]
 
-    def test_a_raise_inside_the_answer_is_one_notification(self, monkeypatch):
-        session = _ScriptedSession(self._question(), changed=ConfigError("unknown objective 'x'"))
+    def test_a_raise_inside_the_answer_is_one_notification(self, monkeypatch, centre_posts):
+        from modules.exceptions import CatalogueNameRefusedError
+        from modules.notification_center import Severity
+
+        # The refusal the Session's owner raises for a name the catalogue lacks.
+        refused = CatalogueNameRefusedError(
+            'objective_not_in_catalogue', argument='objective_id', value='x', offered=('20x Oly',)
+        )
+        session = _ScriptedSession(self._question(), changed=refused)
         h = _Harness(monkeypatch, session)
         h.prompt()
         h.answer('x')
-        assert len(h.error_popups) == 1
-        assert 'unknown objective' in h.error_popups[0]['message']
+        assert [(n.severity, n.message) for n in centre_posts] == [(Severity.WARNING, str(refused))]
+        assert h.error_popups == []
 
 
 def _method_calls(rel_path: str, class_name: str, method_name: str) -> set[str]:
@@ -214,12 +325,91 @@ class TestUnknownObjectiveEventsReachThePrompt:
     cannot quietly drop a trigger)."""
 
     def test_turret_select_wires_the_prompt(self):
-        calls = _method_calls('ui/vertical_control.py', 'VerticalControl', 'turret_select')
-        assert 'prompt_if_objective_unknown' in calls
+        # One hop: the move hands its outcome to show_turret_state as the
+        # boundary's redraw, which runs on success and on failure alike, and
+        # that asks.
+        module = parse_module('ui/vertical_control.py')
+        cls = next(
+            node
+            for node in module.body
+            if isinstance(node, ast.ClassDef) and node.name == 'VerticalControl'
+        )
+        turret_select = next(
+            node
+            for node in cls.body
+            if isinstance(node, ast.FunctionDef) and node.name == 'turret_select'
+        )
+        redraws = [
+            node.args[1].attr
+            for node in ast.walk(turret_select)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == 'submit_reported'
+            and len(node.args) > 1
+            and isinstance(node.args[1], ast.Attribute)
+        ]
+        assert redraws == ['show_turret_state']
+        outcome = _method_calls('ui/vertical_control.py', 'VerticalControl', 'show_turret_state')
+        assert 'prompt_if_objective_unknown' in outcome
 
-    def test_reset_turret_objective_wires_the_prompt(self):
+    def test_reset_turret_objective_does_not_wire_the_prompt(self):
+        """The one trigger that must NOT exist.
+
+        Clearing a slot is the user saying the slot is empty; asking
+        them straight back which objective is in it, through a modal
+        with no cancel path, is a question they have just answered --
+        and it re-assigned the slot they had cleared, which made the
+        button dead at every position it can reach. The two triggers
+        above still ask, so nothing assumes an objective at a position
+        the user has not been asked about.
+        """
         calls = _method_calls('ui/vertical_control.py', 'VerticalControl', 'reset_turret_objective')
-        assert 'prompt_if_objective_unknown' in calls
+        assert 'prompt_if_objective_unknown' not in calls
+
+
+class TestResetLeavesTheSlotCleared:
+    """The behaviour the seam pin above protects."""
+
+    def _reset_at(self, monkeypatch, position, question):
+        h = _Harness(monkeypatch, _ScriptedSession(question))
+        h.stand.reset_turret_objective()
+        return h
+
+    def test_a_reset_clears_the_current_slot_and_opens_no_popup(self, monkeypatch):
+        # The session has a question to ask -- hardware present, settings
+        # resolved -- which is exactly when the old trigger fired.
+        question = ObjectiveQuestion(turret_position=3, proposed='10x Oly', choices=CHOICES)
+        h = self._reset_at(monkeypatch, 3, question)
+        # The slot is the API's; the widget names none.
+        assert h.session.cleared == ['current']
+        assert h.popups == []
+        assert h.session.confirmed == []
+        assert h.stand.shown == [False]
+
+    def test_the_cleared_slot_is_not_re_assigned(self, monkeypatch):
+        question = ObjectiveQuestion(turret_position=2, proposed='4x Oly', choices=CHOICES)
+        h = self._reset_at(monkeypatch, 2, question)
+        # The re-assignment the dead button performed went through
+        # confirm_objective; nothing may reach it from a reset.
+        assert h.session.confirmed == []
+
+    def test_a_refused_reset_is_shown_and_the_display_still_follows(
+        self, monkeypatch, centre_posts
+    ):
+        from modules.exceptions import ObjectiveUnknownError
+
+        session = _ScriptedSession(None)
+
+        def _refuse():
+            raise ObjectiveUnknownError('slot_unknown')
+
+        session.clear_current_turret_objective = _refuse
+        h = _Harness(monkeypatch, session)
+        h.stand.reset_turret_objective()
+        assert [n.title for n in centre_posts] == ['Objective Unknown']
+        assert 'home the turret' in centre_posts[0].message
+        assert h.error_popups == []
+        assert h.stand.shown == [False]
 
 
 def test_template_ships_the_unconfirmed_flag():
@@ -230,3 +420,56 @@ def test_template_ships_the_unconfirmed_flag():
     # contract); no AST seam exists for a data file.
     template = json.loads((REPO_ROOT / 'data' / 'settings.json').read_text())
     assert template.get('objective_confirmed') is False
+
+
+def test_an_empty_slot_renders_its_position_bracketed_from_the_start():
+    """The buttons' first render comes from the layout file, not from any
+    code path a test otherwise reaches.
+
+    An empty slot shows its position; an assigned one is overwritten with
+    the magnification. Left bare, the position collides with the catalogue
+    a user is reading it against -- 1 against 1.25x Oly, 2 against 2x Oly
+    and 2.5x Meiji, 4 against 4x Oly -- so an empty slot beside an assigned
+    one reads as glass the scope does not have. Only the reset path is
+    covered elsewhere, so without this the initial render could go back to
+    bare numbers with every test still green.
+    """
+    kv = (REPO_ROOT / 'ui' / 'lumaviewpro.kv').read_text()
+
+    for slot in (1, 2, 3, 4):
+        assert f"text: '< {slot} >'" in kv, f'turret button {slot} lost its bracketed position'
+
+
+class TestAnUnknownSlotSaysWhatHappensNext:
+    """With the turret in no known slot there is no slot to ask about. The
+    Session's refusal is shown in its own words, naming why and the remedy;
+    a capture asked for meanwhile is refused at the capture -- an unknown
+    objective is never stamped as a guessed scale."""
+
+    def test_the_popup_names_the_reason_and_the_refusal_is_real(
+        self, monkeypatch, tmp_path, centre_posts
+    ):
+        from modules.exceptions import ObjectiveUnknownError
+        from modules.scope_session import ScopeSession
+        from tests.settings_fixtures import complete_settings
+
+        session = ScopeSession.create(
+            complete_settings(live_folder=str(tmp_path), microscope='LS850T'), simulate=True
+        )
+        try:
+            # Bring-up alone leaves the slot unknown, and nothing is confirmed.
+            monkeypatch.setattr(session, 'settings_are_provisional', lambda: False)
+            monkeypatch.setattr(type(session.scope), 'no_hardware', property(lambda self: False))
+            h = _Harness(monkeypatch, session)
+            h.prompt()
+
+            assert h.popups == [] and h.error_popups == []
+            assert [n.title for n in centre_posts] == ['Objective Unknown']
+            message = centre_posts[0].message
+            assert 'home the turret' in message
+            assert 'may be wrong' not in message
+
+            with pytest.raises(ObjectiveUnknownError):
+                session.manual_capture.capture(layer=None, false_color_on=False).result(timeout=30)
+        finally:
+            session.shutdown()

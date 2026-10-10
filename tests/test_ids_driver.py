@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import threading
 import time
+from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 
 import ids_peak_ipl
@@ -29,6 +30,15 @@ from drivers.idscamera import (
     ids_significant_bits,
 )
 from tests.camera_fakes import bare_ids_camera
+
+
+def _time_at(now):
+    """The driver's own name for time, its clock stopped at ``now``.
+
+    Patching time.monotonic through it would stop the clock of every thread
+    in the process.
+    """
+    return SimpleNamespace(monotonic=lambda: now, perf_counter=time.perf_counter, sleep=time.sleep)
 
 
 class _RecordingNode:
@@ -269,17 +279,17 @@ class TestGainDbConversion:
 
     def test_zero_db_maps_to_unity_factor(self):
         cam = self._cam_with_gain_node()
-        assert cam.gain(0.0) is True
+        assert cam.gain(0.0) == pytest.approx(0.0)
         assert cam.remote_nodemap.nodes['Gain'].value == pytest.approx(1.0)
 
     def test_twenty_db_maps_to_ten_x(self):
         cam = self._cam_with_gain_node()
-        assert cam.gain(20.0) is True
+        assert cam.gain(20.0) == pytest.approx(20.0)
         assert cam.remote_nodemap.nodes['Gain'].value == pytest.approx(10.0)
 
     def test_thirty_db_maps_to_full_scale_factor(self):
         cam = self._cam_with_gain_node()
-        assert cam.gain(30.0) is True
+        assert cam.gain(30.0) == pytest.approx(30.0, abs=0.01)
         assert cam.remote_nodemap.nodes['Gain'].value == pytest.approx(31.62, abs=0.05)
 
     def test_gain_at_cap_clamps_factor_to_node_maximum(self):
@@ -288,7 +298,7 @@ class TestGainDbConversion:
         written factor must be reconciled to the node maximum, never exceed it."""
         cam = self._cam_with_gain_node(maximum=31.622776)
         # 30 dB -> 10**(30/20) = 31.6227766..., just over the 31.622776 cap.
-        assert cam.gain(30.0) is True
+        assert cam.gain(30.0) == pytest.approx(30.0, abs=1e-3)
         written = cam.remote_nodemap.nodes['Gain'].value
         assert written <= 31.622776  # clamped, not the overshoot
         assert written == pytest.approx(31.622776)
@@ -327,7 +337,11 @@ class TestGainDbConversion:
         cam.remote_nodemap = _RecordingNodemap(
             {'ExposureTime': _RecordingNode(value=1e4, minimum=31.245791, maximum=2e6)}
         )
-        assert cam.exposure_t(0.01) is True
+        # The clamped microseconds are RETURNED, not a bare success flag: the
+        # caller stamps them as its frame-validity chunk target, and a target
+        # taken from the 10us request would miss every frame the camera then
+        # reports at 31.2us.
+        assert cam.exposure_t(0.01) == pytest.approx(31.245791)
         node = cam.remote_nodemap.nodes['ExposureTime']
         assert node.value == pytest.approx(31.245791)
         assert cam._last_exposure_ms == pytest.approx(31.245791 / 1000)
@@ -340,7 +354,8 @@ class TestGainDbConversion:
         cam.remote_nodemap = _RecordingNodemap(
             {'ExposureTime': _RecordingNode(value=1e4, minimum=31.245791, maximum=2e6)}
         )
-        assert cam.exposure_t(10.0) is True  # 10ms = 10000us, well above the floor
+        # 10ms = 10000us, well above the floor: applied value == request.
+        assert cam.exposure_t(10.0) == pytest.approx(10000.0)
         node = cam.remote_nodemap.nodes['ExposureTime']
         assert node.value == pytest.approx(10000.0)
 
@@ -360,6 +375,10 @@ class _FakeBuffer:
 
     def Size(self):
         return 2
+
+    def DeliveredDataSize(self):
+        # The bytes this buffer carried on the link; the store counts them.
+        return 3
 
     def __repr__(self):
         return f'<FakeBuffer {self.tag}>'
@@ -568,7 +587,7 @@ class TestSustainedStallPresenceProbe:
         ds = MagicMock()
         h = _ids_handler(ds)
         h._parent._probe_device_presence.return_value = probe_returns
-        with patch('drivers.idscamera.time.monotonic', return_value=base):
+        with patch('drivers.idscamera.time', _time_at(base)):
             h._handle_wait_error(RuntimeError('WaitForFinishedBuffer timeout'))
         # First timeout only arms the stall clock; it never probes.
         h._parent._probe_device_presence.assert_not_called()
@@ -576,7 +595,7 @@ class TestSustainedStallPresenceProbe:
         return h
 
     def _timeout_at(self, h, when):
-        with patch('drivers.idscamera.time.monotonic', return_value=when):
+        with patch('drivers.idscamera.time', _time_at(when)):
             return h._handle_wait_error(RuntimeError('timeout'))
 
     def test_first_timeout_arms_without_probing(self):
@@ -694,7 +713,7 @@ class TestSustainedStallPresenceProbe:
         h._stall_started = 100.0
         alive = type('AliveThread', (), {'is_alive': lambda self: True})()
         h._poll_thread = alive
-        with patch('drivers.idscamera.time.monotonic', return_value=112.0):
+        with patch('drivers.idscamera.time', _time_at(112.0)):
             assert h.stall_age_s() == 12.0
 
     def test_a_present_reading_resets_the_absence_streak(self):
@@ -1528,7 +1547,13 @@ class TestOpenControlRetry:
     def _no_sleep(self, monkeypatch):
         from drivers import idscamera
 
-        monkeypatch.setattr(idscamera.time, 'sleep', lambda _s: None)
+        monkeypatch.setattr(
+            idscamera,
+            'time',
+            SimpleNamespace(
+                monotonic=time.monotonic, perf_counter=time.perf_counter, sleep=lambda _s: None
+            ),
+        )
 
     def test_denial_then_success_retries(self, monkeypatch):
         self._no_sleep(monkeypatch)
@@ -1704,11 +1729,14 @@ class TestPipelineLifecycle:
         h = _ids_handler(ds)
         stored = []
         h._unpack = lambda buf: (buf.tag, 12)
-        h._store_frame = lambda img, ts, *, significant_bits: stored.append((img, significant_bits))
+        h._store_frame = lambda img, ts, *, significant_bits, wire_bytes: stored.append(
+            (img, significant_bits, wire_bytes)
+        )
         h.start()
         self._wait_until(lambda: stored)
         h.stop()
-        assert stored == [('b0', 12)]
+        # The wire bytes are the buffer's own delivered size, not the array's.
+        assert stored == [('b0', 12, 3)]
         assert ds.requeued.count(b0) == 1  # re-queued once, by the worker
         # stop() unblocked the parked poll. The count is >= 1, not == 1: stop() is
         # designed for multiple KillWait+join rounds (_STOP_JOIN_CEILING_S), so the
@@ -1741,7 +1769,7 @@ class TestPipelineLifecycle:
             return buf.tag, 12
 
         h._unpack = slow_unpack
-        h._store_frame = lambda img, ts, *, significant_bits: stored.append(img)
+        h._store_frame = lambda img, ts, *, significant_bits, wire_bytes: stored.append(img)
         h.start()
         time.sleep(0.3)  # all three drain while the worker is held on b0
         release.set()
@@ -1770,7 +1798,7 @@ class TestPipelineLifecycle:
             return buf.tag, 12
 
         h._unpack = flaky_unpack
-        h._store_frame = lambda img, ts, *, significant_bits: stored.append(img)
+        h._store_frame = lambda img, ts, *, significant_bits, wire_bytes: stored.append(img)
         h.start()
         self._wait_until(lambda: 'good' in stored)
         h.stop()

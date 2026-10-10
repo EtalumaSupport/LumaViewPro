@@ -1,26 +1,20 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Tests for ScopeInitConfig and the partial-hardware notification filter.
+"""Tests for ScopeInitConfig.
 
-Background: pre-fix, `Lumascope.__init__` warned "Partial Hardware
-Detected" whenever any of LED / motor / camera failed to construct.
-For an LS620 (which legitimately has no motor -- `Focus=false,
-XYStage=false, Turret=false` in scopes.json) every startup popped the
-warning twice (once for the initial connect attempt and once on the
-auto-reconnect). The fix moves the notification into
-`Lumascope.initialize(config)` and filters `missing` against the
-scope's expected hardware as captured on `ScopeInitConfig`.
+The config carries what the selected scope's model expects: an LS620 has no
+motor board (`Focus=false, XYStage=false, Turret=false` in scopes.json), so
+its missing board is not reported as a failure. What bring-up reports from
+those expectations is pinned in `tests/test_bring_up_is_a_record.py`.
 """
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
 import pytest
 
-from modules.lumascope_api import Lumascope
-from modules.notification_center import NotificationCenter, Severity
+from modules.exceptions import ConfigError, SettingRefusedError
 from modules.scope_init_config import ScopeInitConfig
-from drivers.motorboard import ACCELERATION_PCT_MAX, ACCELERATION_PCT_MIN, MotorBoard
-from drivers.null_motorboard import NullMotionBoard
-from drivers.null_ledboard import NullLEDBoard
+from modules.lumascope_api._constants import ACCELERATION_PCT_MAX
+from tests.scope_fakes import build_scope
 
 
 # ---------- ScopeInitConfig.from_settings ----------
@@ -94,7 +88,7 @@ def identity_from_rows(rows):
         )
         for i, (key, channel) in enumerate(rows)
     )
-    return LayerIdentity(layers=records, filterset='', source='scopes')
+    return LayerIdentity(layers=records, filterset='', source='scopes', model=None)
 
 
 _LS620_IDENTITY = identity_from_rows([('BF', 3), ('Blue', 0), ('Green', 1), ('Red', 2)])
@@ -107,24 +101,24 @@ _NO_LED_IDENTITY = identity_from_rows([('Lumi', None)])
 
 class TestFromSettings:
     def test_default_no_scope_config_preserves_pre_filter_behavior(self):
-        config = ScopeInitConfig.from_settings(_BASE_SETTINGS, labware=None)
+        config = ScopeInitConfig.from_settings(_BASE_SETTINGS, turreted=False)
         assert config.expects_motion is True
         assert config.expects_led is True
 
     def test_capture_depth_resolved_from_image_mode(self):
-        # No image_mode key -> 8-bit default.
-        config = ScopeInitConfig.from_settings(_BASE_SETTINGS, labware=None)
-        assert config.capture_depth == 8
-        # A 12-bit image mode resolves to a 12-bit capture depth, so
-        # initialize() applies a 12-bit native pixel format up front.
+        # No image_mode key -> the 8-bit default mode.
+        config = ScopeInitConfig.from_settings(_BASE_SETTINGS, turreted=False)
+        assert config.image_mode == '8bit'
+        # A 12-bit image mode is carried as itself, so initialize() applies a
+        # 12-bit native pixel format up front, or says it cannot.
         twelve = {**_BASE_SETTINGS, 'image_mode': '12bit_scientific'}
-        config = ScopeInitConfig.from_settings(twelve, labware=None)
-        assert config.capture_depth == 12
+        config = ScopeInitConfig.from_settings(twelve, turreted=False)
+        assert config.image_mode == '12bit_scientific'
 
     def test_ls620_no_motor_expected(self):
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
-            labware=None,
+            turreted=False,
             scope_config=_LS620_CONFIG,
             layer_identity=_LS620_IDENTITY,
         )
@@ -134,7 +128,7 @@ class TestFromSettings:
     def test_ls820_motor_expected_via_focus(self):
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
-            labware=None,
+            turreted=False,
             scope_config=_LS820_CONFIG,
             layer_identity=_LS820_IDENTITY,
         )
@@ -144,7 +138,7 @@ class TestFromSettings:
     def test_ls850t_motor_expected_via_xystage_and_turret(self):
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
-            labware=None,
+            turreted=False,
             scope_config=_LS850T_CONFIG,
             layer_identity=_LS850T_IDENTITY,
         )
@@ -155,7 +149,7 @@ class TestFromSettings:
         scope_config = {'Focus': True, 'XYStage': False, 'Turret': False}
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
-            labware=None,
+            turreted=False,
             scope_config=scope_config,
             layer_identity=_NO_LED_IDENTITY,
         )
@@ -163,155 +157,42 @@ class TestFromSettings:
 
 
 class TestAccelerationBound:
-    """The stored acceleration percentage is bounded where settings become
-    hardware commands, not where a GUI happens to draw a slider.
+    """A settings dict's acceleration limit is refused before bring-up
+    commands anything, never clamped.
 
-    A settings dict arrives here from a file a user can hand-edit and from a
-    caller that hands one straight to a session, and neither path passes a
-    slider. Before it was bounded at this read, an out-of-range stored value
-    reached the motor driver and only a swallowed exception kept bring-up
-    alive.
+    A dict handed straight to a session never went through the load, which
+    replaces a stored value out of range; refusing it here, before any
+    hardware is commanded, keeps it from failing mid-bring-up.
     """
 
-    @pytest.mark.parametrize(
-        'stored, expected',
-        [
-            (ACCELERATION_PCT_MAX + 400, ACCELERATION_PCT_MAX),
-            (0, ACCELERATION_PCT_MIN),
-            (-3, ACCELERATION_PCT_MIN),
-            (50, 50),
-            # A hand-edited file can carry the number as a string. Coercing
-            # before clamping is what keeps this from raising TypeError out of
-            # bring-up once the driver's rejection is no longer swallowed.
-            ('50', 50),
-            ('', ACCELERATION_PCT_MAX),
-            (None, ACCELERATION_PCT_MAX),
-        ],
-    )
-    def test_stored_value_is_bounded_to_what_the_driver_accepts(self, stored, expected):
+    @pytest.mark.parametrize('stored', [ACCELERATION_PCT_MAX + 400, 0, -3, '50', '', None, True])
+    def test_a_stored_value_no_board_may_take_is_refused(self, stored):
         settings = {**_BASE_SETTINGS, 'motion': {'acceleration_max_pct': stored}}
-        config = ScopeInitConfig.from_settings(settings, labware=None)
-        assert config.acceleration_pct == expected
+        with pytest.raises(SettingRefusedError) as refused:
+            ScopeInitConfig.from_settings(settings, turreted=False)
+        assert (refused.value.reason, refused.value.path) == (
+            'out_of_range',
+            'motion.acceleration_max_pct',
+        )
+        # Its words are the acceleration owner's sentence, ended once.
+        assert str(refused.value).endswith('from 1 to 100.')
 
-    def test_an_absent_motion_section_still_yields_a_legal_value(self):
-        settings = {key: value for key, value in _BASE_SETTINGS.items() if key != 'motion'}
-        config = ScopeInitConfig.from_settings(settings, labware=None)
-        assert ACCELERATION_PCT_MIN <= config.acceleration_pct <= ACCELERATION_PCT_MAX
+    def test_an_in_range_value_is_carried(self):
+        settings = {**_BASE_SETTINGS, 'motion': {'acceleration_max_pct': 50}}
+        config = ScopeInitConfig.from_settings(settings, turreted=False)
+        assert config.acceleration_pct == 50
 
-    def test_the_bound_is_the_drivers_own_rather_than_a_second_copy(self):
-        """The clamp here and the driver's rejection read the same constants.
+    def test_an_absent_acceleration_is_refused_by_name(self):
+        for settings in (
+            {key: value for key, value in _BASE_SETTINGS.items() if key != 'motion'},
+            {**_BASE_SETTINGS, 'motion': {}},
+        ):
+            with pytest.raises(ConfigError, match='motion'):
+                ScopeInitConfig.from_settings(settings, turreted=False)
 
-        Asserted as a pairing rather than against the numbers: a future edit
-        that hand-copies 1 and 100 into either side would still satisfy a
-        literal assertion, and a silently drifting duplicate of this pair is
-        how the value got out of range to begin with.
-        """
-        settings = {**_BASE_SETTINGS, 'motion': {'acceleration_max_pct': 10**6}}
-        config = ScopeInitConfig.from_settings(settings, labware=None)
-        assert config.acceleration_pct == ACCELERATION_PCT_MAX
-
-        board = MotorBoard.__new__(MotorBoard)
+    def test_the_api_refuses_on_the_same_bound(self):
+        """from_settings and the motion API read the one check."""
+        scope = build_scope(simulate=True)
         with pytest.raises(ValueError):
-            MotorBoard.set_acceleration_limit(
-                board, axis='X', parameter='acceleration', val_pct=ACCELERATION_PCT_MAX + 1
-            )
-
-
-# ---------- _notify_partial_hardware filter ----------
-
-
-def _make_scope_with_no_hardware():
-    """Sim scope, strip drivers to Null* / no camera, flip `_simulated`
-    off so the early-return doesn't fire."""
-    scope = Lumascope(simulate=True)
-    scope._led_driver = NullLEDBoard()
-    scope._motion_driver = NullMotionBoard()
-    scope._camera_driver = None
-    scope._simulated = False
-    return scope
-
-
-@pytest.fixture
-def captured_warnings(monkeypatch):
-    """Swap a fresh NotificationCenter (no dedup) into lumascope_api so
-    each test sees only its own notifications."""
-    fresh_nc = NotificationCenter(dedup_window_s=0)
-    received = []
-    fresh_nc.add_listener(lambda n: received.append(n), min_severity=Severity.WARNING)
-    monkeypatch.setattr('modules.lumascope_api._lumascope.notifications', fresh_nc)
-    return received
-
-
-class TestNotifyPartialHardware:
-    def test_simulator_never_warns(self, captured_warnings):
-        scope = Lumascope(simulate=True)
-        config = ScopeInitConfig.from_settings(
-            _BASE_SETTINGS,
-            labware=None,
-            scope_config=_LS620_CONFIG,
-            layer_identity=_LS620_IDENTITY,
-        )
-        scope._notify_partial_hardware(config)
-        assert captured_warnings == []
-
-    def test_ls620_no_motor_no_warning(self, captured_warnings):
-        scope = _make_scope_with_no_hardware()
-        # LS620 has Layers -- pretend the LED board did connect by
-        # swapping Null out for a real-ish object.
-        scope._led_driver = object()  # truthy non-Null sentinel
-        config = ScopeInitConfig.from_settings(
-            _BASE_SETTINGS,
-            labware=None,
-            scope_config=_LS620_CONFIG,
-            layer_identity=_LS620_IDENTITY,
-        )
-        scope._notify_partial_hardware(config)
-        # No motor expected, LED present, no camera attached -> only
-        # camera should be reported as missing.
-        assert len(captured_warnings) == 1
-        assert 'Camera' in captured_warnings[0].message
-        assert 'Motor Controller' not in captured_warnings[0].message
-
-    def test_ls820_motor_failed_warns(self, captured_warnings):
-        scope = _make_scope_with_no_hardware()
-        scope._led_driver = object()
-        config = ScopeInitConfig.from_settings(
-            _BASE_SETTINGS,
-            labware=None,
-            scope_config=_LS820_CONFIG,
-        )
-        scope._notify_partial_hardware(config)
-        assert len(captured_warnings) == 1
-        assert 'Motor Controller' in captured_warnings[0].message
-
-    def test_no_scope_config_warns_for_missing_motor(self, captured_warnings):
-        """Backward-compat: callers that don't supply scope_config get
-        the pre-filter behavior (any Null driver -> warning)."""
-        scope = _make_scope_with_no_hardware()
-        scope._led_driver = object()
-        config = ScopeInitConfig.from_settings(_BASE_SETTINGS, labware=None)
-        scope._notify_partial_hardware(config)
-        assert len(captured_warnings) == 1
-        assert 'Motor Controller' in captured_warnings[0].message
-
-    def test_active_camera_does_not_warn(self, captured_warnings):
-        """Connected camera (driver.active=True) must not produce a
-        Camera warning. Guards against the pattern where a `hasattr`
-        check probes a name that no longer exists post-driver-rename
-        and the OR short-circuits to a false-positive missing-Camera."""
-        scope = _make_scope_with_no_hardware()
-        scope._led_driver = object()
-        scope._motion_driver = object()
-
-        class _ActiveCam:
-            active = True
-
-        scope._camera_driver = _ActiveCam()
-
-        config = ScopeInitConfig.from_settings(
-            _BASE_SETTINGS,
-            labware=None,
-            scope_config=_LS820_CONFIG,
-        )
-        scope._notify_partial_hardware(config)
-        assert captured_warnings == []
+            scope.motion.set_acceleration_limit(val_pct=ACCELERATION_PCT_MAX + 1)
+        scope.motion.set_acceleration_limit(val_pct=ACCELERATION_PCT_MAX)

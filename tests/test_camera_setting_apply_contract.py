@@ -7,9 +7,9 @@ set_pixel_format) observe success by VALUE and failure by RAISE:
   - success returns the applied value (frame size returns the DELIVERED
     geometry, which may differ from the request);
   - a LIVE driver rejecting the apply (False return) or raising from it
-    raises CameraSettingRejected -- after logging and firing exactly one
-    notifications.error -- so a caller that drops the return cannot
-    record a rejected apply as current;
+    raises CameraSettingRejected, carrying the title and sentence the one
+    reporter shows -- the setter itself neither logs nor notifies -- so a
+    caller that drops the return cannot record a rejected apply as current;
   - an absent / inactive camera stays a quiet sentinel (None / False)
     per the missing-hardware contract, with the deduped absent
     notification, and never raises;
@@ -31,30 +31,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from modules.exceptions import CameraSettingRejected
+from modules.exceptions import CameraSettingRejected, HardwareCommandRefusedError, MissingPart
+from modules.notification_center import Severity
 from tests.test_camera_getter_sentinel_containment import (
     GOOD_ROUND,
     ScriptedCameraDriver,
     _build_imaging,
 )
-
-
-class _RecordingNotifications:
-    """Stand-in for modules.lumascope_api.imaging.notifications."""
-
-    def __init__(self):
-        self.errors = []
-        self.warnings = []
-        self.criticals = []
-
-    def error(self, category, title, message, **kw):
-        self.errors.append((category, title, message))
-
-    def warning(self, category, title, message, **kw):
-        self.warnings.append((category, title, message))
-
-    def critical(self, category, title, message, **kw):
-        self.criticals.append((category, title, message))
+from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 
 class ApplyDriver(ScriptedCameraDriver):
@@ -84,17 +68,25 @@ def apply_driver(active: bool = True) -> ApplyDriver:
     return ApplyDriver({name: [value] for name, value in GOOD_ROUND.items()}, active=active)
 
 
-@pytest.fixture
-def notes(monkeypatch) -> _RecordingNotifications:
-    recorder = _RecordingNotifications()
-    monkeypatch.setattr('modules.lumascope_api.imaging.notifications', recorder)
-    return recorder
+def _posted(centre_posts, severity):
+    """The (category, title, message) of each post at ``severity``."""
+    return [(n.category, n.title, n.message) for n in centre_posts if n.severity == severity]
+
+
+def _assert_carries_its_words(rejected, title, in_sentence, centre_posts):
+    """The rejection is shown once, by its reporter, in its own words: the
+    setter shows nothing, and the exception carries the title and the
+    person's sentence the reporter shows."""
+    shown = _posted(centre_posts, Severity.ERROR) + _posted(centre_posts, Severity.WARNING)
+    assert shown == [], 'the setter must not show the rejection itself; the reporter shows it once'
+    assert rejected.title == title
+    assert in_sentence in str(rejected), str(rejected)
 
 
 # --- A. Rejection is loud ----------------------------------------------------
 
 
-def test_set_frame_size_rejection_raises_and_preserves_cache(notes):
+def test_set_frame_size_rejection_raises_and_preserves_cache(centre_posts):
     driver = apply_driver()
     imaging = _build_imaging(driver)  # populate caches 1936x1216
     driver.apply_frame_size = lambda w, h: False
@@ -104,13 +96,13 @@ def test_set_frame_size_rejection_raises_and_preserves_cache(notes):
 
     assert excinfo.value.setting == 'frame_size'
     assert excinfo.value.requested == {'width': 1900, 'height': 1900}
-    assert len(notes.errors) == 1, notes.errors
+    _assert_carries_its_words(excinfo.value, 'Frame size change failed', '1900x1900', centre_posts)
     assert imaging.frame_size_cached == {'width': 1936, 'height': 1216}, (
         'a rejected resize must leave the cache at the geometry the hardware still holds'
     )
 
 
-def test_set_binning_size_rejection_raises_and_preserves_cache(notes):
+def test_set_binning_size_rejection_raises_and_preserves_cache(centre_posts):
     driver = apply_driver()
     imaging = _build_imaging(driver)  # populate caches binning 2
     driver.apply_binning = lambda size: False
@@ -120,14 +112,14 @@ def test_set_binning_size_rejection_raises_and_preserves_cache(notes):
 
     assert excinfo.value.setting == 'binning'
     assert excinfo.value.requested == 4
-    assert len(notes.errors) == 1, notes.errors
+    _assert_carries_its_words(excinfo.value, 'Binning change failed', '4x4', centre_posts)
     assert imaging._binning_size == 2, (
         'a rejected binning must not commit the requested factor -- '
         'scale-bar / FOV math reads this value'
     )
 
 
-def test_set_pixel_format_rejection_raises_and_preserves_cache(notes):
+def test_set_pixel_format_rejection_raises_and_preserves_cache(centre_posts):
     driver = apply_driver()
     imaging = _build_imaging(driver)  # populate caches 'Mono12'
     driver.apply_pixel_format = lambda fmt: False
@@ -137,14 +129,39 @@ def test_set_pixel_format_rejection_raises_and_preserves_cache(notes):
 
     assert excinfo.value.setting == 'pixel_format'
     assert excinfo.value.requested == 'Mono8'
-    assert len(notes.errors) == 1, notes.errors
+    _assert_carries_its_words(excinfo.value, 'Pixel format change failed', 'Mono8', centre_posts)
     assert imaging.pixel_format_cached == 'Mono12'
+
+
+def test_a_reported_rejection_is_shown_once_in_its_own_words(centre_posts):
+    # The end of the flight: the reporter shows the setter's rejection once,
+    # as a fault under the setter's title and in its sentence -- not the
+    # generic sentence an untyped fault gets -- and nothing else shows it.
+    from modules.notification_center import NotificationCenter
+
+    driver = apply_driver()
+    imaging = _build_imaging(driver)
+    driver.apply_binning = lambda size: False
+    with pytest.raises(CameraSettingRejected) as excinfo:
+        imaging.set_binning_size(4)
+
+    centre = NotificationCenter(dedup_window_s=10.0)
+    shown = []
+    centre.add_listener(shown.append, min_severity=Severity.INFO)
+    centre.report_outcome(excinfo.value, solicited=True, category='BINNING')
+    centre.report_outcome(excinfo.value, solicited=True, category='BINNING')
+
+    assert [(n.severity, n.title, n.message) for n in shown] == [
+        (Severity.ERROR, 'Binning change failed', str(excinfo.value))
+    ]
+    assert '4x4' in shown[0].message
+    assert _posted(centre_posts, Severity.ERROR) == [], 'the setter showed it as well'
 
 
 # --- B. Delivered geometry returned -------------------------------------------
 
 
-def test_set_frame_size_returns_delivered_geometry_and_caches_it(notes):
+def test_set_frame_size_returns_delivered_geometry_and_caches_it(centre_posts):
     # The driver clamps/snaps the request to its legal grid; the caller
     # receives the geometry actually in effect, and the cache matches it.
     driver = apply_driver()
@@ -155,13 +172,13 @@ def test_set_frame_size_returns_delivered_geometry_and_caches_it(notes):
 
     assert delivered == {'width': 1896, 'height': 1900}
     assert imaging.frame_size_cached == {'width': 1896, 'height': 1900}
-    assert notes.errors == []
+    assert _posted(centre_posts, Severity.ERROR) == []
 
 
 # --- C. Driver-raise paths -----------------------------------------------------
 
 
-def test_set_binning_size_driver_raise_becomes_typed_rejection(notes):
+def test_set_binning_size_driver_raise_becomes_typed_rejection(centre_posts):
     driver = apply_driver()
     imaging = _build_imaging(driver)
 
@@ -176,11 +193,11 @@ def test_set_binning_size_driver_raise_becomes_typed_rejection(notes):
     assert isinstance(excinfo.value.__cause__, RuntimeError), (
         'the driver exception must be chained onto the typed rejection'
     )
-    assert len(notes.errors) == 1, notes.errors
+    _assert_carries_its_words(excinfo.value, 'Binning change failed', 'SDK sulked', centre_posts)
     assert imaging._binning_size == 2  # prior factor intact
 
 
-def test_set_pixel_format_driver_raise_becomes_typed_rejection(notes):
+def test_set_pixel_format_driver_raise_becomes_typed_rejection(centre_posts):
     driver = apply_driver()
     imaging = _build_imaging(driver)
 
@@ -193,35 +210,39 @@ def test_set_pixel_format_driver_raise_becomes_typed_rejection(notes):
         imaging.set_pixel_format('Mono8')
 
     assert isinstance(excinfo.value.__cause__, RuntimeError)
-    assert len(notes.errors) == 1, notes.errors
+    _assert_carries_its_words(
+        excinfo.value, 'Pixel format change failed', 'SDK sulked', centre_posts
+    )
     assert imaging.pixel_format_cached == 'Mono12'
 
 
-# --- D. Absent / inactive camera stays a quiet sentinel -------------------------
+# --- D. Absent / inactive camera is refused, naming it ---------------------------
 
 
-def test_absent_camera_setters_return_sentinels_and_notify(notes):
+def _refused_for_the_camera(apply) -> None:
+    with pytest.raises(HardwareCommandRefusedError) as exc:
+        apply()
+    assert exc.value.missing == MissingPart.CAMERA
+
+
+def test_absent_camera_setters_are_refused_and_post_nothing(centre_posts):
     imaging = _build_imaging(None)
 
-    assert imaging.set_frame_size(1900, 1900) is None
-    assert len(notes.warnings) == 1
+    _refused_for_the_camera(lambda: imaging.set_frame_size(1900, 1900))
+    _refused_for_the_camera(lambda: imaging.set_binning_size(2))
+    _refused_for_the_camera(lambda: imaging.set_pixel_format('Mono8'))
 
-    assert imaging.set_binning_size(2) is False
-    assert len(notes.warnings) == 2
-
-    assert imaging.set_pixel_format('Mono8') is False
-    assert len(notes.warnings) == 3
-
-    assert notes.errors == []  # absent is the quiet shape, not the loud one
+    # Reporting the refusal is the caller's: the API posts nothing.
+    assert _posted(centre_posts, Severity.WARNING) == []
     # Nothing recorded in the cache: every entry still holds its seed.
     assert imaging.frame_size_cached == {'width': 0, 'height': 0}
     assert imaging._binning_size == 1
     assert imaging.pixel_format_cached is None
 
 
-def test_inactive_driver_setters_return_sentinels_without_reaching_driver(notes):
-    # The absent guard checks driver.active too: an inactive driver used to
-    # fall through to the driver's own False (and set_binning_size then
+def test_inactive_driver_setters_are_refused_without_reaching_driver(centre_posts):
+    # The presence question reads driver.active too: an inactive driver used
+    # to fall through to the driver's own False (and set_binning_size then
     # treated it as a live rejection).
     driver = apply_driver(active=False)
     reached = []
@@ -230,12 +251,11 @@ def test_inactive_driver_setters_return_sentinels_without_reaching_driver(notes)
     driver.apply_pixel_format = lambda fmt: reached.append(fmt) or True
     imaging = _build_imaging(driver)
 
-    assert imaging.set_frame_size(1900, 1900) is None
-    assert imaging.set_binning_size(2) is False
-    assert imaging.set_pixel_format('Mono8') is False
+    _refused_for_the_camera(lambda: imaging.set_frame_size(1900, 1900))
+    _refused_for_the_camera(lambda: imaging.set_binning_size(2))
+    _refused_for_the_camera(lambda: imaging.set_pixel_format('Mono8'))
     assert reached == [], 'an inactive driver must never receive the apply'
-    assert len(notes.warnings) == 3
-    assert notes.errors == []
+    assert _posted(centre_posts, Severity.WARNING) == []
 
 
 # --- F. initialize persisted-binning reconciliation ------------------------------
@@ -245,16 +265,13 @@ def _init_config(binning_size: int, frame_width: int = 1900, frame_height: int =
     from modules.scope_init_config import ScopeInitConfig
 
     return ScopeInitConfig(
-        labware=None,
-        objective_id='4x',
-        turret_config=None,
+        turreted=False,
+        preferred_turret_slot=None,
         binning_size=binning_size,
         frame_width=frame_width,
         frame_height=frame_height,
         acceleration_pct=100,
-        stage_offset={'x': 0, 'y': 0},
-        scale_bar_enabled=False,
-        capture_depth=8,
+        image_mode='8bit',
     )
 
 
@@ -266,9 +283,10 @@ def _drive_initialize(config, monkeypatch, *, no_camera: bool = False, prepare=N
 
     Returns (applied_binnings, applied_frames, logged_errors, reached_end).
     """
-    from modules.lumascope_api import Lumascope
 
-    scope = Lumascope(simulate=True)
+    scope = build_scope(simulate=True)
+    # The objective bring-up checks is the settings' one.
+    bind_settings_like_a_session(scope, objective_id='4x Oly')
     saved_driver = scope._camera_driver
     try:
         # initialize is bring-up and binds the impl seams (it runs before
@@ -288,10 +306,10 @@ def _drive_initialize(config, monkeypatch, *, no_camera: bool = False, prepare=N
             lambda w, h: applied_frames.append((w, h)) or real_set_frame(w, h),
         )
         reached_end = []
-        real_accel = scope.motion.set_acceleration_limit
+        real_accel = scope.motion._set_acceleration_limit_impl
         monkeypatch.setattr(
             scope.motion,
-            'set_acceleration_limit',
+            '_set_acceleration_limit_impl',
             lambda val_pct: reached_end.append(val_pct) or real_accel(val_pct=val_pct),
         )
         errors = []
@@ -320,18 +338,20 @@ def test_initialize_reconciles_unsupported_persisted_binning(monkeypatch):
     # A settings file written against a different camera persists a factor
     # this camera does not support (sim supports [1, 2, 4]); initialize must
     # apply the camera-reported factor instead, and say so.
-    applied, _frames, errors, _ = _drive_initialize(_init_config(8), monkeypatch)
+    applied, _frames, _errors, _ = _drive_initialize(_init_config(8), monkeypatch)
     assert applied == [1], (
         f'unsupported persisted binning must fall back to the '
         f'camera-reported factor; applied {applied}'
     )
-    assert any('persisted binning' in e for e in errors), errors
 
 
 def test_initialize_passes_supported_persisted_binning_through(monkeypatch):
-    applied, frames, errors, _ = _drive_initialize(_init_config(2), monkeypatch)
+    # A frame the simulated 1920 x 1200 sensor delivers at 2x.
+    applied, frames, errors, _ = _drive_initialize(
+        _init_config(2, frame_width=900, frame_height=600), monkeypatch
+    )
     assert applied == [2]
-    assert frames == [(1900, 1900)]  # supported factor: frame passes through as-is
+    assert frames == [(900, 600)]  # supported factor: frame passes through as-is
     assert not any('persisted binning' in e for e in errors), errors
 
 
@@ -339,47 +359,44 @@ def test_initialize_refits_persisted_frame_at_reconciled_binning(monkeypatch):
     # The persisted frame is a DISPLAYED size at the persisted factor: 484x304
     # persisted at 8x describes a 3872x2432 native intent. Reconciled to the
     # camera-reported 1x, the frame must be refit from that native intent
-    # (capped at the sim's 1920x1200 native, aligned to its 48x4 grid ->
-    # 1920x1200), NOT applied as a tiny 484x304 ROI at 1x.
-    applied, frames, errors, _ = _drive_initialize(
+    # (capped at the sim's 3840x2160 native -> 3840x2160), NOT applied as a
+    # tiny 484x304 ROI at 1x.
+    applied, frames, _errors, _ = _drive_initialize(
         _init_config(8, frame_width=484, frame_height=304), monkeypatch
     )
     assert applied == [1]
     assert frames != [(484, 304)], 'the persisted displayed size must be refit, not reused'
-    assert frames == [(1920, 1200)], frames
-    assert any('persisted binning' in e for e in errors), errors
+    assert frames == [(3840, 2160)], frames
 
 
-def test_initialize_reconciliation_fires_exactly_one_user_warning(monkeypatch):
+def test_initialize_reconciliation_fires_exactly_one_user_warning(monkeypatch, centre_posts):
     # The reconciliation is user-visible, not just a log line: the saved
     # binning silently coming up different needs a popup naming the fix
     # (pick a binning in Microscope Settings to update the saved value).
-    recorder = _RecordingNotifications()
-    monkeypatch.setattr('modules.lumascope_api._lumascope.notifications', recorder)
+    from modules.exceptions import BinningSubstitutedNotice
+
     _drive_initialize(_init_config(8), monkeypatch)
-    saved_binning_warnings = [w for w in recorder.warnings if w[1] == 'Saved binning not supported']
-    assert len(saved_binning_warnings) == 1, recorder.warnings
+    substituted = [n for n in centre_posts if n.reason == BinningSubstitutedNotice.reason]
+    assert len(substituted) == 1, centre_posts
 
 
-def test_initialize_supported_binning_fires_no_reconciliation_warning(monkeypatch):
-    recorder = _RecordingNotifications()
-    monkeypatch.setattr('modules.lumascope_api._lumascope.notifications', recorder)
+def test_initialize_supported_binning_fires_no_reconciliation_warning(monkeypatch, centre_posts):
+    from modules.exceptions import BinningSubstitutedNotice
+
     _drive_initialize(_init_config(2), monkeypatch)
-    assert not any(w[1] == 'Saved binning not supported' for w in recorder.warnings), (
-        recorder.warnings
-    )
+    assert not any(n.reason == BinningSubstitutedNotice.reason for n in centre_posts), centre_posts
 
 
 def test_initialize_without_camera_skips_reconciliation_quietly(monkeypatch):
-    # No camera: the applies are quiet no-ops and reconciliation must not run
-    # at all -- the absent-fallback capability values must not masquerade as
-    # a camera's answer and fire a false 'not supported' ERROR.
-    applied, _frames, errors, reached_end = _drive_initialize(
+    # No camera: nothing is applied and reconciliation must not run at all --
+    # the absent-fallback capability values must not masquerade as a
+    # camera's answer and fire a false 'not supported' ERROR.
+    applied, frames, errors, reached_end = _drive_initialize(
         _init_config(8, frame_width=484, frame_height=304),
         monkeypatch,
         no_camera=True,
     )
-    assert applied == [8], 'no reconciliation without a camera: the persisted factor passes'
+    assert (applied, frames) == ([], []), 'with no camera there is nothing to apply'
     assert errors == [], f'no reconciliation/rejection ERROR may fire without a camera: {errors}'
     assert reached_end, 'initialize must complete without a camera'
 
@@ -389,17 +406,82 @@ def test_initialize_without_camera_skips_reconciliation_quietly(monkeypatch):
 
 def test_initialize_contains_frame_size_rejection_and_completes(monkeypatch):
     # A live driver rejecting the frame-size apply mid-initialize: the typed
-    # rejection is logged and bring-up CONTINUES (a propagated raise once
-    # crashed the app build via load_settings' re-raise).
+    # rejection is reported once, where bring-up stops its flight, and
+    # bring-up CONTINUES (a propagated raise once crashed the app build via
+    # load_settings' re-raise).
+    from modules.notification_center import notifications
+
+    reported = []
+    monkeypatch.setattr(
+        notifications, 'report_outcome', lambda exc, **kw: reported.append((exc, kw))
+    )
+
     def _reject_frame(scope):
         scope._camera_driver.set_frame_size = lambda w, h: False
 
-    _applied, frames, errors, reached_end = _drive_initialize(
-        _init_config(2), monkeypatch, prepare=_reject_frame
+    _applied, frames, _errors, reached_end = _drive_initialize(
+        _init_config(2, frame_width=900, frame_height=600), monkeypatch, prepare=_reject_frame
     )
-    assert frames == [(1900, 1900)]  # the apply was attempted...
-    assert any('frame size apply rejected' in e for e in errors), errors
+    assert frames == [(900, 600)]  # the apply was attempted...
+    rejections = [exc for exc, _kw in reported if isinstance(exc, CameraSettingRejected)]
+    assert [exc.setting for exc in rejections] == ['frame_size'], reported
     assert reached_end, (
         'initialize must run to completion (stage offset / scale bar / '
         'acceleration) despite the contained rejection'
     )
+
+
+def _a_camera_with_both_toggles(answer):
+    """A ``prepare`` giving the simulated camera both toggles, each answering ``answer``."""
+
+    def prepare(scope):
+        import dataclasses
+
+        scope.capabilities = dataclasses.replace(
+            scope.capabilities,
+            camera_supports_conversion_gain_mode=True,
+            camera_supports_line_noise_reduction=True,
+        )
+        scope._camera_driver.set_conversion_gain_mode = lambda mode: answer()
+        scope._camera_driver.set_line_noise_reduction = lambda enabled: answer()
+
+    return prepare
+
+
+def _refuses():
+    return False
+
+
+def _raises():
+    raise RuntimeError('node write failed')
+
+
+@pytest.mark.parametrize('answer', [_refuses, _raises], ids=['refuses', 'raises'])
+def test_initialize_contains_a_toggle_rejection_and_completes(monkeypatch, answer):
+    # A camera that has both toggles but refuses (or raises from) each at
+    # bring-up: each is reported once, unsolicited, and bring-up runs on.
+    import dataclasses
+
+    from modules.notification_center import notifications
+
+    reported = []
+    monkeypatch.setattr(
+        notifications, 'report_outcome', lambda exc, **kw: reported.append((exc, kw))
+    )
+    config = dataclasses.replace(
+        _init_config(1, frame_width=900, frame_height=600),
+        high_conversion_gain=True,
+        line_noise_reduction=True,
+    )
+
+    _applied, _frames, _errors, reached_end = _drive_initialize(
+        config, monkeypatch, prepare=_a_camera_with_both_toggles(answer)
+    )
+
+    rejections = [
+        (exc.setting, kw['solicited'])
+        for exc, kw in reported
+        if isinstance(exc, CameraSettingRejected)
+    ]
+    assert rejections == [('conversion_gain_mode', False), ('line_noise_reduction', False)]
+    assert reached_end, 'bring-up runs to completion past a refused toggle'

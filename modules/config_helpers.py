@@ -7,11 +7,9 @@ and scope objects without any Kivy/GUI dependencies. They can be
 used by LumaViewPro, the REST API, or standalone scripts.
 """
 
-import dataclasses
 import datetime
 import os
 import pathlib
-import threading
 import typing
 
 import psutil
@@ -20,7 +18,7 @@ import modules.binning as binning
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 from lvp_logger import logger, metrics_logger
-from modules.exceptions import ConfigError, ProtocolRunRefusedError
+from modules.exceptions import ConfigError
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol_state_machine import SequencedCaptureRunMode
@@ -29,6 +27,9 @@ from modules.tiling_config import TilingConfig
 if typing.TYPE_CHECKING:
     # Import-time only: modules.protocol imports this module's siblings, so
     # a runtime import here would close a cycle.
+    from modules.coord_transformations import CoordinateTransformer
+    from modules.lumascope_api._lumascope import Lumascope
+    from modules.lumascope_api.imaging import ImagingAPI
     from modules.protocol import Protocol
     from modules.scope_capabilities import ScopeCapabilities
 
@@ -160,15 +161,21 @@ def get_sequenced_run_settings(settings: dict, *, run_mode: SequencedCaptureRunM
     every install without failing anything -- keep them exactly as the
     writers spell them.
 
-    ``run_mode`` carries the one run kind whose values are not the user's:
-    an autofocus scan must NOT hold the excitation LED across focus moves
-    (photobleaching the sample) and saves nothing, so it never keeps the
-    LED between steps and never makes per-channel folders, whatever the
-    settings say. That guarantee lives here, once, rather than as an
-    omission at each autofocus call site.
+    ``run_mode`` carries the two run kinds whose values are not the user's.
+    An autofocus run, at one position or every step, must NOT hold the
+    excitation LED across focus moves (photobleaching the sample) and saves
+    nothing, so it never keeps the LED between steps and never makes
+    per-channel folders, whatever the settings say. A composite's merge
+    reads its inputs back as 8-bit, so its image config is the composite
+    one. Both guarantees live here, once, rather than at each call site.
     """
-    autofocus_scan = run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN
+    autofocus_scan = run_mode.is_autofocus
+    if run_mode == SequencedCaptureRunMode.SINGLE_COMPOSITE:
+        image_capture_config = get_composite_image_capture_config_from_settings(settings)
+    else:
+        image_capture_config = get_image_capture_config_from_settings(settings)
     return {
+        'image_capture_config': image_capture_config,
         'keep_led_between_steps': (
             False if autofocus_scan else settings.get('keep_led_between_steps', False)
         ),
@@ -179,54 +186,7 @@ def get_sequenced_run_settings(settings: dict, *, run_mode: SequencedCaptureRunM
         'bf_af_for_fluorescence': settings.get('protocol', {}).get('bf_af_for_fluorescence', False),
         'timestamp_overlay': settings.get('video', {}).get('timestamp_overlay', True),
         'video_max_fps': settings.get('video', {}).get('max_fps', 0),
-        'ag_ae_max_exposure_ms': settings.get('ag_ae_max_exposure_ms', {}),
     }
-
-
-@dataclasses.dataclass(frozen=True)
-class AutofocusSnapshot:
-    """The per-layer autofocus flags a run starts from, coupled to the one
-    callable that puts them back at cleanup.
-
-    Coupled on purpose. States without a restorer is the shape that left
-    a headless run unable to put the session's autofocus flags back: the
-    engine fell back to a process-wide settings store that is unset
-    outside the GUI, and the failure was swallowed into a cleanup
-    warning. With both fields required that shape cannot be built, so
-    no gate at prepare and no fallback at cleanup is needed.
-
-    ``restore`` is called as ``restore(layer=<str>, value=<bool>)``, once
-    per layer in ``states``.
-    """
-
-    states: dict
-    restore: typing.Callable
-
-
-def autofocus_snapshot_from_settings(
-    settings: dict, settings_lock: threading.Lock
-) -> AutofocusSnapshot:
-    """Snapshot every catalogue layer's autofocus flag, with its restorer.
-
-    The read holds the settings lock so the snapshot is one consistent
-    view, and the restorer takes the same lock for its write, so every
-    run path restores locked (the API path had no lock before this).
-    The lock is the session's; the GUI reaches the same object through
-    its context, so a caller passes whichever handle it holds.
-
-    Unguarded on purpose: settings are schema-gated before they are
-    read, so a catalogue layer missing from the dict is corruption. A
-    snapshot that quietly skipped such a layer would also quietly skip
-    its restore; raising here stops the run before it is prepared.
-    """
-    with settings_lock:
-        states = {layer: settings[layer]['autofocus'] for layer in common_utils.get_layers()}
-
-    def restore(*, layer: str, value) -> None:
-        with settings_lock:
-            settings[layer]['autofocus'] = value
-
-    return AutofocusSnapshot(states=states, restore=restore)
 
 
 def get_manual_video_max_duration(settings: dict) -> float:
@@ -240,28 +200,23 @@ def get_manual_video_max_duration(settings: dict) -> float:
     return settings.get('video', {}).get('max_duration_seconds', 300)
 
 
-def get_ag_ae_max_exposure_ms(layer: str, overrides: dict | None = None) -> float:
+def get_ag_ae_max_exposure_ms(layer: str, ceilings: dict) -> float:
     """Return the AG/AE exposure upper bound (ms) for a layer's channel class.
 
     AG/AE is capped per channel class so auto-exposure cannot drive the
-    sensor toward its native max on dim scenes. Resolves the layer to its
-    class, then returns the per-install override when present, else the
-    DEFAULT_AG_AE_MAX_EXPOSURE_MS default. Unknown layers fall back to the
-    fluorescence cap.
+    sensor toward its native max on dim scenes (especially with the
+    MinimizeGain profile), washing out brightfield and making the live-view
+    auto loop hunt. Distinct from the manual exposure-slider limits.
+    Transmitted light is bright (short exposures); fluorescence needs more;
+    luminescence integrates long. Resolves the layer to its class and
+    returns that class's ceiling. Unknown layers take the fluorescence cap.
 
-    ``overrides`` is the flat per-class map the settings hold under
-    ``ag_ae_max_exposure_ms`` (``{'fluorescence': 150.0, ...}``), handed
-    in by the caller that owns the settings -- a run carries it on its
-    plan, the live view reads it off the context. It is NOT the whole
-    settings dict: passing that resolves to the table default for every
-    class, silently.
+    ``ceilings`` is the per-class map the settings hold under
+    ``ag_ae_max_exposure_ms`` (``{'fluorescence': 200.0, ...}``), handed in
+    by the caller that owns the settings -- a run reads it at its prepare,
+    the live view off the session. It is NOT the whole settings dict.
     """
-    channel_class = _ag_ae_channel_class(layer)
-    if overrides:
-        override = overrides.get(channel_class)
-        if override is not None:
-            return float(override)
-    return DEFAULT_AG_AE_MAX_EXPOSURE_MS[channel_class]
+    return float(ceilings[_ag_ae_channel_class(layer)])
 
 
 def log_resolved_optics(
@@ -333,8 +288,9 @@ def get_ag_ae_min_exposure_ms(layer: str) -> float:
     treats as usable: a setting written below it produces near-black
     protocol steps on ordinary scenes, and fluorescence / luminescence
     sliders cannot show sub-millisecond values at all. An auto-gain lock
-    at or below this floor reports AT_MINIMUM; the layer control floors
-    the written-back setting to it. Unknown layers fall back to the
+    at or below this floor reports AT_MINIMUM, and the exposure a caller
+    leaving auto-gain stores is floored to it (``stored_exposure_ms``).
+    Unknown layers fall back to the
     fluorescence floor, as the ceiling sibling does.
     """
     return DEFAULT_AG_AE_MIN_EXPOSURE_MS[_ag_ae_channel_class(layer)]
@@ -355,15 +311,17 @@ def get_current_objective_info(settings: dict, objective_helper) -> tuple[str, d
     return objective_id, objective
 
 
-def model_has_turret(scopes: dict, settings: dict) -> bool:
+def model_has_turret(scopes: dict, model: str | None) -> bool:
     """Does the DECLARED microscope model have a turret?
 
-    Declared -- the settings' model looked up in the scopes catalogue --
-    rather than live capability, deliberately: a dead motorboard reports
-    no axes, and that is exactly when a stale stored objective must not
-    survive startup adoption.
+    Declared -- the model the scope runs as, looked up in the scopes
+    catalogue -- rather than live capability, deliberately: a dead
+    motorboard reports no axes, and that is exactly when a stale stored
+    objective must not survive startup adoption. The caller passes the
+    running scope's model, not the stored selection, which may name a
+    model saved for the next start.
     """
-    scope_config = scopes.get(settings.get('microscope'))
+    scope_config = scopes.get(model)
     return bool(scope_config and scope_config.get('Turret'))
 
 
@@ -373,52 +331,48 @@ def model_has_turret(scopes: dict, settings: dict) -> bool:
 
 
 def get_current_plate_position(
-    scope,
+    scope: 'Lumascope',
     settings: dict,
-    coordinate_transformer,
-    wellplate_loader,
+    coordinate_transformer: 'CoordinateTransformer',
+    wellplate_loader: WellPlateLoader,
+    labware_id: str,
 ) -> dict:
     """Get current plate position in plate coordinates.
 
+    Args:
+        labware_id: The plate the position is stated on. A step is stored
+            on its protocol's plate, which need not be the scope's
+            selection; converting through another plate puts it in a frame
+            the run will not drive it in.
+
     Returns:
-        dict with keys 'x', 'y', 'z' in plate coordinates (um).
+        dict with keys 'x', 'y', 'z' in plate coordinates: x and y in mm,
+        z in um.
+
+    Raises:
+        HardwareCommandRefusedError: ``'not_connected'`` -- this scope's
+            model has a motor controller and none is connected, so there is
+            no position to read. A step or a run recorded at a made-up
+            position would image the wrong place under the right name.
+        CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
+            is not a plate the catalogue has. Converting through a different
+            plate would put every position
+            in the wrong frame.
     """
+    scope.motion.refuse_controller_not_connected('get_current_plate_position')
     if not scope.motor_connected:
+        # A manual scope has no motor controller by design. What its steps
+        # record in place of a position is not decided here; until it is,
+        # the origin stands in, and is logged as the stand-in it is.
         logger.error('Cannot retrieve current plate position')
         return {'x': 0, 'y': 0, 'z': 0}
 
     pos = scope.motion.get_current_position(axis=None)
-
-    labware_id = settings.get('protocol', {}).get('labware', '')
-    try:
-        labware = wellplate_loader.get_plate(plate_key=labware_id)
-    except Exception as e:
-        # Fallback returns stage coords in plate-coord field positions --
-        # data-misleading by design (callers expect plate coords). Notify
-        # so the user knows the protocol/z-stack about to be saved has the
-        # wrong coordinate frame, instead of silently writing bad data.
-        logger.error(
-            f"Could not load labware '{labware_id}' for position conversion: {e}",
-            exc_info=True,
-        )
-        from modules.notification_center import notifications
-
-        notifications.warning(
-            'Position',
-            'Labware not found',
-            f"Labware '{labware_id}' could not be loaded. "
-            f'Returning stage coordinates instead of plate coordinates. '
-            f'Check that the labware is defined in data/labware.json.',
-        )
-        return {
-            'x': round(pos.get('X', 0), common_utils.max_decimal_precision('x')),
-            'y': round(pos.get('Y', 0), common_utils.max_decimal_precision('y')),
-            'z': round(pos.get('Z', 0), common_utils.max_decimal_precision('z')),
-        }
+    labware = wellplate_loader.get_plate(plate_key=wellplate_loader.resolve_plate_key(labware_id))
 
     # Z-only scopes (no XY stage) report position without X/Y keys; tolerate
-    # missing axes the same way the labware-fallback branch above does, so
-    # adding/modifying a step (and z-stack capture) does not raise on them.
+    # missing axes so adding/modifying a step (and z-stack capture) does not
+    # raise on them.
     px, py = coordinate_transformer.stage_to_plate(
         labware=labware,
         stage_offset=settings['stage_offset'],
@@ -511,8 +465,8 @@ def log_environment_once():
     )
 
 
-def log_system_metrics(settings: dict) -> None:
-    """Log CPU, RAM, and disk metrics."""
+def log_system_metrics(settings: dict, *, scope: 'Lumascope') -> None:
+    """Log CPU, RAM, and disk metrics, and the scope's camera delivery."""
     path = settings.get('live_folder', '.')
     # Resolve relative paths and handle missing directories gracefully.
     # On installed apps, live_folder may still be './capture' before
@@ -739,31 +693,26 @@ def log_system_metrics(settings: dict) -> None:
         )
 
     # --- Buffer-churn signals from the live capture path ---
-    # capture_fps x frame_nbytes = MB/sec the camera produces. Each frame
-    # currently allocates ~3 fresh OS-level buffers (camera copy, 12->8 LUT,
-    # tobytes()). The standby-cache growth in [PDH METRICS] should track
-    # this product roughly.
-    try:
-        from modules import app_context as _app_ctx
+    # What the camera delivered over the last second and the bytes it put on
+    # the link, from the imaging API in every host. Each frame currently
+    # allocates ~3 fresh OS-level buffers (camera copy, 12->8 LUT, tobytes()).
+    # The standby-cache growth in [PDH METRICS] should track the data rate
+    # roughly. The display's rate is the GUI's, logged only where one exists.
+    delivered = scope.imaging.get_delivered_rate()
+    wire_frame_bytes = (
+        delivered.bytes_per_s / delivered.frames_per_s if delivered.frames_per_s else 0.0
+    )
+    from modules import app_context as _app_ctx
 
-        sd = _app_ctx.ctx.scope_display if _app_ctx.ctx is not None else None
-    except Exception:
-        sd = None
+    sd = _app_ctx.ctx.scope_display if _app_ctx.ctx is not None else None
+    display_field = f'display_fps={sd.display_fps():.1f} | ' if sd is not None else ''
+    metrics_logger.info(
+        f'[BUFFER METRICS] capture_fps={delivered.frames_per_s:.1f} | '
+        f'{display_field}'
+        f'camera_data_rate={delivered.megabytes_per_s:.1f} MB/s | '
+        f'frame_size={wire_frame_bytes / 1000:.0f} KB',
+    )
     if sd is not None:
-        try:
-            capture_fps = float(getattr(sd, '_capture_fps_value', 0.0) or 0.0)
-            display_fps = float(getattr(sd, '_display_fps_value', 0.0) or 0.0)
-            camera_mbps = float(getattr(sd, '_camera_mbps', 0.0) or 0.0)
-            frame_nbytes = int(getattr(sd, '_last_frame_nbytes', 0) or 0)
-            metrics_logger.info(
-                f'[BUFFER METRICS] capture_fps={capture_fps:.1f} | '
-                f'display_fps={display_fps:.1f} | '
-                f'camera_data_rate={camera_mbps:.1f} MB/s | '
-                f'frame_size={frame_nbytes / 1024:.0f} KB',
-            )
-        except Exception as e:
-            logger.debug(f'[BUFFER METRICS] unavailable: {e}')
-
         # Frame-interval percentiles -- consumer-stall detection.
         # Spikes in p99/max correlate with main-thread congestion
         # or worker-thread blocks; tracking these surfaces UI lock
@@ -831,6 +780,7 @@ def log_system_metrics(settings: dict) -> None:
             'io_executor',
             'camera_executor',
             'file_io_executor',
+            'post_processing_executor',
             'worker_pool',
         ):
             # protocol_thread, scope_display_thread, autofocus_thread,
@@ -865,6 +815,7 @@ def log_system_metrics(settings: dict) -> None:
             'io_executor',
             'camera_executor',
             'file_io_executor',
+            'post_processing_executor',
             'worker_pool',
         ):
             # protocol_thread, scope_display_thread, autofocus_thread,
@@ -940,19 +891,6 @@ def focus_log(positions, values, focus_round: int, source_path: str) -> int:
 # is `scope.imaging.max_exposure_ms_cached or DEFAULT_MAX_EXPOSURE_MS`. See #616.
 DEFAULT_MAX_EXPOSURE_MS = 1000.0
 
-# Per-channel-class upper bound on the exposure AG/AE may drive to, in ms.
-# Distinct from the manual exposure-slider limits: on dim scenes (especially
-# with the MinimizeGain profile) AG/AE would otherwise push exposure to the
-# sensor's native max, washing out brightfield and making the live-view auto
-# loop hunt. Transmitted light is bright (short exposures); fluorescence needs
-# more; luminescence integrates long. Overridable per install via
-# settings['ag_ae_max_exposure_ms'][<class>]; these are the defaults.
-DEFAULT_AG_AE_MAX_EXPOSURE_MS = {
-    'transmitted': 50.0,
-    'fluorescence': 200.0,
-    'luminescence': 1000.0,
-}
-
 # The usable exposure FLOOR per channel class (ms): see
 # get_ag_ae_min_exposure_ms. Transmitted light can legitimately run at a
 # tenth of a millisecond; sub-millisecond fluorescence or luminescence is
@@ -990,21 +928,39 @@ def camera_max_exposure_for_ui(imaging) -> float:
     return _camera_cap_for_ui(imaging.max_exposure_ms_cached, DEFAULT_MAX_EXPOSURE_MS)
 
 
-def camera_max_gain_for_ui(imaging) -> float:
+def camera_max_gain_for_ui(imaging: 'ImagingAPI') -> float:
     """The gain-slider upper bound from the live camera, or the no-camera
     default. Parallel to camera_max_exposure_for_ui.
+
+    Normalised to the same precision every other gain number in the app
+    carries. A GenICam float node reports its maximum in continuous units and
+    that value can carry a float tail past the last real step -- a 48 dB gain
+    node reports 48.00000004350822 -- which the driver publishes raw whenever
+    the node declares no fixed increment, deliberately, because inventing a
+    step would narrow a range the camera did not narrow. Raw, it becomes the
+    slider maximum, the ceiling a typed entry is clamped to, and the value
+    written into the store when a layer is reconciled down to the cap, so the
+    tail reaches current.json and the gain box. This resolver is the one point
+    the whole chain passes through, so it is the one place to normalise it.
+
+    The precision comes from the existing owner rather than a number chosen
+    here: a second authority on the same quantity could disagree with the
+    first. Rounding rather than flooring matches how every other gain value is
+    normalised, and the overshoot it can introduce is orders below the
+    driver's own short-circuit tolerance, so it cannot produce a request the
+    camera treats as a change.
     """
-    return _camera_cap_for_ui(imaging.max_gain_db_cached, DEFAULT_MAX_GAIN_DB)
+    cap = _camera_cap_for_ui(imaging.max_gain_db_cached, DEFAULT_MAX_GAIN_DB)
+    return round(cap, common_utils.max_decimal_precision('gain'))
 
 
 # Illumination policy for the transmitted layers (BF / PC / DF). Their LEDs
 # are far brighter per mA than the fluorescence channels, so the slider
-# stops well under the board's ceiling; the BF text entry deliberately
-# reaches higher for the rare sample that needs it (Eric, 2026-09-12:
-# "slider at 50, but you can type up to 500 still"). Both are bounded by
-# what the connected board can actually be asked for.
+# stops well under the board's ceiling; the text entry reaches past it for
+# the rare sample that needs it (Eric, 2026-09-12: "slider at 50, but you can
+# type up to 500 still"), up to what the connected board can be asked for,
+# which the settings writer refuses to exceed.
 TRANSMITTED_MAX_ILLUMINATION_MA = 50
-BF_TEXT_MAX_ILLUMINATION_MA = 500
 
 
 def layer_max_illumination_ma_for_ui(capabilities: 'ScopeCapabilities', layer: str) -> int:
@@ -1021,9 +977,8 @@ def layer_max_illumination_ma_for_ui(capabilities: 'ScopeCapabilities', layer: s
 # bright enough that the useful manual range sits far under the sensor's
 # maximum, so the slider stops here rather than at the camera's cap.
 #
-# Deliberately NOT DEFAULT_AG_AE_MAX_EXPOSURE_MS: that one bounds what the AUTO
-# loop may drive to and is overridable per install through
-# settings['ag_ae_max_exposure_ms'], so reusing it would let auto-exposure
+# Deliberately NOT settings['ag_ae_max_exposure_ms']: that bounds what the AUTO
+# loop may drive to and is set per install, so reusing it would let auto-exposure
 # tuning silently resize the manual slider. It is also keyed by channel class,
 # where the manual ceiling differs between BF and the other transmitted layers.
 BF_MAX_MANUAL_EXPOSURE_MS = 50.0
@@ -1053,15 +1008,6 @@ def layer_max_exposure_ms_for_ui(camera_max_ms: float, layer: str) -> float:
     return min(ceiling, camera_max_ms)
 
 
-def layer_illumination_text_max_for_ui(capabilities: 'ScopeCapabilities', layer: str) -> int:
-    """The illumination text-entry upper bound for one layer. BF alone may be
-    typed above its slider; every other layer's text bound is its slider's.
-    """
-    if layer == 'BF':
-        return min(BF_TEXT_MAX_ILLUMINATION_MA, int(capabilities.led_max_ma))
-    return layer_max_illumination_ma_for_ui(capabilities, layer)
-
-
 def get_binning_from_settings(settings: dict) -> int:
     """Read binning size from settings dict (no UI needed).
 
@@ -1086,79 +1032,25 @@ def get_frame_dimensions_from_settings(settings: dict) -> dict:
     }
 
 
-# Protocol period/duration floor. 0 is the single-scan marker and is
-# preserved; any positive value below 1 second is bumped to 1 second so a
-# short time-lapse interval/duration stays representable and doesn't round
-# to 0 on display (#568). Negative values are loader-rejected upstream.
-MIN_PROTOCOL_TIME_SECONDS = 1.0
+def get_protocol_time_params_from_settings(settings: dict) -> dict:
+    """The stored default period and duration, as a new protocol takes them.
 
-
-def floor_protocol_time(td: datetime.timedelta) -> datetime.timedelta:
-    """Clamp a protocol period/duration to a 1-second minimum, preserving
-    the 0 single-scan marker. See MIN_PROTOCOL_TIME_SECONDS."""
-    seconds = td.total_seconds()
-    if 0 < seconds < MIN_PROTOCOL_TIME_SECONDS:
-        return datetime.timedelta(seconds=MIN_PROTOCOL_TIME_SECONDS)
-    return td
-
-
-def protocol_time_clamped(raw_value: float, unit: str) -> bool:
-    """True if a raw period/duration would be raised to the 1-second minimum.
-
-    The 0 single-scan marker is preserved by the floor and is not a clamp, so
-    it returns False. unit is 'minutes' (period) or 'hours' (duration).
-    """
-    td = (
-        datetime.timedelta(minutes=raw_value)
-        if unit == 'minutes'
-        else datetime.timedelta(hours=raw_value)
-    )
-    if td.total_seconds() == 0:
-        return False
-    return floor_protocol_time(td) != td
-
-
-def _protocol_time_value(protocol: dict, key: str, unit: str) -> float:
-    """One stored period/duration as a number, or a refusal naming it.
-
-    A value that will not parse is refused rather than replaced with a
-    default: the stored number is a schedule the user chose, and quietly
-    substituting one runs the protocol on a timing nobody asked for. The
-    settings load compares container shape only and never inspects scalars,
-    so a hand-edited or hand-built config arrives here with a string where a
-    number belongs, and this is the first place that can say so. Naming the
-    key and the unit is why this does not just call float(): the caller sees
-    which field to fix.
+    Returns dict with 'period' and 'duration' as timedelta objects, converted
+    from the store's minutes and hours and otherwise unchanged.
 
     An ABSENT key still defaults -- the shipped template carries both and the
     default merge fills them, so absent means a caller built a config without
     a schedule, not a schedule that got corrupted.
-    """
-    raw = protocol.get(key, 1)
-    try:
-        return float(raw)
-    except (TypeError, ValueError):
-        raise ConfigError(
-            f'protocol {key} is {raw!r}, which is not a number of {unit}; '
-            f'correct {key} in the settings file'
-        ) from None
-
-
-def get_protocol_time_params_from_settings(settings: dict) -> dict:
-    """Read protocol time params from settings dict (no UI needed).
-
-    Returns dict with 'period' and 'duration' as timedelta objects.
 
     Raises:
-        ConfigError: a stored period or duration will not parse as a number.
+        ProtocolScheduleRefusedError: a stored period or duration is not one the
+            protocol can run. The store's two writers refuse one, so this
+            means a caller built the dict by hand.
     """
+    from modules.protocol import schedule_from_units
+
     protocol = settings.get('protocol', {})
-    period_minutes = _protocol_time_value(protocol, 'period', 'minutes')
-    duration_hours = _protocol_time_value(protocol, 'duration', 'hours')
-    return {
-        'period': floor_protocol_time(datetime.timedelta(minutes=period_minutes)),
-        'duration': floor_protocol_time(datetime.timedelta(hours=duration_hours)),
-    }
+    return {key: schedule_from_units(key, protocol.get(key, 1)) for key in ('period', 'duration')}
 
 
 def get_image_capture_config_from_settings(settings: dict) -> image_mode.ImageCaptureConfig:
@@ -1179,66 +1071,30 @@ def get_image_capture_config_from_settings(settings: dict) -> image_mode.ImageCa
     )
 
 
-DEFAULT_LABWARE_ID = '96 well microplate'
-
-
 def get_selected_labware_from_settings(
     settings: dict,
-    wellplate_loader,
+    wellplate_loader: WellPlateLoader,
 ) -> tuple[str, object]:
-    """Read selected labware from settings dict (no UI needed).
+    """The selected plate, as ``(labware_id, wellplate_object)``; never None.
 
-    Always returns a valid (labware_id, wellplate_object) tuple. Per
-    Eric's 2026-04-25 directive: callers shouldn't have to deal with
-    None. If settings has no labware, or the requested labware doesn't
-    exist in the loader, fall back to the shipped default
-    (DEFAULT_LABWARE_ID) and finally to the first available plate.
-    Issue #634/#632 cluster: every site that consumed this return
-    treated None as a crash, so removing None from the contract retires
-    the cluster by construction.
+    The id is the catalogue's key for the stored name, so a plate renamed
+    since the settings named it is found under its old spelling.
 
-    The only way this raises is if the wellplate loader is empty (broken
-    install / labware.json missing) -- that's a genuine fatal that the
-    caller cannot reasonably recover from.
+    Raises:
+        ConfigError: The settings name no plate.
+        CatalogueNameRefusedError: ``'labware_unknown'``, the settings name
+            a plate the catalogue does not have; ``offered`` carries the
+            plates it has. No other plate is substituted: a different plate's geometry puts
+            every well position in the wrong place while the protocol reads
+            as if it ran normally. Bring-up (``ScopeSession.configure_scope``)
+            replaces a stored plate the catalogue cannot resolve; this
+            reader still refuses one in settings no bring-up has read.
     """
-    labware_id = settings.get('protocol', {}).get('labware', '') or DEFAULT_LABWARE_ID
-    try:
-        labware_obj = wellplate_loader.get_plate(plate_key=labware_id)
-        return labware_id, labware_obj
-    except Exception:
-        logger.warning(
-            f"Could not load labware '{labware_id}', falling back to default '{DEFAULT_LABWARE_ID}'"
-        )
-        # The substituted plate has different geometry, so every well
-        # position the protocol computes will be wrong. Tell the user --
-        # a silent substitution looks like the protocol ran normally.
-        from modules.notification_center import notifications
-
-        notifications.warning(
-            'Labware',
-            'Labware Unavailable',
-            f"The selected labware '{labware_id}' is unavailable; using the default "
-            'plate instead. Well positions will be wrong -- pick an installed plate.',
-        )
-    # First fallback: the shipped default.
-    if labware_id != DEFAULT_LABWARE_ID:
-        try:
-            labware_obj = wellplate_loader.get_plate(plate_key=DEFAULT_LABWARE_ID)
-            return DEFAULT_LABWARE_ID, labware_obj
-        except Exception:
-            logger.warning(
-                f"Default labware '{DEFAULT_LABWARE_ID}' also missing; "
-                f'falling back to first available plate'
-            )
-    # Second fallback: anything in the loader. If the loader is empty,
-    # the install is broken (labware.json missing or unreadable).
-    available = wellplate_loader.get_plate_list()
-    if not available:
-        raise ConfigError(
-            'wellplate_loader has no plates registered -- labware.json is missing or unreadable'
-        )
-    fallback_id = available[0]
-    return fallback_id, wellplate_loader.get_plate(plate_key=fallback_id)
+    stored = settings.get('protocol', {}).get('labware')
+    if not isinstance(stored, str):
+        raise ConfigError(f'the settings name no plate: protocol.labware is {stored!r}')
+    labware_id = wellplate_loader.resolve_plate_key(stored)
+    return labware_id, wellplate_loader.get_plate(plate_key=labware_id)
 
 
 def get_zstack_params_from_settings(settings: dict) -> dict:
@@ -1316,6 +1172,7 @@ def build_sequenced_capture_config(values: dict) -> dict:
         'frame_dimensions': values['frame_dimensions'],
         'binning_size': values['binning_size'],
         'stim_config': values['stim_config'],
+        'current_z': values['current_z'],
     }
     if 'positions' in values:
         config['positions'] = values['positions']
@@ -1345,9 +1202,9 @@ def get_composite_channels(settings: dict) -> list:
     composite must assemble with every layer collapsed, and a headless
     caller has no accordion at all.
 
-    Raises:
-        ProtocolRunRefusedError: fewer than two channels would be
-            captured, so no merged artifact could be produced.
+    Fewer than COMPOSITE_MIN_CHANNELS is returned as it is: the run engine
+    refuses that composite in prepare(), where every refusal a run can meet
+    is raised.
     """
     transmitted = [
         layer
@@ -1362,33 +1219,7 @@ def get_composite_channels(settings: dict) -> list:
         )
         if settings[layer]['acquire'] == 'image'
     ]
-    channels = transmitted[:1] + others
-
-    if len(channels) < COMPOSITE_MIN_CHANNELS:
-        _refuse_composite(
-            reason='composite_needs_two_channels',
-            title='Not Enough Channels',
-            message=(
-                f'A composite combines at least {COMPOSITE_MIN_CHANNELS} channels, but '
-                f'{len(channels)} is set to capture an image. Turn on another channel '
-                'and try again.'
-            ),
-        )
-    return channels
-
-
-def _refuse_composite(reason: str, title: str, message: str) -> 'typing.NoReturn':
-    """Log, notify once, and raise -- the composite assembly's refusal funnel.
-
-    Mirrors the runner's refusal contract so a caller reconciles a
-    config-stage refusal exactly as it does an engine-stage one, and an
-    API caller gets the same typed error either way.
-    """
-    logger.error(f'[Composite] Run refused ({reason}): {message}')
-    from modules.notification_center import notifications
-
-    notifications.warning('Composite', title, message)
-    raise ProtocolRunRefusedError(reason=reason, title=title, message=message)
+    return transmitted[:1] + others
 
 
 def get_composite_blend_thresholds(settings: dict) -> dict:
@@ -1456,11 +1287,10 @@ def get_composite_capture_config_from_settings(
     through a missing z to each layer's own stored focus, which is what puts
     every channel in ITS focal plane; a numeric z would pin all of them to
     whatever plane the stage happened to be at and silently discard the
-    per-channel focus the user set.
+    per-channel focus the user set. The stage's z rides along as the
+    current Z, which is where a channel whose focus was never saved is
+    imaged.
 
-    Raises:
-        ProtocolRunRefusedError: fewer than two channels are set to
-            capture, so no merged artifact could be produced.
     """
     channels = get_composite_channels(settings)
     objective_id, _ = get_current_objective_info(settings, objective_helper)
@@ -1474,7 +1304,10 @@ def get_composite_capture_config_from_settings(
 
     return build_sequenced_capture_config(
         {
-            'labware_id': settings.get('protocol', {}).get('labware', ''),
+            # No default: bring-up and the settings writers admit only a
+            # plate the catalogue has, and an empty name would be saved into
+            # the run's record as its plate.
+            'labware_id': settings['protocol']['labware'],
             'objective_id': objective_id,
             'zstack_params': {},
             'use_zstacking': False,
@@ -1490,31 +1323,161 @@ def get_composite_capture_config_from_settings(
             # hardware at the sample during a composite -- which capturing a
             # multi-channel image has never done and nobody asked it to.
             'stim_config': {},
+            'current_z': position['z'],
             'positions': [composite_position],
         }
     )
 
 
-def get_sequenced_capture_config_from_settings(
+def get_standalone_capture_config_from_settings(
     settings: dict,
     objective_helper: ObjectiveLoader,
-    wellplate_loader: WellPlateLoader | None = None,
+    wellplate_loader: WellPlateLoader,
+    *,
+    layer: str,
+    position: dict,
+    position_name: str,
+    autofocus: bool,
+    use_zstacking: bool,
+    stim_config: dict,
 ) -> dict:
-    """Build sequenced capture config from settings dict (no UI needed).
+    """Build the input_config for a one-position, one-layer run at *position*.
 
-    This is the headless equivalent of config_getters.get_sequenced_capture_config_from_ui().
+    The third settings lane into the canonical builder, beside the
+    plate-wide and composite ones. It serves the degenerate case both
+    standalone buttons drive -- a single field, a single layer, with
+    autofocus or z-stacking turned on -- which until now had no named
+    selector, so each starter chose the same thirteen values inline.
+
+    Not expressed as the plate-wide selector plus arguments on purpose:
+    this case does not subset that one. It forces tiling off, period and
+    duration to nothing, names its position, and overrides the layer's
+    stored autofocus flag -- arguments the plate-wide callers could not
+    use, in combinations that would mean nothing to them.
+
+    The position keeps its z, unlike the composite lane which nulls it so
+    each channel falls to its own focus. Here the z IS the input: it is
+    where the autofocus sweep starts, and the plane a z-stack is built
+    around.
+
+    Args:
+        layer: Which layer to capture. Named by the caller because a GUI
+            reads it from the open drawer and a script has none.
+        position: Plate coordinates for the single step, from
+            get_current_plate_position.
+        position_name: What the step is called in the saved data.
+        autofocus: Whether the step runs autofocus. Overrides the layer's
+            stored flag either way, so a caller gets what it asked for
+            rather than what the user last left switched on.
+        use_zstacking: Whether the step expands into a z-stack. The
+            z-stack parameters are read from settings only when this is
+            set; a caller that is not stacking gets none rather than
+            stale ones.
+        stim_config: Per-layer stimulation to stamp onto the step. An
+            empty dict keeps the run stim-free.
+
+    *layer* is a layer of this release: the members that build this
+    (``ProtocolRunner.run_autofocus``, ``run_zstack``) judge it at their
+    door, before they read the scope. Unjudged, an unknown name would not
+    fail here -- the layer selector below skips what the catalogue lacks
+    -- and the run would be refused several steps later as "Protocol has
+    no steps", naming a cause that has nothing to do with the mistake.
     """
     objective_id, _ = get_current_objective_info(settings, objective_helper)
-    time_params = get_protocol_time_params_from_settings(settings)
-    protocol = settings.get('protocol', {})
+    labware_id, _ = get_selected_labware_from_settings(settings, wellplate_loader)
+
+    layer_configs = get_layer_configs(settings, specific_layers=[layer])
+    layer_config = layer_configs[layer]
+    # Both starters do exactly this: the step captures an image, and the
+    # caller's intent decides autofocus rather than the layer's stored
+    # flag. Assembling a config is not the place to honour a leftover
+    # switch the caller said nothing about.
+    layer_config['acquire'] = 'image'
+    layer_config['autofocus'] = autofocus
+
+    step_position = dict(position)
+    step_position['name'] = position_name
 
     return build_sequenced_capture_config(
         {
-            'labware_id': protocol.get('labware', ''),
+            'labware_id': labware_id,
+            'objective_id': objective_id,
+            'zstack_params': get_zstack_params_from_settings(settings) if use_zstacking else {},
+            'use_zstacking': use_zstacking,
+            'tiling': TilingConfig.no_tiling_label(),
+            'tiling_overlap_percent': 0.0,
+            'layer_configs': {layer: layer_config},
+            'period': None,
+            'duration': None,
+            'frame_dimensions': get_frame_dimensions_from_settings(settings),
+            'binning_size': get_binning_from_settings(settings),
+            'stim_config': stim_config,
+            'current_z': position['z'],
+            'positions': [step_position],
+        }
+    )
+
+
+def get_empty_protocol_config_from_settings(
+    settings: dict,
+    wellplate_loader: WellPlateLoader,
+) -> dict:
+    """The config an empty-steps protocol takes: labware, timing, geometry.
+
+    No objective: an empty protocol has no step to stamp one into, so it
+    can be built while the objective in the light path is unknown. Reached
+    through ScopeSession.create_empty_protocol.
+    """
+    labware_id, _ = get_selected_labware_from_settings(settings, wellplate_loader)
+    time_params = get_protocol_time_params_from_settings(settings)
+    return {
+        'labware_id': labware_id,
+        'period': time_params['period'],
+        'duration': time_params['duration'],
+        'frame_dimensions': get_frame_dimensions_from_settings(settings),
+        'binning_size': get_binning_from_settings(settings),
+    }
+
+
+def get_sequenced_capture_config_from_settings(
+    settings: dict,
+    objective_helper: ObjectiveLoader,
+    wellplate_loader: WellPlateLoader,
+    *,
+    current_z: float | None,
+    tiling: str = '1x1',
+    use_zstacking: bool = False,
+) -> dict:
+    """Build a sequenced capture config from settings (no UI needed).
+
+    The single builder for this config; every caller, the GUI included,
+    reaches it through ScopeSession.get_sequenced_capture_config, and the
+    GUI supplies the two authoring choices below from its widgets.
+
+    tiling and use_zstacking are ARGUMENTS, not settings reads. They are
+    authoring inputs with no settings home: tiling's store is the
+    protocol itself (its steps carry a Tile column, which is where a
+    saved tiling is recovered from), and neither survives a restart by
+    design. They used to be read as settings['protocol'] keys that
+    nothing writes, so this builder answered '1x1' and False for every
+    caller regardless of what the user had chosen.
+
+    wellplate_loader is required: labware goes through the accessor that
+    falls back to the shipped default and warns, so this lane and the
+    GUI's resolve a missing or unloadable plate the same way instead of
+    handing a bare '' to the protocol.
+    """
+    objective_id, _ = get_current_objective_info(settings, objective_helper)
+    time_params = get_protocol_time_params_from_settings(settings)
+    labware_id, _ = get_selected_labware_from_settings(settings, wellplate_loader)
+
+    return build_sequenced_capture_config(
+        {
+            'labware_id': labware_id,
             'objective_id': objective_id,
             'zstack_params': get_zstack_params_from_settings(settings),
-            'use_zstacking': protocol.get('use_zstacking', False),
-            'tiling': protocol.get('tiling', '1x1'),
+            'use_zstacking': use_zstacking,
+            'tiling': tiling,
             # Overlap is stored top-level, not under protocol. Reading it from
             # under protocol found nothing and silently gave every headless
             # run 0% overlap regardless of what the user had configured.
@@ -1525,5 +1488,6 @@ def get_sequenced_capture_config_from_settings(
             'frame_dimensions': get_frame_dimensions_from_settings(settings),
             'binning_size': get_binning_from_settings(settings),
             'stim_config': get_stim_configs(settings),
+            'current_z': current_z,
         }
     )

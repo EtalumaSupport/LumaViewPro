@@ -23,18 +23,34 @@ import modules.common_utils as common_utils
 import modules.protocol_recording as protocol_recording
 from lib import profile_trace
 from lvp_logger import protocol_logger as logger
+from modules.activity_claim import BorrowedClaim
+from modules.exceptions import (
+    CameraSettingRejected,
+    DiskSpaceCriticalError,
+    ObjectiveUnknownError,
+    RunFailedError,
+    RunFilesNotWrittenError,
+    RunWriteRefusedError,
+)
 from modules.image_save import save_image
 from modules.lumascope_api.imaging import capture_failure_cause
+from modules.notification_center import notifications
 from modules.protocol import Protocol
 from modules.protocol_recording import ProtocolVideoStep
-from modules.sequential_io_executor import PROTOCOL_QUEUE_WEDGED, IOTask
+from modules.recording_frames import FrameFact, frame_fact
+from modules.run_events import RunEvents, deliver_here
+from modules.run_outcome import CaptureTally, EndingLatch, FailedCapture, RunEnding
+from modules.sequential_io_executor import IOTask
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import pandas as pd
 
     from modules.image_mode import ImageCaptureConfig
+    from modules.labware import WellPlate
     from modules.lumascope_api import Lumascope
-    from modules.protocol_callbacks import ProtocolCallbacks
+    from modules.lumascope_api.frame_record import FrameRecord
     from modules.protocol_execution_record import ProtocolExecutionRecord
     from modules.sequential_io_executor import SequentialIOExecutor
 
@@ -47,19 +63,480 @@ if TYPE_CHECKING:
 # slow_task_threshold_sec raises the bar for itself. Bench-tunable.
 WRITE_STALL_FATAL_S = 30.0
 
+# How many of a run's writes may wait on the disk before a capture waits for
+# room. The run paces to the disk instead of holding an unbounded backlog of
+# full frames in memory. Read at each submit, so a test can shrink it.
+WRITE_BACKLOG_BOUND = 32
+
+# How often a paced submit re-checks for room, for the run's abort and for a
+# stuck writer: short enough that an abort mid-wait is honored promptly, long
+# enough that a full backlog does not busy-spin.
+_PACING_POLL_S = 0.25
+
+# Cumulative time a run's captures spent waiting for room past which the save
+# disk is called out as too slow for the run's own demand. Demand-relative on
+# purpose: an absolute MB/s floor false-fires on healthy machines (a measured
+# healthy bench sustains under 1.5 MB/s -- see PERFORMANCE_BUDGETS.md
+# protocol_write_backpressure_wait_s), while time the capture loop spent
+# waiting for room is unmet demand by definition. Consumed by the run-end
+# summary in protocol_cleanup; the first crossing also logs here.
+SLOW_WRITE_BLOCKED_WARN_S = 30.0
+
+# Returned by a paced submit that gave up: the backlog stayed full past the
+# stall budget AND the write in flight has run past its stall threshold -- the
+# writer is stuck, not slow. The write was not taken; the caller owns the loud
+# abort.
+WRITER_WEDGED = object()
+
+
+class _Write:
+    """One write's place in its run's batch, given up exactly once.
+
+    Given up when the write finishes -- however it finishes -- or when the
+    batch is abandoned around it, whichever comes first. The second of the
+    two finds it already given up and counts nothing, so a write abandoned
+    while stuck that later returns cannot count twice.
+    """
+
+    __slots__ = ('image', 'settled')
+
+    def __init__(self, image: bool):
+        # Whether the write saves one of the run's images. Only those count
+        # as written or not written; a record row or a data file is still
+        # waited for, but is not an image the run captured.
+        self.image = image
+        self.settled = False
+
+
+class RunWriteBatch:
+    """Every write one run hands to the disk, from hand-over to landing.
+
+    A run's writes share the file lane with everything else it serves, so
+    the lane cannot say which writes are a run's, or when THAT run's writes
+    are done; asked, it can only answer for whatever is queued, and the
+    answer drifts across runs. The batch is the run's own account: created
+    with the run, closed by the run's cleanup, and complete once closed with
+    nothing outstanding. Completion happens once, with its outcome --
+    ``written``, or ``incomplete`` when any of the run's images is not on
+    disk: a recovery or a shutdown gave up on it, a stuck writer refused it,
+    its save failed or was refused for disk space, or a video step's file
+    did not finish -- and runs the actions the run's end handed to
+    ``when_complete``. The counts are of images: a write that saves none (a record
+    row, a data file) is waited for and never counted.
+
+    Nothing is ever discarded while completion is reported: a write handed
+    over either lands or is counted not written.
+    """
+
+    def __init__(self, file_io_executor: SequentialIOExecutor):
+        self._executor = file_io_executor
+        # One lock for submit, settle, close and abandon; the condition wakes
+        # a paced submit when a write lands.
+        self._cond = threading.Condition()
+        self._outstanding: set[_Write] = set()
+        self._closed = False
+        self._abandoned = False
+        # A write the writer never took -- found stuck by a paced submit, or
+        # refused by a lane that stopped taking work -- rather than one a
+        # recovery or a shutdown gave up on; a build told of the loss names
+        # which happened.
+        self._not_taken = False
+        # Why images did not land, other than an abandon or a refusal to
+        # take them, in the order each first happened.
+        self._lost_reasons: list[str] = []
+        self._lost = 0
+        self._written = 0
+        self._on_complete = None
+        self._outcome: str | None = None
+        self._completed = threading.Event()
+        self._blocked_s = 0.0
+        self._slow_warned = False
+        # The write in flight a stall report has already named, so a stall
+        # is reported once and not on every look; None until one is.
+        self._stall_reported_for = None
+
+    @property
+    def pending(self) -> int:
+        """Writes handed over and not yet landed."""
+        with self._cond:
+            return len(self._outstanding)
+
+    @property
+    def outcome(self) -> str | None:
+        """``'written'`` or ``'incomplete'`` once complete; None before."""
+        return self._outcome
+
+    @property
+    def written(self) -> int:
+        """Images that landed."""
+        return self._written
+
+    @property
+    def not_written(self) -> int:
+        """Images the run captured that are not on disk."""
+        return self._lost
+
+    @property
+    def not_written_reason(self) -> str | None:
+        """Why some of the run's images are not on disk; None when none is missing.
+
+        ``write_batch_abandoned`` when a recovery or a shutdown gave up on
+        some writes; ``write_batch_not_taken`` when the writer never took
+        some -- stuck, or no longer taking work; otherwise the first of
+        ``write_batch_save_failed`` (a save ran and failed),
+        ``write_batch_disk_full`` (a save was refused for disk space) and
+        ``write_batch_video_unfinished`` (a video step's file did not
+        finish) to happen.
+        """
+        if self._abandoned:
+            return 'write_batch_abandoned'
+        if not self._lost:
+            return None
+        if self._not_taken:
+            return 'write_batch_not_taken'
+        return f'write_batch_{self._lost_reasons[0]}'
+
+    @property
+    def draining(self) -> bool:
+        """True from the run's end until its last write lands.
+
+        False while the run is live, even with writes outstanding: the
+        run's own state answers for it then.
+        """
+        return self._closed and not self._completed.is_set()
+
+    @property
+    def blocked_s(self) -> float:
+        """Seconds this run's captures spent waiting for room in the backlog."""
+        return self._blocked_s
+
+    def stalled(self, threshold_s: float) -> bool:
+        """True while writes are outstanding and the write in flight has run
+        past the stall threshold -- stuck, not slow."""
+        return (
+            not self._completed.is_set()
+            and self.pending > 0
+            and self._executor.in_flight_task_stalled(threshold_s)
+        )
+
+    def describe_stuck_write(self) -> str:
+        """The write in flight, named for a stall report."""
+        return self._executor.describe_running_task()
+
+    def stall_to_report(self, threshold_s: float) -> bool:
+        """True the first time the write in flight is found stalled; False for it after that.
+
+        A declined recovery is not offered again for the same stuck write. A
+        different write found stuck is a new stall, and a new run's batch
+        starts with nothing reported.
+        """
+        if not self.stalled(threshold_s):
+            return False
+        task = self._executor.running_task
+        with self._cond:
+            if task is self._stall_reported_for:
+                return False
+            self._stall_reported_for = task
+            return True
+
+    def submit(
+        self,
+        action: Callable[..., object],
+        kwargs: dict,
+        *,
+        what: str,
+        pace_until: Callable[[], bool] | None,
+        image: bool = True,
+        slow_task_threshold_sec: float | None = None,
+        return_future: bool = False,
+    ) -> object:
+        """Hand one write to the disk as part of this run.
+
+        Args:
+            action: The write.
+            kwargs: Its arguments.
+            what: What the write saves, as a person reads it, for a refusal.
+            image: Whether it saves one of the run's images; only those are
+                counted written or not written. A write that does not say is
+                counted as one, so its loss is reported rather than hidden.
+            pace_until: A zero-argument callable; while the backlog is full
+                the submit waits for room until it returns True, then hands
+                the write over anyway -- a write the run already made is
+                never dropped for being late. None hands it over at once,
+                over the bound if need be: a write whose caller must not
+                wait.
+            slow_task_threshold_sec: The write's own stall threshold, when
+                longer than the lane's.
+            return_future: Return the write's waiter.
+
+        Returns:
+            The write's waiter when ``return_future``, else the lane's
+            enqueued sentinel; ``WRITER_WEDGED`` when a paced submit found
+            the writer stuck -- the write was not taken, and it counts as
+            not written.
+
+        Raises:
+            RunWriteRefusedError: the run's writes have ended (closed or
+                abandoned), or the lane is shut down.
+        """
+        write = _Write(image)
+        with self._cond:
+            self._refuse_if_ended(what)
+            if pace_until is not None:
+                waited_from = time.monotonic()
+                wedged = False
+                while len(self._outstanding) >= WRITE_BACKLOG_BOUND and not pace_until():
+                    wait_started = time.monotonic()
+                    self._cond.wait(_PACING_POLL_S)
+                    self._blocked_s += time.monotonic() - wait_started
+                    self._refuse_if_ended(what)
+                    if time.monotonic() - waited_from >= WRITE_STALL_FATAL_S and (
+                        self._executor.in_flight_task_stalled(WRITE_STALL_FATAL_S)
+                    ):
+                        if image:
+                            self._lost += 1
+                            self._not_taken = True
+                        wedged = True
+                        break
+                if wedged:
+                    logger.error(
+                        f'[Protocol-Writer] Write backlog full and the writer stuck on '
+                        f'{self._executor.describe_running_task()}; {what} was not taken'
+                    )
+                    return WRITER_WEDGED
+                if not self._slow_warned and self._blocked_s >= SLOW_WRITE_BLOCKED_WARN_S:
+                    self._slow_warned = True
+                    logger.warning(
+                        f'[Protocol-Writer] Capture has spent {self._blocked_s:.0f}s this run '
+                        f'waiting for the save disk -- writes are not keeping up with '
+                        f'capture demand'
+                    )
+            self._outstanding.add(write)
+        task = IOTask(
+            action=self._counted(action, write),
+            kwargs=kwargs,
+            silent_on_failure=True,
+            slow_task_threshold_sec=slow_task_threshold_sec,
+        )
+        result = self._executor.put(task, return_future=return_future)
+        if result is None:
+            # The lane refused it -- shut down or disabled. It will never run.
+            self._settle(write, lost='not_taken')
+            raise RunWriteRefusedError('writer_shut_down', what)
+        return result
+
+    def close(self) -> None:
+        """End the run's writes; the batch completes once the last lands.
+
+        Called once, by the run's cleanup, on every path out of it, before
+        the run ends: from here the batch reads as draining, which is what
+        refuses a next run over this one's writes. A write handed over
+        after this is refused. Closing runs no action: those are handed
+        over by ``when_complete``, once the run has let go of the scope.
+        """
+        with self._cond:
+            if self._closed:
+                raise RuntimeError("a run's writes were closed twice")
+            self._closed = True
+            due = self._take_completion_locked()
+        if due is not None:
+            self._complete(*due)
+
+    def when_complete(self, on_complete: Callable[[str], None]) -> None:
+        """Run ``on_complete(outcome)`` once, when the batch completes.
+
+        Now, on the caller's thread, when the last write has already
+        landed; otherwise on the thread that lands it. Handed over by the
+        run's end, after the run has let go of the scope, so the actions
+        -- files_written among them -- never reach a caller while the run
+        still holds it.
+        """
+        with self._cond:
+            if self._on_complete is not None:
+                raise RuntimeError("a run's completion was handed over twice")
+            self._on_complete = on_complete
+            outcome = self._outcome
+        if outcome is not None:
+            self._run_completion(on_complete, outcome)
+
+    def abandon(self, cause: str) -> int:
+        """Give up on every outstanding write; returns how many.
+
+        Each is counted now and never again: one still stuck in flight that
+        returns later counts nothing, and one not yet started skips when its
+        turn comes. The batch completes ``incomplete`` once closed. A batch
+        already complete abandons nothing.
+        """
+        with self._cond:
+            if self._outcome is not None:
+                return 0
+            count = len(self._outstanding)
+            for write in self._outstanding:
+                write.settled = True
+            self._lost += sum(1 for write in self._outstanding if write.image)
+            self._outstanding.clear()
+            self._abandoned = True
+            self._cond.notify_all()
+            due = self._take_completion_locked()
+        logger.warning(
+            f"[Protocol-Writer] {cause}: {count} of the run's write(s) abandoned; "
+            'their images are not on disk'
+        )
+        if due is not None:
+            self._complete(*due)
+        return count
+
+    def wait_complete(self, timeout_s: float | None) -> bool:
+        """Block until the batch completes, up to ``timeout_s`` (None: no bound); True if it did."""
+        return self._completed.wait(timeout=timeout_s)
+
+    def wait_until_written(self, timeout_s: float) -> None:
+        """Block until every write of the run has landed.
+
+        For a build that reads the run's images back off disk.
+
+        Raises:
+            RunFilesNotWrittenError: ``write_batch_timeout`` when the bound
+                expired first; otherwise ``not_written_reason``.
+        """
+        if not self._completed.wait(timeout=timeout_s):
+            raise RunFilesNotWrittenError('write_batch_timeout', bound_s=timeout_s)
+        if self._outcome != 'written':
+            raise RunFilesNotWrittenError(self.not_written_reason)
+
+    def _refuse_if_ended(self, what: str) -> None:
+        if self._abandoned:
+            raise RunWriteRefusedError('writes_abandoned', what)
+        if self._closed:
+            raise RunWriteRefusedError('run_ended', what)
+
+    def _counted(self, action, write: _Write):
+        # functools.wraps keeps the action's name, which is what a stall
+        # report prints to say which write is stuck.
+        @functools.wraps(action)
+        def _run(*args, **kwargs):
+            if write.settled:
+                # Abandoned before its turn came.
+                return None
+            try:
+                result = action(*args, **kwargs)
+            except DiskSpaceCriticalError:
+                self._settle(write, lost='disk_full')
+                raise
+            except BaseException:
+                self._settle(write, lost='save_failed')
+                raise
+            self._settle(write)
+            return result
+
+        return _run
+
+    def _settle(self, write: _Write, *, lost: str | None = None) -> None:
+        """Take one write off the run's account.
+
+        ``lost`` is why its image is not on disk -- ``'not_taken'``,
+        ``'save_failed'`` or ``'disk_full'`` -- or None when it landed. A
+        write that saves no image is taken off the account and counted
+        neither way.
+        """
+        with self._cond:
+            already = write.settled
+            if not already:
+                write.settled = True
+                self._outstanding.discard(write)
+                if write.image:
+                    self._count_image_locked(lost)
+                self._cond.notify_all()
+            due = None if already else self._take_completion_locked()
+        # A lost write that was already given up on is not on disk, and the
+        # abandon has counted and logged it.
+        if already and lost is None:
+            logger.warning(
+                '[Protocol-Writer] A write finished after its run gave up on it; '
+                'it is not counted, and its file may be on disk'
+            )
+        if due is not None:
+            self._complete(*due)
+
+    def count_not_written(self, reason: str, what: str) -> None:
+        """Count one image the run captured that never became a write here.
+
+        A video step writes its file on its own lane and finishes it after
+        the step; when that file does not finish, the run's image is not on
+        disk all the same. Counted before the run closes its writes, since
+        cleanup waits for video steps to finish first; one that finishes
+        after the batch completed is logged, and changes nothing.
+        """
+        with self._cond:
+            if self._outcome is None:
+                self._count_image_locked(reason)
+                return
+        logger.warning(
+            f'[Protocol-Writer] {what} was not written ({reason}), but the run had '
+            'already reported its files; it is not counted'
+        )
+
+    def _count_image_locked(self, lost: str | None) -> None:
+        if lost is None:
+            self._written += 1
+            return
+        self._lost += 1
+        if lost == 'not_taken':
+            self._not_taken = True
+        elif lost not in self._lost_reasons:
+            self._lost_reasons.append(lost)
+
+    def _take_completion_locked(self):
+        if not self._closed or self._outstanding or self._outcome is not None:
+            return None
+        # An abandon is incomplete whatever it counted: after it, the run's
+        # later images are refused at hand-over and never reach the count.
+        self._outcome = 'incomplete' if (self._abandoned or self._lost) else 'written'
+        return self._on_complete, self._outcome
+
+    def _complete(self, on_complete, outcome: str) -> None:
+        # Complete BEFORE the actions: one of them is the run-state edge,
+        # and a listener re-reading the levels on it must already read the
+        # drain as over -- no later edge would correct it.
+        self._completed.set()
+        # None until the run's end hands its actions over; when_complete
+        # runs them then, having read the outcome under the same lock.
+        if on_complete is not None:
+            self._run_completion(on_complete, outcome)
+
+    def _run_completion(self, on_complete, outcome: str) -> None:
+        # Outside the lock: the actions schedule callbacks and read state
+        # that must not wait on a write landing.
+        try:
+            on_complete(outcome)
+        except Exception as ex:
+            # Runs on whichever thread landed the last write -- often the
+            # file lane's worker, which would otherwise report this as that
+            # write failing. No caller waits on it, so it is reported here.
+            from modules.notification_center import notifications
+
+            notifications.report_outcome(ex, solicited=False, category='Protocol')
+
 
 class CapturedFrame(NamedTuple):
-    """A captured frame coupled with the payload depth it was captured at.
+    """A captured frame coupled with the facts it was captured under.
 
     The save runs asynchronously on the file-IO thread; a bare array would
-    force the writer to re-derive depth at save time, when the camera may
-    be at a different pixel format or unreadable. Coupling the depth to
-    the frame at capture makes handing over a frame without its depth
-    unrepresentable.
+    force the writer to re-derive them at save time, when the camera may
+    be at a different pixel format or unreadable, and the next step's
+    turret move may already have changed the objective in the light path.
+    Coupling them to the frame at capture makes handing over a frame
+    without them unrepresentable. The same holds for everything else the
+    file records: the instrument's own account of the frame (``record``),
+    and where the stage was when it was taken (``position``) -- after an
+    autofocus sweep the focus it found, not the step's planned Z.
     """
 
     image: np.ndarray
     significant_bits: int
+    objective_id: str
+    record: FrameRecord
+    position: FrameFact
 
 
 class ProtocolImageWriter:
@@ -76,9 +553,12 @@ class ProtocolImageWriter:
         self,
         *,
         scope: Lumascope,
-        callbacks: ProtocolCallbacks,
+        events: RunEvents,
         aborted: threading.Event,
-        file_io_executor: SequentialIOExecutor,
+        # THIS run's write batch, created with the run. Every write the
+        # writer makes is the run's and is counted there, so what the run
+        # owes the disk is answered per run, never by the shared lane.
+        write_batch: RunWriteBatch,
         abort_fn,  # callable -- bound to protocol_thread.abort
         # THIS run's fatal-abort flag, allocated fresh per run by the runner.
         # Per-run, not runner-lifetime: queued write tasks keep draining after
@@ -87,6 +567,11 @@ class ProtocolImageWriter:
         # then would fatal-brand and force-darken the successor run; a
         # per-run object lets the late set land on a dead flag.
         fatal_abort_event: threading.Event,
+        # THIS run's ending record, allocated fresh per run alongside the flag
+        # above and per-run for the same reason: a fatal from the old run's
+        # draining writer records into a latch nothing reads any more, instead
+        # of naming a cause for the run that is now live.
+        ending: EndingLatch,
         execution_record: ProtocolExecutionRecord,
         # Functions borrowed from the parent executor
         leds_off_fn,
@@ -110,13 +595,30 @@ class ProtocolImageWriter:
         # headless run's filenames without their turret position. Required
         # so no writer can silently decide it.
         engineering_mode: bool,
+        # The run's activity claim, lent to the work inside the run: a
+        # video step records under it and cannot release it.
+        run_claim: BorrowedClaim,
+        # The plate the protocol is written for -- the plate the run moves
+        # against. Its files name their wells and plate from it, not from
+        # the plate the scope has selected, which a headless run never sets.
+        labware: WellPlate,
+        # The stage-to-plate transform of the frame the run moves in -- the
+        # protocol's plate and the offset the run started with -- that every
+        # frame the run saves states its position through. None on a scope
+        # with no X/Y stage: its frames state no plate position.
+        to_plate: Callable[[float, float], tuple[float, float]] | None,
+        # How many captures the run is asked for: scans times steps for a
+        # run that saves images, 0 for one that saves none. The runner
+        # knows the scan count; the writer counts what became of each.
+        captures_asked: int,
     ):
         self._scope = scope
-        self._callbacks = callbacks
+        self._events = events
         self._aborted = aborted
-        self._file_io_executor = file_io_executor
+        self._write_batch = write_batch
         self._abort_fn = abort_fn
         self._fatal_abort_event = fatal_abort_event
+        self._ending = ending
         self._execution_record = execution_record
         self._leds_off = leds_off_fn
         self._is_run_in_progress = is_run_in_progress_fn
@@ -124,22 +626,22 @@ class ProtocolImageWriter:
         self._timestamp_overlay = timestamp_overlay
         self._video_max_fps = video_max_fps
         self._engineering_mode = engineering_mode
+        self._run_claim = run_claim
+        self._labware = labware
+        self._to_plate = to_plate
         self._video_steps: list[ProtocolVideoStep] = []
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
-        # Still-image writes this run has handed to the file queue but not
-        # yet seen land. A post-run step that reads the run's frames back
-        # off disk needs a per-RUN answer; the executor's queue predicate
-        # answers for whatever is queued, so waiting on it would hold this
-        # run's post-step open across the next run's writes. A writer is
-        # built per run, so the count is naturally run-scoped -- the same
-        # reason the video steps carry their own counters.
-        self._still_pending = 0
-        self._still_pending_lock = threading.Lock()
-        self._still_drained = threading.Event()
-        self._still_drained.set()
+        # One entry per (scan, step) slot: None when it produced an image,
+        # its FailedCapture when it did not. A slot, not a count, so a scan
+        # run again after a transient failure overwrites its earlier steps
+        # instead of counting them twice. Written on the protocol thread,
+        # read by cleanup on whichever thread ended the run.
+        self._captures_asked = captures_asked
+        self._capture_slots: dict[tuple[int, int], FailedCapture | None] = {}
+        self._capture_slots_lock = threading.Lock()
 
-    def _abort_run_fatal(self, domain: str, title: str, message: str) -> None:
+    def _abort_run_fatal(self, reason: str, domain: str, title: str, message: str) -> None:
         """The one fatal-abort path: every run-killing fault routes here.
 
         Ordering is load-bearing:
@@ -149,34 +651,32 @@ class ProtocolImageWriter:
         2. fatal flag -- read by cleanup (terminal-dark assertion) and by
            the step-boundary gate; set before the LEDs go dark so a step
            racing this call cannot observe dark-but-not-fatal.
-        3. force_off -- darkens the sample NOW, on this thread, via the
+        3. the ending record -- a lock and a frozen construction, no I/O.
+           Recorded before anything that can block or raise, so the cause
+           survives a force_off that wedges on a dead driver; first-wins,
+           so the fault that started the cascade is the one reported.
+        4. force_off -- darkens the sample NOW, on this thread, via the
            direct driver path (no executor hop), because the fault that
            brought us here may be wedging the teardown that normally turns
            the LEDs off; a live sample must not stay illuminated while a
            dead disk times out. Worst case ~5 s behind an in-flight
            confirmed LED write on the driver lock.
-        4. the fatal popup -- last, after the hardware is safe.
+        5. the fatal popup -- last, after the hardware is safe.
         Safe to re-enter: every step is idempotent, so a second fault
         surfacing while this runs (e.g. the failure-record write itself
         wedging) changes nothing.
         """
         self._abort_fn()
         self._fatal_abort_event.set()
+        self._ending.set_if_unset(RunEnding('failed', reason, title, message))
         self._scope.illumination.force_off()
         from modules.notification_center import notifications
 
-        notifications.critical(domain, title, message)
-
-    def _abort_run_on_writer_death(self) -> None:
-        """Arm the run abort after the engine surfaced writer-lane death.
-
-        The engine's critical notification already reached the user
-        through the protocol mute; this is _abort_run_fatal's ordering
-        minus a second popup: abort, fatal flag, force-dark.
-        """
-        self._abort_fn()
-        self._fatal_abort_event.set()
-        self._scope.illumination.force_off()
+        notifications.report_outcome(
+            RunFailedError(reason=reason, title=title, message=message),
+            solicited=False,
+            category=domain,
+        )
 
     @property
     def video_busy(self) -> bool:
@@ -193,40 +693,6 @@ class ProtocolImageWriter:
         discard); frames already on disk stay."""
         for step in self._video_steps:
             step.discard_pending()
-
-    @property
-    def still_pending_writes(self) -> int:
-        """Still-image writes this run owes the disk."""
-        with self._still_pending_lock:
-            return self._still_pending
-
-    def _owe_still_write(self) -> None:
-        with self._still_pending_lock:
-            self._still_pending += 1
-            self._still_drained.clear()
-
-    def _settle_still_write(self) -> None:
-        """Retire one owed write, however it ended.
-
-        Called from the write task's own finally, so a failed or raising
-        write settles exactly like a successful one: a debt that outlives
-        its write would hold a post-run step open for the whole of its
-        bound waiting on a frame that is never coming.
-        """
-        with self._still_pending_lock:
-            self._still_pending -= 1
-            if self._still_pending <= 0:
-                self._still_pending = 0
-                self._still_drained.set()
-
-    def wait_for_still_writes(self, timeout_s: float) -> bool:
-        """Block until this run's still-image writes land. Bounded.
-
-        Returns False on expiry rather than raising or waiting forever: a
-        wedged writer is exactly the case a post-run step must survive, and
-        the caller turns the False into its own typed outcome.
-        """
-        return self._still_drained.wait(timeout=timeout_s)
 
     def wait_for_video_drains(self, timeout_s: float = 600.0) -> bool:
         """Block until every video step's drain and finish complete.
@@ -280,6 +746,16 @@ class ProtocolImageWriter:
             )
         except Exception as ex:
             logger.error(f'[Protocol-Writer] Failed to record video step row: {ex}')
+
+    def _record_unfinished_video(self, *, reason, name, **row) -> None:
+        """A video step whose file did not finish: its row, and one image not written.
+
+        The step's file is written on its own lane, outside the run's batch,
+        so the batch is told here; otherwise a run whose video never
+        finished would report its files written.
+        """
+        self._write_batch.count_not_written('video_unfinished', f'The video {name}')
+        self._record_dropped_capture(reason=reason, name=name, **row)
 
     def _record_dropped_capture(
         self,
@@ -351,8 +827,50 @@ class ProtocolImageWriter:
         )
         self._leds_off()
 
+    @property
+    def capture_tally(self) -> CaptureTally:
+        """What this run captured of what it was asked for, so far."""
+        with self._capture_slots_lock:
+            slots = list(self._capture_slots.values())
+        return CaptureTally(
+            asked=self._captures_asked,
+            captured=sum(1 for slot in slots if slot is None),
+            failed=tuple(slot for slot in slots if slot is not None),
+        )
+
+    def _note_captured(self, *, curr_step, scan_count) -> None:
+        with self._capture_slots_lock:
+            self._capture_slots[(scan_count, curr_step)] = None
+
     def _note_capture_strike(self, *, step, curr_step, scan_count, cause: str) -> None:
-        """The strike counter + the 3-strike fatal abort, row-free."""
+        """The strike counter + the 3-strike fatal abort, row-free.
+
+        A failure whose camera the driver has declared removed ends the run
+        at once instead of counting: no later capture can succeed, and a
+        short run would otherwise step through to a normal ending before a
+        third strike.
+        """
+        with self._capture_slots_lock:
+            self._capture_slots[(scan_count, curr_step)] = FailedCapture(
+                scan=scan_count,
+                step_index=curr_step,
+                step_name=str(step.get('Name', '?')),
+                cause=cause,
+            )
+        if self._scope.imaging.camera_removed:
+            logger.error(
+                f'[PROTOCOL] Capture failed for step {curr_step} ({step.get("Name", "?")}), '
+                f'scan {scan_count} -- the camera was removed'
+            )
+            self._abort_run_fatal(
+                'hardware_disconnected',
+                'Protocol',
+                'Protocol Aborted',
+                'The camera was disconnected during the protocol run. '
+                'Check the USB cable and power connections, save the '
+                'protocol, then restart LumaViewPro and the protocol.',
+            )
+            return
         self._consecutive_capture_failures += 1
         logger.error(
             f'[PROTOCOL] Capture failed for step {curr_step} ({step.get("Name", "?")}), '
@@ -368,10 +886,9 @@ class ProtocolImageWriter:
         # it previously waited for a slot -- accepted.
         if aborting:
             step_color = step.get('Color', '')
-            # led_connected term: color2ch also returns None
-            # when no LED board is present at all -- a
-            # board-less run's failures are not a missing
-            # channel and must keep the camera wording.
+            # led_connected term: with the LED controller gone
+            # the failures are the disconnect's, not a missing
+            # channel, and keep the camera wording.
             undrivable = (
                 step_color in common_utils.get_layers_with_led()
                 and self._scope.led_connected
@@ -383,6 +900,7 @@ class ProtocolImageWriter:
                 # camera here misnames the cause the user can
                 # actually act on.
                 self._abort_run_fatal(
+                    'led_channel_unavailable',
                     'Protocol',
                     'Channel not available',
                     f"This microscope has no '{step_color}' LED "
@@ -394,6 +912,7 @@ class ProtocolImageWriter:
                 )
             else:
                 self._abort_run_fatal(
+                    'camera_failure',
                     'Protocol',
                     'Camera Failure',
                     f'Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.',
@@ -410,26 +929,25 @@ class ProtocolImageWriter:
         name,
         slow_task_threshold_sec: float | None = None,
     ) -> bool:
-        """One owner for enqueueing a write_capture task onto the bounded
-        file queue.
+        """One owner for handing a write_capture task to the run's batch.
 
-        Blocks (back-pressure) instead of dropping when the queue is full:
-        the run paces to disk drain, so a grabbed frame is never silently
-        lost. Abort stays responsive via the writer's aborted event, polled
-        between slot attempts.
+        Waits for room instead of dropping when the run's backlog is full:
+        the run paces to the disk, so a grabbed frame is never silently
+        lost. An abort ends the wait by handing the frame over anyway -- a
+        frame the run captured is written however the run ends.
 
         The step-identity kwargs (step, indices, timestamp, name) are
         normalized onto every write task so the execution-record row and any
         stall report can always name the step and its file -- some legs
         historically omitted them and their failures logged as 'unknown'.
 
-        Returns True when the task was handed to the executor (or the
-        executor declined it because no protocol is in session -- the
-        run-teardown race the non-blocking path also tolerated). False only
-        when the run is over: the wait was cancelled by an abort, or the
+        Returns True when the batch took the write. False only when the
         writer was declared wedged -- in which case this method has already
         fired the fatal user notification, recorded the lost capture, and
-        aborted the run.
+        aborted the run; the batch counts the frame as abandoned.
+
+        Raises:
+            RunWriteRefusedError: the run's writes have already ended.
         """
         kwargs.setdefault('step', step)
         kwargs.setdefault('step_index', step_index)
@@ -437,106 +955,100 @@ class ProtocolImageWriter:
         kwargs.setdefault('capture_time', capture_time)
         kwargs.setdefault('name', name)
 
-        # The debt is settled by the task itself rather than inside
-        # write_capture, so it retires on every ending -- including a raise
-        # that never reaches write_capture's own epilogue. functools.wraps
-        # keeps the action's name, which is what a stall report prints to
-        # say which write is stuck.
-        @functools.wraps(self.write_capture)
-        def _write_and_settle(**task_kwargs):
-            try:
-                return self.write_capture(**task_kwargs)
-            finally:
-                self._settle_still_write()
-
-        # Owed before the hand-off, never after: a task the worker picks up
-        # immediately would otherwise run and settle a debt not yet counted,
-        # driving the count negative and marking the run drained early.
-        self._owe_still_write()
-        result = self._file_io_executor.protocol_put_wait(
-            IOTask(
-                action=_write_and_settle,
-                kwargs=kwargs,
-                silent_on_failure=True,
-                slow_task_threshold_sec=slow_task_threshold_sec,
-            ),
-            should_abort=self._aborted.is_set,
-            stall_timeout_s=WRITE_STALL_FATAL_S,
+        result = self._write_batch.submit(
+            self.write_capture,
+            kwargs,
+            what=f'The image {name}',
+            # A row for a capture that produced nothing, or for a run that
+            # saves no images, is a write but not an image.
+            image=kwargs.get('enable_image_saving', True)
+            and kwargs.get('captured_image') is not None,
+            pace_until=self._aborted.is_set,
+            slow_task_threshold_sec=slow_task_threshold_sec,
         )
-        if result is PROTOCOL_QUEUE_WEDGED or result is None:
-            # Every non-acceptance lands here: a wedged queue, a wait
-            # cancelled by abort, and a refused submit (disabled executor or
-            # no run in session), which returns a bare None. The executor
-            # never took the task, so nothing will run its finally -- retire
-            # the debt here or the run ends owing a write that cannot arrive
-            # and the post-run step waits out its whole bound.
-            self._settle_still_write()
-        if result is PROTOCOL_QUEUE_WEDGED:
-            stuck = self._file_io_executor.describe_running_task()
-            self._abort_run_fatal(
-                'Protocol',
-                'File Writer Stalled',
-                f'Saving stopped making progress ({stuck}), so the protocol '
-                f'was stopped to avoid losing more captures. Check that the '
-                f'save drive is connected and responsive, then run the '
-                f'protocol again. A partial file from the stuck write may '
-                f'remain on disk and stay locked until the writer releases '
-                f'it.',
-            )
-            # The record shares the dead save target; latch it so this row
-            # attempt (and any later one) is a loud no-op instead of a
-            # synchronous write blocking THIS thread against the dead disk
-            # until the OS gives up -- which is what used to delay the abort
-            # (and the LED-off behind it) by the whole OS timeout. The
-            # writer_stalled row is lost; its only trace is this run's
-            # cleanup error log, accepted.
-            if self._execution_record is not None:
-                self._execution_record.mark_target_unresponsive()
-            self._record_dropped_capture(
-                step=step,
-                step_index=step_index,
-                scan_count=scan_count,
-                capture_time=capture_time,
-                name=name,
-                reason='writer_stalled',
-            )
-            return False
-        # None with the abort flag set is a cancelled wait; a bare None is
-        # the executor declining outside a session (tolerated, as before).
-        return not (result is None and self._aborted.is_set())
+        if result is not WRITER_WEDGED:
+            return True
+        stuck = self._write_batch.describe_stuck_write()
+        self._abort_run_fatal(
+            'file_writer_stalled',
+            'Protocol',
+            'File Writer Stalled',
+            f'Saving stopped making progress ({stuck}), so the protocol '
+            f'was stopped to avoid losing more captures. Check that the '
+            f'save drive is connected and responsive, then run the '
+            f'protocol again. A partial file from the stuck write may '
+            f'remain on disk and stay locked until the writer releases '
+            f'it.',
+        )
+        # The record shares the dead save target; latch it so this row
+        # attempt (and any later one) is a loud no-op instead of a
+        # synchronous write blocking THIS thread against the dead disk
+        # until the OS gives up -- which is what used to delay the abort
+        # (and the LED-off behind it) by the whole OS timeout. The
+        # writer_stalled row is lost; its only trace is this run's
+        # cleanup error log, accepted.
+        if self._execution_record is not None:
+            self._execution_record.mark_target_unresponsive()
+        self._record_dropped_capture(
+            step=step,
+            step_index=step_index,
+            scan_count=scan_count,
+            capture_time=capture_time,
+            name=name,
+            reason='writer_stalled',
+        )
+        return False
 
-    def _capture_evidence(self, image, significant_bits: int) -> str:
+    def _capture_evidence(self, image, full_scale: int) -> str:
         """One-line provenance for a captured frame: brightness statistics
-        plus the chunk-verified exposure / gain and capture-hold timing.
+        plus the frame's exposure / gain and capture-hold timing.
 
         Saved-frame defects (a frame exposed under the previous channel's
         settings saturates or mis-exposes) previously left no log trace at
         all; this line makes every protocol capture auditable from a
-        support bundle. Brightness is computed on a strided sample so the
-        cost stays negligible at full frame rate. ``significant_bits`` is
-        the frame's true bit depth, required because the container dtype
-        can be wider than the data (12-bit frames ride in uint16); a
-        container-derived full scale reads a saturated frame as sat=0%.
+        support bundle. Exposure and gain are the frame record's, the values
+        the saved file carries: the frame's own chunk values where the camera
+        stamps them, otherwise the applied settings read beside the grab,
+        marked ``(applied)`` so a reader never takes them for a measurement
+        of the frame. Brightness is computed on a strided sample so the
+        cost stays negligible at full frame rate. ``full_scale`` is the value
+        the frame saturates at (``ImagingAPI.capture_frame_full_scale``),
+        required because neither the container dtype nor the depth tag is
+        it: a 12-bit frame rides in uint16, and three blown 8-bit frames
+        summed are 765 under a 10-bit tag -- either read as full scale, a
+        saturated frame logs sat=0%.
         """
         try:
             parts = []
             if image is not None and getattr(image, 'size', 0) > 0:
                 sample = image[::8, ::8]
-                full_scale = (1 << significant_bits) - 1
                 sat_fraction = float(np.count_nonzero(sample >= 0.99 * full_scale)) / sample.size
                 parts.append(f'mean={float(sample.mean()):.1f}')
                 parts.append(f'sat={sat_fraction * 100.0:.1f}%')
             info = self._scope.imaging.last_capture_info or {}
-            exp_us = info.get('chunk_exposure_us')
-            gain_db = info.get('chunk_gain_db')
-            parts.append(f'exp_ms={exp_us / 1000.0:.2f}' if exp_us is not None else 'exp_ms=na')
-            parts.append(f'gain_db={gain_db:.2f}' if gain_db is not None else 'gain_db=na')
+            record = info.get('frame_record')
+            exp_ms = record.exposure_ms if record is not None else None
+            gain_db = record.gain_db if record is not None else None
+            exp_mark = '' if info.get('chunk_exposure_us') is not None else '(applied)'
+            gain_mark = '' if info.get('chunk_gain_db') is not None else '(applied)'
+            parts.append(f'exp_ms={exp_ms:.2f}{exp_mark}' if exp_ms is not None else 'exp_ms=na')
+            parts.append(
+                f'gain_db={gain_db:.2f}{gain_mark}' if gain_db is not None else 'gain_db=na'
+            )
             if info.get('hold_ms') is not None:
                 parts.append(f'hold_ms={info["hold_ms"]:.0f}')
             if info.get('drained') is not None:
                 parts.append(f'drained={info["drained"]}')
             if info.get('auto_gain') is not None:
                 parts.append(f'auto_gain={info["auto_gain"]}')
+            if info.get('dark_saved'):
+                # The frame was delivered and saved with no pixel above the
+                # dark floor while illumination was commanded on. Stated on
+                # the row because the file itself looks like any other black
+                # image: without this, a run whose light path failed is
+                # indistinguishable in a support bundle from one imaging a
+                # genuinely dark sample.
+                parts.append('dark_saved=True')
             return ' '.join(parts)
         except Exception as ex:
             # Evidence is best-effort; never let it break the capture path.
@@ -650,11 +1162,19 @@ class ProtocolImageWriter:
                 # SDK/firmware combo -- revert this change and add a
                 # `requires_buffer_realloc=True` audit. Per Basler convention
                 # both should be live-changeable.
-                # The non-dispatching bodies: this runs on the protocol
-                # thread while the run has the camera executor disabled, so
-                # the public dispatchers would refuse every per-step write.
-                self._scope.imaging._set_gain_db_impl(step['Gain'])
-                self._scope.imaging._set_exposure_ms_impl(step['Exposure'])
+                #
+                # A setting the camera rejects ends its flight here: it is
+                # reported once and the step captures at the value the camera
+                # holds -- one refused gain is not a reason to end a run.
+                imaging = self._scope.imaging
+                for setter, value in (
+                    (imaging.set_gain_db, step['Gain']),
+                    (imaging.set_exposure_ms, step['Exposure']),
+                ):
+                    try:
+                        setter(value)
+                    except CameraSettingRejected as rejected:
+                        notifications.report_outcome(rejected, solicited=False, category='Camera')
             else:
                 # Auto_Gain step: scan_iterate already lit the LED and armed AG
                 # against the lit scene; the apply is skipped here to avoid
@@ -666,39 +1186,35 @@ class ProtocolImageWriter:
                     f'settle drained in capture_and_wait'
                 )
 
-            # Objective short name for filename
-            objective_short_name = None
-            if self._scope.capabilities.has_turret:
-                obj_info = self._scope.runtime_state.get_objective_info(
-                    objective_id=step['Objective']
-                )
-                if obj_info is not None:
-                    objective_short_name = obj_info.get('short_name')
-                else:
-                    logger.warning(
-                        f'[PROTOCOL] Turret available but no objective info for ID '
-                        f"'{step['Objective']}' -- using None for filename"
-                    )
-
-            # Build base name from protocol's custom root + step name
+            # The objective in the light path, read once: the file name and
+            # the frame's scale both come from this one answer, so they cannot
+            # disagree -- and it is read now, before the save runs later on the
+            # file writer, after the next step's turret move may have begun.
+            # Unknown leaves the objective out of the name; a still then
+            # refuses below (no true scale), a video records with no scale.
             try:
-                capture_root = protocol.capture_root()
-            except Exception:
-                capture_root = ''
+                frame_objective_id, frame_objective = (
+                    self._scope.runtime_state.resolve_current_objective()
+                )
+                objective_unknown = None
+            except ObjectiveUnknownError as e:
+                frame_objective_id, frame_objective = None, None
+                objective_unknown = e
+            objective_short_name = None
+            if self._scope.capabilities.has_turret and frame_objective is not None:
+                objective_short_name = frame_objective['short_name']
 
-            # In engineering mode, include turret position in filename.
+            # Build base name from the protocol's root prefix + step name. The
+            # prefix is the one post-processing reads, so its outputs find
+            # these files.
+            capture_prefix = protocol.capture_prefix()
+
+            # In engineering mode, include the turret slot in the filename --
+            # the slot in the light path, not the step counter, which reads a
+            # whole slot halfway between two. An unknown slot adds nothing.
             turret_pos = None
             if self._engineering_mode and self._scope.capabilities.has_turret:
-                try:
-                    turret_pos = int(self._scope.motion.get_current_position('T'))
-                except Exception as e:
-                    logger.debug(
-                        '[%s] get_current_position(T) failed; turret '
-                        'position omitted from filename: %s: %s',
-                        self.LOGGER_NAME,
-                        type(e).__name__,
-                        e,
-                    )
+                turret_pos = self._scope.motion.get_turret_slot()
 
             # The objective is stamped onto the saved filename here (the one
             # writer), separate from the step's identity Name. capture_root is
@@ -713,10 +1229,7 @@ class ProtocolImageWriter:
                     post=(common_utils.POST_TOKEN_VIDEO,) if is_video else (),
                 )
             )
-            if capture_root not in (None, ''):
-                name = f'{capture_root}_{step_name}'
-            else:
-                name = step_name
+            name = f'{capture_prefix}_{step_name}' if capture_prefix else step_name
             # Ensure the filename base has no invalid path characters
             try:
                 name = Protocol.sanitize_step_name(input=name)
@@ -749,11 +1262,10 @@ class ProtocolImageWriter:
                         timestamp_overlay=self._timestamp_overlay,
                         global_max_fps=self._video_max_fps,
                         autogain_settings=autogain_settings,
-                        callbacks=self._callbacks.to_dict(),
+                        events=self._events,
                         aborted_event=self._aborted,
                         is_run_in_progress=self._is_run_in_progress,
                         abort_run_fatal=self._abort_run_fatal,
-                        abort_run_on_writer_death=self._abort_run_on_writer_death,
                         record_step_row=functools.partial(
                             self._record_video_step_row,
                             step=step,
@@ -762,12 +1274,14 @@ class ProtocolImageWriter:
                             name=name,
                         ),
                         record_dropped_capture=functools.partial(
-                            self._record_dropped_capture,
+                            self._record_unfinished_video,
                             step=step,
                             step_index=curr_step,
                             scan_count=scan_count,
                             name=name,
                         ),
+                        run_claim=self._run_claim,
+                        to_plate=self._to_plate,
                     )
                     self._video_steps.append(recorder)
                     outcome = recorder.run_blocking()
@@ -804,6 +1318,7 @@ class ProtocolImageWriter:
                         return False
 
                     self._consecutive_capture_failures = 0
+                    self._note_captured(curr_step=curr_step, scan_count=scan_count)
                     # The drain and the execution-record row finish on the
                     # step's own thread; the run moves on. Video always
                     # extinguishes -- leds_off called above.
@@ -811,6 +1326,20 @@ class ProtocolImageWriter:
                     return False
 
                 else:
+                    # Unknown means no true scale for the frame, so the step
+                    # fails here, before any capture.
+                    if objective_unknown is not None:
+                        self._note_capture_failure(
+                            step=step,
+                            curr_step=curr_step,
+                            scan_count=scan_count,
+                            name=name,
+                            enable_image_saving=enable_image_saving,
+                            separate_folder_per_channel=separate_folder_per_channel,
+                            cause=str(objective_unknown),
+                        )
+                        _proto_outcome = 'capture_failed'
+                        return False
                     # Frame validity drains stale frames, then grabs a valid
                     # one. The dark-floor expectation is derived inside the
                     # capture from commanded LED state -- the writer commands
@@ -818,7 +1347,7 @@ class ProtocolImageWriter:
                     # that delivers a black frame fails loudly while an
                     # illumination-0 or luminescence step stays dark by
                     # design.
-                    captured_image = self._scope.imaging._capture_and_wait_impl(
+                    captured_image = self._scope.imaging.capture_and_wait(
                         force_to_8bit=capture_depth == 8,
                         all_ones_check=True,
                         timeout_s=1.0,
@@ -843,37 +1372,53 @@ class ProtocolImageWriter:
                         _proto_outcome = 'capture_failed'
                         return False
 
-                    self._consecutive_capture_failures = 0  # Reset on success
+                    # A frame arrived, so this is not a failure -- but a frame
+                    # the API marked dark is not proof the light path works
+                    # either, so it must not clear a run of real strikes. It
+                    # counts as neither: the streak is left exactly as it was
+                    # and the darkness is recorded on the row below, so a run
+                    # whose illumination is genuinely broken cannot end with a
+                    # clean manifest built from black frames.
+                    # Where the stage was, read beside the grab with the
+                    # reader a manual still and every recorded frame use:
+                    # after an autofocus sweep that is the focus it found,
+                    # not the step's planned Z, and an axis the scope lacks
+                    # or has lost its reference on states no position.
+                    frame_position = frame_fact(
+                        self._scope, channel_tiebreak=step['Color'], to_plate=self._to_plate
+                    )
+                    capture_info = self._scope.imaging.last_capture_info or {}
+                    if not capture_info.get('dark_saved'):
+                        self._consecutive_capture_failures = 0
+                    self._note_captured(curr_step=curr_step, scan_count=scan_count)
+                    # The instrument's account of this frame, taken with it on
+                    # the camera lane; read here, on the thread that captured,
+                    # before anything can capture again.
+                    frame_record = capture_info.get('frame_record')
+                    if frame_record is None:
+                        raise RuntimeError(
+                            'the capture returned a frame without its record; the file '
+                            'would record the scope at write time, not the frame'
+                        )
 
                     # Depth travels with the frame so the evidence line's
-                    # saturation threshold, the hold-display downconvert, AND
-                    # the eventual file save all scale against the real range
-                    # (summed -> 16-bit). Resolved here at capture time -- the
-                    # async save must not re-derive it later, when the camera
-                    # may be at a different format or unreadable.
-                    frame_significant_bits = self._scope.imaging.capture_frame_depth(
-                        captured_image, sum_count
-                    )
+                    # saturation threshold AND the eventual file save scale
+                    # against the real range (a sum: the bits it can reach,
+                    # saturated at what it can hold). Resolved here at capture
+                    # time -- the async save must not re-derive it later, when
+                    # the camera may be at a different format or unreadable.
+                    frame_significant_bits = self._scope.imaging.capture_frame_depth(captured_image)
+                    full_scale = self._scope.imaging.capture_frame_full_scale(captured_image)
                     logger.info(
                         f'Protocol Image Captured: {name} '
-                        f'{self._capture_evidence(captured_image, frame_significant_bits)}'
+                        f'{self._capture_evidence(captured_image, full_scale)}'
                     )
 
-                    # Hold the captured image on screen for at least 500 ms so
-                    # the user can see the saved frame before the live preview
-                    # overwrites it. NOT a delay -- the next protocol save bumps
-                    # the hold deadline forward, so display tracks the
-                    # most-recent saved frame in real time. Best-effort: the
-                    # GUI hands the hook in, and one whose display is not built
-                    # yet (early init / standalone tools) may raise here.
-                    try:
-                        if self._callbacks.hold_protocol_saved_image:
-                            self._callbacks.hold_protocol_saved_image(
-                                captured_image, frame_significant_bits
-                            )
-                    except Exception as _e:
-                        logger.debug(f'[PROTOCOL] hold_protocol_saved_image failed: {_e}')
-
+                    # Read-only from here: the write job and frame_captured's
+                    # handler hold this one array, and no view of it can be
+                    # made writeable again, so no handler can change the
+                    # file's pixels. Nothing downstream writes it in place.
+                    captured_image.flags.writeable = False
                     _success_capture_time = datetime.datetime.now()
                     if not self._submit_write(
                         kwargs={
@@ -882,6 +1427,9 @@ class ProtocolImageWriter:
                             'captured_image': CapturedFrame(
                                 image=captured_image,
                                 significant_bits=frame_significant_bits,
+                                objective_id=frame_objective_id,
+                                record=frame_record,
+                                position=frame_position,
                             ),
                             'enable_image_saving': enable_image_saving,
                             'separate_folder_per_channel': separate_folder_per_channel,
@@ -895,6 +1443,17 @@ class ProtocolImageWriter:
                         _proto_outcome = 'write_aborted'
                         return False
                     _proto_outcome = 'success'
+                    # Once the write is the batch's, which under write
+                    # backpressure is once the batch had room; a frame whose
+                    # submit was refused is not announced. On this thread,
+                    # which waits for the handler.
+                    deliver_here(
+                        self._events.frame_captured,
+                        'frame_captured',
+                        captured_image,
+                        frame_record.frames_summed,
+                        frame_record.frame_significant_bits,
+                    )
 
             else:
                 _not_saving_capture_time = datetime.datetime.now()
@@ -989,19 +1548,23 @@ class ProtocolImageWriter:
                     common_utils.estimate_step_write_mb(step, global_max_fps=self._video_max_fps),
                 )
                 ok, free_mb = common_utils.check_disk_space_ok(save_folder, required_mb)
-                if not ok:
-                    # Runs on the file-IO thread: the funnel's abort-first
-                    # ordering matters here -- the protocol thread may be
-                    # mid-capture, and abort must close its step-lighting
-                    # gates before force_off darkens the sample.
-                    self._abort_run_fatal(
-                        'FileIO',
-                        'Disk Space Critical',
-                        f'Only {free_mb:.0f} MB free. Aborting protocol to prevent data loss.',
-                    )
-                    return
             except Exception as e:
                 logger.warning(f'[Protocol-Writer] Disk space check failed (proceeding): {e}')
+                ok = True
+            if not ok:
+                # Runs on the file-IO thread: the funnel's abort-first
+                # ordering matters here -- the protocol thread may be
+                # mid-capture, and abort must close its step-lighting
+                # gates before force_off darkens the sample.
+                self._abort_run_fatal(
+                    'disk_space_critical',
+                    'FileIO',
+                    'Disk Space Critical',
+                    f'Only {free_mb:.0f} MB free. Aborting protocol to prevent data loss.',
+                )
+                # Raised, not returned: a return reads as a write that
+                # landed, and this image is not on disk.
+                raise DiskSpaceCriticalError(free_mb)
 
         if enable_image_saving:
             if captured_image is None:
@@ -1021,8 +1584,8 @@ class ProtocolImageWriter:
                 return
 
             # The frame arrives coupled with the payload depth it was
-            # captured at (uint8 -> 8, summed -> 16, else the per-frame
-            # delivery stamp) -- recorded at capture time on the executor
+            # captured at (uint8 -> 8, a sum -> the bits it can reach, else
+            # the per-frame delivery stamp) -- recorded at capture time on the executor
             # thread, because by the time this save runs the camera may
             # be at a different format or unreadable.
             # A raise from save_image must not leave the record without
@@ -1043,11 +1606,24 @@ class ProtocolImageWriter:
                     jpeg_quality=self._config.jpg_quality,
                     channel=step['Color'],
                     false_color_on=bool(step['False_Color']),
-                    x=step['X'],
-                    y=step['Y'],
-                    z=step['Z'],
+                    # The frame's position fact holds plate mm for X and Y
+                    # and stage um for Z -- the frames the saved file
+                    # declares, so each goes into the parameter named for it
+                    # and reaches the file unconverted.
+                    plate_x_mm=captured_image.position.plate_x_mm,
+                    plate_y_mm=captured_image.position.plate_y_mm,
+                    stage_z_um=captured_image.position.z_um,
                     save_encoding=self._config.save_encoding,
                     significant_bits=captured_image.significant_bits,
+                    objective_id=captured_image.objective_id,
+                    frame_record=captured_image.record,
+                    labware=self._labware,
+                    # The well at the position the file records, on the
+                    # plate the run moves against: not the step's Well
+                    # column, which is empty on an inserted step and stale
+                    # on a moved one, nor its planned X/Y, which a scope
+                    # with no XY stage never reaches.
+                    well_label=captured_image.position.well_label(self._labware),
                 )
             except Exception:
                 self._record_dropped_capture(

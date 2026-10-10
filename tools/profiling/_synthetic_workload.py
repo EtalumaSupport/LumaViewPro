@@ -11,9 +11,15 @@ functions (default 70 / 30) plus a sleeping thread that must NOT be counted as
 CPU. ``tools.profiling.ground_truth`` attaches the real profiler to it and
 asserts the recovered split matches within the sampling-error band.
 
+Its GIL-free mode is the second truth: the only busy work is a C call that
+releases the GIL, on a worker thread, while the main thread sleeps. LumaViewPro
+spends its CPU that way (numpy, OpenCV), and a sampler that counts only the GIL
+holder would lose all of it.
+
 Run it standalone (it prints its PID and burns for a duration):
 
     python -m tools.profiling._synthetic_workload --split 0.7 --duration 60
+    python -m tools.profiling._synthetic_workload --gil-free --duration 60
 
 The two hot functions share an IDENTICAL inner loop but are deliberately NOT
 factored into one helper: py-spy attributes self-time to the LEAF frame, so the
@@ -23,6 +29,7 @@ split is only observable if each fraction executes under its own function name.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import threading
 import time
@@ -37,6 +44,13 @@ ITERS_PER_CYCLE = 200_000
 # not by a copy-pasted string literal.
 HOT_A = '_hot_a'
 HOT_B = '_hot_b'
+HOT_GIL_FREE = '_hot_gil_free'
+IDLE = '_idle_sleeper'
+
+# hashlib releases the GIL for a buffer of 2048 bytes or more; at 16 MiB each
+# call is milliseconds of C with the GIL free (two threads hashing measured 2.00
+# cores, 2026-10-09).
+_GIL_FREE_BUFFER = os.urandom(16 * 1024 * 1024)
 
 
 def iter_counts(split: float, total: int = ITERS_PER_CYCLE) -> tuple[int, int]:
@@ -76,9 +90,9 @@ def _hot_b(iterations: int) -> int:
 
 
 def _idle_sleeper(stop: threading.Event) -> None:
-    # Sleeping releases the GIL and burns no CPU; py-spy excludes idle threads by
-    # default, so this must contribute ~0 samples. It exists so the ground-truth
-    # check can confirm idle time is not miscounted as CPU.
+    # Sleeping releases the GIL and burns no CPU, so a sampler that tells idle
+    # from busy gives this ~0 samples. It exists so the ground-truth check can
+    # confirm idle time is not miscounted as CPU.
     while not stop.is_set():
         time.sleep(0.05)
 
@@ -97,14 +111,36 @@ def run_workload(split: float, duration_s: float) -> None:
     sleeper.join(timeout=1)
 
 
+def _hot_gil_free(stop: threading.Event) -> None:
+    # Each digest is C work with the GIL released; this frame is the Python leaf.
+    while not stop.is_set():
+        hashlib.sha256(_GIL_FREE_BUFFER).digest()
+
+
+def run_gil_free(duration_s: float) -> None:
+    """Burn one core in GIL-free C on a worker while the main thread sleeps."""
+    stop = threading.Event()
+    worker = threading.Thread(target=_hot_gil_free, args=(stop,), daemon=True)
+    worker.start()
+    threading.Timer(duration_s, stop.set).start()
+    _idle_sleeper(stop)
+    worker.join(timeout=1)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description='Known-split synthetic CPU workload.')
     parser.add_argument('--split', type=float, default=0.7, help='fraction of CPU in _hot_a')
     parser.add_argument('--duration', type=float, default=60.0, help='seconds to run')
+    parser.add_argument(
+        '--gil-free', action='store_true', help='only GIL-free C work, on a worker thread'
+    )
     args = parser.parse_args(argv)
     # Flush so an attaching orchestrator sees the PID immediately.
     print(f'synthetic_workload pid={os.getpid()} split={args.split}', flush=True)
-    run_workload(args.split, args.duration)
+    if args.gil_free:
+        run_gil_free(args.duration)
+    else:
+        run_workload(args.split, args.duration)
     return 0
 
 

@@ -6,12 +6,22 @@ from PyInstaller.utils.hooks import copy_metadata, collect_all, collect_submodul
 app_name = 'lumaviewpro'
 datas = [
     ('data', 'data'),
-    ('ui', 'ui'),
-    ('modules', 'modules'),
-    ('drivers', 'drivers'),
+    # The Python itself ships in the frozen archive. Of the source folders,
+    # the app opens exactly two files from disk at run time: the Kivy
+    # layout (lumaviewpro.py loads 'ui/lumaviewpro.kv' by path) and the
+    # simulator version pin (drivers/sim_wire/backend.py reads it at
+    # import, and the session imports the backend to resolve the tier on
+    # every simulated start). Loose .py copies beside the archive were
+    # never read -- and because PyInstaller puts the app folder on
+    # sys.path, a loose copy could satisfy a string-built import the
+    # analysis missed and hide the missing hidden import. The gate after
+    # COLLECT keeps them out.
+    ('ui/lumaviewpro.kv', 'ui'),
+    ('drivers/sim_wire/runtime/MICROPYTHON_PIN', 'drivers/sim_wire/runtime'),
     ('docs/licenses', 'docs/licenses'),
     ('docs/LICENSE', 'docs'),
     ('version.txt', '.'),
+    ('.git_archival.txt', '.'),
     ('lvp_logger.py', '.'),
 ]
 
@@ -169,12 +179,13 @@ exe = EXE(
     # log output is file-only (KIVY_NO_CONSOLELOG=1 at lumaviewpro.py
     # :115), so a windowed build doesn't lose any production logging.
     console=False,
-    # Suppress the PyInstaller bootloader's windowed-traceback dialog. On a
-    # hard crash (an exception escaping to the bootloader) PyInstaller pops a
-    # Windows message box containing a raw Python traceback -- a researcher
-    # must never see that. The crash is still captured: custom_except_hook
-    # logs uncaught exceptions to the file logs, and notifications.critical
-    # surfaces a plain-language popup at the app layer.
+    # Keep the raw traceback out of the bootloader's crash dialog: a
+    # researcher must never see one. The dialog itself stays. An exception
+    # escaping the application shows "Unhandled exception in script" with the
+    # exception's message, after sys.excepthook has run (once the logger is
+    # up, the crash hook, which logs it with its traceback). A SystemExit
+    # shows nothing, so a startup failure must escape as the exception it is,
+    # never as sys.exit.
     disable_windowed_traceback=True,
     argv_emulation=False,
     target_arch=None,
@@ -182,6 +193,7 @@ exe = EXE(
     entitlements_file=None,
     icon=['data\\icons\\icon.ico'],
 )
+
 coll = COLLECT(
     exe,
     splash.binaries,
@@ -279,3 +291,31 @@ for _dirpath, _dirnames, _filenames in _os.walk(_dist_root):
         if _vc_family.match(_fname):
             print('  ' + _os.path.relpath(
                 _os.path.join(_dirpath, _fname), _dist_root))
+
+# Source-folder gate. The two files in datas are what the app opens from
+# disk; everything else under modules/, ui/ and drivers/ runs from the
+# frozen archive. A loose .py under those folders at the app root means a
+# datas entry grew back, and would let a string-built import the analysis
+# missed resolve from disk instead of failing the build.
+_opened_from_disk = (
+    _os.path.join('ui', 'lumaviewpro.kv'),
+    _os.path.join('drivers', 'sim_wire', 'runtime', 'MICROPYTHON_PIN'),
+)
+for _rel in _opened_from_disk:
+    if not _os.path.exists(_os.path.join(_dist_root, _rel)):
+        raise SystemExit(
+            f'FATAL: source-folder gate: {_rel} is missing from the dist tree; '
+            f'the app opens it from disk at run time.'
+        )
+_loose_py = [
+    _os.path.relpath(_os.path.join(_dirpath, _fname), _dist_root)
+    for _folder in ('modules', 'ui', 'drivers')
+    for _dirpath, _dirnames, _filenames in _os.walk(_os.path.join(_dist_root, _folder))
+    for _fname in _filenames
+    if _fname.endswith('.py')
+]
+if _loose_py:
+    raise SystemExit(
+        f'FATAL: source-folder gate: {len(_loose_py)} loose .py file(s) under the app root, '
+        f'first {_loose_py[0]}; the Python ships only in the frozen archive.'
+    )

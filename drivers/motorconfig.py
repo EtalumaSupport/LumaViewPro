@@ -7,20 +7,41 @@ board identity (model/serial), and optics parameters. Falls back to defaults
 for any missing keys.
 """
 
-import json
-import pathlib
+import copy
+import types
+from collections.abc import Mapping
 from typing import ClassVar
 
 from drivers.exceptions import HardwareError
 from lvp_logger import logger
 
 
+def read_only_axes_config(axes_config: dict) -> Mapping:
+    """Freeze a motion driver's per-axis config, every level of it.
+
+    The travel limits in here are the bound a move is refused against, and
+    every read of them hands out this object. A plain dict let a caller
+    that edited what it read move the bound itself, and the stage was then
+    driven past its physical travel with nothing refusing it. Read-only,
+    the edit raises TypeError at the line that tries it.
+    """
+    return types.MappingProxyType(
+        {
+            axis: types.MappingProxyType(
+                {
+                    key: types.MappingProxyType(dict(value)) if isinstance(value, dict) else value
+                    for key, value in config.items()
+                }
+            )
+            for axis, config in axes_config.items()
+        }
+    )
+
+
 class MotorConfig:
-    # True until a board config READ fails. A class-level default so the
-    # flag exists on every instance, including the bare-`__new__` fallback
-    # construction the Null motion driver uses when no defaults file is
-    # readable. False means the per-unit values may exist on the board but
-    # are unavailable -- a different state from "the board has none", and
+    # True until a board config READ fails. False means the per-unit values
+    # may exist on the board but are unavailable -- a different state from
+    # "the board has none", and
     # consumers deciding between per-unit and fallback sources need the
     # difference or they silently serve the wrong unit's answer.
     board_config_read_ok: bool = True
@@ -30,11 +51,10 @@ class MotorConfig:
     # two sources could describe hardware that does not exist.
     _WHOLESALE_KEYS: ClassVar[frozenset] = frozenset({'Layers', 'Filterset'})
 
-    def __init__(self, defaults_file: pathlib.Path):
-        self._config = {}
-        self._defaults = self._load_json(defaults_file, label='defaults')
-        # Start with defaults
-        self._config = dict(self._defaults)
+    def __init__(self, defaults: Mapping):
+        # A deep copy: the board merge edits nested sections in place, and
+        # one loaded table is handed to every board built.
+        self._config = copy.deepcopy(dict(defaults))
 
     def mark_board_read_failed(self) -> None:
         """Record that the board's config could not be read this session."""
@@ -123,18 +143,6 @@ class MotorConfig:
             else:
                 cleaned[key] = value
         return cleaned
-
-    @staticmethod
-    def _load_json(file_path: pathlib.Path, label: str = '') -> dict:
-        if file_path is None or not file_path.is_file():
-            logger.warning(f'[MotorConfig] {label} file not found: {file_path}')
-            return {}
-        try:
-            with open(file_path) as fp:
-                return json.load(fp)
-        except (json.JSONDecodeError, OSError) as ex:
-            logger.error(f'[MotorConfig] Failed to load {label} file {file_path}: {ex}')
-            return {}
 
     @staticmethod
     def _deep_merge(base: dict, override: dict):
@@ -226,38 +234,6 @@ class MotorConfig:
         """Return all TMC5072 ramp parameters in ustep units for an axis."""
         axis = axis.upper()
         return dict(self._DEFAULT_RAMP.get(axis, self._DEFAULT_RAMP['X']))
-
-    # TMC5072 uses internal clock for velocity/acceleration registers.
-    # Conversion: v_real = register * f_clk / 2^24 (in usteps/sec)
-    #             a_real = register * f_clk^2 / (512 * 2^24) (in usteps/sec^2)
-    # f_clk = 16 MHz (internal oscillator, typical for TMC5072)
-    _TMC_FCLK = 16_000_000
-    _TMC_VEL_FACTOR = _TMC_FCLK / (2**24)  # register -> usteps/sec
-    _TMC_ACC_FACTOR = _TMC_FCLK**2 / (512 * 2**24)  # register -> usteps/sec^2
-
-    def ramp_params(self, axis: str) -> dict:
-        """Return ramp parameters converted to physical units (um/sec, um/sec^2).
-
-        Converts TMC5072 register values to real usteps/sec, then to um/sec
-        using the axis microstep-to-mm conversion.
-        Supports simple trapezoidal (a1/v1/d1 = 0) and future 6-point ramps.
-        """
-        raw = self.ramp_params_usteps(axis)
-        usteps_mm = self.usteps_per_mm(axis)
-        um_per_ustep = 1000.0 / usteps_mm
-
-        vel_keys = ('vstart', 'v1', 'vmax', 'vstop')
-        acc_keys = ('a1', 'amax', 'dmax', 'd1')
-
-        result = {}
-        for k, v in raw.items():
-            if k in vel_keys:
-                result[k] = v * self._TMC_VEL_FACTOR * um_per_ustep
-            elif k in acc_keys:
-                result[k] = v * self._TMC_ACC_FACTOR * um_per_ustep
-            else:
-                result[k] = v
-        return result
 
     # --- Board identity ---
 

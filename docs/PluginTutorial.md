@@ -24,7 +24,10 @@ a module-level `PluginSpec`, a `register(ctx)` function, and an
 optional `unregister(ctx)`. `register(ctx)` calls one or more
 `ctx.plugins.<namespace>.register(...)` methods to attach the
 plugin's handlers; the host wraps the call in try/except so a bad
-plugin cannot crash the app.
+plugin cannot crash the app. `ctx` is the `ScopeSession` hosting the
+plugin: the same session the GUI, REST and scripts drive, so a plugin
+reaches the instrument through `ctx.scope` and the session's members
+(`docs/LumascopeSkills.md`).
 
 Four namespaces are defined for 4.x:
 
@@ -36,7 +39,12 @@ Four namespaces are defined for 4.x:
 | `rest` | HTTP sub-routers mounted under `/plugins/<name>/` | reserved; raises until REST design lands |
 
 This tutorial covers `post_processing` end-to-end. UI / live / REST
-shapes are documented elsewhere as those surfaces land.
+shapes are documented elsewhere as those surfaces land. One rule of the
+`ui` mount: the host does not lock a mounted widget while a run or a
+diagnostic holds the scope. A plugin greys its own controls from
+`ctx.add_run_state_listener` and `ctx.controls_locked`,
+as the built-in regions do, so a control that must stay live during a
+run, such as its own Stop, stays live.
 
 ---
 
@@ -203,7 +211,7 @@ Install into the same Python environment LumaViewPro runs in:
 pip install -e /path/to/hello_postproc
 ```
 
-Restart LumaViewPro. At startup the host iterates entry points,
+Restart LumaViewPro. At startup its session iterates entry points,
 imports each one, reads its `spec`, checks `requires_lvp_version`
 against the running LVP version, then calls `register(ctx)`. If any
 step fails the plugin is skipped, a `notifications.error` fires, and
@@ -214,9 +222,11 @@ the rest of the app keeps loading.
 ## Testing your plugin
 
 Use the `harness_ctx` fixture in `tests/plugin_test_harness.py`. It
-builds a fresh `ctx` with a real `PluginRegistry` and mocked scope /
-session / lumaview attributes, so your `register(ctx)` runs against
-the production registry code without spinning up Kivy or hardware.
+builds a fresh stand-in for the session with a real `PluginRegistry`
+and a mocked scope and post-processing, so your `register(ctx)` runs
+against the production registry code without spinning up Kivy or
+hardware. It has only what a session has, so a plugin that reaches for
+anything else fails in your tests as it would in LumaViewPro.
 
 Place this in `tests/test_hello_postproc.py`:
 
@@ -282,18 +292,22 @@ from tests.plugin_test_harness import PluginSpec, ProcessorResult
 
 ### Load
 
-At app startup, after `AppContext` and the widget tree exist, the
-host calls `load_plugins(ctx)`. For each entry point in
-`lvp.plugins`:
+A host asks its session for plugins with `session.load_plugins()`;
+LumaViewPro does at startup. A script's or a test's session that never
+asks has none. For each entry point in `lvp.plugins`, and then for each
+built-in:
 
 1. Import the module. Import failure -> log + notify + skip.
 2. Read module-level `spec`. Missing or wrong type -> warn + skip.
 3. Check `requires_lvp_version` against the running LVP version.
    Incompatible -> warn + record on the failed-list + skip.
-4. Call `register(ctx)`. Exception -> log + notify + call
-   `unregister(ctx)` for cleanup + skip.
-5. Track the module so `unload_plugins(ctx)` can call its
+4. Call `register(ctx)` with the session. Exception -> log + notify +
+   call `unregister(ctx)` for cleanup + skip.
+5. Track the module so `session.unload_plugins()` can call its
    `unregister` at shutdown.
+
+An installed plugin claiming a built-in's name keeps it; the built-in
+is the one reported as not loaded.
 
 Each step's failure leaves the rest of the app intact. The
 `notifications.error` for a load failure says "Plugin X did not
@@ -302,10 +316,13 @@ startup, that's why.
 
 ### Unload
 
-At app shutdown `unload_plugins(ctx)` walks the loaded list in
-reverse and calls each plugin's `unregister(ctx)`. Exceptions are
+At app shutdown `session.unload_plugins()` walks the loaded list in
+reverse and calls each plugin's `unregister(ctx)`; a session's
+`shutdown()` does it first for a host that did not. Exceptions are
 caught and logged at WARNING; shutdown is not blocked by a plugin's
-teardown failure.
+teardown failure. It runs before the hardware is disconnected: a plugin
+driving the scope stops that work here and waits, bounded, for it to
+put the scope back.
 
 Reverse order matters when plugin B was registered after plugin A
 and depends on resources A exposes -- B comes down first.
@@ -313,9 +330,22 @@ and depends on resources A exposes -- B comes down first.
 ### Settings change (optional)
 
 If your spec sets `subscribes_to=("some.setting.key", ...)`, the
-host calls your module-level `on_settings_changed(ctx, settings)`
-when one of those keys changes. Empty tuple (the default) means the
-hook never fires; you don't need to define the function.
+session calls your module-level `on_settings_changed(ctx, settings)`
+when the settings are saved and one of those keys has changed since
+your plugin last heard, the first time since it loaded. Empty tuple
+(the default) means the hook never fires; you don't need to define the
+function.
+
+### After a protocol (optional)
+
+If your post-processing spec sets `auto_run_on_protocol_complete=True`,
+your processor is handed the folder of every Full Protocol run, whoever
+started it, once its images are written and its hyperstack build has
+ended. A run whose images are not all written is handed to no
+processor. It runs on the post-processing lane, apart from the run: the
+scope takes the next run while it works. From there it may call the
+session's post-processing members; a blocking call to a camera, motion
+or file member raises.
 
 ### Reserved namespaces
 

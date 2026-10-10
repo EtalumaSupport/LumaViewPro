@@ -22,8 +22,9 @@ from pathlib import Path
 import pytest
 
 from modules import image_save, image_utils
-from modules.labware_loader import WellPlateLoader
 from modules.layer_record import UNRESOLVED, LayerIdentity, LayerRecord
+from tests.frame_records import frame_record
+from tests.scope_fakes import bind_settings_like_a_session
 
 PLATE = '24 well microplate'
 
@@ -34,22 +35,39 @@ _GREEN = LayerRecord(
     id=4, key_name='Green', display_name='Green', led_channel=(1,), excitation_nm=488.0
 )
 
-_IDENTITY = LayerIdentity(layers=(_BF, _GREEN), filterset='FS-STOCK', source='motorconfig')
-_IDENTITY_NO_FILTERSET = LayerIdentity(layers=(_BF, _GREEN), filterset='', source='scopes')
+_IDENTITY = LayerIdentity(
+    layers=(_BF, _GREEN), filterset='FS-STOCK', source='motorconfig', model=None
+)
+_IDENTITY_NO_FILTERSET = LayerIdentity(
+    layers=(_BF, _GREEN), filterset='', source='scopes', model=None
+)
 
 
 @pytest.fixture
 def metadata_scope(sim_scope):
-    loader = WellPlateLoader()
-    sim_scope.runtime_state.set_objective('20x Oly')
-    sim_scope.runtime_state.set_labware(loader.get_plate(PLATE))
-    sim_scope.runtime_state.set_stage_offset({'x': 0.0, 'y': 0.0})
+    bind_settings_like_a_session(
+        sim_scope,
+        objective_id='20x Oly',
+        protocol={'labware': PLATE},
+        stage_offset={'x': 0.0, 'y': 0.0},
+    )
     sim_scope.layer_identity = _IDENTITY
     return sim_scope
 
 
-def _metadata(scope, channel):
-    return image_save.generate_image_metadata(scope, channel, 0, 0, 0)
+def _metadata(scope, channel, lit=None):
+    """The metadata for a frame taken with ``lit`` (layer -> mA) lighting it."""
+    return image_save.generate_image_metadata(
+        scope,
+        channel,
+        0,
+        0,
+        0,
+        objective_id=scope.runtime_state.get_current_objective_id(),
+        frame_record=frame_record(illumination_ma=lit or {}),
+        labware=scope.runtime_state.get_labware(),
+        well_label=None,
+    )
 
 
 class TestSpectralTrio:
@@ -100,11 +118,7 @@ class TestIlluminationAbsentWhenUnknown:
         assert 'illumination_ma' not in metadata
 
     def test_lit_channel_records_real_current(self, metadata_scope):
-        metadata_scope.illumination.led_on('Green', 123.0)
-        try:
-            metadata = _metadata(metadata_scope, 'Green')
-        finally:
-            metadata_scope.illumination.led_off('Green')
+        metadata = _metadata(metadata_scope, 'Green', lit={'Green': 123.0})
         assert metadata['illumination_ma'] == pytest.approx(123.0)
 
     def test_tiff_write_tolerates_absent_illumination(self, metadata_scope):
@@ -132,10 +146,9 @@ class TestWrittenFileRoundTrip:
     def _write_tile(self, tmp_path, metadata, *, ome):
         import numpy as np
 
-        # The sim scope carries no measured scale, and the read-back
-        # required block cannot parse a scale-less file (a pre-existing
-        # defect of the same shape as the Illumination hard-require,
-        # recorded separately); scale is not under test here.
+        # The sim scope carries no measured scale; scale is not under test
+        # here (a scale-less file round-trips: see
+        # test_a_derived_image_states_only_what_its_input_did.py).
         metadata['pixel_size_um'] = 1.0
         path = tmp_path / ('tile_ome.tiff' if ome else 'tile_ij.tiff')
         image_utils.write_tiff(
@@ -190,11 +203,7 @@ class TestWrittenFileRoundTrip:
         assert 'illumination_ma' not in back
 
     def test_lit_capture_round_trips_illumination(self, metadata_scope, tmp_path):
-        metadata_scope.illumination.led_on('Green', 55.0)
-        try:
-            metadata = _metadata(metadata_scope, 'Green')
-        finally:
-            metadata_scope.illumination.led_off('Green')
+        metadata = _metadata(metadata_scope, 'Green', lit={'Green': 55.0})
         path = self._write_tile(tmp_path, metadata, ome=False)
         back = image_utils.read_postproc_input_metadata(path)
         assert back is not None

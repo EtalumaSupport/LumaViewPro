@@ -121,43 +121,26 @@ def test_config_helper_derives_image_mode_from_settings():
 
 
 # ---------------------------------------------------------------------------
-# Capability gate: which modes a camera can offer
+# The modes offered: every one, on every camera
 # ---------------------------------------------------------------------------
 
 
-def test_available_modes_8bit_only_camera():
-    """A camera without Mono12/Mono12p (LS560/620/720 class) offers 8-bit only."""
-    from modules.image_mode import available_mode_labels, available_modes, camera_supports_12bit
+def test_available_modes_are_every_mode_in_selector_order():
+    """A mode is a save policy every camera honours, so all four are offered."""
+    from modules.image_mode import available_mode_labels, available_modes
 
-    assert camera_supports_12bit(['Mono8']) is False
-    assert available_modes(['Mono8']) == ['8bit']
-    assert available_mode_labels(['Mono8']) == ['8-bit']
-    # Empty / None capability set is treated as 8-bit-only, never as "all".
-    assert available_modes([]) == ['8bit']
-    assert available_modes(None) == ['8bit']
-
-
-def test_available_modes_12bit_camera():
-    """A Mono12-capable camera offers all four modes in selector order."""
-    from modules.image_mode import available_modes, camera_supports_12bit
-
-    assert camera_supports_12bit(['Mono8', 'Mono10', 'Mono12', 'Mono12p']) is True
-    assert available_modes(['Mono8', 'Mono12']) == [
+    assert available_modes() == [
         '8bit',
         '12bit_scientific',
         '12bit_scaled',
         '12bit_false_color_rgb',
     ]
-
-
-def test_camera_supports_12bit_ids_packed_format():
-    """The IDS packed 12-bit format counts; the packed 10-bit one does not."""
-    from modules.image_mode import camera_supports_12bit
-
-    assert camera_supports_12bit(['Mono12g24IDS']) is True
-    assert camera_supports_12bit(['Mono10g40IDS']) is False
-    # An IDS sensor exposing both still offers 12-bit (via the 12-bit entry).
-    assert camera_supports_12bit(['Mono10g40IDS', 'Mono12g24IDS']) is True
+    assert available_mode_labels() == [
+        '8-bit',
+        'Scientific (full depth)',
+        'Scaled (full depth)',
+        'RGB (full depth)',
+    ]
 
 
 def test_select_capture_pixel_format_ids_no_mono8():
@@ -333,6 +316,27 @@ def test_migrate_settings_dict_noop_when_already_migrated():
     settings = {'image_mode': '8bit'}
     assert migrate_settings_dict(settings) is False
     assert settings == {'image_mode': '8bit'}
+
+
+@pytest.mark.parametrize('stored', ['bogus', None])
+def test_an_unusable_mode_beside_the_legacy_keys_takes_the_choice_they_hold(stored):
+    """The legacy keys are the person's choice; an unusable image_mode beside
+    them is derived from them, not left for the load to reset to the shipped one."""
+    from modules.image_mode import migrate_settings_dict
+
+    settings = {'image_mode': stored, 'use_full_pixel_depth': True}
+    assert migrate_settings_dict(settings) is True
+    assert settings == {'image_mode': '12bit_scientific'}
+
+
+def test_an_unknown_mode_with_no_legacy_keys_is_left_for_the_load_to_replace():
+    """With nothing to derive a choice from, the migration leaves the value to
+    the writer's rule, which replaces and reports it after the merge."""
+    from modules.image_mode import migrate_settings_dict
+
+    settings = {'image_mode': 'bogus'}
+    assert migrate_settings_dict(settings) is False
+    assert settings == {'image_mode': 'bogus'}
 
 
 # ---------------------------------------------------------------------------
@@ -722,26 +726,6 @@ def test_write_video_frame_rejects_unknown_save_encoding(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_build_image_capture_config_couples_save_encoding_to_image_mode():
-    """The GUI-less config builder emits save_encoding coupled to image_mode,
-    the same shape get_image_capture_config_from_ui produces -- so the protocol
-    path cannot capture 12-bit-scaled yet silently save right-aligned (dark)."""
-    from modules.protocol_runner import ProtocolRunner
-
-    runner = ProtocolRunner.__new__(ProtocolRunner)
-
-    cfg = runner.build_image_capture_config(image_mode='12bit_scaled')
-    assert cfg.image_mode == '12bit_scaled'
-    assert cfg.capture_depth == 12
-    assert cfg.save_encoding == 'msb_aligned'
-
-    # No silent default mode: a headless caller must state the bit depth
-    # explicitly, so a no-arg build fails loudly instead of quietly
-    # producing 8-bit data.
-    with pytest.raises(TypeError):
-        runner.build_image_capture_config()
-
-
 def test_write_tiff_requires_save_encoding(tmp_path):
     """write_tiff cannot be called without save_encoding -- the depth-less-write
     guard, now extended to encoding. A defaulted None silently right-aligned a
@@ -767,16 +751,10 @@ def test_save_image_requires_save_encoding():
     from modules.image_save import save_image
 
     with pytest.raises(TypeError, match='save_encoding'):
-        save_image(None, array=np.zeros((4, 4), dtype=np.uint8))
-
-
-def test_save_live_image_requires_save_encoding():
-    """save_live_image cannot be called without save_encoding -- the omission
-    that saved 12-bit-scaled dark from the non-engineering live path."""
-    from modules.image_save import save_live_image
-
-    with pytest.raises(TypeError, match='save_encoding'):
-        save_live_image(None)
+        save_image(
+            None,
+            array=np.zeros((4, 4), dtype=np.uint8),
+        )
 
 
 @pytest.mark.parametrize(
@@ -913,9 +891,9 @@ def test_derived_fluorescence_widens_to_rgb_under_false_color_mode(tmp_path):
     assert arr[0, 0, 2] == 3000 and arr[0, 0, 0] == 0 and arr[0, 0, 1] == 0
 
 
-def test_composite_capture_live_path_passes_save_encoding():
-    """Structural lock: every save_live_image / save_image call in the manual
-    live-capture path forwards both the image mode and the acquiring channel.
+def test_manual_capture_path_passes_save_encoding():
+    """Structural lock: every save_image call in the manual capture path
+    (modules/manual_capture.py, which the Capture button calls) forwards both the image mode and the acquiring channel.
 
     A refactor that drops save_encoding from the non-engineering branch was the
     original defect. Channel is locked the same way and for the same reason:
@@ -923,7 +901,7 @@ def test_composite_capture_live_path_passes_save_encoding():
     answering for it makes the omission invisible at the call site."""
     import ast
 
-    src = pathlib.Path(__file__).resolve().parents[1] / 'ui' / 'composite_capture.py'
+    src = pathlib.Path(__file__).resolve().parents[1] / 'modules' / 'manual_capture.py'
     tree = ast.parse(src.read_text())
 
     save_calls = [
@@ -931,9 +909,9 @@ def test_composite_capture_live_path_passes_save_encoding():
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
-        and node.func.id in ('save_live_image', 'save_image')
+        and node.func.id == 'save_image'
     ]
-    assert save_calls, 'expected save_live_image / save_image calls in composite_capture'
+    assert save_calls, 'expected save_image calls in the manual capture'
     for call in save_calls:
         assert any(kw.arg == 'save_encoding' for kw in call.keywords), (
             f'a {call.func.id} call at line {call.lineno} omits save_encoding -- '
@@ -947,3 +925,13 @@ def test_composite_capture_live_path_passes_save_encoding():
             f'a {call.func.id} call at line {call.lineno} still passes a '
             'retired color argument alongside the channel'
         )
+
+
+def test_the_mode_labels_differ_in_their_first_word():
+    """A spinner shortens text too wide for it from the right, so labels that
+    share their opening read the same in the closed selector; each mode's
+    label is told apart by its first word."""
+    from modules.image_mode import IMAGE_MODE_LABELS
+
+    first_words = [label.split()[0] for label in IMAGE_MODE_LABELS.values()]
+    assert len(set(first_words)) == len(first_words), first_words

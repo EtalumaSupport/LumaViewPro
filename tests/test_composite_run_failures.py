@@ -3,24 +3,26 @@
 
 ``test_composite_run_e2e`` proves the happy path reaches a readable file.
 The failures are the other half of the same contract, and they are the
-half a caller actually has to branch on: a run where one channel came
-back black must not report the same thing as a run where every channel
-landed. Three behaviours are pinned here.
+half a caller actually has to branch on: a run where one channel
+produced nothing must not report the same thing as a run where every
+channel landed. Three behaviours are pinned here.
 
-A capture fails when the camera hands back a frame with no signal in it
-while the LEDs were commanded lit. That check is armed from the
-COMMANDED illumination alone (``imaging.py``, ``expected_lit =
-bool(live_lit_pairs(...))``), so it governs EVERY layer that maps to an
-LED channel -- transmitted BF exactly as much as Blue. It is not a
-fluorescence-only gate. The simulated camera's black test pattern is the
-one lever this file uses to trip it; nothing here mocks the engine, the
-runner, the session, or a driver.
+A capture fails when the camera delivers no frame at all -- the grab
+returns no image within its budget. That is the lever every test in this
+file uses, by substituting the driver's own ``grab_new_capture``;
+nothing here mocks the engine, the runner, the session, or a driver.
 
-That the check is right on real hardware is a photometric question this
-file cannot answer. Whether a capped epi channel's genuinely dim frame
-clears the dark floor on a real scope has to be measured on a bench with
-a real sample; the simulator's black frame only proves the wiring from a
-signal-free frame to a failed capture to the run's disposition of it.
+A DARK frame is deliberately not a failure. A frame with no pixel above
+the dark floor is delivered, saved, and recorded with ``dark_saved`` on
+its evidence row, because pixel content says nothing about whether the
+illumination worked and a dark image is a real observation the operator
+can see. Anything reading this file for the old behaviour -- a black
+test pattern tripping a rejection -- is reading a contract that was
+deliberately removed.
+
+A capture that produced nothing leaves NO image file; what a dark
+capture leaves is an ordinary image file plus the record of its
+darkness.
 
 A rejected capture leaves NO image file: the writer records a
 ``capture_failed`` row in the run's ``protocol_record.tsv`` and returns
@@ -37,6 +39,7 @@ import pytest
 
 from modules.exceptions import CaptureError
 from modules.image_mode import OUTPUT_FORMAT_JPG, OUTPUT_FORMAT_TIFF
+from modules.run_events import RunEvents
 from tests.test_composite_run_e2e import (
     headless_settings,
     open_composite_session,
@@ -82,26 +85,36 @@ def _info_lines():
 
 
 def _fail_these_channels(camera, step_colors, failing):
-    """Callbacks that black out the camera for *failing* channels' steps.
+    """Run events that make the camera deliver NO FRAME for *failing*
+    channels' steps.
 
-    ``update_step_number`` fires synchronously on the protocol thread
-    before the step it names is positioned and lit (headless has no UI
-    dispatcher, so ``schedule_ui`` calls straight through), which makes it
-    the one hook that can arm a per-channel condition ahead of that
-    channel's capture. Step 1 never gets the call, so the pattern the
-    session opens with is what step 1 sees.
+    A black test pattern used to serve as the failure here, but darkness
+    is no longer a capture failure -- a dark frame is delivered, saved
+    and recorded as dark. What still produces nothing is a grab that
+    never returns a frame, so that is what these events induce; the
+    contracts the tests assert (the channel is recorded as having
+    captured nothing, the merge is skipped, the strike counter trips)
+    are unchanged.
 
-    The step number is 1-based; *step_colors* is the run's layer order.
+    ``step_started`` fires synchronously on the protocol thread before the
+    step it names is positioned and lit (headless has no UI dispatcher, so
+    the delivery calls straight through), which makes it the one event that
+    can arm a per-channel condition ahead of that channel's capture. Every
+    step gets it, step 0 included.
+
+    The step index is 0-based; *step_colors* is the run's layer order.
     """
 
-    def update_step_number(step):
-        color = step_colors[step - 1]
-        if color in failing:
-            camera.set_test_pattern(True, 'black')
-        else:
-            camera.set_test_pattern(False)
+    real_grab = camera.grab_new_capture
 
-    return {'update_step_number': update_step_number}
+    def step_started(step_idx):
+        color = step_colors[step_idx]
+        if color in failing:
+            camera.grab_new_capture = lambda timeout_s: (False, None, 0)
+        else:
+            camera.grab_new_capture = real_grab
+
+    return RunEvents(step_started=step_started)
 
 
 def _record_rows(run_dir):
@@ -143,7 +156,7 @@ class TestAChannelThatCapturesNothing:
             outcome = runner.start_composite(
                 sequence_name='one_of_two',
                 parent_dir=str(tmp_path),
-                callbacks=_fail_these_channels(
+                events=_fail_these_channels(
                     _session.scope._camera_driver, ('BF', _FAILING), {_FAILING}
                 ),
             )
@@ -168,10 +181,17 @@ class TestAChannelThatCapturesNothing:
             # The runner's 'merge_failed' is only the fallback for a result
             # that carries no reason at all, so a caller seeing it here
             # would mean the specific code was lost on the way.
-            assert settled.reason == 'no_data', (
-                f'the outcome named the failure {settled.reason!r}; the reason '
-                f'is what a REST or SDK caller maps to a response, so it is '
-                f'part of the contract, not prose'
+            assert settled.merge_reason == 'no_data', (
+                f'the outcome named the failure {settled.merge_reason!r}; the '
+                f'code is what a REST or SDK caller maps to a response, so it '
+                f'is part of the contract, not prose'
+            )
+            # The run reached its end but one channel captured nothing, so
+            # the RUN says 'incomplete'; the merge's own word stays in
+            # merge_reason. Collapsing the two into one field is what made a
+            # caller unable to tell this from a run that aborted.
+            assert settled.status == 'incomplete', (
+                f'a run whose channel captured nothing reported the RUN as {settled.status!r}'
             )
 
     def test_a_rejected_capture_leaves_no_image_behind(self, tmp_path):
@@ -184,7 +204,7 @@ class TestAChannelThatCapturesNothing:
             runner.start_composite(
                 sequence_name='no_file',
                 parent_dir=str(tmp_path),
-                callbacks=_fail_these_channels(
+                events=_fail_these_channels(
                     _session.scope._camera_driver, ('BF', _FAILING), {_FAILING}
                 ),
             ).wait(timeout_s=120)
@@ -200,17 +220,18 @@ class TestAChannelThatCapturesNothing:
             )
 
     def test_the_same_failure_reaches_an_l2_caller_as_a_typed_raise(self, tmp_path):
-        # run_composite returns a path, so it has no way to hand back a
-        # not-merged outcome; a caller that got None or '' would have to
-        # guess whether the run aborted, the merge failed, or the wait
-        # expired. The typed error carries the machine-readable reason.
+        # run_composite raises for a run that merged nothing rather than
+        # hand back a not-merged outcome a caller might read as a result;
+        # it would have to guess whether the run aborted, the merge failed,
+        # or the wait expired. The typed error carries the machine-readable
+        # reason.
         settings = headless_settings(tmp_path, acquiring=('BF', _FAILING))
         with open_composite_session(settings) as (_session, runner):
             with pytest.raises(CaptureError) as excinfo:
                 runner.run_composite(
                     sequence_name='typed_raise',
                     parent_dir=str(tmp_path),
-                    callbacks=_fail_these_channels(
+                    events=_fail_these_channels(
                         _session.scope._camera_driver, ('BF', _FAILING), {_FAILING}
                     ),
                 )
@@ -232,9 +253,7 @@ class TestAChannelThatCapturesNothing:
             outcome = runner.start_composite(
                 sequence_name='two_of_three',
                 parent_dir=str(tmp_path),
-                callbacks=_fail_these_channels(
-                    _session.scope._camera_driver, step_colors, {_FAILING}
-                ),
+                events=_fail_these_channels(_session.scope._camera_driver, step_colors, {_FAILING}),
             )
             settled = outcome.wait(timeout_s=120)
 
@@ -265,16 +284,36 @@ class TestTheThreeStrikeFatalAbort:
         step_colors = ('BF', 'Blue', 'Green', 'Red')
         settings = headless_settings(tmp_path, acquiring=step_colors)
         with open_composite_session(settings) as (session, runner):
-            session.scope._camera_driver.set_test_pattern(True, 'black')
+            # No frame at all for the whole run. A black test pattern
+            # used to stand in for this, but a dark frame is now
+            # delivered and saved, so only a grab that returns nothing
+            # still produces the failures this abort counts.
+            session.scope._camera_driver.grab_new_capture = lambda timeout_s: (
+                False,
+                None,
+                0,
+            )
 
             outcome = runner.start_composite(sequence_name='fatal', parent_dir=str(tmp_path))
             settled = outcome.wait(timeout_s=120)
 
             assert settled is not None, 'the aborted run never settled its outcome'
+            assert outcome.wait_for_files(timeout_s=120) is not None, (
+                'the run never finished its files'
+            )
             assert not settled.merged, f'an aborted run reported a merge: {settled}'
-            assert settled.reason == 'aborted', (
-                f'the outcome named the ending {settled.reason!r}; a caller '
-                f'cannot tell an abort from a failed merge that way'
+            # The two vocabularies, separated. status says the RUN failed;
+            # reason says what killed it. Before they shared one field the
+            # best a caller could read was the word 'failed', which is also
+            # what a merge failure said -- so an abort and a bad merge were
+            # indistinguishable to anyone deciding what to retry.
+            assert settled.status == 'failed', f'the outcome reported the run as {settled.status!r}'
+            assert settled.reason == 'camera_failure', (
+                f'the outcome named the cause {settled.reason!r}; a caller '
+                f'cannot tell a dead camera from a failed merge that way'
+            )
+            assert settled.merge_reason == '', (
+                'the run died before any merge, so there is no merge verdict to report'
             )
 
             run_dir = single_run_dir(tmp_path)
@@ -294,7 +333,15 @@ class TestTheThreeStrikeFatalAbort:
         # successful path has.
         settings = headless_settings(tmp_path, acquiring=('BF', 'Blue', 'Green', 'Red'))
         with open_composite_session(settings) as (session, runner):
-            session.scope._camera_driver.set_test_pattern(True, 'black')
+            # No frame at all for the whole run. A black test pattern
+            # used to stand in for this, but a dark frame is now
+            # delivered and saved, so only a grab that returns nothing
+            # still produces the failures this abort counts.
+            session.scope._camera_driver.grab_new_capture = lambda timeout_s: (
+                False,
+                None,
+                0,
+            )
 
             runner.start_composite(sequence_name='released', parent_dir=str(tmp_path)).wait(
                 timeout_s=120
@@ -306,7 +353,7 @@ class TestTheThreeStrikeFatalAbort:
 
     def test_a_fatal_abort_darkens_every_led_including_one_it_did_not_light(self, tmp_path):
         # A composite hands the illumination back the way it found it
-        # (start_composite passes leds_state_at_end='return_to_original'),
+        # (a one-position run's leds_state_at_end is 'return_to_original'),
         # so a channel the user had lit before the run normally comes
         # back on at the end. A FATAL abort is the exception: the run died
         # on a fault, and leaving the sample illuminated by a scope nobody
@@ -322,7 +369,15 @@ class TestTheThreeStrikeFatalAbort:
                 'exists to override was never armed'
             )
 
-            session.scope._camera_driver.set_test_pattern(True, 'black')
+            # No frame at all for the whole run. A black test pattern
+            # used to stand in for this, but a dark frame is now
+            # delivered and saved, so only a grab that returns nothing
+            # still produces the failures this abort counts.
+            session.scope._camera_driver.grab_new_capture = lambda timeout_s: (
+                False,
+                None,
+                0,
+            )
             runner.start_composite(sequence_name='dark', parent_dir=str(tmp_path)).wait(
                 timeout_s=120
             )
@@ -353,7 +408,9 @@ class TestTheFormatTheCompositeFollows:
         with open_composite_session(settings) as (_session, runner):
             with _info_lines() as logged:
                 artifact = pathlib.Path(
-                    runner.run_composite(sequence_name='live_jpg', parent_dir=str(tmp_path))
+                    runner.run_composite(
+                        sequence_name='live_jpg', parent_dir=str(tmp_path)
+                    ).artifact_path
                 )
 
             run_dir = single_run_dir(tmp_path)
@@ -381,7 +438,9 @@ class TestTheFormatTheCompositeFollows:
         with open_composite_session(settings) as (_session, runner):
             with _info_lines() as logged:
                 artifact = pathlib.Path(
-                    runner.run_composite(sequence_name='coerced', parent_dir=str(tmp_path))
+                    runner.run_composite(
+                        sequence_name='coerced', parent_dir=str(tmp_path)
+                    ).artifact_path
                 )
 
             assert artifact.name.endswith('.ome.tiff'), (

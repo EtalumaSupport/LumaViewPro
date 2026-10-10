@@ -9,6 +9,7 @@ supports the full Camera ABC interface.
 
 import datetime
 import pathlib
+from dataclasses import dataclass
 import threading
 import time
 from collections.abc import Callable
@@ -18,8 +19,11 @@ import numpy as np
 from scipy.ndimage import uniform_filter
 
 from lvp_logger import logger
-from drivers.camera import Camera
+from drivers.camera import Camera, FrameGrid, ImageHandlerBase, link_info
+from drivers.camera_profiles import simulated_profile
+from drivers.exceptions import HardwareError
 from drivers.registry import camera_registry
+from drivers.simulated_specimen import specimen_frames
 
 # camera.log hookup: simulator records the same per-driver SDK-call
 # trace that real drivers (pyloncamera/idscamera/fx2driver) write, so
@@ -30,23 +34,89 @@ except ImportError:
     _cam_log = None
 
 
+@dataclass(frozen=True)
+class SimulatedStall:
+    """When a simulated camera's stream stalls, and for how long.
+
+    A stall is a stretch in which the camera stays connected and grabbing
+    and no frame arrives -- what a real camera's link or grab loop can fall
+    into without the device being removed. Built where it is asked for (a
+    launch argument, a test), so a stall that cannot happen is refused there.
+
+    Attributes:
+        after_s: Seconds from the moment it is applied until the stall begins.
+        for_s: How long the stall lasts, in seconds.
+
+    Raises:
+        ValueError: ``after_s`` is negative or ``for_s`` is not positive.
+    """
+
+    after_s: float
+    for_s: float
+
+    def __post_init__(self):
+        if self.after_s < 0 or self.for_s <= 0:
+            raise ValueError(
+                f'a stall starts at 0 s or later and lasts more than 0 s; got '
+                f'after_s={self.after_s}, for_s={self.for_s}'
+            )
+
+
+class _SimImageHandler(ImageHandlerBase):
+    """The real drivers' frame buffer, with a wait for the next stored frame.
+
+    The simulator's acquisition thread stores into it exactly as a real
+    driver's SDK thread does, so the frame count, the buffered frame and the
+    per-frame callbacks all come from the one implementation every driver
+    shares. The wait is what ``grab_new_capture`` needs: a frame stored after
+    the call, without polling.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._stored = threading.Condition()
+
+    def _store_frame(self, image, timestamp, chunks=None, *, significant_bits, wire_bytes):
+        super()._store_frame(
+            image, timestamp, chunks, significant_bits=significant_bits, wire_bytes=wire_bytes
+        )
+        with self._stored:
+            self._stored.notify_all()
+
+    def wait_for_frame_after(self, since: int, timeout_s: float) -> bool:
+        """True once a frame later than ordinal ``since`` is stored; False on timeout."""
+        deadline = time.monotonic() + timeout_s
+        with self._stored:
+            while self.frames_delivered <= since:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._stored.wait(remaining)
+            return True
+
+
 @camera_registry.register('sim', priority=100, is_simulator=True)
 class SimulatedCamera(Camera):
-    MODEL_NAME = 'SimulatedCamera-1920x1200'
+    _SENSOR = simulated_profile().native_resolution
+    MODEL_NAME = simulated_profile().model_name
     SERIAL_NUMBER = 'SIM-CAM-001'
-
-    # Supported pixel formats
-    PIXEL_FORMATS = ('Mono8', 'Mono10', 'Mono12')
 
     TIMING_FAST: ClassVar[dict] = {'grab_delay': 0.0}
     TIMING_REALISTIC: ClassVar[dict] = {'grab_delay': 0.005}  # ~5ms USB transfer overhead
 
+    # Free-run delivery ceiling in frames per second. A real camera's
+    # sensor readout and link bandwidth bound its frame rate however
+    # short the exposure; without a ceiling the simulator free-runs at
+    # 1/exposure (1000 fps at 1 ms), which no camera delivers.
+    _MAX_DELIVERY_FPS = 40.0
+
     def __init__(
         self,
-        width: int = 1920,
-        height: int = 1200,
+        width: int = _SENSOR['width'],
+        height: int = _SENSOR['height'],
         grab_delay: float = 0.0,
-        z_position_func: Callable[[], float] | None = None,
+        z_position_func: Callable[[], float | None] | None = None,
+        illumination_func: Callable[[], float] | None = None,
         timing: str = 'fast',
     ):
         # Native (unbinned) sensor size -- the fixed ceiling. _width/_height
@@ -63,6 +133,7 @@ class SimulatedCamera(Camera):
 
         self._exposure_us = 10_000.0  # 10 ms in microseconds
         self._gain = 1.0
+        self._black_level = 0.0
         self._pixel_format = 'Mono8'
         self._binning = 1
         self._grabbing = False
@@ -75,29 +146,21 @@ class SimulatedCamera(Camera):
         self._frame_rate_target = 30.0
 
         self._lock = threading.RLock()
-        self._last_grab_ts = None
-        # Payload depth of the last generated frame, stamped when it was
-        # generated. Derived from the pixel format, which can change while a
-        # frame sits buffered, so the buffered frame carries its own.
-        self._last_grab_bits = None
-        # Arrival ordinal of the last generated frame. Monotone for the life
-        # of the instance: frame validity reads it to tell a frame that
-        # arrived after a hardware write from one already in flight.
-        self._grab_seq = 0
 
-        # Per-frame callback delivery (mirrors the Pylon/IDS ImageHandler
-        # callback surface). SimulatedCamera has no SDK callback thread,
-        # so a host-side pump thread fires callbacks at the exposure rate
-        # whenever any are registered AND grabbing is active. Tests that
-        # exercise the production callback path use this; the display
-        # pull-pipeline (grab/grab_latest) keeps working as before.
-        # Per-frame callbacks live in the base Camera's durable registry
-        # (_registered_frame_callbacks + _frame_callback_lock, created by
-        # super().__init__() below); the pump reads that registry, so a
-        # reconnect keeps the same source of truth as the handler-based drivers.
-        # Only the pump-thread lifecycle state is sim-specific.
-        self._pump_thread: threading.Thread | None = None
-        self._pump_stop = threading.Event()
+        # A real camera free-runs: while it is grabbing, frames arrive on the
+        # SDK's own thread whether or not anyone reads them, and a reader gets
+        # the latest one. The simulator does the same on this acquisition
+        # thread, storing each frame in the shared image handler. A simulator
+        # that made a frame only when one was read showed a frame count that
+        # stood still while nothing read it, so a stream that had died and a
+        # stream nobody was watching looked the same.
+        self._acquisition_thread: threading.Thread | None = None
+        self._acquisition_stop = threading.Event()
+        # A stretch of monotonic time in which the stream delivers nothing
+        # while the camera stays connected and grabbing: the silent stall a
+        # real camera's USB link or grab loop can fall into. None when no
+        # stall is set. See hold_frames.
+        self._held_window: tuple[float, float] | None = None
 
         # Synthetic image state -- can be set externally for test scenarios
         # 'specimen', 'black', 'white', 'noise', 'focus_target', 'image_cycle'
@@ -114,6 +177,10 @@ class SimulatedCamera(Camera):
         self._focal_z = 5000.0  # Z position of perfect focus (um)
         self._blur_per_um = 0.01  # Blur sigma increase per um of defocus
         self._z_position_func = z_position_func  # Optional: auto-query Z from motor
+        # Optional: auto-query how much light is on the sample. Unwired, the
+        # camera renders as though the field were lit, which is what a camera
+        # constructed on its own with no scope around it has to assume.
+        self._illumination_func = illumination_func
 
         # Pre-generated focus target (lazily created)
         self._focus_target_cache = None
@@ -142,66 +209,6 @@ class SimulatedCamera(Camera):
             raise ValueError(f"Unknown timing mode: {mode!r}. Use 'fast' or 'realistic'.")
         self._grab_delay = preset['grab_delay']
         self._timing_mode = mode
-
-    @staticmethod
-    def _make_specimen_frames(
-        h: int, w: int, count: int = 4, shift_px: int = 1, seed: int = 20260827
-    ) -> list[np.ndarray]:
-        """Build the frames the cycle falls back to when no image dir exists.
-
-        These are ONE soft field sampled at ``count`` slightly different
-        offsets, not independent patterns. The distinction is the whole point:
-        the cycle advances once per generated frame, so anything that differs
-        much between entries strobes at frame rate. Neighbouring crops of a
-        single field read as gentle drift instead -- enough motion to tell a
-        live stream from a frozen one, and to judge the rate by how smooth it
-        looks, without a pattern change fighting for attention.
-
-        The field is low-resolution noise upsampled and smoothed twice, which
-        leaves rounded blobs with no hard edges. Grey values are held inside a
-        mid band so no frame is ever fully black or blown out; the caller's
-        brightness scaling then reads as exposure rather than as a switch.
-
-        Args:
-            h: Frame height in pixels.
-            w: Frame width in pixels.
-            count: How many frames the cycle should contain.
-            shift_px: Sampling offset between consecutive frames. One pixel,
-                set by watching the live display: the field is coherent, so a
-                whole-frame shift is far more visible than its ~1.5 grey-level
-                mean difference suggests, and larger values read as the sample
-                being jostled rather than as the stream being alive.
-            seed: Fixes the field so a run is reproducible.
-
-        Returns:
-            ``count`` grayscale uint8 frames of shape ``(h, w)``.
-        """
-        rng = np.random.RandomState(seed)
-        margin = shift_px * count
-        canvas_h = h + margin
-        canvas_w = w + margin
-
-        # Cell size sets the apparent feature scale -- roughly the blob width
-        # in pixels before smoothing rounds them off.
-        cell = 48
-        low = rng.random((canvas_h // cell + 2, canvas_w // cell + 2))
-        field = np.kron(low, np.ones((cell, cell)))[:canvas_h, :canvas_w]
-        field = uniform_filter(field, size=cell // 2)
-        field = uniform_filter(field, size=cell // 2)
-        field -= field.min()
-        field /= max(field.max(), 1e-9)
-        canvas = 55.0 + field * 165.0
-
-        frames = []
-        # Sampling around a circle keeps the drift bounded and closes the loop,
-        # so wrapping from the last frame back to the first is the same size
-        # step as every other -- a linear walk would snap back on the wrap.
-        for i in range(count):
-            angle = 2.0 * np.pi * i / count
-            y = margin // 2 + round(shift_px * np.sin(angle))
-            x = margin // 2 + round(shift_px * np.cos(angle))
-            frames.append(canvas[y : y + h, x : x + w].astype(np.uint8))
-        return frames
 
     def load_cycle_images(self, image_dir: str | None = None) -> None:
         """Load images from a directory for cycling through in simulate mode.
@@ -247,7 +254,7 @@ class SimulatedCamera(Camera):
                     logger.warning('[SimCamera ] Pillow not available -- cannot load cycle images')
 
         if not images:
-            images = self._make_specimen_frames(self._height, self._width)
+            images = specimen_frames(self._height, self._width)
             logger.info(f'[SimCamera ] Generated {len(images)} synthetic cycle images')
 
         self._cycle_images = images
@@ -272,6 +279,12 @@ class SimulatedCamera(Camera):
 
             self._load_profile()
             self.init_camera_config()
+            # A fresh handler per connection, as the real drivers build one:
+            # its frame count starts over, and the durable callback registry
+            # is pushed onto it so a listener registered before a reconnect
+            # keeps receiving frames.
+            self.cam_image_handler = _SimImageHandler()
+            self._reapply_frame_callbacks()
             # connect() returns CONFIGURED but NOT grabbing; the single
             # start fires later via open_and_start() (the start gate).
 
@@ -295,17 +308,16 @@ class SimulatedCamera(Camera):
             if _cam_log is not None:
                 _cam_log.info('sim Disconnected')
             logger.info('[CAM Sim   ] Disconnected')
-        # Stop the pump OUTSIDE self._lock (mirroring stop_grabbing): the pump
-        # loop grabs under self._lock, so joining it while holding that lock
-        # stalls the full join timeout whenever the pump is mid-acquire. With
-        # _grabbing already False under the lock above, a pump that wins the
-        # lock race idles instead of grabbing, then exits on the stop signal.
-        self._stop_callback_pump()
+        # Stop acquisition OUTSIDE self._lock (mirroring stop_grabbing): the
+        # acquisition loop generates frames under self._lock, so joining it
+        # while holding that lock stalls the full join timeout whenever it is
+        # mid-frame.
+        self._stop_acquisition()
         # Reset base lifecycle state OUTSIDE self._lock too:
         # _reset_lifecycle_state takes _lifecycle_lock, and holding sim's _lock
         # across it would create a _lock -> _lifecycle_lock acquisition order
-        # (the base config path takes them the other way). The pump is stopped
-        # above, so nothing writes the frame buffer concurrently from here on.
+        # (the base config path takes them the other way). Acquisition is
+        # stopped above, so nothing writes the frame buffer from here on.
         self._reset_lifecycle_state()
         return True
 
@@ -329,6 +341,9 @@ class SimulatedCamera(Camera):
         self._pixel_format = 'Mono8'
         self._exposure_us = 10_000.0  # 10 ms
         self._gain = 1.0
+        # Reset at every connect, as the real bodies reload their Default
+        # user set.
+        self._black_level = 0.0
         self._binning = 1
 
     # ------------------------------------------------------------------
@@ -350,11 +365,7 @@ class SimulatedCamera(Camera):
             if _cam_log is not None:
                 _cam_log.info('sim start_grabbing')
             logger.info('[CAM Sim   ] start_grabbing')
-        # Re-spawn the pump if callbacks were registered while not grabbing.
-        with self._frame_callback_lock:
-            need_pump = bool(self._registered_frame_callbacks)
-        if need_pump:
-            self._start_callback_pump()
+        self._start_acquisition()
 
     def stop_grabbing(self) -> None:
         """Stop acquiring frames in the simulator."""
@@ -363,120 +374,155 @@ class SimulatedCamera(Camera):
             if _cam_log is not None:
                 _cam_log.info('sim stop_grabbing')
             logger.info('[CAM Sim   ] stop_grabbing')
-        self._stop_callback_pump()
+        self._stop_acquisition()
 
-    # ------------------------------------------------------------------
-    # Per-frame callbacks (parity with Pylon/IDS ImageHandler surface)
-    # ------------------------------------------------------------------
-    def register_frame_callback(self, cb) -> None:
-        """Register a callback fired on every simulated grab.
-
-        Starts a small host-side pump thread on the first registration
-        while ``_grabbing`` is True, so callers (manual record) see the
-        same push-driven semantics they get from real cameras.
-        """
-        super().register_frame_callback(cb)  # durable storage; sim has no handler
-        # We just appended cb, so the registry is non-empty; the pump only needs
-        # to run while grabbing. Avoids re-taking _frame_callback_lock that
-        # super() already released.
-        if self._grabbing:
-            self._start_callback_pump()
-
-    def unregister_frame_callback(self, cb) -> None:
-        """Remove a registered callback; stops the pump when none remain."""
-        super().unregister_frame_callback(cb)
-        with self._frame_callback_lock:
-            still_active = bool(self._registered_frame_callbacks)
-        if not still_active:
-            self._stop_callback_pump()
-
-    def _start_callback_pump(self) -> None:
-        """Spawn the callback pump if not already running."""
-        if self._pump_thread is not None and self._pump_thread.is_alive():
+    def _start_acquisition(self) -> None:
+        """Spawn the acquisition thread if not already running."""
+        if self._acquisition_thread is not None and self._acquisition_thread.is_alive():
             return
-        self._pump_stop.clear()
-        self._pump_thread = threading.Thread(
-            target=self._callback_pump_loop,
-            name='SimCameraPump',
+        self._acquisition_stop.clear()
+        self._acquisition_thread = threading.Thread(
+            target=self._acquisition_loop,
+            name='SimCameraAcquisition',
             daemon=True,
         )
-        self._pump_thread.start()
+        self._acquisition_thread.start()
 
-    def _stop_callback_pump(self) -> None:
-        """Signal the pump to exit and join with a short timeout."""
-        self._pump_stop.set()
-        t = self._pump_thread
-        if t is not None:
-            t.join(timeout=2.0)
-        self._pump_thread = None
+    def _stop_acquisition(self) -> None:
+        """Signal the acquisition thread to exit and join with a short timeout.
 
-    def _callback_pump_loop(self) -> None:
-        """Fire registered callbacks at ``1 / exposure_s`` while grabbing.
-
-        Generates a fresh image per tick so the callback gets a unique
-        ``(image, ts, chunks=None)`` triple. SimulatedCamera has no
-        chunk surface, so chunks is always None -- recording callers
-        already treat None as "skip chunk-derived metadata."
+        A listener that stops grabbing from inside its own frame callback runs
+        on the acquisition thread, which cannot join itself; the stop flag
+        alone ends the loop once the callback returns.
         """
-        while not self._pump_stop.is_set():
-            if not self._grabbing:
-                # Pump only delivers while grabbing; cheap idle loop.
-                if self._pump_stop.wait(0.05):
-                    return
-                continue
-            with self._frame_callback_lock:
-                cbs = list(self._registered_frame_callbacks)
-            if not cbs:
+        self._acquisition_stop.set()
+        t = self._acquisition_thread
+        if t is not None and t is not threading.current_thread():
+            t.join(timeout=2.0)
+        self._acquisition_thread = None
+
+    def hold_frames(self, stall: SimulatedStall) -> None:
+        """Stall the stream as ``stall`` says, starting its clock now.
+
+        The camera stays connected and grabbing throughout; only the frames
+        stop. This is how a simulated scope shows what happens when a stream
+        stops delivering, without hardware.
+        """
+        start = time.monotonic() + stall.after_s
+        self._held_window = (start, start + stall.for_s)
+        logger.info(
+            f'[CAM Sim   ] frames will stop in {stall.after_s:g} s for {stall.for_s:g} s '
+            '(simulated stall)'
+        )
+
+    def _frame_interval_s(self) -> float:
+        """The free-run frame period: the exposure, never shorter than the
+        delivery ceiling's period. The pacing and the reported frame rate
+        both read it, so the report cannot drift from the pacing."""
+        return max(self._exposure_us / 1_000_000.0, 1.0 / self._MAX_DELIVERY_FPS)
+
+    def get_resulting_frame_rate(self) -> float | None:
+        if not self.active:
+            return None
+        return 1.0 / self._frame_interval_s()
+
+    def get_link_info(self) -> dict | None:
+        if not self.active:
+            return None
+        return link_info(transport='USB3')
+
+    def _acquisition_loop(self) -> None:
+        """Store one new frame per frame interval while grabbing.
+
+        The interval is the exposure, never shorter than the delivery
+        ceiling's period (``_MAX_DELIVERY_FPS``). Frames are due on a
+        fixed schedule, so the host time spent generating and delivering
+        a frame comes out of the interval rather than adding to it -- a
+        real camera's frame period does not include host work. A loop
+        that falls behind (generation slower than the interval) delivers
+        the next frame at once and re-anchors, never bursting to catch up.
+
+        Each frame goes through the image handler's ``_store_frame``, which
+        counts it, buffers it with its depth and fires the per-frame
+        callbacks. SimulatedCamera has no chunk surface, so chunks is always
+        None -- recording callers already treat None as "skip chunk-derived
+        metadata."
+        """
+        next_due = time.monotonic()
+        stalled = False
+        while not self._acquisition_stop.is_set():
+            handler = self.cam_image_handler
+            if handler is None or not self._grabbing:
                 return
-            image, ts, _bits, _seq = self._mint_frame()
-            image = image.copy()
-            for cb in cbs:
-                try:
-                    cb(image, ts, None)
-                except Exception as e:
-                    logger.exception(f'[CAM Sim   ] frame callback raised: {e}')
-            # Honor the configured exposure as the inter-frame interval.
-            interval_s = max(self._exposure_us / 1_000_000.0, 0.001)
-            if self._pump_stop.wait(interval_s):
+            interval_s = self._frame_interval_s()
+            held = self._held_window
+            now = time.monotonic()
+            if held is not None and held[0] <= now < held[1]:
+                # Stalled: nothing reaches the host, and the stream picks up
+                # on its own schedule when the stall ends.
+                if not stalled:
+                    stalled = True
+                    logger.info('[CAM Sim   ] simulated stall: frames stopped')
+                if self._acquisition_stop.wait(min(interval_s, held[1] - now)):
+                    return
+                next_due = time.monotonic()
+                continue
+            if stalled:
+                stalled = False
+                logger.info('[CAM Sim   ] simulated stall: frames resumed')
+            with self._lock:
+                image = self._generate_image()
+                bits = self.significant_bits
+            # The transfer from a real camera to the host takes time after the
+            # frame is exposed; the realistic preset charges it here, between
+            # the frame being made and the host having it.
+            if self._grab_delay > 0:
+                time.sleep(self._grab_delay)
+            # The simulated link is USB3 carrying the format unpacked, as a
+            # Basler USB3 camera carries Mono12: the generated array is the
+            # acquired window in its wire container.
+            handler._store_frame(
+                image, datetime.datetime.now(), significant_bits=bits, wire_bytes=image.nbytes
+            )
+            # Honor the configured exposure as the inter-frame interval,
+            # bounded below by the delivery ceiling.
+            next_due = max(next_due + interval_s, time.monotonic())
+            if self._acquisition_stop.wait(next_due - time.monotonic()):
                 return
 
     # ------------------------------------------------------------------
     # Frame size
     # ------------------------------------------------------------------
-    def set_frame_size(self, w: int, h: int) -> dict:
-        """Set the simulated camera frame size, clamped to valid ranges.
+    def _frame_grid(self) -> FrameGrid:
+        """Windows of 4 x 4 steps, up to the sensor at the current binning.
 
-        ``w`` and ``h`` are post-binning (displayed) pixels, so the ceiling is
-        the native sensor size divided by the current binning factor -- the
-        same constraint Pylon enforces via ``Width.Max`` at the active binning.
-
-        Args:
-            w: Target width in pixels (snapped to a multiple of 48,
-                clamped to [48, native_width / binning]).
-            h: Target height in pixels (snapped to a multiple of 4,
-                clamped to [4, native_height / binning]).
-
-        Returns:
-            dict: The delivered size ``{'width': int, 'height': int}`` after
-                snapping and clamping, so the caller knows what was actually
-                applied without a read-back.
+        Sizes are post-binning (displayed) pixels, so the ceiling is the native
+        sensor size divided by the binning factor -- the same constraint Pylon
+        enforces via ``Width.Max`` at the active binning.
         """
-        with self._lock:
-            max_w = self._native_width // self._binning
-            max_h = self._native_height // self._binning
-            self._width = max(48, min(max_w, int(w / 48) * 48))
-            self._height = max(4, min(max_h, int(h / 4) * 4))
+        return FrameGrid(
+            step=(4, 4),
+            max_size=(self._native_width // self._binning, self._native_height // self._binning),
+        )
+
+    def _set_hardware_window(self, plan) -> bool:
+        # A geometry change stops the stream, applies, and restarts it, as it
+        # does on a real body (pixel format and binning below do the same), so
+        # no frame made under the old setting is stored after the change.
+        with self.update_camera_config(), self._lock:
+            self._width = plan.acq_width
+            self._height = plan.acq_height
             if _cam_log is not None:
                 _cam_log.info(f'sim set_frame_size({self._width}x{self._height})')
-            return {'width': self._width, 'height': self._height}
+        return True
 
     def get_min_frame_size(self) -> dict:
         """Return the simulator's minimum supported frame size.
 
         Returns:
-            dict: ``{'width': 48, 'height': 4}``.
+            dict: ``{'width': 4, 'height': 4}``.
         """
-        return {'width': 48, 'height': 4}
+        return {'width': 4, 'height': 4}
 
     def get_max_frame_size(self) -> dict:
         """Return the maximum frame size at the current binning.
@@ -492,12 +538,7 @@ class SimulatedCamera(Camera):
             'height': self._native_height // self._binning,
         }
 
-    def get_frame_size(self) -> dict:
-        """Return the simulated camera's current frame size.
-
-        Returns:
-            dict: ``{'width': int, 'height': int}``.
-        """
+    def _hardware_frame_size(self) -> dict:
         return {'width': self._width, 'height': self._height}
 
     # ------------------------------------------------------------------
@@ -507,17 +548,17 @@ class SimulatedCamera(Camera):
         """Set the simulated camera pixel format.
 
         Args:
-            pixel_format: Format identifier (must be in ``PIXEL_FORMATS``).
+            pixel_format: Format identifier (must be one its profile lists).
 
         Returns:
             bool: True on success, False when the format is not supported.
         """
-        if pixel_format not in self.PIXEL_FORMATS:
+        if pixel_format not in self.profile.pixel_formats:
             if _cam_log is not None:
                 _cam_log.error(f'sim set_pixel_format({pixel_format}) UNSUPPORTED')
             logger.error(f'[CAM Sim   ] Unsupported pixel format: {pixel_format}')
             return False
-        with self._lock:
+        with self.update_camera_config(), self._lock:
             self._pixel_format = pixel_format
             if _cam_log is not None:
                 _cam_log.info(f'sim set_pixel_format({pixel_format})')
@@ -527,33 +568,36 @@ class SimulatedCamera(Camera):
         """Return the simulated camera's current pixel format.
 
         Returns:
-            str: One of ``PIXEL_FORMATS``.
+            str: One of the profile's ``pixel_formats``.
         """
         return self._pixel_format
 
     def get_supported_pixel_formats(self) -> tuple:
-        """Return the supported pixel formats.
+        """Return the formats its profile lists.
 
         Returns:
-            tuple: ``('Mono8', 'Mono10', 'Mono12')``.
+            tuple: The profile's ``pixel_formats``.
         """
-        return self.PIXEL_FORMATS
+        return tuple(self.profile.pixel_formats)
 
     # ------------------------------------------------------------------
     # Exposure
     # ------------------------------------------------------------------
-    def exposure_t(self, exposure_ms: float) -> None:
-        """Set exposure time in milliseconds.
+    def exposure_t(self, exposure_ms: float) -> float | bool:
+        """Set exposure time in milliseconds, returning the microseconds
+        actually in effect.
 
-        Silently clamps when ``exposure_ms`` exceeds ``max_exposure``
-        (logs a warning); silently no-ops when the simulator is not
-        active.
+        Refuses (``False``) rather than silently no-opping when the
+        simulator is inactive or the request exceeds ``max_exposure``: the
+        hardware value does not move on either path, so a caller that treated
+        those as applied would record a chunk-match target the simulator never
+        stamps.
 
         Args:
             exposure_ms: Exposure time in milliseconds.
         """
         if not self.active:
-            return
+            return False
         if exposure_ms > self.max_exposure:
             if _cam_log is not None:
                 _cam_log.warning(
@@ -562,7 +606,7 @@ class SimulatedCamera(Camera):
             logger.warning(
                 f'[CAM Sim   ] Exposure {exposure_ms}ms exceeds max ({self.max_exposure}ms)'
             )
-            return
+            return False
         with self._lock:
             self._exposure_us = float(exposure_ms) * 1000.0
             if _cam_log is not None:
@@ -570,6 +614,7 @@ class SimulatedCamera(Camera):
                     f'sim ExposureTime.SetValue({float(exposure_ms) * 1000.0:.0f}us) (={exposure_ms}ms)'
                 )
             logger.debug(f'[CAM Sim   ] Exposure set to {exposure_ms}ms')
+            return self._exposure_us
 
     def get_exposure_t(self) -> float:
         """Return exposure time in milliseconds.
@@ -601,8 +646,16 @@ class SimulatedCamera(Camera):
 
         Returns:
             dict: ``{'sensor': 35.0, 'board': 40.0}``.
+
+        Raises:
+            HardwareError: No camera is active.
         """
+        if not self.active:
+            raise HardwareError('Camera temperature read: no camera is active')
         return {'sensor': 35.0, 'board': 40.0}
+
+    def supports_temperature(self) -> bool:
+        return bool(self.active)
 
     # ------------------------------------------------------------------
     # Frame rate
@@ -624,7 +677,7 @@ class SimulatedCamera(Camera):
     # ------------------------------------------------------------------
     # Binning
     # ------------------------------------------------------------------
-    def set_binning_size(self, size: int) -> bool:
+    def _set_hardware_binning(self, size: int) -> bool:
         """Set hardware binning factor for the simulator.
 
         Args:
@@ -638,7 +691,7 @@ class SimulatedCamera(Camera):
                 _cam_log.error(f'sim set_binning_size({size}) UNSUPPORTED')
             logger.error(f'[CAM Sim   ] Unsupported bin size: {size}')
             return False
-        with self._lock:
+        with self.update_camera_config(), self._lock:
             self._binning = size
             # Frame is in post-binning pixels, so a larger binning shrinks the
             # post-binning ceiling (native / binning); clamp the current frame
@@ -750,10 +803,12 @@ class SimulatedCamera(Camera):
         """Apply blur based on distance from focal Z position."""
         # Query Z position from motor if callback is wired
         if self._z_position_func is not None:
-            try:
-                self._z_position = self._z_position_func()
-            except Exception:
-                pass
+            z = self._z_position_func()
+            if z is None:
+                # No focus axis to read: a manual scope is focused by hand,
+                # so its sample is rendered in focus.
+                return img
+            self._z_position = z
 
         defocus = abs(self._z_position - self._focal_z)
         if defocus < 1.0:
@@ -782,7 +837,7 @@ class SimulatedCamera(Camera):
         call entirely.
         """
         if not self._cycle_images:
-            self._cycle_images = self._make_specimen_frames(h, w)
+            self._cycle_images = specimen_frames(h, w)
         src = self._cycle_images[self._cycle_index % len(self._cycle_images)]
         self._cycle_index += 1
         # Resize if binning changed since load -- nearest-neighbor via slicing
@@ -791,11 +846,38 @@ class SimulatedCamera(Camera):
             y_idx = np.linspace(0, src_h - 1, h, dtype=int)
             x_idx = np.linspace(0, src_w - 1, w, dtype=int)
             src = src[np.ix_(y_idx, x_idx)]
-        # Floor so the field stays visible at the short default exposures
-        brightness = max(0.5, brightness)
+        # Floor so the field stays visible at the short default exposures.
+        # Zero is exempt and must stay zero: it means no light reached the
+        # sample, and a floor that lifts darkness back to a visible field
+        # is what made an unlit capture indistinguishable from a lit one.
+        if brightness > 0.0:
+            brightness = max(0.5, brightness)
         if dtype == np.uint16:
             return (src.astype(np.float32) / 255.0 * max_val * brightness).astype(dtype)
         return (src.astype(np.float32) * brightness).clip(0, max_val).astype(dtype)
+
+    def _illumination_scale(self) -> float:
+        """1.0 when the sample is lit, 0.0 when nothing is.
+
+        A camera sees what the illumination gives it, so an unlit field is
+        black however long the exposure or however high the gain. Without
+        this the simulator could not produce a dark frame at all, and the
+        whole class of illumination failures -- an LED that did not come
+        on, a channel left dark through a run -- was reproducible only on
+        a bench.
+
+        Unwired, the answer is 1.0: a camera built with no scope around it
+        has no illumination to ask about, and rendering it black would
+        make every standalone camera test describe a fault.
+
+        Intensity is deliberately not modelled. The question this answers
+        is whether there is light, which is what distinguishes a failure
+        from a capture; how bright a lit field looks already follows
+        exposure and gain.
+        """
+        if self._illumination_func is None:
+            return 1.0
+        return 1.0 if self._illumination_func() > 0.0 else 0.0
 
     def _generate_image(self) -> np.ndarray:
         """Generate a synthetic image based on current settings."""
@@ -809,9 +891,10 @@ class SimulatedCamera(Camera):
             dtype = np.uint8
             max_val = 255
 
-        # Scale brightness by exposure and gain
-        raw = (self._exposure_us / 1_000_000.0) * max(1.0, self._gain) * 10.0
-        brightness = min(1.0, raw)
+        # Scale brightness by exposure and gain; the gain is held in dB, so it
+        # multiplies the signal by 10^(dB/20)
+        raw = (self._exposure_us / 1_000_000.0) * 10.0 ** (self._gain / 20.0) * 10.0
+        brightness = min(1.0, raw) * self._illumination_scale()
         if self._test_pattern == 'image_cycle':
             img = self._render_cycle_frame(h, w, dtype, max_val, brightness)
         elif self._test_pattern == 'black':
@@ -838,146 +921,36 @@ class SimulatedCamera(Camera):
                 )
             img = self._render_cycle_frame(h, w, dtype, max_val, brightness)
 
+        if self._black_level:
+            # The offset lifts every pixel, and a pixel lifted past full scale
+            # saturates there, as a sensor's output does; the integer cast
+            # would otherwise wrap a bright pixel to near zero.
+            img = np.minimum(np.rint(img.astype(np.float32) + self._black_level), max_val)
+            img = img.astype(dtype)
         return img
 
-    def _mint_frame(self) -> tuple:
-        """Generate the next frame and publish it as one event.
-
-        The pixels, the timestamp, the payload depth and the arrival ordinal
-        describe ONE frame. A caller able to write or read any of them apart
-        from the others is how a frame gets handed out under a number, or a
-        depth, belonging to a different frame -- and an ordinal that runs
-        ahead of its pixels retires a settle count the pixels predate, which
-        is a capture taken under the previous gain/exposure/LED state.
-
-        The depth is stamped here rather than derived on the way out: it
-        follows the pixel format, and the format can change while a frame
-        sits buffered.
-
-        Returns:
-            tuple: ``(image, timestamp, significant_bits, seq)`` -- the values
-                just published. Callers RETURN THESE; re-reading the fields
-                after the lock drops is the tear this method exists to close.
-        """
-        with self._lock:
-            self.array = self._generate_image()
-            self._last_grab_ts = datetime.datetime.now()
-            self._last_grab_bits = self.significant_bits
-            self._grab_seq += 1
-            return self.array, self._last_grab_ts, self._last_grab_bits, self._grab_seq
-
-    def _snapshot_frame(self) -> tuple:
-        """Return the buffered frame's four fields from one lock acquisition.
-
-        The exposure-gated paths hand back the frame already in the buffer
-        rather than minting a new one. They still have to read its four
-        fields together: the callback pump mints frames on its own thread, so
-        a field read after the lock drops can belong to the next frame.
-
-        Returns:
-            tuple: ``(image, timestamp, significant_bits, seq)``; image is
-                None when no frame has been generated yet.
-        """
-        with self._lock:
-            img = self.array if self.array.size > 0 else None
-            return img, self._last_grab_ts, self._last_grab_bits, self._grab_seq
-
-    def grab(self) -> tuple:
-        """Return the last generated image (non-blocking).
-
-        When image cycling is active, simulates realistic camera behavior:
-        a new frame isn't available until the exposure time has elapsed.
-        This matches real cameras where grab() returns the latest buffered
-        frame and the frame rate is limited by exposure time.
-
-        Returns:
-            tuple: ``(success: bool, timestamp: datetime | None,
-                seq: int | None)``. The ordinal advances only when a NEW
-                frame is generated, so the exposure-gated path below returns
-                the previous frame's own number rather than a fresh one --
-                the same frame handed out twice is one frame.
-        """
-        if not self._grabbing:
-            return False, None, None
-
-        if self._grab_delay > 0:
-            time.sleep(self._grab_delay)
-
-        # Gate frame delivery on exposure time (realistic simulation)
-        if self._test_pattern == 'image_cycle':
-            exposure_s = self._exposure_us / 1_000_000.0
-            now = time.monotonic()
-            last = getattr(self, '_last_frame_time', 0.0)
-            if now - last < exposure_s:
-                # Not enough time has passed -- return the previous frame
-                _img, ts, _bits, seq = self._snapshot_frame()
-                return True, ts, seq
-            self._last_frame_time = now
-
-        _img, ts, _bits, seq = self._mint_frame()
-        return True, ts, seq
-
-    @property
-    def frames_delivered(self) -> int:
-        """Frames generated so far (overrides Camera.frames_delivered).
-
-        SimulatedCamera does not use ImageHandlerBase, so it carries its own
-        ordinal rather than delegating to a handler.
-        """
-        with self._lock:
-            return self._grab_seq
-
-    def grab_latest(self) -> tuple:
-        """Single-copy grab for display pipeline (overrides Camera.grab_latest).
-
-        SimulatedCamera doesn't use ImageHandlerBase, so we override
-        to generate and return the image directly. The depth travels with the
-        frame (the generated frame's format depth), matching the real drivers.
-
-        Returns:
-            tuple: ``(success: bool, image: np.ndarray | None,
-                timestamp: datetime | None, significant_bits: int | None,
-                seq: int | None)``.
-        """
-        if not self._grabbing:
-            return False, None, None, None, None
-
-        if self._grab_delay > 0:
-            time.sleep(self._grab_delay)
-
-        if self._test_pattern == 'image_cycle':
-            exposure_s = self._exposure_us / 1_000_000.0
-            now = time.monotonic()
-            last = getattr(self, '_last_frame_time', 0.0)
-            if now - last < exposure_s:
-                img, ts, bits, seq = self._snapshot_frame()
-                return True, (None if img is None else img.copy()), ts, bits, seq
-            self._last_frame_time = now
-
-        img, ts, bits, seq = self._mint_frame()
-        return True, img.copy(), ts, bits, seq
-
     def grab_new_capture(self, timeout_s: float) -> tuple:
-        """Generate a fresh image (blocking with timeout).
+        """Wait for a frame stored after this call, then return it.
+
+        The acquisition thread is the only producer, as a real camera's SDK
+        thread is, so a still capture waits for the stream rather than making
+        a frame of its own: the frame it gets is one the stream delivered,
+        counted once, under the settings in effect when it was made.
 
         Args:
-            timeout_s: Accepted for API parity; a small per-call delay
-                proportional to exposure is applied (capped at 0.1 s).
+            timeout_s: Wall-clock seconds to wait for the next frame.
 
         Returns:
             tuple: ``(success: bool, timestamp: datetime | None,
-                seq: int | None)``.
+                seq: int | None)``. ``success=False`` when the camera is not
+                grabbing or no frame arrived within ``timeout_s``.
         """
-        if not self._grabbing:
+        handler = self.cam_image_handler
+        if not self._grabbing or handler is None:
             return False, None, None
-
-        # Simulate exposure delay (capped to avoid slow tests)
-        delay = min(self._exposure_us / 1_000_000.0, 0.1)
-        if delay > 0:
-            time.sleep(delay)
-
-        _img, ts, _bits, seq = self._mint_frame()
-        return True, ts, seq
+        if not handler.wait_for_frame_after(handler.frames_delivered, timeout_s):
+            return False, None, None
+        return self.grab()
 
     # ------------------------------------------------------------------
     # Gain
@@ -992,19 +965,64 @@ class SimulatedCamera(Camera):
             return -1
         return self._gain
 
-    def gain(self, value: float) -> None:
+    # ------------------------------------------------------------------
+    # Black level: an offset in DN of the delivered pixel format, added to
+    # every rendered frame, so the value reported is what the image shows.
+    # ------------------------------------------------------------------
+    _BLACK_LEVEL_RANGE = (0.0, 64.0)
+
+    def supports_black_level(self) -> bool:
+        return bool(self.active)
+
+    def get_black_level(self) -> float | None:
+        if not self.active:
+            return None
+        return self._black_level
+
+    def get_black_level_range(self) -> tuple[float, float] | None:
+        if not self.active:
+            return None
+        return self._BLACK_LEVEL_RANGE
+
+    def set_black_level(self, value: float) -> float | bool | None:
+        """Set the simulated black level; refused outside its range, as a
+        real node refuses. Returns as ``gain`` does."""
+        if not self.active:
+            return None
+        low, high = self._BLACK_LEVEL_RANGE
+        if not low <= float(value) <= high:
+            logger.warning(f'[CAM Sim   ] Black level {value} outside [{low}, {high}]')
+            return False
+        with self._lock:
+            self._black_level = float(value)
+        return float(value)
+
+    def gain(self, value: float) -> float | bool | None:
         """Set the simulated camera gain.
+
+        Refuses (``False``) a value outside the range the profile declares,
+        as a real body's gain node does, so a refused gain is reachable in
+        the simulator and not only on a bench. The simulated gain does not
+        move on a refusal.
 
         Args:
             value: Gain in dB.
+
+        Returns:
+            float | bool | None: See ``Camera.gain``.
         """
         if not self.active:
-            return
+            return None
+        low, high = self.min_gain, self.max_gain
+        if (low is not None and float(value) < low) or float(value) > high:
+            logger.warning(f'[CAM Sim   ] Gain {value} dB outside [{low}, {high}] dB')
+            return False
         with self._lock:
             self._gain = float(value)
             if _cam_log is not None:
                 _cam_log.info(f'sim Gain.SetValue({float(value):.3f})')
             logger.debug(f'[CAM Sim   ] Gain set to {value}')
+        return float(value)
 
     def init_auto_gain_focus(
         self,
@@ -1029,6 +1047,20 @@ class SimulatedCamera(Camera):
             if max_gain is not None:
                 self._auto_gain_max = max_gain
         return True
+
+    def _converged_gain(self) -> float:
+        """Return the gain the simulated auto-gain loop settles on.
+
+        The midpoint of the auto-gain bounds, held inside the range the
+        gain node declares: a real body's auto loop drives the same node a
+        manual write does and cannot leave its range, so a caller whose
+        bounds reach past the profile (a ``current.json`` carried over from
+        a body with a higher ceiling) still gets a gain this camera accepts
+        when it writes it back.
+        """
+        midpoint = (self._auto_gain_min + self._auto_gain_max) / 2.0
+        low = self.min_gain if self.min_gain is not None else midpoint
+        return min(max(midpoint, low), self.max_gain)
 
     def auto_gain(
         self,
@@ -1062,8 +1094,7 @@ class SimulatedCamera(Camera):
                     self._auto_gain_min = min_gain_db
                 if max_gain_db is not None:
                     self._auto_gain_max = max_gain_db
-                # Simulate convergence: set gain to mid-range
-                self._gain = (self._auto_gain_min + self._auto_gain_max) / 2.0
+                self._gain = self._converged_gain()
             if _cam_log is not None:
                 _cam_log.info(
                     f'sim auto_gain(state={state}, target={target_brightness}, min_db={min_gain_db}, max_db={max_gain_db})'
@@ -1080,7 +1111,8 @@ class SimulatedCamera(Camera):
     ) -> bool:
         """Run a single simulated auto-gain iteration.
 
-        Converges by setting gain to the midpoint of [min_gain_db, max_gain_db].
+        Converges on the midpoint of [min_gain_db, max_gain_db], held inside
+        the gain node's range (see ``_converged_gain``).
 
         Args:
             state: True to run, False to no-op.
@@ -1098,8 +1130,7 @@ class SimulatedCamera(Camera):
                     self._auto_gain_min = min_gain_db
                 if max_gain_db is not None:
                     self._auto_gain_max = max_gain_db
-                # One-shot: converge gain toward target
-                self._gain = (self._auto_gain_min + self._auto_gain_max) / 2.0
+                self._gain = self._converged_gain()
         return True
 
     def update_auto_gain_target_brightness(self, auto_target_brightness: float) -> bool:

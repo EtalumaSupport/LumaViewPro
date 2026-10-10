@@ -5,7 +5,7 @@ import math
 import re
 import threading
 import time
-from typing import Any
+from typing import Any, NoReturn
 
 # ids_peak_ipl first: its package __init__ registers the DLL directory the
 # core binding and the ipl-extension bridge resolve against. The stack is
@@ -25,15 +25,16 @@ except ImportError:
     # safe -- the dedicated camera log is an enhancement, not a
     # dependency, and dozens of call sites use _cam_log unguarded.
     _cam_log = logger
-from drivers.camera import Camera, ImageHandlerBase
+from drivers.camera import (
+    Camera,
+    FrameGrid,
+    ImageHandlerBase,
+    declared_unit,
+    link_info,
+    no_hardware_auto_mode,
+)
 from drivers.exceptions import HardwareError
 from drivers.registry import camera_registry
-
-# modules.aoi_geometry (plan_aoi) and modules.image_utils (center_crop) are
-# imported function-locally where used: the driver layer must not import from
-# modules/ at top level (enforced by tests/test_architecture_fixes.py). Both are
-# pure helpers, so the lazy import carries no cycle risk; after first use the
-# import is a sys.modules dict hit, negligible even on the per-frame unpack path.
 
 # IDS Library.Close() shuts down the entire SDK (not per-device).
 # Defer to atexit so it only runs once at process exit.
@@ -214,30 +215,19 @@ def _ids_delivery_significant_bits(wire_format_name: str) -> int:
     return 8
 
 
-def _unpack_buffer(buffer, wire_format_name: str, crop_spec):
+def _unpack_buffer(buffer, wire_format_name: str):
     """Unpack one finished IDS buffer to its delivered array.
 
     BufferToImage + ConvertTo to the delivery target (native uint16 for the
     12-bit modes; 8-bit uint8 directly for the 8-bit-mode Mono10 wire, see
-    _ids_delivery_target), crop the oversize-then-crop surplus (``crop_spec`` =
-    (x0, y0, w, h), or None for a full-frame delivery), then copy to a
-    contiguous, target-sized array that outlives the SDK image and the re-queued
-    buffer. Shared by the live unpack worker and the still-capture path so the
-    crop is applied identically on both -- the delivered frame matches
-    get_frame_size() regardless of which path produced it. center_crop is
-    imported here (drivers must not import modules/ at top level); it is a
-    sys.modules hit after first use.
+    _ids_delivery_target), then copy to a contiguous array that outlives the
+    SDK image and the re-queued buffer.
     """
-    from modules.image_utils import center_crop
-
     target = _ids_delivery_target(wire_format_name)
     img = ids_peak_ipl_extension.BufferToImage(buffer)
     if img.PixelFormat() != target:
         img = img.ConvertTo(target)
-    view = img.get_numpy()
-    if crop_spec is not None:
-        view = center_crop(view, *crop_spec)
-    return view.copy()
+    return img.get_numpy().copy()
 
 
 # GenTL SFNC-standard DataStream statistics counters read by the diagnostic
@@ -357,23 +347,16 @@ class IDSCamera(Camera):
         # node-map read on the per-frame image-metadata path.
         self._pixel_format_cache = None
 
-        # Oversize-then-crop framing state. set_frame_size acquires the next
-        # legal AOI at or above the request (the sensor's 48-px width grid
-        # cannot hit an arbitrary size) and records the centered sub-rectangle
-        # (x0, y0, w, h) the unpack worker crops back to exactly what was asked.
-        # It is the single source of truth for the delivered (public) frame size
-        # -- get_frame_size() reads (w, h) from it, get_acquired_aoi() reports
-        # the larger hardware AOI. None before the first set_frame_size or after
-        # a geometry change invalidates it (see _invalidate_framing).
-        self._crop_spec: tuple[int, int, int, int] | None = None
-
         # The offset-independent sensor max (width, height), cached from a read
         # taken with the offsets at zero (Width/Height .Maximum() shrinks as the
         # offset grows, so a live read once a centering offset is applied would
-        # under-report). Refreshed each set_frame_size; cleared on a geometry
-        # change. None until the first set_frame_size (get_max_frame_size then
-        # reads live, where the offsets are still at their zero default).
+        # under-report), with the offset nodes' Minimums read at the same time
+        # (they depend on the offsets too). Read by the first frame grid after
+        # connect or a binning change, where the offsets are at zero, and
+        # cleared on a binning change. None until then (get_max_frame_size
+        # reads live meanwhile).
         self._sensor_max: tuple[int, int] | None = None
+        self._offset_min: tuple[int, int] = (0, 0)
 
         # Recovery contract: DeviceLost is the terminal removal signal for this
         # fixed-cable, reconnect-disabled body (uEye+ U3 default). The
@@ -854,28 +837,10 @@ class IDSCamera(Camera):
                 logger.debug(f'[CAM Class ] descriptor read ignored: {e}')
         return None, read_faulted
 
-    def _schedule_async_teardown(self) -> None:
-        """Run disconnect() (the SDK close/destroy) on a daemon thread.
-
-        IDS's own callbacks may reconfigure the stream inline, but never close or
-        destroy the device on the callback thread -- so the lightweight
-        _mark_disconnected runs inline while the close/destroy defers here. The
-        _async_teardown_started latch makes this one-shot under concurrent
-        triggers (the callback and the poll-loop fallback).
-        """
-        with self._state_lock:
-            if self._async_teardown_started:
-                return
-            self._async_teardown_started = True
-
-        def _run_teardown():
-            try:
-                time.sleep(0.05)  # let the SDK callback return before close/destroy
-                self.disconnect()
-            except Exception as e:
-                logger.debug(f'[CAM Class ] async teardown ignored: {e}')
-
-        threading.Thread(target=_run_teardown, name='IDSAsyncTeardown', daemon=True).start()
+    # _schedule_async_teardown() inherited from Camera: IDS's own callbacks may
+    # reconfigure the stream inline, but never close or destroy the device on
+    # the callback thread, so the close/destroy runs on the base's teardown
+    # thread while _mark_disconnected runs inline.
 
     def is_connected(self) -> bool:
         if self.active in (False, None):
@@ -2084,6 +2049,7 @@ class IDSCamera(Camera):
         unpack path is untouched.
         """
         import time
+
         import numpy as np
 
         from drivers import ids_unpack
@@ -2103,7 +2069,6 @@ class IDSCamera(Camera):
         if not self.active or not self.data_stream:
             results['error'] = 'camera not connected / no data stream'
             return results
-
         # The device's real PixelFormat menu: a newer SDK could expose an
         # unpacked format that removes the need for any host unpack at all.
         try:
@@ -2262,177 +2227,100 @@ class IDSCamera(Camera):
         self._drain_finished_buffers(n_frames, _compare, label='crosscheck')
         return results
 
-    def set_frame_size(self, w, h) -> dict | bool:
-        """Deliver exactly the requested frame size via oversize-then-crop.
+    def _frame_grid(self) -> FrameGrid | None:
+        """The AOI nodes' grid at the current binning; None when inactive or unreadable.
 
-        The IMX676 AOI snaps to a coarse grid (48 px wide, 4 px tall), so a
-        request like 1900 cannot be set exactly. Rather than silently floor it
-        (the old behavior delivered 1872 for a 1900 request), acquire the next
-        legal AOI UP, center it on the sensor, and record the sub-rectangle the
-        unpack worker crops back to the exact request. The hardware AOI (the
-        oversized acquisition) is diagnostic only; the delivered, public size is
-        the cropped target.
-
-        Returns the delivered size as ``{'width': w, 'height': h}`` on success
-        so the caller knows what was actually applied without a read-back (a
-        live get_frame_size() can spuriously drop the camera on a transient
-        error); returns False when the camera is inactive or the apply fails.
+        The IMX676 AOI snaps to a coarse grid (48 px wide, 4 px tall), so the
+        base acquires the next legal AOI up, centred on the optical axis, and
+        crops back to the request. Each node's Minimum is the grid PHASE, not
+        just a request floor: the legal set is Min + k*Inc, and a binned Height
+        reports Min=418 with Inc=4 -- off the plain-multiple grid, so a
+        multiple-of-Inc snap is rejected. The increments come from the SDK
+        nodemap, not the profile: the hardware increment is authoritative, and
+        an unrecognized model falls back to a default profile whose alignment
+        (4) the SDK rejects.
         """
         if not self.active:
             # Expected during disconnect/teardown; log so a dropped resize is
             # visible in a bundle rather than a silent no-op.
             _cam_log.debug('[CAM Class ] set_frame_size skipped: camera inactive')
-            return False
-
+            return None
         try:
-            from modules.aoi_geometry import plan_aoi
-
             nodemap = self.remote_nodemap
             width_node = nodemap.FindNode('Width')
             height_node = nodemap.FindNode('Height')
             offset_x_node = nodemap.FindNode('OffsetX')
             offset_y_node = nodemap.FindNode('OffsetY')
-
-            # Width/Height Minimum is offset-independent, so read it once here
-            # and reuse for the grid phase (size_min below). The offset minimums
-            # DO depend on the offsets, so they are read later with the offsets
-            # zeroed.
-            w_min, h_min = width_node.Minimum(), height_node.Minimum()
-            # The request is the crop TARGET, not the acquisition floor -- pass
-            # it through verbatim. plan_aoi rounds the ACQUISITION up to the next
-            # legal AOI (always >= the node minimum) and crops it back to exactly
-            # this target, so a request below the node minimum is still delivered
-            # at the requested size: a 950-wide frame at 2x binning, where
-            # Width.Min is 1056, acquires 1056 and crops to 950 (square). Flooring
-            # the target up to the minimum here instead delivered the floored size
-            # (1056x950, non-square) because the crop then had nothing to trim.
-            target = (int(w), int(h))
-            # Alignment step from the SDK nodemap, not the profile: the hardware
-            # increment is authoritative (48 wide on the IMX676 bodies), and an
-            # unrecognized model falls back to a default profile whose alignment
-            # (4) the SDK rejects. Couple to the hardware, not a static spec.
+            if self._sensor_max is None:
+                # The offsets are at zero here (connect, or a binning change,
+                # which zeroes them), so Maximum() is the true sensor max and
+                # the offset Minimums the true, offset-independent phase.
+                self._sensor_max = (width_node.Maximum(), height_node.Maximum())
+                self._offset_min = (offset_x_node.Minimum(), offset_y_node.Minimum())
             step = (width_node.Increment(), height_node.Increment())
+            size_min = (width_node.Minimum(), height_node.Minimum())
+            offset_step = (offset_x_node.Increment(), offset_y_node.Increment())
             bias = self._optical_center_bias()
+        except Exception as e:
+            _cam_log.error(f'[CAM Class ] set_frame_size could not read the AOI nodes: {e}')
+            return None
+        # The live Width/Height node bounds: min is the grid phase, inc the
+        # alignment step, max the offset-zeroed sensor max. The 1x minimum is
+        # otherwise only inferred from the delivered size -- logging it makes
+        # the real hardware floor observable in a bundle.
+        _cam_log.info(
+            f'[CAM Class ] set_frame_size nodes '
+            f'W[min={size_min[0]} inc={step[0]} max={self._sensor_max[0]}] '
+            f'H[min={size_min[1]} inc={step[1]} max={self._sensor_max[1]}]'
+        )
+        return FrameGrid(
+            step=step,
+            max_size=self._sensor_max,
+            size_min=size_min,
+            offset_step=offset_step,
+            offset_min=self._offset_min,
+            bias=bias,
+        )
 
+    def _set_hardware_window(self, plan) -> bool:
+        """Set the planned AOI and its centring offsets.
+
+        Returns False when the camera is inactive or the apply fails.
+        """
+        if not self.active:
+            return False
+        try:
+            nodemap = self.remote_nodemap
             with self.update_camera_config():
                 # Zero the offsets first so Width/Height range over the full
-                # sensor (an AOI's max width shrinks as its X offset grows) and
-                # the max we read is the true sensor max, not max-minus-offset.
-                offset_x_node.SetValue(0)
-                offset_y_node.SetValue(0)
-
-                # This offset-zero read is the only place the true (offset-
-                # independent) sensor max is visible; cache it for
-                # get_max_frame_size, which is called with offsets applied.
-                max_size = (width_node.Maximum(), height_node.Maximum())
-                self._sensor_max = max_size
-
-                # The live Width/Height node bounds: min is the grid phase, inc
-                # the alignment step, max the offset-zeroed sensor max. The 1x
-                # minimum is otherwise only inferred from the delivered size --
-                # logging it makes the real hardware floor observable in a bundle.
-                _cam_log.info(
-                    f'[CAM Class ] set_frame_size nodes '
-                    f'W[min={w_min} inc={step[0]} max={max_size[0]}] '
-                    f'H[min={h_min} inc={step[1]} max={max_size[1]}]'
-                )
-
-                # Each node's Minimum is the grid PHASE, not just a request
-                # floor: the legal set is Min + k*Inc, and a binned Height
-                # reports Min=418 with Inc=4 -- off the plain-multiple grid, so a
-                # multiple-of-Inc snap is rejected. Width/Height Minimum (w_min,
-                # h_min) was read above; the offset minimums are read here with
-                # the offsets zeroed so they are the true, offset-independent
-                # phase. Couple to the hardware, not a static spec.
-                size_min = (w_min, h_min)
-                offset_min = (offset_x_node.Minimum(), offset_y_node.Minimum())
-
-                plan = plan_aoi(
-                    target=target,
-                    step=step,
-                    max_size=max_size,
-                    offset_step=(offset_x_node.Increment(), offset_y_node.Increment()),
-                    size_min=size_min,
-                    offset_min=offset_min,
-                    bias=bias,
-                )
-
-                width_node.SetValue(plan.acq_width)
-                height_node.SetValue(plan.acq_height)
-                offset_x_node.SetValue(plan.offset_x)
-                offset_y_node.SetValue(plan.offset_y)
-
-                # Record the crop INSIDE the stopped window: update_camera_config
-                # restarts the grab (and reallocs buffers to the new AOI) on exit,
-                # so the window must be in place before the unpack worker resumes,
-                # or it would crop the new-sized buffer against the old one. None
-                # when the AOI already matches the request (needs_crop False) so
-                # the unpack worker skips the per-frame slice entirely;
-                # get_frame_size then falls back to the acquired AOI, which equals
-                # the delivered size on that path.
-                self._crop_spec = (
-                    (plan.crop_x0, plan.crop_y0, plan.crop_width, plan.crop_height)
-                    if plan.needs_crop
-                    else None
-                )
-
-            if (plan.crop_width, plan.crop_height) != target:
-                # plan_aoi clamps to the sensor: a request within one alignment
-                # step of the max can't be supplied in full. The delivered size
-                # is honest (get_frame_size reports it), but flag the shortfall.
-                _cam_log.warning(
-                    f'[CAM Class ] set_frame_size delivered '
-                    f'{plan.crop_width}x{plan.crop_height}, smaller than requested '
-                    f'{target[0]}x{target[1]} (near sensor max); get_frame_size() '
-                    f'reports the delivered size'
-                )
-
+                # sensor (an AOI's max width shrinks as its X offset grows).
+                nodemap.FindNode('OffsetX').SetValue(0)
+                nodemap.FindNode('OffsetY').SetValue(0)
+                nodemap.FindNode('Width').SetValue(plan.acq_width)
+                nodemap.FindNode('Height').SetValue(plan.acq_height)
+                nodemap.FindNode('OffsetX').SetValue(plan.offset_x)
+                nodemap.FindNode('OffsetY').SetValue(plan.offset_y)
             _cam_log.info(
-                f'[CAM Class ] set_frame_size target={target[0]}x{target[1]} '
-                f'acq={plan.acq_width}x{plan.acq_height} '
-                f'off=({plan.offset_x},{plan.offset_y}) bias={bias} '
-                f'crop=({plan.crop_x0},{plan.crop_y0},{plan.crop_width},{plan.crop_height})'
+                f'[CAM Class ] set_frame_size acq={plan.acq_width}x{plan.acq_height} '
+                f'off=({plan.offset_x},{plan.offset_y})'
             )
-            return {'width': plan.crop_width, 'height': plan.crop_height}
+            return True
         except Exception as e:
-            # A partially-applied AOI (offsets zeroed, or Width/Height set but
-            # the crop not yet recorded) must not leave a stale crop window for
-            # the unpack worker. Invalidate so frames pass through at the full
-            # AOI until the next successful set_frame_size re-applies it.
-            self._invalidate_framing()
             _cam_log.error(f'[CAM Class ] set_frame_size failed: {e}')
             return False
-
-    def _invalidate_framing(self) -> None:
-        """Drop the recorded crop window so the unpack worker passes frames
-        through at the full AOI.
-
-        Called when the AOI geometry changes out from under the crop -- a
-        binning change (which resizes the buffer) or a failed set_frame_size
-        (which may have committed a new AOI before recording the matching
-        window). get_frame_size() then falls back to the live hardware AOI until
-        the next successful set_frame_size records a window that fits the new
-        buffer. Without this the worker crops every new-sized frame against the
-        old window and drops them all (a frozen/black preview).
-
-        Also drops the cached sensor max: a binning change halves it, so the
-        cached value would otherwise be stale until the next set_frame_size.
-        """
-        self._crop_spec = None
-        self._sensor_max = None
 
     def _optical_center_bias(self) -> tuple[int, int]:
         """The optical-center AOI offset bias, in displayed pixels.
 
         Neutral (0, 0) today: the AOI centers geometrically, which is correct for
-        every unit. set_frame_size already threads the return value through
-        plan_aoi's ``bias``, so the optical-center work (planned ~2 weeks out)
+        every unit. _frame_grid already hands the return value to plan_aoi as
+        ``bias``, so the optical-center work (planned ~2 weeks out)
         implements only this method's body -- read the per-unit optical center
         (motorconfig ImageCenter, sensor pixels), reorient it into the delivered
         array frame (aoi_geometry.reorient_image_center, with the sensor's
         mounted orientation pinned by a one-time bench collimator calibration),
         and divide by the active binning. It must return without raising:
-        set_frame_size catches exceptions, so a raise would swallow into a silent
+        _frame_grid catches exceptions, so a raise would swallow into a silent
         failure to resize.
         """
         return (0, 0)
@@ -2457,13 +2345,13 @@ class IDSCamera(Camera):
         # Prefer the cached offset-zero read: Width/Height .Maximum() shrinks as
         # the offset grows (Width.Max = SensorWidth - OffsetX, floored to the
         # increment), so a live read with the centering offset applied would
-        # under-report the sensor max. set_frame_size caches the true max from
-        # its offset-zero read.
+        # under-report the sensor max. _frame_grid caches the true max from its
+        # offset-zero read.
         if self._sensor_max is not None:
             return {'width': self._sensor_max[0], 'height': self._sensor_max[1]}
 
         try:
-            # No cache yet (before the first set_frame_size): the offsets are
+            # No cache yet (before the first frame grid): the offsets are
             # still at their zero default, so a live Maximum() read is the true
             # sensor max.
             return {
@@ -2474,18 +2362,7 @@ class IDSCamera(Camera):
             _cam_log.error(f'[CAM Class ] get_max_frame_size failed: {e}')
             return {}
 
-    def get_frame_size(self):
-        """The delivered (public) frame size -- the cropped target, not the AOI.
-
-        Oversize-then-crop acquires a larger AOI than requested and trims it, so
-        the consumer-facing size is the recorded crop window's (w, h). Falls back
-        to the hardware AOI before the first set_frame_size, or after a geometry
-        change has invalidated the crop (see _invalidate_framing).
-        """
-        if not self.active:
-            return
-        if self._crop_spec is not None:
-            return {'width': self._crop_spec[2], 'height': self._crop_spec[3]}
+    def _hardware_frame_size(self):
         return self.get_acquired_aoi()
 
     def get_acquired_aoi(self):
@@ -2688,11 +2565,17 @@ class IDSCamera(Camera):
                 _cam_log.error(f'[CAM Class ] get_supported_pixel_formats failed: {e}')
             return ()
 
-    def exposure_t(self, exposure_ms) -> bool:
-        """Set exposure. Returns True on success, False on a confirmed
-        hardware rejection -- per-frame chunk metadata is not yet wired, so a
-        swallowed write failure here would stream frames at the stale exposure
-        with no downstream backstop; the caller needs the failure signal."""
+    def exposure_t(self, exposure_ms: float) -> float | bool:
+        """Set exposure. Returns the microseconds actually in effect, or
+        False on a confirmed hardware rejection -- per-frame chunk metadata is
+        not yet wired, so a swallowed write failure here would stream frames at
+        the stale exposure with no downstream backstop; the caller needs the
+        failure signal.
+
+        The applied value is returned rather than a bare success flag because
+        the request is clamped up to the live node minimum below: a caller that
+        recorded the REQUEST as its chunk-match target would reject every frame
+        the camera then stamped with the clamped value."""
         if not self.active:
             _cam_log.warning(f'[CAM Class ] Cannot set exposure {exposure_ms}ms: camera inactive')
             return False
@@ -2735,7 +2618,7 @@ class IDSCamera(Camera):
                     f'ids ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms){rate_note}'
                 )
             logger.debug(f'[CAM Class ] Exposure set to {exposure_ms}ms')
-            return True
+            return us_value
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.error(f'ids ExposureTime.SetValue({exposure_ms}ms) FAILED: {e}')
@@ -2771,12 +2654,8 @@ class IDSCamera(Camera):
             _cam_log.error(f'[CAM Class ] get_exposure_t failed: {e}')
             return -1
 
-    def auto_exposure_t(self, state=True):
-        try:
-            return self.remote_nodemap.HasNode('ExposureAuto')
-        except Exception as e:
-            _cam_log.error(f'[CAM Class ] auto_exposure_t failed: {e}')
-            return False
+    def auto_exposure_t(self, state: bool = True) -> NoReturn:
+        raise no_hardware_auto_mode('IDS', 'auto_exposure_t', 'auto-exposure')
 
     def get_sdk_info(self) -> dict:
         """IDS peak SDK provenance (name + version) for diagnostics.
@@ -2800,65 +2679,53 @@ class IDSCamera(Camera):
         return {'name': 'IDS peak', 'version': version}
 
     def get_all_temperatures(self) -> dict:
-        """Return {selector: degC, ...} per DeviceTemperatureSelector entry; {} if unreadable.
+        """Return {selector: degC, ...} per DeviceTemperatureSelector entry.
 
         Mirrors the Pylon driver's shape using the GenICam-standard
         DeviceTemperature / DeviceTemperatureSelector nodes through the IDS
-        Peak FindNode API. A body that exposes a single sensor (no selector)
-        reports it under 'Device'. Returns {} when the camera is inactive or
-        the body exposes no temperature telemetry (FindNode raises on an
-        absent node). Never raises.
+        Peak nodemap API. A body that exposes a single sensor (no selector)
+        reports it under 'Device'. {} for a body with no DeviceTemperature
+        node. See ``Camera.get_all_temperatures``.
         """
         if not self.active or self.remote_nodemap is None:
-            return {}
+            raise HardwareError('Camera temperature read: no camera is active')
         try:
+            if not self.remote_nodemap.HasNode('DeviceTemperature'):
+                return {}
             temp = self.remote_nodemap.FindNode('DeviceTemperature')
-        except Exception as e:
-            _cam_log.debug(f'[CAM Class ] DeviceTemperature node absent: {e}')
-            return {}
-        if temp is None:
-            return {}
-        # The selector is optional -- a single-sensor body may expose only
-        # DeviceTemperature. With a selector, read every available entry.
-        try:
-            selector = self.remote_nodemap.FindNode('DeviceTemperatureSelector')
-        except Exception:
-            selector = None
-        temps: dict[str, float] = {}
-        try:
-            if selector is not None:
+            temps: dict[str, float] = {}
+            # The selector is optional -- a single-sensor body may expose only
+            # DeviceTemperature. With a selector, read every available entry.
+            if self.remote_nodemap.HasNode('DeviceTemperatureSelector'):
+                selector = self.remote_nodemap.FindNode('DeviceTemperatureSelector')
                 # Restore the selector afterwards so a later DeviceTemperature
                 # read (or a concurrent reader) is not left pointed at the last
                 # iterated sensor.
-                try:
-                    original = selector.CurrentEntry().SymbolicValue()
-                except Exception:
-                    original = None
+                original = selector.CurrentEntry().SymbolicValue()
                 try:
                     for entry in selector.AvailableEntries():
                         name = entry.SymbolicValue()
-                        try:
-                            selector.SetCurrentEntry(name)
-                            temps[name] = float(temp.Value())
-                        except Exception as e:
-                            _cam_log.debug(f'[CAM Class ] temperature read for {name} failed: {e}')
+                        selector.SetCurrentEntry(name)
+                        temps[name] = float(temp.Value())
                 finally:
-                    if original is not None:
-                        try:
-                            selector.SetCurrentEntry(original)
-                        except Exception as e:
-                            _cam_log.debug(
-                                f'[CAM Class ] restoring DeviceTemperatureSelector failed: {e}'
-                            )
+                    selector.SetCurrentEntry(original)
             # Fall back to the bare DeviceTemperature when there is no selector
-            # OR the selector yielded nothing readable (a vestigial/empty
-            # selector still leaves a single sensor readable).
+            # OR the selector lists no entries (a vestigial/empty selector
+            # still leaves a single sensor readable).
             if not temps:
                 temps['Device'] = float(temp.Value())
         except Exception as e:
-            _cam_log.warning(f'[CAM Class ] get_all_temperatures failed: {e}')
-            return {}
+            raise HardwareError(f'Camera temperature read failed: {type(e).__name__}: {e}') from e
         return temps
+
+    def supports_temperature(self) -> bool:
+        """True if the camera exposes the DeviceTemperature node."""
+        if not self.active or self.remote_nodemap is None:
+            return False
+        try:
+            return bool(self.remote_nodemap.HasNode('DeviceTemperature'))
+        except Exception as e:
+            raise HardwareError(f'Temperature probe failed: {type(e).__name__}: {e}') from e
 
     def set_device_link_throughput_limit(
         self,
@@ -3017,7 +2884,7 @@ class IDSCamera(Camera):
                 _cam_log.error(f'ids AcquisitionFrameRateTarget*({enabled}, {fps}) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] set_max_acquisition_frame_rate failed: {e}')
 
-    def set_binning_size(self, size: int) -> bool:
+    def _set_hardware_binning(self, size: int) -> bool:
         """Set camera pixel binning size.
 
         Args:
@@ -3047,21 +2914,15 @@ class IDSCamera(Camera):
             with self.update_camera_config():
                 self.remote_nodemap.FindNode('BinningVertical').SetValue(size)
                 self.remote_nodemap.FindNode('BinningHorizontal').SetValue(size)
-                # Zero the offsets: the crop is invalidated just below (frames
-                # pass at the full binned AOI until set_frame_size re-centers),
-                # and a leftover centering offset would make get_max_frame_size's
-                # live fallback read Width.Maximum() = sensor - offset, i.e.
-                # under-report the binned sensor max in the window before the UI
-                # re-applies set_frame_size.
+                # Zero the offsets: frames pass at the full binned AOI until
+                # set_frame_size re-centers, and a leftover centering offset
+                # would make the next live read of Width.Maximum() = sensor -
+                # offset, i.e. under-report the binned sensor max.
                 self.remote_nodemap.FindNode('OffsetX').SetValue(0)
                 self.remote_nodemap.FindNode('OffsetY').SetValue(0)
-                # Binning resizes the AOI buffer, so the recorded crop window no
-                # longer fits. Invalidate INSIDE the stopped window (before the
-                # grab restarts on exit) so the unpack worker passes frames
-                # through at the full binned AOI instead of cropping against a
-                # stale window and dropping every frame. The UI re-applies
-                # set_frame_size with the new displayed size right after.
-                self._invalidate_framing()
+                # A binning change halves the sensor max; the next frame grid
+                # reads it again.
+                self._sensor_max = None
 
             logger.debug(
                 f'[CAM Class ] Binning set to {self.get_binning_size()}, frame now {self.get_frame_size()}'
@@ -3121,19 +2982,13 @@ class IDSCamera(Camera):
             return False, None, None
         return self.grab()
 
-    def update_auto_gain_target_brightness(self, auto_target_brightness: float):
-        try:
-            return self.remote_nodemap.HasNode('GainAuto')
-        except Exception as e:
-            _cam_log.error(f'[CAM Class ] update_auto_gain_target_brightness failed: {e}')
-            return False
+    def update_auto_gain_target_brightness(self, auto_target_brightness: float) -> NoReturn:
+        raise no_hardware_auto_mode('IDS', 'update_auto_gain_target_brightness', 'auto-gain')
 
-    def update_auto_gain_min_max(self, min_gain_db: float | None, max_gain_db: float | None):
-        try:
-            return self.remote_nodemap.HasNode('GainAuto')
-        except Exception as e:
-            _cam_log.error(f'[CAM Class ] update_auto_gain_min_max failed: {e}')
-            return False
+    def update_auto_gain_min_max(
+        self, min_gain_db: float | None = None, max_gain_db: float | None = None
+    ) -> NoReturn:
+        raise no_hardware_auto_mode('IDS', 'update_auto_gain_min_max', 'auto-gain')
 
     def get_gain(self):
         """Return gain in dB. The IDS Gain node is a linear factor; convert via
@@ -3150,7 +3005,7 @@ class IDSCamera(Camera):
             _cam_log.error(f'[CAM Class ] Read gain failed: {e}')
             return -1
 
-    def gain(self, value) -> bool:
+    def gain(self, value: float) -> float | bool:
         """Set gain. `value` is in dB (LVP's gain unit, shared with the Pylon
         driver). The IDS Gain node is a linear multiplier, so convert
         factor = 10 ** (dB / 20) before writing -- the app's 0 dB floor maps to
@@ -3163,10 +3018,13 @@ class IDSCamera(Camera):
         rejects its own reported maximum gain (the same self-clamp the FX2
         register conversion does). A genuine SDK failure still returns False.
 
-        Returns True on success, False on a confirmed hardware rejection --
-        per-frame chunk metadata is not yet wired, so a swallowed write failure
-        here would stream frames at the stale gain with no downstream backstop;
-        the caller needs the failure signal."""
+        Returns the gain in dB actually written -- the factor after that
+        reconciliation, converted back -- so a request the node clamps is
+        answered with the clamped gain, not the one asked for. False on a
+        confirmed hardware rejection: per-frame chunk metadata is not yet
+        wired, so a swallowed write failure here would stream frames at the
+        stale gain with no downstream backstop; the caller needs the failure
+        signal."""
         if not self.active:
             if _cam_log is not None:
                 _cam_log.warning(f'ids Gain.SetValue({value}) SKIPPED: active=None')
@@ -3199,40 +3057,135 @@ class IDSCamera(Camera):
                 )
             gain_node.SetValue(factor)
             logger.debug(f'[CAM Class ] Gain set to {value} dB ({factor:.3f}x)')
-            return True
+            return 20.0 * math.log10(factor)
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.error(f'ids Gain.SetValue({value} dB) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] Gain set failed (likely out of bounds): {e}')
             return False
 
+    # BlackLevel is a float in DN of the current pixel format; the SDK rescales
+    # it on a format change. Written to the IDS peak documentation, unbenched.
+
+    def supports_black_level(self) -> bool:
+        """True if the camera exposes the BlackLevel node."""
+        if not self.active or self.remote_nodemap is None:
+            return False
+        try:
+            return bool(self.remote_nodemap.HasNode('BlackLevel'))
+        except Exception as e:
+            raise HardwareError(f'BlackLevel probe failed: {type(e).__name__}: {e}') from e
+
+    def get_black_level(self) -> float | None:
+        """Read BlackLevel live. See ``Camera.get_black_level``."""
+        if not self.active or self.remote_nodemap is None:
+            return None
+        try:
+            if not self.remote_nodemap.HasNode('BlackLevel'):
+                return None
+            return float(self.remote_nodemap.FindNode('BlackLevel').Value())
+        except Exception as e:
+            raise HardwareError(f'BlackLevel read failed: {type(e).__name__}: {e}') from e
+
+    def get_black_level_range(self) -> tuple[float, float] | None:
+        """BlackLevel's minimum and maximum, live. See ``Camera.get_black_level_range``."""
+        if not self.active or self.remote_nodemap is None:
+            return None
+        try:
+            if not self.remote_nodemap.HasNode('BlackLevel'):
+                return None
+            node = self.remote_nodemap.FindNode('BlackLevel')
+            return float(node.Minimum()), float(node.Maximum())
+        except Exception as e:
+            raise HardwareError(f'BlackLevel range read failed: {type(e).__name__}: {e}') from e
+
+    def get_resulting_frame_rate(self) -> float | None:
+        """AcquisitionFrameRate's maximum, live: the rate the current exposure
+        and readout allow, which the free-run configuration runs at. See
+        ``Camera.get_resulting_frame_rate``."""
+        if not self.active or self.remote_nodemap is None:
+            return None
+        try:
+            if not self.remote_nodemap.HasNode('AcquisitionFrameRate'):
+                return None
+            return float(self.remote_nodemap.FindNode('AcquisitionFrameRate').Maximum())
+        except Exception as e:
+            raise HardwareError(
+                f'AcquisitionFrameRate maximum read failed: {type(e).__name__}: {e}'
+            ) from e
+
+    def get_link_info(self) -> dict | None:
+        """DeviceTLType, DeviceLinkSpeed and, on GigE, the stream packet size
+        and inter-packet delay, live. See ``Camera.get_link_info``."""
+        if not self.active or self.remote_nodemap is None:
+            return None
+        nodemap = self.remote_nodemap
+        try:
+
+            def _read(name):
+                return nodemap.FindNode(name).Value() if nodemap.HasNode(name) else None
+
+            transport = None
+            if nodemap.HasNode('DeviceTLType'):
+                transport = nodemap.FindNode('DeviceTLType').CurrentEntry().SymbolicValue()
+            speed = speed_unit = None
+            if nodemap.HasNode('DeviceLinkSpeed'):
+                node = nodemap.FindNode('DeviceLinkSpeed')
+                speed, speed_unit = node.Value(), declared_unit(node.Unit())
+            return link_info(
+                transport=transport,
+                link_speed=speed,
+                link_speed_unit=speed_unit,
+                packet_size_bytes=_read('GevSCPSPacketSize'),
+                inter_packet_delay=_read('GevSCPD'),
+            )
+        except Exception as e:
+            raise HardwareError(f'Link info read failed: {type(e).__name__}: {e}') from e
+
+    def set_black_level(self, value: float) -> float | bool | None:
+        """Set BlackLevel. Returns as ``gain`` does.
+
+        Refused while BlackLevelAuto is not Off: a camera holding its black
+        level automatically would overwrite the value, so it is not written.
+        """
+        if not self.active or self.remote_nodemap is None:
+            _cam_log.warning(f'[CAM Class ] Cannot set black level {value}: camera inactive')
+            return None
+        try:
+            if self.remote_nodemap.HasNode('BlackLevelAuto'):
+                auto = self.remote_nodemap.FindNode('BlackLevelAuto').CurrentEntry().SymbolicValue()
+                if auto != 'Off':
+                    _cam_log.warning(
+                        f'[CAM Class ] BlackLevel {value} not set: BlackLevelAuto is {auto}'
+                    )
+                    return False
+            node = self.remote_nodemap.FindNode('BlackLevel')
+            if _cam_log is not None:
+                _cam_log.info(f'ids BlackLevel.SetValue({float(value):g})')
+            node.SetValue(float(value))
+            return float(node.Value())
+        except Exception as e:
+            raise HardwareError(f'BlackLevel {value} write failed: {type(e).__name__}: {e}') from e
+
     def auto_gain(
         self,
-        state=True,
+        state: bool = True,
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
         ae_max_exposure_ms: float | None = None,
-    ):
-        try:
-            return self.remote_nodemap.HasNode('GainAuto')
-        except Exception as e:
-            _cam_log.error(f'[CAM Class ] auto_gain failed: {e}')
-            return False
+    ) -> NoReturn:
+        raise no_hardware_auto_mode('IDS', 'auto_gain', 'auto-gain')
 
     def auto_gain_once(
         self,
-        state=True,
+        state: bool = True,
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
         ae_max_exposure_ms: float | None = None,
-    ):
-        try:
-            return self.remote_nodemap.HasNode('GainAuto')
-        except Exception as e:
-            _cam_log.error(f'[CAM Class ] auto_gain_once failed: {e}')
-            return False
+    ) -> NoReturn:
+        raise no_hardware_auto_mode('IDS', 'auto_gain_once', 'auto-gain')
 
     def set_test_pattern(self, enabled: bool = False, pattern: str = 'Black') -> bool:
         """Apply the IDS TestPattern node: 'Off' when disabled, else the named
@@ -3835,7 +3788,12 @@ class ImageHandler(ImageHandlerBase):
                 array, significant_bits = self._unpack(buffer)
                 # Stamp the frame with the depth it was captured under so depth
                 # and pixels stay paired across a later format switch.
-                self._store_frame(array, datetime.datetime.now(), significant_bits=significant_bits)
+                self._store_frame(
+                    array,
+                    datetime.datetime.now(),
+                    significant_bits=significant_bits,
+                    wire_bytes=buffer.DeliveredDataSize(),
+                )
                 with self._frame_gen_cond:
                     self._frame_generation += 1
                     self._frame_gen_cond.notify_all()
@@ -3852,15 +3810,12 @@ class ImageHandler(ImageHandlerBase):
     def _unpack(self, buffer):
         """Unpack one finished buffer to its delivered array + that array's depth.
 
-        Delegates to _unpack_buffer (shared with the still-capture path) so the
-        oversize-then-crop crop is applied identically on both: BufferToImage +
-        ConvertTo to the delivery target, crop to the recorded window, copy out.
-        The depth is _ids_delivery_significant_bits (paired with the delivery
-        target): 12 for the 12-bit modes' native uint16, 8 for the 8-bit-mode
-        Mono10 wire delivered directly as uint8. crop_spec and the buffer size
-        change together inside update_camera_config (grab stopped), so they stay
-        consistent. Worker-only.
+        Delegates to _unpack_buffer: BufferToImage + ConvertTo to the delivery
+        target, copy out; the camera base crops it to the window when it is
+        stored. The depth is _ids_delivery_significant_bits (paired with the
+        delivery target): 12 for the 12-bit modes' native uint16, 8 for the
+        8-bit-mode Mono10 wire delivered directly as uint8. Worker-only.
         """
         wire = self._parent.get_pixel_format()
-        array = _unpack_buffer(buffer, wire, self._parent._crop_spec)
+        array = _unpack_buffer(buffer, wire)
         return array, _ids_delivery_significant_bits(wire)

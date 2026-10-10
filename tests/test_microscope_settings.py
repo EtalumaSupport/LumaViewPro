@@ -13,13 +13,19 @@ zeros back to disk, corrupting the settings file for future sessions.
 
 Structural fix (4.1): `ImagingAPI.max_exposure_ms_cached` now returns `None`
 (not 0.0) when no camera is connected, so callers can distinguish
-"camera missing" from a real driver value. `load_settings` falls back to
-`DEFAULT_MAX_EXPOSURE_MS` with `scope.imaging.max_exposure_ms_cached or DEFAULT`.
+"camera missing" from a real driver value. The exposure slider's range is
+sized through `camera_max_exposure_for_ui`, which substitutes
+`DEFAULT_MAX_EXPOSURE_MS` only for `None`: a slider needs some range to draw,
+and a cap of 0 is a cap, not a missing one.
 """
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from modules.config_helpers import DEFAULT_MAX_EXPOSURE_MS
+import pytest
+
+from modules.config_helpers import DEFAULT_MAX_EXPOSURE_MS, camera_max_exposure_for_ui
+from tests.scope_fakes import build_scope
 
 
 class TestCameraMaxExposureContract:
@@ -34,9 +40,8 @@ class TestCameraMaxExposureContract:
 
     def test_inactive_camera_yields_none_max_exposure(self):
         """Forcing camera cache to inactive must leave max_exposure None."""
-        from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         # Simulator connects an active camera by default. Force the exact
         # no-camera state that load_settings sees on a real missing camera.
         with scope.imaging._camera_cache_lock:
@@ -52,9 +57,8 @@ class TestCameraMaxExposureContract:
         the property still returns None so callers see a consistent
         "camera missing" signal.
         """
-        from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         with scope.imaging._camera_cache_lock:
             scope.imaging._camera_cache['max_exposure_ms'] = 0.0
 
@@ -62,9 +66,8 @@ class TestCameraMaxExposureContract:
 
     def test_populated_value_passes_through(self):
         """A real positive value in the cache is returned as float."""
-        from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         with scope.imaging._camera_cache_lock:
             scope.imaging._camera_cache['max_exposure_ms'] = 500.0
 
@@ -73,9 +76,8 @@ class TestCameraMaxExposureContract:
 
     def test_integer_in_cache_is_coerced_to_float(self):
         """Integer from a driver is returned as float for caller consistency."""
-        from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = build_scope(simulate=True)
         with scope.imaging._camera_cache_lock:
             scope.imaging._camera_cache['max_exposure_ms'] = 750
 
@@ -83,27 +85,16 @@ class TestCameraMaxExposureContract:
         assert isinstance(scope.imaging.max_exposure_ms_cached, float)
 
 
-class TestLoadSettingsFallback:
-    """Regression for #616: load_settings must fall back when no camera."""
+class TestTheSliderRangeWithNoCamera:
+    """Regression for #616: the slider's range comes from the one UI resolver."""
 
-    def test_default_constant_pinned(self):
-        """Pin the default so a refactor can't silently change it."""
-        assert DEFAULT_MAX_EXPOSURE_MS == 1000.0
-
-    def test_none_falls_back_to_default(self):
-        """The `value or DEFAULT` pattern must yield DEFAULT for None."""
-        value = None
-        assert (value or DEFAULT_MAX_EXPOSURE_MS) == DEFAULT_MAX_EXPOSURE_MS
-
-    def test_zero_falls_back_to_default(self):
-        """Defensive: 0.0 in cache (shouldn't happen post-fix) still safe."""
-        value = 0.0
-        assert (value or DEFAULT_MAX_EXPOSURE_MS) == DEFAULT_MAX_EXPOSURE_MS
-
-    def test_valid_value_overrides_default(self):
-        """Real camera value must pass through, not get replaced."""
-        value = 500.0
-        assert (value or DEFAULT_MAX_EXPOSURE_MS) == 500.0
+    @pytest.mark.parametrize(
+        ('cached', 'expected'),
+        [(None, DEFAULT_MAX_EXPOSURE_MS), (500.0, 500.0), (0.0, 0.0)],
+    )
+    def test_only_a_missing_cap_takes_the_default(self, cached, expected):
+        imaging = SimpleNamespace(max_exposure_ms_cached=cached)
+        assert camera_max_exposure_for_ui(imaging) == expected
 
 
 class TestCoalescingApplier:
@@ -129,7 +120,9 @@ class TestCoalescingApplier:
         start = text.index('class _CoalescingApplier:')
         end = text.index('class MicroscopeSettings')
         snippet = (
-            'import logging, threading\nlogger = logging.getLogger(__name__)\n' + text[start:end]
+            'import logging, threading\n'
+            'from modules.notification_center import notifications\n'
+            'logger = logging.getLogger(__name__)\n' + text[start:end]
         )
         ns = {}
         exec(compile(snippet, str(src), 'exec'), ns)
@@ -168,15 +161,39 @@ class TestCoalescingApplier:
         assert calls == [(1900, 2100), (3860, 2100)]
 
     def test_exception_clears_in_flight(self):
+        # The failure is raised to the caller, which reports it; the gate is
+        # open again by then, so the next edit is not wedged behind it.
         applier = self._make()
         applier.submit((1900, 2100))
 
         def _fn(val):
             raise RuntimeError('pylon sulked')
 
-        applier.apply_pending(_fn)  # must not raise
+        with pytest.raises(RuntimeError, match='pylon sulked'):
+            applier.apply_pending(_fn)
         # Next submit should succeed as a fresh enqueue.
         assert applier.submit((1900, 2100)) is True
+
+    def test_later_failures_are_logged_not_dropped(self, monkeypatch):
+        # The first failure is raised and shown; each later one in the same
+        # drain is reported log-only, so none of them vanishes unrecorded.
+        from modules.notification_center import notifications
+
+        reported = []
+        monkeypatch.setattr(
+            notifications, 'report_outcome', lambda e, **kw: reported.append((e, kw))
+        )
+        applier = self._make()
+        applier.submit(('first',))
+
+        def _fn(val):
+            if val == ('first',):
+                applier.submit(('second',))
+            raise RuntimeError(f'refused {val[0]}')
+
+        with pytest.raises(RuntimeError, match='refused first'):
+            applier.apply_pending(_fn)
+        assert [(str(e), kw['log_only']) for e, kw in reported] == [('refused second', True)]
 
     def test_empty_pending_is_noop(self):
         applier = self._make()
@@ -185,30 +202,9 @@ class TestCoalescingApplier:
         applier.apply_pending(fn)
         fn.assert_not_called()
 
-    def test_duplicate_of_applied_value_absorbed(self):
-        """One user edit fires the bound handler up to FOUR times with
-        the identical (width, height) pair (on_text_validate + on_focus
-        loss per field, and the handler reads both fields every call).
-        On a fast camera (FX2, millisecond applies) the in-flight gate
-        closes between events, so each repeat became a real hardware
-        apply. Exact repeats of the applied value must be absorbed."""
-        applier = self._make()
-        # Bare True: acceptance without a value -> the request itself is
-        # recorded (a MagicMock return is truthy-but-not-True and would be
-        # recorded AS the dedupe key under the record-returned-value rule).
-        fn = MagicMock(return_value=True)
-        assert applier.submit((1896, 1896)) is True
-        applier.apply_pending(fn)
-        # The three trailing duplicate events of the same user edit.
-        assert applier.submit((1896, 1896)) is False
-        assert applier.submit((1896, 1896)) is False
-        assert applier.submit((1896, 1896)) is False
-        applier.apply_pending(fn)
-        fn.assert_called_once_with((1896, 1896))
-
     def test_distinct_value_still_applies(self):
-        """Absorption only drops exact repeats; a genuinely new pair
-        (resolution edit, binning-driven halving) must still fire."""
+        """A new pair submitted after a drain (resolution edit,
+        binning-driven halving) is enqueued and applied."""
         applier = self._make()
         calls = []
         applier.submit((1900, 1900))
@@ -217,154 +213,63 @@ class TestCoalescingApplier:
         applier.apply_pending(calls.append)
         assert calls == [(1900, 1900), (1896, 1896)]
 
-    def test_inflight_duplicate_not_reapplied(self):
-        """A repeat equal to the value being applied that folds into an
-        in-flight task is dropped at drain time, not re-sent."""
-        applier = self._make()
-        calls = []
-
-        def _fn(val):
-            calls.append(val)
-            if len(calls) == 1:
-                applier.submit(val)
-            # Acceptance is signaled by a truthy return (the applied
-            # value); a bare None reads as a rejected apply and is not
-            # recorded, so the drain-time fold would not see it.
-            return True
-
-        applier.submit((1900, 2100))
-        applier.apply_pending(_fn)
-        assert calls == [(1900, 2100)]
-
-    def test_failed_apply_allows_same_value_retry(self):
-        """A failed apply must not record the value as applied; the
-        user retrying the same size still reaches the hardware."""
-        applier = self._make()
-
-        def _boom(val):
-            raise RuntimeError('camera sulked')
-
-        applier.submit((1900, 2100))
-        applier.apply_pending(_boom)
-        assert applier.submit((1900, 2100)) is True
-        fn = MagicMock()
-        applier.apply_pending(fn)
-        fn.assert_called_once_with((1900, 2100))
-
-    def test_falsy_return_not_recorded_allows_same_value_retry(self):
-        """The sentinel-return gap: 'failed' covers BOTH failure shapes.
-        A falsy fn return (a driver rejection False, or the camera-absent
-        None no-op) must not be recorded as applied, or the user's retry
-        of the identical value would be absorbed by the dedupe record."""
-        applier = self._make()
-        applier.submit((1900, 2100))
-        applier.apply_pending(lambda val: False)  # driver rejection shape
-        assert applier.submit((1900, 2100)) is True, (
-            'a False-returning apply must not poison the dedupe record'
-        )
-        applier.apply_pending(lambda val: None)  # camera-absent shape
-        assert applier.submit((1900, 2100)) is True, (
-            'a None-returning apply must not poison the dedupe record'
-        )
-        # Drain so the class-level in-flight state does not leak.
-        applier.apply_pending(lambda val: True)
-
-    def test_retry_after_recovery_recorded_then_absorbed(self):
-        """First apply fails (raise), the retry of the identical value
-        reaches the hardware and IS recorded, and only then is a third
-        submit of the same value absorbed."""
-        applier = self._make()
-        applier.submit((1900, 2100))
-
-        def _boom(val):
-            raise RuntimeError('camera sulked')
-
-        applier.apply_pending(_boom)
-
-        assert applier.submit((1900, 2100)) is True  # retry reaches fn
-        calls = []
-
-        def _delivering(val):
-            calls.append(val)
-            # The production fn (_push_frame_size) returns the delivered
-            # (w, h) tuple; apply_pending records the returned value as
-            # the dedupe key.
-            return (1900, 2100)
-
-        applier.apply_pending(_delivering)
-        assert calls == [(1900, 2100)]
-
-        # Recorded now -> the trailing duplicate is absorbed.
-        assert applier.submit((1900, 2100)) is False
-
-    def test_camera_absent_none_not_recorded_resubmit_after_reconnect(self):
-        """A camera-absent apply returns None (the quiet sentinel); it must
-        not be recorded, so the resubmit after reconnect reaches the
-        hardware instead of being absorbed as 'already applied'."""
-        applier = self._make()
-        applier.submit((1896, 1896))
-        applier.apply_pending(lambda val: None)  # absent camera: quiet no-op
-
-        assert applier.submit((1896, 1896)) is True  # 'reconnected' retry
-        calls = []
-        applier.apply_pending(lambda val: calls.append(val) or True)
-        assert calls == [(1896, 1896)], (
-            'the post-reconnect apply of the identical value must reach the hardware'
-        )
-
-    def test_delivered_value_recorded_as_dedupe_key_not_the_request(self):
-        """An fn that returns the APPLIED value (a clamped delivery) records
-        THAT as the dedupe key: a repeat of the delivered size is absorbed,
-        but the user retyping the ORIGINAL request after seeing the clamp
-        still reaches the hardware (recording the request key would absorb
-        it against a value the camera never took)."""
-        applier = self._make()
-        applier.submit((1900, 1900))
-        applier.apply_pending(lambda val: (1896, 1900))  # camera clamps
-
-        assert applier.submit((1896, 1900)) is False, (
-            'the DELIVERED size is what the hardware holds -- absorbed'
-        )
-        assert applier.submit((1900, 1900)) is True, (
-            'the original request differs from the delivered key -- the retype must go through'
-        )
-        applier.apply_pending(lambda val: True)  # drain the in-flight state
-
-    def test_bare_true_records_the_request_itself(self):
-        applier = self._make()
-        applier.submit((1900, 2100))
-        applier.apply_pending(lambda val: True)
-        assert applier.submit((1900, 2100)) is False, (
-            'a bare-True apply records the request as the dedupe key'
-        )
-
 
 # ---------------------------------------------------------------------------
-# Mirror commit-then-revert: the binning / image-mode mirrors commit
-# SYNCHRONOUSLY at select time (the documented synchronous-binning SSOT);
-# the completion callbacks are pure no-ops on success and revert to the
-# captured prior state on failure. Frame-size geometry mirrors are the
-# exception: they are written from the DELIVERED size in the Clock-scheduled
-# landing. MicroscopeSettings imports Kivy, so each method is AST-extracted
-# and exec'd with a controlled namespace (the
-# test_layer_control_ag_exposure_floor pattern) and bound to a
-# SimpleNamespace self.
+# The handlers read the widget and hand the value to the Session member on
+# the camera lane (submit_reported); the Session applies and stores. The
+# redraws that run after the camera answers show the store: the selectors,
+# the frame boxes, the display mode, the FOV. MicroscopeSettings imports
+# Kivy, so each method is AST-extracted and exec'd with a controlled
+# namespace (the test_layer_control_ag_exposure_floor pattern) and bound to
+# a SimpleNamespace self.
 # ---------------------------------------------------------------------------
 
 
-def _extract_ms_method(method_name: str) -> str:
+def _ms_source_tree():
+    """The module's AST, read once so every extractor below shares one read."""
     import ast
     import pathlib
 
     src = pathlib.Path(__file__).parent.parent / 'ui' / 'microscope_settings.py'
-    source = src.read_text()
-    tree = ast.parse(source)
+    return ast.parse(src.read_text())
+
+
+def _extract_ms_constant(name: str):
+    """A module-level constant, taken from the source the methods come from.
+
+    Hand-copying it into the test would let the two drift apart in silence,
+    which is the whole failure this extraction harness exists to avoid.
+    """
+    import ast
+
+    for node in _ms_source_tree().body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == name for t in node.targets
+        ):
+            return ast.literal_eval(node.value)
+    raise AssertionError(f'microscope_settings.{name} not found')
+
+
+def _extract_ms_method(method_name: str) -> str:
+    import ast
+
+    tree = _ms_source_tree()
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == 'MicroscopeSettings':
             for child in node.body:
                 if isinstance(child, ast.FunctionDef) and child.name == method_name:
                     return ast.unparse(child)
     raise AssertionError(f'MicroscopeSettings.{method_name} not found')
+
+
+def _bind_write_frame_text(fake_self):
+    """Give a fake panel the REAL frame-box write funnel.
+
+    Stubbing it would hide the focus guard from every test that writes these
+    boxes, and the guard is the only reason the funnel exists.
+    """
+    fn = _compile_ms_method('_write_frame_text', {})
+    return lambda width, height: fn(fake_self, width, height)
 
 
 def _compile_ms_method(method_name: str, namespace: dict):
@@ -374,158 +279,124 @@ def _compile_ms_method(method_name: str, namespace: dict):
     return ns[method_name]
 
 
-class TestFrameSizeMirrorChain:
-    """_push_frame_size (executor side) + _on_frame_size_applied (UI-thread
-    landing): the mirrors are written from the DELIVERED geometry only, and
-    the coalescer dedupe key is the delivered (width, height) tuple."""
+class _RecordingGuiLogger:
+    """Records the GUI log calls a redraw makes, in order."""
 
-    def _make_push(self, set_frame_size, scope_present=True):
+    def __init__(self, ids=None):
+        self.calls = []
+        self._ids = ids or {}
+
+    def note_write_back(self, name, value):
+        # The text the spinner holds when the declaration is made, so a test
+        # can tell a declaration before the write from one after it.
+        spinner = {'BINNING': 'binning_spinner', 'IMAGE_MODE': 'image_mode_spinner'}[name]
+        self.calls.append(('note_write_back', name, value, self._ids[spinner].text))
+
+    def frame_size(self, width, height, binning_size):
+        self.calls.append(('frame_size', width, height, binning_size))
+
+
+class TestTheFramingRedrawShowsTheStore:
+    """_framing_applied (the redraw after the camera answers a binning pick
+    or a frame edit) shows what the Session stored: the delivered frame in
+    the boxes and the FOV, the stored binning in the selector."""
+
+    def _make(self, settings, spinner_text):
         from types import SimpleNamespace
 
-        scheduled = []
-        clock = SimpleNamespace(
-            schedule_once=lambda cb, dt=0: scheduled.append(cb),
-        )
-        calls = []
-
-        def _recording_set_frame_size(w, h):
-            calls.append((w, h))
-            return set_frame_size(w, h)
-
-        scope = (
-            # _push_frame_size runs on the camera worker, so production
-            # binds the impl seam -- the fake mirrors that name.
-            SimpleNamespace(imaging=SimpleNamespace(_set_frame_size_impl=_recording_set_frame_size))
-            if scope_present
-            else None
-        )
-        ctx = SimpleNamespace(lumaview=SimpleNamespace(scope=scope))
-        fn = _compile_ms_method(
-            '_push_frame_size',
-            {'_app_ctx': SimpleNamespace(ctx=ctx), 'Clock': clock},
-        )
-        landings = []
-        fake_self = SimpleNamespace(
-            _on_frame_size_applied=lambda delivered: landings.append(delivered),
-        )
-        return fn, fake_self, scheduled, landings, calls
-
-    def test_push_returns_delivered_tuple_and_schedules_dict_landing(self):
-        # The return value is the (w, h) TUPLE (the coalescer dedupe key --
-        # what the camera actually holds); the UI landing receives the dict.
-        delivered = {'width': 1896, 'height': 1900}
-        fn, fake_self, scheduled, landings, _calls = self._make_push(lambda w, h: delivered)
-
-        result = fn(fake_self, (1900, 1900))
-
-        assert result == (1896, 1900)
-        assert len(scheduled) == 1, 'exactly one UI landing scheduled'
-        scheduled[0](0)  # run the Clock-scheduled callable
-        assert landings == [delivered]
-
-    def test_push_returns_none_and_schedules_nothing_when_camera_absent(self):
-        fn, fake_self, scheduled, landings, _calls = self._make_push(lambda w, h: None)
-
-        result = fn(fake_self, (1900, 1900))
-
-        assert result is None  # falsy -> the coalescer does not record it
-        assert scheduled == []
-        assert landings == []
-
-    def test_push_returns_none_when_scope_slot_is_none(self):
-        # The reconnect window: lumaview.scope is None for its whole span.
-        # That is the absent shape, not an error -- no driver touch, no
-        # landing, nothing recorded.
-        fn, fake_self, scheduled, landings, calls = self._make_push(
-            lambda w, h: {'width': w, 'height': h}, scope_present=False
-        )
-
-        result = fn(fake_self, (1900, 1900))
-
-        assert result is None
-        assert calls == [], 'the driver must never be reached without a scope'
-        assert scheduled == []
-        assert landings == []
-
-    def test_push_lets_typed_rejection_propagate(self):
-        # apply_pending contains the raise (and skips recording); the push
-        # must not swallow it into a truthy/None shape.
-        import pytest
-
-        from modules.exceptions import CameraSettingRejected
-
-        def _reject(w, h):
-            raise CameraSettingRejected('frame_size', {'width': w, 'height': h})
-
-        fn, fake_self, scheduled, _landings, _calls = self._make_push(_reject)
-        with pytest.raises(CameraSettingRejected):
-            fn(fake_self, (1900, 1900))
-        assert scheduled == []
-
-    def test_landing_writes_mirrors_and_refreshes_fov(self):
-        # Design test 4: the delivered geometry differs from any prior
-        # request (quantized delivery); the mirrors reflect IT, and the FOV
-        # refresh runs against the just-written settings.
-        from types import SimpleNamespace
-
-        settings = {'frame': {'width': 1900, 'height': 1900}}
-        fn = _compile_ms_method(
-            '_on_frame_size_applied',
-            {'_app_ctx': SimpleNamespace(ctx=SimpleNamespace(settings=settings))},
-        )
         ids = {
-            'frame_width_id': SimpleNamespace(text=''),
-            'frame_height_id': SimpleNamespace(text=''),
+            'binning_spinner': SimpleNamespace(text=spinner_text),
+            'frame_width_id': SimpleNamespace(text='', focus=False),
+            'frame_height_id': SimpleNamespace(text='', focus=False),
         }
+        log = _RecordingGuiLogger(ids)
+        namespace = {'_app_ctx': SimpleNamespace(ctx=SimpleNamespace(settings=settings))}
+        namespace['gui_logger'] = log
+        applied = _compile_ms_method('_framing_applied', namespace)
+        redraw = _compile_ms_method('_redraw_framing', namespace)
         fov_refreshes = []
         fake_self = SimpleNamespace(
             ids=ids,
-            _refresh_fov_labels=lambda: fov_refreshes.append(dict(settings['frame'])),
+            _refresh_binning_depth_hint=lambda: None,
+            refresh_fov_labels=lambda: fov_refreshes.append(dict(settings['frame'])),
+            _ui_binning_size=lambda: int(settings['binning']['size'].split('x')[0]),
         )
+        fake_self._write_frame_text = _bind_write_frame_text(fake_self)
+        fake_self._redraw_framing = lambda: redraw(fake_self)
+        return (lambda: applied(fake_self)), ids, log, fov_refreshes
 
-        fn(fake_self, {'width': 1896, 'height': 1900})
+    def test_the_redraw_writes_the_boxes_and_the_fov_from_the_delivered_frame(self):
+        # The delivered geometry differs from any request (quantized
+        # delivery); the Session stored IT, and the redraw shows it.
+        settings = {'frame': {'width': 1896, 'height': 1900}, 'binning': {'size': '1x1'}}
+        applied, ids, log, fov_refreshes = self._make(settings, '1x1')
 
-        assert settings['frame'] == {'width': 1896, 'height': 1900}
+        applied()
+
         assert ids['frame_width_id'].text == '1896'
         assert ids['frame_height_id'].text == '1900'
-        # The refresh ran AFTER the settings write, so it read the
-        # delivered geometry.
+        # The FOV was computed from the stored, delivered frame.
         assert fov_refreshes == [{'width': 1896, 'height': 1900}]
+        assert log.calls == [('frame_size', 1896, 1900, 1)], (
+            'the framing the camera answered with is recorded once'
+        )
 
-    def test_refresh_fov_labels_computes_from_settings_frame(self, scale_capabilities, monkeypatch):
+    def test_a_refused_pick_puts_the_selector_back_and_declares_it(self):
+        # The Session refused the pick and stored nothing, so the selector
+        # goes back to the stored factor and the boxes to the stored frame;
+        # the selector write is the app's, declared before it dispatches.
+        settings = {'frame': {'width': 960, 'height': 600}, 'binning': {'size': '2x2'}}
+        applied, ids, log, _fov = self._make(settings, '8x8')
+
+        applied()
+
+        assert ids['binning_spinner'].text == '2x2'
+        assert ids['frame_width_id'].text == '960'
+        assert ids['frame_height_id'].text == '600'
+        assert ('note_write_back', 'BINNING', '2x2', '8x8') in log.calls, (
+            f'the selector restore was not declared before the write: {log.calls}'
+        )
+
+    def _refresh_fov(self, scale_capabilities, monkeypatch, objective):
+        """Run the refresh against a scope whose active objective is
+        ``objective`` (None when unknown); returns the two label texts."""
         from types import SimpleNamespace
 
         import modules.app_context as app_context
         import modules.common_utils as common_utils_real
         import modules.config_ui_getters as config_ui_getters_real
 
-        settings = {'frame': {'width': 1896, 'height': 1900}, 'objective_id': '4x'}
-        objective = {'focal_length': 9.0}
         ctx = SimpleNamespace(
-            settings=settings,
-            session=SimpleNamespace(
-                get_objective_info=lambda objective_id: objective,
+            settings={'frame': {'width': 1896, 'height': 1900}},
+            # The active objective is the runtime state's answer.
+            scope=SimpleNamespace(
+                runtime_state=SimpleNamespace(get_current_objective=lambda: objective)
             ),
             # The GUI getter resolves the scale off the LIVE scope.
             lumaview=SimpleNamespace(scope=SimpleNamespace(capabilities=scale_capabilities)),
+            session=SimpleNamespace(get_binning_size=lambda: 1),
         )
         monkeypatch.setattr(app_context, 'ctx', ctx)
         fn = _compile_ms_method(
-            '_refresh_fov_labels',
+            'refresh_fov_labels',
             {
                 '_app_ctx': SimpleNamespace(ctx=ctx),
                 'common_utils': common_utils_real,
                 'config_ui_getters': config_ui_getters_real,
-                'get_binning_from_ui': lambda: 1,
             },
         )
         ids = {
-            'field_of_view_width_id': SimpleNamespace(text=''),
-            'field_of_view_height_id': SimpleNamespace(text=''),
+            'field_of_view_width_id': SimpleNamespace(text='stale'),
+            'field_of_view_height_id': SimpleNamespace(text='stale'),
         }
-        fake_self = SimpleNamespace(ids=ids)
+        fn(SimpleNamespace(ids=ids))
+        return ids['field_of_view_width_id'].text, ids['field_of_view_height_id'].text
 
-        fn(fake_self)
+    def testrefresh_fov_labels_computes_from_settings_frame(self, scale_capabilities, monkeypatch):
+        import modules.common_utils as common_utils_real
+
+        objective = {'focal_length': 9.0}
+        width, height = self._refresh_fov(scale_capabilities, monkeypatch, objective)
 
         expected_fov = common_utils_real.get_field_of_view(
             focal_length=objective['focal_length'],
@@ -533,218 +404,108 @@ class TestFrameSizeMirrorChain:
             binning_size=1,
             capabilities=scale_capabilities,
         )
-        assert ids['field_of_view_width_id'].text == str(round(expected_fov['width'], 0))
-        assert ids['field_of_view_height_id'].text == str(round(expected_fov['height'], 0))
+        assert width == str(round(expected_fov['width'], 0))
+        assert height == str(round(expected_fov['height'], 0))
+
+    def test_an_unknown_objective_blanks_the_readout(self, scale_capabilities, monkeypatch):
+        # No objective, no field of view: the readout says nothing rather
+        # than keep a stale value or compute one from a guess.
+        assert self._refresh_fov(scale_capabilities, monkeypatch, None) == ('', '')
 
 
-class TestBinningApplyOutcome:
-    """Commit-then-revert: select_binning_size commits every mirror
-    synchronously; _on_binning_apply_outcome is a pure no-op on success and
-    reverts to the captured prior state on failure."""
+class TestSelectBinningHandler:
+    """select_binning_size reads the selector and hands the pick to the
+    Session on the camera lane; the store is the Session's to write. During
+    init it only redraws. Live, it shows the frame the new binning will give
+    in the boxes before it submits, so an edit typed while the apply runs is
+    read against the binning the selector shows."""
 
-    def _make_outcome(self):
-        from types import SimpleNamespace
-
-        # Settings reflect the SYNCHRONOUS select-time commit ('4x4').
-        settings = {'binning': {'size': '4x4'}}
-        ctx = SimpleNamespace(settings=settings)
-        fn = _compile_ms_method(
-            '_on_binning_apply_outcome',
-            {'_app_ctx': SimpleNamespace(ctx=ctx), 'logger': MagicMock()},
-        )
-        pushed_frames = []
-        hint_refreshes = []
-        fake_self = SimpleNamespace(
-            ids={'binning_spinner': SimpleNamespace(text='4x4')},
-            _refresh_binning_depth_hint=lambda: hint_refreshes.append(1),
-            _apply_displayed_frame=lambda frame: pushed_frames.append(frame),
-        )
-        return fn, fake_self, settings, pushed_frames
-
-    def test_success_is_a_pure_noop(self):
-        fn, fake_self, settings, pushed_frames = self._make_outcome()
-
-        fn(fake_self, '4x4', '1x1', {'width': 1920, 'height': 1200}, result=True, exception=None)
-
-        assert settings['binning']['size'] == '4x4', 'the sync commit stands untouched'
-        assert fake_self.ids['binning_spinner'].text == '4x4'
-        assert pushed_frames == [], 'success must not re-push the frame'
-
-    def test_failure_reverts_to_captured_prior_state(self):
-        fn, fake_self, settings, pushed_frames = self._make_outcome()
-        prior_frame = {'width': 1920, 'height': 1200}
-
-        fn(fake_self, '4x4', '1x1', prior_frame, result=None, exception=RuntimeError('rejected'))
-
-        assert settings['binning']['size'] == '1x1', 'the sync commit must be reverted'
-        assert fake_self.ids['binning_spinner'].text == '1x1'
-        assert pushed_frames == [prior_frame], (
-            'the prior frame derivation must be re-pushed on revert'
-        )
-
-    def test_falsy_result_without_exception_also_reverts(self):
-        fn, fake_self, settings, pushed_frames = self._make_outcome()
-        prior_frame = {'width': 1920, 'height': 1200}
-
-        fn(fake_self, '4x4', '1x1', prior_frame, result=False, exception=None)
-
-        assert settings['binning']['size'] == '1x1'
-        assert fake_self.ids['binning_spinner'].text == '1x1'
-        assert pushed_frames == [prior_frame]
-
-
-class TestSelectBinningSynchronousCommit:
-    """select_binning_size commits settings + frame text fields at SELECT
-    time (the documented synchronous-binning SSOT), before -- and
-    independent of -- any executor callback."""
-
-    def _make_select(self, initializing, settings, puts):
+    def _make_select(self, initializing, settings):
         from types import SimpleNamespace
 
         import modules.binning as binning_real
 
-        imaging = SimpleNamespace(
-            get_available_binning_sizes=lambda: [1, 2, 4],
-            get_pixel_alignment=lambda: {'width': 4, 'height': 4},
-            get_binning_size=lambda: 1,
-            # Only the impl is offered, deliberately. The queued task runs ON
-            # the camera worker, so binding the public setter would dispatch
-            # onto that same lane and block waiting for it. Leaving the public
-            # setter off this fake means a rebind to it fails here too, not
-            # only in the structural guard.
-            _set_binning_size_impl=lambda size: True,
+        submits = []
+        previews = []
+        applies = []
+        session = SimpleNamespace(
+            frame_at_binning=lambda size: previews.append(size) or {'width': 960, 'height': 600},
+            set_binning_size=lambda size: applies.append(size),
         )
         ctx = SimpleNamespace(
             settings=settings,
             initializing=initializing,
-            lumaview=SimpleNamespace(scope=SimpleNamespace(imaging=imaging)),
-            camera_executor=SimpleNamespace(
-                put=lambda task: puts.append((task, settings['binning']['size'])),
-            ),
+            session=session,
+            camera_executor=object(),
         )
-        from modules.sequential_io_executor import IOTask
+        ids = {
+            'binning_spinner': SimpleNamespace(text='2x2'),
+            'frame_width_id': SimpleNamespace(text='1920', focus=False),
+            'frame_height_id': SimpleNamespace(text='1200', focus=False),
+        }
 
-        fn = _compile_ms_method(
-            'select_binning_size',
-            {
-                '_app_ctx': SimpleNamespace(ctx=ctx),
-                'binning': binning_real,
-                'gui_logger': MagicMock(),
-                'logger': MagicMock(),
-                'IOTask': IOTask,
-            },
-        )
-        pushed_frames = []
+        def _submit_reported(call, redraw, label, *, lane=None):
+            submits.append(
+                {
+                    'call': call,
+                    'redraw': redraw,
+                    'label': label,
+                    'lane': lane,
+                    'boxes': (ids['frame_width_id'].text, ids['frame_height_id'].text),
+                    'stored_binning': settings['binning']['size'],
+                }
+            )
+
+        namespace = {
+            '_app_ctx': SimpleNamespace(ctx=ctx),
+            'binning': binning_real,
+            'gui_logger': MagicMock(),
+            'logger': MagicMock(),
+            'submit_reported': _submit_reported,
+        }
+        fn = _compile_ms_method('select_binning_size', namespace)
+        redraw = _compile_ms_method('_redraw_framing', namespace)
         fake_self = SimpleNamespace(
-            ids={
-                'binning_spinner': SimpleNamespace(text='2x2'),
-                'frame_width_id': SimpleNamespace(text='1920'),
-                'frame_height_id': SimpleNamespace(text='1200'),
-            },
-            _native_roi=lambda: {'width': 1920, 'height': 1200},
-            _store_native_roi=lambda native: None,
+            ids=ids,
             _refresh_binning_depth_hint=lambda: None,
-            _apply_displayed_frame=lambda frame: pushed_frames.append(frame),
-            _on_binning_apply_outcome=lambda *a, **kw: None,
+            refresh_fov_labels=lambda: None,
+            _framing_applied=lambda: None,
         )
-        return fn, fake_self, pushed_frames
+        fake_self._write_frame_text = _bind_write_frame_text(fake_self)
+        fake_self._redraw_framing = lambda: redraw(fake_self)
+        return fn, fake_self, ctx, submits, previews, applies
 
-    def test_initializing_commits_synchronously_without_iotask(self):
-        settings = {'binning': {'size': '1x1'}, 'frame': {'width': 1920, 'height': 1200}}
-        puts = []
-        fn, fake_self, pushed_frames = self._make_select(True, settings, puts)
+    def test_initializing_only_redraws_and_submits_nothing(self):
+        # Bring-up applies the stored binning and frame; the selector is only
+        # being set from the store, so no camera work is enqueued.
+        settings = {'binning': {'size': '2x2'}, 'frame': {'width': 960, 'height': 600}}
+        fn, fake_self, _ctx, submits, previews, applies = self._make_select(True, settings)
 
         fn(fake_self)
 
-        assert settings['binning']['size'] == '2x2', 'committed at select time'
-        assert fake_self.ids['frame_width_id'].text == '960'  # 1920/2, aligned 4
+        assert submits == [], 'during init no camera work is enqueued'
+        assert previews == [] and applies == []
+        assert fake_self.ids['frame_width_id'].text == '960'  # the stored frame
         assert fake_self.ids['frame_height_id'].text == '600'
-        assert puts == [], 'during init no IOTask is enqueued'
-        assert pushed_frames == [], 'during init the hardware push is skipped'
 
-    def test_live_select_commits_before_the_executor_put(self):
+    def test_live_select_previews_the_frame_before_the_submit(self):
         settings = {'binning': {'size': '1x1'}, 'frame': {'width': 1920, 'height': 1200}}
-        puts = []
-        fn, fake_self, pushed_frames = self._make_select(False, settings, puts)
+        fn, fake_self, ctx, submits, previews, applies = self._make_select(False, settings)
 
         fn(fake_self)
 
-        assert len(puts) == 1
-        task, settings_value_at_put_time = puts[0]
-        assert settings_value_at_put_time == '2x2', (
-            'settings must hold the new factor BEFORE the executor put'
+        assert previews == [2]
+        assert len(submits) == 1
+        submit = submits[0]
+        assert submit['boxes'] == ('960', '600'), (
+            'the boxes must show the frame the new binning gives BEFORE the submit'
         )
-        # The captured prior state rides on the callback for the revert.
-        assert task.cb_args == ('2x2', '1x1', {'width': 1920, 'height': 1200})
-        assert pushed_frames == [{'width': 960, 'height': 600}]
-
-
-class TestImageModeOutcome:
-    """Commit-then-revert: select_image_mode commits synchronously;
-    _on_image_mode_outcome no-ops on success and reverts all three mirrors
-    to the captured prior mode on failure."""
-
-    def _make(self, committed_mode='12bit_scientific'):
-        from types import SimpleNamespace
-
-        import modules.image_mode as image_mode_real
-
-        # Settings reflect the SYNCHRONOUS select-time commit.
-        settings = {'image_mode': committed_mode}
-        scope_display = SimpleNamespace(image_mode=committed_mode)
-        ctx = SimpleNamespace(settings=settings, scope_display=scope_display)
-        fn = _compile_ms_method(
-            '_on_image_mode_outcome',
-            {
-                '_app_ctx': SimpleNamespace(ctx=ctx),
-                'image_mode': image_mode_real,
-                'logger': MagicMock(),
-            },
-        )
-        fake_self = SimpleNamespace(
-            ids={
-                'image_mode_spinner': SimpleNamespace(
-                    text=image_mode_real.IMAGE_MODE_LABELS[committed_mode]
-                ),
-            },
-            _refresh_binning_depth_hint=lambda: None,
-        )
-        return fn, fake_self, settings, scope_display, image_mode_real
-
-    def test_success_is_a_pure_noop(self):
-        fn, fake_self, settings, scope_display, im = self._make()
-
-        fn(fake_self, '12bit_scientific', '8bit', result=True, exception=None)
-
-        assert settings['image_mode'] == '12bit_scientific'
-        assert scope_display.image_mode == '12bit_scientific'
-        assert fake_self.ids['image_mode_spinner'].text == im.IMAGE_MODE_LABELS['12bit_scientific']
-
-    def test_failure_reverts_all_three_mirrors_to_prior_mode(self):
-        fn, fake_self, settings, scope_display, im = self._make()
-
-        fn(
-            fake_self,
-            '12bit_scientific',
-            '8bit',
-            result=None,
-            exception=RuntimeError('rejected'),
-        )
-
-        assert settings['image_mode'] == '8bit'
-        assert scope_display.image_mode == '8bit'
-        assert fake_self.ids['image_mode_spinner'].text == im.IMAGE_MODE_LABELS['8bit']
-
-    def test_falsy_result_without_exception_also_reverts(self):
-        # The absent-camera False from set_pixel_format propagates verbatim
-        # through _set_pixel_format; the mode commit must not survive it.
-        fn, fake_self, settings, scope_display, im = self._make()
-
-        fn(fake_self, '12bit_scientific', '8bit', result=False, exception=None)
-
-        assert settings['image_mode'] == '8bit'
-        assert scope_display.image_mode == '8bit'
-        assert fake_self.ids['image_mode_spinner'].text == im.IMAGE_MODE_LABELS['8bit']
+        assert submit['stored_binning'] == '1x1', "the store is the Session's to write"
+        assert submit['label'] == 'BINNING'
+        assert submit['lane'] is ctx.camera_executor
+        assert submit['redraw'] is fake_self._framing_applied
+        submit['call']()
+        assert applies == [2]
 
 
 class TestImageModeMirrorAgreesWithTheStore:
@@ -753,10 +514,40 @@ class TestImageModeMirrorAgreesWithTheStore:
     Config is assembled from the store, while the on-screen depth hints read
     the mirror; capture_depth rides the mode into saved output, so the two
     answering differently would change the file without changing the screen.
-    Agreement holds because every site that writes the mirror writes the
-    stored key in the same breath, and the mirror's untouched default is the
-    same mode the resolver reports for a store that has never been written.
+    Agreement holds because the one writer of the mirror, the image-mode
+    redraw that runs after the camera answers, writes it from the stored
+    mode, and the mirror's untouched default is the same mode the resolver
+    reports for a store that has never been written.
     """
+
+    def _make_redraw(self, stored_mode, shown_mode):
+        from types import SimpleNamespace
+
+        import modules.image_mode as image_mode_real
+
+        settings = {'image_mode': stored_mode}
+        scope_display = SimpleNamespace(image_mode=shown_mode)
+        ids = {
+            'image_mode_spinner': SimpleNamespace(
+                text=image_mode_real.IMAGE_MODE_LABELS[shown_mode]
+            ),
+        }
+        log = _RecordingGuiLogger(ids)
+        ctx = SimpleNamespace(settings=settings, scope_display=scope_display)
+        fn = _compile_ms_method(
+            '_redraw_image_mode',
+            {
+                '_app_ctx': SimpleNamespace(ctx=ctx),
+                'image_mode': image_mode_real,
+                'gui_logger': log,
+            },
+        )
+        fake_self = SimpleNamespace(
+            ids=ids,
+            _refresh_binning_depth_hint=lambda: None,
+            _refresh_jpg_depth_hint=lambda: None,
+        )
+        return (lambda: fn(fake_self)), settings, scope_display, ids, log
 
     def test_every_mode_the_mirror_can_hold_resolves_to_itself(self):
         from types import SimpleNamespace
@@ -781,18 +572,271 @@ class TestImageModeMirrorAgreesWithTheStore:
             image_mode_real.DEFAULT_IMAGE_MODE
         )
 
-    def test_a_revert_leaves_the_mirror_and_the_store_in_agreement(self):
-        # The rejected-format revert is the one path that rewrites both after
-        # the commit; it must not restore one and leave the other.
+    def test_the_redraw_leaves_the_mirror_and_the_store_in_agreement(self):
+        # The redraw runs whatever the outcome: after an accepted change the
+        # store moved and the mirror has not yet; after a refusal the store
+        # stayed and the selector moved. Either way the mirror follows the
+        # store.
         import modules.image_mode as image_mode_real
 
-        for prior in image_mode_real._MODE_TABLE:
-            fn, fake_self, settings, scope_display, _im = TestImageModeOutcome()._make(
-                committed_mode='12bit_scaled'
+        for stored in image_mode_real._MODE_TABLE:
+            redraw, settings, scope_display, ids, _log = self._make_redraw(
+                stored, shown_mode='12bit_scaled' if stored != '12bit_scaled' else '8bit'
             )
-            fn(fake_self, '12bit_scaled', prior, result=False, exception=None)
 
-            assert settings['image_mode'] == prior
+            redraw()
+
             assert (
                 image_mode_real.resolve_settings_image_mode(settings) == scope_display.image_mode
-            ), f'revert to {prior} left the mirror and the store disagreeing'
+            ), f'the redraw to {stored} left the mirror and the store disagreeing'
+            assert ids['image_mode_spinner'].text == image_mode_real.IMAGE_MODE_LABELS[stored]
+
+    def test_a_refused_format_puts_the_selector_back_and_declares_it(self):
+        # The Session refused 12-bit and stored nothing; the selector the
+        # person moved goes back to the stored mode, declared as the app's
+        # write before it dispatches.
+        import modules.image_mode as image_mode_real
+
+        redraw, _settings, scope_display, ids, log = self._make_redraw(
+            '8bit', shown_mode='12bit_scientific'
+        )
+        scope_display.image_mode = '8bit'
+
+        redraw()
+
+        assert ids['image_mode_spinner'].text == image_mode_real.IMAGE_MODE_LABELS['8bit']
+        assert scope_display.image_mode == '8bit'
+        shown_12bit = image_mode_real.IMAGE_MODE_LABELS['12bit_scientific']
+        assert ('note_write_back', 'IMAGE_MODE', '8bit', shown_12bit) in log.calls, (
+            f'the selector restore was not declared before the write: {log.calls}'
+        )
+
+
+class TestTheFrameBoxesRecordWhatWasTyped:
+    """A frame edit reports what the user entered, before anything acts on it.
+
+    The boxes are an editor: until an apply lands they can hold a size no
+    camera is at. Two things follow, and both are pinned here. The typed value
+    is recorded FIRST, so a bundle reads in the order the user acted and a
+    freeze cannot swallow the entry. And an entry that is not a pair of
+    integers is a CORRECTION, not a request -- emptying a box used to log
+    FRAME_SIZE for the size already in force, so the record claimed an edit
+    that never happened while the box sat blank.
+    """
+
+    def _make(self, width_text, unparseable=False, camera_present=True):
+        from types import SimpleNamespace
+
+        records = []
+        # The record and the apply in the one order they happened.
+        settings = {'frame': {'width': 768, 'height': 1200}}
+        boxes = {
+            'frame_width_id': SimpleNamespace(text=width_text, focus=False),
+            'frame_height_id': SimpleNamespace(text='1200', focus=False),
+        }
+
+        def _typed():
+            if unparseable:
+                raise ValueError('Invalid value for frame width/height')
+            return {
+                'width': int(boxes['frame_width_id'].text),
+                'height': int(boxes['frame_height_id'].text),
+            }
+
+        applied = []
+
+        def _set_frame_size(width, height):
+            applied.append({'width': width, 'height': height})
+            return {'width': width, 'height': height} if camera_present else None
+
+        ctx = SimpleNamespace(
+            settings=settings,
+            session=SimpleNamespace(set_frame_size=_set_frame_size),
+            camera_executor=object(),
+        )
+
+        def _submit_reported(call, redraw, label, *, lane=None):
+            # The camera lane, run inline: the apply is what is under test.
+            call()
+
+        fn = _compile_ms_method(
+            'frame_size',
+            {
+                '_app_ctx': SimpleNamespace(ctx=ctx),
+                'logger': MagicMock(),
+                '_FRAME_BOXES': _extract_ms_constant('_FRAME_BOXES'),
+                'gui_logger': SimpleNamespace(
+                    text_input=lambda name, value: records.append((name, str(value)))
+                ),
+                'submit_reported': _submit_reported,
+            },
+        )
+        fake_self = SimpleNamespace(
+            ids=boxes,
+            _typed_frame_dimensions=_typed,
+            _frame_size_applier=TestCoalescingApplier()._make(),
+            _framing_applied=lambda: None,
+        )
+        fake_self._write_frame_text = _bind_write_frame_text(fake_self)
+        return fn, fake_self, records, applied, settings, boxes
+
+    def test_the_committed_box_names_itself(self):
+        fn, fake_self, records, _applied, _settings, boxes = self._make('800')
+        boxes['frame_height_id'].text = '640'
+
+        fn(fake_self, 'frame_height_id')
+
+        assert records[0] == ('FRAME_HEIGHT', '640'), (
+            f'the height box reported under the wrong name: {records}'
+        )
+
+    def test_a_blank_entry_is_reported_as_a_correction_and_applies_nothing(self):
+        fn, fake_self, records, applied, _settings, _boxes = self._make('', unparseable=True)
+
+        fn(fake_self, 'frame_width_id')
+
+        assert ('FRAME_WIDTH', '') in records, (
+            f'the blank entry itself was never recorded: {records}'
+        )
+        assert ('FRAME_WIDTH_APPLIED', '768') in records, (
+            f'the correction was not reported under _APPLIED: {records}'
+        )
+        assert applied == [], (
+            'an unparseable entry must not be applied -- substituting the '
+            f'stored size reports a framing the user never asked for: {applied}'
+        )
+
+    def test_a_blank_entry_puts_both_boxes_back(self):
+        fn, fake_self, _records, _applied, settings, boxes = self._make('', unparseable=True)
+
+        fn(fake_self, 'frame_width_id')
+
+        assert boxes['frame_width_id'].text == str(settings['frame']['width'])
+        assert boxes['frame_height_id'].text == str(settings['frame']['height'])
+
+    def test_a_disconnected_camera_still_records_the_entry(self):
+        """The user typed it whether or not a camera was there to hear it.
+
+        That an absent camera stores nothing is the Session's answer, pinned
+        in tests/test_the_session_applies_and_stores_camera_settings.py.
+        """
+        fn, fake_self, records, _applied, _settings, _boxes = self._make(
+            '800', camera_present=False
+        )
+
+        fn(fake_self, 'frame_width_id')
+
+        assert ('FRAME_WIDTH', '800') in records, (
+            f'a frame edit with no camera left no trace at all: {records}'
+        )
+
+
+class TestTheImageModeSelectorRendersTheApi:
+    """The selector offers what the API offers, and the JPG hint is the API's
+    predicate; the panel decides neither."""
+
+    def test_every_mode_is_offered(self):
+        from types import SimpleNamespace
+
+        import modules.image_mode as image_mode_real
+
+        spinner = SimpleNamespace(values=None)
+        fn = _compile_ms_method('load_image_modes', {'image_mode': image_mode_real})
+        fn(SimpleNamespace(ids={'image_mode_spinner': spinner}))
+        assert spinner.values == image_mode_real.available_mode_labels()
+
+    @pytest.mark.parametrize(
+        ('mode', 'live', 'shown'),
+        [
+            ('12bit_scientific', 'JPG', True),
+            ('12bit_scientific', 'TIFF', False),
+            ('8bit', 'JPG', False),
+        ],
+    )
+    def test_the_jpg_hint_is_the_apis_predicate(self, mode, live, shown):
+        from types import SimpleNamespace
+
+        import modules.image_mode as image_mode_real
+
+        settings = {'image_mode': mode, 'image_output_format': {'live': live, 'sequenced': 'TIFF'}}
+        fn = _compile_ms_method(
+            '_refresh_jpg_depth_hint',
+            {
+                '_app_ctx': SimpleNamespace(ctx=SimpleNamespace(settings=settings)),
+                'image_mode': image_mode_real,
+            },
+        )
+        panel = SimpleNamespace(jpg_depth_hint_active=None)
+        fn(panel)
+        assert panel.jpg_depth_hint_active is shown
+
+    @pytest.mark.parametrize(
+        ('handler', 'spinner'),
+        [
+            ('select_live_image_output_format', 'live_image_output_format_spinner'),
+            ('select_sequenced_image_output_format', 'sequenced_image_output_format_spinner'),
+        ],
+    )
+    def test_a_format_pick_refreshes_the_jpg_hint(self, handler, spinner):
+        from types import SimpleNamespace
+
+        settings = {'image_output_format': {'live': 'TIFF', 'sequenced': 'TIFF'}}
+        refreshed = []
+
+        def update_settings(path, value):
+            section, key = path.split('.')
+            settings[section][key] = value
+
+        fn = _compile_ms_method(
+            handler,
+            {
+                '_app_ctx': SimpleNamespace(
+                    ctx=SimpleNamespace(settings=settings, update_settings=update_settings)
+                ),
+                'gui_logger': SimpleNamespace(select=lambda *a: None),
+                'run_reported': lambda fn, on_done, name: fn(),
+            },
+        )
+        fn(
+            SimpleNamespace(
+                ids={spinner: SimpleNamespace(text='JPG')},
+                _refresh_jpg_depth_hint=lambda: refreshed.append(True),
+            )
+        )
+        assert refreshed == [True]
+
+
+def test_a_mode_redraw_refreshes_the_jpg_hint():
+    """The JPG hint follows the mode as well as the format: a redraw of the
+    stored mode asks the API's predicate again."""
+    from types import SimpleNamespace
+
+    import modules.image_mode as image_mode_real
+
+    settings = {'image_mode': '12bit_scientific'}
+    ids = {
+        'image_mode_spinner': SimpleNamespace(
+            text=image_mode_real.IMAGE_MODE_LABELS['12bit_scientific']
+        )
+    }
+    refreshed = []
+    fn = _compile_ms_method(
+        '_redraw_image_mode',
+        {
+            '_app_ctx': SimpleNamespace(
+                ctx=SimpleNamespace(
+                    settings=settings, scope_display=SimpleNamespace(image_mode=None)
+                )
+            ),
+            'image_mode': image_mode_real,
+            'gui_logger': _RecordingGuiLogger(ids),
+        },
+    )
+    fn(
+        SimpleNamespace(
+            ids=ids,
+            _refresh_binning_depth_hint=lambda: None,
+            _refresh_jpg_depth_hint=lambda: refreshed.append(True),
+        )
+    )
+    assert refreshed == [True]

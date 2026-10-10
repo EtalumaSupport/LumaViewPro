@@ -21,7 +21,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.exceptions import ProtocolRunRefusedError
 from modules.image_mode import (
     OUTPUT_FORMAT_HYPERSTACK,
     OUTPUT_FORMAT_JPG,
@@ -38,7 +37,7 @@ _POSITION = {'x': 1234.5, 'y': 678.9, 'z': 4321.0}
 _ALL_LAYERS = ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi')
 
 
-def _layer(acquire='none', focus=0.0):
+def _layer(acquire=None, focus=0.0):
     return {
         'acquire': acquire,
         'video_config': {},
@@ -59,7 +58,7 @@ def _settings(acquiring=(), sequenced_format=OUTPUT_FORMAT_TIFF, focus_by_layer=
     focus_by_layer = focus_by_layer or {}
     settings = {
         layer: _layer(
-            acquire='image' if layer in acquiring else 'none',
+            acquire='image' if layer in acquiring else None,
             focus=focus_by_layer.get(layer, 0.0),
         )
         for layer in _ALL_LAYERS
@@ -67,8 +66,10 @@ def _settings(acquiring=(), sequenced_format=OUTPUT_FORMAT_TIFF, focus_by_layer=
     settings.update(
         {
             'objective_id': '10x Oly',
-            'binning_size': 1,
+            'binning': {'size': '1x1'},
             'frame': {'width': 800, 'height': 600},
+            'stage_offset': {'x': 0.0, 'y': 0.0},
+            'motion': {'acceleration_max_pct': 100},
             'image_output_format': {'live': OUTPUT_FORMAT_TIFF, 'sequenced': sequenced_format},
             'live_folder': '.',
             'protocol': {
@@ -99,18 +100,11 @@ def _assemble(settings):
     )
 
 
-def _capture_notifications(monkeypatch):
-    """Route both severities of the notification singleton to one list."""
-    import modules.notification_center as notification_center
+def _warnings_and_errors(centre_posts):
+    """The warnings and errors the centre has posted."""
+    from modules.notification_center import Severity
 
-    captured = []
-    for severity in ('error', 'warning'):
-        monkeypatch.setattr(
-            notification_center.notifications,
-            severity,
-            lambda *args, _s=severity, **kwargs: captured.append((_s, args)),
-        )
-    return captured
+    return [n for n in centre_posts if n.severity in (Severity.ERROR, Severity.WARNING)]
 
 
 # ---------------------------------------------------------------------------
@@ -211,33 +205,32 @@ class TestOneTransmittedWins:
 
 
 # ---------------------------------------------------------------------------
-# 3. Fewer than two channels refuses at assembly
+# 3. Fewer than two channels is assembled as it is; prepare() refuses it
 # ---------------------------------------------------------------------------
 
 
 class TestTwoChannelFloor:
+    """Assembly builds the channels it finds and refuses nothing.
+
+    A one-channel composite is refused by the run engine's prepare(), where
+    every refusal a run can meet is raised (test_run_refusal_contract.py,
+    TestTheCompositeChannelFloor); assembly refusing it too was a second
+    copy of that rule.
+    """
+
     @pytest.mark.parametrize(
-        'acquiring',
-        [(), ('BF',), ('Blue',), ('BF', 'PC')],
+        ('acquiring', 'expected'),
+        [((), 0), (('BF',), 1), (('Blue',), 1), (('BF', 'PC'), 1)],
         ids=['none', 'one_transmitted', 'one_fluorescence', 'two_transmitted_collapse_to_one'],
     )
-    def test_fewer_than_two_channels_is_refused(self, acquiring, monkeypatch):
-        # The merge skips groups of one, so a one-channel composite cannot
-        # be produced at all -- refusing here is the difference between a
-        # loud "pick another channel" and a run that quietly makes no file.
-        _capture_notifications(monkeypatch)
-        with pytest.raises(ProtocolRunRefusedError) as excinfo:
-            _assemble(_settings(acquiring=acquiring))
-        assert excinfo.value.reason == 'composite_needs_two_channels'
+    def test_fewer_than_two_channels_is_assembled_without_refusing(
+        self, acquiring, expected, centre_posts
+    ):
+        config = _assemble(_settings(acquiring=acquiring))
+        assert len(config['layer_configs']) == expected
+        assert _warnings_and_errors(centre_posts) == [], 'assembly refuses nothing and tells no one'
 
-    def test_the_refusal_notifies_exactly_once(self, monkeypatch):
-        captured = _capture_notifications(monkeypatch)
-        with pytest.raises(ProtocolRunRefusedError):
-            _assemble(_settings(acquiring=('BF',)))
-        assert len(captured) == 1, f'expected one notification, got {captured}'
-
-    def test_two_channels_is_enough(self, monkeypatch):
-        _capture_notifications(monkeypatch)
+    def test_two_channels_is_enough(self):
         config = _assemble(_settings(acquiring=('BF', 'Blue')))
         assert len(config['layer_configs']) == 2
 
@@ -309,3 +302,18 @@ class TestCompositeOutputFormat:
         )
         assert config.image_mode == '8bit'
         assert config.capture_depth == 8
+
+
+def test_the_run_records_the_stored_plate():
+    config = _assemble(_settings(acquiring=('BF',)))
+    assert config['labware_id'] == '96 well microplate'
+
+
+def test_a_store_with_no_plate_is_not_recorded_as_an_empty_one():
+    # Bring-up and the settings writers admit only a plate the catalogue
+    # has, so a store without one is a defect upstream; the composite must
+    # not write an empty plate name into the run's record in its place.
+    settings = _settings(acquiring=('BF',))
+    del settings['protocol']['labware']
+    with pytest.raises(KeyError):
+        _assemble(settings)

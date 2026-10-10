@@ -15,13 +15,16 @@ cadence must not change.
 
 import datetime
 import threading
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 from unittest import mock
 
 import pytest
 
 from modules.protocol_run_loop import ProtocolRunLoop
 from modules.protocol_state_machine import ProtocolState
+from modules.run_events import RunEvents
+from modules.run_outcome import PendingRunOutcome
+from modules.sequenced_capture_runner import SequencedCaptureRunner
 
 
 class FakeClock:
@@ -45,11 +48,14 @@ def _make_parent(clock, n_scans, period_s, first_scan_lead_s=30.0, later_scan_le
     p = SimpleNamespace()
     p._n_scans = n_scans
     p._scan_count = 0
-    p.remaining_scans = lambda: p._n_scans - p._scan_count
-    p._run_in_progress_event = threading.Event()
-    p._run_in_progress_event.set()
+    p._remaining_scans = lambda: p._n_scans - p._scan_count
     p._aborted = threading.Event()
     p._state = ProtocolState.RUNNING
+    # The production predicate over the stub's own state, so the stub
+    # cannot answer 'is a run live' differently from the runner.
+    p._is_run_live = MethodType(SequencedCaptureRunner._is_run_live, p)
+    # The loop takes the camera first; a stub with a mock scope has no lane to wait for.
+    p._take_camera = lambda: None
     p._scope = mock.MagicMock()
     p._protocol = mock.MagicMock()
     p._protocol.period.return_value = datetime.timedelta(seconds=period_s)
@@ -83,26 +89,25 @@ def _make_parent(clock, n_scans, period_s, first_scan_lead_s=30.0, later_scan_le
     p._step_executor.scan_loop.side_effect = _scan_loop
     p._scan_in_progress = mock.MagicMock()
     p._set_state = mock.MagicMock()
+    p.end_scan = mock.MagicMock()
+    p.end_run_fatally = mock.MagicMock()
     p._cleanup = mock.MagicMock()
     p._protocol_state_lock = threading.Lock()
     p._auto_gain_armed_step = -1
     p.LOGGER_NAME = 'TEST'
-    p._callbacks = SimpleNamespace(
-        protocol_iterate_pre=None,
-        run_scan_pre=None,
-        scan_iterate_post=None,
-    )
+    p._events = RunEvents()
     return p
 
 
 def _run(clock, parent):
     loop = ProtocolRunLoop(parent)
     with (
-        mock.patch('modules.protocol_run_loop.time.monotonic', clock.monotonic),
-        mock.patch('modules.protocol_run_loop.time.sleep', clock.sleep),
-        mock.patch('modules.protocol_run_loop._schedule_ui', lambda cb, *a, **k: None),
+        # The loop's own name for time, not the time module: patching
+        # time.sleep through it would hand every thread in the process the
+        # fake clock, and a leftover thread's sleep would advance it.
+        mock.patch('modules.protocol_run_loop.time', clock),
     ):
-        loop._run_loop_inner()
+        loop._run_loop_inner(PendingRunOutcome())
 
 
 def test_first_interval_is_never_shorter_than_period():

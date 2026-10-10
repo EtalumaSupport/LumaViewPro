@@ -45,7 +45,8 @@ def load_log_level(source_path: str | pathlib.Path | None = None) -> None:
             continue
 
         try:
-            log_level = logging.getLevelName(data['logging']['default']['level'])
+            # A level's name in any case; the settings writer holds it to one.
+            log_level = logging.getLevelName(data['logging']['default']['level'].upper())
             logger.setLevel(level=log_level)
             return
         except Exception:

@@ -133,7 +133,6 @@ class ModSlider(Slider):
         return out
 
     def on_touch_move(self, touch):
-        super().on_touch_move(touch)
         out = super().on_touch_move(touch)
         if touch.grab_current == self:
             self.user_interacting = True

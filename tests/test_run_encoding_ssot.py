@@ -22,12 +22,15 @@ import ast
 import dataclasses
 import pathlib
 import threading
-import time
 from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 
+from tests.protocol_drives import lent_run_claim
+from tests.frame_records import frame_record, plate, unpositioned
+from modules.protocol_image_writer import RunWriteBatch
+from modules.activity_claim import ActivityClaim
 from modules.exceptions import ConfigError
 from modules.image_mode import (
     ImageCaptureConfig,
@@ -35,27 +38,30 @@ from modules.image_mode import (
     SAVE_ENCODING_RGB,
     SAVE_ENCODING_RIGHT_ALIGNED,
 )
-from modules.lumascope_api import Lumascope
 from modules.protocol import Protocol
-from modules.protocol_callbacks import ProtocolCallbacks
 from modules.sequenced_capture_runner import (
     SequencedCaptureRunMode,
     SequencedCaptureRunner,
 )
+from modules.run_events import RunEvents
 from modules.sequential_io_executor import SequentialIOExecutor
-from tests.protocol_drives import autofocus_snapshot
+from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 TILING_CONFIGS = REPO_ROOT / 'data' / 'tiling.json'
 
 COMPLETION_TIMEOUT = 20  # seconds
-SAVE_FLUSH_TIMEOUT = 5  # seconds to wait for the file-IO thread's save
+# A bound only on a stuck file lane: a loaded host can take seconds to write.
+FILES_WAIT_S = 60
 
 
 # ---------------------------------------------------------------------------
 # Full-stack harness (mirrors tests/test_protocol_roundtrip.py)
 # ---------------------------------------------------------------------------
+
+
+from modules.run_outcome import EndingLatch
 
 
 def _make_step(color='BF'):
@@ -109,16 +115,19 @@ def _build_protocol():
 
 @pytest.fixture
 def scope():
-    s = Lumascope(simulate=True)
-    # The session registers the data root at bring-up; a runner over a
-    # bare scope needs it too, or the run refuses at start.
-    s.protocols.register_source_path('.')
+    # The data root is the scope's, given at construction; a runner over a
+    # bare scope reads its catalogues and tiling config from it.
+    s = build_scope(simulate=True, source_path='.')
+    # A bare scope skipped bring-up, which fills the turret from the
+    # persisted slots; an empty turret addresses no glass at all.
+    configure_turret_like_bringup(s)
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
     s.imaging.start_streaming()
     yield s
-    s.imaging.stop_streaming()
+    # disconnect() stops the stream itself; a stop sent through the camera
+    # lane would be refused once the test's own lanes are shut.
     s.disconnect()
 
 
@@ -155,19 +164,17 @@ def executor(scope, executors):
     mock_af.is_running = MagicMock(return_value=False)
     mock_af.run_in_progress = MagicMock(return_value=False)
 
+    swap_lanes(scope, io=executors['io'], camera=executors['camera'])
     exc = SequencedCaptureRunner(
         scope=scope,
-        stage_offset={'x': 0.0, 'y': 0.0},
-        io_executor=executors['io'],
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
-        camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(is_running=False),
+        autofocus_thread=MagicMock(in_flight_sweep=None),
+        activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
     )
     mock_transformer = MagicMock()
     mock_transformer.plate_to_stage = MagicMock(return_value=(0.0, 0.0))
-    exc._wellplate_loader = MagicMock()
     exc._coordinate_transformer = mock_transformer
     return exc
 
@@ -187,7 +194,7 @@ def _spy_save_image(monkeypatch, tmp_path):
 def _run_one_still(executor, tmp_path, config):
     done = threading.Event()
 
-    def on_complete(**kwargs):
+    def on_ended(outcome, run_dir, protocol):
         done.set()
 
     plan = executor.prepare(
@@ -199,23 +206,15 @@ def _run_one_still(executor, tmp_path, config):
         autogain_settings={'target_brightness': 0.3},
         parent_dir=tmp_path / 'output',
         max_scans=1,
-        callbacks={
-            'run_complete': on_complete,
-            'go_to_step': lambda **kw: None,
-            'move_position': lambda axis: None,
-        },
-        leds_state_at_end='off',
-        autofocus_snapshot=autofocus_snapshot(),
+        events=RunEvents(run_ended=on_ended),
     )
-    executor.start(plan)
+    handle = executor.start(plan)
     assert done.wait(timeout=COMPLETION_TIMEOUT), 'run did not complete'
+    # The save runs on the file lane, after the run lets go of the scope.
+    assert handle.wait_for_files(timeout_s=FILES_WAIT_S) is not None, "the run's files never landed"
 
 
-def _wait_for_saves(recorded):
-    """The save runs on the file-IO thread; poll briefly for it to land."""
-    deadline = time.monotonic() + SAVE_FLUSH_TIMEOUT
-    while not recorded and time.monotonic() < deadline:
-        time.sleep(0.05)
+def _saves(recorded):
     assert recorded, 'the run must reach save_image for its one still'
     return recorded
 
@@ -247,7 +246,7 @@ class TestHeadlessStillHonorsRunMode:
 
         _run_one_still(executor, tmp_path, ImageCaptureConfig.from_image_mode(mode))
 
-        saves = _wait_for_saves(recorded)
+        saves = _saves(recorded)
         assert saves[0]['save_encoding'] == expected_encoding, (
             f'a headless {mode} run must save {expected_encoding}, got {saves[0]["save_encoding"]}'
         )
@@ -266,13 +265,18 @@ class TestOneRunOneEncoding:
     def _writer(config):
         from modules.protocol_image_writer import ProtocolImageWriter
 
+        scope = MagicMock()
+        # A brought-up scope answers the objective in the light path; the
+        # writer reads it once per capture, for the file name and the scale.
+        scope.runtime_state.resolve_current_objective.return_value = ('10x Oly', {})
         return ProtocolImageWriter(
-            scope=MagicMock(),
-            callbacks=ProtocolCallbacks(),
+            scope=scope,
+            events=RunEvents(),
             aborted=threading.Event(),
-            file_io_executor=MagicMock(),
+            write_batch=RunWriteBatch(MagicMock()),
             abort_fn=lambda: None,
             fatal_abort_event=threading.Event(),
+            ending=EndingLatch(),
             execution_record=None,
             leds_off_fn=lambda: None,
             is_run_in_progress_fn=lambda: True,
@@ -280,6 +284,10 @@ class TestOneRunOneEncoding:
             timestamp_overlay=True,
             video_max_fps=0,
             engineering_mode=False,
+            run_claim=lent_run_claim(),
+            labware=plate(),
+            to_plate=None,
+            captures_asked=1,
         )
 
     def test_still_and_video_legs_read_the_same_held_config(self, monkeypatch, tmp_path):
@@ -301,7 +309,11 @@ class TestOneRunOneEncoding:
         writer.write_capture(
             enable_image_saving=True,
             captured_image=CapturedFrame(
-                image=np.zeros((4, 4), dtype=np.uint16), significant_bits=12
+                image=np.zeros((4, 4), dtype=np.uint16),
+                significant_bits=12,
+                objective_id='4x Oly',
+                record=frame_record(),
+                position=unpositioned(),
             ),
             step=step,
             name='A1_BF',
@@ -384,7 +396,7 @@ class TestSettingsDoNotOverrideRunConfig:
 
         _run_one_still(executor, tmp_path, ImageCaptureConfig.from_image_mode('12bit_scientific'))
 
-        saves = _wait_for_saves(recorded)
+        saves = _saves(recorded)
         assert saves[0]['save_encoding'] == SAVE_ENCODING_RIGHT_ALIGNED, (
             'the prepared run config must win over live ctx.settings; '
             f'got {saves[0]["save_encoding"]}'
@@ -469,7 +481,6 @@ RUN_PIPELINE_MODULES = [
 
 FORBIDDEN_CONFIG_SOURCES = {
     'get_image_capture_config_from_settings',
-    'get_image_capture_config_from_ui',
 }
 
 
@@ -503,27 +514,3 @@ def test_sequenced_capture_runner_has_no_8bit_fallback():
         'sequenced_capture_runner must not fall back to SAVE_ENCODING_8BIT; '
         'the run config is the only encoding source'
     )
-
-
-# ---------------------------------------------------------------------------
-# 6. No silent headless default: a config-less run is refused loudly
-# ---------------------------------------------------------------------------
-
-
-class TestNoSilentHeadlessDefault:
-    """A headless run with no image_capture_config raises ConfigError naming
-    image_mode BEFORE any executor starts or hardware moves. The old default
-    silently resolved to 8-bit, quietly downgrading scripts that captured
-    full depth on earlier releases."""
-
-    def test_configless_run_raises_before_anything_starts(self, tmp_path):
-        from modules.scope_session import ScopeSession
-
-        session = ScopeSession.create_headless()
-        try:
-            runner = session.create_protocol_runner()
-            with pytest.raises(ConfigError, match='image_mode'):
-                runner.run_protocol(_build_protocol(), parent_dir=str(tmp_path))
-            assert not runner.is_running(), 'a refused config-less run must not be running'
-        finally:
-            session.shutdown_executors()

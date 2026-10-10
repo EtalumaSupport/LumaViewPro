@@ -13,18 +13,19 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tests.protocol_drives import lent_run_claim
 import modules.protocol_recording as protocol_recording
+from modules.run_events import RunEvents
 
 
 def _make_recorder(tmp_path, clock, active_cached=True):
     scope = MagicMock()
     scope.imaging.frames_until_valid.return_value = 0
     scope.imaging.active_cached = active_cached
-    scope.imaging.camera_identity = {
-        'model': 'sim',
-        'serial': '0',
-        'timestamp_tick_frequency_hz': None,
-    }
+    scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {'focal_length': 45.0})
+    scope.capabilities.camera_model = 'sim'
+    scope.capabilities.camera_serial_number = '0'
+    scope.capabilities.camera_timestamp_tick_hz = None
     scope.imaging.frame_size_cached = {'width': 8, 'height': 8}
     return protocol_recording.ProtocolVideoStep(
         scope=scope,
@@ -42,14 +43,15 @@ def _make_recorder(tmp_path, clock, active_cached=True):
         timestamp_overlay=True,
         global_max_fps=0,
         autogain_settings={},
-        callbacks={},
+        events=RunEvents(),
         aborted_event=threading.Event(),
         is_run_in_progress=lambda: True,
         abort_run_fatal=MagicMock(),
-        abort_run_on_writer_death=MagicMock(),
         record_step_row=MagicMock(),
         record_dropped_capture=MagicMock(),
         clock=lambda: clock['t'],
+        run_claim=lent_run_claim(),
+        to_plate=None,
     )
 
 

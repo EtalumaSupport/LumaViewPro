@@ -31,6 +31,7 @@ sys.path.insert(0, str(REPO))
 import pytest
 
 from modules import common_utils
+from tests.scope_fakes import build_scope
 
 
 def _driver_classes():
@@ -97,9 +98,8 @@ class _FourColourRecordingBoard:
 
 @pytest.fixture
 def sim_scope():
-    from modules.lumascope_api import Lumascope
 
-    s = Lumascope(simulate=True)
+    s = build_scope(simulate=True)
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
@@ -111,12 +111,13 @@ class TestSeamBehaviour:
     """The illumination API is the one place a colour becomes a channel."""
 
     def test_led_on_unknown_colour_names_the_colour(self, sim_scope):
-        from modules.exceptions import ConfigError
+        from modules.exceptions import HardwareCommandRefusedError, MissingPart
 
         board = _FourColourRecordingBoard()
         sim_scope._led_driver = board
-        with pytest.raises(ConfigError, match='Lumi'):
+        with pytest.raises(HardwareCommandRefusedError, match='Lumi') as refused:
             sim_scope.illumination.led_on(channel='Lumi', illumination_ma=50)
+        assert refused.value.missing == MissingPart.led('Lumi')
         assert board.commands == [], 'no command may reach the driver'
 
     def test_led_off_unknown_colour_is_noop(self, sim_scope):
@@ -125,29 +126,25 @@ class TestSeamBehaviour:
         sim_scope.illumination.led_off(channel='PC')
         assert board.commands == [], 'off of an absent channel is already done'
 
-    def test_numeric_none_channel_still_rejected(self, sim_scope):
-        board = _FourColourRecordingBoard()
-        sim_scope._led_driver = board
-        with pytest.raises(ValueError):
-            sim_scope.illumination.led_off(channel=None)
-
 
 class TestTaskFailureNotificationWording:
-    """The failure popup names the failed action; a protocol is blamed only
-    when the task actually came off the protocol queue."""
+    """A protocol is named only when the task came off the protocol queue,
+    and nothing the user reads is spelled from the callable.
 
-    def _fire(self, monkeypatch, *, protocol: bool):
-        from modules import notification_center
+    Originally this asserted the failed action's SYMBOL appeared in the
+    body. Field evidence retired that half: a bundle showed the generic
+    popup reading "The '_grease_redist_w_pos' step operation failed" at an
+    L1 researcher, 81 times in one run, and queue membership turned out not
+    to be evidence that a step was skipped at all. The surviving property is
+    where the failure happened, which the title carries.
+    """
+
+    def _fire(self, centre_posts, *, protocol: bool):
+        from modules.notification_center import Severity
         from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
         executor = SequentialIOExecutor(max_workers=1, name='TEST_WORDING')
         try:
-            calls = []
-            monkeypatch.setattr(
-                notification_center.notifications,
-                'error',
-                lambda title, subject, body, **kw: calls.append(body),
-            )
 
             def sample_operation():
                 pass
@@ -160,20 +157,27 @@ class TestTaskFailureNotificationWording:
             queue.put(task)
             queue.get_nowait()
             executor._on_task_done(task, None, RuntimeError('boom'))
+            calls = [(n.title, n.message) for n in centre_posts if n.severity == Severity.ERROR]
             assert len(calls) == 1
             return calls[0]
         finally:
             executor.shutdown(wait=False)
 
-    def test_live_task_names_action_not_protocol(self, monkeypatch):
-        body = self._fire(monkeypatch, protocol=False)
-        assert 'sample_operation' in body
-        assert 'protocol' not in body.lower()
+    def test_live_task_does_not_blame_a_protocol(self, centre_posts):
+        title, body = self._fire(centre_posts, protocol=False)
+        seen = f'{title} {body}'.lower()
+        assert 'protocol' not in seen, f'a manual live action blamed a protocol: {seen!r}'
+        assert 'sample_operation' not in seen, f'the user was shown a Python symbol: {seen!r}'
 
-    def test_protocol_task_may_blame_the_protocol(self, monkeypatch):
-        body = self._fire(monkeypatch, protocol=True)
-        assert 'sample_operation' in body
-        assert 'protocol' in body.lower()
+    def test_protocol_task_says_where_it_happened(self, centre_posts):
+        title, body = self._fire(centre_posts, protocol=True)
+        seen = f'{title} {body}'.lower()
+        assert 'protocol' in seen, f'a protocol-queue failure must say so: {seen!r}'
+        assert 'skipped' not in seen, (
+            'queue membership is not evidence a step was skipped -- this '
+            f'claim was false 81 times in one measured run: {seen!r}'
+        )
+        assert 'sample_operation' not in seen, f'the user was shown a Python symbol: {seen!r}'
 
 
 class TestLayersWithLedSemantics:
@@ -210,6 +214,8 @@ class TestDarkFloorKeysOnLedDrivability:
 
         writer = _bare_protocol_writer()
         scope = writer._scope
+        # The objective the frame is taken with, read at capture.
+        scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
         scope.capabilities.has_turret = False
         scope.led_connected = False
         if writer_setup is not None:
@@ -223,7 +229,7 @@ class TestDarkFloorKeysOnLedDrivability:
             protocol=protocol,
             enable_image_saving=True,
         )
-        return scope.imaging._capture_and_wait_impl.call_args.kwargs, scope, writer
+        return scope.imaging.capture_and_wait.call_args.kwargs, scope, writer
 
     def test_lumi_protocol_step_posts_no_dark_floor_fact(self):
         # The capture path derives dark-by-design from commanded state (a
@@ -265,24 +271,20 @@ class TestCaptureAbortWording:
     everything else (incl. a board-less run) keeps the camera wording."""
 
     @staticmethod
-    def _run_abort(monkeypatch, *, color, led_connected, channel):
+    def _run_abort(centre_posts, *, color, led_connected, channel):
         from unittest.mock import MagicMock
 
-        from modules import notification_center
+        from modules.notification_center import Severity
         from tests.test_audit_fixes import _bare_protocol_writer, _protocol_step
 
-        criticals = []
-        monkeypatch.setattr(
-            notification_center.notifications,
-            'critical',
-            lambda title, subject, body, **kw: criticals.append(body),
-        )
         writer = _bare_protocol_writer()
         scope = writer._scope
+        # The objective the frame is taken with, read at capture.
+        scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
         scope.capabilities.has_turret = False
         scope.led_connected = led_connected
         scope.illumination.color2ch.return_value = channel
-        scope.imaging._capture_and_wait_impl.return_value = None
+        scope.imaging.capture_and_wait.return_value = None
         writer._consecutive_capture_failures = writer._MAX_CONSECUTIVE_CAPTURE_FAILURES - 1
         protocol = MagicMock()
         protocol.capture_root.return_value = ''
@@ -293,18 +295,19 @@ class TestCaptureAbortWording:
             protocol=protocol,
             enable_image_saving=True,
         )
+        criticals = [n.message for n in centre_posts if n.severity == Severity.CRITICAL]
         assert len(criticals) == 1, criticals
         return criticals[0]
 
-    def test_undrivable_colour_names_the_colour(self, monkeypatch):
-        body = self._run_abort(monkeypatch, color='PC', led_connected=True, channel=None)
+    def test_undrivable_colour_names_the_colour(self, centre_posts):
+        body = self._run_abort(centre_posts, color='PC', led_connected=True, channel=None)
         assert 'PC' in body
         assert 'Camera' not in body
 
-    def test_no_led_board_keeps_camera_wording(self, monkeypatch):
-        body = self._run_abort(monkeypatch, color='BF', led_connected=False, channel=None)
+    def test_no_led_board_keeps_camera_wording(self, centre_posts):
+        body = self._run_abort(centre_posts, color='BF', led_connected=False, channel=None)
         assert 'Camera failed' in body
 
-    def test_drivable_colour_keeps_camera_wording(self, monkeypatch):
-        body = self._run_abort(monkeypatch, color='BF', led_connected=True, channel=3)
+    def test_drivable_colour_keeps_camera_wording(self, centre_posts):
+        body = self._run_abort(centre_posts, color='BF', led_connected=True, channel=3)
         assert 'Camera failed' in body

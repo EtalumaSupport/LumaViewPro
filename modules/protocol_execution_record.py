@@ -7,6 +7,7 @@ import pathlib
 import pandas as pd
 
 from lvp_logger import logger
+from modules.exceptions import RecordIncompleteError
 
 
 class ProtocolExecutionRecord:
@@ -100,33 +101,26 @@ class ProtocolExecutionRecord:
         """
         self._capture_attempts += 1
 
-    def complete(self, reconcile: bool = True):
-        """Finalize the record. When *reconcile* is True, warn the user if
-        fewer rows were written than captures attempted.
+    def complete(self) -> None:
+        """Finalize the record.
 
-        *reconcile* is False on an aborted run: abort deliberately drops
-        pending writes, so a shortfall there is expected, not a fault.
+        Reconciled on every ending: a run writes every image it captured
+        however it ends, so a shortfall is always a fault.
+
+        Raises:
+            RecordIncompleteError: fewer rows were written than captures
+                attempted. Raised to the run's files completion, whose
+                reporter tells the person once.
         """
-        if reconcile and self._mode == 'to_file':
+        self._close_outfile()
+        if self._mode == 'to_file':
             missing = self._capture_attempts - self._rows_written
             if missing > 0:
-                logger.error(
-                    f'ProtocolExecutionRecord: {missing} of '
-                    f'{self._capture_attempts} attempted captures left no row '
-                    f'in {self._outfile.name} -- those images are absent from '
-                    'the record and will be skipped by post-processing.'
+                raise RecordIncompleteError(
+                    missing=missing,
+                    attempted=self._capture_attempts,
+                    record_name=self._outfile.name,
                 )
-                from modules.notification_center import notifications
-
-                notifications.warning(
-                    'Protocol',
-                    'Protocol Record Incomplete',
-                    f'{missing} of {self._capture_attempts} captures were not '
-                    'written to the protocol record. Those images, if saved, '
-                    'will be missing from stitching and video builds. Check '
-                    'the log for the cause.',
-                )
-        self._close_outfile()
 
     def _close_outfile(self):
         # Execution record is written in append mode; nothing to close
@@ -190,23 +184,37 @@ class ProtocolExecutionRecord:
         return len(self._records)
 
     @classmethod
-    def from_file(cls, file_path: pathlib.Path):
+    def from_file(cls, file_path: pathlib.Path) -> 'ProtocolExecutionRecord':
+        """The run record saved at ``file_path``.
+
+        Raises:
+            OSError: the file cannot be opened.
+            ValueError: the file is not a run record this release reads: the
+                wrong header or version, or a row cut short or malformed.
+        """
+        try:
+            return cls._read(file_path)
+        except (StopIteration, IndexError, csv.Error) as e:
+            raise ValueError(f'{pathlib.Path(file_path).name} is cut short or malformed') from e
+
+    @classmethod
+    def _read(cls, file_path: pathlib.Path) -> 'ProtocolExecutionRecord':
         with open(file_path) as fp:
             csvreader = csv.reader(fp, delimiter='\t')
             header = next(csvreader)
             if header[0] != cls.FILE_HEADER:
-                raise Exception('Invalid protocol execution record')
+                raise ValueError('Invalid protocol execution record')
 
             version = next(csvreader)
             if version[0] != 'Version':
-                raise Exception('Version key not found')
+                raise ValueError('Version key not found')
 
             if int(version[1]) not in (2, 3):  # Add 3 to supported versions
-                raise Exception('Unsupported protocol execution record version')
+                raise ValueError('Unsupported protocol execution record version')
 
             protocol_file_loc_row = next(csvreader)
             if protocol_file_loc_row[0] != 'Protocol File':
-                raise Exception('Protocol file location not found in file')
+                raise ValueError('Protocol file location not found in file')
 
             protocol_file_loc = protocol_file_loc_row[1]
 

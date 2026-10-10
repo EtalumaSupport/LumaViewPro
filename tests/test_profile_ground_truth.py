@@ -2,22 +2,28 @@
 """Off-bench tests for the profiler ground-truth check (tools/profiling/ground_truth.py)
 and the synthetic workload's split partitioning.
 
-The real ground-truth RUN needs py-spy on a live process (bench-only), but the
-check LOGIC -- does a recovered split within error PASS, and does a wrong split
-or a busy idle thread FAIL -- is pure and testable here against synthetic
-artifacts. A seeded 50/50 artifact must go red where the true split is 70/30.
+The real ground-truth RUN needs the sampler attached to a live process (under
+sudo on macOS), but the check LOGIC -- does a recovered split within error PASS,
+does a wrong split or a busy idle thread FAIL, does a GIL-free run that lost its
+CPU FAIL -- is pure and testable here against synthetic artifacts. A seeded
+50/50 artifact must go red where the true split is 70/30.
 """
 
 import pytest
 
 from tools.profiling._synthetic_workload import ITERS_PER_CYCLE, iter_counts
-from tools.profiling.ground_truth import check_identity, recovered_split
+from tools.profiling.ground_truth import (
+    check_gil_free,
+    check_identity,
+    recovered_split,
+    write_verdicts,
+)
 
 
 def _artifact(functions, total_cpu_cores=1.0):
     # functions: list of (leaf_name, cpu_cores, err_cores_95)
     return {
-        'manifest': {'total_process_cpu_cores': total_cpu_cores},
+        'manifest': {'total_process_cpu_cores': total_cpu_cores, 'sampler': 'austin -c'},
         'functions': [{'function': n, 'cpu_cores': c, 'err_cores_95': e} for n, c, e in functions],
     }
 
@@ -103,3 +109,41 @@ class TestCheckIdentity:
         tight = _artifact([(_A, 0.66, 0.005), (_B, 0.34, 0.005), (_SLEEP, 0.0, 0.0)])
         assert check_identity(wide, 0.70).passed
         assert not check_identity(tight, 0.70).passed
+
+
+_GIL_FREE = '_hot_gil_free (tools/profiling/_synthetic_workload.py:117)'
+
+
+class TestGilFree:
+    def test_a_sampler_that_keeps_gil_free_cpu_passes(self):
+        result = check_gil_free(
+            _artifact([(_GIL_FREE, 0.97, 0.01), (_SLEEP, 0.004, 0.002)], total_cpu_cores=1.0)
+        )
+        assert result.passed
+        assert result.gil_free_share == pytest.approx(0.97)
+
+    def test_a_sampler_that_counts_only_the_gil_holder_fails(self):
+        # The GIL-free worker holds no GIL, so a GIL-only sampler gives it nothing
+        # and the process's whole core lands elsewhere.
+        result = check_gil_free(
+            _artifact([(_GIL_FREE, 0.02, 0.01), ('<no Python frame>', 0.95, 0.01)])
+        )
+        assert not result.passed
+        assert 'GIL released was lost' in result.report
+
+    def test_a_sleeper_counted_as_cpu_fails_even_with_the_work_kept(self):
+        result = check_gil_free(
+            _artifact([(_GIL_FREE, 0.95, 0.01), (_SLEEP, 0.40, 0.01)], total_cpu_cores=1.0)
+        )
+        assert not result.passed
+        assert 'idle thread counted as CPU' in result.report
+
+
+def test_the_verdicts_are_saved_beside_the_profiles(tmp_path):
+    split = check_identity(_artifact([(_A, 0.70, 0.01), (_B, 0.30, 0.01)]), 0.7)
+    gil_free = check_gil_free(_artifact([(_GIL_FREE, 0.97, 0.01)], total_cpu_cores=1.0))
+
+    path = write_verdicts([split, gil_free], tmp_path)
+
+    assert path.parent == tmp_path
+    assert path.read_text() == split.report + '\n\n' + gil_free.report + '\n'

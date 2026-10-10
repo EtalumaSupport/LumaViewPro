@@ -1,0 +1,236 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+"""A simulated scope's boards come in three tiers, and the settings pick.
+
+What is pinned here: the firmware tier builds the production driver against
+the real firmware and reports the catalogue's axes for every model; a model
+with no axes has no motor board; an emulator that does not come up raises
+instead of becoming a manual scope; the setting is refused when it names no
+tier and resolves to the fast tier only where no runtime is built. The
+realistic tier is the firmware tier with the motors moving at the bench-fitted
+ramp, so a home takes long enough to press Home again during it; the shipped
+template runs it, and the firmware tier the tests run stays instant.
+"""
+
+import pathlib
+import sys
+import time
+
+import pytest
+import serial
+
+from drivers.fx2driver import FX2LEDController
+from drivers.ledboard import LEDBoard
+from drivers.motorboard import MotorBoard
+from drivers.null_motorboard import NullMotionBoard
+from drivers.registry import DriverNotLiveError
+from drivers.sim_wire.backend import LED_DEVICE, SimWireBackend
+from drivers.tmcm6110 import Tmcm6110Board
+from drivers.simulated_ledboard import SimulatedLEDBoard
+from drivers.simulated_motorboard import SimulatedMotorBoard
+from modules.exceptions import ConfigError
+from modules.layer_record import load_scope_models, model_axes
+from modules.lumascope_api import Lumascope
+from modules.scope_session import ScopeSession
+from tests.settings_fixtures import complete_settings
+from tests.scope_fakes import build_scope
+
+if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
+    pytest.skip(
+        'the firmware-backed simulator runs on macOS and Linux only', allow_module_level=True
+    )
+
+MODELS = load_scope_models()
+_AXES_OF = {'Focus': 'Z', 'XYStage': 'XY', 'Turret': 'T'}
+
+
+def _catalogue_axes(model: str) -> set[str]:
+    return {axis for flag, axes in _AXES_OF.items() if MODELS[model].get(flag) for axis in axes}
+
+
+def _scope(**kwargs) -> Lumascope:
+    return build_scope(
+        simulate=True,
+        warn_pre_release=False,
+        register_atexit=False,
+        **kwargs,
+    )
+
+
+@pytest.mark.parametrize('model', sorted(MODELS))
+def test_the_firmware_tier_reports_every_catalogue_models_axes(model):
+    scope = _scope(sim_tier='firmware', sim_model=model)
+    try:
+        assert set(scope.capabilities.axes) == _catalogue_axes(model)
+        motor_board = MODELS[model].get('MotorBoard')
+        if motor_board == 'TMCM-6110':
+            assert isinstance(scope._motion_driver, Tmcm6110Board)
+        elif motor_board == 'EL-0940':
+            assert isinstance(scope._motion_driver, MotorBoard)
+        else:
+            assert isinstance(scope._motion_driver, NullMotionBoard)
+    finally:
+        scope.disconnect()
+
+
+def test_the_fast_tier_is_the_default_and_the_python_stand_in():
+    scope = _scope(sim_model='LS850T')
+    try:
+        assert isinstance(scope._motion_driver, SimulatedMotorBoard)
+    finally:
+        scope.disconnect()
+
+
+def test_a_tier_that_is_not_one_of_the_three_is_refused():
+    with pytest.raises(ValueError, match='sim_tier'):
+        _scope(sim_tier='fastest', sim_model='LS850T')
+
+
+def test_a_model_the_catalogue_lacks_is_refused_not_answered_axis_less():
+    with pytest.raises(ConfigError, match="no model 'LS999'"):
+        model_axes(MODELS, 'LS999')
+
+
+def test_an_emulator_that_does_not_come_up_raises_naming_the_driver(monkeypatch):
+    # The driver swallows a failed open and reports itself not connected,
+    # which the registry's auto path would answer with the null driver.
+    def refused_open(self, **kwargs):
+        raise serial.SerialException('the emulator did not start')
+
+    monkeypatch.setattr(SimWireBackend, 'open', refused_open)
+    with pytest.raises(DriverNotLiveError, match=r"MotorBoard \('rp2040'\)"):
+        _scope(sim_tier='firmware', sim_model='LS850T')
+
+
+# The LED board follows the same tier. A model whose row names an EL-0940 LED
+# board has its LEDs on that board; one naming an FX2 has its LEDs driven by
+# the production FX2 driver on a simulated FX2.
+
+
+@pytest.mark.parametrize('model', sorted(MODELS))
+def test_the_firmware_tier_runs_the_led_firmware_on_every_el0940_model(model):
+    scope = _scope(sim_tier='firmware', sim_model=model)
+    try:
+        if MODELS[model]['LEDBoard'] == 'EL-0940':
+            assert isinstance(scope._led_driver, LEDBoard)
+            assert scope._led_driver.firmware_date == '2024-06-05'
+        else:
+            assert isinstance(scope._led_driver, FX2LEDController)
+    finally:
+        scope.disconnect()
+
+
+def test_the_fast_tier_keeps_the_python_led_stand_in():
+    scope = _scope(sim_model='LS850T')
+    try:
+        assert isinstance(scope._led_driver, SimulatedLEDBoard)
+    finally:
+        scope.disconnect()
+
+
+def test_an_led_emulator_that_does_not_come_up_raises_naming_the_driver(monkeypatch):
+    open_board = SimWireBackend.open
+
+    def refused_led_open(self, **kwargs):
+        if kwargs.get('port') == LED_DEVICE:
+            raise serial.SerialException('the emulator did not start')
+        return open_board(self, **kwargs)
+
+    monkeypatch.setattr(SimWireBackend, 'open', refused_led_open)
+    with pytest.raises(DriverNotLiveError, match=r"LEDBoard \('rp2040'\)"):
+        _scope(sim_tier='firmware', sim_model='LS850T')
+
+
+class TestTheSessionReadsTheTier:
+    def test_the_template_ships_the_realistic_tier(self):
+        import json
+
+        template = json.loads(pathlib.Path('data/settings.json').read_text())
+        assert template['simulator_tier'] == 'realistic'
+
+    def test_a_setting_that_names_no_tier_is_refused(self):
+        with pytest.raises(ConfigError, match="simulator_tier 'turbo'"):
+            ScopeSession.create(complete_settings(simulator_tier='turbo'), simulate=True)
+
+    def test_a_settings_dict_without_the_key_is_refused(self):
+        settings = complete_settings()
+        del settings['simulator_tier']
+        with pytest.raises(ConfigError, match="no 'simulator_tier'"):
+            ScopeSession.create(settings, simulate=True)
+
+    def test_the_firmware_tier_builds_the_production_driver(self):
+        session = ScopeSession.create(
+            complete_settings(simulator_tier='firmware', microscope='LS850T'), simulate=True
+        )
+        try:
+            assert isinstance(session.scope._motion_driver, MotorBoard)
+            assert set(session.scope.capabilities.axes) == {'X', 'Y', 'Z', 'T'}
+        finally:
+            session.shutdown()
+
+    @pytest.mark.parametrize('asked', ['firmware', 'realistic'])
+    def test_a_platform_with_no_runtime_runs_the_fast_tier_and_says_so(self, monkeypatch, asked):
+        import modules.scope_session as scope_session_module
+
+        # The suite's lvp_logger is a mock; its calls are the record.
+        scope_session_module.logger.warning.reset_mock()
+        monkeypatch.setattr(sys, 'platform', 'win32')
+        tier = ScopeSession._simulator_tier(complete_settings(simulator_tier=asked))
+        assert tier == 'fast'
+        said = [str(c.args[0]) for c in scope_session_module.logger.warning.call_args_list]
+        assert any('no MicroPython runtime' in s for s in said), said
+
+    def test_a_linux_machine_that_has_not_built_the_runtime_runs_the_fast_tier(self, monkeypatch):
+        # The Linux runtime is built where it runs, not committed: a Linux
+        # developer who never ran the build script must still get a scope.
+        import platform
+
+        import drivers.sim_wire.backend as backend
+
+        monkeypatch.setattr(sys, 'platform', 'linux')
+        monkeypatch.setattr(platform, 'machine', lambda: 'x86_64')
+        monkeypatch.setattr(backend, '_PACKAGE', pathlib.Path('/nonexistent'))
+        tier = ScopeSession._simulator_tier(complete_settings(simulator_tier='firmware'))
+        assert tier == 'fast'
+
+    def test_a_platform_with_a_runtime_keeps_the_firmware_tier(self):
+        assert (
+            ScopeSession._simulator_tier(complete_settings(simulator_tier='firmware')) == 'firmware'
+        )
+
+    def test_the_firmware_tier_lights_an_led_through_the_api(self):
+        session = ScopeSession.create(
+            complete_settings(simulator_tier='firmware', microscope='LS850T'), simulate=True
+        )
+        try:
+            led = session.scope._led_driver
+            assert isinstance(led, LEDBoard)
+            session.scope.illumination.led_on(3, 100)
+            # The driver records a current only once the firmware answered.
+            assert led.led_ma[led.ch2color(3)] == 100
+            assert led.last_command_error is None
+        finally:
+            session.shutdown()
+
+
+class TestTheRealisticTierTakesTheStagesTime:
+    """A home on the firmware tier is over before a person can press again;
+    on the realistic tier it takes seconds, as on the stage."""
+
+    def _home_s(self, tier: str) -> float:
+        session = ScopeSession.create(
+            complete_settings(simulator_tier=tier, microscope='LS850'), simulate=True
+        )
+        try:
+            started = time.monotonic()
+            session.scope.motion.home()
+            return time.monotonic() - started
+        finally:
+            session.shutdown()
+
+    def test_the_firmware_tier_homes_at_once(self):
+        assert self._home_s('firmware') < 1.0
+
+    # One realistic home of an LS850, about 5 s.
+    @pytest.mark.slow
+    def test_the_realistic_tier_homes_for_longer_than_the_home_buttons_debounce(self):
+        assert self._home_s('realistic') > 2.0

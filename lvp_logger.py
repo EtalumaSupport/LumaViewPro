@@ -20,83 +20,34 @@ import logging
 from logging.handlers import RotatingFileHandler
 import sys
 import ctypes
-import platformdirs
 import threading
-
-global windows_machine
-
-# Platform flag derived here independently of modules.app_environment's
-# identical os.name check, by design: lvp_logger is the lowest-level module
-# (imported before app_environment runs), so it owns its own check rather
-# than importing one. The predicate is identical in both, so the two copies
-# cannot disagree -- it is a constant, not divergent state.
-windows_machine = False
 
 # Thread-local storage for tracking paused threads
 _paused_threads = threading.local()
-
-if os.name == 'nt':
-    windows_machine = True
-
-abspath = os.path.abspath(__file__)
-basename = os.path.basename(__file__)
-script_path = abspath[: -len(basename)]
 
 # version.txt format:
 #   Line 1: version string (e.g., "4.0.0-beta2") - used in folder names, must be path-safe
 #   Line 2: build timestamp (e.g., "2026-03-27 18:52") - displayed in title bar only
 #
-# utf-8-sig, not the default: a byte-order mark is NOT whitespace, so
-# .strip() leaves it on line 1 and it becomes part of the version string.
-# That string is not cosmetic -- it names the Documents data folder below
-# and is stamped into the TIFF Software tag of every saved image, where a
-# non-ASCII byte raises "TIFF strings must be 7-bit ASCII" and no image
-# can be saved at all. utf-8-sig strips a BOM if present and is a no-op
-# if absent, so the app survives any writer that leaves one.
-version = ''
-build_timestamp = ''
-try:
-    with open(os.path.join(script_path, 'version.txt'), encoding='utf-8-sig') as f:
-        lines = f.readlines()
-        version = lines[0].strip() if len(lines) > 0 else ''
-        build_timestamp = lines[1].strip() if len(lines) > 1 else ''
-except FileNotFoundError:
-    pass  # Expected when running from source without version.txt
-except Exception as e:
-    print(f'[lvp_logger] WARNING: Failed to read version.txt: {e}', file=sys.stderr)
+# Read through the application's one reader of the file, which strips a
+# byte-order mark: the version names an installed build's Documents data
+# folder and is stamped into the TIFF Software tag of every saved image, so
+# a second reader with a different policy is how the two drifted apart
+# before. path_utils imports nothing that imports the logger, so this
+# import cannot reach back into it.
+from modules.path_utils import (
+    app_runtime,
+    get_script_root,
+    get_source_root,
+    launch_root,
+    read_version,
+)
 
-# Under PyInstaller (sys.frozen=True), this module's __file__ points
-# into the bundle's extract dir -- _MEI<random> (onefile mode) or
-# <install>/_internal (onedir 6+) -- NOT the install root where the
-# WiX MSI drops marker.lvpinstalled. version.txt above works because
-# it's bundled into the same dir via the .spec datas list; the marker
-# is intentionally NOT bundled (it exists to distinguish "MSI-installed
-# build" from "PyInstaller dev build"). Use sys.executable's directory
-# when frozen so the probe lands on the install root.
-if getattr(sys, 'frozen', False):
-    _marker_dir = os.path.dirname(os.path.abspath(sys.executable))
-else:
-    _marker_dir = script_path.rstrip(os.sep) or '.'
+version, build_timestamp = read_version()
 
-try:
-    with open(os.path.join(_marker_dir, 'marker.lvpinstalled')) as f:
-        lvp_installed = True
-except FileNotFoundError:
-    lvp_installed = False  # Expected when running from source
-except Exception as e:
-    print(f'[lvp_logger] WARNING: Failed to read marker.lvpinstalled: {e}', file=sys.stderr)
-    lvp_installed = False
-
-if windows_machine and lvp_installed:
-    documents_folder = platformdirs.user_documents_dir()
-    lvp_appdata = os.path.join(documents_folder, f'LumaViewPro {version}')
-
-    # Do NOT os.chdir() here -- it changes global CWD as a side effect of import.
-    # Use absolute paths instead.
-    pass
-
-else:
-    lvp_appdata = script_path
+# The logs live in the data root, which an installed build keeps in
+# Documents; path_utils decides it for every reader.
+lvp_appdata = str(get_source_root())
 
 from modules.settings_init import load_debug_setting
 
@@ -145,16 +96,16 @@ class CustomFormatter(logging.Formatter):
         return logging.Formatter.format(self, record)
 
 
-def minimize_logger_window():
+def minimize_logger_window() -> None:
     if sys.platform == 'win32':
         try:
             console_window = ctypes.windll.kernel32.GetConsoleWindow()
+            # A windowed build (the installed exe) has no console: nothing to
+            # minimize, and nothing wrong.
             if console_window:
                 # Setting the found console window to a minimized state (state 6)
                 ctypes.windll.user32.ShowWindow(console_window, 6)
                 logger.info('[Logger  ] Console window minimized')
-            else:
-                logger.warning('[Logger  ] Console window not found.')
         except Exception as e:
             logger.error(f'[Logger  ] Failed to minimize console window: {e}')
 
@@ -229,6 +180,20 @@ logger.setLevel(_log_level)
 logger.propagate = True
 _lvp_parent.propagate = True
 
+
+def rotated_log_name(name: str) -> str:
+    """Every log's backup name: ``lumaviewpro.log.1`` -> ``lumaviewpro.1.log``.
+
+    Only the file name is edited. Editing the whole path renamed into a
+    folder that does not exist whenever a folder above the log had ``.log``
+    in its name (a user ``j.logan``), and every record after that failed
+    rollover was lost.
+    """
+    folder, file_name = os.path.split(name)
+    stem, _, index = file_name.rpartition('.log.')
+    return os.path.join(folder, f'{stem}.{index}.log')
+
+
 # obtains name of the module (file) importing lvp_logger
 filename = f'{__file__}'
 file_handler = RotatingFileHandler(
@@ -239,7 +204,7 @@ file_handler = RotatingFileHandler(
     encoding=None,
     delay=False,
 )
-file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+file_handler.namer = rotated_log_name
 file_handler.setFormatter(CustomFormatter())
 file_handler.addFilter(ThreadPauseFilter())
 
@@ -253,7 +218,7 @@ error_file_handler = RotatingFileHandler(
     delay=False,
 )
 # keep the same filename pattern for rotations
-error_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+error_file_handler.namer = rotated_log_name
 error_file_handler.setFormatter(CustomFormatter())
 error_file_handler.addFilter(ThreadPauseFilter())
 
@@ -289,7 +254,7 @@ rest_api_handler = RotatingFileHandler(
     encoding=None,
     delay=True,  # Don't create file until first REST API log message
 )
-rest_api_handler.namer = lambda name: name.replace('.log', '') + '.log'
+rest_api_handler.namer = rotated_log_name
 rest_api_handler.setFormatter(CustomFormatter())
 rest_api_handler.addFilter(ThreadPauseFilter())
 
@@ -312,11 +277,11 @@ serial_logger.propagate = False  # Keep serial traffic out of the main log
 
 
 class SerialFormatter(logging.Formatter):
-    """Compact format for serial log: timestamp board command -> response (timing)."""
+    """Compact format for serial log: timestamp [thread] board command -> response (timing)."""
 
     def __init__(self):
         super().__init__(
-            fmt='%(asctime)s.%(msecs)03d %(message)s',
+            fmt='%(asctime)s.%(msecs)03d [%(threadName)s] %(message)s',
             datefmt='%H:%M:%S',
         )
 
@@ -333,7 +298,7 @@ serial_file_handler = RotatingFileHandler(
     encoding=None,
     delay=False,
 )
-serial_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+serial_file_handler.namer = rotated_log_name
 serial_file_handler.setFormatter(SerialFormatter())
 serial_file_handler.addFilter(ThreadPauseFilter())
 serial_logger.addHandler(serial_file_handler)
@@ -376,7 +341,7 @@ camera_file_handler = RotatingFileHandler(
     encoding=None,
     delay=False,
 )
-camera_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+camera_file_handler.namer = rotated_log_name
 camera_file_handler.setFormatter(CameraFormatter())
 camera_file_handler.addFilter(ThreadPauseFilter())
 camera_logger.addHandler(camera_file_handler)
@@ -407,7 +372,7 @@ metrics_file_handler = RotatingFileHandler(
     encoding=None,
     delay=False,
 )
-metrics_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+metrics_file_handler.namer = rotated_log_name
 metrics_file_handler.setFormatter(CustomFormatter())
 metrics_file_handler.addFilter(ThreadPauseFilter())
 metrics_logger.addHandler(metrics_file_handler)
@@ -435,7 +400,7 @@ protocol_file_handler = RotatingFileHandler(
     encoding=None,
     delay=True,  # Don't create file until first write -- absence means no stills protocol ran
 )
-protocol_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+protocol_file_handler.namer = rotated_log_name
 protocol_file_handler.setFormatter(CustomFormatter())
 protocol_file_handler.addFilter(ThreadPauseFilter())
 protocol_logger.addHandler(protocol_file_handler)
@@ -469,7 +434,7 @@ _af_file_handler = RotatingFileHandler(
     encoding=None,
     delay=True,  # Don't create file until first write
 )
-_af_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+_af_file_handler.namer = rotated_log_name
 _af_file_handler.setFormatter(AFFormatter())
 _af_file_handler.addFilter(ThreadPauseFilter())
 
@@ -483,11 +448,11 @@ api_logger.addHandler(error_file_handler)
 
 
 class APIFormatter(logging.Formatter):
-    """Compact format for API log."""
+    """Compact format for API log: timestamp [thread] message."""
 
     def __init__(self):
         super().__init__(
-            fmt='%(asctime)s.%(msecs)03d %(message)s',
+            fmt='%(asctime)s.%(msecs)03d [%(threadName)s] %(message)s',
             datefmt='%H:%M:%S',
         )
 
@@ -500,7 +465,7 @@ _api_file_handler = RotatingFileHandler(
     encoding=None,
     delay=True,  # Don't create file until first write
 )
-_api_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+_api_file_handler.namer = rotated_log_name
 _api_file_handler.setFormatter(APIFormatter())
 _api_file_handler.addFilter(ThreadPauseFilter())
 
@@ -542,6 +507,7 @@ logger.addHandler(rest_api_handler)
 gui_handler = RotatingFileHandler(
     GUI_LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=2, encoding='utf-8'
 )
+gui_handler.namer = rotated_log_name
 gui_handler.setFormatter(CustomFormatter())
 gui_handler.setLevel(logging.INFO)
 gui_logger = logging.getLogger('LVP.gui_interactions')
@@ -574,21 +540,30 @@ kivy_logger.propagate = True
 # DEBUG firehose does not flood the bundle. The console handler echoes to the
 # terminal only in debug: every logger now propagates to root, so a non-debug
 # console would surface all LVP + framework output as terminal noise (the
-# reason the old non-debug path stripped root's stream handlers). It is also
-# gated on sys.stderr -- a packaged windowed build has none, and a StreamHandler
-# over a missing stream raises on emit.
+# reason the old non-debug path stripped root's stream handlers). It writes to
+# the process's own stderr, never to whatever sys.stderr is at import: Kivy
+# replaces sys.stderr with a stream that logs each line, so a handler made after
+# Kivy loaded wrote into it and logged its own output until the recursion limit.
+# It is also gated on that stream -- a packaged windowed build has none, and a
+# StreamHandler over a missing stream raises on emit.
 file_handler.setLevel(_log_level)
 _root_logger = logging.getLogger()
 _root_logger.setLevel(logging.DEBUG)
 _root_logger.addHandler(file_handler)
 _root_logger.addHandler(error_file_handler)
-if debug and sys.stderr is not None:
-    _root_console = logging.StreamHandler()
+if debug and sys.__stderr__ is not None:
+    _root_console = logging.StreamHandler(sys.__stderr__)
     _root_console.setLevel(_log_level)
     _root_console.setFormatter(CustomFormatter())
     _root_logger.addHandler(_root_console)
 
-sys.excepthook = custom_except_hook
+# Every process that imports this module shares the log, so each one's first
+# record says what it is: the GUI, the REST server, a headless script and a
+# test runner alike. Only the GUI writes the banner.
+logger.info(
+    f'[Process   ] LumaViewPro {version or "(no version.txt)"}, {app_runtime()}, '
+    f'from {launch_root()}, data in {lvp_appdata}, PID {os.getpid()}'
+)
 
 
 def _collect_installed_packages() -> dict:
@@ -625,27 +600,80 @@ def collect_installed_packages() -> dict:
     return _collect_installed_packages()
 
 
-def log_environment_banner(install_path: str, version_str: str, camera_sdk_lines: list[str]):
+def git_revision() -> str | None:
+    """The commit the running code was built from, or None.
+
+    The banner's ``Git:`` line and any record that names the build read it
+    here, so the two can never disagree. It looks where the code really
+    lives (``get_script_root``, links resolved), never in the folder
+    LumaViewPro was launched from: a launch from a folder of links into a
+    clone has no ``.git`` of its own. A frozen build asks git nothing: its
+    bundle is no checkout, and a folder around it may be another one.
+    """
+    root = str(get_script_root())
+    # SHA lookup precedence:
+    #   1) .git_archival.txt -- GitHub ZIP downloads substitute the
+    #      $Format:%H$ placeholder with the real SHA at archive time.
+    #      In a local git clone the placeholder is unsubstituted ($Format
+    #      prefix); in a ZIP it has been replaced with the 40-char SHA.
+    #   2) `git rev-parse --short HEAD` -- works in local clones with
+    #      .git present. Installer builds wipe .git so this returns
+    #      nothing.
+    # Either path that yields a real value wins; otherwise fall back to
+    # Built + CommitGUID for triage.
+    _git_hash = None
+    try:
+        with open(os.path.join(root, '.git_archival.txt')) as _af:
+            for _line in _af:
+                if _line.startswith('node: ') and not _line.startswith('node: $Format'):
+                    _git_hash = _line.split(': ', 1)[1].strip()[:12]
+                    break
+    except Exception:
+        pass
+    if not _git_hash and not app_runtime().frozen:
+        try:
+            import subprocess
+
+            _git_hash = (
+                subprocess.check_output(
+                    ['git', 'rev-parse', '--short', 'HEAD'],
+                    cwd=root,
+                    stderr=subprocess.DEVNULL,
+                    timeout=2,
+                )
+                .decode()
+                .strip()
+            )
+        except Exception:
+            pass
+    return _git_hash
+
+
+def log_environment_banner(
+    install_path: str, version_str: str, camera_sdk_lines: list[str]
+) -> None:
     """Emit the standard launch-time environment fingerprint.
 
     ``install_path`` is the directory the executable runs from -- where
-    version.txt, build_id.txt and .git_archival.txt ship. On an installed build this is
+    version.txt and build_id.txt ship. On an installed build this is
     the install root, NOT the per-user data directory; on a source/dev run
     the two coincide.
 
     ``camera_sdk_lines`` is the output of
     ``modules.app_environment.camera_sdk_probe()`` -- required (not
     defaulted, not imported here) so no entry point can silently drop the
-    camera-SDK fingerprint, while this foundational module keeps zero
-    dependency on modules/.
+    camera-SDK fingerprint, while importing this module never imports the
+    camera bindings the probe imports.
 
-    Logs git hash, run time, host/OS, Python interpreter + version, Kivy,
-    and the camera-SDK lines. Every entry point that ships should call
-    this on startup so support bundles always identify the exact
-    environment that produced the log.
+    Logs git hash, the process ID, run time, host/OS, Python interpreter +
+    version, Kivy, and the camera-SDK lines, so a support bundle identifies
+    the exact environment that produced the log. The PID ties the banner to
+    its process: every process that imports this module writes to the same
+    log, and the CPU profiler finds the build it profiles by it.
 
-    Centralized here so REST API, headless test runner, CLI tools all
-    get the same fingerprint without copy-paste.
+    Only the GUI writes it (``LumaViewProApp.build``); every process that
+    imports this module, the GUI included, first writes its one ``[Process]``
+    line: version, runtime, launch folder, data root and PID.
     """
     import sys as _sys
 
@@ -654,8 +682,8 @@ def log_environment_banner(install_path: str, version_str: str, camera_sdk_lines
 
     # Two DIFFERENT identities, deliberately reported as two lines.
     #
-    # Lines 2-4 (timestamp, branch, GUID) are written by the pre-commit
-    # hook and identify a COMMIT -- the GUID is random per commit, not per
+    # Lines 2-3 (timestamp, GUID) are written by the pre-commit hook and
+    # identify a COMMIT -- the GUID is random per commit, not per
     # build. It was previously labelled "BuildGUID", which reads as a build
     # identity and is not one: three separate builds of one SHA produced
     # byte-identical banners, and telling them apart needed an install-log
@@ -670,13 +698,17 @@ def log_environment_banner(install_path: str, version_str: str, camera_sdk_lines
     # data folder that orphaned the user's settings, and a failed save on
     # every capture. A diagnostic writer does not share a file with a
     # path-critical string.
+    #
+    # The file names no branch: a commit made from a detached worktree, as
+    # every track's are, cannot know the branch it is going to, and a branch
+    # line kept whatever name the worktree inherited. The commit names its
+    # branches.
     # Triage chains:
     #   - `git log -S "<guid>" -- version.txt` finds the exact commit
     #     by GUID (works in any distribution).
-    #   - `git log --before=<Built>+1m <Branch>` finds it by timestamp.
+    #   - `git log --before=<Built>+1m` finds it by timestamp.
     #   - `.git_archival.txt` carries the actual SHA in GitHub ZIPs.
     _built = ''
-    _branch = ''
     _commit_guid = ''
     _build_id = ''
     try:
@@ -685,9 +717,7 @@ def log_environment_banner(install_path: str, version_str: str, camera_sdk_lines
             if len(_lines) >= 2:
                 _built = _lines[1].strip()
             if len(_lines) >= 3:
-                _branch = _lines[2].strip()
-            if len(_lines) >= 4:
-                _commit_guid = _lines[3].strip()
+                _commit_guid = _lines[2].strip()
     except Exception as _e:
         logger.debug(f'[LVP Main  ] version.txt not read from {install_path}: {_e}')
 
@@ -699,64 +729,24 @@ def log_environment_banner(install_path: str, version_str: str, camera_sdk_lines
     except Exception as _e:
         logger.debug(f'[LVP Main  ] build_id.txt not read from {install_path}: {_e}')
     logger.info(f'[LVP Main  ] Built:     {_built or "unknown"}')
-    logger.info(f'[LVP Main  ] Branch:    {_branch or "unknown"}')
     logger.info(f'[LVP Main  ] CommitGUID: {_commit_guid or "unknown"}')
     # A missing build ID means two different things and they must not share
-    # a message: an installed exe with no build ID was produced by a build
+    # a message: a frozen build with no build ID was produced by a build
     # script too old to stamp one, and saying "source / dev" there would be
     # a lying log line introduced by the fix meant to stop misattribution.
     if _build_id:
         _build_id_str = _build_id
-    elif lvp_installed:
+    elif app_runtime().frozen:
         _build_id_str = 'unknown (built by build script < v3)'
     else:
         _build_id_str = 'source / dev (no build event)'
     logger.info(f'[LVP Main  ] BuildID:   {_build_id_str}')
 
-    # Runtime: distinguish installed .exe from running directly from a
-    # source clone. The presence of marker.lvpinstalled means the MSI
-    # ran (the marker is dropped by the installer). Without it, this is
-    # a developer running `python lumaviewpro.py` from a clone.
-    logger.info(f'[LVP Main  ] Runtime:   {"installed exe" if lvp_installed else "source / dev"}')
+    logger.info(f'[LVP Main  ] Runtime:   {app_runtime()}')
+    logger.info(f'[LVP Main  ] PID:       {os.getpid()}')
 
-    # SHA lookup precedence:
-    #   1) .git_archival.txt -- GitHub ZIP downloads substitute the
-    #      $Format:%H$ placeholder with the real SHA at archive time.
-    #      In a local git clone the placeholder is unsubstituted ($Format
-    #      prefix); in a ZIP it has been replaced with the 40-char SHA.
-    #   2) `git rev-parse --short HEAD` -- works in local clones with
-    #      .git present. Installer builds wipe .git so this returns
-    #      nothing.
-    # Either path that yields a real value wins; otherwise fall back to
-    # Branch + Built + CommitGUID for triage.
-    _git_hash = None
-    try:
-        with open(os.path.join(install_path, '.git_archival.txt')) as _af:
-            for _line in _af:
-                if _line.startswith('node: ') and not _line.startswith('node: $Format'):
-                    _git_hash = _line.split(': ', 1)[1].strip()[:12]
-                    break
-    except Exception:
-        pass
-    if not _git_hash:
-        try:
-            import subprocess
-
-            _git_hash = (
-                subprocess.check_output(
-                    ['git', 'rev-parse', '--short', 'HEAD'],
-                    cwd=install_path,
-                    stderr=subprocess.DEVNULL,
-                    timeout=2,
-                )
-                .decode()
-                .strip()
-            )
-        except Exception:
-            pass
-    logger.info(
-        f'[LVP Main  ] Git:       {_git_hash or "unknown (use CommitGUID or Branch + Built)"}'
-    )
+    _git_hash = git_revision()
+    logger.info(f'[LVP Main  ] Git:       {_git_hash or "unknown (use CommitGUID or Built)"}')
 
     # debug_mode gates all DEBUG-level output (including the preview [PERF]
     # lines). State the resolved value AND which file it came from so a
@@ -776,6 +766,7 @@ def log_environment_banner(install_path: str, version_str: str, camera_sdk_lines
 
         logger.info(f'[LVP Main  ] Host: {_platform.node()}')
         logger.info(f'[LVP Main  ] OS: {_platform.platform()}')
+        logger.info(f'[LVP Main  ] Cores: {os.cpu_count()}')
     except Exception as e:
         logger.info(f'[LVP Main  ] OS: unavailable ({e})')
     logger.info(f'[LVP Main  ] Python: {_sys.version.split()[0]} ({_sys.executable})')
@@ -792,8 +783,8 @@ def log_environment_banner(install_path: str, version_str: str, camera_sdk_lines
     # probes by IMPORT: frozen builds bundle the modules with almost no
     # dist metadata, so the metadata read that used to live here claimed
     # "not installed" for importable bindings and hid the reason when one
-    # truly could not import. Passed in rather than imported so this
-    # foundational module keeps zero dependency on modules/.
+    # truly could not import. Passed in rather than imported so importing
+    # this module never imports the camera bindings.
     for _sdk_line in camera_sdk_lines:
         logger.info(f'[LVP Main  ] {_sdk_line}')
 
@@ -848,5 +839,19 @@ def _thread_except_hook(args):
     )
 
 
-threading.excepthook = _thread_except_hook
+def install_crash_hooks() -> None:
+    """Record every uncaught exception, on the main thread or any other, in the log as a crash.
+
+    The application's choice, made by the program that owns the process
+    (LumaViewPro, the REST server) as it starts: importing this module
+    installs nothing, so a script that imports the SDK crashes as any
+    Python program does, its traceback on stderr. A process that imports
+    Kivy has its stderr redirected into Kivy's logger, so there the default
+    traceback reaches the log rather than the terminal; only ``ui/``
+    imports Kivy.
+    """
+    sys.excepthook = custom_except_hook
+    threading.excepthook = _thread_except_hook
+
+
 minimize_logger_window()

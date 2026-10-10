@@ -104,29 +104,17 @@ def test_spinner_rule_keeps_text_centred():
     )
 
 
-def test_twelve_bit_labels_keep_the_substring_the_kv_tests_for():
-    """The JPG depth warning is driven by a substring test on the label.
+def test_the_jpg_depth_warning_renders_the_apis_predicate():
+    """The JPG depth warning is the API's predicate, rendered.
 
-    ``ui/lumaviewpro.kv`` gates the 'JPG saves 8-bit' warning row's height and
-    opacity on ``'12-bit' in image_mode_spinner.text``. A 12-bit label that
-    drops that substring silently stops warning the user that JPG discards
-    their 12-bit capture, with nothing else failing.
-
-    This guard protects live behaviour; it does not endorse the coupling. A
-    substring test on a DISPLAY string is the GUI deciding something the API
-    should own, and the right end state is a predicate exposed by the API that
-    the kv merely renders. When that lands, this test should be REPLACED by one
-    asserting the predicate -- not deleted, and not used as a reason to keep the
-    substring test.
+    ``ui/lumaviewpro.kv`` once gated the 'JPG saves 8-bit' warning row on
+    ``'12-bit' in image_mode_spinner.text`` -- the GUI deciding, from a
+    display string, something the API owns. The row now follows
+    ``jpg_depth_hint_active``, which ``image_mode.jpg_depth_warning_active``
+    sets, so a label can say what it likes.
     """
-    twelve_bit_modes = [
-        image_mode.IMAGE_MODE_12BIT_SCIENTIFIC,
-        image_mode.IMAGE_MODE_12BIT_SCALED,
-        image_mode.IMAGE_MODE_12BIT_FALSE_COLOR_RGB,
-    ]
-    for mode in twelve_bit_modes:
-        label = image_mode.IMAGE_MODE_LABELS[mode]
-        assert '12-bit' in label, (
-            f'{mode!r} has label {label!r}, which the kv depth-warning test '
-            f"('12-bit' in image_mode_spinner.text) would not match"
-        )
+    kv = KV.read_text(encoding='utf-8')
+    assert "'12-bit' in image_mode_spinner.text" not in kv
+    assert 'root.jpg_depth_hint_active' in kv
+    assert image_mode.jpg_depth_warning_active(image_mode.IMAGE_MODE_12BIT_SCIENTIFIC, ('JPG',))
+    assert not image_mode.jpg_depth_warning_active(image_mode.IMAGE_MODE_8BIT, ('JPG',))

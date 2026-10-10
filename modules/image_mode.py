@@ -4,14 +4,16 @@ One ``image_mode`` value replaces the former ``use_full_pixel_depth`` capture
 toggle and ``false_color_16bit`` save toggle. It resolves to two derived facts
 consumed across the capture, save, composite, and video paths:
 
-  - ``capture_depth``: how many bits the camera acquires (8 or 12)
+  - ``capture_depth``: how many bits the camera is asked for (8, or 12 where it has them)
   - ``save_encoding``: how acquired pixels land on disk
 
-Modes:
+Modes (every one on every camera; a full-depth mode keeps the payload at the
+depth the frame has -- 12 bits where the camera delivers 12, 8 on an 8-bit
+camera, and a sum at the bits it can reach):
   ``8bit``                  -- 8-bit capture, 8-bit mono save
-  ``12bit_scientific``      -- 12-bit capture, right-aligned 0..4095 + SignificantBits
-  ``12bit_scaled``          -- 12-bit capture, MSB-aligned (x16) + SignificantBits
-  ``12bit_false_color_rgb`` -- 12-bit capture, 3-channel RGB (per-layer color gated)
+  ``12bit_scientific``      -- full depth, right-aligned + SignificantBits
+  ``12bit_scaled``          -- full depth, MSB-aligned to fill the container + SignificantBits
+  ``12bit_false_color_rgb`` -- full depth, 3-channel RGB (per-layer color gated)
 
 The 8-bit default preserves the shipped behavior: the retiring
 ``use_full_pixel_depth`` defaulted off, so an unmigrated install captures 8-bit.
@@ -20,6 +22,7 @@ The 8-bit default preserves the shipped behavior: the retiring
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Iterable
 
 import numpy as np
 
@@ -206,8 +209,8 @@ def depth_truncation_warning_active(feature_count: int, image_mode_value: str) -
     Summing frames or sum-binning accumulates signal beyond a single frame's
     range, but an 8-bit save downconverts that accumulated range back to 8 bits,
     so the extra range is lost on disk. True when such a feature is active
-    (count > 1) AND the active mode saves 8-bit -- the cue to pick a 12-bit mode
-    to keep the range.
+    (count > 1) AND the active mode saves 8-bit -- the cue to pick a full-depth
+    mode to keep the range.
 
     Args:
         feature_count: The sum or binning factor (1 or None means inactive).
@@ -219,6 +222,24 @@ def depth_truncation_warning_active(feature_count: int, image_mode_value: str) -
     if feature_count is None or feature_count <= 1:
         return False
     return resolve_image_mode(image_mode_value)['capture_depth'] == 8
+
+
+def jpg_depth_warning_active(image_mode_value: str, output_formats: Iterable[str]) -> bool:
+    """Whether to warn that a JPG output does not keep the full-depth payload.
+
+    A JPG is 8 bits, so in a full-depth mode the payload is kept only in a
+    TIFF. True when the active mode keeps the payload's depth AND a JPG is
+    among the selected output formats.
+
+    Args:
+        image_mode_value: The active image_mode (the SSOT value).
+        output_formats: The selected output formats (live and sequenced).
+
+    Returns:
+        True if the JPG depth warning should be shown.
+    """
+    keeps_depth = resolve_image_mode(image_mode_value)['save_encoding'] != SAVE_ENCODING_8BIT
+    return keeps_depth and OUTPUT_FORMAT_JPG in output_formats
 
 
 def encoding_for_array(array: np.ndarray) -> str:
@@ -297,17 +318,17 @@ def migrate_legacy_settings(use_full_pixel_depth: bool, false_color_16bit: bool)
 
 # User-facing labels for the Image mode selector. The selector is the only
 # place these strings appear; storage and the resolver use the enum values.
-# Two constraints on any relabel: the strings must stay distinct, because
-# LABEL_TO_IMAGE_MODE inverts this map and a collision would silently drop a
-# mode; and every 12-bit label must keep the substring '12-bit', because the
-# kv gates the 'JPG saves 8-bit' depth warning on finding it in the selector's
-# displayed text. That substring test is a display-string coupling the API
-# should own instead, and it is guarded by a test until it does.
+# The strings must stay distinct, because LABEL_TO_IMAGE_MODE inverts this map
+# and a collision would silently drop a mode, and must differ in their first
+# words: a spinner shortens text too wide for it from the right, so two
+# labels that share a long opening read the same in the closed selector. The ids keep their 12bit_ names:
+# a full-depth mode keeps the payload at the depth the frame has, 12 bits where
+# the camera delivers 12, and a sum at the bits it can reach.
 IMAGE_MODE_LABELS = {
     IMAGE_MODE_8BIT: '8-bit',
-    IMAGE_MODE_12BIT_SCIENTIFIC: '12-bit (scientific)',
-    IMAGE_MODE_12BIT_SCALED: '12-bit (scaled)',
-    IMAGE_MODE_12BIT_FALSE_COLOR_RGB: '12-bit RGB',
+    IMAGE_MODE_12BIT_SCIENTIFIC: 'Scientific (full depth)',
+    IMAGE_MODE_12BIT_SCALED: 'Scaled (full depth)',
+    IMAGE_MODE_12BIT_FALSE_COLOR_RGB: 'RGB (full depth)',
 }
 
 LABEL_TO_IMAGE_MODE = {label: mode for mode, label in IMAGE_MODE_LABELS.items()}
@@ -316,40 +337,33 @@ LABEL_TO_IMAGE_MODE = {label: mode for mode, label in IMAGE_MODE_LABELS.items()}
 # format-exact: Mono12 / Mono12p (Pylon wire names) and Mono12g24IDS (the IDS
 # packed 12-bit format) all qualify; Mono10g40IDS (10-bit packed) does NOT. A
 # camera offering none (the FX2/MT9P031 in the LS560/620/720 streams only the
-# top 8 bits) can capture 8-bit only, so it must not be offered the 12-bit modes.
+# top 8 bits) is asked for its 8-bit format in every mode, and a full-depth
+# mode keeps what it delivers: 8 bits for a single frame, more for a sum.
 _TWELVE_BIT_PIXEL_FORMATS = ('Mono12', 'Mono12p', 'Mono12g24IDS')
 
 
-def camera_supports_12bit(supported_pixel_formats) -> bool:
-    """Whether a camera advertising these pixel formats can capture 12-bit."""
-    formats = supported_pixel_formats or ()
-    return any(fmt in formats for fmt in _TWELVE_BIT_PIXEL_FORMATS)
+def available_modes() -> list:
+    """The image_mode values, in selector order: every one, on every camera.
 
-
-def available_modes(supported_pixel_formats) -> list:
-    """The image_mode values selectable on a camera with these pixel formats.
-
-    8-bit is always available; the three 12-bit modes require Mono12/Mono12p,
-    so an 8-bit-only camera never offers an impossible 12-bit choice.
+    A mode is a save policy -- reduce to 8 bits, or keep the payload at the
+    depth the frame has -- so every camera can honour every mode.
     """
-    modes = [IMAGE_MODE_8BIT]
-    if camera_supports_12bit(supported_pixel_formats):
-        modes.extend(
-            [
-                IMAGE_MODE_12BIT_SCIENTIFIC,
-                IMAGE_MODE_12BIT_SCALED,
-                IMAGE_MODE_12BIT_FALSE_COLOR_RGB,
-            ]
-        )
-    return modes
+    return [
+        IMAGE_MODE_8BIT,
+        IMAGE_MODE_12BIT_SCIENTIFIC,
+        IMAGE_MODE_12BIT_SCALED,
+        IMAGE_MODE_12BIT_FALSE_COLOR_RGB,
+    ]
 
 
-def available_mode_labels(supported_pixel_formats) -> list:
+def available_mode_labels() -> list:
     """The user-facing labels for available_modes, in selector order."""
-    return [IMAGE_MODE_LABELS[mode] for mode in available_modes(supported_pixel_formats)]
+    return [IMAGE_MODE_LABELS[mode] for mode in available_modes()]
 
 
-def select_capture_pixel_format(capture_depth: int, supported_pixel_formats) -> str | None:
+def select_capture_pixel_format(
+    capture_depth: int, supported_pixel_formats: Iterable[str] | None
+) -> str | None:
     """Choose a camera-native pixel format for a requested capture depth.
 
     Capability-based selection from the camera's actually-supported formats,
@@ -367,8 +381,8 @@ def select_capture_pixel_format(capture_depth: int, supported_pixel_formats) -> 
         for fmt in formats:
             if fmt in _TWELVE_BIT_PIXEL_FORMATS:
                 return fmt
-        # No 12-bit native present (12-bit modes are only offered when
-        # camera_supports_12bit, so this is a defensive fall-through).
+        # No 12-bit native present: an 8-bit camera in a full-depth mode
+        # takes the format it has.
     for prefix in ('Mono8', 'Mono10', 'Mono12'):
         for fmt in formats:
             if fmt.startswith(prefix):
@@ -415,7 +429,12 @@ def migrate_settings_dict(settings: dict) -> bool:
         True if image_mode was set or a legacy key was removed.
     """
     had_legacy = 'use_full_pixel_depth' in settings or 'false_color_16bit' in settings
-    needs_mode = settings.get('image_mode') not in _MODE_TABLE
+    # The legacy keys, where present, are the person's choice. Without them a
+    # mode present but unknown is the writer's rule to replace and report
+    # after the merge, not a migration to coerce here.
+    needs_mode = 'image_mode' not in settings or (
+        had_legacy and settings['image_mode'] not in _MODE_TABLE
+    )
     if not had_legacy and not needs_mode:
         return False
     if needs_mode:

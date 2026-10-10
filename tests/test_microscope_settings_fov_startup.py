@@ -12,18 +12,18 @@ own FOV-recalc handlers).
 
 Fix
 ---
-Replicate the FOV computation pattern from frame_size() and
-select_objective() inside load_settings, immediately after the
-objective is resolved. Sibling sites unchanged.
+load_settings shows the turret and objective through
+VerticalControl.show_turret_state, the one display of the API's answer,
+and that refreshes the FOV readout through
+MicroscopeSettings.refresh_fov_labels -- the same refresher frame-size
+changes use, blank while the objective is unknown. Its computation is
+tested by behaviour in test_microscope_settings.py.
 
 Test approach
 -------------
-Source-level structural lock via AST: load_settings's body must
-- call common_utils.get_field_of_view(...) and
-- write to self.ids['field_of_view_width_id'].text + ...['field_of_view_height_id'].text
-A behavioral exec would have to stub Kivy ids, settings JSON,
-objective_helper, common_utils, the lvp_lock context manager, and
-several module-scope helpers; mocking surface overwhelms signal.
+Source-level structural lock via AST on the chain: load_settings ->
+show_turret_state -> refresh_fov_labels -> get_field_of_view with the
+frame and binning.
 """
 
 from __future__ import annotations
@@ -33,70 +33,45 @@ import pathlib
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-MICROSCOPE_SETTINGS_SRC = REPO / 'ui' / 'microscope_settings.py'
 
 
-def _method_node(class_name: str, method_name: str) -> ast.FunctionDef:
-    source = MICROSCOPE_SETTINGS_SRC.read_text()
-    tree = ast.parse(source)
+def _method_node(rel: str, class_name: str, method_name: str) -> ast.FunctionDef:
+    tree = ast.parse((REPO / rel).read_text())
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == class_name:
             for child in node.body:
                 if isinstance(child, ast.FunctionDef) and child.name == method_name:
                     return child
-    raise AssertionError(f'{class_name}.{method_name} not found in source')
+    raise AssertionError(f'{class_name}.{method_name} not found in {rel}')
+
+
+def _calls(method: ast.FunctionDef) -> set[str]:
+    return {
+        node.func.attr
+        for node in ast.walk(method)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
 
 
 class TestLoadSettingsFovStartup:
-    """Source-level lock that load_settings computes + writes FOV at startup."""
+    def test_load_settings_shows_the_turret_state(self):
+        method = _method_node('ui/microscope_settings.py', 'MicroscopeSettings', 'load_settings')
+        assert 'show_turret_state' in _calls(method)
 
-    def test_load_settings_calls_get_field_of_view(self):
-        """load_settings must call common_utils.get_field_of_view so the
-        FOV inputs have a value at startup -- not just on user
-        interaction with the frame-size / objective handlers."""
-        method = _method_node('MicroscopeSettings', 'load_settings')
-        body_src = ast.unparse(method)
-        assert 'get_field_of_view' in body_src, (
-            'load_settings must call common_utils.get_field_of_view at '
-            'startup. Without this the field_of_view_*_id inputs stay '
-            'blank until the user clicks Frame Size or selects an '
-            'objective. See class docstring.'
+    def test_the_turret_display_refreshes_the_fov(self):
+        method = _method_node('ui/vertical_control.py', 'VerticalControl', 'show_turret_state')
+        assert 'refresh_fov_labels' in _calls(method)
+
+    def test_the_refresher_uses_binning_and_frame_size(self):
+        method = _method_node(
+            'ui/microscope_settings.py', 'MicroscopeSettings', 'refresh_fov_labels'
         )
-
-    def test_load_settings_writes_both_fov_input_ids(self):
-        """load_settings must assign to both field_of_view_width_id.text
-        and field_of_view_height_id.text. A one-axis write would only
-        partially fix #658."""
-        method = _method_node('MicroscopeSettings', 'load_settings')
-        body_src = ast.unparse(method)
-        for ids_key in ('field_of_view_width_id', 'field_of_view_height_id'):
-            assert ids_key in body_src, (
-                f"load_settings must assign to self.ids['{ids_key}'].text "
-                f'so both axes populate at startup. Found body without '
-                f'this id reference.'
-            )
-
-    def test_get_field_of_view_call_uses_binning_and_frame_size(self):
-        """The FOV call must receive frame_size and binning_size so the
-        startup value matches what frame_size() / select_objective()
-        produce later. A bare get_field_of_view() with hardcoded
-        defaults would diverge from the user-interaction handlers."""
-        method = _method_node('MicroscopeSettings', 'load_settings')
         for node in ast.walk(method):
-            if not isinstance(node, ast.Call):
-                continue
-            if not (isinstance(node.func, ast.Attribute) and node.func.attr == 'get_field_of_view'):
-                continue
-            kwarg_names = {kw.arg for kw in node.keywords if kw.arg}
-            required = {'frame_size', 'binning_size'}
-            assert required.issubset(kwarg_names), (
-                f'get_field_of_view call in load_settings must pass '
-                f'frame_size= and binning_size= keyword args; got {sorted(kwarg_names)}. '
-                'These match the sibling call sites in frame_size() and '
-                'select_objective() so all three handlers compute the same FOV.'
-            )
-            return
-        raise AssertionError(
-            'No get_field_of_view call found in load_settings (the previous '
-            'test should have caught this).'
-        )
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == 'get_field_of_view'
+            ):
+                assert {'frame_size', 'binning_size'} <= {kw.arg for kw in node.keywords}
+                return
+        raise AssertionError('refresh_fov_labels computes no field of view')

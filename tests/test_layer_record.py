@@ -20,9 +20,10 @@ from modules.layer_record import (
     LayerIdentity,
     LayerRecord,
     load_layer_catalogue,
-    load_scopes_data,
     resolve_layer_identity,
 )
+from modules.exceptions import InstallationFileError
+from modules.path_utils import read_installation_file
 
 CATALOGUE = ['BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi']
 
@@ -78,7 +79,10 @@ def resolve(data_file, **kwargs):
         'configured_model': None,
     }
     defaults.update(kwargs)
-    return resolve_layer_identity(data_file=data_file, **defaults)
+    data = read_installation_file(data_file)
+    return resolve_layer_identity(
+        models=data['Models'], catalogue=load_layer_catalogue(data, data_file), **defaults
+    )
 
 
 class TestCatalogue:
@@ -100,19 +104,12 @@ class TestCatalogue:
         identity = resolve(path, motor_model='M')
         assert [r.id for r in identity.layers] == sorted(r.id for r in identity.layers)
 
-    def test_missing_layer_order_is_loud_and_empty(self, tmp_path):
+    def test_missing_layer_order_refuses_naming_the_file(self, tmp_path):
         path = tmp_path / 'scopes_fixture.json'
         path.write_text(json.dumps({'LS850T': {'Layers': LS850T_ROWS}}), encoding='utf-8')
-        _mock_logger.reset_mock()
-        catalogue = load_layer_catalogue(load_scopes_data(str(path)))
-        assert catalogue == ()
-        assert 'LayerOrder' in errors_logged()
-
-    def test_unreadable_file_is_loud_and_empty(self, tmp_path):
-        _mock_logger.reset_mock()
-        data = load_scopes_data(str(tmp_path / 'missing.json'))
-        assert data == {}
-        assert 'unreadable' in errors_logged()
+        with pytest.raises(InstallationFileError, match='LayerOrder') as refused:
+            load_layer_catalogue(read_installation_file(path), path)
+        assert refused.value.file_path == path
 
 
 class TestPrecedence:
@@ -149,7 +146,9 @@ class TestPrecedence:
     def test_motor_model_without_entry_goes_unresolved_not_configured(self, tmp_path):
         path = write_scopes(tmp_path, {'LS560': {'Layers': LS560_ROWS}})
         identity = resolve(path, motor_model='LS9999', configured_model='LS560')
-        assert identity == UNRESOLVED
+        assert identity.source == 'unresolved'
+        assert identity.layers == ()
+        assert identity.model == 'LS9999'
         assert 'LS9999' in errors_logged()
 
     def test_nothing_resolvable_is_the_unresolved_snapshot(self, tmp_path):
@@ -186,7 +185,9 @@ class TestOverride:
     def test_override_of_unknown_model_is_loud_and_unresolved(self, tmp_path):
         path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}})
         identity = resolve(path, motor_model='LS850T', override_model='LS9999')
-        assert identity == UNRESOLVED
+        assert identity.source == 'unresolved'
+        assert identity.layers == ()
+        assert identity.model == 'LS9999'
         assert 'LS9999' in errors_logged()
 
 
@@ -249,7 +250,7 @@ class TestSnapshotSemantics:
         )
         with pytest.raises(AttributeError):
             record.display_name = 'PC-BF'
-        identity = LayerIdentity(layers=(record,), filterset='', source='scopes')
+        identity = LayerIdentity(layers=(record,), filterset='', source='scopes', model=None)
         with pytest.raises(AttributeError):
             identity.filterset = 'X'
 

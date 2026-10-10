@@ -21,11 +21,10 @@ from modules.scope_display_thread import (
 
 
 class _FakeCtx:
-    """Minimal ctx for the thread's ctx_provider lookups."""
+    """Minimal app context for the widget-start delegate tests."""
 
     def __init__(self):
         self.scope = object()  # truthy
-        self.scope_display = None  # set later
         self.engineering_mode = False
 
 
@@ -73,16 +72,13 @@ class _FakeWidget:
 
 
 def _make_thread(*, status_sequence=None, fps=30):
-    ctx = _FakeCtx()
     widget = _FakeWidget(status_sequence=status_sequence)
-    ctx.scope_display = widget
-    t = ScopeDisplayThread(ctx_provider=lambda: ctx)
-    return t, ctx, widget
+    return ScopeDisplayThread(), widget
 
 
 def test_thread_starts_and_stops_cleanly():
-    t, _, _ = _make_thread()
-    t.start(fps=60)
+    t, widget = _make_thread()
+    t.start(widget, fps=60)
     assert t.is_running
     time.sleep(0.1)
     t.stop(timeout=2.0)
@@ -90,8 +86,8 @@ def test_thread_starts_and_stops_cleanly():
 
 
 def test_pause_and_resume_does_not_restart_thread():
-    t, _, widget = _make_thread()
-    t.start(fps=30)
+    t, widget = _make_thread()
+    t.start(widget, fps=30)
     time.sleep(0.05)
     initial_gen = t.generation
     thread_id_before = t._thread.ident
@@ -133,8 +129,8 @@ def test_pause_and_resume_does_not_restart_thread():
 
 
 def test_set_fps_changes_cadence():
-    t, _, widget = _make_thread()
-    t.start(fps=10)
+    t, widget = _make_thread()
+    t.start(widget, fps=10)
     time.sleep(0.3)
     n_at_10fps = len(widget.calls)
     t.set_fps(50)
@@ -150,9 +146,9 @@ def test_set_fps_changes_cadence():
 
 
 def test_update_layer_config_publishes_to_loop():
-    t, _, widget = _make_thread()
+    t, widget = _make_thread()
     t.update_layer_config('BF', 'BF')
-    t.start(fps=60)
+    t.start(widget, fps=60)
     time.sleep(0.1)
     t.stop()
     seen = [c for c in widget.calls if c['active_layer'] == 'BF']
@@ -161,8 +157,8 @@ def test_update_layer_config_publishes_to_loop():
 
 
 def test_bump_protocol_hold_pauses_rendering():
-    t, _, widget = _make_thread()
-    t.start(fps=60)
+    t, widget = _make_thread()
+    t.start(widget, fps=60)
     time.sleep(0.05)
     calls_before_hold = len(widget.calls)
     t.bump_protocol_hold(0.3)
@@ -181,8 +177,8 @@ def test_hold_wait_is_handed_to_next_render_as_intentional():
     on the first post-hold render call, so the timing instruments can exclude
     it -- a deliberately held frame must not read as display latency. The
     accumulator drains on hand-off: later calls report ~0 again."""
-    t, _, widget = _make_thread()
-    t.start(fps=60)
+    t, widget = _make_thread()
+    t.start(widget, fps=60)
     time.sleep(0.05)
     calls_before_hold = len(widget.calls)
     t.bump_protocol_hold(0.3)
@@ -204,8 +200,8 @@ def test_hold_wait_is_handed_to_next_render_as_intentional():
 
 
 def test_stop_during_long_hold_returns_within_timeout():
-    t, _, _ = _make_thread()
-    t.start(fps=60)
+    t, widget = _make_thread()
+    t.start(widget, fps=60)
     t.bump_protocol_hold(5.0)
     time.sleep(0.05)
     t0 = time.monotonic()
@@ -218,21 +214,21 @@ def test_stop_during_long_hold_returns_within_timeout():
 
 
 def test_generation_counter_increments_on_start():
-    t, _, _ = _make_thread()
+    t, widget = _make_thread()
     assert t.generation == 0
-    t.start(fps=30)
+    t.start(widget, fps=30)
     g1 = t.generation
     assert g1 == 1
     t.stop()
-    t.start(fps=30)
+    t.start(widget, fps=30)
     g2 = t.generation
     assert g2 == g1 + 1
     t.stop()
 
 
 def test_layer_config_thread_safe_under_high_publish_rate():
-    t, _, widget = _make_thread()
-    t.start(fps=30)
+    t, widget = _make_thread()
+    t.start(widget, fps=30)
     stop = threading.Event()
 
     def publisher():
@@ -253,14 +249,14 @@ def test_layer_config_thread_safe_under_high_publish_rate():
 
 
 def test_add_frame_listener_called_per_frame():
-    t, _, _ = _make_thread(status_sequence=[STATUS_OK] * 10)
+    t, widget = _make_thread(status_sequence=[STATUS_OK] * 10)
     received = []
 
     def listener(data, shape, gen, ts):
         received.append((data, shape, gen, ts))
 
     t.add_frame_listener(listener)
-    t.start(fps=60)
+    t.start(widget, fps=60)
     time.sleep(0.2)
     t.stop()
     assert received, 'listener was never called'
@@ -271,14 +267,14 @@ def test_add_frame_listener_called_per_frame():
 
 
 def test_remove_frame_listener_stops_calls():
-    t, _, _ = _make_thread(status_sequence=[STATUS_OK] * 50)
+    t, widget = _make_thread(status_sequence=[STATUS_OK] * 50)
     received = []
 
     def listener(data, shape, gen, ts):
         received.append(ts)
 
     t.add_frame_listener(listener)
-    t.start(fps=60)
+    t.start(widget, fps=60)
     time.sleep(0.1)
     n_with_listener = len(received)
     t.remove_frame_listener(listener)
@@ -289,10 +285,10 @@ def test_remove_frame_listener_stops_calls():
 
 
 def test_status_not_ok_does_not_fan_out_to_listeners():
-    t, _, _ = _make_thread(status_sequence=[STATUS_EMPTY] * 10)
+    t, widget = _make_thread(status_sequence=[STATUS_EMPTY] * 10)
     received = []
     t.add_frame_listener(lambda *a: received.append(a))
-    t.start(fps=60)
+    t.start(widget, fps=60)
     time.sleep(0.15)
     t.stop()
     assert received == [], (
@@ -310,8 +306,8 @@ def test_uncapped_no_fresh_frame_backs_off_instead_of_busy_spinning():
     window = 0.2
     ceiling = (window / IDLE_BACKOFF_SECONDS) * 5
     for status in (STATUS_EMPTY, STATUS_DUPLICATE):
-        t, _, widget = _make_thread(status_sequence=[status])
-        t.start(fps=0)
+        t, widget = _make_thread(status_sequence=[status])
+        t.start(widget, fps=0)
         time.sleep(window)
         t.stop()
         n = len(widget.calls)
@@ -331,8 +327,8 @@ def test_uncapped_delivering_stream_not_throttled_by_idle_floor():
     window = 0.15
 
     def _count_iterations(status):
-        t, _, widget = _make_thread(status_sequence=[status])
-        t.start(fps=0)
+        t, widget = _make_thread(status_sequence=[status])
+        t.start(widget, fps=0)
         time.sleep(window)
         t.stop()
         return len(widget.calls)
@@ -345,23 +341,29 @@ def test_uncapped_delivering_stream_not_throttled_by_idle_floor():
     )
 
 
-def test_widget_unavailable_loop_retries_without_crash():
-    ctx = _FakeCtx()
-    ctx.scope_display = None  # widget not built yet
-    t = ScopeDisplayThread(ctx_provider=lambda: ctx)
-    t.start(fps=30)
-    time.sleep(0.2)
-    # No crash; loop kept retrying. Now wire widget up. Poll to a deadline
-    # instead of one fixed sleep: under full-suite load the 30 fps thread
-    # can miss any fixed window (twice-observed flake), and the assertion
-    # is "picks it up", not "picks it up within one tick".
-    widget = _FakeWidget()
-    ctx.scope_display = widget
-    deadline = time.monotonic() + 2.0
+def _wait_for_calls(widget, deadline_s=2.0):
+    # Poll to a deadline, not one fixed sleep: under full-suite load the
+    # 30 fps thread can miss any fixed window.
+    deadline = time.monotonic() + deadline_s
     while not widget.calls and time.monotonic() < deadline:
         time.sleep(0.01)
+
+
+def test_the_thread_renders_through_the_renderer_it_was_started_with():
+    t = ScopeDisplayThread()
+    first = _FakeWidget()
+    t.start(first, fps=30)
+    _wait_for_calls(first)
     t.stop()
-    assert widget.calls, 'thread did not pick up widget after late wiring'
+    assert first.calls, 'the thread did not render through the renderer it was started with'
+
+    second = _FakeWidget()
+    rendered_by_first = len(first.calls)
+    t.start(second, fps=30)
+    _wait_for_calls(second)
+    t.stop()
+    assert second.calls, 'a restart did not render through its own renderer'
+    assert len(first.calls) == rendered_by_first, 'a restart still rendered through the old one'
 
 
 def test_widget_start_delegate_when_ctx_wired_runs_thread():
@@ -374,7 +376,8 @@ def test_widget_start_delegate_when_ctx_wired_runs_thread():
     returned None and the delegate silently no-opped."""
     saved_ctx = _app_ctx.ctx
     try:
-        t, fake_ctx, _widget = _make_thread()
+        t, widget = _make_thread()
+        fake_ctx = _FakeCtx()
         fake_ctx.scope_display_thread = t
         fake_ctx.settings = {'live_view_fps': 30}
         _app_ctx.ctx = fake_ctx
@@ -387,7 +390,7 @@ def test_widget_start_delegate_when_ctx_wired_runs_thread():
             'scope_display_thread missing from ctx; lumaviewpro.build() '
             'must wire it before invoking widget.start()'
         )
-        thread.start(fps=fps)
+        thread.start(widget, fps=fps)
         try:
             assert t.is_running, (
                 'thread.start() did not actually start the worker; '

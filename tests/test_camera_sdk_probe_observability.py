@@ -100,23 +100,12 @@ def test_system_info_records_import_failure_text(monkeypatch):
 
 
 def test_driver_import_guards_log_their_reason():
-    """Source-text pin: both driver-import guards in _lumascope surface the
-    swallowed ImportError instead of silently degrading."""
+    """Source-text pin: the FX2 driver-import guard in _lumascope surfaces the
+    swallowed ImportError instead of silently degrading. The IDS guard is
+    pinned by behaviour in test_ids_absence_on_macos_is_not_a_warning.py."""
     import modules.lumascope_api._lumascope as lumascope_mod
 
     src = pathlib.Path(lumascope_mod.__file__).read_text()
-
-    ids_guard = re.search(
-        r'try:\s*\n\s*from drivers\.idscamera import IDSCamera\s*\n'
-        r'except ImportError([^\n]*):\n(.*?)(?=\n(?:try:|from |import |#))',
-        src,
-        re.DOTALL,
-    )
-    assert ids_guard, 'expected the guarded idscamera import'
-    assert 'logger' in ids_guard.group(0), (
-        'the IDS driver import guard must log the ImportError reason -- '
-        'a silent guard hid an installer bundling failure entirely'
-    )
 
     fx2_guard = re.search(
         r'try:\s*\n\s*import drivers\.fx2driver[^\n]*\n'

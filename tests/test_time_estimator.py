@@ -9,6 +9,7 @@ from unittest.mock import patch, MagicMock
 import pandas as pd
 import pytest
 
+from modules.objectives_loader import ObjectiveLoader
 from modules.protocol_time_estimator import (
     ProtocolTimeEstimator,
     StepTimeEstimate,
@@ -111,12 +112,12 @@ class TestStepTimeEstimate:
 
 class TestMovementEstimation:
     def test_no_movement_first_step(self):
-        estimator = ProtocolTimeEstimator()
+        estimator = ProtocolTimeEstimator(ObjectiveLoader())
         t = estimator._estimate_movement(_valid_step(), None)
         assert t == 0.0
 
     def test_xy_movement(self):
-        estimator = ProtocolTimeEstimator()
+        estimator = ProtocolTimeEstimator(ObjectiveLoader())
         prev = _valid_step(X=0, Y=0, Z=5000)
         curr = _valid_step(X=1000, Y=500, Z=5000)
         t = estimator._estimate_movement(curr, prev)
@@ -124,7 +125,7 @@ class TestMovementEstimation:
         assert abs(t - expected) < 0.0001
 
     def test_z_movement(self):
-        estimator = ProtocolTimeEstimator()
+        estimator = ProtocolTimeEstimator(ObjectiveLoader())
         prev = _valid_step(X=0, Y=0, Z=5000)
         curr = _valid_step(X=0, Y=0, Z=6000)
         t = estimator._estimate_movement(curr, prev)
@@ -133,7 +134,7 @@ class TestMovementEstimation:
 
     def test_xy_and_z_parallel(self):
         """XY and Z move concurrently -- total is max, not sum."""
-        estimator = ProtocolTimeEstimator()
+        estimator = ProtocolTimeEstimator(ObjectiveLoader())
         prev = _valid_step(X=0, Y=0, Z=5000)
         curr = _valid_step(X=50000, Y=0, Z=6000)  # 50mm X, 1mm Z
         t = estimator._estimate_movement(curr, prev)
@@ -143,7 +144,7 @@ class TestMovementEstimation:
 
     def test_z_downward_overshoot(self):
         """Downward Z moves add backlash penalty."""
-        estimator = ProtocolTimeEstimator()
+        estimator = ProtocolTimeEstimator(ObjectiveLoader())
         prev = _valid_step(X=0, Y=0, Z=5000)
         curr = _valid_step(X=0, Y=0, Z=4000)
         t = estimator._estimate_movement(curr, prev)
@@ -160,20 +161,20 @@ class TestMovementEstimation:
 
 class TestAutofocusEstimation:
     def test_autofocus_positive_time(self):
-        estimator = ProtocolTimeEstimator()
+        estimator = ProtocolTimeEstimator(ObjectiveLoader())
         t = estimator._estimate_autofocus(OBJ_10X, exposure_s=0.05)
         assert t > 0
         # 10x AF should be in the 1-10 second range
         assert 0.5 < t < 15.0
 
     def test_higher_exposure_increases_af_time(self):
-        estimator = ProtocolTimeEstimator()
+        estimator = ProtocolTimeEstimator(ObjectiveLoader())
         t_fast = estimator._estimate_autofocus(OBJ_10X, exposure_s=0.01)
         t_slow = estimator._estimate_autofocus(OBJ_10X, exposure_s=0.5)
         assert t_slow > t_fast
 
     def test_af_zero_range_returns_zero(self):
-        estimator = ProtocolTimeEstimator()
+        estimator = ProtocolTimeEstimator(ObjectiveLoader())
         obj = {'AF_range': 0, 'AF_max': 0, 'AF_min': 0}
         t = estimator._estimate_autofocus(obj, exposure_s=0.05)
         assert t == 0.0
@@ -186,7 +187,7 @@ class TestAutofocusEstimation:
 
 class TestStepEstimation:
     def test_basic_image_step(self):
-        estimator = ProtocolTimeEstimator()
+        estimator = ProtocolTimeEstimator(ObjectiveLoader())
         step = _valid_step(Exposure=50)
         est = estimator._estimate_step(0, pd.Series(step), None, OBJ_10X)
         assert est.move_time_s == 0.0  # first step
@@ -197,26 +198,26 @@ class TestStepEstimation:
         assert est.overhead_s == STEP_OVERHEAD_S
 
     def test_autofocus_step(self):
-        estimator = ProtocolTimeEstimator()
+        estimator = ProtocolTimeEstimator(ObjectiveLoader())
         step = _valid_step(Auto_Focus=True)
         est = estimator._estimate_step(0, pd.Series(step), None, OBJ_10X)
         assert est.autofocus_time_s > 0
 
     def test_autogain_step(self):
-        estimator = ProtocolTimeEstimator()
+        estimator = ProtocolTimeEstimator(ObjectiveLoader())
         step = _valid_step(Auto_Gain=True)
         est = estimator._estimate_step(0, pd.Series(step), None, OBJ_10X)
         assert est.autogain_time_s == AUTOGAIN_MAX_DURATION_S
 
     def test_video_step(self):
-        estimator = ProtocolTimeEstimator()
+        estimator = ProtocolTimeEstimator(ObjectiveLoader())
         vc = {'fps': 30, 'duration': 10.0}
         step = _valid_step(Acquire='video', **{'Video Config': vc})
         est = estimator._estimate_step(0, pd.Series(step), None, OBJ_10X)
         assert est.capture_time_s >= 10.0
 
     def test_sum_increases_capture_time(self):
-        estimator = ProtocolTimeEstimator()
+        estimator = ProtocolTimeEstimator(ObjectiveLoader())
         est1 = estimator._estimate_step(0, pd.Series(_valid_step(Sum=1)), None, OBJ_10X)
         est4 = estimator._estimate_step(0, pd.Series(_valid_step(Sum=4)), None, OBJ_10X)
         assert est4.capture_time_s > est1.capture_time_s
@@ -229,21 +230,21 @@ class TestStepEstimation:
 
 class TestProtocolEstimation:
     def test_empty_protocol(self):
-        estimator = ProtocolTimeEstimator()
+        estimator = ProtocolTimeEstimator(ObjectiveLoader())
         protocol = _make_protocol([])
         result = estimator.estimate(protocol)
         assert result.scan_estimate.total_s == 0.0
         assert result.num_scans >= 1
 
     def test_single_step_protocol(self):
-        estimator = ProtocolTimeEstimator()
+        estimator = ProtocolTimeEstimator(ObjectiveLoader())
         protocol = _make_protocol([_valid_step()])
         result = estimator.estimate(protocol)
         assert result.scan_estimate.total_s > 0
         assert result.scan_estimate.num_steps == 1
 
     def test_multi_step_protocol(self):
-        estimator = ProtocolTimeEstimator()
+        estimator = ProtocolTimeEstimator(ObjectiveLoader())
         protocol = _make_protocol(
             [
                 _valid_step(X=0, Y=0),
@@ -258,14 +259,14 @@ class TestProtocolEstimation:
         assert result.scan_estimate.step_estimates[2].move_time_s > 0
 
     def test_scan_within_period(self):
-        estimator = ProtocolTimeEstimator()
+        estimator = ProtocolTimeEstimator(ObjectiveLoader())
         protocol = _make_protocol([_valid_step()], period_min=20.0, duration_hr=1.0)
         result = estimator.estimate(protocol)
         assert result.scan_fits_in_period
         assert result.scan_overrun_s == 0.0
 
     def test_scan_exceeds_period(self):
-        estimator = ProtocolTimeEstimator()
+        estimator = ProtocolTimeEstimator(ObjectiveLoader())
         # 100 AF steps with long exposure should exceed a 1-minute period
         steps = [_valid_step(Auto_Focus=True, Exposure=500, X=i * 1000, Y=0) for i in range(20)]
         protocol = _make_protocol(steps, period_min=1.0, duration_hr=1.0)
@@ -274,13 +275,13 @@ class TestProtocolEstimation:
         assert result.scan_overrun_s > 0
 
     def test_num_scans(self):
-        estimator = ProtocolTimeEstimator()
+        estimator = ProtocolTimeEstimator(ObjectiveLoader())
         protocol = _make_protocol([_valid_step()], period_min=20.0, duration_hr=2.0)
         result = estimator.estimate(protocol)
         assert result.num_scans == 6  # 120min / 20min
 
     def test_summary_string(self):
-        estimator = ProtocolTimeEstimator()
+        estimator = ProtocolTimeEstimator(ObjectiveLoader())
         protocol = _make_protocol([_valid_step()])
         result = estimator.estimate(protocol)
         summary = result.summary()
@@ -289,7 +290,7 @@ class TestProtocolEstimation:
         assert 'Estimated total' in summary
 
     def test_estimated_completion_is_timedelta(self):
-        estimator = ProtocolTimeEstimator()
+        estimator = ProtocolTimeEstimator(ObjectiveLoader())
         protocol = _make_protocol([_valid_step()])
         result = estimator.estimate(protocol)
         assert isinstance(result.estimated_completion, datetime.timedelta)

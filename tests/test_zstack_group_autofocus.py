@@ -36,9 +36,10 @@ import ast
 import pathlib
 
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
+from tests.scope_fakes import swap_lanes
 
 
-_WIDE_Z = {'Z': {'limits': {'min': 0.0, 'max': 100_000.0}}}
+_WIDE_Z = {'Z': {'min': 0.0, 'max': 100_000.0}}
 # center reference at Z=5000, range 10, step 5 -> 4995 / 5000 / 5005
 _ZSTACK = {'range': 10.0, 'step_size': 5.0, 'z_reference': 'center'}
 _LAYER_FOCUS = 5000.0
@@ -51,7 +52,7 @@ def _stacked(auto_focus: bool = True):
     proto = _build_protocol(
         [_make_step(name='A1_Green', z=_LAYER_FOCUS, z_slice=-1, auto_focus=auto_focus)]
     )
-    proto.apply_zstacking(zstack_params=_ZSTACK, axes_config=_WIDE_Z)
+    proto.apply_zstacking(zstack_params=_ZSTACK, axis_limits=_WIDE_Z)
     return proto
 
 
@@ -105,7 +106,7 @@ def test_placing_the_group_preserves_spacing_for_every_reference_mode():
             [_make_step(name='A1_Green', z=_LAYER_FOCUS, z_slice=-1, auto_focus=True)]
         )
         proto.apply_zstacking(
-            zstack_params={**_ZSTACK, 'z_reference': reference}, axes_config=_WIDE_Z
+            zstack_params={**_ZSTACK, 'z_reference': reference}, axis_limits=_WIDE_Z
         )
         anchor = proto.zstack_group_focus_anchor(step_idx=proto.steps().index[0])
         proto.apply_zstack_group_focus(reference_step_idx=anchor, z=5015.0)
@@ -159,7 +160,7 @@ def _drive_group_scan(found_z: float, max_ticks: int = 400):
     from unittest.mock import MagicMock
 
     from modules.sequential_io_executor import PROTOCOL_ENQUEUED
-    from tests.protocol_drives import protocol_step, scan_ready_runner
+    from tests.protocol_drives import protocol_step, scan_ready_runner, stand_in_step_targets
 
     class _InlineIOExecutor:
         def protocol_put(self, task, return_future=False):
@@ -173,10 +174,8 @@ def _drive_group_scan(found_z: float, max_ticks: int = 400):
     proto = _stacked()
     runner = scan_ready_runner(protocol_step())
     runner._protocol = proto
-    runner._io_executor = _InlineIOExecutor()
-    runner._coordinate_transformer = MagicMock()
-    runner._coordinate_transformer.plate_to_stage.return_value = (1.0, 2.0)
-    runner._wellplate_loader = MagicMock()
+    swap_lanes(runner._scope, io=_InlineIOExecutor())
+    stand_in_step_targets(runner._scope, plate_to_stage=(1.0, 2.0))
     runner._scope.motion.is_moving.return_value = False
 
     # The state the runner is in on the poll after a sweep has resolved: the
@@ -194,9 +193,9 @@ def _drive_group_scan(found_z: float, max_ticks: int = 400):
         runner._step_executor.scan_iterate()
 
     z_moves = [
-        call.kwargs['position']
-        for call in runner._scope.motion._move_absolute_impl.call_args_list
-        if call.kwargs.get('axis') == 'Z'
+        call.args[1]
+        for call in runner._scope.motion.start_move_absolute.call_args_list
+        if call.args[0] == 'Z'
     ]
     return proto, z_moves
 

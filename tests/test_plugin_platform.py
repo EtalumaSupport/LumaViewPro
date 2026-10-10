@@ -9,7 +9,7 @@ Covers:
     - RESTRegistry: stub raises with clear message
     - PluginRegistry.all_health(): per-namespace snapshot shape
     - is_version_compatible: semver compare with pre-release suffixes
-    - load_plugins / unload_plugins: discovery + lifecycle (mocked entry points)
+    - PluginRegistry.load / unload: discovery + lifecycle (mocked entry points)
 """
 
 from __future__ import annotations
@@ -19,14 +19,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from modules.exceptions import PluginNotLoadedError
 from modules.plugins import (
     PluginRegistrationError,
     PluginSpec,
     ProcessorResult,
     UI_MOUNT_POINTS,
     is_version_compatible,
-    load_plugins,
-    unload_plugins,
 )
 from tests.plugin_test_harness import harness_ctx  # noqa: F401
 
@@ -124,8 +123,7 @@ def test_ui_health_after_register(harness_ctx):
     assert health.namespace == 'ui'
     assert len(health.loaded) == 1
     assert health.loaded[0].name == 'healthy'
-    assert health.loaded[0].loaded is True
-    assert health.failed == ()
+    assert harness_ctx.plugins.not_loaded() == ()
 
 
 def test_ui_mount_points_constant_is_frozen():
@@ -181,8 +179,6 @@ def test_post_processing_handlers_returns_spec_processor_pairs(harness_ctx):
 
 
 def test_auto_run_dispatcher_invokes_only_opted_in(harness_ctx):
-    from modules.plugins import run_protocol_complete_processors
-
     calls = []
 
     def opted_in(input_dir, manifest, output_dir):
@@ -206,12 +202,16 @@ def test_auto_run_dispatcher_invokes_only_opted_in(harness_ctx):
 
     harness_ctx.plugins.post_processing.register(spec_opt, opted_in)
     harness_ctx.plugins.post_processing.register(spec_skip, not_opted_in)
+    # Loaded, as the session's load records a plugin: only a loaded
+    # plugin's processor is handed the folder.
+    for name in ('opted', 'skipped'):
+        harness_ctx.plugins._track(name, types.ModuleType(name))
 
-    run_protocol_complete_processors(
-        harness_ctx,
+    harness_ctx.plugins.run_protocol_complete_processors(
         input_dir='/in',
         manifest={'k': 'v'},
         output_dir='/out',
+        files='written',
     )
 
     assert len(calls) == 1
@@ -219,8 +219,6 @@ def test_auto_run_dispatcher_invokes_only_opted_in(harness_ctx):
 
 
 def test_auto_run_dispatcher_swallows_processor_exception(harness_ctx, caplog):
-    from modules.plugins import run_protocol_complete_processors
-
     calls = []
 
     def boom(input_dir, manifest, output_dir):
@@ -246,37 +244,21 @@ def test_auto_run_dispatcher_swallows_processor_exception(harness_ctx, caplog):
     )
     harness_ctx.plugins.post_processing.register(spec_a, boom)
     harness_ctx.plugins.post_processing.register(spec_b, runs_after)
+    for name in ('boomer', 'good_citizen'):
+        harness_ctx.plugins._track(name, types.ModuleType(name))
 
     # Should not raise; runs_after should still execute despite boomer failing.
-    run_protocol_complete_processors(
-        harness_ctx,
+    harness_ctx.plugins.run_protocol_complete_processors(
         input_dir='/in',
         manifest={},
         output_dir='/out',
+        files='written',
     )
 
     assert calls == ['runs_after']
 
 
-def test_auto_run_dispatcher_handles_no_ctx_plugins():
-    from modules.plugins import run_protocol_complete_processors
-
-    # Should silently return without raising when ctx has no .plugins attr.
-    from types import SimpleNamespace
-
-    ctx = SimpleNamespace()
-    run_protocol_complete_processors(
-        ctx,
-        input_dir='/in',
-        manifest={},
-        output_dir='/out',
-    )
-    # No assertion needed -- absence of exception is the contract.
-
-
 def test_auto_run_dispatcher_skips_when_all_opt_out(harness_ctx):
-    from modules.plugins import run_protocol_complete_processors
-
     calls = []
 
     def proc(input_dir, manifest, output_dir):
@@ -285,11 +267,11 @@ def test_auto_run_dispatcher_skips_when_all_opt_out(harness_ctx):
 
     spec = _make_spec(name='not_opted')  # default False
     harness_ctx.plugins.post_processing.register(spec, proc)
-    run_protocol_complete_processors(
-        harness_ctx,
+    harness_ctx.plugins.run_protocol_complete_processors(
         input_dir='/in',
         manifest={},
         output_dir='/out',
+        files='written',
     )
     assert calls == []
 
@@ -448,8 +430,8 @@ def test_all_health_returns_four_namespaces(harness_ctx):
 def test_all_health_initial_state_empty(harness_ctx):
     for ns in harness_ctx.plugins.all_health():
         assert ns.loaded == ()
-        assert ns.failed == ()
         assert ns.last_runtime_errors == ()
+    assert harness_ctx.plugins.not_loaded() == ()
 
 
 # ---------------------------------------------------------------------------
@@ -528,17 +510,17 @@ class _FakeEntryPoint:
         return self._module
 
 
-def test_load_plugins_with_no_entry_points_is_noop(harness_ctx):
+def test_load_plugins_with_no_entry_points_loads_only_the_built_ins(harness_ctx):
     with patch('importlib.metadata.entry_points', return_value=[]):
-        load_plugins(harness_ctx)
-    assert harness_ctx.plugins.post_processing.names() == ()
+        harness_ctx.plugins.load(harness_ctx, '4.0.0')
+    assert harness_ctx.plugins.post_processing.names() == ('stitcher',)
 
 
 def test_load_plugins_registers_a_valid_plugin(harness_ctx):
     mod = _make_plugin_module('valid_pp')
     eps = [_FakeEntryPoint('valid_pp', mod)]
     with patch('importlib.metadata.entry_points', return_value=eps):
-        load_plugins(harness_ctx)
+        harness_ctx.plugins.load(harness_ctx, '4.0.0')
     assert len(mod._register_calls) == 1
     assert mod._register_calls[0] is harness_ctx
     assert 'valid_pp' in harness_ctx.plugins.post_processing.names()
@@ -549,11 +531,46 @@ def test_load_plugins_skips_version_incompatible(harness_ctx):
     eps = [_FakeEntryPoint('too_new', mod)]
     harness_ctx.version = '4.0.0'
     with patch('importlib.metadata.entry_points', return_value=eps):
-        load_plugins(harness_ctx)
+        harness_ctx.plugins.load(harness_ctx, '4.0.0')
     assert mod._register_calls == []
-    health = harness_ctx.plugins.ui.health()
-    failed_names = [s.name for s in health.failed]
-    assert 'too_new' in failed_names
+    assert 'too_new' in [s.name for s in harness_ctx.plugins.not_loaded()]
+
+
+@pytest.mark.parametrize(
+    ('version', 'reason'),
+    [
+        ('1.0.5', 'version 1.0.5 is older than the 1.0.6 this LumaViewPro needs'),
+        ('bogus', "its version 'bogus' cannot be read, and this LumaViewPro needs 1.0.6 or later"),
+    ],
+)
+def test_load_plugins_refuses_a_plugin_older_than_the_hosts_minimum(harness_ctx, version, reason):
+    mod = _make_plugin_module('etaluma_engineering', version=version)
+    eps = [_FakeEntryPoint('etaluma_engineering', mod)]
+    with (
+        patch.dict('modules.plugins.MINIMUM_PLUGIN_VERSIONS', {'etaluma_engineering': '1.0.6'}),
+        patch('importlib.metadata.entry_points', return_value=eps),
+        patch('modules.plugins.notifications.report_outcome') as report,
+    ):
+        harness_ctx.plugins.load(harness_ctx, '4.0.0')
+    assert mod._register_calls == []
+    assert 'etaluma_engineering' not in harness_ctx.plugins.post_processing.names()
+    report.assert_called_once()
+    outcome = report.call_args.args[0]
+    assert isinstance(outcome, PluginNotLoadedError)
+    assert outcome.reason == reason
+
+
+@pytest.mark.parametrize('version', ['1.0.6', '1.1.0'])
+def test_load_plugins_loads_a_plugin_at_or_above_the_hosts_minimum(harness_ctx, version):
+    mod = _make_plugin_module('etaluma_engineering', version=version)
+    eps = [_FakeEntryPoint('etaluma_engineering', mod)]
+    with (
+        patch.dict('modules.plugins.MINIMUM_PLUGIN_VERSIONS', {'etaluma_engineering': '1.0.6'}),
+        patch('importlib.metadata.entry_points', return_value=eps),
+    ):
+        harness_ctx.plugins.load(harness_ctx, '4.0.0')
+    assert len(mod._register_calls) == 1
+    assert 'etaluma_engineering' in harness_ctx.plugins.post_processing.names()
 
 
 def test_load_plugins_continues_past_register_failure(harness_ctx):
@@ -561,7 +578,7 @@ def test_load_plugins_continues_past_register_failure(harness_ctx):
     good = _make_plugin_module('good')
     eps = [_FakeEntryPoint('bad', bad), _FakeEntryPoint('good', good)]
     with patch('importlib.metadata.entry_points', return_value=eps):
-        load_plugins(harness_ctx)
+        harness_ctx.plugins.load(harness_ctx, '4.0.0')
     assert 'good' in harness_ctx.plugins.post_processing.names()
     assert 'bad' not in harness_ctx.plugins.post_processing.names()
     # Failed plugin's unregister was called for cleanup attempt
@@ -575,8 +592,8 @@ def test_load_plugins_skips_module_without_spec(harness_ctx):
     # No mod.spec attribute.
     eps = [_FakeEntryPoint('no_spec_plugin', mod)]
     with patch('importlib.metadata.entry_points', return_value=eps):
-        load_plugins(harness_ctx)
-    assert harness_ctx.plugins.post_processing.names() == ()
+        harness_ctx.plugins.load(harness_ctx, '4.0.0')
+    assert harness_ctx.plugins.post_processing.names() == ('stitcher',)
 
 
 def test_unload_plugins_calls_unregister_in_reverse_order(harness_ctx):
@@ -598,8 +615,8 @@ def test_unload_plugins_calls_unregister_in_reverse_order(harness_ctx):
     a, b, c = make_tracking('a'), make_tracking('b'), make_tracking('c')
     eps = [_FakeEntryPoint('a', a), _FakeEntryPoint('b', b), _FakeEntryPoint('c', c)]
     with patch('importlib.metadata.entry_points', return_value=eps):
-        load_plugins(harness_ctx)
-    unload_plugins(harness_ctx)
+        harness_ctx.plugins.load(harness_ctx, '4.0.0')
+    harness_ctx.plugins.unload(harness_ctx)
     assert call_order == ['c', 'b', 'a']
 
 
@@ -608,20 +625,11 @@ def test_unload_plugins_swallows_unregister_failure(harness_ctx):
     good = _make_plugin_module('good_unload')
     eps = [_FakeEntryPoint('bad', bad), _FakeEntryPoint('good', good)]
     with patch('importlib.metadata.entry_points', return_value=eps):
-        load_plugins(harness_ctx)
+        harness_ctx.plugins.load(harness_ctx, '4.0.0')
     # Should not raise even though bad.unregister will throw.
-    unload_plugins(harness_ctx)
+    harness_ctx.plugins.unload(harness_ctx)
     assert len(bad._unregister_calls) == 1
     assert len(good._unregister_calls) == 1
-
-
-def test_unload_plugins_no_ctx_plugins_attr_is_noop():
-    fake_ctx = types.SimpleNamespace()
-    unload_plugins(fake_ctx)  # no exception expected
-
-
-def test_load_plugins_no_ctx_is_noop():
-    load_plugins(None)  # no exception expected
 
 
 # ---------------------------------------------------------------------------
@@ -735,7 +743,7 @@ def test_notify_settings_changed_fires_subscribed_plugin(harness_ctx):
     )
     ep = _FakeEntryPoint('video_listener', mod)
     with patch('importlib.metadata.entry_points', return_value=[ep]):
-        load_plugins(harness_ctx)
+        harness_ctx.plugins.load(harness_ctx, '4.0.0')
     settings = {'video': {'max_fps': 30}}
     harness_ctx.plugins.notify_settings_changed(
         harness_ctx,
@@ -755,7 +763,7 @@ def test_notify_settings_changed_skips_non_subscribed(harness_ctx):
     )
     ep = _FakeEntryPoint('camera_listener', mod)
     with patch('importlib.metadata.entry_points', return_value=[ep]):
-        load_plugins(harness_ctx)
+        harness_ctx.plugins.load(harness_ctx, '4.0.0')
     # Change a key the plugin did NOT subscribe to.
     harness_ctx.plugins.notify_settings_changed(
         harness_ctx,
@@ -769,7 +777,7 @@ def test_notify_settings_changed_skips_plugin_with_empty_subscribes_to(harness_c
     mod = _make_plugin_with_settings_hook('no_subs', subscribes_to=())
     ep = _FakeEntryPoint('no_subs', mod)
     with patch('importlib.metadata.entry_points', return_value=[ep]):
-        load_plugins(harness_ctx)
+        harness_ctx.plugins.load(harness_ctx, '4.0.0')
     harness_ctx.plugins.notify_settings_changed(
         harness_ctx,
         {'a': 1},
@@ -785,7 +793,7 @@ def test_notify_settings_changed_empty_changed_keys_is_noop(harness_ctx):
     )
     ep = _FakeEntryPoint('subscriber', mod)
     with patch('importlib.metadata.entry_points', return_value=[ep]):
-        load_plugins(harness_ctx)
+        harness_ctx.plugins.load(harness_ctx, '4.0.0')
     harness_ctx.plugins.notify_settings_changed(harness_ctx, {'a': 1}, set())
     assert mod._on_change_calls == []
 
@@ -805,7 +813,7 @@ def test_notify_settings_changed_swallows_handler_exception(harness_ctx):
         _FakeEntryPoint('good_handler', good),
     ]
     with patch('importlib.metadata.entry_points', return_value=eps):
-        load_plugins(harness_ctx)
+        harness_ctx.plugins.load(harness_ctx, '4.0.0')
     # bad raises, good must still fire, dispatcher must not propagate.
     harness_ctx.plugins.notify_settings_changed(
         harness_ctx,
@@ -828,7 +836,7 @@ def test_notify_settings_changed_prefix_subtree_subscription(harness_ctx):
     )
     ep = _FakeEntryPoint('subtree_listener', mod)
     with patch('importlib.metadata.entry_points', return_value=[ep]):
-        load_plugins(harness_ctx)
+        harness_ctx.plugins.load(harness_ctx, '4.0.0')
     # Any key under the video subtree must fire the handler.
     harness_ctx.plugins.notify_settings_changed(
         harness_ctx,
@@ -838,78 +846,49 @@ def test_notify_settings_changed_prefix_subtree_subscription(harness_ctx):
     assert len(mod._on_change_calls) == 1
 
 
-def test_fire_settings_save_hooks_first_call_caches_without_firing(harness_ctx):
-    from modules.plugins import fire_settings_save_hooks
-
-    mod = _make_plugin_with_settings_hook('first_call', subscribes_to=('a',))
-    ep = _FakeEntryPoint('first_call', mod)
+def _load_settings_listener(harness_ctx, name, settings_at_load):
+    mod = _make_plugin_with_settings_hook(name, subscribes_to=('a',))
+    harness_ctx.get_settings_snapshot = lambda: settings_at_load
+    ep = _FakeEntryPoint(name, mod)
     with patch('importlib.metadata.entry_points', return_value=[ep]):
-        load_plugins(harness_ctx)
-    fire_settings_save_hooks(harness_ctx, {'a': 1})
-    assert mod._on_change_calls == [], (
-        'First call after startup must cache the baseline without firing '
-        'so plugins do not get spurious notifications for the boot-time state.'
-    )
-    assert harness_ctx._last_saved_settings_snapshot == {'a': 1}
+        harness_ctx.plugins.load(harness_ctx, '4.0.0')
+    return mod
 
 
-def test_fire_settings_save_hooks_second_call_fires_on_diff(harness_ctx):
-    from modules.plugins import fire_settings_save_hooks
-
-    mod = _make_plugin_with_settings_hook('second_call', subscribes_to=('a',))
-    ep = _FakeEntryPoint('second_call', mod)
-    with patch('importlib.metadata.entry_points', return_value=[ep]):
-        load_plugins(harness_ctx)
-    fire_settings_save_hooks(harness_ctx, {'a': 1})  # cache
-    fire_settings_save_hooks(harness_ctx, {'a': 2})  # fire
+def test_settings_saved_tells_a_change_made_since_load(harness_ctx):
+    mod = _load_settings_listener(harness_ctx, 'since_load', {'a': 1})
+    harness_ctx.plugins.settings_saved(harness_ctx, {'a': 2})
     assert len(mod._on_change_calls) == 1
     _, settings_arg = mod._on_change_calls[0]
     assert settings_arg == {'a': 2}
-    assert harness_ctx._last_saved_settings_snapshot == {'a': 2}
 
 
-def test_fire_settings_save_hooks_no_diff_does_not_fire(harness_ctx):
-    from modules.plugins import fire_settings_save_hooks
-
-    mod = _make_plugin_with_settings_hook('no_diff', subscribes_to=('a',))
-    ep = _FakeEntryPoint('no_diff', mod)
-    with patch('importlib.metadata.entry_points', return_value=[ep]):
-        load_plugins(harness_ctx)
-    fire_settings_save_hooks(harness_ctx, {'a': 1})
-    fire_settings_save_hooks(harness_ctx, {'a': 1})  # same -> no fire
+def test_settings_saved_without_a_change_tells_nothing(harness_ctx):
+    mod = _load_settings_listener(harness_ctx, 'no_diff', {'a': 1})
+    harness_ctx.plugins.settings_saved(harness_ctx, {'a': 1})
+    harness_ctx.plugins.settings_saved(harness_ctx, {'a': 1})
     assert mod._on_change_calls == []
 
 
-def test_fire_settings_save_hooks_baseline_isolation_from_mutation(harness_ctx):
-    """The cached baseline must be a deep copy so subsequent in-memory
-    mutations to the settings dict do not poison the next diff."""
-    from modules.plugins import fire_settings_save_hooks
-
-    mod = _make_plugin_with_settings_hook('isolation', subscribes_to=('a',))
-    ep = _FakeEntryPoint('isolation', mod)
-    with patch('importlib.metadata.entry_points', return_value=[ep]):
-        load_plugins(harness_ctx)
-    settings = {'a': {'b': 1}}
-    fire_settings_save_hooks(harness_ctx, settings)  # cache
-    # Mutate the dict in place after caching.
-    settings['a']['b'] = 999
-    # Fire with a NEW dict that has a different value -- baseline should
-    # still reflect the original cached state (1), so this fires.
-    fire_settings_save_hooks(harness_ctx, {'a': {'b': 2}})
+def test_settings_saved_diffs_against_the_last_save(harness_ctx):
+    mod = _load_settings_listener(harness_ctx, 'last_save', {'a': 1})
+    harness_ctx.plugins.settings_saved(harness_ctx, {'a': 2})
+    harness_ctx.plugins.settings_saved(harness_ctx, {'a': 2})
     assert len(mod._on_change_calls) == 1
 
 
-def test_fire_settings_save_hooks_no_ctx_plugins_is_noop():
-    from modules.plugins import fire_settings_save_hooks
-
-    fake_ctx = types.SimpleNamespace()
-    fire_settings_save_hooks(fake_ctx, {'a': 1})  # no exception expected
-
-
-def test_fire_settings_save_hooks_none_ctx_is_noop():
-    from modules.plugins import fire_settings_save_hooks
-
-    fire_settings_save_hooks(None, {'a': 1})  # no exception expected
+def test_settings_saved_baseline_isolation_from_mutation(harness_ctx):
+    """The kept baseline must be a deep copy so subsequent in-memory
+    mutations to the settings dict do not poison the next diff."""
+    mod = _load_settings_listener(harness_ctx, 'isolation', {'a': {'b': 0}})
+    settings = {'a': {'b': 1}}
+    harness_ctx.plugins.settings_saved(harness_ctx, settings)  # told, kept
+    # Mutate the dict in place after it was kept.
+    settings['a']['b'] = 999
+    # A NEW dict with a different value -- the baseline still reflects the
+    # kept state (1), so this is told too.
+    harness_ctx.plugins.settings_saved(harness_ctx, {'a': {'b': 2}})
+    assert len(mod._on_change_calls) == 2
 
 
 class TestAttributeException:

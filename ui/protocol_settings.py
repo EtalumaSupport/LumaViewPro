@@ -1,140 +1,147 @@
 # Copyright Etaluma, Inc.
-import copy
 import logging
 import os
-import pathlib
-import threading
 import time
 import typing
 
-import pandas as pd
-
 from kivy.clock import Clock
 from kivy.properties import BooleanProperty
-from kivy.uix.label import Label
-from kivy.uix.popup import Popup
 
 from kivy.uix.floatlayout import FloatLayout
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
-import modules.config_helpers as config_helpers
 from modules.config_ui_getters import (
     get_active_layer_config,
-    get_auto_gain_settings,
-    get_binning_from_ui,
-    get_current_frame_dimensions,
-    get_image_capture_config_from_ui,
-    get_layer_configs,
-    get_protocol_time_params,
-    get_selected_labware,
-    get_sequenced_capture_config_from_ui,
-    get_stim_configs,
     get_zstack_params,
     is_image_saving_enabled,
 )
-from modules.path_utils import get_source_root
-from modules.protocol import Protocol
-from modules.sequenced_capture_runner import SequencedCaptureRunMode
-from modules.sequential_io_executor import IOTask, PRIORITY_MED
+from modules.labware_loader import CENTER_PLATE
+from modules.protocol import Protocol, schedule_from_units
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from modules.sequenced_capture_runner import RunHandle
 from ui.step_navigation import go_to_step
-from modules.tiling_config import TilingConfig
 from modules.timedelta_formatter import strfdelta
-from modules import exceptions, gui_logger
+from modules import gui_logger
+from modules.run_events import RunEvents
 from ui.ui_helpers import (
-    _handle_ui_update_for_axis,
-    _update_step_number_callback,
-    live_display_callbacks,
-    live_histo_off,
-    live_histo_reverse,
+    refused_in_this_input,
     reset_acquire_ui,
     reset_stim_ui,
-    reset_title,
-    run_with_refusal_boundary,
+    restore_display_after_run,
+    run_reported,
+    run_unasked,
     set_last_save_folder,
-    set_recording_title,
-    set_title_event_text,
-    set_writing_title,
+    show_captured_frame,
+    show_video_progress,
+    submit_reported,
     sync_layer_widgets_from_settings,
-    text_input_debounced,
+    typed_number,
 )
 from ui.progress_popup import show_popup
 
 logger = logging.getLogger('LVP.ui.protocol_settings')
 
 
-def _offer_wedged_writer_recovery():
-    """Modal offering discard-and-unlock recovery for a stalled file writer.
-
-    Names the stuck write and the cost of recovery; declining leaves the
-    queue untouched (the gates keep refusing and will re-offer)."""
-    from ui.notification_popup import show_confirmation_popup
-
-    ctx = _app_ctx.ctx
-    file_io_executor = ctx.file_io_executor
-    pending = file_io_executor.protocol_queue_size()
-    stuck = file_io_executor.describe_running_task()
-
-    def _recover():
-        logger.warning('[LVP Main  ] User confirmed wedged-writer recovery')
-        file_io_executor.recover_wedged_protocol_queue()
-
-    show_confirmation_popup(
-        title='File Writer Stalled',
-        message=(
-            f'File saving has stopped making progress ({stuck}). '
-            f'Discarding will unlock the app; {pending} unsaved image(s) '
-            f'from the last run will be lost. A partial file from the stuck '
-            f'write may remain on disk and stay locked until the stuck '
-            f'write releases it.'
-        ),
-        confirm_text=f'Discard {pending} unsaved and unlock',
-        cancel_text='Keep waiting',
-        on_confirm=_recover,
-    )
+_ABORT_BACKGROUND = './data/icons/abort_protocol_background.png'
 
 
-def require_file_writes_idle(operation: str) -> bool:
-    """One gate for operations that must wait for the protocol file queue.
+class _PanelRunButton(typing.NamedTuple):
+    button_id: str
+    held_flag: str  # the panel property that greys the button while another holds the scope
+    label: str  # the boundary's category for this button's requests
+    idle_text: str
+    running_text: str
+    running_background: str | None
+    idle_background: str | None
 
-    Returns True when the queue is idle so the operation may proceed.
-    Healthy drain: refuse with the live pending count -- the writes will
-    finish. Stalled drain (the in-flight write ran past the writer's fatal
-    stall budget): offer discard-and-unlock recovery instead of an
-    unfulfillable "please wait"; the operation is still refused this click
-    and the user retries once unlocked.
+
+# The protocol panel's three run buttons, by the trigger each starts its run
+# with -- the key its run's handle is kept under.
+_PANEL_RUN_BUTTONS = {
+    'scan': _PanelRunButton(
+        'run_scan_btn',
+        'scan_held',
+        'PROTOCOL_SCAN',
+        'Run One Scan',
+        'Abort One Scan',
+        _ABORT_BACKGROUND,
+        None,
+    ),
+    'protocol': _PanelRunButton(
+        'run_protocol_btn',
+        'protocol_held',
+        'PROTOCOL_RUN',
+        'Run Full Protocol',
+        '',
+        _ABORT_BACKGROUND,
+        'atlas://data/images/defaulttheme/button_pressed',
+    ),
+    'autofocus_scan': _PanelRunButton(
+        'run_autofocus_btn',
+        'autofocus_scan_held',
+        'PROTOCOL_AF_SCAN',
+        'Autofocus All Steps',
+        'Running Autofocus Scan',
+        None,
+        None,
+    ),
+}
+
+
+def _running_label(run: 'RunHandle | None', trigger: str, look: _PanelRunButton) -> str | None:
+    """What a panel button says while its run is live; None when it is not.
+
+    None also when the run ended between the live read and the progress
+    reads, so the button draws what it read rather than a running label for
+    a run that has ended.
     """
-    from modules.protocol_image_writer import WRITE_STALL_FATAL_S
+    if run is None or not run.is_live:
+        return None
+    if run.is_stopping:
+        return 'Stopping...'
+    if trigger == 'protocol':
+        return _protocol_remaining_text(run)
+    return look.running_text
 
-    ctx = _app_ctx.ctx
-    file_io_executor = ctx.file_io_executor
-    if not file_io_executor.is_protocol_queue_active():
-        return True
-    if file_io_executor.protocol_drain_stalled(WRITE_STALL_FATAL_S):
-        logger.warning(
-            f'[LVP Main  ] Cannot {operation} - file writer stalled on '
-            f'{file_io_executor.describe_running_task()}; offering recovery'
-        )
-        _offer_wedged_writer_recovery()
-    else:
-        from ui.notification_popup import show_notification_popup
 
-        pending = file_io_executor.protocol_queue_size()
-        logger.warning(
-            f'[LVP Main  ] Cannot {operation} - {pending} file(s) still being written to disk'
-        )
-        show_notification_popup(
-            title='Operation Blocked',
-            message=(
-                f'Please wait - {pending} file(s) from the previous scan '
-                f'are still being written to disk.'
-            ),
-        )
-    return False
+def _protocol_remaining_text(run: 'RunHandle') -> str | None:
+    """The Full Protocol button's running label, from the run's own count.
+
+    None once the run has ended, between the caller's live read and these;
+    the caller then draws the button idle.
+    """
+    remaining_scans, interval = run.remaining_scans, run.interval
+    if remaining_scans is None or interval is None:
+        return None
+    remaining_duration_str = strfdelta(
+        tdelta=remaining_scans * interval,
+        fmt='{H}h {M}m',
+        inputtype='timedelta',
+    )
+    scan_word = 'scan' if remaining_scans == 1 else 'scans'
+    return f'{remaining_scans} {scan_word} ({remaining_duration_str}) remaining.\nPress to ABORT'
 
 
 class ProtocolSettings(FloatLayout):
     done = BooleanProperty(False)
+    # Drives the advisory label's height and opacity in the kv. Display state
+    # only -- whether a protocol IS large is the session's answer, not this
+    # flag's.
+    protocol_size_advisory_active = BooleanProperty(False)
+    # True while that run button's own request is on its way to the engine;
+    # the button is disabled until the request's redraw.
+    scan_pending = BooleanProperty(False)
+    protocol_pending = BooleanProperty(False)
+    autofocus_scan_pending = BooleanProperty(False)
+    # Each True while anything but that button's own run holds the scope --
+    # another run, a recording, a diagnostic -- as the Session answers; greys
+    # the button, and its own run leaves it live as that run's Stop.
+    scan_held = BooleanProperty(False)
+    protocol_held = BooleanProperty(False)
+    autofocus_scan_held = BooleanProperty(False)
 
     def __init__(self, **kwargs):
 
@@ -144,18 +151,15 @@ class ProtocolSettings(FloatLayout):
         # Create trigger for debounced UI updates to prevent memory leaks
         self._update_step_ui_trigger = Clock.create_trigger(self._do_update_step_ui, 0.05)
 
-        # Thread-safe flag to prevent duplicate file completion handlers
-        self._scan_files_completed_event = threading.Event()
-
-        # source_path: use ctx if available, otherwise derive from install-aware defaults
-        ctx = _app_ctx.ctx
-        source_root = get_source_root(ctx.source_path if ctx is not None else None)
+        # The handle each of this panel's run buttons' last start returned,
+        # by trigger: what that button's Stop names. The engine answers
+        # whether it is still the live run.
+        self._runs_started_here: dict[str, RunHandle] = {}
+        # The drain display's tick: one pending at a time, however many
+        # redraws ask for it.
+        self._drain_tick_trigger = Clock.create_trigger(self._drain_tick, 0.5)
 
         self.curr_step = -1
-
-        self.tiling_config = TilingConfig(
-            tiling_configs_file_loc=source_root / 'data' / 'tiling.json'
-        )
 
         from modules.common_utils import DEFAULT_STAGE_TRAVEL_UM
 
@@ -164,8 +168,6 @@ class ProtocolSettings(FloatLayout):
             'y': int(DEFAULT_STAGE_TRAVEL_UM['y']),
         }
         self.tiling_max = {'x': 0, 'y': 0}
-
-        self.tiling_count = self.tiling_config.get_mxn_size(self.tiling_config.default_config())
 
         # Protocol is owned by AppContext, not this widget.
         # Property delegation below ensures all existing self._protocol
@@ -177,8 +179,8 @@ class ProtocolSettings(FloatLayout):
         Clock.schedule_once(self._init_ui, 0)
 
     def _do_update_step_ui(self, *args):
-        """Actual UI update method, called by trigger."""
-        self.update_step_ui_immediate()
+        """The trigger's frame: nobody asked for it, so a raise is reported, not raised."""
+        run_unasked(self.update_step_ui_immediate, 'STEP_UI')
 
     def update_step_ui(self):
         """Triggered version - debounces rapid calls."""
@@ -199,6 +201,7 @@ class ProtocolSettings(FloatLayout):
 
         self.generate_step_name_input()
         self._update_step_focus_readout(num_steps=num_steps)
+        self._update_protocol_size_advisory()
 
     def _update_step_focus_readout(self, num_steps: int):
         """Show the selected step's Z in the step editor."""
@@ -208,11 +211,41 @@ class ProtocolSettings(FloatLayout):
         if num_steps <= 0 or self.curr_step < 0:
             label.text = ''
             return
-        try:
-            step = self._protocol.step(idx=self.curr_step)
-            label.text = f'{float(step["Z"]):.0f} um'
-        except Exception:
-            label.text = ''
+        step = self._protocol.step(idx=self.curr_step)
+        label.text = f'{float(step["Z"]):.0f} um'
+
+    def _update_protocol_size_advisory(self):
+        """Show the session's size advisory for this protocol, if it has one.
+
+        Renders only. Whether a protocol is large enough to warn about, what
+        the sentence says and which settings the estimate needs are all the
+        session's answer -- this asks and displays what comes back.
+        """
+        label = self.ids.get('protocol_size_advisory_label')
+        if label is None:
+            return
+
+        ctx = _app_ctx.ctx
+        # A run cannot change the protocol: the editing surface is locked for
+        # its duration and the run mutates its own copy, not this one. Without
+        # this the estimate would recompute at the step-navigation refresh rate
+        # for the whole length of every run. The label keeps its last text,
+        # which stays correct.
+        if ctx.session.run_lockout:
+            return
+
+        advisory = ctx.session.protocol_size_advisory(self._protocol)
+        self.protocol_size_advisory_active = advisory is not None
+        label.text = advisory.message if advisory is not None else ''
+
+    @property
+    def tiling_config(self):
+        """The installation's tiling grids, asked of the scope at each use.
+
+        The panel is built before the session exists, so it cannot hold its
+        own copy from construction; it never reads tiling.json itself.
+        """
+        return _app_ctx.ctx.session.scope.protocols.tiling_config()
 
     def _init_ui(self, dt=0):
         ctx = _app_ctx.ctx
@@ -225,259 +258,165 @@ class ProtocolSettings(FloatLayout):
                 return
             Clock.schedule_once(self._init_ui, 0.1)
             return
-        settings = ctx.settings
 
-        self.ids['tiling_size_spinner'].values = self.tiling_config.available_configs()
-        self.ids['tiling_size_spinner'].text = self.tiling_config.default_config()
+        tiling_config = self.tiling_config
+        self.ids['tiling_size_spinner'].values = tiling_config.available_configs()
+        self.ids['tiling_size_spinner'].text = tiling_config.default_config()
 
-        try:
-            filepath = settings['protocol']['filepath']
-            protocol_success = ctx.motion_settings.ids['protocol_settings_id'].load_protocol(
-                filepath=filepath, suppress_popup=True
-            )
+        # The persisted protocol is NOT loaded here. Whether the scope can
+        # perform it depends on the turret, and on a turreted scope the
+        # objective at the current slot is not known until the startup
+        # question has been answered -- which happens later, in on_start.
+        # Loading first meant judging a protocol against a turret
+        # configuration that was about to change. The startup sequence
+        # calls load_persisted_protocol() once the question resolves.
+        #
+        # The panel still needs A protocol so nothing downstream reads
+        # None.
+        self._protocol = ctx.session.create_empty_protocol()
+        self._show_schedule()
 
-            if not protocol_success:
-                logger.info(
-                    '[LVP Main  ] No saved protocol loaded at startup -- using empty protocol'
-                )
-                # If protocol file is missing or incomplete, file name and path are cleared from memory.
-                filepath = ''
-                settings['protocol']['filepath'] = ''
-
-                protocol_config = get_sequenced_capture_config_from_ui()
-                self._protocol = ctx.scope.protocols.create_protocol(
-                    empty_config=protocol_config,
-                )
-
-        except Exception:
-            logger.exception('[LVP Main  ] Error loading protocol at startup')
-            filepath = ''
-            settings['protocol']['filepath'] = ''
-            protocol_config = get_sequenced_capture_config_from_ui()
-            self._protocol = ctx.scope.protocols.create_protocol(
-                empty_config=protocol_config,
-            )
-
+        # The panel applying the plate it already shows, so the scope is on it
+        # even when no protocol loaded; not a user pick.
+        gui_logger.note_write_back('LABWARE', self.ids['labware_spinner'].text)
         self.select_labware()
         self.update_step_ui()
 
         # DISABLED: BF AF for fluorescence -- not yet tested, hidden for 4.0.0.
         # Force off regardless of saved settings to prevent untested code path.
-        if 'protocol' in settings:
-            settings['protocol']['bf_af_for_fluorescence'] = False
+        _app_ctx.ctx.update_settings('protocol.bf_af_for_fluorescence', False)
         self.ids['bf_af_for_fluorescence_btn'].state = 'normal'
 
     # Update Protocol Period
-    def commit_period(self) -> float | None:
-        """Store the typed capture period as soon as it is a number.
-
-        Bound to the field's ``on_text``, so the store tracks the field on
-        every keystroke rather than waiting for enter or focus loss. Kivy
-        runs a button's handler BEFORE the focus-loss commit, so without
-        this a user who types a period and clicks Run, Save or New Protocol
-        is read from a store still holding the previous value -- while the
-        screen shows the new one.
-
-        Silent and tolerant by design: a half-typed value is not an error,
-        it is just not a value yet, and the enter / focus-loss path still
-        reports one that never parses. Reporting here instead would consume
-        the notification bus's dedup slot for this category and swallow the
-        legitimate sub-second clamp warning that follows it.
-
-        The store write is deliberately OUTSIDE the parse guard: an absent
-        ``protocol`` container is a broken configuration, not a typing
-        error, and the template ships the key.
-        """
-        try:
-            raw_period = float(self.ids['capture_period'].text)
-        except ValueError:
-            return None
-        _app_ctx.ctx.settings['protocol']['period'] = raw_period
-        return raw_period
-
-    def commit_duration(self) -> float | None:
-        """Store the typed capture duration as soon as it is a number.
-
-        The period twin above carries the reasoning; this is the same
-        contract for the duration field.
-        """
-        try:
-            raw_duration = float(self.ids['capture_dur'].text)
-        except ValueError:
-            return None
-        _app_ctx.ctx.settings['protocol']['duration'] = raw_duration
-        return raw_duration
-
     def update_period(self):
-        # One import for the three messages below, deferred to call time the
-        # way every notification site in this file is.
-        from modules.notification_center import notifications
-
         logger.info('[LVP Main  ] ProtocolSettings.update_period()')
-        try:
-            raw_period = self.commit_period()
-            if raw_period is None:
-                raise ValueError(self.ids['capture_period'].text)
-            # Warn once, at the edit, when a sub-1s period is raised to the 1s
-            # minimum -- so the user is told why the field shows 0.016667 min
-            # instead of their typed value. The getter stays silent so save /
-            # run-start do not re-warn.
-            if config_helpers.protocol_time_clamped(raw_period, 'minutes'):
-                notifications.warning(
-                    'Protocol',
-                    'Capture Timing',
-                    'The capture period was below the 1-second minimum and was '
-                    'raised to 1 second (shown as 0.016667 min). Enter a period '
-                    'of at least 1 second.',
-                )
-        except Exception:
-            logger.exception('[LVP Main  ] Update Period is not an acceptable value')
-            # Say so where the value was typed. The store keeps its previous
-            # period, so without this the edit would look like it was taken
-            # while the protocol still ran on the old schedule.
-            notifications.warning(
-                'Protocol',
-                'Capture Timing',
-                'The capture period was not a number, so it was not changed. '
-                'Enter a period in minutes.',
-            )
-
-        text_input_debounced('PROTOCOL_PERIOD', self.ids['capture_period'].text)
-
-        if not (hasattr(self, '_protocol') and self._protocol is not None):
-            return
-        try:
-            time_params = get_protocol_time_params()
-        except exceptions.ConfigError as e:
-            # The stored schedule itself is unusable -- a hand-edited settings
-            # file reaches here, because the load compares container shape and
-            # never scalar values. Render what the store refused and leave the
-            # protocol on its current timing rather than crashing the handler.
-            logger.error(f'[LVP Main  ] Stored protocol timing is unusable: {e}')
-            notifications.warning('Protocol', 'Capture Timing', str(e))
-            return
-        self._protocol.modify_time_params(
-            period=time_params['period'],
-            duration=time_params['duration'],
-        )
+        text = self.ids['capture_period'].text
+        gui_logger.text_input('PROTOCOL_PERIOD', text)
+        self._edit_schedule('period', text, 'PROTOCOL_PERIOD')
 
     # Update Protocol Duration
     def update_duration(self):
-        from modules.notification_center import notifications
-
         logger.info('[LVP Main  ] ProtocolSettings.update_duration()')
-        try:
-            raw_duration = self.commit_duration()
-            if raw_duration is None:
-                raise ValueError(self.ids['capture_dur'].text)
-            # Duration is in HOURS, so a sub-1s value shows as 0.000278 hr (not
-            # 0.016667 min). Warn once, at the edit, with the hour value.
-            if config_helpers.protocol_time_clamped(raw_duration, 'hours'):
-                notifications.warning(
-                    'Protocol',
-                    'Capture Timing',
-                    'The capture duration was below the 1-second minimum and was '
-                    'raised to 1 second (shown as 0.000278 hr). Enter a duration '
-                    'of at least 1 second.',
-                )
-        except Exception:
-            logger.warning('[LVP Main  ] Update Duration is not an acceptable value')
-            # Same reason as the period field: the store keeps its previous
-            # duration, so a silent return would look like the edit was taken.
-            notifications.warning(
-                'Protocol',
-                'Capture Timing',
-                'The capture duration was not a number, so it was not changed. '
-                'Enter a duration in hours.',
-            )
+        text = self.ids['capture_dur'].text
+        gui_logger.text_input('PROTOCOL_DURATION', text)
+        self._edit_schedule('duration', text, 'PROTOCOL_DURATION')
 
-        text_input_debounced('PROTOCOL_DURATION', self.ids['capture_dur'].text)
+    def _edit_schedule(self, key: str, text: str, label: str) -> None:
+        """Hand a typed period or duration to the protocol; show what it holds.
 
+        Committed when the field loses focus, which Kivy does before the
+        touch that took the focus reaches its button. The protocol takes the
+        value or refuses it; either way the fields then show its schedule.
+        """
         if not (hasattr(self, '_protocol') and self._protocol is not None):
             return
-        try:
-            time_params = get_protocol_time_params()
-        except exceptions.ConfigError as e:
-            logger.error(f'[LVP Main  ] Stored protocol timing is unusable: {e}')
-            notifications.warning('Protocol', 'Capture Timing', str(e))
-            return
-        self._protocol.modify_time_params(
-            period=time_params['period'],
-            duration=time_params['duration'],
-        )
+
+        def _edit():
+            schedule = {'period': self._protocol.period(), 'duration': self._protocol.duration()}
+            schedule[key] = schedule_from_units(key, text)
+            self._protocol.modify_time_params(**schedule)
+
+        run_reported(_edit, self._show_schedule, label)
+
+    def _show_schedule(self) -> None:
+        """Show the protocol's period in minutes and duration in hours.
+
+        Six decimals, matching the file, so a short schedule does not show
+        as 0.0: one second is 0.000278 hours. Decimal units stay awkward for
+        short values; H:M:S entry is the tracked follow-up.
+        """
+        for field, value, unit in (
+            ('capture_period', self._protocol.period(), 60),
+            ('capture_dur', self._protocol.duration(), 3600),
+        ):
+            seconds = 0 if value is None else value.total_seconds()
+            self.ids[field].text = str(round(seconds / unit, 6))
 
     def step_name_validation(self, text: str):
-        if (
-            hasattr(self, '_protocol')
-            and (self._protocol is not None)
-            and (self._protocol.num_steps() > 0 and self.curr_step >= 0)
-        ):
-            new_name = common_utils.resolve_step_rename(text, Protocol.sanitize_step_name)
-            if new_name is None:
-                # Blank field = keep the existing name; leave the field
-                # empty so the auto-name hint shows.
-                self.ids['step_name_input'].text = ''
-                return
-            self._protocol.modify_name(step_idx=self.curr_step, step_name=new_name)
-            gui_logger.protocol_action('RENAME_STEP', f'step={self.curr_step} name={new_name!r}')
-            self.ids['step_name_input'].text = new_name
-        else:
+        # What the user typed, before the sanitiser and the rename decide what
+        # to make of it. RENAME_STEP below reports the name that took effect;
+        # without this line a name the sanitiser changed, or a blank entry that
+        # kept the old name, leaves nothing saying what was actually entered.
+        gui_logger.text_input('STEP_NAME', text)
+        if not hasattr(self, '_protocol') or self._protocol is None:
             self.ids['step_name_input'].text = ''
+            return
+        new_name = common_utils.resolve_step_rename(text)
+        if new_name is None:
+            # Blank field = keep the existing name. The field shows what the
+            # step holds: its own label, or the auto name as the hint.
+            self.generate_step_name_input()
+            return
+        # The redraw shows the label the protocol kept, or after a refusal
+        # the one it still has.
+        run_reported(
+            lambda: self.step_name_validation_ex(new_name),
+            self._draw_protocol_steps,
+            'RENAME_STEP',
+        )
+
+    def step_name_validation_ex(self, new_name: str) -> None:
+        """Rename the current step."""
+        _app_ctx.ctx.session.rename_step(self._protocol, self.curr_step, new_name)
+        label = self._protocol.step(idx=self.curr_step)['Label']
+        gui_logger.protocol_action('RENAME_STEP', f'step={self.curr_step} name={label!r}')
 
     def update_capture_root(self, text: str):
-        # Sanitize and store capture root on protocol to avoid invalid path chars
-        sanitized = Protocol.sanitize_step_name(text)
-        # What the user typed, then what sanitizing made of it. Recording only
-        # the sanitized string asserts the user typed something they did not,
-        # and the box binds both commit events, so the second pass reads the
-        # sanitized text back -- declared below so it is not taken for a typed
-        # value.
-        text_input_debounced('CAPTURE_ROOT', text)
-        if sanitized != text:
-            text_input_debounced('CAPTURE_ROOT_APPLIED', sanitized)
-        self.ids['capture_root'].text = sanitized
+        # The protocol keeps the root as typed; the filename prefix it makes
+        # of it is the protocol's (capture_prefix), so the field shows the text.
+        gui_logger.text_input('CAPTURE_ROOT', text)
         if hasattr(self, '_protocol') and (self._protocol is not None):
-            self._protocol.modify_capture_root(capture_root=sanitized)
-        gui_logger.note_write_back('CAPTURE_ROOT', sanitized)
+            self._protocol.modify_capture_root(capture_root=text)
 
     # Labware Selection
-    def select_labware(self, labware: str | None = None):
-        settings = _app_ctx.ctx.settings
+    def select_labware(self):
+        """Put the scope and the panel's protocol on the plate the spinner shows.
+
+        The spinner is the protocol's plate, so the two move together: the
+        protocol takes the plate only once the scope has, and a refusal --
+        a plate change while a recording holds the scope, or a name the
+        catalogue no longer has -- leaves both where they were. The spinner
+        then shows the Session's plate, so it never names one the scope is
+        not on.
+        """
         ctx = _app_ctx.ctx
-        wellplate_loader = ctx.wellplate_loader
-
         logger.info('[LVP Main  ] ProtocolSettings.select_labware()')
-        if labware is None:
-            spinner = self.ids['labware_spinner']
-            spinner.values = wellplate_loader.get_plate_list()
-            gui_logger.select('LABWARE', spinner.text)
-            # Settings is the single labware store; an empty spinner
-            # (not yet populated at startup) is not a selection and must
-            # not clobber the stored choice.
-            if spinner.text:
-                settings['protocol']['labware'] = spinner.text
-        else:
-            center_plate_str = 'Center Plate'
-            spinner = self.ids['labware_spinner']
-            spinner.values = [center_plate_str]
-            # Forcing the spinner re-enters this method through its text event;
-            # the app falling back to Center Plate is not the user choosing it.
-            gui_logger.note_write_back('LABWARE', center_plate_str)
-            spinner.text = center_plate_str
-            settings['protocol']['labware'] = labware
+        spinner = self.ids['labware_spinner']
+        spinner.values = ctx.wellplate_loader.get_plate_list()
+        gui_logger.select('LABWARE', spinner.text)
 
-        labware_id, labware = get_selected_labware()
+        def _show_the_sessions_plate():
+            # The write dispatches this handler again, which re-selects the
+            # plate in place: a no-op at the Session, and a record declared.
+            plate = ctx.settings['protocol']['labware']
+            if spinner.text != plate:
+                gui_logger.note_write_back('LABWARE', plate)
+                spinner.text = plate
 
-        if labware is None:
-            logger.error('Labware could not be loaded')
-            return
-
-        ctx.lumaview.scope.runtime_state.set_labware(labware=labware)
-
-        if self._protocol is not None:
-            self._protocol.modify_labware(labware_id=labware_id)
-
+        # An empty spinner (not yet populated at startup) names no plate, so
+        # there is nothing to select; bring-up already put the stored plate
+        # in place and it stays there.
+        selected = spinner.text
+        if selected:
+            run_reported(
+                lambda: self.select_labware_ex(selected), _show_the_sessions_plate, 'LABWARE'
+            )
         ctx.stage.full_redraw()
+
+    def select_labware_ex(self, selected: str) -> None:
+        ctx = _app_ctx.ctx
+        ctx.session.select_labware(selected)
+        if self._protocol is not None:
+            ctx.session.set_protocol_labware(self._protocol, selected)
+
+    def set_focus_control_visibility(self, visible: bool) -> None:
+        for focus_id in (
+            'step_focus_row_id',
+            'protocol_zstacking_box_layout_id',
+            'protocol_acquire_zstack_box_id',
+            'run_autofocus_btn',
+        ):
+            self.ids[focus_id].visible = visible
 
     def set_labware_selection_visibility(self, visible):
         labware_spinner = self.ids['labware_spinner']
@@ -488,163 +427,76 @@ class ProtocolSettings(FloatLayout):
         labware_spinner.disabled = not visible
 
         if not visible:
-            labware_spinner.text = 'Center Plate'
+            # The app hides the choice and parks the spinner; not a user pick.
+            gui_logger.note_write_back('LABWARE', CENTER_PLATE)
+            labware_spinner.text = CENTER_PLATE
         else:
-            # UI-1 follow-up (plate-spinner): when re-enabling labware
-            # selection after a scope switch (e.g., LS620 -> LS850), the
-            # spinner widget is re-enabled but the dropdown values are
-            # still locked to ['Center Plate'] from the prior
-            # select_labware('Center Plate') call. User can click the
-            # spinner but has no other choices. Restore the full plate
-            # list and the saved labware.
+            # When labware selection comes back after a scope switch (e.g.
+            # LS620 -> LS850), the spinner is still parked on Center Plate:
+            # restore the full plate list and the saved labware.
             ctx = _app_ctx.ctx
             saved_labware = ctx.settings.get('protocol', {}).get('labware')
             wellplate_loader = ctx.wellplate_loader
-            try:
-                labware_spinner.values = wellplate_loader.get_plate_list()
-                if saved_labware and saved_labware in labware_spinner.values:
-                    labware_spinner.text = saved_labware
-            except Exception as e:
-                logger.warning(f'[LVP Main  ] Failed to restore labware list on scope switch: {e}')
+            labware_spinner.values = wellplate_loader.get_plate_list()
+            if saved_labware and saved_labware in labware_spinner.values:
+                gui_logger.note_write_back('LABWARE', saved_labware)
+                labware_spinner.text = saved_labware
 
     def apply_tiling(self) -> None:
-        # At entry, not on success: this refuses an already-tiled protocol via a
-        # popup, and a record conditional on success would make that refusal
+        # At entry, not on success: the protocol can refuse the grid, and a
+        # record conditional on success would make that refusal
         # indistinguishable from the user never pressing the button.
         gui_logger.button('APPLY_TILING')
-        try:
-            settings = _app_ctx.ctx.settings
-            ctx = _app_ctx.ctx
+        run_reported(self._apply_tiling, None, 'APPLY_TILING')
 
-            logger.info('[LVP Main  ] Apply tiling to protocol')
+    def _apply_tiling(self) -> None:
+        """Ask the Session for the chosen grid, then show the steps it built.
 
-            # Guard against compounding. apply_tiling appends new tile groups
-            # to the existing steps, and there is no un-tile path yet, so
-            # applying tiling to an already-tiled protocol multiplies the tiles
-            # (e.g. 2x2 on a 2x2 -> 16). Detect the current tiling from the
-            # steps' Tile column; if already tiled, refuse and tell the user
-            # to reload the untiled base first.
-            no_tiling = self.tiling_config.no_tiling_label()
-            current_tiling = self.tiling_config.determine_tiling_label_from_tiles(
-                self._protocol.steps()['Tile'].tolist()
-            )
-            if current_tiling not in (None, no_tiling):
-                from ui.notification_popup import show_notification_popup
-
-                show_notification_popup(
-                    title='Protocol Already Tiled',
-                    message=(
-                        f'This protocol is already tiled ({current_tiling}). '
-                        f'Applying tiling again would compound it. Reload the '
-                        f'original (untiled) protocol before changing the tiling.'
-                    ),
-                )
-                return
-
-            axes_config = ctx.lumaview.scope.motion.get_axes_config()
-            _, labware = get_selected_labware()
-            stage_offset = settings['stage_offset']
-            overlap_percent = self.get_tiling_overlap_percent()
-
-            tile_status = self._protocol.apply_tiling(
-                tiling=self.ids['tiling_size_spinner'].text,
-                frame_dimensions=get_current_frame_dimensions(),
-                binning_size=get_binning_from_ui(),
-                curr_step_idx=self.curr_step,
-                axes_config=axes_config,
-                labware=labware,
-                stage_offset=stage_offset,
-                overlap_percent=overlap_percent,
-                capabilities=ctx.lumaview.scope.capabilities,
-            )
-
-            tiles_skipped = tile_status['tiles_skipped']
-
-            if tiles_skipped > 0:
-                error_msg = f'Tiling application skipped {tiles_skipped} new tiles due to bounds outside of labware.'
-                from ui.notification_popup import show_notification_popup
-
-                Clock.schedule_once(
-                    lambda dt: show_notification_popup(
-                        title='Protocol Tiling Warning', message=error_msg
-                    ),
-                    0,
-                )
-
-            self._protocol.optimize_step_ordering()
-            ctx.stage.set_protocol_steps(df=self._protocol.steps())
-            self.update_step_ui()
-            self.go_to_step(step_idx=self.curr_step, protocol=False)
-        except Exception as e:
-            logger.error(f'[UI] apply_tiling failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(title='Error', message=str(e))
-
-    def get_tiling_overlap_percent(self) -> float:
-        """Tile overlap percentage, read from the persisted system setting.
-
-        The single accessor for tile overlap at scan/apply time; the editor
-        (the spinner in Advanced Settings) only ever writes the setting.
+        Every refusal (an unknown grid, an already-tiled protocol, an unknown
+        objective, a scope with no X/Y motor, a tile outside the stage's
+        travel) is the API's, raised before any step changes; the boundary
+        reports it, so nothing here decides it.
         """
-        return _app_ctx.ctx.settings['tiling_overlap_percent']
+        ctx = _app_ctx.ctx
+
+        logger.info('[LVP Main  ] Apply tiling to protocol')
+
+        ctx.session.apply_tiling(self._protocol, self.ids['tiling_size_spinner'].text)
+
+        ctx.stage.set_protocol_steps(self._protocol)
+        self.update_step_ui()
+        self.go_to_step(step_idx=self.curr_step)
 
     def apply_zstacking(self) -> None:
-        # At entry: this refuses invalid z-stack parameters via a popup, and the
-        # press is what the log records -- the outcome is the main log's job.
+        # At entry, not on success: the protocol can refuse the stack, and a
+        # record conditional on success would make that refusal
+        # indistinguishable from the user never pressing the button.
         gui_logger.button('APPLY_ZSTACKING')
-        try:
-            ctx = _app_ctx.ctx
+        run_reported(self._apply_zstacking, None, 'APPLY_ZSTACKING')
 
-            logger.info('[LVP Main  ] Apply Z-Stacking to protocol')
-            zstack_params = get_zstack_params()
+    def _apply_zstacking(self) -> None:
+        """Ask the Session for a z-stack of the panel's values, then show the steps.
 
-            if zstack_params['range'] < 0 or zstack_params['step_size'] < 0:
-                error_msg = 'Z-Stacking parameters are not valid. Please ensure range and step size are positive values.'
-                logger.warning(error_msg)
-                from ui.notification_popup import show_notification_popup
+        Every refusal (a range or step size not greater than zero, a scope
+        with no Z motor, a slice outside the Z travel) is the API's, raised
+        before any step changes; the boundary reports it, so nothing here
+        decides it.
+        """
+        ctx = _app_ctx.ctx
 
-                Clock.schedule_once(
-                    lambda dt: show_notification_popup(
-                        title='Z-Stacking Warning', message=error_msg
-                    ),
-                    0,
-                )
-                return
-            elif zstack_params['range'] == 0 or zstack_params['step_size'] == 0:
-                logger.warning('Z-stacking parameters are zero. No changes applied.')
-                return
+        logger.info('[LVP Main  ] Apply Z-Stacking to protocol')
 
-            axes_config = ctx.lumaview.scope.motion.get_axes_config()
-            zstack_status = self._protocol.apply_zstacking(
-                zstack_params=zstack_params,
-                axes_config=axes_config,
-            )
+        zstack_params = get_zstack_params()
+        ctx.session.apply_zstacking(
+            self._protocol,
+            range_um=zstack_params['range'],
+            step_size_um=zstack_params['step_size'],
+            z_reference=zstack_params['z_reference'],
+        )
 
-            zslices_skipped = zstack_status['zslices_skipped']
-            if zslices_skipped > 0:
-                error_msg = (
-                    f'Z-stacking skipped {zslices_skipped} slices that fall outside the '
-                    f'Z travel range. Reduce the range or adjust the focus position.'
-                )
-                from ui.notification_popup import show_notification_popup
-
-                Clock.schedule_once(
-                    lambda dt: show_notification_popup(
-                        title='Protocol Z-Stacking Warning', message=error_msg
-                    ),
-                    0,
-                )
-
-            self._protocol.optimize_step_ordering()
-            ctx.stage.set_protocol_steps(df=self._protocol.steps())
-            self.update_step_ui()
-            self.go_to_step(step_idx=self.curr_step, protocol=False)
-        except Exception as e:
-            logger.error(f'[UI] apply_zstacking failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(title='Error', message=str(e))
+        ctx.stage.set_protocol_steps(self._protocol)
+        self.update_step_ui()
+        self.go_to_step(step_idx=self.curr_step)
 
     def generate_step_name_input(self):
         num_steps = self._protocol.num_steps()
@@ -677,10 +529,14 @@ class ProtocolSettings(FloatLayout):
 
         logger.info('[LVP Main  ] ProtocolSettings.new_protocol()')
 
-        if not require_file_writes_idle('create a new protocol'):
-            return
-
-        config = get_sequenced_capture_config_from_ui()
+        # The click, before any of the ways this returns without building
+        # anything. Every refusal below does notify, but the notification text
+        # is shared -- the builder's refusal is shared by nine callers -- so
+        # without this line the bundle shows a refusal and no way to tell
+        # which button provoked it. Recorded once at the top rather than at
+        # each return: one line gives the attribution, and the reason arrives
+        # in the notification that follows.
+        gui_logger.button('NEW_PROTOCOL')
 
         # New Protocol resets each step to its channel's saved focus baseline.
         # A per-(well, channel) Z carry-over from the prior in-memory protocol
@@ -691,41 +547,39 @@ class ProtocolSettings(FloatLayout):
         # previous_well_z map (left dormant) so this can return as an opt-in
         # setting without re-plumbing.
 
-        try:
-            protocol = ctx.scope.protocols.create_protocol(input_config=config)
-        except Exception as e:
-            logger.error(f'[LVP Main  ] Protocol creation failed: {e}')
-            from ui.notification_popup import show_notification_popup
+        # The two authoring choices live only in this panel's widgets, so the
+        # panel states them; the Session assembles everything else. Left to
+        # the member's defaults they read 1x1 and no z-stack, and the built
+        # protocol silently loses the user's choice.
+        tiling = self.ids['tiling_size_spinner'].text
+        use_zstacking = self.ids['acquire_zstack_id'].active
+        built = []
 
-            show_notification_popup(
-                title='Protocol Creation Error',
-                message=str(e),
+        def _build():
+            # The Session refuses a build with no channel set to acquire, and
+            # raises while the active objective is unknown (a turret move in
+            # flight, an unassigned slot); the boundary shows its reason.
+            built.append(
+                ctx.session.new_protocol(
+                    tiling=tiling,
+                    use_zstacking=use_zstacking,
+                    period=self._protocol.period(),
+                    duration=self._protocol.duration(),
+                )
             )
+
+        # Inline, so the lines below see what the build produced; a refused
+        # or failed build has been shown by the boundary and built nothing.
+        run_reported(_build, self.update_step_ui, 'NEW_PROTOCOL')
+        if not built:
             return
+        protocol = built[0]
 
         if protocol.num_steps() == 0:
-            # Zero steps has two distinct causes: no channel is enabled for
-            # acquisition, or the labware has no wells (e.g. Blank, a 0x0
-            # plate). Only the first is a channel problem -- attribute it by
-            # checking the same channel predicate Add uses. A no-well labware
-            # with channels enabled creates an empty protocol the user builds
-            # up with Add at the current stage position.
-            layer_configs = get_layer_configs()
-            any_channel_enabled = any(lc['acquire'] is not None for lc in layer_configs.values())
-            if not any_channel_enabled:
-                logger.warning('[LVP Main  ] new_protocol: no channels enabled for acquisition')
-                from ui.notification_popup import show_notification_popup
-
-                show_notification_popup(
-                    title='No Channels Selected',
-                    message=(
-                        'No channels are enabled for acquisition. Please enable '
-                        'at least one channel for image or video capture in the '
-                        'layer settings on the right, then create the protocol '
-                        'again.'
-                    ),
-                )
-                return
+            # A build with no acquiring channel was refused by the Session,
+            # so zero steps here means the labware has no wells (Blank, a
+            # 0x0 plate): an empty protocol the user builds up with Add at
+            # the current stage position.
             logger.info(
                 '[LVP Main  ] new_protocol: labware has no wells; created '
                 'empty protocol (use Add to insert steps)'
@@ -738,82 +592,36 @@ class ProtocolSettings(FloatLayout):
         # field report costs an investigation.
         gui_logger.protocol_action('NEW', f'steps={protocol.num_steps()}')
 
-        # new_protocol_ex builds the step table from the labware + scan
-        # parameters; bounded work, fits on worker_pool MED so the UI
-        # remains responsive while it runs.
-        _app_ctx.ctx.worker_pool.put(
-            IOTask(
-                action=self.new_protocol_ex,
-                args=(protocol),
-                callback=self.update_step_ui,
-                priority=PRIORITY_MED,
-            )
-        )
+        def _redraw():
+            # A new protocol has no file. Once the panel holds the one this
+            # press built, its file name and capture root are cleared; a
+            # refused adoption leaves both as they were.
+            if self._protocol is protocol:
+                self.ids['protocol_filename'].text = ''
+                self.ids['capture_root'].text = ''
+            self._draw_protocol_steps()
+
+        run_reported(lambda: self.new_protocol_ex(protocol), _redraw, 'NEW_PROTOCOL')
 
     def new_protocol_ex(self, protocol):
-        settings = _app_ctx.ctx.settings
+        """Adopt *protocol*, which the Session built.
+
+        It names only the objective in the light path, which this scope can
+        address; the Session refuses the build while that objective is
+        unknown, so there is nothing to ask here. The move to the first step
+        comes last, reached only once the protocol is the panel's.
+        """
         ctx = _app_ctx.ctx
-
-        if (ctx.lumaview.scope.capabilities.has_turret) and (
-            not ctx.lumaview.scope.motion.is_current_turret_position_objective_set()
-        ):
-            error_msg = (
-                'Cannot create new protocol. Please set objective for current turret position.'
-            )
-            logger.error(error_msg)
-
-            from ui.notification_popup import show_notification_popup
-
-            Clock.schedule_once(
-                lambda dt: show_notification_popup(
-                    title='Protocol Creation Error', message=error_msg
-                ),
-                0,
-            )
-            return
-
-        if not self._validate_objectives_in_protocol(protocol_df=protocol.steps()):
-            error_msg = 'Cannot create new protocol. Not all objectives are in turret config.'
-            logger.error(error_msg)
-            Clock.schedule_once(
-                lambda dt: Popup(
-                    title='Protocol Creation Error',
-                    content=Label(text=error_msg),
-                    size_hint=(0.85, 0.85),
-                ),
-                0,
-            )
-
-            return
-
         self._protocol = protocol
-        ctx.protocol = protocol  # canonical owner is AppContext
-
-        ctx.stage.set_protocol_steps(df=self._protocol.steps())
-
-        def temp():
-            self.ids['protocol_filename'].text = ''
-            self.ids['capture_root'].text = ''
-
-        settings['protocol']['filepath'] = ''
-        Clock.schedule_once(lambda dt: temp(), 0)
+        self._show_schedule()
+        ctx.set_protocol_filepath('')
         self.curr_step = 0
-        self.go_to_step(step_idx=0, protocol=False)
+        self.go_to_step(step_idx=0)
 
-    def _validate_labware(self, labware: str):
-        ctx = _app_ctx.ctx
-
-        # Asked of the drivers rather than the selected scope model, which a
-        # user can change mid-session -- see set_ui_features_for_scope.
-        # If XY motion is available, any type of labware is acceptable
-        if ctx.lumaview.scope.capabilities.has_xy_stage:
-            return True, labware
-
-        # If XY motion is not available, only Center Plate
-        if labware == 'Center Plate':
-            return True, labware
-        else:
-            return False, 'Center Plate'
+    def _draw_protocol_steps(self) -> None:
+        """Show the panel's protocol: its steps on the stage and in the step editor."""
+        _app_ctx.ctx.stage.set_protocol_steps(self._protocol)
+        self.update_step_ui()
 
     @show_popup
     def _show_popup_message(self, popup, title, message, delay_sec):
@@ -827,72 +635,99 @@ class ProtocolSettings(FloatLayout):
         # property graph mid-dispatch. Marshal to the UI thread.
         Clock.schedule_once(lambda dt: setattr(self, 'done', True), 0)
 
-    def _validate_objectives_in_protocol(self, protocol_df: pd.DataFrame) -> bool:
+    def load_persisted_protocol(self) -> None:
+        """Adopt the protocol the last session left behind, once, at startup.
+
+        Called by the startup sequence after the objective question has
+        been answered or found not to be owed, because the answer decides
+        what the turret carries and therefore whether the saved protocol
+        can be performed at all.
+
+        The Session opens it and decides whether the remembered path is
+        kept (``ScopeSession.open_remembered_protocol``): a refusal keeps
+        it, a missing or unreadable file forgets it. The panel shows what
+        the Session answered: the protocol, or the kept file's name over an
+        empty protocol, so the person can see which protocol to come back
+        to.
+
+        Non-navigating, as the startup load has always been: it adopts the
+        protocol and fills the panel without driving the stage.
+        """
         ctx = _app_ctx.ctx
+        try:
+            protocol = ctx.session.open_remembered_protocol()
+            if protocol is not None:
+                self._adopt_protocol(protocol, ctx.settings['protocol']['filepath'], navigate=False)
+                return
+        except Exception as e:
+            # Logged, not shown: nobody asked for this load. A refusal the
+            # API has already reported is not logged again.
+            from modules.notification_center import notifications
 
-        # Validation for objectives with multi-objective protocol
-        protocol_objective_ids = set(protocol_df['Objective'].to_list())
+            notifications.report_outcome(
+                e, solicited=False, category='UI:LOAD_PROTOCOL', log_only=True
+            )
 
-        # For single objective protocols, don't perform any objective validation (legacy)
-        if len(protocol_objective_ids) == 1:
-            return True
+        filepath = ctx.settings['protocol']['filepath']
+        if filepath:
+            # Refused and kept: the name on screen is the only thing telling
+            # the person which protocol to come back to, and the adoption
+            # writes it only for a protocol it adopts.
+            self.ids['protocol_filename'].text = os.path.basename(filepath)
+            logger.info(
+                f'[LVP Main  ] Saved protocol {filepath} was not adopted at startup; '
+                'its path is kept so it can be reloaded once the scope can perform it'
+            )
+        else:
+            logger.info('[LVP Main  ] No saved protocol loaded at startup -- using empty protocol')
 
-        # Otherwise, check all the objectives used in the protocol and confirm
-        # they are all part of the current turret config
-        turret_objective_ids = set(ctx.lumaview.scope.runtime_state.get_turret_config().values())
-        return protocol_objective_ids.issubset(turret_objective_ids)
+        self._protocol = ctx.session.create_empty_protocol()
+        self._show_schedule()
+        self.update_step_ui()
 
     # Load Protocol from File
-    def load_protocol(self, filepath='./data/new_default_protocol.tsv', suppress_popup=False):
+    def load_protocol(
+        self, filepath: str = './data/new_default_protocol.tsv', *, navigate: bool
+    ) -> bool:
+        """Load a protocol from disk through the Session and fill the panel.
+
+        ``navigate`` says whether a person asked for this load, and so
+        whether the stage may drive to the current step. Required rather
+        than defaulted: a default is what let the startup adoption inherit
+        an answer nobody chose for it.
+        """
         gui_logger.protocol_action('LOAD', filepath)
-        settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
 
         logger.info('[LVP Main  ] ProtocolSettings.load_protocol()')
 
-        if not pathlib.Path(filepath).exists():
-            if suppress_popup:
-                return False
-            raise FileNotFoundError(f'Protocol not found at {filepath}')
+        # The Session opens the file: the scope on its plate, its Layer
+        # Settings in the layer controls, its path remembered -- or a refusal,
+        # with none of them changed. The panel is drawn only from its answer.
+        # The adoption is inside the reported call: a failure drawing the
+        # panel (the spinners, the move to the first step) is reported here,
+        # not raised out of the file dialog's callback.
+        adopted = []
 
-        try:
-            protocol = ctx.scope.protocols.load_protocol(file_path=filepath)
-        except OSError:
-            return False
+        def _load_and_adopt():
+            self._adopt_protocol(ctx.session.open_protocol(filepath), filepath, navigate=navigate)
+            adopted.append(True)
 
-        except Exception as e:
-            logger.warning(f'[LVP Main  ] Protocol load failed: {e}')
-            if not suppress_popup:
-                error_title = 'Protocol Loading Error'
-                error_msg = f'Cannot load protocol from file: {e}'
-                from ui.notification_popup import show_notification_popup
+        run_reported(_load_and_adopt, None, 'LOAD_PROTOCOL')
+        return bool(adopted)
 
-                show_notification_popup(title=error_title, message=error_msg)
-            return False
+    def _adopt_protocol(self, protocol: Protocol, filepath: str, *, navigate: bool) -> None:
+        """Make ``protocol``, loaded from ``filepath``, the panel's and draw it.
 
-        if protocol is False:
-            error_title = 'Empty Protocol Steps'
-            error_msg = 'Warning: Selected protocol had no steps. Empty protocol loaded.'
-            protocol_config = get_sequenced_capture_config_from_ui()
-
-            protocol = ctx.scope.protocols.create_protocol(empty_config=protocol_config)
-
-        if protocol is None:
-            logger.error(f'Unable to load protocol at {filepath}')
-            return
-
-        if not self._validate_objectives_in_protocol(protocol_df=protocol.steps()):
-            error_msg = 'Cannot load protocol. Not all objectives are in turret config.'
-            logger.error(error_msg)
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(title='Protocol Loading Error', message=error_msg)
-            return False
-
+        Display only: the Session has already put the scope on the
+        protocol's plate, its Layer Settings in the layer controls and its
+        path in the settings, so a failure drawing the panel leaves nothing
+        half-written.
+        """
+        ctx = _app_ctx.ctx
         self._protocol = protocol
-        ctx.protocol = protocol  # canonical owner is AppContext
+        self._show_schedule()
 
-        settings['protocol']['filepath'] = filepath
         self.ids['protocol_filename'].text = os.path.basename(filepath)
 
         num_steps = self._protocol.num_steps()
@@ -901,176 +736,43 @@ class ProtocolSettings(FloatLayout):
         else:
             self.curr_step = 0
 
-        # 6 decimals (matching the TSV write side) so a short period/duration
-        # doesn't collapse to 0.0 on reload -- a 1s duration is ~0.000278 h
-        # and rounding to 2 decimals showed 0.0 (#568). Decimal units stay
-        # awkward for short values; H:M:S entry is the tracked follow-up.
-        period = round(self._protocol.period().total_seconds() / 60, 6)
-        duration = round(self._protocol.duration().total_seconds() / 3600, 6)
         labware = self._protocol.labware()
 
-        # If the scope has no XY stage, then don't allow the protocol to modify
-        # the labware. The drivers answer that, not the selected scope model.
-        if not ctx.lumaview.scope.capabilities.has_xy_stage:
-            labware = 'Center Plate'
-
-        self.ids['capture_period'].text = str(period)
-        self.ids['capture_dur'].text = str(duration)
-
-        settings['protocol']['period'] = period
-        settings['protocol']['duration'] = duration
-        settings['protocol']['labware'] = labware
-        self.ids['labware_spinner'].text = settings['protocol']['labware']
+        # The spinner shows the plate the Session put the scope on. A changed
+        # text dispatches its select_labware, which re-selects that plate (a
+        # no-op at the Session) and logs it, so the write is declared; an
+        # equal text dispatches nothing, and a declaration left pending would
+        # swallow the person's next record of that plate.
+        if self.ids['labware_spinner'].text != labware:
+            gui_logger.note_write_back('LABWARE', labware)
+            self.ids['labware_spinner'].text = labware
         self.ids['capture_root'].text = self._protocol.capture_root()
-
-        # Restore per-layer UI state from the protocol's Layer Settings
-        # block (v6) or, for v5 files, from the inferred per-layer state
-        # built from the steps Color column. Layers that aren't named in
-        # the protocol fall back to disabled (acquire=None) so the UI
-        # shows them as not-part-of-this-protocol; their other slider
-        # values (illumination/gain/exposure/etc.) are untouched, since
-        # the user's prior choices for those layers shouldn't be lost
-        # just because the loaded protocol didn't reference them.
-        layer_settings_from_protocol = self._protocol.layer_settings()
-        for layer in common_utils.get_layers():
-            settings[layer]['acquire'] = None
-            if 'stim_config' in settings[layer] and settings[layer]['stim_config'] is not None:
-                settings[layer]['stim_config']['enabled'] = False
-        for layer_name, vals in (layer_settings_from_protocol or {}).items():
-            if layer_name not in common_utils.get_layers():
-                logger.warning(
-                    f'[LVP Main  ] Protocol carries settings for unknown layer '
-                    f'{layer_name!r}; that layer is dropped on load.'
-                )
-                continue
-            self._apply_layer_settings_row(settings, layer_name, vals)
 
         reset_acquire_ui()
         reset_stim_ui()
 
-        # Make steps available for drawing locations
-        ctx.stage.set_protocol_steps(df=self._protocol.steps())
+        # Make steps available for drawing locations, and draw them: outside a
+        # run the stage redraws only on XY motion, and a load need not move.
+        ctx.stage.set_protocol_steps(self._protocol)
+        ctx.stage.full_redraw()
 
         # Restore the tiling selection. Tiling is baked into the steps as
         # expanded tile positions (one row per tile), not stored as a
         # scalar, so the spinner otherwise stays at its 1x1 default and
-        # misrepresents an already-tiled protocol. Infer the NxN label back
-        # from the steps' Tile column; fall back to no-tiling when the
-        # protocol isn't tiled (or the layout isn't square).
-        try:
-            inferred_tiling = self.tiling_config.determine_tiling_label_from_tiles(
-                self._protocol.steps()['Tile'].tolist()
-            )
-        except Exception as e:
-            logger.warning(f'[LVP Main  ] Could not infer tiling from protocol: {e}')
-            inferred_tiling = None
-        self.ids['tiling_size_spinner'].text = (
-            inferred_tiling or self.tiling_config.no_tiling_label()
-        )
+        # misrepresents an already-tiled protocol. A protocol tiled in no
+        # grid on offer shows no selection.
+        self.ids['tiling_size_spinner'].text = self._protocol.tiling() or ''
 
         self.update_step_ui()
-        # During startup the persisted protocol loads before the user has
-        # asked for anything: no stage move, no LED change until their
-        # first explicit navigation.
-        if not ctx.initializing:
-            self.go_to_step(step_idx=self.curr_step, protocol=False)
-
-        return True
-
-    @staticmethod
-    def _apply_layer_settings_row(settings: dict, layer_name: str, vals: dict) -> None:
-        """Apply a single Layer Settings row to settings[layer_name][*].
-
-        Handles the column-name <-> settings-key mapping plus the string
-        -> bool/float/int casting required when the row was parsed off
-        disk. Missing or blank values are skipped so an explicit empty
-        cell doesn't clobber a sensible default.
-        """
-
-        def _as_bool(s):
-            if isinstance(s, bool):
-                return s
-            return str(s).strip().lower() == 'true'
-
-        def _as_float(s, default=None):
-            try:
-                return float(s)
-            except (TypeError, ValueError):
-                return default
-
-        def _as_int(s, default=None):
-            try:
-                return int(float(s))
-            except (TypeError, ValueError):
-                return default
-
-        layer = settings.setdefault(layer_name, {})
-
-        acquire = vals.get('Acquire', '')
-        if acquire in ('image', 'video'):
-            layer['acquire'] = acquire
-
-        for col, key, caster in (
-            ('Illumination', 'illumination_ma', _as_float),
-            ('Gain', 'gain_db', _as_float),
-            ('Exposure', 'exposure_ms', _as_float),
-            ('Sum', 'sum', _as_int),
-        ):
-            raw = vals.get(col, '')
-            if raw == '' or raw is None:
-                continue
-            cast = caster(raw)
-            if cast is not None:
-                layer[key] = cast
-
-        for col, key in (('Auto_Gain', 'auto_gain'), ('False_Color', 'false_color')):
-            raw = vals.get(col, '')
-            if raw == '' or raw is None:
-                continue
-            layer[key] = _as_bool(raw)
-
-        # Stim_Enabled is the per-layer stim master switch (the rest of
-        # the stim_config sub-dict is preserved). Blank means "leave the
-        # current stim_config alone"; explicit True/False sets the flag.
-        stim_raw = vals.get('Stim_Enabled', '')
-        if stim_raw not in ('', None):
-            stim_cfg = layer.get('stim_config')
-            if isinstance(stim_cfg, dict):
-                stim_cfg['enabled'] = _as_bool(stim_raw)
-
-    def _gather_layer_settings_for_save(self) -> dict:
-        """Collect current per-layer UI settings for inclusion in to_file().
-
-        Only layers with acquire in ('image', 'video') are returned --
-        these are the layers the user has marked as part of the
-        protocol. Disabled layers are omitted so reload doesn't
-        resurrect them.
-        """
-        settings = _app_ctx.ctx.settings
-        out = {}
-        for layer_name in common_utils.get_layers():
-            layer = settings.get(layer_name)
-            if not isinstance(layer, dict):
-                continue
-            acquire = layer.get('acquire')
-            if acquire not in ('image', 'video'):
-                continue
-            row = {
-                'Layer': layer_name,
-                'Acquire': acquire,
-                'Illumination': layer.get('illumination_ma', ''),
-                'Gain': layer.get('gain_db', ''),
-                'Auto_Gain': layer.get('auto_gain', ''),
-                'Exposure': layer.get('exposure_ms', ''),
-                'False_Color': layer.get('false_color', ''),
-                'Sum': layer.get('sum', ''),
-                'Stim_Enabled': '',
-            }
-            stim_cfg = layer.get('stim_config')
-            if isinstance(stim_cfg, dict) and 'enabled' in stim_cfg:
-                row['Stim_Enabled'] = stim_cfg['enabled']
-            out[layer_name] = row
-        return out
+        # Only a load a person asked for may drive the stage. The startup
+        # adoption happens before anyone has asked for anything, so it fills
+        # the panel and stops there -- no stage move, no LED change until
+        # their first explicit navigation. This used to read "am I still
+        # booting?", which answered the same way only while the load ran
+        # inside the constructor; once it moved behind the objective
+        # question it was answering a question it could no longer see.
+        if navigate:
+            self.go_to_step(step_idx=self.curr_step)
 
     def get_default_name_for_curr_step(self):
         step = self.get_curr_step()
@@ -1078,16 +780,17 @@ class ProtocolSettings(FloatLayout):
 
     # Save Protocol to File
     def save_protocol(self, filepath='', update_protocol_filepath: bool = True):
-        try:
-            gui_logger.protocol_action('SAVE', filepath)
+        gui_logger.protocol_action('SAVE', filepath)
+        logger.info('[LVP Main  ] ProtocolSettings.save_protocol()')
+
+        # The click that left a refused edit: saving would write the schedule
+        # the person just tried to change.
+        if refused_in_this_input():
+            return
+
+        def _save():
+            nonlocal filepath
             settings = _app_ctx.ctx.settings
-
-            logger.info('[LVP Main  ] ProtocolSettings.save_protocol()')
-
-            time_params = get_protocol_time_params()
-            self._protocol.modify_time_params(
-                period=time_params['period'], duration=time_params['duration']
-            )
 
             if (isinstance(filepath, str)) and len(filepath) == 0:
                 # If there is no current file path, "save" button will act as "save as"
@@ -1098,38 +801,16 @@ class ProtocolSettings(FloatLayout):
                     FileSaveBTN_instance.choose('saveas_protocol')
                     return
                 filepath = settings['protocol']['filepath']
-            else:
-                if (isinstance(filepath, str)) and (filepath[-4:].lower() != '.tsv'):
-                    filepath = filepath + '.tsv'
 
-                if update_protocol_filepath:
-                    settings['protocol']['filepath'] = filepath
+            filepath = str(_app_ctx.ctx.session.save_protocol(self._protocol, filepath))
 
-            if (isinstance(filepath, str)) and (filepath[-4:].lower() != '.tsv'):
-                filepath = filepath + '.tsv'
-
-            # v6: include the per-layer UI state in the saved TSV header
-            # so reload restores acquire mode + illumination/gain/exp
-            # without needing inference from step rows. Existing
-            # downstream callers (REST save, headless tests) keep their
-            # signature -- to_file() with no kwarg still works and falls
-            # back to inference on reload.
-            result = self._protocol.to_file(
-                file_path=filepath,
-                layer_settings=self._gather_layer_settings_for_save(),
-            )
-
-            if result:  # Had an error saving
-                from ui.notification_popup import show_notification_popup
-
-                show_notification_popup(title='Protocol Saving Error', message=result)
-
+            # Reached only once the file is written: a failed save leaves the
+            # panel naming the file it had, which is still the one on disk.
+            if update_protocol_filepath:
+                _app_ctx.ctx.set_protocol_filepath(filepath)
             self.ids['protocol_filename'].text = os.path.basename(filepath)
-        except Exception as e:
-            logger.error(f'[UI] save_protocol failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
 
-            show_notification_popup(title='Error', message=str(e))
+        run_reported(_save, None, 'SAVE_PROTOCOL')
 
     #
     # Multiple Exposures
@@ -1152,44 +833,20 @@ class ProtocolSettings(FloatLayout):
     # ------------------------------
     #
     def handle_step_ui_input_change(self) -> None:
-        from ui.ui_helpers import text_input_debounced
-
         obj = self.ids['step_number_input']
-        # Captured before either path below rewrites the box.
         typed = obj.text
-        text_input_debounced('STEP_NUMBER', typed)
-        try:
-            val = int(obj.text)
-        except Exception:
-            num_steps = self._protocol.num_steps()
-            if num_steps < 1:
-                val = 0
-            else:
-                val = 1
-
-            obj.text = f'{val}'
-            text_input_debounced('STEP_NUMBER_APPLIED', obj.text)
-            gui_logger.note_write_back('STEP_NUMBER', obj.text)
+        gui_logger.text_input('STEP_NUMBER', typed)
+        val = typed_number(typed, int, self.update_step_ui_immediate)
+        if val is None:
+            gui_logger.text_input('STEP_NUMBER_APPLIED', obj.text)
             return
+        # The box shows the current step until the move has landed, as it
+        # does after Prev and Next; a number the protocol has no step for is
+        # the Session's refusal, shown, and the box is already put back.
+        self.update_step_ui()
+        self.go_to_step(step_idx=val - 1)
 
-        num_steps = self._protocol.num_steps()
-        if num_steps < 1:
-            val = 0
-            obj.text = f'{val}'
-        elif val < 1:
-            val = 1
-            obj.text = f'{val}'
-        elif val > num_steps:
-            val = num_steps
-            obj.text = f'{val}'
-
-        if obj.text != typed:
-            text_input_debounced('STEP_NUMBER_APPLIED', obj.text)
-            gui_logger.note_write_back('STEP_NUMBER', obj.text)
-
-        self.go_to_step(step_idx=val - 1, protocol=False)
-
-    def go_to_step(self, step_idx: int, protocol=True):
+    def go_to_step(self, step_idx: int):
         # step_idx is required so every caller states its target instead of
         # pre-writing curr_step: the navigation module detects a real step
         # change by comparing the target against curr_step, and a caller
@@ -1201,9 +858,7 @@ class ProtocolSettings(FloatLayout):
         go_to_step(
             protocol=self._protocol,
             step_idx=step_idx,
-            ignore_auto_gain=False,
             include_move=True,
-            called_from_protocol=protocol,
         )
 
     # Goto to Previous Step
@@ -1219,7 +874,7 @@ class ProtocolSettings(FloatLayout):
             return
 
         self.update_step_ui()
-        self.go_to_step(step_idx=max(self.curr_step - 1, 0), protocol=False)
+        self.go_to_step(step_idx=max(self.curr_step - 1, 0))
 
     # Go to Next Step
     def next_step(self) -> None:
@@ -1232,35 +887,28 @@ class ProtocolSettings(FloatLayout):
             return
 
         self.update_step_ui()
-        self.go_to_step(step_idx=min(self.curr_step + 1, num_steps - 1), protocol=False)
+        self.go_to_step(step_idx=min(self.curr_step + 1, num_steps - 1))
 
     # Delete Current Step of Protocol
     def delete_step(self):
-        try:
-            ctx = _app_ctx.ctx
+        gui_logger.protocol_action('DELETE_STEP', f'curr_step={self.curr_step}')
+        logger.info('[LVP Main  ] ProtocolSettings.delete_step()')
+        run_reported(self.delete_step_ex, self._draw_protocol_steps, 'DELETE_STEP')
 
-            gui_logger.protocol_action('DELETE_STEP', f'curr_step={self.curr_step}')
-            logger.info('[LVP Main  ] ProtocolSettings.delete_step()')
+    def delete_step_ex(self) -> None:
+        """Remove the current step and go to the one that takes its place.
 
-            if self._protocol.num_steps() <= 0:
-                return
+        The move is a navigation that belongs only to a list the protocol
+        has changed, so it is the last call, never reached on a refusal.
+        """
+        _app_ctx.ctx.session.delete_step(self._protocol, self.curr_step)
 
-            self._protocol.delete_step(step_idx=self.curr_step)
+        if self._protocol.num_steps() <= 0:
+            self.curr_step = -1
+        else:
+            self.curr_step = max(self.curr_step - 1, 0)
 
-            ctx.stage.set_protocol_steps(df=self._protocol.steps())
-
-            if self._protocol.num_steps() <= 0:
-                self.curr_step = -1
-            else:
-                self.curr_step = max(self.curr_step - 1, 0)
-
-            self.update_step_ui()
-            self.go_to_step(step_idx=self.curr_step, protocol=False)
-        except Exception as e:
-            logger.error(f'[UI] delete_step failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(title='Error', message=str(e))
+        self.go_to_step(step_idx=self.curr_step)
 
     def modify_step(self):
         logger.info('[LVP Main  ] ProtocolSettings.modify_step()')
@@ -1269,96 +917,33 @@ class ProtocolSettings(FloatLayout):
             return
 
         gui_logger.protocol_action('MODIFY_STEP', f'curr_step={self.curr_step}')
-        io_executor = _app_ctx.ctx.io_executor
-        io_executor.put(IOTask(action=self.modify_step_ex, callback=self.update_step_ui))
+        ctx = _app_ctx.ctx
+        opened_layer = common_utils.get_opened_layer(ctx.image_settings)
+        name_field = self.ids['step_name_input'].text
+        # The open drawer is judged inside the reporter, so Modify with no
+        # drawer open is told so rather than raised into Kivy.
+        run_reported(
+            lambda: self.modify_step_ex(get_active_layer_config(opened_layer)[0], name_field),
+            self._draw_protocol_steps,
+            'MODIFY_STEP',
+        )
 
-    def modify_step_ex(self):
-        try:
-            ctx = _app_ctx.ctx
-            from ui.notification_popup import show_notification_popup
-
-            active_layer, active_layer_config = get_active_layer_config()
-
-            if (
-                'stim_config' in active_layer_config
-                and active_layer_config['stim_config'] is not None
-                and active_layer_config['stim_config']['enabled']
-            ):
-                # We want to keep the same acquire channel when we are only modifying the stim config.
-                true_step_layer = self._protocol.step(idx=self.curr_step)['Color']
-                active_layer = true_step_layer
-                active_layer_config = get_layer_configs()[active_layer]
-
-            plate_position = ctx.session.get_current_plate_position()
-            objective_id, _ = ctx.session.get_current_objective_info()
-
-            # logger.error(f"CURRENT Z POSITION IN UM {plate_position['z']}")
-
-            if (ctx.lumaview.scope.capabilities.has_turret) and (
-                not ctx.lumaview.scope.motion.is_current_turret_position_objective_set()
-            ):
-                error_msg = (
-                    'Cannot modify protocol step. Please set objective for current turret position.'
-                )
-                logger.error(error_msg)
-                # Runs on the io_executor worker; Kivy widgets must be
-                # built on the main thread, so marshal via Clock.
-                Clock.schedule_once(
-                    lambda dt: show_notification_popup(
-                        title='Protocol Step Modification Error', message=error_msg
-                    ),
-                    0,
-                )
-                return
-
-            # A non-blank name field is a user rename; blank keeps the step's
-            # existing label and auto/user flag. The rendered Name re-derives
-            # from the updated columns inside modify_step, so an auto-named
-            # step's channel token tracks a channel change and a user label
-            # rides along untouched -- no name branching needed here.
-            label = common_utils.resolve_step_rename(
-                self.ids['step_name_input'].text, Protocol.sanitize_step_name
-            )
-
-            self._protocol.modify_step(
-                step_idx=self.curr_step,
-                label=label,
-                layer=active_layer,
-                layer_config=active_layer_config,
-                stim_configs=get_stim_configs(),
-                plate_position=plate_position,
-                objective_id=objective_id,
-            )
-            logger.info(
-                "[LVP Main  ] modify_step_ex: channel -> %s; step name -> '%s'",
-                active_layer,
-                self._protocol.step(idx=self.curr_step)['Name'],
-            )
-
-            # Validate the modified step and warn the user if there are errors.
-            errors = self._protocol.validate_steps()
-            if errors:
-                msg = '\n'.join(errors)
-                Clock.schedule_once(
-                    lambda dt: show_notification_popup(
-                        title='Protocol Validation Warning',
-                        message=f'Step modified with validation issues:\n\n{msg}',
-                    ),
-                    0,
-                )
-
-            ctx.stage.set_protocol_steps(df=self._protocol.steps())
-        except Exception as e:
-            logger.error(f'[UI] modify_step_ex failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            # Runs on the io_executor worker; marshal the popup to the
-            # main thread. Bind str(e) now -- the exception variable is
-            # unbound by the time the scheduled lambda runs.
-            Clock.schedule_once(
-                lambda dt, m=str(e): show_notification_popup(title='Error', message=m),
-                0,
-            )
+    def modify_step_ex(self, active_layer: str, name_field: str) -> None:
+        """Change the current step to the open layer, renamed as the name field says."""
+        # A non-blank name field is a user rename; blank keeps the step's
+        # existing label and auto/user flag. The rendered Name re-derives
+        # from the updated columns inside modify_step, so an auto-named
+        # step's channel token tracks a channel change and a user label
+        # rides along untouched -- no name branching needed here.
+        label = common_utils.resolve_step_rename(name_field)
+        name = _app_ctx.ctx.session.update_step(
+            self._protocol, self.curr_step, layer=active_layer, label=label
+        )
+        logger.info(
+            "[LVP Main  ] modify_step_ex: channel -> %s; step name -> '%s'",
+            self._protocol.step(idx=self.curr_step)['Color'],
+            name,
+        )
 
     # add_step
     def insert_step(self, after_current_step: bool = True):
@@ -1366,133 +951,43 @@ class ProtocolSettings(FloatLayout):
             'INSERT_STEP', f'after_current={after_current_step} curr_step={self.curr_step}'
         )
         logger.info('[LVP Main  ] ProtocolSettings.insert_step()')
-        io_executor = _app_ctx.ctx.io_executor
-        io_executor.put(
-            IOTask(
-                action=self.insert_step_ex, args=(after_current_step), callback=self.update_step_ui
-            )
+        run_reported(
+            lambda: self.insert_step_ex(after_current_step),
+            self._draw_protocol_steps,
+            'INSERT_STEP',
         )
 
-    def insert_step_ex(self, after_current_step: bool = True):
-        try:
-            ctx = _app_ctx.ctx
-            from ui.notification_popup import show_notification_popup
+    def insert_step_ex(self, after_current_step: bool = True) -> None:
+        """Add a step at the current stage position, beside the current step, and go to it.
 
-            plate_position = ctx.session.get_current_plate_position()
-            objective_id, _ = ctx.session.get_current_objective_info()
+        Of the steps added, one per acquiring channel, it goes to the one for
+        the channel being viewed, so adding changes nothing on screen; when
+        that channel acquires nothing, to the first added.
 
-            if (ctx.lumaview.scope.capabilities.has_turret) and (
-                not ctx.lumaview.scope.motion.is_current_turret_position_objective_set()
-            ):
-                error_msg = (
-                    'Cannot add step to protocol. Please set objective for current turret position.'
-                )
-                logger.error(error_msg)
-                Clock.schedule_once(
-                    lambda dt: show_notification_popup(
-                        title='Protocol Add Step Error', message=error_msg
-                    ),
-                    0,
-                )
-                return
+        The move to the new step is a navigation that belongs only to a step
+        the API accepted, so it is the last call, never reached on a refusal.
+        """
+        if after_current_step:
+            after_step = self.curr_step
+            before_step = None
+        else:
+            after_step = None
+            before_step = self.curr_step
 
-            if after_current_step:
-                after_step = self.curr_step
-                before_step = None
-            else:
-                after_step = None
-                before_step = self.curr_step
+        names = _app_ctx.ctx.session.add_step(
+            self._protocol, before_step=before_step, after_step=after_step
+        )
 
-            layer_configs = get_layer_configs()
+        # The added steps sit together, in the order the names came back.
+        first_added = self.curr_step + 1 if after_current_step else max(self.curr_step, 0)
+        added = range(first_added, first_added + len(names))
+        viewed = common_utils.get_opened_layer(_app_ctx.ctx.image_settings)
+        self.curr_step = next(
+            (idx for idx in added if self._protocol.step(idx)['Color'] == viewed),
+            first_added,
+        )
 
-            # Early return if no channels have acquire enabled (#548)
-            if not any(lc['acquire'] is not None for lc in layer_configs.values()):
-                return
-
-            # Use custom channel order from settings if configured,
-            # otherwise fall back to default get_layers() order.
-            # This controls the order channels are added as protocol steps,
-            # which matters for composite imaging association.
-            settings = ctx.settings
-            channel_order = settings.get('step_channel_order', None)
-            if channel_order:
-                # Only include channels that are in layer_configs
-                ordered_layers = [ch for ch in channel_order if ch in layer_configs]
-                # Append any channels not in the custom order
-                for ch in layer_configs:
-                    if ch not in ordered_layers:
-                        ordered_layers.append(ch)
-            else:
-                ordered_layers = list(layer_configs.keys())
-
-            stim_configs = get_stim_configs()
-
-            # H5: Warn about invalid stim configs at insert time
-            for stim_color, sc in stim_configs.items():
-                if not isinstance(sc, dict) or not sc.get('enabled', False):
-                    continue
-                freq = sc.get('frequency', 0)
-                if not isinstance(freq, (int, float)) or freq <= 0:
-                    logger.warning(
-                        f'[UI] Stim channel {stim_color}: frequency {freq} Hz is invalid (must be > 0). Disabling channel.'
-                    )
-                    sc['enabled'] = False
-                exp = sc.get('exposure', 0)
-                if isinstance(exp, (int, float)) and exp == 0 and sc.get('enabled', False):
-                    logger.warning(
-                        f'[UI] Stim channel {stim_color}: exposure is 0. This may produce no visible pulses.'
-                    )
-                illum = sc.get('illumination_ma', 0)
-                if isinstance(illum, (int, float)) and illum <= 0 and sc.get('enabled', False):
-                    logger.warning(
-                        f'[UI] Stim channel {stim_color}: illumination {illum} mA is invalid (must be > 0). Disabling channel.'
-                    )
-                    sc['enabled'] = False
-
-            for layer in ordered_layers:
-                layer_config = layer_configs[layer]
-                if layer_config['acquire'] is None:
-                    continue
-
-                _ = self._protocol.insert_step(
-                    step_name=None,
-                    layer=layer,
-                    layer_config=layer_config,
-                    stim_configs=stim_configs,
-                    plate_position=plate_position,
-                    objective_id=objective_id,
-                    before_step=before_step,
-                    after_step=after_step,
-                )
-
-                if after_current_step or (self.curr_step < 0):
-                    self.curr_step += 1
-
-            # Validate after inserting and warn the user if there are errors
-            errors = self._protocol.validate_steps()
-            if errors:
-                msg = '\n'.join(errors)
-                Clock.schedule_once(
-                    lambda dt: show_notification_popup(
-                        title='Protocol Validation Warning',
-                        message=f'Step added with validation issues:\n\n{msg}',
-                    ),
-                    0,
-                )
-
-            ctx.stage.set_protocol_steps(df=self._protocol.steps())
-            self.go_to_step(step_idx=self.curr_step, protocol=False)
-        except Exception as e:
-            logger.error(f'[UI] insert_step_ex failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            # Runs on the io_executor worker; marshal the popup to the
-            # main thread. Bind str(e) now -- the exception variable is
-            # unbound by the time the scheduled lambda runs.
-            Clock.schedule_once(
-                lambda dt, m=str(e): show_notification_popup(title='Error', message=m),
-                0,
-            )
+        self.go_to_step(step_idx=self.curr_step)
 
     def update_acquire_zstack(self):
         gui_logger.toggle('ACQUIRE_ZSTACK', bool(self.ids['acquire_zstack_id'].active))
@@ -1513,230 +1008,108 @@ class ProtocolSettings(FloatLayout):
     def update_tiling_selection(self):
         gui_logger.select('TILING', self.ids['tiling_size_spinner'].text)
 
-    def determine_and_set_run_autofocus_scan_allow(self):
-        tiling = self.ids['tiling_size_spinner'].text
-        zstack = self.ids['acquire_zstack_id'].active
-        if zstack and (tiling != '1x1'):
-            self.set_run_autofocus_scan_allow(allow=False)
-        else:
-            self.set_run_autofocus_scan_allow(allow=True)
-
-    def set_run_autofocus_scan_allow(self, allow: bool):
-        if allow:
-            self.ids['run_autofocus_btn'].disabled = False
-        else:
-            self.ids['run_autofocus_btn'].disabled = True
-
     def get_curr_step(self):
         if self._protocol.num_steps() == 0:
             return None
 
         return self._protocol.step(idx=self.curr_step)
 
-    def _reset_run_autofocus_scan_button(self, **kwargs):
-        self.ids['run_autofocus_btn'].state = 'normal'
-        self.ids['run_autofocus_btn'].text = 'Autofocus All Steps'
-        self.ids['run_autofocus_btn'].disabled = False
+    def draw_protocol_buttons(self) -> None:
+        """Show each of the panel's three runs as the engine reports it.
 
-    def _reset_run_scan_button(self, **kwargs):
-        self.ids['run_scan_btn'].state = 'normal'
-        self.ids['run_scan_btn'].text = 'Run One Scan'
-        self.ids['run_scan_btn'].disabled = False
-
-    def _reset_run_protocol_button(self, **kwargs):
-        self.ids['run_protocol_btn'].state = 'normal'
-        self.ids['run_protocol_btn'].text = 'Run Full Protocol'
-        self.ids['run_protocol_btn'].disabled = False
-        self.ids[
-            'run_protocol_btn'
-        ].background_down = 'atlas://data/images/defaulttheme/button_pressed'
-
-    def _commit_running_ui_state(
-        self, button_id: str, text: str, background_down: str | None = None
-    ):
-        """Commit the shared "a run is now underway" BUTTON state.
-
-        Run-state truth is the session claim, committed inside start()
-        and mirrored to kv by the session's run-state listener; what
-        remains caller-side is the starter button's cosmetics. Runs
-        between prepare and start so a refusal never leaves a button
-        mid-run.
+        The only code that styles the Scan, Protocol and Autofocus Scan
+        buttons: after each of their own requests, on every run-state edge
+        -- including a run's return to idle and the end of its file drain --
+        and, while a finished run's files drain, on a half-second tick for
+        the pending count. Four states, each read from the API: running;
+        stopping (a Stop accepted, the teardown still going); writing the
+        finished run's files; idle.
         """
-        self.ids[button_id].text = text
-        if background_down is not None:
-            self.ids[button_id].background_down = background_down
+        ctx = _app_ctx.ctx
+        session = ctx.session
+        # A finished run's writes still going. A start pressed now is the
+        # engine's to refuse; the button that started the run shows the count.
+        draining = session.protocol_files_draining
 
-    def _reset_run_button_cosmetics(
-        self, button_id: str, text: str, background_down: str | None = None
-    ):
-        """Undo a starter's pre-gate button cosmetics after a run did NOT start.
+        for trigger, look in _PANEL_RUN_BUTTONS.items():
+            button = self.ids[look.button_id]
+            run = self._runs_started_here.get(trigger)
+            setattr(self, look.held_flag, session.held_by_other(run))
+            label = _running_label(run, trigger, look)
+            if label is not None:
+                button.state = 'down'
+                button.text = label
+                if look.running_background is not None:
+                    button.background_down = look.running_background
+                continue
 
-        Cosmetics only: run-state truth is the session claim, which a
-        refused start never touched, and the kv lockout mirrors follow
-        the session's run-state listener -- there is nothing else for a
-        refusal to undo.
-        """
-        self.ids[button_id].state = 'normal'
-        self.ids[button_id].text = text
-        self.ids[button_id].disabled = False
-        if background_down is not None:
-            self.ids[button_id].background_down = background_down
-
-    def _is_protocol_valid(self) -> bool:
-        from ui.notification_popup import show_notification_popup
-
-        if self._protocol.num_steps() == 0:
-            logger.warning('[LVP Main  ] Protocol has no steps.')
-            show_notification_popup(
-                title='Protocol Invalid',
-                message='Protocol has no steps. Add at least one step before running.',
-            )
-            return False
-
-        # Validate save folder is accessible
-        settings = _app_ctx.ctx.settings
-        live_folder = settings.get('live_folder')
-        if live_folder:
-            import pathlib
-
-            parent_dir = pathlib.Path(live_folder).resolve() / 'ProtocolData'
-            try:
-                parent_dir.mkdir(parents=True, exist_ok=True)
-                # Test write permission
-                test_file = parent_dir / '.write_test'
-                test_file.touch()
-                test_file.unlink()
-            except (FileNotFoundError, PermissionError, OSError) as e:
-                logger.error(f'[LVP Main  ] Save folder not writable: {parent_dir}: {e}')
-                show_notification_popup(
-                    title='Save Path Error',
-                    message=f'Cannot write to save folder:\n{parent_dir}\n\nError: {e}',
+            button.state = 'normal'
+            if draining and run is not None and run.is_last_run:
+                button.text = (
+                    'File writer stalled'
+                    if session.protocol_files_stalled
+                    else f'Writing Files... ({session.protocol_files_pending})'
                 )
-                return False
+            else:
+                button.text = look.idle_text
+            if look.idle_background is not None:
+                button.background_down = look.idle_background
 
-        # If turret is present, validate all protocol objectives are assigned (#606)
-        ctx = _app_ctx.ctx
-        if ctx.lumaview.scope.capabilities.has_turret and not self._validate_objectives_in_protocol(
-            protocol_df=self._protocol.steps()
-        ):
-            turret_objectives = settings.get('turret_objectives', {})
-            assigned = [v for v in turret_objectives.values() if v is not None]
-            show_notification_popup(
-                title='Turret Configuration Required',
-                message='Protocol uses objectives not assigned to turret positions.\n\n'
-                f'Assigned: {assigned if assigned else "None"}\n\n'
-                'Please assign objectives in Objective Control > Turret before running.',
-            )
-            return False
+        if draining:
+            self._drain_tick_trigger()
 
-        return True
+    def _drain_tick(self, dt) -> None:
+        """While a finished run's files drain, keep the count on the button current.
 
-    def _autofocus_run_complete_callback(self, **kwargs):
-        ctx = _app_ctx.ctx
+        A stalled writer is the run engine's to report, with its recovery;
+        the button only says so.
+        """
+        self.draw_protocol_buttons()
 
-        # Don't reset immediately - keep running until files complete
+    def _press_panel_run(
+        self,
+        trigger: str,
+        log_stop: typing.Callable[[], None] | None,
+        build_start: typing.Callable[[], typing.Callable[[], None]],
+    ) -> None:
+        """Start this button's run, or stop the one it started.
 
-        # Reset completion event for this run (thread-safe)
-        self._scan_files_completed_event.clear()
-
-        # Copy the Z-heights from the autofocus scan into the protocol
-        # first -- but only from a scan that actually finished. An aborted
-        # or failed scan focused some prefix of its steps and left the
-        # rest at their pre-scan values, so copying that column back
-        # overwrites the user's protocol with the steps that never ran.
-        # The run's own terminal status is the only thing that can tell
-        # the two apart; where the stage ended cannot.
-        focused_protocol = kwargs['protocol']
-        if kwargs.get('status') == 'completed':
-            self._protocol.steps()['Z'] = focused_protocol.steps()['Z']
-
-        file_io_executor = ctx.file_io_executor
-
-        # Check if files are still being written
-        if file_io_executor.is_protocol_queue_active():
-            # Schedule periodic update to show remaining file count
-            self._wedge_recovery_offered = False
-            self._file_write_status_event = Clock.schedule_interval(
-                self._update_autofocus_write_status,
-                0.5,  # Update every 500ms
-            )
-            # Initial button state
-            queue_size = file_io_executor.protocol_queue_size()
-            self.ids['run_autofocus_btn'].state = 'normal'
-            self.ids['run_autofocus_btn'].text = f'Writing Files... ({queue_size})'
-            self.ids['run_autofocus_btn'].disabled = True
-
-            # Disable other buttons
-            self.ids['run_scan_btn'].disabled = True
-            self.ids['run_protocol_btn'].disabled = True
-
-            # Update window title
-            set_title_event_text('Writing protocol scan files to disk...')
-        else:
-            # No files pending - proceed with normal reset
-            live_histo_reverse()
-            self._reset_run_autofocus_scan_button()
-
-    _wedge_recovery_offered = False  # One recovery offer per write-lockout episode
-
-    def _update_write_lockout_button(self, button_id: str) -> None:
-        """Poll-tick body shared by the three 'Writing Files...' lockouts.
-
-        A healthy drain shows the live pending count. A stalled writer would
-        otherwise freeze that label forever -- the surface the stuck-run
-        reports were actually stuck on -- so a stall swaps in the recovery
-        offer (once per episode; the run-start gates re-offer on any later
-        attempt if the user declines)."""
-        from modules.protocol_image_writer import WRITE_STALL_FATAL_S
-
-        file_io_executor = _app_ctx.ctx.file_io_executor
-        if file_io_executor.protocol_drain_stalled(WRITE_STALL_FATAL_S):
-            self.ids[button_id].text = 'File writer stalled'
-            if not self._wedge_recovery_offered:
-                self._wedge_recovery_offered = True
-                _offer_wedged_writer_recovery()
-        else:
-            queue_size = file_io_executor.protocol_queue_size()
-            self.ids[button_id].text = f'Writing Files... ({queue_size})'
-
-    def _update_autofocus_write_status(self, dt):
-        """Update UI to show file writing progress for autofocus."""
-        ctx = _app_ctx.ctx
-        file_io_executor = ctx.file_io_executor
-
-        if file_io_executor.is_protocol_queue_active():
-            self._update_write_lockout_button('run_autofocus_btn')
-        else:
-            # Queue is empty - cancel this scheduled update and trigger completion
-            if hasattr(self, '_file_write_status_event') and self._file_write_status_event:
-                Clock.unschedule(self._file_write_status_event)
-                self._file_write_status_event = None
-                # Trigger completion directly since queue is done
-                self._autofocus_files_complete()
-
-    def _autofocus_files_complete(self, **kwargs):
-        """Called when ALL files are written to disk for autofocus run."""
-
-        # Guard against multiple calls using thread-safe event
-        if self._scan_files_completed_event.is_set():
+        Whether the press means Stop is the engine's answer -- is the run
+        this button started still live -- never the toggle's, which Kivy
+        has already flipped. The button changes nothing ahead of the
+        engine's answer; draw_protocol_buttons shows it. Every refusal is
+        the engine's to raise and the boundary's to show, once.
+        """
+        run = self._runs_started_here.get(trigger)
+        if run is not None and run.is_live:
+            if log_stop is not None:
+                log_stop()
+            self._submit_panel_request(trigger, run.stop, stop=True)
             return
-        self._scan_files_completed_event.set()
+        # The click that left a refused edit: starting would run the value
+        # the person just tried to change. The toggle Kivy flipped is put back.
+        if refused_in_this_input():
+            self.draw_protocol_buttons()
+            return
 
-        # Cancel status update if still scheduled
-        if hasattr(self, '_file_write_status_event') and self._file_write_status_event:
-            Clock.unschedule(self._file_write_status_event)
-            self._file_write_status_event = None
+        self._submit_panel_request(trigger, build_start())
 
-        # Reset the autofocus button
-        self._reset_run_autofocus_scan_button()
+    def _submit_panel_request(
+        self, trigger: str, call: typing.Callable[[], None], stop: bool = False
+    ) -> None:
+        # The button is disabled until this request's own redraw, so a
+        # second press cannot race the first one to the pool.
+        setattr(self, f'{trigger}_pending', True)
+        submit_reported(
+            call,
+            lambda: self._panel_request_done(trigger),
+            _PANEL_RUN_BUTTONS[trigger].label,
+            stop=stop,
+        )
 
-        # Re-enable other buttons
-        self.ids['run_scan_btn'].disabled = False
-        self.ids['run_protocol_btn'].disabled = False
-
-        # Complete remaining cleanup
-        live_histo_reverse()
-        Clock.schedule_once(lambda dt: reset_title(), 0)
+    def _panel_request_done(self, trigger: str) -> None:
+        setattr(self, f'{trigger}_pending', False)
+        self.draw_protocol_buttons()
 
     def debug_func(self):
         pass
@@ -1746,536 +1119,95 @@ class ProtocolSettings(FloatLayout):
         ctx = _app_ctx.ctx
         enabled = self.ids['bf_af_for_fluorescence_btn'].state == 'down'
         gui_logger.toggle('BF_AF_FOR_FLUORESCENCE', enabled)
-        with ctx.settings_lock:
-            ctx.settings['protocol']['bf_af_for_fluorescence'] = enabled
+        ctx.update_settings('protocol.bf_af_for_fluorescence', enabled)
         logger.info(f'[Protocol  ] BF AF for fluorescence: {enabled}')
 
     def run_autofocus_scan_from_ui(self):
-        try:
-            gui_logger.protocol_action('AF_SCAN_START')
-            from ui.notification_popup import show_notification_popup
+        gui_logger.protocol_action('AF_SCAN')
+        self._press_panel_run(
+            'autofocus_scan',
+            lambda: gui_logger.protocol_action('ABORT_AF_SCAN'),
+            self._autofocus_scan_start,
+        )
 
-            logger.info('[LVP Main  ] ProtocolSettings.run_autofocus_scan_from_ui()')
-            trigger_source = 'autofocus_scan'
-            run_not_started_func = self._reset_run_autofocus_scan_button
+    def _autofocus_scan_start(self) -> typing.Callable[[], None]:
+        """Return the call that starts the autofocus scan of this panel's protocol.
 
-            ctx = _app_ctx.ctx
-            sequenced_capture_runner = ctx.sequenced_capture_runner
-
-            run_trigger_source = sequenced_capture_runner.run_trigger_source()
-
-            live_histo_off()
-
-            # Not-started paths undo cosmetics only: run-state truth is
-            # the session claim, which a refusal never touched.
-            def run_refused_func():
-                self._reset_run_button_cosmetics('run_autofocus_btn', 'Autofocus All Steps')
-                live_histo_reverse()
-
-            # Only block if starting NEW autofocus scan (button is 'down'), not if aborting (button is 'normal')
-            if self.ids['run_autofocus_btn'].state == 'down' and not require_file_writes_idle(
-                'start the autofocus scan'
-            ):
-                run_refused_func()
-                return
-
-            if self.ids['run_autofocus_btn'].state == 'normal' or (
-                sequenced_capture_runner.run_in_progress() and run_trigger_source == trigger_source
-            ):
-                self._cleanup_at_end_of_protocol(autofocus_scan=True)
-                return
-
-            if sequenced_capture_runner.run_in_progress() and (
-                run_trigger_source != trigger_source
-            ):
-                run_refused_func()
-                logger.warning(
-                    f'Cannot start autofocus scan. Run already in progress from {run_trigger_source}'
-                )
-                return
-
-            if not self._is_protocol_valid():
-                run_refused_func()
-                return
-
-            def commit_ui_state():
-                # Button cosmetics only: the run-state commit is the
-                # session claim inside start(), and the kv mirrors
-                # follow from the session's run-state listener.
-                self.ids['run_autofocus_btn'].text = 'Running Autofocus Scan'
-
-            settings = _app_ctx.ctx.settings
-
-            callbacks = {
-                **live_display_callbacks(),
-                'move_position': _handle_ui_update_for_axis,
-                # Pause live UI during recording-heavy runs for throughput
-                'pause_live_ui': lambda: (
-                    ctx.scope_display.stop(),
-                    Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
-                ),
-                'resume_live_ui': lambda: (
-                    ctx.scope_display.start(),
-                    Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
-                    Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 0.1),
-                ),
-                'run_scan_pre': self._run_scan_pre_callback,
-                'autofocus_in_progress': self._autofocus_in_progress_callback,
-                'autofocus_complete': self._autofocus_complete_callback,
-                'scan_iterate_post': run_not_started_func,
-                'update_step_number': _update_step_number_callback,
-                'go_to_step': go_to_step,
-                'run_complete': self._autofocus_run_complete_callback,
-                'files_complete': self._autofocus_files_complete,
-                # LED observer handles UI sync -- no manual callbacks needed
-                'sync_layer_widgets': sync_layer_widgets_from_settings,
-                'set_recording_title': set_recording_title,
-                'set_writing_title': set_writing_title,
-                'reset_title': reset_title,
-            }
-
-            autogain_settings = get_auto_gain_settings()
-
-            sequence = copy.deepcopy(self._protocol)
-            sequence.modify_autofocus_all_steps(enabled=True)
-
-            def prepare_and_start():
-                plan = sequenced_capture_runner.prepare(
-                    protocol=sequence,
-                    run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
-                    run_trigger_source=trigger_source,
-                    max_scans=1,
-                    sequence_name='af_scan',
-                    parent_dir=None,
-                    image_capture_config=get_image_capture_config_from_ui(),
-                    enable_image_saving=False,
-                    autogain_settings=autogain_settings,
-                    callbacks=callbacks,
-                    update_z_pos_from_autofocus=True,
-                    leds_state_at_end='off',
-                    engineering_mode=ctx.engineering_mode,
-                    autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
-                        settings, ctx.settings_lock
-                    ),
-                    # The autofocus scan must NOT hold the excitation LED
-                    # across focus moves (photobleaching) and saves nothing;
-                    # the helper's autofocus-scan branch forces both off.
-                    **config_helpers.get_sequenced_run_settings(
-                        settings, run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN
-                    ),
-                )
-                commit_ui_state()
-                sequenced_capture_runner.start(plan)
-
-            run_with_refusal_boundary(prepare_and_start, on_refused=run_refused_func)
-        except Exception as e:
-            logger.error(f'[UI] run_autofocus_scan_from_ui failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(title='Error', message=str(e))
-
-    def _scan_run_complete(self, **kwargs):
+        The scan and the focus it writes into the protocol are
+        ProtocolRunner.run_autofocus_all_steps, the one a script or REST
+        calls; this panel passes its protocol and its own event handlers.
+        """
         ctx = _app_ctx.ctx
+        member = ctx.session.create_protocol_runner()
+        trigger_source = 'autofocus_scan'
+        protocol = self._protocol
 
-        # The run's LED restore has settled by the time this callback is
-        # scheduled, so reconcile every enable toggle to driver truth: the
-        # step-nav run indicator can be left stale by a Stop, and an
-        # all-dark restore emits no LED events to correct it.
-        ctx.ui_listener_bridge.reconcile_led_buttons()
-
-        # Reset completion event for this scan (thread-safe)
-        self._scan_files_completed_event.clear()
-
-        file_io_executor = ctx.file_io_executor
-
-        # Check if files are still being written
-        if file_io_executor.is_protocol_queue_active():
-            # Schedule periodic update to show remaining file count
-            self._wedge_recovery_offered = False
-            self._file_write_status_event = Clock.schedule_interval(
-                self._update_file_write_status,
-                0.5,  # Update every 500ms
-            )
-            # Initial button state
-            queue_size = file_io_executor.protocol_queue_size()
-            self.ids['run_scan_btn'].state = 'normal'  # Reset to normal state
-            self.ids['run_scan_btn'].text = f'Writing Files... ({queue_size})'
-            self.ids['run_scan_btn'].disabled = True
-
-            # Disable other buttons to prevent any operations while writing
-            self.ids['run_protocol_btn'].disabled = True
-            self.ids['run_autofocus_btn'].disabled = True
-
-            # Update window title with custom message
-            set_title_event_text('Writing protocol scan files to disk...')
-        else:
-            # No files pending - proceed with normal reset
-            self._reset_run_scan_button()
-            live_histo_reverse()
+        def _ended(*_ended):
             self.reset_autofocus_ui()
+            sync_layer_widgets_from_settings()
 
-    def _update_file_write_status(self, dt):
-        """Update UI to show file writing progress."""
-        ctx = _app_ctx.ctx
-        file_io_executor = ctx.file_io_executor
+        events = RunEvents(
+            frame_captured=show_captured_frame,
+            scan_started=lambda *_scan: self._run_scan_pre_callback(),
+            scan_ended=lambda *_scan: self.draw_protocol_buttons(),
+            step_started=lambda step_idx: go_to_step(protocol, step_idx, include_move=False),
+            video_progress=show_video_progress,
+            run_ended=_ended,
+        )
 
-        if file_io_executor.is_protocol_queue_active():
-            self._update_write_lockout_button('run_scan_btn')
-        else:
-            # Queue is empty - cancel this scheduled update and trigger completion
-            if hasattr(self, '_file_write_status_event') and self._file_write_status_event:
-                Clock.unschedule(self._file_write_status_event)
-                self._file_write_status_event = None
-                # Trigger completion directly since queue is done
-                self._scan_files_complete()
+        def _start():
+            self._runs_started_here[trigger_source] = member.run_autofocus_all_steps(
+                protocol,
+                events=events,
+                run_trigger_source=trigger_source,
+            )
 
-    def _scan_files_complete(self, **kwargs):
-        """Called when ALL files are written to disk (deferred callback)."""
-        # Guard against multiple calls using thread-safe event
-        if self._scan_files_completed_event.is_set():
-            return
-        self._scan_files_completed_event.set()
-
-        # Cancel status update if still scheduled
-        if hasattr(self, '_file_write_status_event') and self._file_write_status_event:
-            Clock.unschedule(self._file_write_status_event)
-            self._file_write_status_event = None
-
-        # Now actually reset the button
-        self._reset_run_scan_button()
-
-        # Re-enable other buttons that were disabled during file writing
-        self.ids['run_protocol_btn'].disabled = False
-        self.ids['run_autofocus_btn'].disabled = False
-
-        # Complete remaining cleanup
-        live_histo_reverse()
-        self.reset_autofocus_ui()
-        reset_title()
-
-    _scan_starting = False  # Re-entry guard for double-click prevention
+        return _start
 
     def run_scan_from_ui(self):
-        if ProtocolSettings._scan_starting:
-            logger.warning('[LVP Main  ] run_scan_from_ui() ignored -- already starting')
-            return
-        ProtocolSettings._scan_starting = True
-        try:
-            self._run_scan_from_ui_inner()
-        finally:
-            ProtocolSettings._scan_starting = False
-
-    def _run_scan_from_ui_inner(self):
         gui_logger.protocol_action('SCAN')
         logger.info('[LVP Main  ] ProtocolSettings.run_scan_from_ui()')
-        trigger_source = 'scan'
-        run_complete_func = self._scan_run_complete
-        run_not_started_func = self._reset_run_scan_button
-
-        # Not-started paths undo cosmetics only: run-state truth is
-        # the session claim, which a refusal never touched.
-        def run_refused_func():
-            self._reset_run_button_cosmetics('run_scan_btn', 'Run One Scan')
-
-        ctx = _app_ctx.ctx
-        sequenced_capture_runner = ctx.sequenced_capture_runner
-
-        # Only block if starting NEW scan (button is 'down'), not if aborting (button is 'normal')
-        if self.ids['run_scan_btn'].state == 'down' and not require_file_writes_idle(
-            'start the scan'
-        ):
-            run_refused_func()
-            return
-
-        # State of button immediately changed upon press, so we are checking if the button was previously not pressed, and if autofocus is happening
-        if self.ids['run_scan_btn'].state == 'down' and ctx.autofocus_thread.is_running:
-            run_refused_func()
-            logger.warning('Cannot start scan. Autofocus still in progress.')
-            return
-
-        run_trigger_source = sequenced_capture_runner.run_trigger_source()
-        if sequenced_capture_runner.run_in_progress() and (run_trigger_source != trigger_source):
-            run_refused_func()
-            logger.warning(f'Cannot start scan. Run already in progress from {run_trigger_source}')
-            return
-
-        # Abort BEFORE validity: the abort click must never be refused by
-        # a validation failure (a mid-run unwritable save folder would
-        # otherwise block the user's own Stop).
-        if self.ids['run_scan_btn'].state == 'normal':
-            gui_logger.protocol_action('ABORT_SCAN')
-            logger.info('[LVP Main  ] ProtocolSettings.run_scan_from_ui() - User ending scan early')
-            # Hardware teardown finishes on the protocol thread; the scan
-            # run-complete callback resets this label when it ends.
-            self.ids['run_scan_btn'].text = 'Stopping...'
-            self._cleanup_at_end_of_protocol(autofocus_scan=False)
-            return
-
-        if not self._is_protocol_valid():
-            run_refused_func()
-            return
-
-        callbacks = {
-            'run_scan_pre': self._run_scan_pre_callback,
-            'autofocus_in_progress': self._autofocus_in_progress_callback,
-            'autofocus_complete': self._autofocus_complete_callback,
-            'scan_iterate_post': run_not_started_func,
-            'run_complete': run_complete_func,
-            'files_complete': self._scan_files_complete,
-            # LED observer handles UI sync -- no manual callbacks needed
-            'pause_live_ui': lambda: (
-                ctx.scope_display.stop(),
-                Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
-            ),
-            'resume_live_ui': lambda: (
-                ctx.scope_display.start(),
-                Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
-                Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 0.1),
-            ),
-        }
-
-        run_with_refusal_boundary(
-            lambda: self.run_sequenced_capture(
-                run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
-                run_trigger_source=trigger_source,
-                max_scans=1,
-                callbacks=callbacks,
-                commit_ui_state=lambda: self._commit_running_ui_state(
-                    'run_scan_btn',
-                    'Abort One Scan',
-                    './data/icons/abort_protocol_background.png',
-                ),
-            ),
-            on_refused=run_refused_func,
+        self._press_panel_run(
+            'scan',
+            lambda: gui_logger.protocol_action('ABORT_SCAN'),
+            self._scan_start,
         )
 
-    def _protocol_run_complete(self, **kwargs):
+    def _scan_start(self) -> typing.Callable[[], None]:
         ctx = _app_ctx.ctx
-
-        # See _scan_run_complete: reconcile enable toggles to driver truth
-        # now that the run's LED restore has settled.
-        ctx.ui_listener_bridge.reconcile_led_buttons()
-
-        # Reset completion event for this run (thread-safe)
-        self._scan_files_completed_event.clear()
-
-        file_io_executor = ctx.file_io_executor
-
-        # Check if files are still being written
-        if file_io_executor.is_protocol_queue_active():
-            # Schedule periodic update to show remaining file count
-            self._wedge_recovery_offered = False
-            self._file_write_status_event = Clock.schedule_interval(
-                self._update_protocol_write_status,
-                0.5,  # Update every 500ms
-            )
-            # Initial button state
-            queue_size = file_io_executor.protocol_queue_size()
-            self.ids['run_protocol_btn'].state = 'normal'
-            self.ids['run_protocol_btn'].text = f'Writing Files... ({queue_size})'
-            self.ids['run_protocol_btn'].disabled = True
-
-            # Disable other buttons
-            self.ids['run_scan_btn'].disabled = True
-            self.ids['run_autofocus_btn'].disabled = True
-
-            # Update window title
-            set_title_event_text('Writing protocol scan files to disk...')
-        else:
-            # No files pending - proceed with normal reset
-            self._reset_run_protocol_button()
-            live_histo_reverse()
-            self.reset_autofocus_ui()
-            # Auto-run opted-in post_processing plugins. Mirrors the
-            # files-pending path's call from _protocol_files_complete.
-            self._dispatch_post_processing_auto_run(ctx, **kwargs)
-
-    def _update_protocol_write_status(self, dt):
-        """Update UI to show file writing progress for protocol."""
-        ctx = _app_ctx.ctx
-        file_io_executor = ctx.file_io_executor
-
-        if file_io_executor.is_protocol_queue_active():
-            self._update_write_lockout_button('run_protocol_btn')
-        else:
-            # Queue is empty - cancel this scheduled update and trigger completion
-            if hasattr(self, '_file_write_status_event') and self._file_write_status_event:
-                Clock.unschedule(self._file_write_status_event)
-                self._file_write_status_event = None
-                # Trigger completion directly since queue is done
-                self._protocol_files_complete()
-
-    def _protocol_files_complete(self, **kwargs):
-        """Called when ALL files are written to disk for protocol run."""
-        ctx = _app_ctx.ctx
-
-        # Guard against multiple calls using thread-safe event
-        if self._scan_files_completed_event.is_set():
-            return
-        self._scan_files_completed_event.set()
-
-        # Cancel status update if still scheduled
-        if hasattr(self, '_file_write_status_event') and self._file_write_status_event:
-            Clock.unschedule(self._file_write_status_event)
-            self._file_write_status_event = None
-
-        # Reset the protocol button
-        self._reset_run_protocol_button()
-
-        # Re-enable other buttons
-        self.ids['run_scan_btn'].disabled = False
-        self.ids['run_autofocus_btn'].disabled = False
-
-        # Complete remaining cleanup
-        live_histo_reverse()
-        self.reset_autofocus_ui()
-        reset_title()
-
-        # Auto-run post_processing plugins that opted in.
-        self._dispatch_post_processing_auto_run(ctx, **kwargs)
-
-    def _dispatch_post_processing_auto_run(self, ctx, **kwargs):
-        """Fire post_processing plugins opted into
-        PluginSpec.auto_run_on_protocol_complete=True. UI-trigger only
-        today; REST-triggered runs gain this when the dispatch moves
-        down to the orchestration layer.
-        """
-        from modules.plugins import run_protocol_complete_processors
-
-        run_dir = ctx.sequenced_capture_runner.run_dir()
-        if run_dir is None:
-            return
-        run_dir_str = str(run_dir)
-        protocol = kwargs.get('protocol')
-        manifest = {
-            'protocol_name': getattr(protocol, 'name', '') if protocol else '',
-            'run_dir': run_dir_str,
-            'trigger_source': 'ui_protocol_button',
-        }
-        run_protocol_complete_processors(
-            ctx,
-            input_dir=run_dir_str,
-            manifest=manifest,
-            output_dir=run_dir_str,
+        return self._sequenced_capture_start(
+            start_run=ctx.session.create_protocol_runner().run_single_scan,
+            run_trigger_source='scan',
+            protocol=self._protocol.copy_for_execution(),
+            scan_started=lambda *_scan: self._run_scan_pre_callback(),
+            scan_ended=lambda *_scan: self.draw_protocol_buttons(),
         )
-
-    _protocol_starting = False  # Re-entry guard for double-click prevention
 
     def run_protocol_from_ui(self):
-        # Prevent double-click: if we're already in the process of starting,
-        # ignore the second click entirely.
-        if ProtocolSettings._protocol_starting:
-            logger.warning('[LVP Main  ] run_protocol_from_ui() ignored -- already starting')
-            return
-        ProtocolSettings._protocol_starting = True
-        try:
-            self._run_protocol_from_ui_inner()
-        finally:
-            ProtocolSettings._protocol_starting = False
+        gui_logger.protocol_action('RUN')
+        logger.info('[LVP Main  ] ProtocolSettings.run_protocol_from_ui()')
+        self._press_panel_run(
+            'protocol',
+            lambda: gui_logger.protocol_action('ABORT_PROTOCOL'),
+            self._protocol_start,
+        )
 
-    def _run_protocol_from_ui_inner(self):
-        try:
-            gui_logger.protocol_action('RUN')
-            from ui.notification_popup import show_notification_popup
+    def _protocol_start(self) -> typing.Callable[[], None]:
+        ctx = _app_ctx.ctx
+        # The run's own copy: the panel's protocol is the person's, and is
+        # not the run's to change.
+        protocol = self._protocol.copy_for_execution()
 
-            logger.info('[LVP Main  ] ProtocolSettings.run_protocol_from_ui()')
-            trigger_source = 'protocol'
-            run_complete_func = self._protocol_run_complete
+        def _scan_started(*_scan):
+            self.draw_protocol_buttons()
+            self._run_scan_pre_callback()
 
-            ctx = _app_ctx.ctx
-            sequenced_capture_runner = ctx.sequenced_capture_runner
-
-            # Not-started paths undo cosmetics only: run-state truth is
-            # the session claim, which a refusal never touched.
-            def run_refused_func():
-                self._reset_run_button_cosmetics(
-                    'run_protocol_btn',
-                    'Run Full Protocol',
-                    'atlas://data/images/defaulttheme/button_pressed',
-                )
-
-            # Only block if starting NEW protocol run (button is 'down'), not if aborting (button is 'normal')
-            if self.ids['run_protocol_btn'].state == 'down' and not require_file_writes_idle(
-                'start the protocol run'
-            ):
-                run_refused_func()
-                return
-
-            run_trigger_source = sequenced_capture_runner.run_trigger_source()
-
-            # State of button immediately changed upon press, so we are checking if the button was previously not pressed, and if autofocus is happening
-            if self.ids['run_protocol_btn'].state == 'down' and ctx.autofocus_thread.is_running:
-                run_refused_func()
-                logger.warning('Cannot start protocol run. Autofocus still in progress.')
-                return
-
-            if sequenced_capture_runner.run_in_progress() and (
-                run_trigger_source != trigger_source
-            ):
-                run_refused_func()
-                logger.warning(
-                    f'Cannot start protocol run. Run already in progress from {run_trigger_source}'
-                )
-                return
-
-            # Abort BEFORE validity: the abort click must never be refused
-            # by a validation failure (a mid-run unwritable save folder
-            # would otherwise block the user's own Stop).
-            if self.ids['run_protocol_btn'].state == 'normal':
-                gui_logger.protocol_action('ABORT_PROTOCOL')
-                # Hardware teardown finishes on the protocol thread; the
-                # protocol run-complete callback resets this label.
-                self.ids['run_protocol_btn'].text = 'Stopping...'
-                self._cleanup_at_end_of_protocol(autofocus_scan=False)
-                return
-
-            if not self._is_protocol_valid():
-                run_refused_func()
-                return
-
-            callbacks = {
-                'protocol_iterate_pre': self._update_protocol_run_button_status,
-                'run_scan_pre': self._run_scan_pre_callback,
-                'autofocus_in_progress': self._autofocus_in_progress_callback,
-                'autofocus_complete': self._autofocus_complete_callback,
-                'run_complete': run_complete_func,
-                'files_complete': self._protocol_files_complete,
-                # LED observer handles UI sync -- no manual callbacks needed
-                'pause_live_ui': lambda: (
-                    ctx.scope_display.stop(),
-                    Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
-                ),
-                'resume_live_ui': lambda: (
-                    ctx.scope_display.start(),
-                    Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
-                    Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 0.1),
-                ),
-            }
-
-            time_params = get_protocol_time_params()
-            self._protocol.modify_time_params(
-                period=time_params['period'],
-                duration=time_params['duration'],
-            )
-
-            run_with_refusal_boundary(
-                lambda: self.run_sequenced_capture(
-                    run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
-                    run_trigger_source=trigger_source,
-                    max_scans=None,
-                    callbacks=callbacks,
-                    # Text is quickly overwritten by the remaining-scans status
-                    commit_ui_state=lambda: self._commit_running_ui_state(
-                        'run_protocol_btn', 'Running Protocol'
-                    ),
-                ),
-                on_refused=run_refused_func,
-            )
-        except Exception as e:
-            logger.error(f'[UI] run_protocol_from_ui failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(title='Error', message=str(e))
+        return self._sequenced_capture_start(
+            start_run=ctx.session.create_protocol_runner().run_protocol,
+            run_trigger_source='protocol',
+            protocol=protocol,
+            scan_started=_scan_started,
+        )
 
     def reset_autofocus_ui(self, **kwargs):
         settings = _app_ctx.ctx.settings
@@ -2291,195 +1223,57 @@ class ProtocolSettings(FloatLayout):
             finally:
                 layer_obj._initializing = False
 
-    def _update_protocol_run_button_status(
-        self,
-        **kwargs,
-    ):
-        # The session's protocol truth drops BOTH stale-callback shapes:
-        # a callback landing after the run ended, and one landing in the
-        # post-run drain window (owner already freed) that would clobber
-        # the "Writing Files..." text.
-        if not _app_ctx.ctx.session.is_protocol_running:
-            return
-
-        remaining_scans = kwargs['remaining_scans']
-        scan_interval = kwargs['interval']
-        remaining_duration = remaining_scans * scan_interval
-        remaining_duration_str = strfdelta(
-            tdelta=remaining_duration,
-            fmt='{H}h {M}m',
-            inputtype='timedelta',
-        )
-        scan_word = 'scan' if remaining_scans == 1 else 'scans'
-
-        self.ids[
-            'run_protocol_btn'
-        ].text = (
-            f'{remaining_scans} {scan_word} ({remaining_duration_str}) remaining.\nPress to ABORT'
-        )
-        self.ids['run_protocol_btn'].background_down = './data/icons/abort_protocol_background.png'
-
     def _run_scan_pre_callback(self):
-        ctx = _app_ctx.ctx
-        ctx.motion_settings.ids['verticalcontrol_id'].is_complete = False
         Clock.schedule_once(lambda dt: self.update_step_ui(), 0)
 
-    def _autofocus_in_progress_callback(self):
-        ctx = _app_ctx.ctx
-        ctx.motion_settings.ids['verticalcontrol_id']._set_run_autofocus_button()
-
-    def _autofocus_complete_callback(self):
-        ctx = _app_ctx.ctx
-        ctx.motion_settings.ids['verticalcontrol_id']._reset_run_autofocus_button()
-        ctx.motion_settings.ids['verticalcontrol_id'].is_complete = False
-        # LED observer handles UI button sync after AF -- no manual update needed
-
-    def run_sequenced_capture(
+    def _sequenced_capture_start(
         self,
-        run_mode: SequencedCaptureRunMode,
+        start_run: typing.Callable[..., 'RunHandle'],
         run_trigger_source: str,
-        max_scans: int | None,
-        callbacks: dict[str, typing.Callable],
-        disable_saving_artifacts: bool = False,
-        return_to_position: dict | None = None,
-        commit_ui_state: typing.Callable[[], None] | None = None,
-    ):
-        """Prepare, commit UI running-state, and start a sequenced run.
+        protocol: Protocol,
+        *,
+        scan_started: typing.Callable[..., object],
+        scan_ended: typing.Callable[..., object] | None = None,
+    ) -> typing.Callable[[], None]:
+        """Read a Scan or Protocol run's inputs from the panel; return the call that starts it.
 
-        commit_ui_state runs between a successful prepare() and start(),
-        so callers commit their "a run is now underway" state (events,
-        buttons, motion locks) only once the run can no longer be
-        refused -- a refusal raises out of prepare() before it runs.
-
-        Raises:
-            ProtocolRunRefusedError: The runner refused the request; the
-                user was already notified and commit_ui_state never ran.
+        Runs on the GUI thread, so every value a widget holds is read here
+        and closed over. The call it returns is what the worker pool runs --
+        the runner member a script calls, the handle this button's Stop
+        names, and the save folder -- and touches no widget. The run's
+        events show the run on the panel: the scan handlers are the
+        starter's own, the rest every Scan and Protocol run shares.
         """
-        live_histo_off()
+        logger.info('[LVP Main  ] ProtocolSettings._sequenced_capture_start()')
 
-        logger.info('[LVP Main  ] ProtocolSettings.run_sequenced_capture()')
+        def _ended(*ended):
+            self.reset_autofocus_ui()
+            restore_display_after_run()
 
-        settings = _app_ctx.ctx.settings
-        ctx = _app_ctx.ctx
-        sequenced_capture_runner = ctx.sequenced_capture_runner
-
-        def restore_layer_shader_for_open_accordion():
-            """Re-apply the shader for the currently-open accordion's
-            layer. Called by protocol_cleanup to undo per-step shader
-            changes (Red tint for Red step, etc.) so the live preview
-            returns to the user's visible-layer false-color setting.
-            Runs on the UI thread via _schedule_ui in protocol_cleanup.
-            """
-            ctx_inner = _app_ctx.ctx
-            layer_name = common_utils.get_opened_layer(ctx_inner.image_settings)
-            if layer_name is not None:
-                layer_obj = ctx_inner.image_settings.layer_lookup(layer=layer_name)
-                layer_obj.update_shader(dt=0)
-                return
-            # No open accordion -- default to BF (no false-color tint)
-            ctx_inner.viewer.update_shader(false_color='BF')
-
-        callbacks.update(
-            {
-                **live_display_callbacks(),
-                'move_position': _handle_ui_update_for_axis,
-                # LED observer handles UI sync -- no manual callbacks needed
-                'update_step_number': _update_step_number_callback,
-                'go_to_step': go_to_step,
-                'sync_layer_widgets': sync_layer_widgets_from_settings,
-                'set_recording_title': set_recording_title,
-                'set_writing_title': set_writing_title,
-                'reset_title': reset_title,
-                'restore_layer_shader': restore_layer_shader_for_open_accordion,
-            }
+        events = RunEvents(
+            frame_captured=show_captured_frame,
+            scan_started=scan_started,
+            scan_ended=scan_ended,
+            step_started=lambda step_idx: go_to_step(protocol, step_idx, include_move=False),
+            video_progress=show_video_progress,
+            run_ended=_ended,
         )
-
-        parent_dir = pathlib.Path(settings['live_folder']).resolve() / 'ProtocolData'
 
         sequence_name = self.ids['protocol_filename'].text
+        enable_image_saving = is_image_saving_enabled()
 
-        image_capture_config = get_image_capture_config_from_ui()
-        autogain_settings = get_auto_gain_settings()
-
-        plan = sequenced_capture_runner.prepare(
-            protocol=self._protocol,
-            run_mode=run_mode,
-            run_trigger_source=run_trigger_source,
-            max_scans=max_scans,
-            sequence_name=sequence_name,
-            parent_dir=parent_dir,
-            image_capture_config=image_capture_config,
-            enable_image_saving=is_image_saving_enabled(),
-            autogain_settings=autogain_settings,
-            callbacks=callbacks,
-            disable_saving_artifacts=disable_saving_artifacts,
-            return_to_position=return_to_position,
-            leds_state_at_end='off',
-            engineering_mode=ctx.engineering_mode,
-            autofocus_snapshot=config_helpers.autofocus_snapshot_from_settings(
-                settings, ctx.settings_lock
-            ),
-            **config_helpers.get_sequenced_run_settings(settings, run_mode=run_mode),
-        )
-        if commit_ui_state is not None:
-            commit_ui_state()
-        sequenced_capture_runner.start(plan)
-
-        # A start() that failed during setup unwound as a failed run: it
-        # nulled run_dir (set_last_save_folder no-ops on None) and cleared
-        # run-in-progress, so neither follow-up acts on the dead run.
-        set_last_save_folder(dir=sequenced_capture_runner.run_dir())
-
-        if (
-            run_mode == SequencedCaptureRunMode.FULL_PROTOCOL
-            and sequenced_capture_runner.run_in_progress()
-        ):
-            self._update_protocol_run_button_status(
-                remaining_scans=sequenced_capture_runner.remaining_scans(),
-                interval=sequenced_capture_runner.protocol_interval(),
+        def _start():
+            started = start_run(
+                protocol,
+                sequence_name=sequence_name,
+                enable_image_saving=enable_image_saving,
+                events=events,
+                run_trigger_source=run_trigger_source,
             )
+            self._runs_started_here[run_trigger_source] = started
+            # A start() that failed during setup unwound as a failed run: its
+            # run_dir is None (set_last_save_folder no-ops on None), so the
+            # saved folder never names a run that did not happen.
+            set_last_save_folder(dir=started.run_dir)
 
-    def _cleanup_at_end_of_protocol(self, autofocus_scan: bool):
-        ctx = _app_ctx.ctx
-        deferred_to_cleanup = False
-
-        try:
-            sequenced_capture_runner = ctx.sequenced_capture_runner
-            # True only on the abort flavor of this call: a run is still
-            # unwinding, so reset() returns immediately and the hardware
-            # teardown (LED off, camera restore, return-to-position) runs
-            # on the protocol thread. The post-completion flavor (run
-            # already finished; reset() is a light no-op) keeps the
-            # synchronous restore below.
-            deferred_to_cleanup = sequenced_capture_runner.run_in_progress()
-            sequenced_capture_runner.reset()
-            live_histo_reverse()
-            self.reset_autofocus_ui()
-            self._autofocus_complete_callback()
-
-        except Exception as e:
-            logger.error(f'[Protocol] Cleanup error: {e}', exc_info=True)
-        finally:
-            if deferred_to_cleanup:
-                # Cleanup is unwinding on the protocol thread; the
-                # run-complete callbacks it fires perform the full restore
-                # (buttons, motion capability, hyperstacks) when it ends.
-                # Restoring here would hand the stage back to the user
-                # while the return-to-position move is still queued, and
-                # re-arm the run buttons while the old run is tearing
-                # down. Until then the run-in-progress guards refuse new
-                # runs and the protocol-running lockout keeps the rest of
-                # the UI held -- responsive, not frozen.
-                pass
-            else:
-                # ALWAYS restore UI state, even if cleanup above threw.
-                # Without this, buttons stay disabled and motion stays locked.
-                self._reset_run_protocol_button()
-                self._reset_run_scan_button()
-                self._reset_run_autofocus_scan_button()
-
-            # LED observer handles UI button sync after protocol -- no manual refresh needed
-
-    def cancel_all_protocols(self):
-        logger.info('[LVP Main  ] ProtocolSettings.cancel_all_protocols()')
-        self._cleanup_at_end_of_protocol(autofocus_scan=False)
+        return _start

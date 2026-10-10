@@ -11,6 +11,7 @@ from kivy.uix.scatter import Scatter
 
 import modules.app_context as _app_ctx
 import modules.config_ui_getters as config_ui_getters
+from ui.ui_helpers import fixed_number, run_unasked
 
 logger = logging.getLogger('LVP.ui.shader')
 
@@ -64,6 +65,38 @@ uniform vec4       color;
 """
 
 
+def frame_rate_title(capture_fps: float, display_fps: float, *, engineering: bool) -> str:
+    """The status line's frame-rate part: tenths in engineering mode, whole
+    numbers otherwise, each at the width of 99 so the line holds still."""
+    decimals = 1 if engineering else 0
+    capture = fixed_number(capture_fps, whole_digits=2, decimals=decimals)
+    display = fixed_number(display_fps, whole_digits=2, decimals=decimals)
+    return f'Capture: {capture} | Display: {display} FPS'
+
+
+def cursor_title(pixel: tuple[int, int] | None, plate: tuple[float, float] | None) -> str:
+    """The status line's cursor part: empty off the image.
+
+    ``pixel`` is the sensor pixel under the cursor, None off the image;
+    ``plate`` its plate position in mm, None when it is not known (no XY
+    stage, objective or pixel size to convert with), when only the pixel shows.
+    """
+    if pixel is None:
+        return ''
+    px, py = pixel
+    text = (
+        f' | Pixel: ({fixed_number(px, whole_digits=4, decimals=0)}, '
+        f'{fixed_number(py, whole_digits=4, decimals=0)})'
+    )
+    if plate is not None:
+        sx, sy = plate
+        text += (
+            f' | Plate: ({fixed_number(sx, whole_digits=3, decimals=2, signed=True)}, '
+            f'{fixed_number(sy, whole_digits=3, decimals=2, signed=True)}) mm'
+        )
+    return text
+
+
 # ============================================================================
 # ShaderViewer -- GPU Shader-Based Image Display with Pan/Zoom
 # ============================================================================
@@ -72,6 +105,8 @@ uniform vec4       color;
 class ShaderViewer(Scatter):
     black = ObjectProperty(0.0)
     white = ObjectProperty(1.0)
+    # The live readouts, shown by the status line below the view.
+    status_text = StringProperty('')
 
     fs = StringProperty("""
 void main (void) {
@@ -108,15 +143,28 @@ void main (void) {
         # was too sluggish for stage-position feedback during motion).
         # 10 Hz keeps cursor XY responsive without saturating
         # Window.set_title() on SDL2/Windows.
-        self._status_bar_trigger = Clock.create_trigger(self._update_status_bar, 0.1, interval=True)
+        # Drawn through the GUI's boundary: nothing waits on the title, and a
+        # raise out of a clock callback closes the application, so a fault is
+        # reported where it stops and the next tick draws again.
+        def _status_bar_tick(dt):
+            # Returns nothing: an interval callback that returns False is
+            # cancelled, and run_unasked answers False for a fault.
+            run_unasked(lambda: self._update_status_bar(dt), 'STATUS_BAR')
+
+        self._status_bar_trigger = Clock.create_trigger(_status_bar_tick, 0.1, interval=True)
         self._status_bar_trigger()
         self._mouse_pixel_x = -1
         self._mouse_pixel_y = -1
         self._mouse_over_image = False
         Window.bind(mouse_pos=self._on_mouse_pos)
+        # The window sends no mouse position once the pointer has left it, so
+        # without this the readout would freeze on the last pixel it saw.
+        Window.bind(on_cursor_leave=self._on_cursor_leave)
 
         # Scroll-to-focus: accumulate scroll ticks and debounce into single move
-        self._scroll_z_pending = 0.0  # Accumulated Z delta (um)
+        # The last tick's (signed speed factor, coarse), or None: the step
+        # itself is asked for when the debounced move fires.
+        self._scroll_z_pending = None
         self._scroll_z_trigger = Clock.create_trigger(self._flush_scroll_z, 0.05)
         self._scroll_last_time = 0.0  # monotonic time of last scroll event
         self._scroll_inertia_window = 0.15  # seconds -- scrolls faster than this get multiplied
@@ -142,20 +190,17 @@ void main (void) {
             # window rebuilds this from the OS modifier state on every key
             # event, so there is nothing to go stale.
             if 'ctrl' in Window.modifiers:
-                # Focus control -- accumulate scroll ticks, debounce into single move
-                if ctx.session.controls_locked:
+                # Focus control -- accumulate scroll ticks, debounce into single
+                # move. Not offered on a scope with no Z motor.
+                if ctx.session.controls_locked or not ctx.scope.capabilities.has_focus:
                     return
 
-                try:
-                    _, objective = ctx.session.get_current_objective_info()
-                except Exception:
-                    logger.debug('[LVP Main  ] Scroll-to-focus: objective info unavailable')
-                    return
-
-                if 'shift' in Window.modifiers:
-                    step_um = objective['z_coarse']
-                else:
-                    step_um = objective['z_fine']
+                # The tick records only the gesture: its direction, how fast
+                # it came, and whether shift made it coarse. The step scales
+                # with the objective, so it is asked for once, when the
+                # debounced move fires -- where an unknown objective refuses,
+                # visibly, exactly as the jog buttons do.
+                coarse = 'shift' in Window.modifiers
 
                 # Inertial scaling: faster scrolling = larger steps
                 now = time.monotonic()
@@ -175,11 +220,10 @@ void main (void) {
                 # when the user stops -- fast scrolling still produces a bigger
                 # move per tick (via speed_factor) but no leftover motion after
                 # the user stops, and sign flips become immediate.
-                delta = step_um * speed_factor
                 if touch.button == 'scrolldown':
-                    self._scroll_z_pending = delta
+                    self._scroll_z_pending = (speed_factor, coarse)
                 elif touch.button == 'scrollup':
-                    self._scroll_z_pending = -delta
+                    self._scroll_z_pending = (-speed_factor, coarse)
 
                 # Reset the debounce trigger -- fires 50ms after last scroll event
                 self._scroll_z_trigger()
@@ -192,24 +236,41 @@ void main (void) {
                     self.scale = max(1, self.scale * 0.8)
         # If some other kind of "touch": Fall back on Scatter's behavior
         else:
-            # Let side panels handle touches that land on them
+            # A touch on a side panel is not ours: decline it and let the
+            # normal walk deliver it. Dispatching into the panel from here
+            # delivered it a SECOND time -- the tree reaches those panels
+            # before it reaches this widget, so the panel had already had
+            # the touch, and every handler beneath it ran twice for one
+            # click. On the stage map that meant two identical absolute
+            # moves, the second issued while the first was still settling,
+            # so any position read in that window was taken in flight.
             for w in ZOOM_BLOCKERS:
                 lx, ly = w.to_widget(x, y)
                 if w.collide_point(lx, ly):
-                    return w.on_touch_down(touch)
+                    return
             super().on_touch_down(touch)
 
     def _flush_scroll_z(self, dt):
-        """Debounced scroll-to-focus: send one accumulated Z move."""
-        from ui.ui_helpers import move_relative
+        """Debounced scroll-to-focus: send the last tick's Z move."""
+        from ui.ui_helpers import move_relative, run_reported
 
-        delta = self._scroll_z_pending
-        self._scroll_z_pending = 0.0
-
-        if delta == 0.0:
+        pending = self._scroll_z_pending
+        self._scroll_z_pending = None
+        if pending is None:
             return
+        factor, coarse = pending
+        scope = _app_ctx.ctx.scope
+        run_reported(
+            lambda: move_relative(
+                'Z', factor * scope.motion.jog_step('Z', coarse=coarse), overshoot_enabled=False
+            ),
+            redraw=None,
+            label='SCROLL_TO_FOCUS',
+        )
 
-        move_relative('Z', delta, overshoot_enabled=False)
+    def _on_cursor_leave(self, window):
+        """The pointer left the window, so it is over no image."""
+        self._mouse_over_image = False
 
     def _on_mouse_pos(self, window, pos):
         """Convert window mouse position to image pixel coordinates."""
@@ -242,76 +303,80 @@ void main (void) {
             self._mouse_over_image = False
 
     def _update_status_bar(self, dt):
-        """Periodic status bar update (~5 Hz). SOLE owner of Window.set_title().
+        """Periodic status update (10 Hz). SOLE owner of Window.set_title().
 
-        Composes: 'LumaViewPro {ver} -- Capture: X | Display: Y FPS [ | Camera: Z MB/s ]
-        [ | Pixel: (px, py) | Plate: (sx, sy) mm ]
-        [ -- {event_text} ]'. Other call sites push their event text into
-        ui_helpers.set_title_event_text() instead of writing the title directly,
-        which prevents FPS clobbering and product-name spelling oscillation.
+        The status line (``status_text``) composes 'Capture: X | Display: Y FPS
+        [ | Camera: Z MB/s ] [ | Pixel: (px, py) [ | Plate: (sx, sy) mm ] ]';
+        the title is 'LumaViewPro {ver} [ -- {event_text} ]'. Other call sites
+        push their event text into ui_helpers.set_title_event_text() instead of
+        writing the title directly, which prevents product-name spelling
+        oscillation.
         """
-        try:
-            ctx = _app_ctx.ctx
-            if ctx is None:
-                return
+        ctx = _app_ctx.ctx
+        if ctx is None:
+            return
 
-            from kivy.core.window import Window
-            from ui.ui_helpers import get_title_event_text
+        from kivy.core.window import Window
+        from ui.ui_helpers import get_title_event_text
 
-            scope_display = self.ids.get('scope_display_id')
-            if scope_display:
-                capture_fps = scope_display._capture_fps_value
-                display_fps = scope_display._display_fps_value
-                title = f'LumaViewPro {ctx.version} -- Capture: {capture_fps:.0f} | Display: {display_fps:.0f} FPS'
-                if ctx.engineering_mode:
-                    mbps = scope_display._camera_mbps
-                    title += f' | Camera: {mbps:.1f} MB/s'
+        scope_display = self.ids.get('scope_display_id')
+        if scope_display:
+            delivered = ctx.scope.imaging.get_delivered_rate()
+            status = frame_rate_title(
+                delivered.frames_per_s,
+                scope_display.display_fps(),
+                engineering=ctx.session.engineering_mode,
+            )
+            if ctx.session.engineering_mode:
+                mbps = fixed_number(delivered.megabytes_per_s, whole_digits=3, decimals=1)
+                status += f' | Camera: {mbps} MB/s'
 
-                # Cursor XY readouts -- pixel + plate coords when mouse
-                # hovers the live view. Restored after d423d3c's
-                # single-owner pattern dropped them. (#638)
-                if self._mouse_over_image:
-                    title += f'   |   Pixel: ({self._mouse_pixel_x}, {self._mouse_pixel_y})'
-                    try:
-                        from modules.config_ui_getters import (
-                            get_binning_from_ui,
-                            get_selected_labware,
+            # Cursor XY readouts -- pixel + plate coords when mouse
+            # hovers the live view. Restored after d423d3c's
+            # single-owner pattern dropped them. (#638)
+            pixel = plate = None
+            if self._mouse_over_image:
+                pixel = (self._mouse_pixel_x, self._mouse_pixel_y)
+                from modules.config_ui_getters import get_selected_labware
+
+                # The plate (um) readout converts a cursor offset into a
+                # stage distance; it needs a connected XY stage, a known
+                # objective and a known pixel size. Without any of them,
+                # the pixel readout above stands alone -- never an
+                # invented distance. Anything that fails beyond these is
+                # a fault, and is not hidden here.
+                objective = _app_ctx.ctx.session.scope.runtime_state.get_current_objective()
+                if (
+                    ctx.lumaview.scope.capabilities.has_xy_stage
+                    and ctx.lumaview.scope.motor_connected
+                    and objective is not None
+                ):
+                    pixel_size_um = config_ui_getters.get_pixel_size(
+                        focal_length=objective['focal_length'],
+                        binning_size=_app_ctx.ctx.session.get_binning_size(),
+                    )
+                    if pixel_size_um is not None:
+                        # _mouse_pixel_* are sensor-pixel coords (full frame);
+                        # center on the full-resolution frame, not the
+                        # downscaled preview texture.
+                        frame_w, frame_h = scope_display.full_resolution_frame_size()
+                        dx_um = (self._mouse_pixel_x - frame_w / 2) * pixel_size_um
+                        dy_um = (self._mouse_pixel_y - frame_h / 2) * pixel_size_um
+                        pos = ctx.lumaview.scope.motion.get_current_position(axis=None)
+                        _, labware = get_selected_labware()
+                        plate = ctx.coordinate_transformer.stage_to_plate(
+                            labware=labware,
+                            stage_offset=ctx.settings['stage_offset'],
+                            sx=pos['X'] + dx_um,
+                            sy=pos['Y'] - dy_um,
                         )
+            self.status_text = status + cursor_title(pixel, plate)
 
-                        _, objective = _app_ctx.ctx.session.get_current_objective_info()
-                        pixel_size_um = config_ui_getters.get_pixel_size(
-                            focal_length=objective['focal_length'],
-                            binning_size=get_binning_from_ui(),
-                        )
-                        # The plate (um) readout converts a cursor offset into a
-                        # stage distance; it needs both a connected motor and a
-                        # known pixel size. Without either, the pixel readout
-                        # above stands alone -- never an invented distance.
-                        if ctx.lumaview.scope.motor_connected and pixel_size_um is not None:
-                            # _mouse_pixel_* are sensor-pixel coords (full frame);
-                            # center on the full-resolution frame, not the
-                            # downscaled preview texture.
-                            frame_w, frame_h = scope_display.full_resolution_frame_size()
-                            dx_um = (self._mouse_pixel_x - frame_w / 2) * pixel_size_um
-                            dy_um = (self._mouse_pixel_y - frame_h / 2) * pixel_size_um
-                            pos = ctx.lumaview.scope.motion.get_current_position(axis=None)
-                            _, labware = get_selected_labware()
-                            px, py = ctx.coordinate_transformer.stage_to_plate(
-                                labware=labware,
-                                stage_offset=ctx.settings['stage_offset'],
-                                sx=pos['X'] + dx_um,
-                                sy=pos['Y'] - dy_um,
-                            )
-                            title += f'   |   Plate: ({px:.2f}, {py:.2f}) mm'
-                    except Exception:
-                        pass
-
-                event_text = get_title_event_text()
-                if event_text:
-                    title += f'   --   {event_text}'
-                Window.set_title(title)
-        except Exception as e:
-            logger.debug(f'[LVP Main  ] Status bar update failed: {e}')
+            title = f'LumaViewPro {ctx.version}'
+            event_text = get_title_event_text()
+            if event_text:
+                title += f' -- {event_text}'
+            Window.set_title(title)
 
     def current_false_color(self) -> str:
         return self._false_color

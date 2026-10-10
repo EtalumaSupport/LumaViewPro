@@ -17,18 +17,18 @@ home() (when T is present) and home(axis='T') seed _last_turret_position = 1 on
 success, so a following move_turret(1) is a no-op.
 """
 
-from modules.lumascope_api import Lumascope
+from tests.scope_fakes import build_scope
 
 
 def test_home_seeds_turret_position_one():
-    scope = Lumascope(simulate=True)
+    scope = build_scope(simulate=True)
     assert scope.capabilities.has_turret, 'simulated scope is expected to have a turret'
     scope.motion.home()
     assert scope.motion._last_turret_position == 1
 
 
 def test_thome_seeds_turret_position_one():
-    scope = Lumascope(simulate=True)
+    scope = build_scope(simulate=True)
     assert scope.capabilities.has_turret
     scope.motion.home(axis='T')
     assert scope.motion._last_turret_position == 1
@@ -36,7 +36,7 @@ def test_thome_seeds_turret_position_one():
 
 def test_tmove_to_one_after_home_is_noop():
     """move_turret(1) right after homing must skip the move (and its Z bounce)."""
-    scope = Lumascope(simulate=True)
+    scope = build_scope(simulate=True)
     assert scope.capabilities.has_turret
     scope.motion.home()
     moves = []

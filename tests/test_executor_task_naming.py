@@ -13,8 +13,9 @@ The cost lands on the one report allowed to say an exception escaped its
 thread: lvp_logger's threading.excepthook prints args.thread.name, so an
 unnamed worker degrades exactly the line everything else defers to.
 
-All three enqueue paths are covered; each names the task at entry, before any
-guard can return early and before any queue insertion.
+Both enqueue paths are covered; each names the task at entry, before any
+guard can return early and before any queue insertion. A run's image writes
+reach the file lane through the default-queue path.
 """
 
 import queue
@@ -68,17 +69,6 @@ def test_protocol_queue_task_is_named_before_insertion():
     )
 
 
-def test_blocking_protocol_queue_task_is_named_before_insertion():
-    executor, spy = _executor_with_spy('protocol_queue')
-    executor.protocol_running.set()
-    executor.protocol_put_wait(
-        IOTask(lambda: None), should_abort=lambda: False, stall_timeout_s=1.0
-    )
-    assert spy.names_at_insert == [EXPECTED_NAME], (
-        f'protocol_put_wait queued an unnamed task; saw {spy.names_at_insert!r}'
-    )
-
-
 def test_name_is_assigned_even_when_the_enqueue_is_refused():
     """Naming at entry, not at insertion, is what makes the window closed.
 
@@ -87,7 +77,7 @@ def test_name_is_assigned_even_when_the_enqueue_is_refused():
     the insertion sites reintroduces the race these tests exist to stop.
     """
     executor = SequentialIOExecutor(name='TEST')
-    executor.disable()
+    executor.protocol_start()
     task = IOTask(lambda: None)
     assert executor.put(task) is None
     assert task.name == EXPECTED_NAME

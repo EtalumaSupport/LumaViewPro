@@ -1,11 +1,24 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+import copy
 import os
 import json
 import logging
+import pathlib
 import time
 
+from modules import labware_loader
+from modules.exceptions import SettingsFileNotReplacedError, StoredSettingReplacedNotice
+from modules.path_utils import read_installation_file
+
+# A setting's value: what one leaf of the settings file holds.
+type SettingValue = str | int | float | bool | list | dict | None
 
 settings = None
+
+# The stored values the last preparation replaced, as notices not yet
+# reported. The preparation runs before any host has a listener to show them
+# to, so the Session reports them once it has one.
+_stored_replacements: list[StoredSettingReplacedNotice] = []
 
 debug_setting = None
 
@@ -144,7 +157,7 @@ def read_settings_json(path: str, logger: logging.Logger | None = None) -> dict:
     if not isinstance(parsed, dict):
         raise SettingsFileError(f'{path}: expected a JSON object, got {type(parsed).__name__}')
     # Every reader lands here, which is why the key migration lives here and
-    # not in load_settings: the GUI bootstrap, ScopeSession.create_headless
+    # not in load_settings: the GUI bootstrap, ScopeSession.load_user_settings
     # (which reads the file itself and never calls load_settings), the
     # support-report generator and app_config all go through this function.
     # Running before the caller's validation also means validation never
@@ -195,7 +208,7 @@ def _validate_settings(settings: dict, filepath: str, logger) -> None:
         'acquire': (str, type(None)),
         'autofocus': bool,
         'false_color': (bool, list),
-        'focus': (int, float),
+        'focus': (int, float, type(None)),
     }
     for layer in get_layers():
         if layer not in settings:
@@ -306,9 +319,10 @@ def migrate_video_settings_dict(settings_dict: dict) -> bool:
 rejected_current_json = None
 
 
-# Written into a layer whose video_config arrived absent, null, or with a
-# rate the recorder cannot use. The shipped template carries the same pair,
-# so an untouched install never reaches these.
+# Written into a layer whose video_config arrived absent or null. The shipped
+# template carries the same pair, so an untouched install never reaches
+# these; a rate or duration the recorder cannot use is the writer's range
+# (``settings_paths._RANGES``), replaced at load and told once.
 DEFAULT_VIDEO_DURATION_SEC = 5
 DEFAULT_VIDEO_FPS = 30
 
@@ -318,9 +332,10 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
 
     Distinct from the default merge, which only ADDS absent keys. These
     keys are PRESENT and hold something the app would misread: a retired
-    spinner label, a per-layer acquire mode that is neither of the two the
-    capture code branches on, a video config written as null. The merge
-    cannot see any of them, because nothing is missing.
+    spinner label, a video config written as null. The merge cannot see any
+    of them, because nothing is missing. A value outside a setting's range
+    is not repaired here: the writer's own rule replaces it after the merge
+    and reports it (``settings_paths.replace_refused_stored_values``).
 
     Returns:
         True when at least one value was repaired.
@@ -353,16 +368,23 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
     if settings_dict.pop('binning_size', None) is not None:
         changed = True
 
+    # A plate the catalogue has renamed since this file named it, folded to
+    # the key so the one store every reader trusts never carries a spelling
+    # the catalogue lacks. Whether the plate exists at all is answered where
+    # it is selected, against the catalogue -- not here, where refusing
+    # would mean discarding the whole file.
+    protocol_settings = settings_dict.get('protocol')
+    if isinstance(protocol_settings, dict):
+        stored_plate = protocol_settings.get('labware')
+        folded_plate = labware_loader.canonical_plate_name(stored_plate)
+        if folded_plate != stored_plate:
+            protocol_settings['labware'] = folded_plate
+            changed = True
+
     for layer in get_layers():
         layer_settings = settings_dict.get(layer)
         if not isinstance(layer_settings, dict):
             continue
-
-        # The capture path branches on exactly 'image' and 'video'; anything
-        # else has to mean "do not acquire", or it falls through both.
-        if layer_settings.get('acquire') not in ('image', 'video', None):
-            layer_settings['acquire'] = None
-            changed = True
 
         video_config = layer_settings.get('video_config')
         if not isinstance(video_config, dict):
@@ -372,12 +394,49 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
         if 'duration' not in video_config:
             video_config['duration'] = DEFAULT_VIDEO_DURATION_SEC
             changed = True
-        # A zero or negative rate would divide into the frame interval.
-        if video_config.get('fps', 0) <= 0:
+        if 'fps' not in video_config:
             video_config['fps'] = DEFAULT_VIDEO_FPS
             changed = True
 
     return changed
+
+
+# The focus every layer shipped with before the template stopped carrying
+# one. It was merged into each current.json for every layer nobody saved, so
+# a stored focus of exactly this value is a channel whose focus was never set.
+# Every writer stores a measured stage Z, which does not land on it.
+_RETIRED_SHIPPED_FOCUS_UM = 4950.0
+
+
+def forget_shipped_focus(settings_dict: dict) -> list[str]:
+    """Read a layer focus still holding the old shipped value as never saved.
+
+    A layer with no saved focus takes the stage's current Z wherever a step
+    is built for it; the shipped number made every unsaved layer look saved,
+    so its steps went to that height instead.
+
+    Returns:
+        The layers whose focus was set to None, in layer order.
+    """
+    from modules.common_utils import get_layers
+
+    forgotten = []
+    for layer in get_layers():
+        layer_settings = settings_dict.get(layer)
+        if (
+            isinstance(layer_settings, dict)
+            and layer_settings.get('focus') == _RETIRED_SHIPPED_FOCUS_UM
+        ):
+            layer_settings['focus'] = None
+            forgotten.append(layer)
+    return forgotten
+
+
+def take_stored_replacements() -> list[StoredSettingReplacedNotice]:
+    """The replacements not yet reported, handed over once."""
+    taken = list(_stored_replacements)
+    _stored_replacements.clear()
+    return taken
 
 
 def _apply_load_migrations(logger, settings_dict: dict) -> None:
@@ -396,6 +455,12 @@ def _apply_load_migrations(logger, settings_dict: dict) -> None:
         logger.info('[Settings ] Renamed manual_video settings section to video')
     if normalize_loaded_settings(settings_dict):
         logger.info('[Settings ] Repaired stored values the running version cannot use')
+    forgotten = forget_shipped_focus(settings_dict)
+    if forgotten:
+        logger.info(
+            f'[Settings ] No focus was ever saved for {", ".join(forgotten)}: '
+            'their steps take the current Z'
+        )
 
 
 def _load_and_validate(logger, filepath: str) -> dict:
@@ -403,6 +468,19 @@ def _load_and_validate(logger, filepath: str) -> dict:
     loaded = read_settings_json(filepath, logger)
     _validate_settings(loaded, filepath, logger)
     return loaded
+
+
+def _load_template(logger, template_path: str) -> dict:
+    """The shipped template, checked for the keys the app needs.
+
+    Read as a file the installation ships, not as the user's: a template
+    that is missing or will not parse is the installation's fault and
+    raises ``InstallationFileError``, never a reason to skip the step that
+    needed it.
+    """
+    template = read_installation_file(template_path)
+    _validate_settings(template, template_path, logger)
+    return template
 
 
 def _normalize_turret_slot_keys(settings: dict) -> None:
@@ -424,6 +502,33 @@ def _normalize_turret_slot_keys(settings: dict) -> None:
     if not isinstance(slots, dict):
         return
     settings['turret_objectives'] = {int(k): v for k, v in slots.items()}
+
+
+def bring_up_live_folder(logger: logging.Logger, live_folder: str, directory: str) -> str:
+    """The live folder as it is stored: absolute, and created.
+
+    The one rule for the value wherever it enters -- the settings file at
+    load, and ``update_settings`` after. The shipped template holds a
+    relative folder, which means the installation's; left relative, each
+    writer would resolve it against the process's working directory, and an
+    installed build's working directory is not writable. A folder that
+    cannot be created stays the person's: replacing it would send their
+    captures somewhere they will not look and save the replacement over
+    their choice. Captures into it are refused by the capture-location
+    owner, naming it, until it is reachable.
+    """
+    folder = pathlib.Path(live_folder)
+    if not folder.is_absolute():
+        folder = (pathlib.Path(directory) / folder).resolve()
+        live_folder = str(folder)
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        logger.warning(
+            f'[Settings ] The live folder {folder} could not be created ({e}); '
+            'captures into it are refused until it is reachable.'
+        )
+    return live_folder
 
 
 def prepare_settings(
@@ -455,9 +560,12 @@ def prepare_settings(
     rejected = None
 
     if os.path.exists(current_path):
+        # Read once, before the user's file: the shape check, the fallback
+        # and the merge all need it, and its refusal is the installation's.
+        template = read_installation_file(template_path)
         try:
             prepared = _load_and_validate(logger, current_path)
-            _reject_if_misshapen(logger, prepared, template_path, current_path)
+            _reject_if_misshapen(prepared, template, template_path, current_path)
         except (json.JSONDecodeError, ValueError) as e:
             if not fall_back_to_template:
                 raise
@@ -471,11 +579,8 @@ def prepare_settings(
                 'starting from the shipped defaults. The file has NOT been '
                 'modified and no settings will be saved until this is resolved.'
             )
-            if not os.path.exists(template_path):
-                raise FileNotFoundError(
-                    f'current.json corrupt and no settings.json fallback in {data_dir}'
-                ) from e
-            prepared = _load_and_validate(logger, template_path)
+            _validate_settings(template, template_path, logger)
+            prepared = copy.deepcopy(template)
             rejected = (current_path, str(e))
 
         _apply_load_migrations(logger, prepared)
@@ -483,25 +588,26 @@ def prepare_settings(
         # Merge missing keys from settings.json defaults into current.json.
         # current.json drifts from settings.json as new features add keys.
         # This ensures new keys are available without losing user values.
-        if os.path.exists(template_path):
-            try:
-                defaults = read_settings_json(template_path, logger)
-                added = _deep_merge_defaults(prepared, defaults, logger=logger)
-                if added:
-                    logger.info(
-                        f'[Settings ] Merged {len(added)} missing keys from settings.json: {added}'
-                    )
-            except Exception:
-                logger.warning('[Settings ] Could not load settings.json for default merge')
+        added = _deep_merge_defaults(prepared, template, logger=logger)
+        if added:
+            logger.info(f'[Settings ] Merged {len(added)} missing keys from settings.json: {added}')
+        # Imported here: settings_paths' own imports reach this module (lvp_logger).
+        from modules.settings_paths import replace_refused_stored_values
+
+        replaced = replace_refused_stored_values(prepared, template)
+        if replaced is not None:
+            _stored_replacements.append(replaced)
 
         _normalize_turret_slot_keys(prepared)
+        prepared['live_folder'] = bring_up_live_folder(logger, prepared['live_folder'], directory)
 
         return prepared, rejected
 
     if os.path.exists(template_path):
-        prepared = _load_and_validate(logger, template_path)
+        prepared = _load_template(logger, template_path)
         _apply_load_migrations(logger, prepared)
         _normalize_turret_slot_keys(prepared)
+        prepared['live_folder'] = bring_up_live_folder(logger, prepared['live_folder'], directory)
         return prepared, None
 
     if not os.path.isdir(data_dir):
@@ -509,7 +615,7 @@ def prepare_settings(
     raise FileNotFoundError(f'No settings files found in {data_dir}')
 
 
-def _reject_if_misshapen(logger, loaded, template_path, current_path):
+def _reject_if_misshapen(loaded, template, template_path, current_path):
     """Refuse a config whose shape the app cannot survive.
 
     Runs before the migrations and the default merge, which is the only
@@ -519,19 +625,11 @@ def _reject_if_misshapen(logger, loaded, template_path, current_path):
     sides are already dicts.
 
     A template that will not parse is NOT allowed to condemn a healthy
-    config. Without that, a settings.json truncated by a bad upgrade would
-    raise here, be reported as "current.json could not be used", and send
-    the user to delete the one file that was still good.
+    config: the caller reads it first, outside its except, so its
+    ``InstallationFileError`` is never reported as "current.json could not
+    be used", which would send the user to delete the one file that was
+    still good.
     """
-    try:
-        template = read_settings_json(template_path, logger)
-    except (FileNotFoundError, SettingsFileError) as e:
-        logger.warning(
-            f'[Settings ] {template_path} unreadable ({e}); skipping the shape '
-            f'check on {current_path}'
-        )
-        return
-
     problems = _check_container_shape(loaded, template)
     if problems:
         raise SettingsFileError(
@@ -586,27 +684,23 @@ def fall_back_to_template(logger: logging.Logger, lvp_appdata: str, reason: str)
 
     current_path = os.path.join(lvp_appdata, 'data', 'current.json')
     template_path = os.path.join(lvp_appdata, 'data', 'settings.json')
-    if not os.path.exists(template_path):
-        raise FileNotFoundError(
-            f'settings unusable ({reason}) and no settings.json fallback in '
-            f'{os.path.join(lvp_appdata, "data")}'
-        )
+    prepared = _load_template(logger, template_path)
 
     logger.error(
         f'[Settings ] {current_path} could not be used ({reason}); '
         'starting from the shipped defaults. The file has NOT been '
         'modified and no settings will be saved until this is resolved.'
     )
-    prepared = _load_and_validate(logger, template_path)
     _apply_load_migrations(logger, prepared)
     _normalize_turret_slot_keys(prepared)
+    prepared['live_folder'] = bring_up_live_folder(logger, prepared['live_folder'], lvp_appdata)
 
     settings.clear()
     settings.update(prepared)
     rejected_current_json = (current_path, reason)
 
 
-def retire_rejected_current_json() -> str | None:
+def retire_rejected_current_json() -> pathlib.Path | None:
     """Move the unusable current.json aside so a fresh one can take its place.
 
     Renamed, never deleted: it is the user's only copy of their
@@ -616,15 +710,25 @@ def retire_rejected_current_json() -> str | None:
     Called only after a human has chosen to start over -- the rename is the
     point of no return for that file's role, and nothing should reach it by
     timeout, by a dismissed dialog, or by any other default.
+
+    Raises:
+        SettingsFileNotReplacedError: The rename failed. The settings stay
+            provisional, so the question can be answered again.
     """
     global rejected_current_json
     if rejected_current_json is None:
         return None
     path, _reason = rejected_current_json
     stamp = time.strftime('%Y%m%d-%H%M%S')
-    retired = f'{path}.rejected-{stamp}'
-    os.replace(path, retired)
+    retired = pathlib.Path(f'{path}.rejected-{stamp}')
+    try:
+        os.replace(path, retired)
+    except OSError as e:
+        raise SettingsFileNotReplacedError(path, e) from e
     rejected_current_json = None
+    logging.getLogger('lvp_logger').warning(
+        f'[Settings ] settings reset by user choice; previous file kept at {retired}'
+    )
     return retired
 
 
@@ -759,23 +863,3 @@ def load_memory_profile_setting(directory: str) -> dict:
         'enabled': bool(temp_settings.get('memory_profile_enabled', False)),
         'interval_s': float(temp_settings.get('memory_profile_interval_s', 5.0)),
     }
-
-
-def load_fx2_debug_wire_setting(directory: str) -> bool:
-    """Read fx2_debug_wire_enabled from settings.
-
-    Returns bool. Missing or unreadable settings file resolves to False
-    so the caller never has to guard for absence; the FX2 wire-protocol
-    debug trace defaults OFF (it is an L4 diagnostic surface).
-
-    Called from drivers/fx2driver.py, ui/layer_control.py, and
-    modules/lumascope_api/illumination.py at module-import time.
-    Replaces the prior LVP_FX2_DEBUG_WIRE environment-variable gate.
-    """
-    try:
-        filename = _resolve_settings_path(directory)
-        temp_settings = read_settings_json(filename)
-    except Exception:
-        return False
-
-    return bool(temp_settings.get('fx2_debug_wire_enabled', False))

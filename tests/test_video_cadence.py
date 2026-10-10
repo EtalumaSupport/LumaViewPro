@@ -108,6 +108,27 @@ class TestCadenceSelectorConstruction:
         assert s.at_capacity
         assert not s.slot_open(START + 100)
 
+    def test_rate_and_capacity_are_absent_together(self):
+        # A budget is a rate times a duration: a capacity without a rate,
+        # or a rate without a capacity, has no meaning.
+        with pytest.raises(ValueError):
+            CadenceSelector(fps=None, max_frames=10, start_ts=START)
+        with pytest.raises(ValueError):
+            CadenceSelector(fps=5, max_frames=None, start_ts=START)
+
+
+class TestNoRateLimit:
+    def test_every_frame_from_start_is_selected(self):
+        s = CadenceSelector(fps=None, max_frames=None, start_ts=START)
+        arrivals = [START + i / 69.0 for i in range(1, 70)]
+        picks = run_selection(s, arrivals)
+        assert [slot for _, slot in picks] == list(range(69))
+        assert not s.at_capacity
+
+    def test_frame_before_start_is_not_selected(self):
+        s = CadenceSelector(fps=None, max_frames=None, start_ts=START)
+        assert not s.slot_open(START - 0.001)
+
 
 class TestSlotCadence:
     def test_first_slot_deadline_is_one_interval_after_start(self):

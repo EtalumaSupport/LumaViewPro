@@ -24,7 +24,6 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 #               mocks the test conftest installs before collection
 # The sys.path line serves the standalone form; in-suite it is a no-op.
 
-from modules.lumascope_api import Lumascope
 from modules.scope_session import ScopeSession
 
 
@@ -77,34 +76,17 @@ def build_protocol_config():
 
 
 def main():
-    # Real settings: the documented loader reads data/current.json (falling
-    # back to the shipped template) and validates it. A hand-built dict has
-    # to carry at least 'frame' and 'objective_id', or the bring-up refuses.
-    import modules.settings_init as settings_init
-    from lvp_logger import logger
+    # The user's configuration, prepared as the GUI prepares it (read,
+    # checked against the shipped template, repaired, merged). A root with
+    # no usable settings is refused, never quietly replaced by the template.
+    settings = ScopeSession.load_user_settings('.')
 
-    settings_init.load_lvp_settings(logger, '.')
-    settings = settings_init.settings
-    settings['live_folder'] = str(pathlib.Path('./capture').resolve())
-
-    # Create scope in simulate mode. The simulated motor board reports the
-    # model it is declared with, so declaring the settings' model keeps the
-    # bring-up's model check silent -- it has nothing to correct.
-    scope = Lumascope(simulate=True, configured_model=settings['microscope'])
-    print('Scope initialized (simulate=True)')
-
-    # Create a ScopeSession -- the GUI-independent state container. The
-    # factory starts the executor lanes. We built the scope ourselves, so the
-    # bring-up is ours: configure it from the settings, then start the camera
-    # feed (connect() leaves the camera configured but not grabbing). A
-    # session whose scope the factory built gets both steps for free.
-    session = ScopeSession.create(settings=settings, scope=scope)
-    session.configure_scope()
-    scope.imaging.start_streaming()
-    print('Session created, scope configured')
-
-    # Create a ProtocolRunner from the session
-    runner = session.create_protocol_runner()
+    # The factory is the one door to a scope: it wires the simulated
+    # drivers on the installation's data folder, configures the scope from
+    # the settings, starts the camera feed and the executor lanes.
+    session = ScopeSession.create(settings, simulate=True)
+    session.set_live_folder(str(pathlib.Path('./capture').resolve()))
+    print('Session created, scope configured (simulate=True)')
 
     # Build the protocol configuration
     config = build_protocol_config()
@@ -116,56 +98,51 @@ def main():
 
     # NOTE: Creating a Protocol from a config dict requires a tiling
     # configurations file. For this example, we show the setup without
-    # actually executing, since Protocol.from_config() depends on data
+    # actually executing, since building a protocol depends on data
     # files that may not be present in all environments.
     #
     # In a real application with the full LumaViewPro installation:
     #
-    #   from modules.protocol import Protocol
-    #   tiling_file = pathlib.Path("data/tiling.json")
-    #   protocol = Protocol.from_config(config, tiling_configs_file_loc=tiling_file)
+    #   # The scope resolves data/tiling.json and hands the protocol its
+    #   # labware and objective catalogues.
+    #   protocol = session.scope.protocols.create_protocol(input_config=config)
     #
-    #   # The image capture config is REQUIRED: it states the run's image
-    #   # mode (bit depth + on-disk encoding) explicitly -- there is no
-    #   # silent default. Modes: '8bit', '12bit_scientific', '12bit_scaled',
-    #   # '12bit_false_color_rgb'.
-    #   capture_config = runner.build_image_capture_config(image_mode="8bit")
+    #   # The run captures in the session's image mode
+    #   # (session.set_image_mode(...) chooses it).
     #
     #   # Run a single scan (captures all positions/channels once)
-    #   runner.run_single_scan(
+    #   pending = runner.run_single_scan(
     #       protocol=protocol,
     #       sequence_name="my_scan",
     #       parent_dir=pathlib.Path("./output"),
-    #       image_capture_config=capture_config,
     #   )
     #
-    #   # Monitor progress
-    #   print(f"Running: {runner.is_running()}")
-    #   print(f"Output dir: {runner.run_dir()}")
+    #   # Monitor progress through the run's handle
+    #   print(f"Running: {pending.is_live}, step {pending.step_number} of {pending.num_steps}")
+    #   print(f"Output dir: {pending.run_dir}")
     #
-    #   # Wait for completion (blocks until done)
-    #   completed = runner.wait_for_completion(timeout=300)
-    #   print(f"Completed: {completed}")
+    #   # Wait for the run to end, then read HOW it ended. None means the
+    #   # bound expired; otherwise status is completed/incomplete/aborted/
+    #   # failed/failed_at_start and reason is the machine-readable cause;
+    #   # result.captures says what was captured of what was asked for.
+    #   result = pending.wait(timeout_s=300)
+    #   print(f"Ended: {result.status} ({result.reason}) -- {result.message}")
     #
     #   # For a full timed protocol (repeats scans over duration):
-    #   runner.run_protocol(
+    #   pending = runner.run_protocol(
     #       protocol=protocol,
     #       sequence_name="my_protocol",
-    #       image_capture_config=capture_config,
     #   )
     #
-    #   # To abort a running protocol:
-    #   runner.abort()
+    #   # To stop it, through its handle; wait says when it has ended:
+    #   pending.stop()
+    #   pending.wait(timeout_s=60)
 
     print('\nProtocol setup complete (not executed in simulate-only example)')
     print('See comments in source for full execution flow')
 
-    # Clean up. The scope was ours, so the disconnect is ours: session
-    # shutdown leaves a caller-passed scope alone. A factory-built scope is
-    # disconnected by session.shutdown() itself.
-    runner.shutdown()
+    # Clean up: the factory built the scope, so shutdown disconnects it.
     session.shutdown()
-    scope.disconnect()
     print('Scope disconnected')
 
 

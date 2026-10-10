@@ -17,24 +17,24 @@ dispatcher, writer edge, exclusivity claim, and time source at
 construction. ``RecordingConfig`` is an immutable snapshot taken at
 record start -- the engine never re-reads live settings mid-recording.
 
-Fatality classification (the notification policy's teeth; a misclassified
-event fails silent):
+What can go wrong, and where it is told. The engine reports nothing
+itself: it records what failed in its result, and the caller that
+finishes the recording reports it, because only that caller knows whether
+the recording belongs to a run the failure must also end.
 
-- FATAL, aborts the recording: writer-lane death (the lane thread dies or
-  wedges past recovery). Surfaced at critical severity, which reaches
-  listeners through the protocol notification mute.
-- Non-fatal, recording continues, counted and reported: a single frame's
-  write failure (costs exactly that frame), short delivery (the camera
-  delivered fewer frames than the configured rate promised), frame drops.
-  These land in the manifest and the end-of-run report, never a popup
-  mid-run.
-- Non-fatal, surfaced at warning severity: the MANIFEST write itself
-  failing -- it cannot land in the manifest, and it is the sole carrier
-  of channel color and measured rate, so it goes through the notify sink
-  (the protocol mute keeps it log-only mid-run; manual gets the popup).
+- FATAL, aborts the recording: writer-lane death (the lane thread dies).
+  The escape rides the result as ``writer_failure``, and ``aborted``
+  reads it.
+- Non-fatal, recording continues, counted: a single frame's write failure
+  (costs exactly that frame), short delivery (the camera delivered fewer
+  frames than the configured rate promised), frame drops. These land in
+  the manifest and the result.
+- Non-fatal, the MANIFEST write itself failing: it cannot land in the
+  manifest, and the manifest is the sole carrier of channel color and
+  measured rate, so its error rides the result as ``manifest_failure``
+  for the caller to report.
 - A start refusal (exclusive activity already running) raises
-  ``RecordingRefusedError`` directly to the refused caller, outside the
-  mute's scope.
+  ``RecordingRefusedError`` directly to the refused caller.
 """
 
 import json
@@ -43,10 +43,16 @@ import queue
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
 from lib import profile_trace
 from lvp_logger import logger
+from modules.activity_claim import (
+    ActivityClaim,
+    BorrowedClaim,
+    FalsifyingChangeInFlightError,
+    the_holder_named,
+)
 from modules.exceptions import RecordingRefusedError
 from modules.video_cadence import CadenceSelector, frame_budget
 
@@ -64,29 +70,13 @@ END_REASON_START_FAILED = 'start_failed'
 _END_OF_RECORDING = object()
 
 
-class ExclusivityClaim(Protocol):
-    """The session-owned compare-and-claim handle the engine acquires.
-
-    Exactly one exclusive activity (a protocol run XOR a recording) may
-    hold the claim; ``try_claim`` is atomic -- two concurrent claimants
-    cannot both win.
-    """
-
-    def try_claim(self, owner: str) -> bool:
-        """Atomically claim for ``owner``; False if another owner holds it."""
-        ...
-
-    def release(self, owner: str) -> None:
-        """Release ``owner``'s claim. Releasing an unheld claim is an error."""
-        ...
-
-
 @dataclass(frozen=True)
 class RecordingConfig:
     """Immutable per-recording snapshot; baked at record start.
 
     Attributes:
-        fps: Effective recording rate in frames per second (post-clamp).
+        fps: The rate limit selection samples at, in frames per second,
+            or None to keep every frame the camera delivers.
         duration_s: Maximum recording duration in seconds; Stop may end
             the recording earlier.
         width: Frame width in pixels. Any resolution is legal; frames are
@@ -113,7 +103,7 @@ class RecordingConfig:
             Per-recording folders keep the default.
     """
 
-    fps: float
+    fps: float | None
     duration_s: float
     width: int
     height: int
@@ -125,8 +115,14 @@ class RecordingConfig:
     manifest_filename: str | None = MANIFEST_FILENAME
 
     @property
-    def frame_budget(self) -> int:
-        """Exact frame capacity: ``ceil(fps * duration_s)``, no truncation."""
+    def frame_budget(self) -> int | None:
+        """Exact frame capacity: ``ceil(fps * duration_s)``, no truncation.
+
+        None with no rate limit: without a rate there is no count to
+        derive, and the recording ends at ``duration_s`` in time instead.
+        """
+        if self.fps is None:
+            return None
         return frame_budget(self.fps, self.duration_s)
 
 
@@ -142,11 +138,13 @@ class RecordingResult:
         frames_written: Frames whose final artifact landed on disk.
         write_failures: Frames lost to per-frame write errors (each cost
             exactly that frame; the recording continued).
-        aborted: True when the recording died fatally (writer-lane death)
-            or was discarded before drain completed.
-        abort_reason: Human-readable cause when ``aborted``; empty string
-            otherwise.
-        configured_fps: The snapshot rate, for comparison against measured.
+        writer_failure: What escaped the writer lane and killed it, or
+            None; ``aborted`` is read from it, so the two cannot disagree.
+        manifest_failure: The manifest write's error, or None. Needed
+            because ``manifest_path`` is also None when there was nothing
+            to describe, which is not a failure.
+        configured_fps: The snapshot rate limit, for comparison against
+            measured; None when every delivered frame was kept.
         measured_fps: Rate computed from real frame timestamps.
         measured_duration_s: First-to-last-frame span in seconds.
         timestamp_grade: ``'camera'`` when hardware chunk timestamps
@@ -166,15 +164,20 @@ class RecordingResult:
     frames_selected: int
     frames_written: int
     write_failures: int
-    aborted: bool
-    abort_reason: str
-    configured_fps: float
+    writer_failure: BaseException | None
+    manifest_failure: OSError | None
+    configured_fps: float | None
     measured_fps: float
     measured_duration_s: float
     timestamp_grade: str
     frame_timestamps_s: tuple
     manifest_path: pathlib.Path | None
     end_reason: str
+
+    @property
+    def aborted(self) -> bool:
+        """True when the recording died fatally (writer-lane death)."""
+        return self.writer_failure is not None
 
 
 class VideoRecordingEngine:
@@ -185,36 +188,32 @@ class VideoRecordingEngine:
     Args:
         write_frame: Writer edge invoked on the writer lane once per kept
             frame: ``write_frame(image, timestamp_s, frame_number, config,
-            chunks) -> pathlib.Path``. ``chunks`` is the frame's camera
-            chunk metadata (or None) -- frame identity travels WITH the
-            frame so the write edge never re-derives it. Raising costs
-            exactly that frame.
-        claim: The session-owned exclusivity claim handle; ``start``
-            acquires it and refuses when an exclusive activity already
-            holds it.
+            chunks, fact) -> pathlib.Path``. ``chunks`` is the frame's
+            camera chunk metadata (or None) and ``fact`` is whatever the
+            caller recorded about the scope when the frame arrived (or
+            None) -- both travel WITH the frame, because the write runs
+            later, behind the backlog, and a write-time read would
+            describe a different moment. The engine reads neither.
+            Raising costs exactly that frame.
+        claim: The session's exclusivity claim, which ``start`` takes and
+            refuses when an exclusive activity already holds it -- or,
+            for a recording inside a run, the run's claim lent to it,
+            which ``start`` acts under and the recording's end leaves
+            held.
         clock: Time source returning seconds; injectable so cadence and
             duration behavior is testable without wall-clock sleeps.
-        notify: Optional notification sink for the fatality classification
-            above; None means log-only.
     """
 
     def __init__(
         self,
         *,
         write_frame: Callable[..., pathlib.Path],
-        claim: ExclusivityClaim,
+        claim: ActivityClaim | BorrowedClaim,
         clock: Callable[[], float],
-        notify: Any = None,
-        run_trigger_lookup: 'Callable[[], str | None] | None' = None,
     ):
         self._write_frame = write_frame
         self._claim = claim
         self._clock = clock
-        self._notify = notify
-        # Busy-with-what for the claim refusal below: when a run holds
-        # the claim, the refusal names the run's trigger. Kind stays the
-        # runner's job -- the claim carries only the owner.
-        self._run_trigger_lookup = run_trigger_lookup
         # One lock covers selection state and counters. ingest_frame runs
         # on the camera ingest thread, stop()/start() on callers' threads,
         # and the writer lane decrements the pending count -- all under
@@ -224,11 +223,11 @@ class VideoRecordingEngine:
         self._queue: queue.SimpleQueue = queue.SimpleQueue()
         self._drained = threading.Event()
         self._drained.set()
-        # Holds the claim's owner string exactly while this engine holds the
-        # claim. Consuming it and releasing are one step, so the token is
-        # both the guard and the argument: a second arrival cannot release a
-        # claim it does not hold, and release() raises on a non-owner.
-        self._claim_owner: str | None = None
+        # The taking this engine holds, exactly while it holds the claim.
+        # Consuming it and releasing are one step, so it is both the guard
+        # and the credential: a second arrival finds None and releases
+        # nothing, and the claim raises on a taking that no longer holds it.
+        self._held_claim: Any = None
         self._config: RecordingConfig | None = None
         self._selector: CadenceSelector | None = None
         self._writer_thread: threading.Thread | None = None
@@ -247,8 +246,8 @@ class VideoRecordingEngine:
         self._timestamps: list[float] = []
         self._chunks: list = []
         self._all_frames_carried_chunks = True
-        self._aborted = False
-        self._abort_reason = ''
+        self._writer_failure: BaseException | None = None
+        self._manifest_failure: OSError | None = None
         self._result: RecordingResult | None = None
 
     @property
@@ -271,16 +270,21 @@ class VideoRecordingEngine:
         """Frames the cadence selector has kept so far."""
         return self._frames_selected
 
-    def start(self, config: RecordingConfig) -> None:
+    def start(self, make_config: Callable[[], RecordingConfig]) -> None:
         """Open selection for one recording.
 
         Atomically acquires the exclusivity claim; exactly one of two
-        concurrent starts can win.
+        concurrent starts can win. ``make_config`` is called once the claim
+        is held: what the file will claim -- frame size, binning, pixel
+        size, objective -- is read only when no write that would change it
+        can start or still be running.
 
         Raises:
             RecordingRefusedError: When an exclusive activity (protocol
-                run or another recording) already holds the claim, or
-                this engine is already recording or draining.
+                run or another recording) already holds the claim, a write
+                that would falsify the recording is running, or this engine
+                is already recording or draining.
+            Anything ``make_config`` raises, with the claim released.
         """
         with self._lock:
             if self._recording or not self._drained.is_set():
@@ -289,23 +293,35 @@ class VideoRecordingEngine:
                     title='Recording Active',
                     message='A recording is already in progress. Stop it, then record again.',
                 )
-            if not self._claim.try_claim('recording'):
-                holder = self._claim.owner
-                holder_trigger = None
-                if holder == 'protocol' and self._run_trigger_lookup is not None:
-                    holder_trigger = self._run_trigger_lookup()
+            try:
+                held = self._claim.try_claim('recording')
+            except FalsifyingChangeInFlightError:
+                raise RecordingRefusedError(
+                    reason='falsifying_change_in_flight',
+                    title='Microscope Changing',
+                    message=(
+                        'The microscope is changing the objective or the camera frame. '
+                        'Start the recording when it finishes.'
+                    ),
+                ) from None
+            if held is None:
+                # Busy-with-what comes off the claim this just failed to
+                # take: the activity that holds it names itself and, when
+                # it is a run, which run.
+                holder = self._claim.holder
                 raise RecordingRefusedError(
                     reason='exclusive_activity_running',
                     title='Another Activity Running',
                     message=(
-                        'Another exclusive activity is using the microscope. '
+                        f'{the_holder_named(holder)} is using the microscope. '
                         'Let it finish, then start the recording.'
                     ),
-                    holder=holder,
-                    holder_trigger=holder_trigger,
+                    holder=holder.kind if holder is not None else None,
+                    holder_trigger=(holder.run_trigger_source if holder is not None else None),
                 )
-            self._claim_owner = 'recording'
+            self._held_claim = held
             try:
+                config = make_config()
                 self._config = config
                 start_ts = self._clock()
                 self._selector = CadenceSelector(
@@ -323,8 +339,8 @@ class VideoRecordingEngine:
                 self._timestamps = []
                 self._chunks = []
                 self._all_frames_carried_chunks = True
-                self._aborted = False
-                self._abort_reason = ''
+                self._writer_failure = None
+                self._manifest_failure = None
                 self._end_reason = ''
                 self._result = None
                 self._writer_thread = threading.Thread(
@@ -345,14 +361,23 @@ class VideoRecordingEngine:
                 self._release_claim_locked()
                 self._drained.set()
                 raise
+            # The claim's grant was heard before the recording was live; this
+            # is the edge at which it is.
+            self._held_claim.claim.announce()
 
-    def ingest_frame(self, image: Any, timestamp_s: float, chunks: Any = None) -> None:
+    def ingest_frame(
+        self, image: Any, timestamp_s: float, chunks: Any = None, *, fact: Any
+    ) -> None:
         """Offer one delivered camera frame: select + enqueue only.
 
         Runs on the camera ingest thread; must stay cheap. A kept frame
         is enqueued unconditionally -- writer lag never causes a
         capture-side drop. Frame numbers derive from enqueue order
         (contiguous ordinals), so holes are unrepresentable.
+
+        ``fact`` is required, with no default, so a caller that records
+        frames cannot forget to say what was true when this one arrived;
+        a caller with nothing to record passes None and says so.
         """
         with (
             profile_trace.timer(
@@ -364,11 +389,15 @@ class VideoRecordingEngine:
         ):
             if not self._recording:
                 return
-            # No separate duration cutoff: the frame budget
-            # (ceil(fps * duration)) IS the duration boundary, and the
-            # selector's catch-up semantics require late frames to
-            # claim outstanding slots -- an independent wall-clock
-            # close would truncate exactly that catch-up.
+            # A rate-limited recording has no separate duration cutoff:
+            # the frame budget (ceil(fps * duration)) IS the duration
+            # boundary, and the selector's catch-up semantics require
+            # late frames to claim outstanding slots -- an independent
+            # time close would truncate exactly that catch-up. With no
+            # limit there is no budget, so the duration is the boundary.
+            if self._config.fps is None and timestamp_s - self._start_ts >= self._config.duration_s:
+                self._close_selection_locked('duration_elapsed')
+                return
             if not self._selector.slot_open(timestamp_s):
                 return
             self._selector.reserve()
@@ -382,10 +411,10 @@ class VideoRecordingEngine:
             # Enqueue the delivered array as-is: no copy (pypylon's
             # GetArray already returns an owned array) and no flip --
             # orientation and contiguity are the write edge's business,
-            # never paid per-frame in the callback. Chunk metadata rides
-            # the queue with its frame so identity and pixels never
-            # separate.
-            self._queue.put((image, timestamp_s, frame_number, chunks))
+            # never paid per-frame in the callback. Chunk metadata and
+            # the caller's fact ride the queue with their frame so
+            # identity, pixels and the moment never separate.
+            self._queue.put((image, timestamp_s, frame_number, chunks, fact))
             if self._selector.at_capacity:
                 self._close_selection_locked('frame_budget_filled')
 
@@ -456,9 +485,9 @@ class VideoRecordingEngine:
         to call from every end path without any caller needing to know
         whether another one got there first.
         """
-        owner, self._claim_owner = self._claim_owner, None
-        if owner is not None:
-            self._claim.release(owner)
+        held, self._held_claim = self._held_claim, None
+        if held is not None:
+            held.release()
 
     def _close_selection_locked(self, reason: str) -> None:
         """Close selection exactly once; the caller holds the lock.
@@ -472,6 +501,10 @@ class VideoRecordingEngine:
         self._end_reason = reason
         self._recording = False
         self._queue.put(_END_OF_RECORDING)
+        # Live to draining, with the claim still held: no grant or release
+        # marks it. Selection is open only while this engine holds its
+        # taking, so the taking is here to announce through.
+        self._held_claim.claim.announce()
 
     def _drain_loop(self) -> None:
         """Writer lane: pop each frame and write it as its final artifact.
@@ -486,7 +519,7 @@ class VideoRecordingEngine:
                 item = self._queue.get()
                 if item is _END_OF_RECORDING:
                     break
-                image, timestamp_s, frame_number, chunks = item
+                image, timestamp_s, frame_number, chunks, fact = item
                 try:
                     with profile_trace.timer(
                         'video_write_trace.csv',
@@ -494,7 +527,7 @@ class VideoRecordingEngine:
                         lambda n=frame_number: [n, self._pending],
                     ):
                         written_path = self._write_frame(
-                            image, timestamp_s, frame_number, self._config, chunks
+                            image, timestamp_s, frame_number, self._config, chunks, fact
                         )
                 except Exception as ex:
                     with self._lock:
@@ -523,23 +556,12 @@ class VideoRecordingEngine:
             logger.critical('[VideoEngine] writer lane exited abnormally', exc_info=True)
             raise
         finally:
-            # Every lane exit ends the recording, including the abort path
-            # and an escape from the abort path's own notification sink.
+            # Every lane exit ends the recording, including the abort path.
             self._finalize()
 
     def _abort_from_lane_death(self, ex: BaseException) -> None:
-        reason = f'writer lane died: {ex}'
         with self._lock:
-            self._aborted = True
-            self._abort_reason = reason
-        logger.critical(f'[VideoEngine] {reason} -- recording aborted')
-        if self._notify is not None:
-            self._notify.critical(
-                'Recording',
-                'Recording Failed',
-                'The video writer stopped working and the recording was aborted. '
-                'Frames already written are on disk; check the log for the cause.',
-            )
+            self._writer_failure = ex
 
     def _finalize(self) -> None:
         """Compute measured truth, write the manifest, release the claim.
@@ -551,12 +573,14 @@ class VideoRecordingEngine:
         recording and protocol run.
         """
         with self._lock:
-            if self._claim_owner is None:
+            if self._held_claim is None:
                 return
             # Only an abnormal lane exit reaches here with selection still
             # open: every ordinary end path closes it to post the sentinel
             # that wakes the lane in the first place.
-            self._close_selection_locked('aborted' if self._aborted else 'lane_exited')
+            self._close_selection_locked(
+                'aborted' if self._writer_failure is not None else 'lane_exited'
+            )
             try:
                 self._finalize_locked()
             finally:
@@ -583,7 +607,7 @@ class VideoRecordingEngine:
         # produced no artifact has nothing to attach a manifest to; all get a
         # result in memory but no manifest on disk.
         if (
-            not self._aborted
+            self._writer_failure is None
             and self._end_reason != END_REASON_START_FAILED
             and manifest_name is not None
         ):
@@ -598,8 +622,8 @@ class VideoRecordingEngine:
             frames_selected=self._frames_selected,
             frames_written=self._frames_written,
             write_failures=self._write_failures,
-            aborted=self._aborted,
-            abort_reason=self._abort_reason,
+            writer_failure=self._writer_failure,
+            manifest_failure=self._manifest_failure,
             configured_fps=self._config.fps,
             measured_fps=measured_fps,
             measured_duration_s=measured_duration,
@@ -675,16 +699,7 @@ class VideoRecordingEngine:
             # manifest is the SOLE carrier of the recording's channel
             # color and measured rate, so the loss must be loud: without
             # it every later build of these frames silently plays
-            # grayscale at a default rate.
-            logger.error(f'[VideoEngine] Manifest write failed ({ex}); frames are unaffected')
-            if self._notify is not None:
-                self._notify.warning(
-                    'Video Recording',
-                    'Recording details not saved',
-                    'The video frames are safe on disk, but the recording details '
-                    'file could not be written. Videos built from this recording '
-                    'may be grayscale and use a default frame rate; check disk '
-                    'space and the log.',
-                )
+            # grayscale at a default rate. The caller reports it.
+            self._manifest_failure = ex
             return None
         return path

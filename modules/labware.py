@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-import numpy as np
+from modules.finite_number import refuse_unless_finite_number
+from modules.api_surface import api, api_fields
 
 
 class LabWare:
@@ -20,8 +21,11 @@ class Slide(LabWare):
         self.covered = True
 
 
+@api_fields('config', record=True)
 class WellPlate(LabWare):
     """A class that stores and computes actions for wellplate labware"""
+
+    config: dict
 
     def __init__(self, config: dict, *arg):
         super().__init__()
@@ -73,7 +77,8 @@ class WellPlate(LabWare):
         return tmp
 
     # Get center position of well on plate in mm given its index (i, j)
-    def get_well_position(self, i, j):
+    @api(in_process=True)
+    def get_well_position(self, i: int, j: int) -> tuple[float, float]:
 
         dx = self.config['spacing']['x']  # distance b/w wells x-dir
         ox = self.config['offset']['x']  # offset to first well x-dir
@@ -85,19 +90,31 @@ class WellPlate(LabWare):
 
         return x, y
 
+    @api(in_process=True)
     def has_wells(self) -> bool:
         """True when the plate defines at least one well. A zero-well plate
         (the Blank labware) has no well grid: no well index exists, labels
         are empty, and well UI decorations do not apply."""
         return self.config['rows'] * self.config['columns'] > 0
 
-    # Get index of closest well based on plate position (x, y) in mm
-    def get_well_index(self, x, y):
+    @api(in_process=True)
+    def get_well_index(self, x: float, y: float) -> tuple[int, int] | None:
+        """The (column, row) of the well centre nearest plate position (x, y) in mm.
+
+        None when that centre is outside the grid: the position is more
+        than half a pitch beyond the outer well centres, off the plate's
+        wells, or the plate has no wells at all (the Blank labware). No
+        shipped plate states a well size, so within the grid a position
+        names its nearest well whether or not it is inside it.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'``, ``x`` or ``y`` is not a
+                finite number, which names no well.
+        """
+        for name, value in (('x', x), ('y', y)):
+            refuse_unless_finite_number(value, name)
         if not self.has_wells():
-            # Clipping to [0, -1] would fabricate index -1 for EVERY input
-            # (rendered as label '@0' and a bogus well ring at plate
-            # origin). No valid index exists; callers gate on has_wells().
-            raise ValueError('labware has no wells; no well index exists')
+            return None
 
         ox = self.config['offset']['x']  # offset to first well x-dir
         dx = self.config['spacing']['x']  # distance b/w wells x-dir
@@ -109,16 +126,18 @@ class WellPlate(LabWare):
 
         i = round(i)
         j = round(j)
-        i = np.clip(i, 0, self.config['columns'] - 1)
-        j = np.clip(j, 0, self.config['rows'] - 1)
+        if not (0 <= i < self.config['columns'] and 0 <= j < self.config['rows']):
+            return None
         return i, j
 
-    def get_well_label(self, x, y):
-        if not self.has_wells():
-            # Empty, not a fabricated token: filename builders and metadata
-            # writers omit an empty well rather than stamping a fake one.
+    def get_well_label(self, x: float, y: float) -> str:
+        index = self.get_well_index(x=x, y=y)
+        if index is None:
+            # Off the grid or a plate with none: empty, not a fabricated
+            # token, so filename builders and metadata writers omit the well
+            # rather than stamping a fake one.
             return ''
-        well_x, well_y = self.get_well_index(x=x, y=y)
+        well_x, well_y = index
 
         # Handling for labware with more than 26 rows
         letter = ''
@@ -129,7 +148,8 @@ class WellPlate(LabWare):
         letter += chr(ord('A') + well_y)
         return f'{letter}{well_x + 1}'
 
-    def get_dimensions(self):
+    @api(in_process=True)
+    def get_dimensions(self) -> dict:
         return self.config['dimensions']
 
 

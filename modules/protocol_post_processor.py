@@ -4,15 +4,19 @@ import abc
 import datetime
 import pathlib
 import time
-import typing
 
 import pandas as pd
 
 import modules.image_utils as image_utils
+import modules.path_utils as path_utils
 import modules.recording_frames as recording_frames
+from modules.api_surface import ProgressCallback
 from modules.common_utils import PostFunction
-from modules.notification_center import notifications
-from modules.objectives_loader import ObjectiveLoader
+from modules.exceptions import (
+    PostProcessingFailedError,
+    PostProcessingRefusedError,
+)
+from modules.objectives_loader import objective_short_name
 from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
 from modules.protocol_post_record import ProtocolPostRecord
 
@@ -36,6 +40,16 @@ _EXCLUDED_REMEDY = {
     ),
 }
 
+# Each operation's name as a person reads it, for the titles and words of
+# its outcomes; the enum values are file-record keys, not prose.
+_OPERATION_LABELS = {
+    PostFunction.COMPOSITE: 'Composite',
+    PostFunction.STITCHED: 'Stitch',
+    PostFunction.ZPROJECT: 'Z-Projection',
+    PostFunction.VIDEO: 'Video',
+    PostFunction.HYPERSTACK: 'Hyperstack',
+}
+
 
 def _remedy_for(post_function, excluded_kinds) -> str:
     """The 'do this instead' sentences for what a function turned away.
@@ -57,15 +71,6 @@ _MULTI_FRAME_REQUIREMENT = {
 }
 
 
-class ProgressSurface(typing.Protocol):
-    """The attended lifecycle surface: whatever renders a percentage and a
-    status line while a folder is processed. The loader writes these two
-    attributes and nothing else, so any widget carrying them will do."""
-
-    progress: float
-    text: str
-
-
 class ProtocolPostProcessor(abc.ABC):
     def __init__(
         self,
@@ -77,7 +82,6 @@ class ProtocolPostProcessor(abc.ABC):
         self._post_function = post_function
         self._post_processing_helper = ProtocolPostProcessingHelper()
         self._has_turret = kwargs['has_turret']
-        self._objectives_helper = ObjectiveLoader()
 
     @staticmethod
     @abc.abstractmethod
@@ -139,15 +143,34 @@ class ProtocolPostProcessor(abc.ABC):
     ):
         raise NotImplementedError('Implement in child class')
 
-    def _get_objective_short_name_if_has_turret(self, objective_id: str) -> str | None:
-        if self._has_turret:
-            short_name = self._objectives_helper.get_objective_info(objective_id=objective_id)[
-                'short_name'
-            ]
-        else:
-            short_name = None
+    def _planned_output(
+        self, root_path: pathlib.Path, group: pd.DataFrame, **kwargs
+    ) -> tuple[str, pd.Series, pathlib.Path]:
+        """What ``group`` builds: its file name, the flags its record carries, and where it lands."""
+        output_filename = self._generate_filename(df=group, **kwargs)
+        record_data_post_functions = group.iloc[0][PostFunction.list_values()]
+        record_data_post_functions[self._post_function.value] = True
+        output_subfolder = self._post_processing_helper.generate_output_dir_name(
+            record=record_data_post_functions
+        )
+        return (
+            output_filename,
+            record_data_post_functions,
+            root_path / output_subfolder / output_filename,
+        )
 
-        return short_name
+    def _get_objective_short_name_if_has_turret(self, objective_id: str) -> str | None:
+        if not self._has_turret:
+            return None
+
+        # Derived from the id the run recorded, with no catalogue: a folder
+        # post-processed on another installation, or after the catalogue was
+        # edited, still names the objective the run used. A step with no
+        # objective records '' (the protocol readers fill empty cells), and
+        # its name carries no objective, as on a scope with no turret.
+        if objective_id == '':
+            return None
+        return objective_short_name(objective_id)
 
     def _degraded_summary(self, count: int) -> str:
         """One clause naming what a degraded (fallback-produced) output means for
@@ -176,82 +199,101 @@ class ProtocolPostProcessor(abc.ABC):
         self,
         path: str | pathlib.Path,
         tiling_configs_file_loc: pathlib.Path,
-        popup: ProgressSurface | None = None,
-        announce: bool = True,
+        on_progress: ProgressCallback | None = None,
         **kwargs: dict,
     ) -> dict:
-        """Run this operation over a captured folder; return the result dict.
+        """Run this operation over a captured folder; return the complete result.
 
-        Three lifecycle surfaces. The popup is the attended one (the
-        caller renders progress and completion). With no popup the run is
-        UNATTENDED and the notification bus becomes the surface: a start
-        notice once the group count is known, and a completion or failure
-        message on every exit path -- inherited by every subclass, so no
-        unattended batch can finish (or fail) silently. ``announce=False``
-        is the third: the caller owns the surface itself, as a run kind
-        that settles its own outcome does, so the loader says nothing and
-        the caller reports success or failure once, in its own words. With
-        a popup supplied ``announce`` has nothing to silence.
+        Returns only when every output asked for was produced (skipped
+        single-image groups, already-recorded groups and a fallback
+        algorithm's degraded output are complete results, reported in the
+        dict). Anything else raises, and the caller reports it: this loader
+        never posts, because only the caller knows whether someone is
+        waiting on it.
+
+        Raises:
+            PostProcessingRefusedError: The folder cannot yield this output.
+            PostProcessingFailedError: The build did not produce everything
+                it was asked for; what it did produce rides along.
         """
-        result = self._load_folder_inner(
+        return self._load_folder_inner(
             path=path,
             tiling_configs_file_loc=tiling_configs_file_loc,
-            popup=popup,
-            announce=announce,
+            on_progress=on_progress,
             **kwargs,
         )
-        if popup is None and announce:
-            self._notify_unattended_result(result)
-        return result
 
     @property
-    def _unattended_operation_key(self) -> str:
-        """Ties the start notice to the outcome notice that answers it.
+    def operation_label(self) -> str:
+        """This operation's name as a person reads it."""
+        return _OPERATION_LABELS[self._post_function]
 
-        Both ends must name the same operation or the outcome opens a second
-        modal instead of replacing the "please wait" one. Derived in one place
-        so the two ends cannot drift apart.
+    @property
+    def operation_key(self) -> str:
+        """Ties a start notice to the outcome that answers it.
+
+        A caller that announces a long build passes this with both ends, or
+        the outcome opens a second modal instead of replacing the "please
+        wait" one. Derived in one place so the two ends cannot drift apart.
         """
         return f'post-processing:{self._post_function.value}'
 
-    def _notify_unattended_result(self, result: dict) -> None:
-        fname = self._post_function.value
-        if result.get('status'):
-            new_count = result.get('new_count')
-            output_root = result.get('output_root')
-            if result.get('degraded') or new_count is None or not output_root:
-                body = result.get('message', 'Complete.')
-            else:
-                # The count-based body drops the message, so the drop/skip
-                # accounting must ride along explicitly or unattended users
-                # never see it (a silently skipped well looks like success).
-                accounting = result.get('accounting_note', '')
-                body = f'{new_count} {fname.lower()}(s) saved to {output_root}.{accounting}'
-            notifications.notice(
-                'Post-processing',
-                f'{fname}s Saved',
-                body,
-                operation_key=self._unattended_operation_key,
+    def _incomplete(
+        self,
+        *,
+        group_errors: list,
+        attempted: int,
+        refused_count: int,
+        colliding_names: set,
+        dropped_frames: int,
+        artifact_paths: list,
+        output_root: str,
+    ) -> PostProcessingFailedError:
+        """The outcome of a build that did not produce everything asked of it."""
+        label = self.operation_label.lower()
+        missing = []
+        if group_errors:
+            shown = '; '.join(group_errors[:3])
+            more = '; ...' if len(group_errors) > 3 else ''
+            missing.append(
+                f'{len(group_errors)} of {attempted} {label} group(s) failed ({shown}{more})'
             )
-        else:
-            notifications.error(
-                'Post-processing',
-                f'{fname} Save Failed',
-                result.get('message', 'See lumaviewpro.log for details.'),
-                operation_key=self._unattended_operation_key,
+        if refused_count:
+            names = ', '.join(sorted(colliding_names)[:3])
+            more = ', ...' if len(colliding_names) > 3 else ''
+            missing.append(
+                f'{refused_count} group(s) were refused because more than one group '
+                f'derives the same output filename ({names}{more})'
             )
+        if dropped_frames:
+            missing.append(
+                f'{dropped_frames} frame(s) could not be added, so the video is '
+                'shorter than its source'
+            )
+        sentence = '; '.join(missing)
+        return PostProcessingFailedError(
+            operation=self.operation_label,
+            missing=f'{sentence[0].upper()}{sentence[1:]}.',
+            produced_paths=artifact_paths,
+            output_root=output_root,
+            errors=group_errors,
+        )
+
+    def _refuse(self, reason: str, message: str) -> PostProcessingRefusedError:
+        return PostProcessingRefusedError(
+            operation=self.operation_label, reason=reason, message=message
+        )
 
     def _load_folder_inner(
         self,
         path: str | pathlib.Path,
         tiling_configs_file_loc: pathlib.Path,
-        popup: ProgressSurface | None = None,
-        announce: bool = True,
+        on_progress: ProgressCallback | None = None,
         **kwargs: dict,
     ) -> dict:
         start_ts = datetime.datetime.now()
         if not path:
-            return {'status': False, 'message': 'Invalid path provided'}
+            raise self._refuse('invalid_path', 'No folder was given to process.')
 
         selected_path = pathlib.Path(path)
         results = self._post_processing_helper.load_folder(
@@ -260,20 +302,18 @@ class ProtocolPostProcessor(abc.ABC):
         )
 
         if results['status'] is False:
-            return {
-                'status': False,
-                'message': f'Failed to load protocol data using path: {selected_path}',
-            }
+            # The helper's own sentence says what it could not read; a
+            # generic "failed to load" in its place sent people looking for
+            # the wrong problem.
+            raise self._refuse('protocol_data_unreadable', results['message'])
 
         df = results['images_df']
         if len(df) == 0:
-            return {
-                'status': False,
-                'message': (
-                    'No image files were found in the selected folder. '
-                    'Check that the folder contains captured scan images.'
-                ),
-            }
+            raise self._refuse(
+                'no_images',
+                'No image files were found in the selected folder. '
+                'Check that the folder contains captured scan images.',
+            )
 
         # Composite, stitch, and z-projection re-read the source frames via
         # tifffile, which cannot decode JPG. A scan saved as JPG has no
@@ -289,28 +329,25 @@ class ProtocolPostProcessor(abc.ABC):
         )
         if unsupported_source is not None:
             source_format = unsupported_source.suffix.lstrip('.').upper() or 'unknown'
-            return {
-                'status': False,
-                'reason': 'unsupported_source_format',
-                'message': (
-                    f'{self._post_function.value} requires TIFF or OME-TIFF source images. '
-                    f'First unsupported {source_format} file: {unsupported_source.name}. '
-                    'Reacquire the scan as TIFF or OME-TIFF before post-processing.'
-                ),
-            }
+            raise self._refuse(
+                'unsupported_source_format',
+                f'{self._post_function.value} requires TIFF or OME-TIFF source images. '
+                f'First unsupported {source_format} file: {unsupported_source.name}. '
+                'Reacquire the scan as TIFF or OME-TIFF before post-processing.',
+            )
 
         root_path = results['root_path']
         protocol_post_record = results['protocol_post_record']
 
         # The per-image protocol writer (protocol_image_writer.py) prefixes
-        # filenames with protocol.capture_root() so a scan run with Root
+        # filenames with protocol.capture_prefix() so a scan run with Root
         # "experiment1" produces "experiment1_<step>_<color>_<...>.tiff".
         # Post-processed outputs (composite, stitch, z-proj, video, stack)
         # must use the same prefix; pipe it via kwargs to _generate_filename.
         protocol = results.get('protocol')
         kwargs.setdefault(
             'capture_root',
-            protocol.capture_root() if protocol is not None else '',
+            protocol.capture_prefix() if protocol is not None else '',
         )
 
         # Account for every input the subclass filter drops: the completion
@@ -348,19 +385,6 @@ class ProtocolPostProcessor(abc.ABC):
 
         group_count = len(groups)
 
-        if popup is None and announce:
-            # Unattended run: announce the start so a multi-minute build is
-            # not a silent hang; the paired completion/failure message is
-            # emitted by the load_folder wrapper.
-            fname = self._post_function.value
-            notifications.notice(
-                'Post-processing',
-                f'Saving {fname}s',
-                f'Building {group_count} {fname.lower()}(s). This can take '
-                f'several minutes; a message will confirm completion.',
-                operation_key=self._unattended_operation_key,
-            )
-
         # When two DIFFERENT groups would render one output filename,
         # generating them would produce only the first group's artifact (the
         # second is skipped as already-recorded) -- a silent data loss.
@@ -368,11 +392,22 @@ class ProtocolPostProcessor(abc.ABC):
         # unambiguous ones: an already-captured folder with baked-in
         # colliding names (which renaming protocol steps cannot repair)
         # stays post-processable for everything else.
+        #
+        # An output is named from the protocol's step data, which a folder
+        # carries as text: a well or label holding '..' or a separator would
+        # put the output outside the folder it was asked to build in. Every
+        # group is checked before any is built, so a refusal writes no output.
         planned_names = {}
         for _, group in groups:
             if len(group) <= 1:
                 continue
-            name = self._generate_filename(df=group, **kwargs)
+            name, _flags, output_file_loc = self._planned_output(root_path, group, **kwargs)
+            if not path_utils.resolves_inside(root_path, output_file_loc):
+                raise self._refuse(
+                    'output_outside_folder',
+                    f'The output {name!r} would be written outside {root_path}: the '
+                    'protocol in this folder names a step with a path. No output was written.',
+                )
             planned_names[name] = planned_names.get(name, 0) + 1
         colliding_names = {name for name, count in planned_names.items() if count > 1}
         for name in sorted(colliding_names):
@@ -389,6 +424,10 @@ class ProtocolPostProcessor(abc.ABC):
         refused_count = 0
         current_group = 1
         last_error = None
+        # Every failed group's error, not only the last: a build that lost
+        # several groups for different reasons must say each.
+        group_errors = []
+        dropped_frames = 0
         degraded_outputs = []
         output_significant_bits = None
         completed_group_ms = []
@@ -411,18 +450,13 @@ class ProtocolPostProcessor(abc.ABC):
                 )
                 continue
 
-            output_filename = self._generate_filename(df=group, **kwargs)
+            output_filename, record_data_post_functions, output_file_loc = self._planned_output(
+                root_path, group, **kwargs
+            )
             if output_filename in colliding_names:
                 refused_count += 1
                 continue
             row0 = group.iloc[0]
-            record_data_post_functions = row0[PostFunction.list_values()]
-            record_data_post_functions[self._post_function.value] = True
-            output_subfolder = self._post_processing_helper.generate_output_dir_name(
-                record=record_data_post_functions
-            )
-            output_path = root_path / output_subfolder
-            output_file_loc = output_path / output_filename
             output_file_loc_rel = output_file_loc.relative_to(root_path)
             group_label = (
                 f'well={row0.get("Well", "")} color={row0.get("Color", "")} '
@@ -446,7 +480,7 @@ class ProtocolPostProcessor(abc.ABC):
             alg_results = self._group_algorithm(
                 path=root_path,
                 df=group,
-                popup=popup,
+                on_progress=on_progress,
                 total_groups=group_count,
                 current_group=current_group,
                 **kwargs,
@@ -455,6 +489,7 @@ class ProtocolPostProcessor(abc.ABC):
 
             if not alg_results.status:
                 last_error = alg_results.error
+                group_errors.append(f'{output_file_loc_rel}: {alg_results.error}')
                 logger.info(
                     f'[PostProcPerf] {self._name} group failed after {group_ms:.1f}ms: {group_label}'
                 )
@@ -464,6 +499,9 @@ class ProtocolPostProcessor(abc.ABC):
             completed_group_ms.append(group_ms)
 
             alg_metadata = alg_results.record_metadata
+            # A video writes what frames it could read; the ones it could not
+            # leave it shorter than its source, which the build must say.
+            dropped_frames += alg_metadata.get('dropped_frames', 0)
             logger.info(
                 f'[PostProcPerf] {self._name} group done in {group_ms:.1f}ms: '
                 f'algorithm={alg_metadata.get("algorithm", "")} '
@@ -515,37 +553,30 @@ class ProtocolPostProcessor(abc.ABC):
             # is always present.
             output_significant_bits = alg_results.significant_bits
 
-            if popup is not None:
-                popup.progress = (new_count / group_count) * 100
+            if on_progress is not None:
+                status = None
                 if self._name == 'Stitcher':
                     mode_label = (
                         'Fast Preview'
                         if kwargs.get('stitching_mode') == 'fast_preview'
                         else 'Quality'
                     )
-                    remaining = max(0, group_count - current_group)
+                    # current_group already names the group now starting, which
+                    # has yet to run: it is one of the groups the estimate covers.
+                    remaining = max(0, group_count - current_group + 1)
                     average_ms = sum(completed_group_ms) / len(completed_group_ms)
                     estimate_seconds = round((remaining * average_ms) / 1000.0)
-                    popup.text = (
+                    status = (
                         f'Running {mode_label} Stitch -- group {current_group}/{group_count}.\n'
                         f'Estimated remaining time: about {estimate_seconds} seconds.\n'
                         'Source pixels and channel colors are preserved.'
                     )
+                on_progress((new_count / group_count) * 100, status)
 
         protocol_post_record.complete()
 
-        if popup is not None:
-            popup.progress = 100
-
-        collision_note = ''
-        if refused_count > 0:
-            collision_note = (
-                f' {refused_count} group(s) were refused because more than '
-                f'one group derives the same output filename '
-                f'({", ".join(sorted(colliding_names)[:3])}'
-                f'{", ..." if len(colliding_names) > 3 else ""}); their '
-                f'artifacts were not generated.'
-            )
+        if on_progress is not None:
+            on_progress(100, None)
 
         if skipped_single_paths:
             shown = ', '.join(skipped_single_paths[:3])
@@ -565,75 +596,60 @@ class ProtocolPostProcessor(abc.ABC):
 
         if (new_count == 0) and (existing_count == 0):
             fname = self._post_function.value
-            if refused_count > 0:
+            if refused_count > 0 and last_error is None:
                 # Every eligible group collided; nothing could be generated.
-                msg = (
+                raise self._refuse(
+                    'collision',
                     f'No {fname} was generated: every image group derives an '
                     f'output filename shared with another group, so their '
                     f'artifacts would be indistinguishable. See '
-                    f'lumaviewpro.log for the colliding names.'
+                    f'lumaviewpro.log for the colliding names.',
                 )
-                logger.info(f'[{self._name} ] {msg}')
-                return {
-                    'status': False,
-                    'reason': 'collision',
-                    'message': msg,
-                }
             if excluded_text and last_error is None:
                 # The emptiness is explained by what the filter excluded, not
                 # by the folder's structure -- a structural hint here sent
                 # users hunting for missing tiles a composite folder has.
                 fname_lower = fname.lower()
                 remedy = _remedy_for(self._post_function, excluded_kinds)
-                msg = (
+                raise self._refuse(
+                    'excluded_inputs',
                     f'No {fname_lower} was generated: this folder holds only '
                     f'{excluded_text}, which are derived outputs.'
-                    f'{remedy}{single_skip_note}'
+                    f'{remedy}{single_skip_note}',
                 )
-                logger.info(f'[{self._name} ] {msg}')
-                return {
-                    'status': False,
-                    'reason': 'excluded_inputs',
-                    'message': msg,
-                }
             needed = _MULTI_FRAME_REQUIREMENT.get(
                 self._post_function, 'multiple frames per scan position'
             )
-            if last_error is not None:
-                # Usable groups WERE found and attempted, but every one failed
-                # in the algorithm itself. Surface the real failure instead of
-                # implying the folder lacked the data -- the prior message sent
-                # users hunting for missing Z-stacks when the operation broke.
-                logger.info(f'[{self._name} ] No {fname} output -- all groups failed: {last_error}')
-                return {
-                    'status': False,
-                    'reason': 'error',
-                    'message': (
-                        f'{fname} could not be generated: {last_error}. '
-                        f'See lumaviewpro.log for details.'
-                    ),
-                }
-            logger.info(
-                f'[{self._name} ] No {fname} output generated -- '
-                f'no usable image groups (need {needed})'
-            )
-            return {
-                'status': False,
-                'reason': 'no_data',
-                'message': (
+            if last_error is None:
+                raise self._refuse(
+                    'no_data',
                     f'No {fname} was generated. {fname} requires {needed}. '
                     f'The folder may have image files but not the structure '
                     f'this operation needs -- check the log if you expected '
-                    f'the folder to be compatible.{accounting_note}'
-                ),
-            }
+                    f'the folder to be compatible.{accounting_note}',
+                )
+            # Usable groups WERE found and attempted, but every one failed in
+            # the algorithm itself: that is a failure, not a folder lacking the
+            # data -- reported as missing data, it sent people hunting for
+            # Z-stacks when the operation had broken.
+
+        if group_errors or refused_count or dropped_frames:
+            raise self._incomplete(
+                group_errors=group_errors,
+                attempted=len(group_errors) + new_count,
+                refused_count=refused_count,
+                colliding_names=colliding_names,
+                dropped_frames=dropped_frames,
+                artifact_paths=artifact_paths,
+                output_root=str(root_path),
+            )
 
         end_ts = datetime.datetime.now()
         elapsed_time = end_ts - start_ts
         logger.info(
             f'{self._name}: Complete - Created {new_count} {self._post_function.value.lower()} '
             f'artifacts (significant_bits={output_significant_bits}) in {elapsed_time}.'
-            f'{collision_note}{accounting_note}'
+            f'{accounting_note}'
         )
         if degraded_outputs:
             summary = self._degraded_summary(len(degraded_outputs))
@@ -650,7 +666,7 @@ class ProtocolPostProcessor(abc.ABC):
             }
         return {
             'status': True,
-            'message': f'Success.{collision_note}{accounting_note}',
+            'message': f'Success.{accounting_note}',
             'new_count': new_count,
             'output_root': str(root_path),
             'artifact_paths': artifact_paths,

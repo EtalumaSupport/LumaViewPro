@@ -36,18 +36,13 @@ saying "flat". Widening it is separate work.
 
 from __future__ import annotations
 
-import sys
 import threading
-from unittest.mock import MagicMock
 
 import pytest
 
-_mock_settings_init = MagicMock()
-_mock_settings_init.settings = {'BF': {'autofocus': False}, 'Green': {'autofocus': False}}
-sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.exceptions import AutofocusAborted
-from tests.af_drives import AF_CENTER_Z, af_runner_and_scope, drive_af
+from tests.af_drives import AF_CENTER_Z, af_lease, af_runner_and_scope, drive_af
 
 
 def _flat_curve(monkeypatch):
@@ -56,11 +51,11 @@ def _flat_curve(monkeypatch):
 
 
 def _z_moves(scope):
-    """Every absolute Z move issued through the non-dispatching body."""
+    """Every absolute Z move autofocus issued, started or waited, in order."""
     return [
         call.args[1]
-        for call in scope.motion._move_absolute_impl.call_args_list
-        if call.args and call.args[0] == 'Z'
+        for call in scope.motion.mock_calls
+        if call[0] in ('start_move_absolute', 'move_absolute') and call.args and call.args[0] == 'Z'
     ]
 
 
@@ -124,7 +119,7 @@ class TestDegenerateCurveReportsFailure:
 
         drive_af(runner, keep_led_on=True, led_color='Green')
 
-        lease = scope.illumination.acquire_led_lease.return_value
+        lease = af_lease(scope)
         assert lease.apply.called, 'the AF-end LED transition must be applied'
         ctx = lease.apply.call_args_list[-1].args[1]
         assert ctx.keep_led_on is True, (

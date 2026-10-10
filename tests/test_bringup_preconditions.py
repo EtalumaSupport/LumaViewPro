@@ -21,7 +21,8 @@ import time
 import pytest
 
 import tests.ast_seams as ast_seams
-from modules.exceptions import ConfigError
+from modules.exceptions import InstallationFileError
+from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 
 class TestScopeModelsCatalogue:
@@ -37,68 +38,72 @@ class TestScopeModelsCatalogue:
 
         path = tmp_path / 'scopes.json'
         path.write_text(json.dumps({'Layers': []}))
-        with pytest.raises(ConfigError) as info:
+        with pytest.raises(InstallationFileError, match='Models') as info:
             load_scope_models(str(path))
-        assert 'Models' in str(info.value) and str(path) in str(info.value)
+        assert info.value.file_path == path
 
     def test_a_models_section_that_is_not_a_dict_refuses(self, tmp_path):
         from modules.layer_record import load_scope_models
 
         path = tmp_path / 'scopes.json'
         path.write_text(json.dumps({'Models': ['LS850T']}))
-        with pytest.raises(ConfigError):
+        with pytest.raises(InstallationFileError):
             load_scope_models(str(path))
 
     def test_an_unreadable_file_refuses_instead_of_returning_empty(self, tmp_path):
         from modules.layer_record import load_scope_models
 
-        with pytest.raises(ConfigError):
+        with pytest.raises(InstallationFileError):
             load_scope_models(str(tmp_path / 'missing.json'))
 
 
 class TestInitializeStaysOnTheCallingThread:
-    def test_initialize_completes_with_a_registered_but_unstarted_io_lane(self):
-        """The factory case: executors registered, no worker yet.
+    def test_initialize_takes_no_lane(self):
+        """Bring-up is the scope configuring itself, not a command.
 
-        The public LED dispatcher would submit the safety-off to the IO
-        lane and wait the full write timeout for a worker that never
-        comes. Bound to the impl, the write happens here and now.
+        Every write in it binds the impl, so it runs here and now, whatever
+        the lanes would answer: with both lanes refusing work, a dispatched
+        safety-off or camera apply would raise.
         """
-        import modules.lumascope_api as lumascope_api
         from modules.scope_init_config import ScopeInitConfig
-        from modules.sequential_io_executor import SequentialIOExecutor
         from tests.test_composite_run_config import _settings
 
-        scope = lumascope_api.Lumascope(simulate=True, register_atexit=False)
-        io = SequentialIOExecutor(name='IO_UNSTARTED')
-        cam = SequentialIOExecutor(name='CAMERA_UNSTARTED')
+        scope = build_scope(simulate=True, register_atexit=False)
         try:
-            scope.register_executors(io_executor=io, camera_executor=cam)
-            config = ScopeInitConfig.from_settings(_settings(), labware=None)
+            scope.io_lane().protocol_start()
+            scope.camera_lane().protocol_start()
+            settings = bind_settings_like_a_session(scope, **_settings())
+            config = ScopeInitConfig.from_settings(settings, turreted=False)
             started = time.monotonic()
             scope.initialize(config)
             elapsed = time.monotonic() - started
-            assert elapsed < 2.0, f'initialize blocked {elapsed:.1f}s on an unstarted lane'
-            assert scope.runtime_state.get_current_objective_id() == config.objective_id
+            assert elapsed < 2.0, f'initialize took {elapsed:.1f}s'
+            assert scope.runtime_state.get_current_objective_id() == settings['objective_id']
         finally:
             scope.disconnect()
 
     def test_no_led_write_without_a_board(self, monkeypatch):
-        """Preservation pin: the board check the dispatcher applied survives
-        the move. With a Null board the impl must not run at all, or the
-        state cache would record a safety-off the hardware never saw."""
-        import modules.lumascope_api as lumascope_api
+        """With a Null board the bring-up safety-off writes nothing, and
+        records no LED change the hardware never saw."""
         from drivers.null_ledboard import NullLEDBoard
         from modules.scope_init_config import ScopeInitConfig
         from tests.test_composite_run_config import _settings
 
-        scope = lumascope_api.Lumascope(simulate=True, register_atexit=False)
+        scope = build_scope(simulate=True, register_atexit=False)
         try:
-            # IlluminationAPI._driver is a read-only view of the scope's slot.
-            monkeypatch.setattr(scope, '_led_driver', NullLEDBoard())
+            # a stand-in by design: the simulator has no scope without an LED
+            # board, so the production Null board goes into the slot a scope
+            # with no board holds. IlluminationAPI._driver is a read-only view
+            # of that slot.
+            board = NullLEDBoard()
+            monkeypatch.setattr(scope, '_led_driver', board)
             calls = []
-            monkeypatch.setattr(scope.illumination, '_leds_off_impl', lambda: calls.append(1))
-            scope.initialize(ScopeInitConfig.from_settings(_settings(), labware=None))
+            monkeypatch.setattr(board, 'leds_off', lambda: calls.append('leds_off'))
+            led_changes_before = scope.imaging.frame_validity.invalidation_counts.get('led', 0)
+            settings = bind_settings_like_a_session(scope, **_settings())
+            scope.initialize(ScopeInitConfig.from_settings(settings, turreted=False))
+            led_changes = scope.imaging.frame_validity.invalidation_counts.get('led', 0)
+            assert led_changes == led_changes_before
             assert calls == []
         finally:
             scope.disconnect()
@@ -108,7 +113,8 @@ class TestImageModeHandlerDuringInit:
     def test_select_image_mode_returns_before_its_camera_push_during_init(self):
         """Its sibling `select_binning_size` carries the same guard for the
         same reason; this pins that the image-mode handler reads
-        `ctx.initializing` before it reaches `camera_executor.put`."""
+        `ctx.initializing` before it submits the Session apply to the camera
+        lane (`submit_reported`)."""
         import ast
 
         node = ast_seams.find_def(
@@ -122,8 +128,8 @@ class TestImageModeHandlerDuringInit:
                 guard_line = guard_line or sub.lineno
             if (
                 isinstance(sub, ast.Call)
-                and isinstance(sub.func, ast.Attribute)
-                and sub.func.attr == 'put'
+                and isinstance(sub.func, ast.Name)
+                and sub.func.id == 'submit_reported'
             ):
                 put_line = put_line or sub.lineno
         assert guard_line is not None, 'select_image_mode has no ctx.initializing guard'

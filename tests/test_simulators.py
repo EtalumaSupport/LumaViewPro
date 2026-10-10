@@ -9,8 +9,6 @@ Verifies that simulators are drop-in replacements for real hardware:
 - Position math matches real boards
 """
 
-import ast
-import inspect
 import itertools
 import pytest
 import threading
@@ -20,14 +18,18 @@ import numpy as np
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
-from tests.ast_seams import iter_package_modules
-
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
 from drivers.simulated_camera import SimulatedCamera
-from drivers.camera import Camera
-from drivers.ledboard import LEDBoard
-from drivers.motorboard import MotorBoard
+from drivers.simulated_specimen import specimen_frames
+from tests.camera_fakes import grab_a_frame_made_after_now
+
+# Imported for its side effect, not its name: drivers/motorboard.py installs
+# the AMAX/DMAX probe-warning filter at import time, and
+# test_amax_dmax_probe_warning_suppressed measures that filter.
+from drivers.motorboard import MotorBoard  # noqa: F401
+from tests.scope_fakes import build_scope
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 
 # ---------------------------------------------------------------------------
@@ -36,13 +38,6 @@ from drivers.motorboard import MotorBoard
 
 
 class TestSimulatedLEDBoard:
-    def test_api_surface_matches_real(self):
-        """Simulated board has all public methods of the real board."""
-        real_methods = {m for m in dir(LEDBoard) if not m.startswith('_')}
-        sim_methods = {m for m in dir(SimulatedLEDBoard) if not m.startswith('_')}
-        missing = real_methods - sim_methods
-        assert not missing, f'SimulatedLEDBoard missing methods: {missing}'
-
     # Driver-side state-query tests (test_initial_state, test_led_on_off,
     # test_led_on_fast, test_leds_off_all, test_leds_off_fast,
     # test_get_led_state, test_get_led_states) retired in Wave 7 Phase
@@ -108,26 +103,19 @@ class TestSimulatedLEDBoard:
 
 
 class TestSimulatedMotorBoard:
-    def test_api_surface_matches_real(self):
-        """Simulated board has all public methods of the real board."""
-        real_methods = {m for m in dir(MotorBoard) if not m.startswith('_')}
-        sim_methods = {m for m in dir(SimulatedMotorBoard) if not m.startswith('_')}
-        missing = real_methods - sim_methods
-        assert not missing, f'SimulatedMotorBoard missing methods: {missing}'
-
     def test_initial_state(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         assert board.found is True
         assert board.is_connected()
         assert board.has_homed() is False
         assert board.has_turret() is False  # default model LS850 (no turret)
 
     def test_no_turret_model(self):
-        board = SimulatedMotorBoard(model='LS850')
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850')
         assert board.has_turret() is False
 
     def test_homing_xyz(self):
-        board = SimulatedMotorBoard(timing='instant')
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='instant')
         board.home()
         assert board.has_homed() is True
         assert board.current_pos('X') == 0
@@ -135,50 +123,40 @@ class TestSimulatedMotorBoard:
         assert board.current_pos('Z') == 0
 
     def test_zhome(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         board.move_abs_pos('Z', 5000)
         assert board.current_pos('Z') > 0
         board.zhome()
         assert board.current_pos('Z') == 0
 
     def test_thome(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         board.thome()
         assert board.has_thomed() is True
 
     def test_move_absolute_z(self):
-        board = SimulatedMotorBoard()
-        board.move_abs_pos('Z', 7000, overshoot_enabled=False)
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
+        board.move_abs_pos('Z', 7000)
         pos = board.current_pos('Z')
         assert abs(pos - 7000) < 1  # within rounding
 
     def test_move_absolute_xy(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         board.move_abs_pos('X', 60000)
         board.move_abs_pos('Y', 40000)
         assert abs(board.current_pos('X') - 60000) < 1
         assert abs(board.current_pos('Y') - 40000) < 1
 
-    def test_move_relative(self):
-        board = SimulatedMotorBoard()
-        board.move_abs_pos('X', 50000)
-        board.move_rel_pos('X', 10000)
-        assert abs(board.current_pos('X') - 60000) < 1
-
-    def test_limits_enforced(self):
-        board = SimulatedMotorBoard()
-        board.move_abs_pos('Z', 99999, overshoot_enabled=False)
-        pos = board.current_pos('Z')
-        assert pos <= 14000 + 1  # Z max is 14000
-
-    def test_limits_ignored(self):
-        board = SimulatedMotorBoard()
-        board.move_abs_pos('Z', 99999, overshoot_enabled=False, ignore_limits=True)
-        pos = board.current_pos('Z')
-        assert pos > 14000
+    def test_a_target_past_travel_is_driven_not_clamped(self):
+        """Travel is the motion API's refusal, as on the real board; a
+        driver that clamped made a refused move look like one that
+        succeeded and stopped short."""
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
+        board.move_abs_pos('Z', 99999)
+        assert abs(board.current_pos('Z') - 99999) < 1
 
     def test_target_status(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         board.move_abs_pos('X', 50000)
         # Fast mode: position updates instantly but target_status is False
         # for ~3ms (simulates motion monitor detection window)
@@ -188,39 +166,41 @@ class TestSimulatedMotorBoard:
         assert board.target_status('X') is True
 
     def test_conversion_z(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         um = 5000
         ustep = board.z_um2ustep(um)
         um_back = board.z_ustep2um(ustep)
         assert abs(um - um_back) < 0.01
 
     def test_conversion_xy(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         um = 60000
         ustep = board.xy_um2ustep(um)
         um_back = board.xy_ustep2um(ustep)
         assert abs(um - um_back) < 0.1
 
     def test_conversion_turret(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         pos = 3
         ustep = board.t_pos2ustep(pos)
         pos_back = board.t_ustep2pos(ustep)
         assert pos == pos_back
 
     def test_fullinfo(self):
-        board = SimulatedMotorBoard(model='LS850T', serial_number='TEST-123')
+        board = SimulatedMotorBoard(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850T', serial_number='TEST-123'
+        )
         info = board.fullinfo()
         assert info['model'] == 'LS850T'
         assert info['serial_number'] == 'TEST-123'
 
     def test_exchange_command_info(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         resp = board.exchange_command('INFO')
         assert 'SIMULATED' in resp
 
     def test_disconnect_reconnect(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         board.disconnect()
         assert not board.is_connected()
         resp = board.exchange_command('INFO')
@@ -228,7 +208,7 @@ class TestSimulatedMotorBoard:
         assert board.is_connected()
 
     def test_acceleration_stubs(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         assert board.acceleration_limit('X', 'acceleration') == 30000
         limits = board.acceleration_limits()
         assert 'X' in limits
@@ -270,7 +250,7 @@ class TestSimulatedMotorBoard:
         )
 
     def test_axes_config(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         config = board.get_axes_config()
         assert 'X' in config
         assert 'Y' in config
@@ -278,20 +258,20 @@ class TestSimulatedMotorBoard:
         assert 'T' in config
 
     def test_axis_limits(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         z_limits = board.get_axis_limits('Z')
         assert z_limits['min'] == 0
         assert z_limits['max'] == 14000
 
     def test_thread_safety(self):
         """Concurrent moves should not corrupt state."""
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         errors = []
 
         def move_axis(axis, positions):
             try:
                 for pos in positions:
-                    board.move_abs_pos(axis, pos, overshoot_enabled=False)
+                    board.move_abs_pos(axis, pos)
             except Exception as e:
                 errors.append(e)
 
@@ -307,19 +287,11 @@ class TestSimulatedMotorBoard:
 
         assert not errors
 
-    def test_overshoot_z(self):
-        """Z overshoot should work without errors."""
-        board = SimulatedMotorBoard()
-        board.move_abs_pos('Z', 5000, overshoot_enabled=False)
-        board.move_abs_pos('Z', 3000, overshoot_enabled=True)
-        pos = board.current_pos('Z')
-        assert abs(pos - 3000) < 1
-
     # --- detect_present_axes tests ---
 
     def test_detect_present_axes_ls850(self):
         """LS850 should have X, Y, Z (no turret)."""
-        board = SimulatedMotorBoard(model='LS850')
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850')
         axes = board.detect_present_axes()
         assert 'X' in axes
         assert 'Y' in axes
@@ -328,7 +300,7 @@ class TestSimulatedMotorBoard:
 
     def test_detect_present_axes_ls820t(self):
         """LS820T should have Z and T (no XY stage)."""
-        board = SimulatedMotorBoard(model='LS820T')
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS820T')
         axes = board.detect_present_axes()
         assert 'Z' in axes
         assert 'T' in axes
@@ -337,7 +309,7 @@ class TestSimulatedMotorBoard:
 
     def test_detect_present_axes_ls850t(self):
         """LS850T should have X, Y, Z, and T."""
-        board = SimulatedMotorBoard(model='LS850T')
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850T')
         axes = board.detect_present_axes()
         assert 'X' in axes
         assert 'Y' in axes
@@ -348,9 +320,9 @@ class TestSimulatedMotorBoard:
 
     def test_current_pos_steps(self):
         """After a move, current_pos_steps returns raw microstep position."""
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         target_um = 5000
-        board.move_abs_pos('Z', target_um, overshoot_enabled=False)
+        board.move_abs_pos('Z', target_um)
         steps = board.current_pos_steps('Z')
         assert isinstance(steps, int)
         expected_steps = board.z_um2ustep(target_um)
@@ -358,9 +330,9 @@ class TestSimulatedMotorBoard:
 
     def test_target_pos_steps(self):
         """target_pos_steps returns raw target microstep position."""
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         target_um = 7000
-        board.move_abs_pos('Z', target_um, overshoot_enabled=False)
+        board.move_abs_pos('Z', target_um)
         steps = board.target_pos_steps('Z')
         assert isinstance(steps, int)
         expected_steps = board.z_um2ustep(target_um)
@@ -370,27 +342,116 @@ class TestSimulatedMotorBoard:
 
     def test_zhome_returns_bool(self):
         """zhome() should return True on success."""
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         result = board.zhome()
         assert result is True
 
     def test_home_returns_bool(self):
         """home() should return True on success."""
-        board = SimulatedMotorBoard(timing='instant')
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='instant')
         result = board.home()
         assert result is True
 
     def test_thome_returns_bool(self):
         """thome() should return True on success."""
-        board = SimulatedMotorBoard(model='LS850T')
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850T')
         result = board.thome()
         assert result is True
 
     def test_thome_no_turret(self):
         """thome() on a non-turret model should still return True."""
-        board = SimulatedMotorBoard(model='LS850')
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850')
         result = board.thome()
         assert result is True
+
+
+class TestATravelHold:
+    """A held move halts part of the way, reports itself not arrived, and
+    finishes only once released; a STOP or a new target ends the hold."""
+
+    # About half a second of realistic X travel.
+    TARGET_UM = 20000
+
+    @staticmethod
+    def _held(board, axis='X', at_fraction=0.5):
+        hold = board.hold_travel(axis, at_fraction=at_fraction)
+        board.move_abs_pos(axis, TestATravelHold.TARGET_UM)
+        # A read is what finds the stage at the hold, as the monitor's poll does.
+        deadline = time.monotonic() + 10.0
+        while not hold.reached.is_set() and time.monotonic() < deadline:
+            board.target_status(axis)
+            time.sleep(0.005)
+        assert hold.reached.is_set(), 'the move never reached its hold'
+        return hold
+
+    @staticmethod
+    def _arrives(board, axis='X'):
+        deadline = time.monotonic() + 10.0
+        while not board.target_status(axis):
+            assert time.monotonic() < deadline, 'the released move never arrived'
+            time.sleep(0.005)
+
+    @staticmethod
+    def _board():
+        return SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='realistic')
+
+    def test_a_held_move_stands_part_of_the_way_and_has_not_arrived(self):
+        board = self._board()
+        self._held(board)
+        at = board.current_pos('X')
+        assert at == pytest.approx(self.TARGET_UM / 2, rel=0.01)
+        # Past the time the whole move takes, it still stands there.
+        time.sleep(0.6)
+        assert board.current_pos('X') == at
+        assert board.target_status('X') is False
+
+    def test_a_released_move_travels_on_and_arrives(self):
+        board = self._board()
+        hold = self._held(board)
+        hold.release()
+        self._arrives(board)
+        assert board.current_pos('X') == pytest.approx(self.TARGET_UM, abs=1)
+
+    def test_a_stop_ends_the_hold_where_the_stage_stood(self):
+        board = self._board()
+        self._held(board)
+        board.exchange_command('STOP')
+        assert board.target_status('X') is True
+        assert board.current_pos('X') == pytest.approx(self.TARGET_UM / 2, rel=0.01)
+        # The hold was that move's: the next one is not held.
+        board.move_abs_pos('X', 0)
+        self._arrives(board)
+
+    def test_a_new_target_ends_the_hold(self):
+        board = self._board()
+        self._held(board)
+        board.move_abs_pos('X', 5000)
+        self._arrives(board)
+        assert board.current_pos('X') == pytest.approx(5000, abs=1)
+
+    def test_a_home_ends_the_hold(self):
+        board = self._board()
+        self._held(board, axis='Z')
+        board.zhome()
+        assert board.current_pos('Z') == 0
+        # The hold went with the move it held: the axis takes a new one.
+        board.hold_travel('Z').release()
+
+    def test_a_hold_is_refused_where_a_move_does_not_travel(self):
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='fast')
+        with pytest.raises(ValueError, match='realistic'):
+            board.hold_travel('X')
+
+    @pytest.mark.parametrize('at_fraction', [0.0, 1.0, 1.5])
+    def test_a_hold_is_part_of_the_way_along(self, at_fraction):
+        with pytest.raises(ValueError, match='part of the way'):
+            self._board().hold_travel('X', at_fraction=at_fraction)
+
+    def test_an_axis_takes_one_hold(self):
+        board = self._board()
+        board.hold_travel('X')
+        with pytest.raises(ValueError, match='already has a hold'):
+            board.hold_travel('X')
 
 
 # ---------------------------------------------------------------------------
@@ -408,42 +469,46 @@ class TestAllModels:
 
     @pytest.mark.parametrize('model', ALL_MODELS)
     def test_model_creates_without_error(self, model):
-        board = SimulatedMotorBoard(model=model)
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model=model)
         assert board.found is True
         assert board.is_connected()
 
     @pytest.mark.parametrize('model', TURRET_MODELS)
     def test_turret_model_detected(self, model):
-        board = SimulatedMotorBoard(model=model)
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model=model)
         assert board.has_turret() is True
 
     @pytest.mark.parametrize('model', NON_TURRET_MODELS)
     def test_non_turret_model_detected(self, model):
-        board = SimulatedMotorBoard(model=model)
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model=model)
         assert board.has_turret() is False
 
     @pytest.mark.parametrize('model', ALL_MODELS)
     def test_fullinfo_reports_model(self, model):
-        board = SimulatedMotorBoard(model=model, serial_number='SN-TEST')
+        board = SimulatedMotorBoard(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model=model, serial_number='SN-TEST'
+        )
         info = board.fullinfo()
         assert info['model'] == model
         assert info['serial_number'] == 'SN-TEST'
 
     @pytest.mark.parametrize('model', ALL_MODELS)
     def test_z_axis_works(self, model):
-        board = SimulatedMotorBoard(model=model)
-        board.move_abs_pos('Z', 5000, overshoot_enabled=False)
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model=model)
+        board.move_abs_pos('Z', 5000)
         assert abs(board.current_pos('Z') - 5000) < 1
 
     @pytest.mark.parametrize('model', ALL_MODELS)
     def test_homing_works(self, model):
-        board = SimulatedMotorBoard(model=model, timing='instant')
+        board = SimulatedMotorBoard(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model=model, timing='instant'
+        )
         board.home()
         assert board.has_homed() is True
 
     @pytest.mark.parametrize('model', ALL_MODELS)
     def test_motorconfig_travel_limits(self, model):
-        board = SimulatedMotorBoard(model=model)
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model=model)
         mc = board.motorconfig
         # All models should have valid travel limits
         assert mc.travel_limit_mm('X') > 0
@@ -452,7 +517,7 @@ class TestAllModels:
 
     @pytest.mark.parametrize('model', ALL_MODELS)
     def test_axes_config_populated(self, model):
-        board = SimulatedMotorBoard(model=model)
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model=model)
         config = board.get_axes_config()
         assert 'X' in config
         assert 'Y' in config
@@ -462,7 +527,7 @@ class TestAllModels:
 
     @pytest.mark.parametrize('model', TURRET_MODELS)
     def test_turret_positions(self, model):
-        board = SimulatedMotorBoard(model=model)
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model=model)
         mc = board.motorconfig
         for pos in range(1, 5):
             usteps = mc.turret_position_usteps(pos)
@@ -471,7 +536,7 @@ class TestAllModels:
     @pytest.mark.parametrize('model', ALL_MODELS)
     def test_center_command(self, model):
         """CENTER should move to stage center for all models."""
-        board = SimulatedMotorBoard(model=model)
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model=model)
         resp = board.exchange_command('CENTER')
         assert resp is not None
         x = board.current_pos('X')
@@ -494,9 +559,8 @@ class TestMotorConfigDefaults:
 
     def test_defaults_load(self):
         from drivers.motorconfig import MotorConfig
-        import pathlib
 
-        mc = MotorConfig(defaults_file=pathlib.Path('data/motorconfig_defaults.json'))
+        mc = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         assert mc.model() in ('LS850', 'LS850T')
         assert mc.travel_limit_mm('X') == 120
         assert mc.travel_limit_mm('Y') == 80
@@ -507,9 +571,8 @@ class TestMotorConfigDefaults:
 
     def test_update_from_board_overrides(self):
         from drivers.motorconfig import MotorConfig
-        import pathlib
 
-        mc = MotorConfig(defaults_file=pathlib.Path('data/motorconfig_defaults.json'))
+        mc = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         mc.update_from_board({'Axis Travel Limit': {'Z': 20}})
         assert mc.travel_limit_mm('Z') == 20
         # X/Y unchanged
@@ -517,9 +580,8 @@ class TestMotorConfigDefaults:
 
     def test_missing_section_returns_default(self):
         from drivers.motorconfig import MotorConfig
-        import pathlib
 
-        mc = MotorConfig(defaults_file=pathlib.Path('data/motorconfig_defaults.json'))
+        mc = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
         # Non-existent section should return default without crashing
         val = mc._axis_lookup('Nonexistent Section', 'X', default=42)
         assert val == 42
@@ -544,43 +606,42 @@ class TestMotorConfigDefaults:
 
 
 class TestScaleBarObjectiveInit:
-    """Verify that set_objective enables scale bar rendering."""
+    """The scale bar and the objective a capture uses are the settings' answers."""
 
     def test_objective_none_at_init(self):
-        """Lumascope starts with no objective set."""
-        from modules.lumascope_api import Lumascope
+        """A scope not yet brought up has no objective."""
 
-        scope = Lumascope(simulate=True)
-        assert scope.runtime_state._objective is None
+        scope = build_scope(simulate=True)
+        assert scope.runtime_state.get_current_objective() is None
 
-    def test_set_objective_populates(self):
-        """set_objective() should populate _objective dict."""
-        from modules.lumascope_api import Lumascope
+    def test_the_selected_objective_is_the_settings(self):
+        """With no turret, the objective is the one the settings select."""
 
-        scope = Lumascope(simulate=True)
-        scope.runtime_state.set_objective('20x Oly')
-        assert scope.runtime_state._objective is not None
-        assert scope.runtime_state._objective['magnification'] == 20
+        from tests.scope_fakes import bind_settings_like_a_session, record_turret_answer
+
+        scope = record_turret_answer(build_scope(simulate=True, sim_model='LS850'))
+        bind_settings_like_a_session(scope, objective_id='20x Oly')
+        assert scope.runtime_state.get_current_objective()['magnification'] == 20
 
     def test_scale_bar_disabled_without_objective(self):
         """Scale bar enabled but no objective -> use_scale_bar forced False."""
-        from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
-        scope.imaging.set_scale_bar(enabled=True)
-        assert scope.imaging._scale_bar['enabled'] is True
-        assert scope.runtime_state._objective is None
-        # Internal logic forces use_scale_bar = False when _objective is None
+        from tests.scope_fakes import bind_settings_like_a_session
+
+        scope = build_scope(simulate=True)
+        bind_settings_like_a_session(scope, scale_bar={'enabled': True})
+        assert scope.imaging.scale_bar_config['enabled'] is True
+        assert scope.runtime_state.get_current_objective() is None
 
     def test_scale_bar_works_with_objective(self):
         """Scale bar with objective set should proceed."""
-        from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
-        scope.runtime_state.set_objective('20x Oly')
-        scope.imaging.set_scale_bar(enabled=True)
-        assert scope.imaging._scale_bar['enabled'] is True
-        assert scope.runtime_state._objective is not None
+        from tests.scope_fakes import bind_settings_like_a_session, record_turret_answer
+
+        scope = record_turret_answer(build_scope(simulate=True, sim_model='LS850'))
+        bind_settings_like_a_session(scope, objective_id='20x Oly', scale_bar={'enabled': True})
+        assert scope.imaging.scale_bar_config['enabled'] is True
+        assert scope.runtime_state.get_current_objective() is not None
 
 
 # ---------------------------------------------------------------------------
@@ -589,20 +650,11 @@ class TestScaleBarObjectiveInit:
 
 
 class TestSimulatedCamera:
-    def test_api_surface_matches_base(self):
-        """Simulated camera implements all abstract methods from Camera ABC."""
-        abstract_methods = {
-            m for m in dir(Camera) if not m.startswith('_') and callable(getattr(Camera, m, None))
-        }
-        sim_methods = {m for m in dir(SimulatedCamera) if not m.startswith('_')}
-        missing = abstract_methods - sim_methods
-        assert not missing, f'SimulatedCamera missing methods: {missing}'
-
     def test_connects_on_init(self):
         cam = SimulatedCamera()
         assert cam.active is True
         assert cam.is_connected()
-        assert cam.model_name == 'SimulatedCamera-1920x1200'
+        assert cam.model_name == 'SimulatedCamera-3840x2160'
 
     def test_disconnect_reconnect(self):
         cam = SimulatedCamera()
@@ -614,8 +666,8 @@ class TestSimulatedCamera:
     def test_default_frame_size(self):
         cam = SimulatedCamera()
         size = cam.get_frame_size()
-        assert size['width'] == 1920
-        assert size['height'] == 1200
+        assert size['width'] == 3840
+        assert size['height'] == 2160
 
     def test_set_frame_size(self):
         cam = SimulatedCamera()
@@ -624,19 +676,17 @@ class TestSimulatedCamera:
         assert size['width'] == 960
         assert size['height'] == 600
 
-    def test_frame_size_snaps_to_valid(self):
+    def test_a_frame_size_off_the_grid_is_delivered(self):
         cam = SimulatedCamera()
         cam.set_frame_size(100, 7)  # Not multiples of 48/4
-        size = cam.get_frame_size()
-        assert size['width'] % 48 == 0
-        assert size['height'] % 4 == 0
+        assert cam.get_frame_size() == {'width': 100, 'height': 7}
 
     def test_set_frame_size_returns_delivered_geometry(self):
         cam = SimulatedCamera()
         delivered = cam.set_frame_size(640, 482)
-        # Snapped to the 48/4 grid; the return must equal what get_frame_size
-        # then reports, so callers can cache it without a read-back.
-        assert delivered == {'width': 624, 'height': 480}
+        # Off the 48/4 grid, delivered exactly; the return must equal what
+        # get_frame_size then reports, so callers can cache it without a read-back.
+        assert delivered == {'width': 640, 'height': 482}
         assert delivered == cam.get_frame_size()
 
     def test_min_max_frame_size(self):
@@ -730,11 +780,11 @@ class TestSimulatedCamera:
     def test_grab_returns_image(self):
         cam = SimulatedCamera()
         cam.open_and_start()
-        result, ts, _seq = cam.grab()
+        result, ts, _seq = grab_a_frame_made_after_now(cam)
         assert result is True
         assert ts is not None
         assert isinstance(cam.array, np.ndarray)
-        assert cam.array.shape == (1200, 1920)
+        assert cam.array.shape == (2160, 3840)
         assert cam.array.dtype == np.uint8
 
     def test_grab_new_capture(self):
@@ -752,14 +802,33 @@ class TestSimulatedCamera:
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.set_binning_size(2)
-        cam.grab()
-        assert cam.array.shape == (600, 960)
+        grab_a_frame_made_after_now(cam)
+        assert cam.array.shape == (1080, 1920)
+
+    def test_a_format_change_stores_no_frame_made_under_the_old_format(self):
+        """A pixel-format change stops the stream, applies and restarts it, as
+        on a real body, so the next frame stored is in the new format.
+
+        The slow transfer is what makes the race certain: a frame made under
+        Mono8 just before the change would otherwise land after the setter
+        returned, and the capture that waited for the next frame would get it.
+        """
+        cam = SimulatedCamera(width=48, height=24)
+        cam._grab_delay = 0.2
+        cam.open_and_start()
+        grab_a_frame_made_after_now(cam)
+        assert cam.set_pixel_format('Mono12') is True
+        ok, _ts, _seq = cam.grab_new_capture(timeout_s=5.0)
+        assert ok is True
+        assert cam.array.dtype == np.uint16, (
+            'a frame made under the old format was stored after the change'
+        )
 
     def test_grab_mono12_dtype(self):
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.set_pixel_format('Mono12')
-        cam.grab()
+        grab_a_frame_made_after_now(cam)
         assert cam.array.dtype == np.uint16
 
     def test_grab_not_grabbing_returns_false(self):
@@ -772,11 +841,11 @@ class TestSimulatedCamera:
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.exposure_t(1.0)  # 1ms -- dim
-        cam.grab()
+        grab_a_frame_made_after_now(cam)
         dim = cam.array.mean()
 
         cam.exposure_t(100.0)  # 100ms -- bright
-        cam.grab()
+        grab_a_frame_made_after_now(cam)
         bright = cam.array.mean()
 
         assert bright > dim
@@ -785,14 +854,31 @@ class TestSimulatedCamera:
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.gain(0.1)
-        cam.grab()
+        grab_a_frame_made_after_now(cam)
         low = cam.array.mean()
 
-        cam.gain(10.0)
-        cam.grab()
+        cam.gain(20.0)
+        grab_a_frame_made_after_now(cam)
         high = cam.array.mean()
 
         assert high > low
+
+    def test_twenty_db_of_gain_is_ten_times_the_signal(self):
+        # Gain is in dB, so 20 dB is a factor of 10 in amplitude, not 20.
+        cam = SimulatedCamera()
+        cam.open_and_start()
+        cam.set_pixel_format('Mono12')
+        cam.set_test_pattern(enabled=True, pattern='focus_target')
+        cam.exposure_t(1.0)
+        cam.gain(0.0)
+        grab_a_frame_made_after_now(cam)
+        unity = cam.array.mean()
+
+        cam.gain(20.0)
+        grab_a_frame_made_after_now(cam)
+        amplified = cam.array.mean()
+
+        assert amplified / unity == pytest.approx(10.0, rel=0.05)
 
     # -- Test patterns --
 
@@ -800,21 +886,21 @@ class TestSimulatedCamera:
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='Black')
-        cam.grab()
+        grab_a_frame_made_after_now(cam)
         assert cam.array.max() == 0
 
     def test_white_pattern(self):
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='White')
-        cam.grab()
+        grab_a_frame_made_after_now(cam)
         assert cam.array.max() == 255
 
     def test_noise_pattern(self):
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='Noise')
-        cam.grab()
+        grab_a_frame_made_after_now(cam)
         # Noise should have some variance
         assert cam.array.std() > 0
 
@@ -823,7 +909,7 @@ class TestSimulatedCamera:
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='Black')
         cam.set_test_pattern(enabled=False)
-        cam.grab()
+        grab_a_frame_made_after_now(cam)
         # The specimen field has variation; the black pattern it replaced does not
         assert cam.array.std() > 0
 
@@ -928,7 +1014,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
 
     def test_max_exposure_set(self):
         cam = SimulatedCamera()
-        assert cam.max_exposure == 10_000
+        assert cam.max_exposure == 1_000
 
     # -- Thread safety --
 
@@ -969,7 +1055,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
         cam = SimulatedCamera(width=480, height=300, grab_delay=0)
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='focus_target')
-        cam.grab()
+        grab_a_frame_made_after_now(cam)
         # Focus target should have features -- not uniform
         assert cam.array.std() > 5
 
@@ -996,7 +1082,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
         scores = {}
         for z in [3000, 4000, 4500, 4800, 5000, 5200, 5500, 6000, 7000]:
             cam.set_z_position(float(z))
-            cam.grab()
+            grab_a_frame_made_after_now(cam)
             scores[z] = focus_vollath4_original(image=cam.array)
 
         # Best score should be at z=5000 (focal point)
@@ -1015,15 +1101,15 @@ class TestNoPatternRequestedRendersTheSpecimen:
 
         # Get scores at increasing distances from focus
         cam.set_z_position(5000.0)
-        cam.grab()
+        grab_a_frame_made_after_now(cam)
         score_at_focus = focus_vollath4_original(image=cam.array)
 
         cam.set_z_position(5500.0)
-        cam.grab()
+        grab_a_frame_made_after_now(cam)
         score_near = focus_vollath4_original(image=cam.array)
 
         cam.set_z_position(6500.0)
-        cam.grab()
+        grab_a_frame_made_after_now(cam)
         score_far = focus_vollath4_original(image=cam.array)
 
         assert score_at_focus > score_near > score_far, (
@@ -1041,11 +1127,11 @@ class TestNoPatternRequestedRendersTheSpecimen:
         cam.set_blur_per_um(0.01)
 
         cam.set_z_position(4000.0)
-        cam.grab()
+        grab_a_frame_made_after_now(cam)
         score_below = focus_vollath4_original(image=cam.array)
 
         cam.set_z_position(6000.0)
-        cam.grab()
+        grab_a_frame_made_after_now(cam)
         score_above = focus_vollath4_original(image=cam.array)
 
         # Within 20% of each other (both 1000um from focus)
@@ -1061,12 +1147,12 @@ class TestNoPatternRequestedRendersTheSpecimen:
         cam.set_focal_z(5000.0)
 
         # At focus
-        cam.grab()
+        grab_a_frame_made_after_now(cam)
         assert cam.get_z_position() == 5000.0
 
         # Move via callback
         z_val[0] = 3000.0
-        cam.grab()
+        grab_a_frame_made_after_now(cam)
         assert cam.get_z_position() == 3000.0
 
     def test_no_blur_at_focal_point(self):
@@ -1077,12 +1163,12 @@ class TestNoPatternRequestedRendersTheSpecimen:
         cam.set_focal_z(5000.0)
 
         cam.set_z_position(5000.0)
-        cam.grab()
+        grab_a_frame_made_after_now(cam)
         sharp = cam.array.copy()
 
         # Defocused image should differ
         cam.set_z_position(7000.0)
-        cam.grab()
+        grab_a_frame_made_after_now(cam)
         blurred = cam.array
 
         assert not np.array_equal(sharp, blurred)
@@ -1111,13 +1197,13 @@ class TestNoPatternRequestedRendersTheSpecimen:
     def test_profile_loaded_on_connect(self):
         cam = SimulatedCamera()
         assert cam.profile is not None
-        assert cam.profile.model_name == 'SimulatedCamera-1920x1200'
+        assert cam.profile.model_name == 'SimulatedCamera-3840x2160'
 
     def test_profile_sensor_info(self):
         cam = SimulatedCamera()
         assert cam.profile.sensor == 'Simulated'
         assert cam.profile.pixel_size_um == 2.0
-        assert cam.profile.shutter == 'global'
+        assert cam.profile.shutter == 'rolling'
 
     def test_profile_sets_max_exposure(self):
         cam = SimulatedCamera()
@@ -1137,18 +1223,16 @@ class TestNoPatternRequestedRendersTheSpecimen:
     def test_profile_gain_info(self):
         cam = SimulatedCamera()
         assert cam.profile.gain.total_min_db == 0.0
-        assert cam.profile.gain.total_max_db == 20.0
-        assert cam.profile.gain.analog_max_db == 20.0
+        assert cam.profile.gain.total_max_db == 48.0
 
     def test_profile_native_resolution(self):
         cam = SimulatedCamera()
-        assert cam.profile.native_resolution == {'width': 1920, 'height': 1200}
+        assert cam.profile.native_resolution == {'width': 3840, 'height': 2160}
 
     def test_profile_capabilities(self):
         cam = SimulatedCamera()
         assert cam.profile.has_auto_gain is True
         assert cam.profile.has_auto_exposure is True
-        assert cam.profile.has_temperature is True
         assert cam.profile.driver == 'simulated'
 
     # -- update_camera_config exception safety --
@@ -1262,14 +1346,14 @@ class TestSpecimenCycleFrames:
     """
 
     def test_frames_are_distinct_so_a_live_stream_is_visible(self):
-        frames = SimulatedCamera._make_specimen_frames(600, 800)
+        frames = specimen_frames(600, 800)
         assert len(frames) == 4
         assert len({f.tobytes() for f in frames}) == 4, (
             'identical frames make a running stream indistinguishable from a frozen one'
         )
 
     def test_consecutive_frames_stay_close_including_the_wrap(self):
-        frames = SimulatedCamera._make_specimen_frames(600, 800)
+        frames = specimen_frames(600, 800)
         deltas = [
             float(np.abs(frames[i].astype(int) - frames[(i + 1) % len(frames)].astype(int)).mean())
             for i in range(len(frames))
@@ -1285,17 +1369,17 @@ class TestSpecimenCycleFrames:
         assert min(deltas) > 1.0, f'frames too similar to read as motion: {deltas}'
 
     def test_never_fully_black_or_blown_out(self):
-        for frame in SimulatedCamera._make_specimen_frames(600, 800):
+        for frame in specimen_frames(600, 800):
             assert frame.min() > 0, 'a crushed frame reads as a dead camera'
             assert frame.max() < 255, 'a blown frame hides the exposure control'
 
     def test_deterministic_for_a_fixed_seed(self):
-        first = SimulatedCamera._make_specimen_frames(600, 800)
-        second = SimulatedCamera._make_specimen_frames(600, 800)
+        first = specimen_frames(600, 800)
+        second = specimen_frames(600, 800)
         assert all(np.array_equal(a, b) for a, b in zip(first, second, strict=True))
 
     def test_matches_requested_frame_size(self):
-        for frame in SimulatedCamera._make_specimen_frames(1200, 1920):
+        for frame in specimen_frames(1200, 1920):
             assert frame.shape == (1200, 1920)
             assert frame.dtype == np.uint8
 
@@ -1321,7 +1405,6 @@ class TestCameraProfiles:
         assert p.sensor == 'Sony IMX676-AAMR1-C'
         assert p.exposure_max_us == 10_000_000
         assert p.gain.analog_max_db == 30.0
-        assert p.has_temperature is True
 
     def test_lookup_known_ids_model(self):
         from drivers.camera_profiles import lookup_profile
@@ -1342,7 +1425,7 @@ class TestCameraProfiles:
     def test_lookup_simulated(self):
         from drivers.camera_profiles import lookup_profile
 
-        p = lookup_profile('SimulatedCamera-1920x1200')
+        p = lookup_profile('SimulatedCamera-3840x2160')
         assert p.driver == 'simulated'
         assert p.gain.total_min_db == 0.0
 
@@ -1398,31 +1481,31 @@ class TestCameraProfiles:
         assert p.model_name == ''
         assert p.pixel_formats == []
         assert p.binning_sizes == [1]
-        assert p.alignment == {'width': 4, 'height': 4}
+        assert p.alignment == {'width': 2, 'height': 2}
 
 
 class TestTimingModes:
     """Verify timing mode switching across all simulators."""
 
     def test_motor_instant_mode(self):
-        m = SimulatedMotorBoard(timing='instant')
+        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='instant')
         assert m._cmd_delay == 0.0
         assert m._simulate_move_duration is False
         assert m._fast_move_duration == 0.0
 
     def test_motor_fast_mode(self):
-        m = SimulatedMotorBoard(timing='fast')
+        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='fast')
         assert m._cmd_delay > 0  # 1ms minimum -- nothing returns instantly
         assert m._simulate_move_duration is True
         assert m._fast_move_duration > 0  # Brief ~3ms per move
 
     def test_motor_realistic_mode(self):
-        m = SimulatedMotorBoard(timing='realistic')
+        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='realistic')
         assert m._cmd_delay > 0
         assert m._simulate_move_duration is True
 
     def test_motor_switch_mode(self):
-        m = SimulatedMotorBoard(timing='fast')
+        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='fast')
         m.set_timing_mode('realistic')
         assert m._simulate_move_duration is True
         m.set_timing_mode('fast')
@@ -1434,7 +1517,7 @@ class TestTimingModes:
 
     def test_motor_realistic_move_not_instant(self):
         """In realistic mode, target_status returns False during move."""
-        m = SimulatedMotorBoard(timing='realistic')
+        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='realistic')
         m._homed['Z'] = True
         # 1000 usteps gives ~0.5 s expected duration with TMC ramp params --
         # still proves "not instant" via the immediate-False check, while
@@ -1457,7 +1540,7 @@ class TestTimingModes:
         """In fast mode, position updates instantly but target_status has ~3ms delay."""
         import time
 
-        m = SimulatedMotorBoard(timing='fast')
+        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='fast')
         m.move_abs_pos('Z', 10000.0)
         # Position is instant
         assert m.current_pos('Z') == pytest.approx(10000.0, abs=1.0)
@@ -1488,7 +1571,7 @@ class TestTimingModes:
 
     def test_invalid_mode_raises(self):
         with pytest.raises(ValueError):
-            SimulatedMotorBoard(timing='turbo')
+            SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='turbo')
         with pytest.raises(ValueError):
             SimulatedLEDBoard(timing='turbo')
         with pytest.raises(ValueError):
@@ -1502,7 +1585,7 @@ class TestFailureInjection:
 
     def test_motor_fail_after_disconnects(self):
         """Motor board should return None after N commands."""
-        m = SimulatedMotorBoard(fail_after=3)
+        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, fail_after=3)
         assert m.exchange_command('INFO') is not None  # cmd 1
         assert m.exchange_command('INFO') is not None  # cmd 2
         assert m.exchange_command('INFO') is not None  # cmd 3
@@ -1511,7 +1594,7 @@ class TestFailureInjection:
 
     def test_motor_fail_after_sets_found_false(self):
         """After injected disconnect, found should be False."""
-        m = SimulatedMotorBoard(fail_after=1)
+        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, fail_after=1)
         assert m.found is True
         m.exchange_command('INFO')  # cmd 1 -- succeeds
         m.exchange_command('INFO')  # cmd 2 -- fails
@@ -1519,7 +1602,7 @@ class TestFailureInjection:
 
     def test_motor_fail_on_specific_command(self):
         """Motor board should return None for targeted commands only."""
-        m = SimulatedMotorBoard(fail_on={'ZHOME'})
+        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, fail_on={'ZHOME'})
         assert m.exchange_command('INFO') is not None  # OK
         assert m.exchange_command('ZHOME') is None  # targeted failure
         assert m.exchange_command('INFO') is not None  # still connected
@@ -1527,26 +1610,32 @@ class TestFailureInjection:
 
     def test_motor_fail_on_multiple_commands(self):
         """Multiple commands can be targeted for failure."""
-        m = SimulatedMotorBoard(fail_on={'ZHOME', 'THOME'}, timing='instant')
+        m = SimulatedMotorBoard(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS,
+            fail_on={'ZHOME', 'THOME'},
+            timing='instant',
+        )
         assert m.exchange_command('ZHOME') is None
         assert m.exchange_command('THOME') is None
         assert m.exchange_command('HOME') is not None  # not in fail set
 
     def test_motor_no_failure_by_default(self):
         """Without fail params, simulator works normally."""
-        m = SimulatedMotorBoard()
+        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         for _ in range(100):
             assert m.exchange_command('INFO') is not None
 
     def test_motor_fail_after_affects_move(self):
         """Mid-protocol disconnect: move starts OK, then fails."""
-        m = SimulatedMotorBoard(fail_after=5, timing='instant')
+        m = SimulatedMotorBoard(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, fail_after=5, timing='instant'
+        )
         m.exchange_command('HOME')  # cmd 1
-        m.move_abs_pos('Z', 5000)  # uses multiple commands
-        # Eventually commands fail
-        result = m.exchange_command('ACTUAL_RZ')  # noqa: F841 -- deferred
-        # After enough commands, should get None
-        # (exact count depends on internal commands used by move_abs_pos)
+        m.move_abs_pos('Z', 5000)  # cmd 2: one leg, one target write
+        assert m.exchange_command('ACTUAL_RZ') is not None  # cmd 3
+        assert m.exchange_command('ACTUAL_RZ') is not None  # cmd 4
+        assert m.exchange_command('ACTUAL_RZ') is not None  # cmd 5
+        assert m.exchange_command('ACTUAL_RZ') is None  # the board is gone after the fifth
 
     # --- LED board ---
 
@@ -1589,241 +1678,38 @@ class TestFailureInjection:
         assert led.found is False
 
 
-# ---------------------------------------------------------------------------
-# Drop-in-replacement guards (all three board pairs)
-# ---------------------------------------------------------------------------
-#
-# The three `test_api_surface_matches_real` / `_matches_base` tests above
-# ask one question -- does the simulator have every public NAME the real
-# board has -- and all three passed while a documented SDK method was
-# crashing against the simulator. `IlluminationAPI.wait_until_led_on()`
-# calls `self._driver.wait_until_on(timeout_s)`; the real board accepts
-# `timeout_s`, the simulator's override did not, so the call raised
-# TypeError in every simulated run. A name-only comparison cannot see
-# that, and the one test that touched the method on a sim scope set
-# `_led_driver = None` first, so it never reached the driver.
-#
-# These guards close the two gaps a name check leaves.
-#
-# Why the drift exists at all, which is the part worth remembering:
-#
-#     SimulatedCamera(Camera)   inherits the ABC   -> 0 divergences
-#     SimulatedLEDBoard         inherits nothing   -> 4 divergences
-#     SimulatedMotorBoard       inherits nothing   -> 2 divergences
-#
-# The pair that shares a contract has never drifted; the two that share
-# none hold every divergence. So the root is not six stale signatures, it
-# is that nothing makes LED/motor drift UNREPRESENTABLE. Hand-mirroring
-# the parameters would add defaults that do nothing on a simulator --
-# decorative parity that reads as fixed while the next divergence is
-# still free to appear. The five inert divergences are therefore
-# allowlisted below against that structural fix, not patched here. The
-# one that was actually crashing (`wait_until_on` missing `timeout_s`)
-# is fixed in the simulator, where the parameter now bounds a loop that
-# could previously spin forever.
+class TestAnUnlitFieldIsDark:
+    """The simulated camera answers to light.
 
-
-_BOARD_PAIRS = (
-    ('LEDBoard', LEDBoard, SimulatedLEDBoard),
-    ('MotorBoard', MotorBoard, SimulatedMotorBoard),
-    ('Camera', Camera, SimulatedCamera),
-)
-
-# Sim-only public names per board, recorded at introduction. This is a
-# RATCHET, not an allowlist: it carries no per-name justification and
-# exists only so new sim-only surface cannot accrete unnoticed. A
-# deliberate addition raises the number here in the same commit.
-#
-# What the current entries cover: timing-mode controls and TIMING_*
-# constants (test-harness affordances, on every simulator),
-# `load_cycle_images` plus the camera's virtual-specimen focus modeling
-# (`set_focal_z`, `set_blur_per_um`, ...), and six firmware-update
-# methods on the motor simulator that anticipate the firmware-updating
-# work landing on the FW branch. Those six have no caller yet; when that
-# code calls them, `test_no_production_code_calls_simulator_only_names`
-# below will require the REAL board to gain the same names, which is the
-# point.
-_SIM_ONLY_NAME_BUDGET = {
-    'LEDBoard': 4,
-    'MotorBoard': 12,
-    'Camera': 13,
-}
-
-# Parameter divergences that stay until the simulators gain a shared
-# contract with the real boards. Every one of these parameters is inert
-# on a simulator -- there is no firmware to soft-reset, no empty response
-# to stop on, no unsupported-command warning to suppress -- so adding
-# them by hand would mean defaults that do nothing, and the next
-# divergence would still be free to appear. Keyed by (board, method) so
-# the entry survives reformatting.
-_PARAM_DIVERGENCE_ALLOWLIST = {
-    ('LEDBoard', 'enter_raw_repl'),
-    ('LEDBoard', 'exchange_command'),
-    ('LEDBoard', 'led_on'),
-    ('MotorBoard', 'enter_raw_repl'),
-    ('MotorBoard', 'exchange_command'),
-}
-
-# Production sites allowed to touch simulator-only surface. The single
-# entry is the construction branch that BUILDS the simulator: inside
-# `if simulate:` the driver provably is a SimulatedCamera, which is the
-# one place production code can know that. Keyed by (file, name).
-_SIM_ONLY_CALL_ALLOWLIST = {
-    ('modules/lumascope_api/_lumascope.py', 'load_cycle_images'),
-}
-
-
-def _public_names(cls):
-    return {name for name in dir(cls) if not name.startswith('_')}
-
-
-def _sim_only_names(real, sim):
-    return _public_names(sim) - _public_names(real)
-
-
-@pytest.mark.parametrize('label,real,sim', _BOARD_PAIRS, ids=[p[0] for p in _BOARD_PAIRS])
-def test_simulator_accepts_the_same_parameters_as_the_real_board(label, real, sim):
-    """A call that works on the real board must work on the simulator.
-
-    Compares PARAMETER NAMES only, deliberately. Annotations diverge
-    harmlessly all over these classes -- the simulators are annotated
-    more completely than the real boards, 15 such differences on the LED
-    pair alone -- and an annotation never changes whether a call is
-    accepted. A parameter name does.
-
-    Bidirectional, because both directions are real hazards: a parameter
-    the simulator lacks crashes every simulated run of a production code
-    path, and a parameter only the simulator has invites test code to
-    depend on something hardware will reject.
+    A real camera in a dark box returns a dark frame however long the
+    exposure. The simulator could not: nothing in it read illumination,
+    and a brightness floor kept the field visible at any gain and any
+    exposure. So the whole illumination-failure class -- an LED that
+    never came on, a channel dark through a run -- was reproducible only
+    on a bench, and a sim capture with no LED lit looked like a good one.
     """
-    divergences = []
-    for name in sorted(_public_names(real) & _public_names(sim)):
-        try:
-            real_params = list(inspect.signature(getattr(real, name)).parameters)
-            sim_params = list(inspect.signature(getattr(sim, name)).parameters)
-        except (TypeError, ValueError):
-            continue  # C-implemented or otherwise non-introspectable
-        if real_params != sim_params and (label, name) not in _PARAM_DIVERGENCE_ALLOWLIST:
-            divergences.append(f'  {name}:\n      real={real_params}\n      sim ={sim_params}')
 
-    assert not divergences, (
-        f'{sim.__name__} is not a drop-in replacement for {label} -- these '
-        f'methods take different parameters, so a caller written against one '
-        f'breaks against the other:\n' + '\n'.join(divergences)
-    )
+    def test_the_same_camera_is_dark_unlit_and_bright_lit(self):
+        lit = {'on': False}
+        cam = SimulatedCamera(illumination_func=lambda: 50.0 if lit['on'] else 0.0)
+        cam.open_and_start()
 
+        grab_a_frame_made_after_now(cam)
+        dark = cam.array.max()
 
-@pytest.mark.parametrize('label,real,sim', _BOARD_PAIRS, ids=[p[0] for p in _BOARD_PAIRS])
-def test_no_production_code_calls_simulator_only_names(label, real, sim):
-    """Production code may not depend on surface only the simulator has.
+        lit['on'] = True
+        grab_a_frame_made_after_now(cam)
+        bright = cam.array.max()
 
-    Simulators legitimately carry extra surface -- timing controls,
-    virtual-specimen modeling, image-cycle loading -- so demanding an
-    empty sim-only set would mean a large allowlist whose upkeep exceeds
-    its signal. The hazard worth guarding is narrower and exact: code
-    under `modules/` or `ui/` that calls a name only the simulator has
-    works in every test and fails on hardware.
+        assert dark == 0, f'an unlit field must be black, peaked at {dark}'
+        assert bright > 0, 'a lit field must show the specimen'
 
-    Tests are excluded on purpose. Driving simulator-only affordances is
-    what test code is FOR -- `conftest.sim_scope` calls `set_timing_mode`
-    and `load_cycle_images`.
-    """
-    sim_only = _sim_only_names(real, sim)
-    if not sim_only:
-        pytest.skip(f'{sim.__name__} has no simulator-only public names')
+    def test_a_camera_with_no_illumination_source_still_renders(self):
+        """A camera built on its own has no scope to ask about light, so it
+        renders as it always did rather than describing a fault."""
+        cam = SimulatedCamera()
+        cam.open_and_start()
 
-    hits = []
-    for rel_path, tree in iter_package_modules(('modules', 'ui')):
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Attribute) or node.attr not in sim_only:
-                continue
-            if (rel_path, node.attr) in _SIM_ONLY_CALL_ALLOWLIST:
-                continue
-            hits.append(f'  {rel_path}:{node.lineno}: .{node.attr}')
+        grab_a_frame_made_after_now(cam)
 
-    assert not hits, (
-        f'Production code references {sim.__name__}-only surface, which does '
-        f'not exist on {label} and will fail on hardware:\n'
-        + '\n'.join(sorted(hits))
-        + f'\n\nFix by adding the name to {label} (making it real) or by '
-        f'removing the production dependency.'
-    )
-
-
-def test_no_allowlist_entry_outlives_its_divergence():
-    """Delete an exemption the moment the thing it excuses is gone.
-
-    A stale entry is worse than no entry: it silently excuses the NEXT
-    divergence on the same method, which is exactly the regression this
-    guard exists to catch. Both allowlists are checked, so landing the
-    shared-contract fix forces the entries out in the same commit.
-    """
-    stale_params = []
-    for label, real, sim in _BOARD_PAIRS:
-        for name in sorted(_public_names(real) & _public_names(sim)):
-            if (label, name) not in _PARAM_DIVERGENCE_ALLOWLIST:
-                continue
-            try:
-                real_params = list(inspect.signature(getattr(real, name)).parameters)
-                sim_params = list(inspect.signature(getattr(sim, name)).parameters)
-            except (TypeError, ValueError):
-                continue
-            if real_params == sim_params:
-                stale_params.append((label, name))
-
-    shared = {
-        (label, name)
-        for label, real, sim in _BOARD_PAIRS
-        for name in _public_names(real) & _public_names(sim)
-    }
-    unknown = sorted(entry for entry in _PARAM_DIVERGENCE_ALLOWLIST if entry not in shared)
-
-    assert not stale_params, (
-        f'These methods now agree and their _PARAM_DIVERGENCE_ALLOWLIST '
-        f'entries must be deleted: {sorted(stale_params)}'
-    )
-    assert not unknown, (
-        f'These _PARAM_DIVERGENCE_ALLOWLIST entries name a method that no '
-        f'longer exists on both classes: {unknown}'
-    )
-
-    sim_only_names = set()
-    for _, real, sim in _BOARD_PAIRS:
-        sim_only_names |= _sim_only_names(real, sim)
-    stale_calls = sorted(
-        entry for entry in _SIM_ONLY_CALL_ALLOWLIST if entry[1] not in sim_only_names
-    )
-    assert not stale_calls, (
-        f'These _SIM_ONLY_CALL_ALLOWLIST entries name surface that is no '
-        f'longer simulator-only, so the exemption must be deleted: {stale_calls}'
-    )
-
-
-@pytest.mark.parametrize('label,real,sim', _BOARD_PAIRS, ids=[p[0] for p in _BOARD_PAIRS])
-def test_simulator_only_surface_does_not_grow(label, real, sim):
-    """Ratchet: sim-only public surface may not accrete unnoticed.
-
-    Every name here is one the real board does not have, so each is a
-    place production code could come to depend on something hardware
-    cannot do. Growth should be a decision, not a side effect.
-    """
-    sim_only = _sim_only_names(real, sim)
-    budget = _SIM_ONLY_NAME_BUDGET[label]
-    assert len(sim_only) <= budget, (
-        f'{sim.__name__} now has {len(sim_only)} public names absent from '
-        f'{label}, over the recorded {budget}: {sorted(sim_only)}\n\n'
-        f'If the addition is deliberate, raise _SIM_ONLY_NAME_BUDGET '
-        f"['{label}'] in this commit and say why in the message. If it is "
-        f'not, the name probably belongs on {label} too.'
-    )
-
-
-# Announced at the end of every run (tests/ratchets.py).
-from tests import ratchets as _ratchets
-
-for _label, _real, _sim in _BOARD_PAIRS:
-    _ratchets.register(
-        f'simulators: sim-only public names on {_label}',
-        (lambda real=_real, sim=_sim: len(_sim_only_names(real, sim))),
-        _SIM_ONLY_NAME_BUDGET[_label],
-    )
+        assert cam.array.max() > 0

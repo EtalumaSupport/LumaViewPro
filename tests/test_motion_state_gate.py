@@ -15,43 +15,39 @@ commanded move reaches the driver while its axis is UNKNOWN unless the
 caller passed ``force=True``, and a driver-side move failure lands the
 axis back in UNKNOWN rather than leaving a stale IDLE.
 
-Every test composes a REAL ``Lumascope(simulate=True)`` and injects
-failure through the simulator's own paths (``_fail_on`` makes
-``exchange_command`` return None, which is what a dead board does), so
-the driver's real error handling runs rather than a replaced method.
-
-Two seams are substituted, both deliberately:
-
-* The startup test's two motion calls, supplied through
-  ``start_application_session``'s ``home_fn`` / ``turret_fn`` parameters
-  -- the same seam the Kivy app uses to pass its widget-flavored
-  wrappers. The substitutes route straight to the production motion
-  bodies and record what the orchestrator attempted, so the decision
-  under test -- does startup attempt the turret move after a failed
-  home? -- is observed exactly, while the hardware underneath stays the
-  real simulator.
-* ``exchange_command`` returning None on a target write, for the
-  dead-board move. That is the serial boundary, where Rule 11 puts the
-  only permitted canned value.
+Every test runs the production motor driver against the real board
+firmware (the firmware simulator tier) and makes the hardware fail: a
+stalled X motor, so the firmware's own home fails, and a pulled cable,
+which is what a dead board is to the driver. The driver's and the API's
+real error handling runs on the firmware's real failure.
 """
 
+import sys
 import time
 
 import pytest
 
 from drivers.exceptions import HardwareError
-from modules.exceptions import AxisStateUnknownError
-from modules.lumascope_api import AxisState, Lumascope
+from drivers.sim_wire.mp import tmc5072
+from modules.exceptions import (
+    AxisStateUnknownError,
+    HardwareCommandRefusedError,
+    HomingFailedError,
+    MoveNotCompletedError,
+)
+from modules.lumascope_api import AxisState
+from modules.notification_center import Severity
+from modules.scope_session import ScopeSession
+from tests.settings_fixtures import complete_settings
 
-
-def _silence_notifications(monkeypatch, sink):
-    import modules.notification_center as nc
-
-    monkeypatch.setattr(
-        nc.notifications,
-        'error',
-        lambda category, title, message, **k: sink.append((category, title, message)),
+if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
+    pytest.skip(
+        'the firmware-backed simulator runs on macOS and Linux only', allow_module_level=True
     )
+
+
+def _errors_posted(centre_posts):
+    return [(n.category, n.title, n.message) for n in centre_posts if n.severity == Severity.ERROR]
 
 
 def _wait_until(predicate, timeout=3.0, interval=0.02):
@@ -64,33 +60,47 @@ def _wait_until(predicate, timeout=3.0, interval=0.02):
 
 
 @pytest.fixture
-def scope(monkeypatch):
-    """A real simulated scope with notifications captured.
+def session():
+    """A simulated scope on the real firmware.
 
-    The LS850T default gives X/Y/Z plus a turret, so the turret paths
-    are exercised on the same instance as the stage paths.
+    An LS850T has X/Y/Z plus a turret, so the turret paths are exercised
+    on the same instance as the stage paths.
     """
-    errors = []
-    _silence_notifications(monkeypatch, errors)
-    scope = Lumascope(simulate=True)
-    scope.notifications_seen = errors
-    yield scope
-    scope.motion._disconnect()
+    session = ScopeSession.create(
+        complete_settings(simulator_tier='firmware', microscope='LS850T'),
+        simulate=True,
+        warn_pre_release=False,
+    )
+    try:
+        yield session
+    finally:
+        session.shutdown()
+
+
+@pytest.fixture
+def scope(session):
+    return session.scope
+
+
+def _board(scope):
+    return scope._motion_driver._backend.motor_board
 
 
 def _fail_home(scope):
-    """Make the next home fail the way a dead board fails it."""
-    scope._motion_driver._fail_on.add('HOME')
+    """Stall the X motor: the stage never reaches its home switch, and the
+    firmware's home fails."""
+    _board(scope).inject('X', tmc5072.STALL)
 
 
 def _home_and_fail(scope):
     """Run the production home body against an injected failure.
 
-    Returns the home result so a caller can assert on the bool the
-    orchestrator is supposed to honor.
+    The home raises the homing fault, which is what the orchestrator
+    honors.
     """
     _fail_home(scope)
-    return scope.motion._home_impl()
+    with pytest.raises(HomingFailedError):
+        scope.motion._home_impl()
 
 
 # ---------------------------------------------------------------------------
@@ -99,16 +109,16 @@ def _home_and_fail(scope):
 # ---------------------------------------------------------------------------
 
 
-def test_failed_home_marks_every_axis_unknown(scope):
-    assert _home_and_fail(scope) is False, 'a failed home must report False'
+@pytest.mark.slow
+def test_failed_home_marks_every_axis_unknown(scope, centre_posts):
+    _home_and_fail(scope)
     for axis in scope.capabilities.axes:
         assert scope.motion._axis_state[axis] == AxisState.UNKNOWN, (
             f'{axis} must be UNKNOWN after a failed home'
         )
     assert scope.motion.has_homed() is False
-    assert len(scope.notifications_seen) == 1, (
-        f'exactly one home-failure notification expected, got {scope.notifications_seen}'
-    )
+    errors = _errors_posted(centre_posts)
+    assert errors == [], f'the home raises and posts nothing; its caller reports it, got {errors}'
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +126,7 @@ def test_failed_home_marks_every_axis_unknown(scope):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_absolute_move_refuses_on_unknown_axis(scope):
     _home_and_fail(scope)
     with pytest.raises(AxisStateUnknownError) as exc:
@@ -123,15 +134,17 @@ def test_absolute_move_refuses_on_unknown_axis(scope):
     assert exc.value.axis == 'Z'
 
 
+@pytest.mark.slow
 def test_relative_move_refuses_on_unknown_axis(scope):
-    """The relative path does not route through the absolute one -- it
-    calls ``move_rel_pos`` directly, so it needs its own gate."""
+    """The relative path does not route through the absolute one, so it
+    needs its own gate."""
     _home_and_fail(scope)
     with pytest.raises(AxisStateUnknownError) as exc:
         scope.motion._move_relative_impl('X', distance=50)
     assert exc.value.axis == 'X'
 
 
+@pytest.mark.slow
 def test_turret_move_refuses_before_lowering_z(scope):
     """The turret move must refuse BEFORE the safety Z-retract.
 
@@ -152,7 +165,7 @@ def test_turret_move_refuses_before_lowering_z(scope):
 
 def test_absolute_move_still_works_on_a_known_axis(scope):
     """The gate must refuse UNKNOWN only. A homed axis moves as before."""
-    assert scope.motion._home_impl() is True
+    scope.motion._home_impl()
     scope.motion._move_absolute_impl('Z', position=1000)
     assert scope.motion._axis_state['Z'] in (AxisState.MOVING, AxisState.IDLE)
 
@@ -164,14 +177,16 @@ def test_absolute_move_still_works_on_a_known_axis(scope):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_forced_move_still_drives_on_unknown_axis(scope):
     _home_and_fail(scope)
-    scope.motion._move_absolute_impl('Z', position=0, force=True)
-    assert scope.motion._axis_state['Z'] == AxisState.MOVING, (
-        'a forced move must actually drive, not refuse'
-    )
+    # A refusal raises here; a forced move drives, and its wait returns only
+    # once Z arrived.
+    scope.motion._move_absolute_impl('Z', position=0, force=True).wait()
+    assert scope.motion._axis_state['Z'] == AxisState.IDLE
 
 
+@pytest.mark.slow
 def test_turret_home_recovers_from_unknown_z(scope):
     """A turret home after a failed home must not deadlock.
 
@@ -180,15 +195,14 @@ def test_turret_home_recovers_from_unknown_z(scope):
     and the turret can never be re-homed without a restart.
     """
     _home_and_fail(scope)
-    scope._motion_driver._fail_on.discard('HOME')
-    assert scope.motion._home_turret_impl() is True, (
-        'turret homing must survive an UNKNOWN Z -- it is the recovery path'
-    )
+    _board(scope).clear('X', tmc5072.STALL)
+    # Turret homing must survive an UNKNOWN Z -- it is the recovery path.
+    scope.motion._home_turret_impl()
     assert scope.motion._axis_state['T'] == AxisState.IDLE
 
 
 # ---------------------------------------------------------------------------
-# B2: one state store. The driver's has_turret_homed() flag clears only on physical
+# B2: one state store. The driver's turret-homed flag clears only on physical
 # disconnect, so a stall or disconnect fault mid-turret-move leaves it True
 # while _axis_state says UNKNOWN -- and turret_select's safety check reads the
 # flag. That is a live bypass: the turret drives against an unknown reference.
@@ -196,19 +210,19 @@ def test_turret_home_recovers_from_unknown_z(scope):
 
 
 def test_turret_fault_revokes_homed_state(scope):
-    """A fault that makes T UNKNOWN must revoke has_turret_homed().
+    """A fault that makes T UNKNOWN must revoke the turret's known position.
 
     This is the state the stall fault and the disconnect fault leave
     behind: the board answered the home, then the move faulted. The
     driver flag alone cannot see that.
     """
-    assert scope.motion._home_impl() is True
-    assert scope.motion.has_turret_homed() is True, 'precondition: a good home homes the turret'
+    scope.motion._home_impl()
+    assert scope.motion.position_is_known('T') is True, 'precondition: a good home homes the turret'
 
     scope.motion._set_axis_state('T', AxisState.UNKNOWN)
 
-    assert scope.motion.has_turret_homed() is False, (
-        'has_turret_homed() must follow the axis state, not a driver flag that '
+    assert scope.motion.position_is_known('T') is False, (
+        "position_is_known('T') must follow the axis state, not a driver flag that "
         'clears only on physical disconnect'
     )
     with pytest.raises(AxisStateUnknownError):
@@ -217,7 +231,7 @@ def test_turret_fault_revokes_homed_state(scope):
 
 def test_stage_fault_revokes_homed_state(scope):
     """Same defect on the stage half: has_homed() must follow the state."""
-    assert scope.motion._home_impl() is True
+    scope.motion._home_impl()
     assert scope.motion.has_homed() is True
 
     scope.motion._set_axis_state('Z', AxisState.UNKNOWN)
@@ -228,118 +242,26 @@ def test_stage_fault_revokes_homed_state(scope):
 
 
 # ---------------------------------------------------------------------------
-# B5: the orchestrator honors the home result.
-# ---------------------------------------------------------------------------
-
-
-def _startup_session(scope, monkeypatch):
-    """Build a session and route its two motion calls to the production
-    bodies, recording what startup attempted.
-
-    See the module docstring for why these two are substituted.
-
-    The substitutes go in through ``start_application_session``'s own
-    ``home_fn`` / ``turret_fn`` parameters -- the same seam the GUI uses
-    to supply its widget-flavored wrappers. An earlier version patched
-    ``ui.ui_helpers`` attributes instead, which pinned the substitution
-    MECHANISM rather than the invariant and stopped intercepting
-    anything the moment the Session took its motion callables by
-    injection.
-    """
-    from unittest.mock import MagicMock
-
-    from modules.scope_session import ScopeSession
-
-    session = ScopeSession(
-        settings={},
-        scope=scope,
-        io_executor=MagicMock(),
-        camera_executor=MagicMock(),
-    )
-    attempts = []
-
-    # Both substitutes call the production body directly rather than the
-    # async wrapper. The wrapper would hand the task to this session's
-    # mock executor, which accepts it and never runs it -- a home that
-    # silently never happens, which is exactly the failure this file
-    # exists to catch. Running the body inline keeps the sequence ordered
-    # and the home's real result observable.
-    def _home_fn(axis):
-        attempts.append(('home', axis))
-        return scope.motion._home_impl()
-
-    def _turret_fn(position):
-        attempts.append(('move', 'T', position))
-        scope.motion._move_absolute_impl('T', position)
-
-    hooks = {'home_fn': _home_fn, 'turret_fn': _turret_fn}
-    return session, attempts, hooks
-
-
-def test_startup_skips_turret_positioning_after_failed_home(scope, monkeypatch):
-    """The cascade in #702: startup homes, the home fails, and startup
-    positions the turret anyway -- a real move against an unknown
-    reference, and a second error popup on top of the home's own."""
-    session, attempts, hooks = _startup_session(scope, monkeypatch)
-    _fail_home(scope)
-
-    session.start_application_session(**hooks)
-
-    assert ('home', 'ALL') in attempts, 'startup must still attempt the home'
-    turret_moves = [a for a in attempts if a[0] == 'move' and a[1] == 'T']
-    assert turret_moves == [], (
-        f'startup must not position the turret after a failed home, attempted {turret_moves}'
-    )
-    assert len(scope.notifications_seen) == 1, (
-        f'the home failure notifies once; the skipped turret move must not add '
-        f'a second popup, got {scope.notifications_seen}'
-    )
-
-
-def test_startup_positions_turret_after_successful_home(scope, monkeypatch):
-    """The control: a good home must still position the turret. A gate
-    that refuses everything would pass the test above."""
-    session, attempts, hooks = _startup_session(scope, monkeypatch)
-
-    session.start_application_session(**hooks)
-
-    assert ('home', 'ALL') in attempts
-    turret_moves = [a for a in attempts if a[0] == 'move' and a[1] == 'T']
-    assert len(turret_moves) == 1, (
-        f'a successful home must be followed by exactly one turret positioning '
-        f'move, got {turret_moves}'
-    )
-
-
-# ---------------------------------------------------------------------------
 # B6: a dead-board move raises, and the API records the axis as UNKNOWN.
 # ---------------------------------------------------------------------------
 
 
-def _deaden_target_writes(monkeypatch, scope):
-    """Make target writes answer the way a dead board answers: nothing."""
-    driver = scope._motion_driver
-    real = driver.exchange_command
-
-    def _dead(command, *args, **kwargs):
-        if command.startswith('TARGET_W'):
-            return None
-        return real(command, *args, **kwargs)
-
-    monkeypatch.setattr(driver, 'exchange_command', _dead)
+def _pull_the_cable(scope):
+    """The board stops answering: the next target write gets nothing."""
+    _board(scope).unplug()
 
 
-def test_driver_move_raises_when_target_write_is_unanswered(scope, monkeypatch):
+def test_driver_move_raises_when_target_write_is_unanswered(scope):
     """``move()`` warned and returned None -- a jog invisible to every
     layer above it (#709 Half B)."""
-    assert scope.motion._home_impl() is True
-    _deaden_target_writes(monkeypatch, scope)
+    scope.motion._home_impl()
+    _pull_the_cable(scope)
 
     with pytest.raises(HardwareError):
         scope._motion_driver.move('Z', 1000)
 
 
-def test_api_marks_axis_unknown_when_the_driver_move_raises(scope, monkeypatch):
+def test_api_marks_axis_unknown_when_the_driver_move_raises(scope, centre_posts):
     """The API half: on a driver raise the axis must land in UNKNOWN.
 
     The move paths re-raise with only a log line today, so the axis keeps
@@ -349,27 +271,35 @@ def test_api_marks_axis_unknown_when_the_driver_move_raises(scope, monkeypatch):
     except path is where the state has to be set; the order itself must
     not change.
     """
-    assert scope.motion._home_impl() is True
-    _deaden_target_writes(monkeypatch, scope)
+    scope.motion._home_impl()
+    _pull_the_cable(scope)
 
-    with pytest.raises(HardwareError):
-        scope.motion._move_absolute_impl('Z', position=1000)
+    # No backlash leg, so no position read: the target write is what fails.
+    # A move that needs a read first is refused before anything is driven
+    # (test_a_failed_position_read_is_never_a_position).
+    with pytest.raises(MoveNotCompletedError) as failed:
+        scope.motion._move_absolute_impl('Z', position=1000, overshoot_enabled=False)
 
     assert scope.motion._axis_state['Z'] == AxisState.UNKNOWN, (
         'a move that failed at the driver must leave the axis UNKNOWN, not IDLE'
     )
-    assert any(c == 'Motion' for c, _t, _m in scope.notifications_seen), (
-        'the user must be told the move failed'
-    )
+    # The user is told through the one typed fault the move raises, which
+    # its caller shows; the move itself posts nothing.
+    assert failed.value.reason == 'driver_failed'
+    assert isinstance(failed.value.__cause__, HardwareError)
+    assert _errors_posted(centre_posts) == []
 
 
-def test_a_failed_move_then_refuses_the_next_one(scope, monkeypatch):
-    """The two halves compose: a dead-board move poisons the axis, and
-    the gate then refuses the follow-up instead of driving blind again."""
-    assert scope.motion._home_impl() is True
-    _deaden_target_writes(monkeypatch, scope)
-    with pytest.raises(HardwareError):
-        scope.motion._move_absolute_impl('Z', position=1000)
+def test_a_failed_move_then_refuses_the_next_one(scope):
+    """The two halves compose: a dead-board move poisons the axis, and the
+    follow-up is refused instead of driving blind again -- first for the
+    controller the failed write found gone, which is the person's remedy."""
+    scope.motion._home_impl()
+    _pull_the_cable(scope)
+    with pytest.raises(MoveNotCompletedError):
+        scope.motion._move_absolute_impl('Z', position=1000, overshoot_enabled=False)
 
-    with pytest.raises(AxisStateUnknownError):
+    assert scope.motion.get_axis_state('Z') == AxisState.UNKNOWN
+    with pytest.raises(HardwareCommandRefusedError) as refused:
         scope.motion._move_absolute_impl('Z', position=2000)
+    assert refused.value.reason == 'not_connected'

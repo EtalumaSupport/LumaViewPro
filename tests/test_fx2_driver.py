@@ -60,8 +60,8 @@ def fake_fx2_conn(monkeypatch):
     Teardown: restore the real class state.
 
     Also neutralizes the streaming-start paths. ``FX2Camera.__init__``
-    calls ``connect()`` -> ``start_grabbing()`` -> ``_start_iso_streaming``
-    which, under a MagicMock'd libusb1/winusb, records ~16 xfer
+    calls ``connect()`` -> ``start_grabbing()`` -> the connection's
+    ``start_stream``, which, under a MagicMock'd libusb1/winusb, records ~16 xfer
     callbacks holding a bound-method ref back to the camera. The
     MagicMock's call-args store makes that a cycle the GC can't break
     (~210 MB leaked per FX2Camera() instance). Tests in this file
@@ -271,24 +271,22 @@ class TestGainMath:
 
 
 class TestExposureMath:
-    """Exposure formula: rows = (target_ms + SO_ms) / tROW_ms."""
+    """Exposure formula: SW = (tEXP + SO x 2 x tPIXCLK) / tROW, at the window's row."""
 
     def test_50ms_round_trip_within_one_row(self):
-        target = 50.0
-        rows = round((target + fx2driver._SHUTTER_OVERHEAD_MS) / fx2driver._ROW_TIME_MS)
-        back = rows * fx2driver._ROW_TIME_MS - fx2driver._SHUTTER_OVERHEAD_MS
-        assert abs(back - target) < fx2driver._ROW_TIME_MS, (
-            f'50ms -> {rows} rows -> {back}ms (should be within 1 row of target)'
+        column_size = fx2driver.IMG_WIDTH + 1
+        rows = fx2driver.shutter_width_for(0.050, column_size)
+        back = fx2driver.exposure_s(rows, column_size)
+        assert abs(back - 0.050) < fx2driver.row_time_s(column_size), (
+            f'50ms -> {rows} rows -> {back * 1000}ms (should be within 1 row of target)'
         )
 
     def test_max_rows_is_max_exposure(self):
         assert fx2driver.MAX_EXPOSURE_ROWS == 65535
 
-    def test_max_exposure_near_7_4_seconds(self):
-        max_ms = (
-            fx2driver.MAX_EXPOSURE_ROWS * fx2driver._ROW_TIME_MS - fx2driver._SHUTTER_OVERHEAD_MS
-        )
-        assert 7300.0 < max_ms < 7400.0
+    def test_the_shutter_width_lower_ceiling_is_the_data_sheets_at_the_full_window(self):
+        max_ms = fx2driver.exposure_s(fx2driver.MAX_EXPOSURE_ROWS, fx2driver.IMG_WIDTH + 1) * 1000
+        assert max_ms == pytest.approx(7934.6, abs=0.1)
 
 
 # ---------------------------------------------------------------------------
@@ -387,10 +385,6 @@ class TestFX2LEDProtocolConformance:
             'leds_off_fast',
             'leds_enable',
             'leds_disable',
-            'get_led_ma',
-            'is_led_on',
-            'get_led_state',
-            'get_led_states',
             'color2ch',
             'ch2color',
             'available_channels',
@@ -419,25 +413,17 @@ class TestFX2LEDThinTranslator:
     state via ``Lumascope._led_owners``. These tests prove the new
     driver has no state bookkeeping:
 
-    1. State-query methods return sentinel defaults matching NullLEDBoard.
-    2. Calling ``led_on`` does NOT change what state-query methods return.
-    3. The driver has no ``led_ma`` attribute (symbol-level regression guard).
+    1. ``led_on`` writes the command and the driver answers no state query.
+    2. The driver has no ``led_ma`` attribute (symbol-level regression guard).
     """
-
-    def test_initial_state_query_returns_sentinel(self, fake_fx2_conn):
-        led = fx2driver.FX2LEDController()
-        assert led.get_led_ma('Blue') == -1
-        assert led.is_led_on('Blue') is False
-        assert led.get_led_state('Blue') == {'enabled': False, 'illumination_ma': -1}
 
     def test_led_on_does_not_update_state_query(self, fake_fx2_conn):
         """The critical regression guard.
 
-        Calling ``led_on(0, 100)`` must send I2C commands but must NOT
-        update any internal state that ``get_led_ma`` / ``is_led_on``
-        would read back. If someone re-adds ``self.led_ma`` and this
-        test starts failing in the direction of "get_led_ma returns
-        100", that's the regression we're preventing.
+        Calling ``led_on(0, 100)`` must send I2C commands, and the driver
+        must offer no state query to read back what it just did. If someone
+        re-adds ``get_led_ma`` / ``is_led_on`` / ``get_led_state(s)``, a
+        second store of LED state is back beside the API's.
         """
         led = fx2driver.FX2LEDController()
         led.led_on(0, 100)
@@ -447,25 +433,9 @@ class TestFX2LEDThinTranslator:
             'led_on should issue I2C writes through the FX2 connection'
         )
 
-        # But the state queries must STILL return sentinel defaults --
-        # the driver does not remember what it just did.
-        assert led.get_led_ma('Blue') == -1
-        assert led.is_led_on('Blue') is False
-
-    def test_led_off_also_leaves_state_sentinel(self, fake_fx2_conn):
-        led = fx2driver.FX2LEDController()
-        led.led_on(0, 100)
-        led.led_off(0)
-        assert led.get_led_ma('Blue') == -1
-
-    def test_get_led_states_returns_all_false(self, fake_fx2_conn):
-        led = fx2driver.FX2LEDController()
-        led.led_on(0, 100)
-        led.led_on(1, 50)
-        states = led.get_led_states()
-        for color, state in states.items():
-            assert state == {'enabled': False, 'illumination_ma': -1}, (
-                f'{color} leaked state from led_on'
+        for name in ('get_led_ma', 'is_led_on', 'get_led_state', 'get_led_states'):
+            assert not hasattr(led, name), (
+                f'the driver answers {name}; LED state belongs to the API'
             )
 
     def test_no_led_ma_attribute(self, fake_fx2_conn):
@@ -560,12 +530,12 @@ class TestFX2CameraProfile:
     def test_dynamic_capabilities_populated(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()
         assert cam.profile.gain.total_min_db == 0.0
-        assert cam.profile.gain.total_max_db == 42.1
+        assert cam.profile.gain.total_max_db == pytest.approx(42.1442, abs=1e-4)  # 128x
         assert cam.profile.exposure_min_us is not None
         assert cam.profile.exposure_max_us is not None
 
-    def test_max_exposure_picks_up_dynamic_178ms_cap(self, fake_fx2_conn):
-        """Camera.max_exposure must reflect the dynamic 178 ms cap, not
+    def test_max_exposure_picks_up_dynamic_1000ms_cap(self, fake_fx2_conn):
+        """Camera.max_exposure must reflect the dynamic 1000 ms cap, not
         the static MT9P031 register max (~7,366 ms). The UI exposure
         slider reads `ctx.max_exposure` (= camera.max_exposure) and was
         previously letting users dial past the safe-frame ceiling
@@ -574,11 +544,11 @@ class TestFX2CameraProfile:
         single source -- `profile.exposure_max_us` -- with
         `Camera.max_exposure` a derived property reading from it."""
         cam = fx2driver.FX2Camera()
-        # exposure_max_us is overwritten to 178_000 by _query_dynamic_capabilities
+        # exposure_max_us is overwritten to 1_000_000 by _query_dynamic_capabilities
         # (default from the profile entry is 7_366_000 = sensor register max).
-        assert cam.profile.exposure_max_us == 178_000
+        assert cam.profile.exposure_max_us == 1_000_000
         # max_exposure (in ms) is derived from exposure_max_us / 1000
-        assert cam.max_exposure == 178.0
+        assert cam.max_exposure == 1000.0
 
     def test_pixel_format_is_mono8_only(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()
@@ -591,10 +561,11 @@ class TestFX2CameraProfile:
 
     def test_set_frame_size_returns_delivered_geometry(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()
-        # 1000 is already a multiple of 4; 999 rounds down to 996.
+        # 999 is off the grid of 4: the sensor acquires 1000 and the frame is
+        # cropped back.
         delivered = cam.set_frame_size(1000, 999)
-        assert delivered == {'width': 1000, 'height': 996}
-        assert cam.get_frame_size() == {'width': 1000, 'height': 996}
+        assert delivered == {'width': 1000, 'height': 999}
+        assert cam.get_frame_size() == {'width': 1000, 'height': 999}
 
     def test_set_frame_size_register_failure_returns_false_keeps_geometry(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()
@@ -617,16 +588,27 @@ class TestFX2CameraProfile:
         cam = fx2driver.FX2Camera()
         assert cam.get_binning_size() == 1
 
-    def test_auto_features_are_noops(self, fake_fx2_conn):
-        """MT9P031 has no hardware AE/AG -- these should all be silent
-        no-ops rather than raising NotImplementedError.
+    @pytest.mark.parametrize(
+        'call',
+        [
+            lambda cam: cam.auto_exposure_t(True),
+            lambda cam: cam.auto_gain(True),
+            lambda cam: cam.auto_gain_once(True),
+            lambda cam: cam.update_auto_gain_target_brightness(0.5),
+            lambda cam: cam.update_auto_gain_min_max(0.0, 30.0),
+        ],
+    )
+    def test_auto_features_raise_rather_than_answer(self, fake_fx2_conn, call):
+        """MT9P031 has no hardware AE/AG, and its profile says so; the API
+        reads the profile and never asks. An answer here would claim a write
+        that never happened, so a caller that skipped that read fails loudly.
         """
         cam = fx2driver.FX2Camera()
-        cam.auto_exposure_t(True)
-        cam.auto_gain(True)
-        cam.auto_gain_once(True)
-        cam.update_auto_gain_target_brightness(0.5)
-        cam.update_auto_gain_min_max(0.0, 30.0)
+        with pytest.raises(NotImplementedError, match='no hardware auto-'):
+            call(cam)
+
+    def test_features_without_hardware_are_noops(self, fake_fx2_conn):
+        cam = fx2driver.FX2Camera()
         cam.set_test_pattern(True, 'Black')
         cam.set_max_acquisition_frame_rate(True, 4.5)
         assert cam.get_all_temperatures() == {}
@@ -638,8 +620,9 @@ class TestFX2CameraProfile:
 
 
 class TestCameraProfileRegistration:
-    """The MT9P031 profile must be discoverable via the four substring
-    keys registered in camera_profiles.py: MT9P031, LS620, LS560, LS720.
+    """The MT9P031 profile must be discoverable by the sensor name, the
+    one key camera_profiles.py registers for it: FX2Camera sets the same
+    model_name on every Classic model.
     """
 
     @pytest.mark.parametrize(
@@ -647,9 +630,6 @@ class TestCameraProfileRegistration:
         [
             'MT9P031',
             'MT9P031-LS620',  # what FX2Camera sets model_name to
-            'LS620',
-            'LS560',
-            'LS720',
         ],
     )
     def test_profile_found_by_substring(self, lookup_key):
@@ -661,17 +641,6 @@ class TestCameraProfileRegistration:
         assert profile.has_auto_gain is False
         assert profile.has_auto_exposure is False
 
-    def test_max_exposure_matches_driver_constants(self):
-        """The profile's static exposure_max_us default should match the
-        sensor-register ceiling: MAX_EXPOSURE_ROWS x _ROW_TIME_MS.
-        (The driver narrows this to 178 ms at connect time -- see
-        FX2Camera._query_dynamic_capabilities.)
-        """
-        profile = lookup_profile('LS620')
-        driver_max_us = fx2driver.MAX_EXPOSURE_ROWS * fx2driver._ROW_TIME_MS * 1000
-        # Allow 10,000 us (10 ms) tolerance for rounding
-        assert abs(profile.exposure_max_us - driver_max_us) <= 10_000
-
 
 # ---------------------------------------------------------------------------
 # data/scopes.json shape for Classic models
@@ -681,9 +650,8 @@ class TestCameraProfileRegistration:
 class TestScopesJsonClassicModels:
     """LS620 and LS560 entries should exist with correct capability bits.
 
-    LS720 is intentionally NOT in scopes.json until Stage 4 ships the
-    LVC motor driver -- avoids the "scopes.json says XYZ but
-    capabilities.axes is empty" inconsistency.
+    The LS720 is the LS620's camera and LED with an XYZ stage on a
+    TMCM-6110.
     """
 
     @pytest.fixture
@@ -698,11 +666,12 @@ class TestScopesJsonClassicModels:
     def test_ls560_exists(self, scopes):
         assert 'LS560' in scopes
 
-    def test_ls720_NOT_in_scopes_json_yet(self, scopes):
-        """Stage 3 intentionally defers LS720 to Stage 4 (LVC motor port)."""
-        assert 'LS720' not in scopes, (
-            'LS720 should not be added until Stage 4 ships drivers/lvc_motorboard.py'
-        )
+    def test_ls720_has_an_xyz_stage_on_the_6110(self, scopes):
+        entry = scopes['LS720']
+        assert (entry['Focus'], entry['XYStage'], entry['Turret']) == (True, True, False)
+        assert (entry['LEDBoard'], entry['MotorBoard']) == ('FX2', 'TMCM-6110')
+        for key in ('Optics', 'Layers', 'Filterset'):
+            assert entry[key] == scopes['LS620'][key]
 
     def test_ls620_has_no_motors(self, scopes):
         entry = scopes['LS620']
@@ -777,7 +746,7 @@ class TestFX2ConnectionSingleton:
         the hardware).
         """
 
-        def boom(self):
+        def boom(self, transport):
             raise RuntimeError('no FX2 hardware')
 
         # Patch __init__ directly -- get() will still call cls() which
@@ -806,21 +775,22 @@ class TestFX2ConnectionSingleton:
 # These drive the seam the consumers use rather than the ctypes wrapper:
 # `drivers/winusb_iso.py` does `from ctypes import windll` at module scope and
 # cannot be imported off-Windows at all. `control_transfer_out` reaches the
-# transport through a plain `self._winusb_reader_for_ctrl.device` attribute,
-# so a stub substitutes for it on any platform.
+# WinUSB transport, which routes through its streaming reader's plain `device`
+# attribute, so a stub reader substitutes for it on any platform.
 
 
 def _conn_on_winusb(device):
-    """A _FX2Connection routed through a stub WinUSB transport.
+    """A _FX2Connection on a WinUSB transport whose stream is running on a stub.
 
     Built with __new__ rather than the real constructor so the test needs no
-    USB device; only the three attributes control_transfer_out reads to pick
-    its transport, plus the lock it takes.
+    USB device; only the transport control_transfer_out routes through, plus
+    the lock it takes.
     """
+    transport = fx2driver._WinUsbTransport()
+    transport._reader = SimpleNamespace(device=device)  # streaming: control goes here
     conn = object.__new__(fx2driver._FX2Connection)
     conn._lock = threading.Lock()
-    conn._iso_handle_for_ctrl = None  # not the libusb1 path
-    conn._winusb_reader_for_ctrl = SimpleNamespace(device=device)
+    conn._transport = transport
     return conn
 
 
@@ -842,15 +812,6 @@ def test_a_successful_winusb_out_transfer_returns_a_count_not_none():
     result = conn.control_transfer_out(fx2driver.VR_I2C_WRITE, index=0x42, data=b'\x01')
     assert result == 1
     assert result is not None
-
-
-def test_a_failed_winusb_in_transfer_reaches_the_caller():
-    def refuse(*a, **kw):
-        raise RuntimeError('ControlTransfer IN ... failed: 31')
-
-    conn = _conn_on_winusb(SimpleNamespace(control_transfer=refuse))
-    with pytest.raises(RuntimeError, match='failed'):
-        conn.control_transfer_in(fx2driver.VR_I2C_READ, index=0x42, length=2)
 
 
 def test_the_led_short_write_detector_fires_on_a_zero_byte_write():

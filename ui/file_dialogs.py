@@ -13,9 +13,13 @@ from kivy.uix.button import Button
 
 from ui.hover_behavior import HoverBehavior
 import modules.app_context as _app_ctx
-from modules import gui_logger
+from modules import gui_logger, image_utils
 
 logger = logging.getLogger('LVP.ui.file_dialogs')
+
+# Every picker of an image offers the images the readers take, from their one
+# list, so no picker can offer less than the work it feeds accepts.
+_IMAGE_FILETYPES = [('Images', ' '.join(sorted(image_utils.IMAGE_SUFFIXES)))]
 
 
 # Folder-picker contexts that hand work to the file IO executor for
@@ -90,9 +94,58 @@ def _zprojection_picker_default_path(live_folder: pathlib.Path) -> str:
 _MACOS_DIALOG_TIMEOUT_S = 3600
 
 
+def _osascript_choice(script):
+    """Run one macOS picker script; return the chosen POSIX path, or None on a cancel.
+
+    osascript exits 1 both when the person cancels and when the script
+    fails; only the AppleScript error number on stderr tells them apart, and
+    a cancel is -128. Any other non-zero exit raises with osascript's own
+    words, so the runner reports the failure instead of showing it as a
+    cancel. A panel left open past the backstop raises TimeoutExpired.
+    """
+    result = subprocess.run(
+        ['osascript', '-e', script],
+        capture_output=True,
+        text=True,
+        timeout=_MACOS_DIALOG_TIMEOUT_S,
+    )
+    if result.returncode == 0:
+        return result.stdout.strip() or None
+    if '(-128)' in result.stderr:
+        return None
+    raise RuntimeError(f'osascript exited {result.returncode}: {result.stderr.strip()}')
+
+
 def _escape_applescript(s):
     """Escape a string for safe interpolation into an AppleScript double-quoted string."""
     return s.replace('\\', '\\\\').replace('"', '\\"')
+
+
+def _macos_type_identifiers(extensions):
+    """macOS's type identifier for each file extension ('json' -> 'public.json').
+
+    `choose file of type` takes type identifiers, not extensions: given a bare
+    "json" it greys out every .json file. macOS names each identifier, so no
+    table of them is kept here; an extension it does not know gets a dynamic
+    identifier that still matches files by that extension. The lookup is its
+    own script: the dialog script stays plain AppleScript.
+    """
+    names = ', '.join(f'"{_escape_applescript(e)}"' for e in extensions)
+    script = (
+        'use framework "Foundation"\n'
+        'use framework "UniformTypeIdentifiers"\n'
+        'set theTypes to {}\n'
+        f'repeat with ext in {{{names}}}\n'
+        "\tset end of theTypes to ((current application's UTType's "
+        "typeWithFilenameExtension:(ext as text))'s identifier()) as text\n"
+        'end repeat\n'
+        "set AppleScript's text item delimiters to linefeed\n"
+        'return theTypes as text'
+    )
+    result = subprocess.run(
+        ['osascript', '-e', script], capture_output=True, text=True, check=True, timeout=30
+    )
+    return result.stdout.strip().split('\n')
 
 
 def _macos_open_file(initial_dir=None, filetypes=None):
@@ -101,30 +154,16 @@ def _macos_open_file(initial_dir=None, filetypes=None):
     clauses = []
     if filetypes:
         # filetypes is list of tuples like [('JSON', '.json')]
-        utis = []
-        for _, ext in filetypes:
-            for e in ext.strip().split():
-                utis.append(f'"{e.lstrip(".")}"')
-        if utis:
-            clauses.append(f'of type {{{", ".join(utis)}}}')
+        extensions = [e.lstrip('.') for _, ext in filetypes for e in ext.split()]
+        if extensions:
+            types = ', '.join(f'"{t}"' for t in _macos_type_identifiers(extensions))
+            clauses.append(f'of type {{{types}}}')
     if initial_dir:
         clauses.append(f'default location POSIX file "{_escape_applescript(initial_dir)}"')
     if clauses:
         script += ' ' + ' '.join(clauses)
     script += '\nPOSIX path of theFile'
-
-    try:
-        result = subprocess.run(
-            ['osascript', '-e', script],
-            capture_output=True,
-            text=True,
-            timeout=_MACOS_DIALOG_TIMEOUT_S,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except Exception as e:
-        logger.warning(f'[LVP Main  ] macOS file dialog error: {e}')
-    return None
+    return _osascript_choice(script)
 
 
 def _macos_choose_folder(initial_dir=None):
@@ -133,19 +172,7 @@ def _macos_choose_folder(initial_dir=None):
     if initial_dir:
         script += f' default location POSIX file "{_escape_applescript(initial_dir)}"'
     script += '\nPOSIX path of theFolder'
-
-    try:
-        result = subprocess.run(
-            ['osascript', '-e', script],
-            capture_output=True,
-            text=True,
-            timeout=_MACOS_DIALOG_TIMEOUT_S,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except Exception as e:
-        logger.warning(f'[LVP Main  ] macOS folder dialog error: {e}')
-    return None
+    return _osascript_choice(script)
 
 
 def _macos_choose_file_or_folder(initial_dir=None):
@@ -154,19 +181,7 @@ def _macos_choose_file_or_folder(initial_dir=None):
     if initial_dir:
         script += f' default location POSIX file "{_escape_applescript(initial_dir)}"'
     script += '\nPOSIX path of theItem'
-
-    try:
-        result = subprocess.run(
-            ['osascript', '-e', script],
-            capture_output=True,
-            text=True,
-            timeout=_MACOS_DIALOG_TIMEOUT_S,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except Exception as e:
-        logger.warning(f'[LVP Main  ] macOS file-or-folder dialog error: {e}')
-    return None
+    return _osascript_choice(script)
 
 
 def _foregrounded_tk_root():
@@ -332,19 +347,7 @@ def _macos_save_file(initial_dir=None, default_name=None):
     if clauses:
         script += ' ' + ' '.join(clauses)
     script += '\nPOSIX path of theFile'
-
-    try:
-        result = subprocess.run(
-            ['osascript', '-e', script],
-            capture_output=True,
-            text=True,
-            timeout=_MACOS_DIALOG_TIMEOUT_S,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except Exception as e:
-        logger.warning(f'[LVP Main  ] macOS save dialog error: {e}')
-    return None
+    return _osascript_choice(script)
 
 
 # App-wide single-flight record for native dialogs. Module-level, not
@@ -364,8 +367,36 @@ _DIALOG_STUCK_NOTIFY_S = 60.0
 # stale dialog that resolves after expiry is dropped by its token.
 _DIALOG_GUARD_EXPIRY_S = 3600.0
 
+# The answer a scripted sim walk gives the next dialog, in place of the native
+# panel: on macOS that panel is an osascript process no in-app touch can reach.
+# Empty text is a cancel. Set only by the walk driver (``ui.sim_walk``).
+_scripted_answer: dict[str, str] = {}
 
-def _run_native_dialog_async(button, dialog_fn, on_path):
+
+def answer_next_dialog(path: str) -> None:
+    """Give the next dialog ``path`` as its answer ('' cancels), not a native panel.
+
+    Raises:
+        RuntimeError: an earlier scripted answer has not been taken yet.
+    """
+    if _scripted_answer:
+        raise RuntimeError(
+            f'a scripted dialog answer is already waiting: {_scripted_answer["path"]!r}'
+        )
+    _scripted_answer['path'] = path
+
+
+def scripted_answer_waiting() -> bool:
+    """Whether a scripted answer is still waiting for a dialog to take it."""
+    return bool(_scripted_answer)
+
+
+def withdraw_scripted_answer() -> None:
+    """Drop a scripted answer no dialog took, so a person's next dialog is native."""
+    _scripted_answer.clear()
+
+
+def _run_native_dialog_async(button, dialog_fn, on_path, *, on_cancel):
     """Run a blocking native dialog off the Kivy main thread -- the one
     path every dialog open flows through, on every platform.
 
@@ -381,12 +412,14 @@ def _run_native_dialog_async(button, dialog_fn, on_path):
     dialog_fn runs on a daemon worker thread (the tkinter primitives keep
     their Tk root confined to that thread) and the chosen path is marshalled
     back to the main thread via Clock before on_path runs. on_path is
-    invoked only for a non-empty selection. The guard clears ONLY in the
+    invoked only for a non-empty selection; a cancel calls on_cancel, which
+    records it under the button's own record name. The guard clears ONLY in the
     delivery step, so a second dialog can never open before the first
     dialog's callback has run; a raising primitive still delivers (error
     branch), so it can never leave the guard latched.
 
-    ``button`` supplies the context name for the guard and its logs.
+    ``button`` supplies the context name for the guard and its logs. A scripted
+    answer waiting from ``answer_next_dialog`` stands in for ``dialog_fn``.
     """
     now = time.monotonic()
     context = getattr(button, 'context', '')
@@ -415,6 +448,9 @@ def _run_native_dialog_async(button, dialog_fn, on_path):
             f'old panel ever resolves, its result will be dropped.'
         )
 
+    if _scripted_answer:
+        scripted = _scripted_answer.pop('path')
+        dialog_fn = lambda: scripted
     _dialog_in_flight['active'] = True
     _dialog_in_flight['context'] = context
     _dialog_in_flight['since'] = now
@@ -441,21 +477,19 @@ def _run_native_dialog_async(button, dialog_fn, on_path):
                 return
             _dialog_in_flight['active'] = False
             if error is not None:
-                logger.error(
-                    f"[LVP Main  ] Native dialog '{context}' failed: "
-                    f'{type(error).__name__}: {error}'
-                )
                 from modules.notification_center import notifications
 
-                notifications.error(
-                    'File Dialog',
-                    'File Dialog Failed',
-                    'The file picker could not be opened. Try the button '
-                    'again; if it keeps failing, restart LumaViewPro.',
+                notifications.report_outcome(
+                    error,
+                    solicited=True,
+                    category=f'UI:FILE_DIALOG:{context}',
+                    fault_title='File Dialog Failed',
                 )
                 return
             if result:
                 on_path(result)
+            else:
+                on_cancel()
 
         Clock.schedule_once(deliver, 0)
 
@@ -471,16 +505,15 @@ class FileChooseBTN(HoverBehavior, Button):
         logger.info(f'[LVP Main  ] FileChooseBTN.choose({context})')
         self.context = context
 
-        # Show previously selected/default folder
-        selected_path = None
+        # Every open starts in the live folder, as the folder, save and
+        # file-or-folder pickers do; without one macOS opens wherever its last
+        # dialog was, often Documents.
+        selected_path = str(pathlib.Path(_app_ctx.ctx.settings['live_folder']))
         filetypes_tk = None
         if self.context == 'load_protocol':
-            selected_path = str(pathlib.Path(_app_ctx.ctx.settings['live_folder']))
             filetypes_tk = [('TSV', '.tsv')]
-        elif self.context == 'load_cell_count_input_image':
-            filetypes_tk = [('TIFF', '.tif .tiff')]
-        elif self.context == 'load_quick_enhance_input_image':
-            filetypes_tk = [('Images', '.tif .tiff .png .jpg .jpeg .bmp')]
+        elif self.context in ('load_cell_count_input_image', 'load_quick_enhance_input_image'):
+            filetypes_tk = _IMAGE_FILETYPES
         elif self.context == 'load_cell_count_method':
             filetypes_tk = [('JSON', '.json')]
         elif self.context == 'load_graphing_data':
@@ -493,6 +526,7 @@ class FileChooseBTN(HoverBehavior, Button):
             self,
             lambda: _platform_native_open_file(initial_dir=selected_path, filetypes=filetypes_tk),
             lambda path: self.handle_selection(selection=[path]),
+            on_cancel=lambda: gui_logger.select('FILE_CHOOSE', f'context={context} cancelled'),
         )
 
     def handle_selection(self, selection):
@@ -521,14 +555,14 @@ class FileChooseBTN(HoverBehavior, Button):
         if self.selection:
             if self.context == 'load_protocol':
                 ctx.motion_settings.ids['protocol_settings_id'].load_protocol(
-                    filepath=self.selection[0]
+                    filepath=self.selection[0], navigate=True
                 )
 
             elif self.context == 'load_cell_count_input_image':
                 ctx.cell_count_content.set_preview_source_file(file=self.selection[0])
 
             elif self.context == 'load_quick_enhance_input_image':
-                ctx.quick_enhance_controls.set_source_file(file=self.selection[0])
+                ctx.quick_enhance_controls.set_source(self.selection[0])
 
             elif self.context == 'load_graphing_data':
                 ctx.graphing_controls.set_graphing_source(file=self.selection[0])
@@ -552,11 +586,14 @@ class FileOrFolderChooseBTN(HoverBehavior, Button):
             return
 
         initial_dir = str(pathlib.Path(_app_ctx.ctx.settings['live_folder']))
-        filetypes = [('Images', '.tif .tiff .png .jpg .jpeg .bmp')]
+        filetypes = _IMAGE_FILETYPES
         _run_native_dialog_async(
             self,
             lambda: _platform_native_choose_file_or_folder(initial_dir, filetypes),
             lambda path: self.handle_selection(selection=[path]),
+            on_cancel=lambda: gui_logger.select(
+                'FILE_OR_FOLDER_CHOOSE', f'context={context} cancelled'
+            ),
         )
 
     def handle_selection(self, selection):
@@ -580,14 +617,7 @@ class FileOrFolderChooseBTN(HoverBehavior, Button):
                 'Stop or finish the protocol first, then retry.',
             )
             return
-        if path.is_dir():
-            ctx.quick_enhance_controls.set_source_folder(path)
-        elif path.is_file():
-            ctx.quick_enhance_controls.set_source_file(path)
-        else:
-            from modules.notification_center import notifications
-
-            notifications.warning('Enhance', 'Selection unavailable', f'Could not open: {path}')
+        ctx.quick_enhance_controls.set_source(path)
 
 
 class FolderChooseBTN(HoverBehavior, Button):
@@ -638,6 +668,7 @@ class FolderChooseBTN(HoverBehavior, Button):
                 title=f'Select folder ({context})',
             ),
             lambda chosen: self.handle_selection(selection=[chosen]),
+            on_cancel=lambda: gui_logger.select('FOLDER_CHOOSE', f'context={context} cancelled'),
         )
 
     def handle_selection(self, selection):
@@ -648,7 +679,6 @@ class FolderChooseBTN(HoverBehavior, Button):
 
     def on_selection_function(self, *a, **k):
         ctx = _app_ctx.ctx
-        settings = ctx.settings
         logger.info('[LVP Main  ] FolderChooseBTN.on_selection_function()')
         if self.selection:
             path = self.selection[0]
@@ -668,8 +698,7 @@ class FolderChooseBTN(HoverBehavior, Button):
             return
 
         if self.context == 'live_folder':
-            with ctx.settings_lock:
-                settings['live_folder'] = str(pathlib.Path(path).resolve())
+            ctx.set_live_folder(str(pathlib.Path(path).resolve()))
         elif self.context == 'apply_cell_count_method_to_folder':
             ctx.cell_count_content.apply_method_to_folder(path=path)
         elif self.context == 'apply_stitching_to_folder':
@@ -681,7 +710,7 @@ class FolderChooseBTN(HoverBehavior, Button):
         elif self.context == 'apply_zprojection_to_folder':
             ctx.zprojection_controls.run_zprojection(path=pathlib.Path(path))
         elif self.context == 'apply_quick_enhance_to_folder':
-            ctx.quick_enhance_controls.set_source_folder(path=pathlib.Path(path))
+            ctx.quick_enhance_controls.set_source(path)
         else:
             raise Exception(f'on_selection_function(): Unknown selection {self.context}')
 
@@ -710,6 +739,7 @@ class FileSaveBTN(HoverBehavior, Button):
             self,
             lambda: _platform_native_save_file(initial_dir=selected_path, filetypes=filetypes),
             lambda path: self.handle_selection(selection=[path]),
+            on_cancel=lambda: gui_logger.select('FILE_SAVE', f'context={context} cancelled'),
         )
 
     def handle_selection(self, selection):
@@ -729,7 +759,6 @@ class FileSaveBTN(HoverBehavior, Button):
                 ctx.motion_settings.ids['protocol_settings_id'].save_protocol(
                     filepath=self.selection[0]
                 )
-                logger.info('[LVP Main  ] Saving Protocol to File:' + self.selection[0])
 
         elif self.context == 'save_graph':
             if self.selection:

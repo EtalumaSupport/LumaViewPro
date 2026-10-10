@@ -9,7 +9,8 @@ Security model:
   - When api_key is null/empty: no authentication required (localhost-only use)
   - When api_key is set: all API requests must include the key via
     X-API-Key header or ?api_key= query parameter
-  - When binding to non-localhost: api_key MUST be set (enforced at startup)
+  - When binding to non-localhost: api_key MUST be set in the installation's
+    settings file; until it is, every request is rejected
 """
 
 import hmac
@@ -102,34 +103,3 @@ def check_auth(settings: dict, provided_key: str | None) -> tuple[bool, str]:
 
     logger.warning('Invalid API key attempt')
     return False, 'Invalid API key'
-
-
-def ensure_api_key_for_non_localhost(settings: dict) -> str | None:
-    """Auto-generate an API key if binding to non-localhost without one.
-
-    Call this at REST API startup. If a key is generated, the caller
-    should persist the updated settings.
-
-    Args:
-        settings: The application settings dict (modified in place).
-
-    Returns:
-        The generated key if one was created, None otherwise.
-    """
-    rest_api = settings.get('rest_api', {})
-    host = rest_api.get('host', '127.0.0.1')
-    api_key = rest_api.get('api_key')
-
-    if host not in ('127.0.0.1', '::1', 'localhost') and not api_key:
-        new_key = generate_api_key()
-        rest_api['api_key'] = new_key
-        settings['rest_api'] = rest_api
-        logger.warning(
-            'Auto-generated API key for non-localhost binding (%s). Key: %s...%s',
-            host,
-            new_key[:8],
-            new_key[-4:],
-        )
-        return new_key
-
-    return None

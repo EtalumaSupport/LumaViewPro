@@ -20,6 +20,8 @@ import pathlib
 import sys
 from unittest.mock import MagicMock
 
+import pytest
+
 for _kivy_submod in ('kivy.core', 'kivy.core.window', 'kivy.uix', 'kivy.uix.scrollview'):
     sys.modules.setdefault(_kivy_submod, MagicMock())
 
@@ -33,22 +35,26 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 def test_recording_title_shows_seconds_not_percent():
     import ui.ui_helpers as ui_helpers
+    from modules.run_events import VideoProgress
 
-    ui_helpers.set_recording_title(elapsed_sec=12, total_sec=30)
+    ui_helpers.show_video_progress(VideoProgress('recording', elapsed_s=12, total_s=30))
     title = ui_helpers._title_event_text
     assert '12s' in title and '30s' in title, title
     assert '%' not in title, f'recording title must not show percent: {title!r}'
 
 
-def test_recording_title_elapsed_only_and_start():
+def test_the_end_of_a_video_clears_only_its_own_title():
     import ui.ui_helpers as ui_helpers
+    from modules.run_events import VideoProgress
 
-    ui_helpers.set_recording_title(elapsed_sec=7)
-    assert '7s' in ui_helpers._title_event_text
-    assert '%' not in ui_helpers._title_event_text
+    ui_helpers.show_video_progress(VideoProgress('recording', elapsed_s=7, total_s=30))
+    ui_helpers.show_video_progress(VideoProgress('ended'))
+    assert ui_helpers._title_event_text is None
 
-    ui_helpers.set_recording_title()
-    assert ui_helpers._title_event_text == 'Recording Video...'
+    ui_helpers.show_video_progress(VideoProgress('writing', percent=40))
+    ui_helpers.set_title_event_text('Homing, please wait...')
+    ui_helpers.show_video_progress(VideoProgress('ended'))
+    assert ui_helpers._title_event_text == 'Homing, please wait...'
 
 
 # ---------------------------------------------------------------------------
@@ -82,14 +88,22 @@ def _method_node(path: pathlib.Path, name: str) -> ast.FunctionDef:
 
 
 def test_video_duration_text_allows_beyond_slider():
-    """video_duration_text passes value_max so a typed value can exceed the
-    slider's 60s ceiling (a multi-minute protocol video)."""
+    """A typed duration past the slider's 60 s ceiling is written as typed (a
+    multi-minute protocol video): the box hands the writer no ceiling, and the
+    writer's own range for a step's duration runs to an hour."""
+    import json
+
+    from modules.exceptions import SettingRefusedError
+    from modules.settings_paths import VIDEO_STEP_DURATION_S_MAX, check_write
+
     method = _method_node(REPO_ROOT / 'ui' / 'layer_control.py', 'video_duration_text')
-    src = ast.unparse(method)
-    assert 'value_max' in src, (
-        'video_duration_text must pass value_max so the text box accepts a '
-        'duration longer than the slider ceiling'
+    assert 'value_max' not in ast.unparse(method), (
+        "video_duration_text must hand the writer no ceiling; the range is the writer's"
     )
+    template = json.loads((REPO_ROOT / 'data' / 'settings.json').read_text(encoding='utf-8'))
+    check_write(template, 'BF.video_config.duration', 600)
+    with pytest.raises(SettingRefusedError):
+        check_write(template, 'BF.video_config.duration', VIDEO_STEP_DURATION_S_MAX + 1)
 
 
 def test_video_duration_slider_ceiling_is_60():

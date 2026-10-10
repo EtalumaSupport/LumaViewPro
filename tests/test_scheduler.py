@@ -150,24 +150,6 @@ class TestThreadingTimerScheduler:
         finally:
             sched.shutdown()
 
-    def test_callback_taking_dt_arg_works(self):
-        """Both no-arg callbacks and ``cb(dt)`` callbacks should work
-        (Kivy convention is one-arg; Threading is no-arg)."""
-        sched = ThreadingTimerScheduler()
-        try:
-            received = {'dt': None}
-            evt = threading.Event()
-
-            def _cb(dt):
-                received['dt'] = dt
-                evt.set()
-
-            sched.schedule_interval(_cb, 0.05)
-            assert evt.wait(timeout=1.0)
-            assert received['dt'] is not None
-        finally:
-            sched.shutdown()
-
     def test_satisfies_scheduler_protocol(self):
         sched = ThreadingTimerScheduler()
         try:
@@ -201,3 +183,52 @@ class TestCallablePairScheduler:
     def test_satisfies_scheduler_protocol(self):
         pair = _CallablePairScheduler(lambda cb, i: None, lambda h: None)
         assert isinstance(pair, Scheduler)
+
+
+class TestACallbacksOwnTypeErrorIsItsOwn:
+    """A scheduler calls a callback with no arguments, and nothing else.
+
+    Both schedulers guessed a callback's signature by catching TypeError:
+    a callback whose body raised one was called again with an argument, and
+    the error reported was ``takes 0 positional arguments but 1 was given``.
+    An API refusal of a wrong argument type is a TypeError, so an API call
+    from a timer lost its refusal that way.
+    """
+
+    def test_the_timer_scheduler_reports_it_after_one_call(self):
+        calls = []
+        reported = []
+        seen = threading.Event()
+
+        def _cb():
+            calls.append(None)
+            raise TypeError('the real failure')
+
+        def _on_error(error):
+            reported.append(error)
+            seen.set()
+
+        sched = ThreadingTimerScheduler(on_callback_error=_on_error)
+        try:
+            handle = sched.schedule_interval(_cb, 0.05)
+            assert seen.wait(timeout=2.0), 'the callback never ran'
+            sched.unschedule(handle)
+        finally:
+            sched.shutdown()
+        assert str(reported[0]) == 'the real failure'
+        assert len(calls) == len(reported)
+
+    def test_the_host_clock_scheduler_raises_it_after_one_call(self):
+        scheduled = []
+        calls = []
+
+        def _cb():
+            calls.append(None)
+            raise TypeError('the real failure')
+
+        pair = _CallablePairScheduler(lambda cb, _s: scheduled.append(cb), lambda _h: None)
+        pair.schedule_interval(_cb, 1.0)
+        with pytest.raises(TypeError, match='the real failure'):
+            scheduled[0](1.0)
+        assert len(calls) == 1
+        pair.shutdown()

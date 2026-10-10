@@ -47,11 +47,23 @@ from modules.config_helpers import (
     get_image_capture_config_from_settings,
     get_manual_video_max_duration,
 )
-from modules.exceptions import RecordingRefusedError
+from modules.exceptions import (
+    CaptureError,
+    FrameListenerNotRegisteredError,
+    HyperstackRefusedError,
+    RecordingDetailsNotSavedError,
+    RecordingFinalizeError,
+    RecordingPositionNotRecordedNotice,
+    RecordingRefusedError,
+    RecordingStoppedError,
+    VideoFramesDroppedError,
+    VideoWriterFailedError,
+)
 from modules.notification_center import notifications
 from modules.recording_frames import (
     MANUAL_HYPERSTACK_FILENAME,
     CameraTickRebaser,
+    frame_fact,
     manual_frame_filename_template,
     orient_and_fit,
     resolve_recording_pixel_size,
@@ -67,6 +79,7 @@ from modules.video_recording import (
 )
 from modules.scheduler import Scheduler
 from modules.video_writer import VideoWriter
+from modules.api_surface import api
 
 # The channel LumaViewPro comes up on. A recording that can name no other
 # channel was taken on this one, so identity always has a real value and
@@ -144,11 +157,17 @@ class ManualRecordingController:
         self._writer: VideoWriter | None = None
         self._start_ts: float | None = None
         self._stall_watch: StallWatch | None = None
+        self._effective_fps: float | None = None
         self._rebaser: CameraTickRebaser | None = None
         self._hyperstack_rows: list | None = None
         self._last_disk_check_ts = 0.0
         self._on_complete: Callable[[], None] | None = None
         self._finish_thread: threading.Thread | None = None
+        # Whether a recording's finish has yet to end. Its own store, not the
+        # finish thread's liveness: the thread announces its end as its last
+        # step, while still alive, and a listener told of that end must read
+        # it as ended.
+        self._finishing = False
         self._health_handle: object | None = None
         # Guards the per-recording state slots published by start():
         # the health check reads them from the scheduler's timer thread,
@@ -156,39 +175,30 @@ class ManualRecordingController:
         # engine with the previous recording's start timestamp.
         self._state_lock = threading.Lock()
         self._end_reason: str | None = None
-        # Set by the composing session: the engine's claim refusal
-        # names the holding run's trigger through this.
-        self.run_trigger_lookup = None
-
-    def set_scope(self, scope: Any) -> None:
-        """Rewire onto a NEW scope after a reconnect.
-
-        Callers must not swap the scope while a recording is active --
-        the frame listener and camera identity of a live recording
-        belong to the scope it started on. The session's set_scope
-        guards that; this method only carries the handle swap.
-        """
-        self._scope = scope
 
     # ------------------------------------------------------------------
     # Status surface (GUI polls these; all None-safe)
     # ------------------------------------------------------------------
 
+    @api
     @property
     def is_recording(self) -> bool:
         """True while cadence selection is open."""
         return self._engine is not None and self._engine.is_recording
 
+    @api
     @property
     def is_draining(self) -> bool:
         """True while queued frames are still being written."""
         return self._engine is not None and self._engine.is_draining
 
+    @api
     @property
     def pending_writes(self) -> int:
         """Frames enqueued but not yet on disk."""
         return self._engine.pending_writes if self._engine is not None else 0
 
+    @api
     @property
     def is_busy(self) -> bool:
         """True until the recording, its drain, AND the finish complete.
@@ -196,9 +206,9 @@ class ManualRecordingController:
         The app-close gate reads this: the recording is not safely over
         until the post-drain finish (MP4 close, hyperstack) has run.
         """
-        thread = self._finish_thread
-        return self.is_recording or self.is_draining or (thread is not None and thread.is_alive())
+        return self.is_recording or self.is_draining or self._finishing
 
+    @api
     @property
     def elapsed_s(self) -> float:
         """Seconds since the recording started; 0.0 when idle."""
@@ -206,6 +216,7 @@ class ManualRecordingController:
             return 0.0
         return self._clock() - self._start_ts
 
+    @api
     @property
     def save_folder(self) -> Path | None:
         """The active (or last) recording's output folder."""
@@ -215,6 +226,7 @@ class ManualRecordingController:
     # Lifecycle
     # ------------------------------------------------------------------
 
+    @api
     def start(
         self,
         *,
@@ -240,19 +252,28 @@ class ManualRecordingController:
                 UI cleanup from it.
 
         Raises:
+            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a
+                layer. Nothing is committed.
+            HardwareCommandRefusedError: ``'axis_absent'``, this scope has
+                no ``layer``. Nothing is committed.
             RecordingRefusedError: The start cannot proceed -- a previous
                 recording is still recording, draining or finishing,
-                another exclusive activity is running, the camera is
-                inactive or has no known exposure, or free disk is below
-                the floor. Nothing is committed when this raises.
+                another exclusive activity is running, a turret or frame
+                change is under way, the camera is inactive or has no known
+                exposure, or free disk is below the floor. Nothing is
+                committed when this raises.
+            ObjectiveUnknownError: No one can say which objective is in the
+                light path, so the recording's frames would carry no scale.
+                Nothing is committed.
+            CaptureError: ``'recording_not_started'``, the camera did not
+                accept the frame listener; the start is unwound.
         """
         # Exclusivity has to span the finish, not just the drain. The
         # engine frees its claim before the finish thread stops reading
         # this controller's per-recording state, so a second start landing
         # in that gap rebinds every slot underneath a recording that is
         # still closing its encoder and building its hyperstack. Must stay
-        # the FIRST statement: the refusals below are not side-effect-free
-        # (the rate clamp pops an FPS-budget warning).
+        # the FIRST statement.
         #
         # Shares the engine's reason code, whose message says "stop it"
         # while this one says "wait". Considered a distinct code; rejected
@@ -270,6 +291,14 @@ class ManualRecordingController:
         settings = self._settings
         scope = self._scope
 
+        # Every frame's identity names this layer, so a recording named for
+        # what is no layer, or a layer this scope lacks, is a file labelled
+        # with what nobody imaged.
+        if layer is not None:
+            scope.layer_identity.refuse_unless_on_scope(
+                layer, 'manual_recording.start', then='be recorded'
+            )
+
         if not scope.imaging.active_cached:
             raise RecordingRefusedError(
                 reason='camera_inactive',
@@ -281,39 +310,26 @@ class ManualRecordingController:
         exposure = scope.imaging.exposure_ms_cached
         # The exposure cache seeds 0.0 and keeps the prior value when a
         # read fails, so a camera whose exposure was never successfully
-        # read reports 0 here; the recording rate derives from it, so
-        # refuse loudly instead of fabricating a rate.
+        # read reports 0 here; the dead-feed bound derives from it, so
+        # refuse loudly instead of fabricating one.
         if exposure is None or exposure <= 0:
             raise RecordingRefusedError(
                 reason='camera_exposure_unknown',
                 title='Camera Exposure Unavailable',
                 message='The camera has not reported its exposure time, so the '
-                'recording rate cannot be set. Reconnect the camera and try again.',
+                'recording cannot be started. Reconnect the camera and try again.',
             )
-        exposure_fps = 1000.0 / exposure
-
         video_settings = settings.get('video', {})
         max_fps = video_settings.get('max_fps', 0)
-        if max_fps > 0 and max_fps > exposure_fps:
-            notifications.warning(
-                'Recording',
-                'FPS budget exceeded',
-                f'Requested {max_fps:.1f} FPS at {exposure:.0f} ms exposure exceeds '
-                f"the camera's max {exposure_fps:.1f} FPS for that exposure. "
-                f'Recording will run at {exposure_fps:.1f} FPS instead. '
-                'Reduce exposure to hit the requested rate.',
-            )
-        # The effective-rate clamp: exposure bounds what the sensor can
-        # produce, the user's cap applies when set, and the delivery
-        # bound caps an uncapped fast-exposure config -- the frame budget
-        # must reflect a rate the camera can actually deliver, never a
-        # bare 1/exposure.
-        effective_fps = effective_recording_fps(exposure_fps, max_fps)
+        # Manual recording asks for no rate of its own: it records every
+        # frame the camera delivers, limited only by the user's setting
+        # when one is set.
+        effective_fps = effective_recording_fps(None, max_fps)
 
         duration_s = get_manual_video_max_duration(settings)
         video_as_frames = settings['video_as_frames']
         capture_config = get_image_capture_config_from_settings(settings)
-        identity = scope.imaging.camera_identity
+        camera = scope.capabilities
 
         start_dt = datetime.datetime.now()
         start_time_str = start_dt.strftime('%Y-%m-%d_%H.%M.%S')
@@ -322,12 +338,23 @@ class ManualRecordingController:
         else:
             save_folder = Path(settings['live_folder']) / 'Manual'
 
+        # The live folder is there before its free space means anything: a
+        # disk probe on a missing folder raises instead of refusing.
+        try:
+            live_folder = path_utils.require_capture_location(settings['live_folder'])
+        except path_utils.CaptureLocationError as exc:
+            raise RecordingRefusedError(
+                reason='capture_location_unusable',
+                title='Cannot Save Recording',
+                message=str(exc),
+            ) from exc
+
         # PR-2 floor semantics: manual recording is stop-when-I-say, so
         # the pre-flight is a floor check (can we start safely?), not a
         # whole-budget reservation; the rolling check in the write edge
         # carries the guarantee through the recording. Probed on the
         # live folder -- the save subfolders may not exist yet.
-        ok, free_mb = check_disk_space_ok(Path(settings['live_folder']), MIN_REQUIRED_DISK_MB)
+        ok, free_mb = check_disk_space_ok(live_folder, MIN_REQUIRED_DISK_MB)
         if not ok:
             raise RecordingRefusedError(
                 reason='insufficient_disk',
@@ -371,7 +398,6 @@ class ManualRecordingController:
 
         resolved_layer = resolve_channel_identity(scope.illumination, layer)
 
-        frame_size = scope.imaging.frame_size_cached
         manifest_extra = {
             # RENDERING, not identity: the video builder reads this back to
             # decide whether to false-color a rebuild, so a mono recording
@@ -379,91 +405,107 @@ class ManualRecordingController:
             # deliberately saved gray.
             'channel_color': resolved_layer if false_color_on else None,
             'camera': {
-                'model': identity['model'],
-                'serial': identity['serial'],
-                'timestamp_tick_hz': identity['timestamp_tick_frequency_hz'],
+                'model': camera.camera_model,
+                'serial': camera.camera_serial_number,
+                'timestamp_tick_hz': camera.camera_timestamp_tick_hz,
             },
             'provenance': {
                 'host': gather_host_provenance(),
                 'software': {'lvp_version': lvp_version},
             },
         }
-        config = RecordingConfig(
-            fps=effective_fps,
-            duration_s=duration_s,
-            width=frame_size['width'],
-            height=frame_size['height'],
-            bit_depth=capture_config.capture_depth,
-            output_dir=save_folder,
-            filename_template=manual_frame_filename_template(),
-            timestamp_overlay=video_settings.get('timestamp_overlay', True),
-            manifest_extra=manifest_extra,
-            # The MP4 leg's artifacts share the flat Manual folder, so its
-            # manifest is named after the video the writer actually wrote --
-            # the writer renames itself on collision, so two recordings
-            # inside one second write two videos, and a manifest named from
-            # the start timestamp would describe whichever one it did not
-            # measure. The frames leg owns a per-recording folder and keeps
-            # the default name.
-            manifest_filename=('recording_manifest.json' if video_as_frames else None),
-        )
-
         hyperstack = (
             video_as_frames
             and capture_config.output_format_sequenced == image_mode.OUTPUT_FORMAT_HYPERSTACK
         )
-        plan = _RecordingPlan(
-            video_as_frames=video_as_frames,
-            save_folder=save_folder,
-            layer=resolved_layer,
-            false_color_on=false_color_on,
-            save_encoding=capture_config.save_encoding,
-            capture_depth=capture_config.capture_depth,
-            tick_freq_hz=identity['timestamp_tick_frequency_hz'],
-            hyperstack=hyperstack,
-            # One position snapshot for the whole recording: the stage
-            # does not move during a manual record, and the writer lane
-            # must never query hardware per frame.
-            stage_position=(scope.motion.get_current_position() if hyperstack else None),
-            pixel_size_um=resolve_recording_pixel_size(scope),
-        )
+        # What the file will claim of the scope -- its frame size, and the
+        # pixel size its objective and binning give -- is read by the engine
+        # once it holds the claim: a turret or frame change can neither start
+        # then nor still be running, so the file cannot claim the scope as it
+        # was an instant before one.
+        claimed = {}
 
-        writer = None
-        if not video_as_frames:
-            save_folder.mkdir(exist_ok=True, parents=True)
-            writer = VideoWriter(
-                output_path=save_folder / f'Video_{start_time_str}.mp4',
+        def _make_config() -> RecordingConfig:
+            frame_size = scope.imaging.frame_size_cached
+            claimed['frame_size'] = frame_size
+            claimed['pixel_size_um'] = resolve_recording_pixel_size(scope)
+            claimed['to_plate'] = scope.runtime_state.plate_transform() if video_as_frames else None
+            claimed['config'] = RecordingConfig(
                 fps=effective_fps,
+                duration_s=duration_s,
                 width=frame_size['width'],
                 height=frame_size['height'],
-                # Rendering: a null here keeps the encoder gray, which is
-                # what a recording with the toggle off must produce.
-                color=resolved_layer if false_color_on else None,
-                include_timestamp_overlay=config.timestamp_overlay,
-                vfr=True,
+                bit_depth=capture_config.capture_depth,
+                output_dir=save_folder,
+                filename_template=manual_frame_filename_template(),
+                timestamp_overlay=video_settings.get('timestamp_overlay', True),
+                manifest_extra=manifest_extra,
+                # The MP4 leg's artifacts share the flat Manual folder, so its
+                # manifest is named after the video the writer actually wrote --
+                # the writer renames itself on collision, so two recordings
+                # inside one second write two videos, and a manifest named from
+                # the start timestamp would describe whichever one it did not
+                # measure. The frames leg owns a per-recording folder and keeps
+                # the default name.
+                manifest_filename=('recording_manifest.json' if video_as_frames else None),
             )
+            return claimed['config']
 
         engine = VideoRecordingEngine(
             write_frame=self._write_frame,
             claim=self._claim,
             clock=self._clock,
-            notify=notifications,
-            run_trigger_lookup=self.run_trigger_lookup,
         )
+        # The frames leg's folder, reserved above; a start that fails from
+        # here on leaves it holding nothing.
+        frames_folder = save_folder if video_as_frames else None
+
         # Engine start is the commit point: it acquires the claim or
         # raises. Assign controller state only after it succeeds.
-        engine.start(config)
         try:
+            engine.start(_make_config)
+        except BaseException:
+            _discard_if_empty(frames_folder)
+            raise
+        writer = None
+        try:
+            config = claimed['config']
+            plan = _RecordingPlan(
+                video_as_frames=video_as_frames,
+                save_folder=save_folder,
+                layer=resolved_layer,
+                false_color_on=false_color_on,
+                save_encoding=capture_config.save_encoding,
+                capture_depth=capture_config.capture_depth,
+                tick_freq_hz=camera.camera_timestamp_tick_hz,
+                hyperstack=hyperstack,
+                pixel_size_um=claimed['pixel_size_um'],
+                to_plate=claimed['to_plate'],
+            )
+            if video_as_frames:
+                _say_what_the_frames_cannot_record(scope, plan.to_plate)
+            else:
+                save_folder.mkdir(exist_ok=True, parents=True)
+                writer = VideoWriter(
+                    output_path=save_folder / f'Video_{start_time_str}.mp4',
+                    fps=effective_fps,
+                    width=claimed['frame_size']['width'],
+                    height=claimed['frame_size']['height'],
+                    # Rendering: a null here keeps the encoder gray, which is
+                    # what a recording with the toggle off must produce.
+                    color=resolved_layer if false_color_on else None,
+                    include_timestamp_overlay=config.timestamp_overlay,
+                    vfr=True,
+                )
             with self._state_lock:
                 self._engine = engine
                 self._config = config
                 self._plan = plan
                 self._writer = writer
                 self._start_ts = self._clock()
-                self._stall_watch = StallWatch(stall_threshold_s(effective_fps, exposure / 1000.0))
-                self._rebaser = CameraTickRebaser(
-                    identity['timestamp_tick_frequency_hz'], self._clock
-                )
+                self._effective_fps = effective_fps
+                self._stall_watch = StallWatch(self._stall_threshold_now(effective_fps, exposure))
+                self._rebaser = CameraTickRebaser(camera.camera_timestamp_tick_hz, self._clock)
                 self._hyperstack_rows = [] if hyperstack else None
                 self._last_disk_check_ts = 0.0
                 self._on_complete = on_complete
@@ -475,6 +517,7 @@ class ManualRecordingController:
             self._finish_thread = threading.Thread(
                 target=self._finish_after_drain, name='ManualRecordingFinish', daemon=True
             )
+            self._finishing = True
             self._finish_thread.start()
             # Armed last, after every state slot above is published: a
             # check firing between engine.start and the publish would
@@ -484,19 +527,33 @@ class ManualRecordingController:
             self._health_handle = self._scheduler.schedule_interval(
                 self._health_check, HEALTH_CHECK_INTERVAL_S
             )
+        except FrameListenerNotRegisteredError as refused:
+            self._unwind_failed_start(engine, writer, frames_folder)
+            # Said as what the person pressed Record for: the recording, not
+            # the listener it would have needed.
+            raise CaptureError(
+                'The recording did not start: the camera did not accept its frame '
+                'listener. Check the log for the camera driver error.',
+                'recording_not_started',
+            ) from refused
         except BaseException:
             # Past the commit point the engine holds the claim, and this is
             # the only frame holding the writer -- the engine is handed a
             # write_frame callable and can never close it.
-            self._unwind_failed_start(engine, writer)
+            self._unwind_failed_start(engine, writer, frames_folder)
             raise
+        rate = (
+            'every delivered frame' if effective_fps is None else f'{effective_fps:.2f} fps limit'
+        )
         logger.info(
-            f'[ManualRecord] Recording started: {effective_fps:.2f} fps, '
+            f'[ManualRecord] Recording started: {rate}, '
             f'max {duration_s:.0f} s, {"frames" if video_as_frames else "mp4"} '
             f'-> {save_folder}'
         )
 
-    def _unwind_failed_start(self, engine: VideoRecordingEngine, writer: Any) -> None:
+    def _unwind_failed_start(
+        self, engine: VideoRecordingEngine, writer: Any, frames_folder: Path | None
+    ) -> None:
         """Undo a start that raised after the engine committed.
 
         Order matters: stop delivering frames, then end the recording so
@@ -533,11 +590,14 @@ class ManualRecordingController:
                     writer.output_path.unlink(missing_ok=True)
             except Exception:
                 logger.exception('[ManualRecord] writer disposal failed during start unwind')
+        _discard_if_empty(frames_folder)
 
         self._engine = None
         self._writer = None
         self._finish_thread = None
+        self._finishing = False
 
+    @api
     def stop(self, reason: str = 'user_stop') -> None:
         """Close selection; the drain and finish continue on their own.
 
@@ -558,6 +618,7 @@ class ManualRecordingController:
             logger.warning(f'[ManualRecord] remove_frame_listener failed: {e}')
         engine.stop(reason)
 
+    @api
     @property
     def end_reason(self) -> str | None:
         """Why the most recent recording ended, or None before any has.
@@ -570,7 +631,7 @@ class ManualRecordingController:
         """
         return self._end_reason
 
-    def _health_check(self, dt: float | None = None) -> None:
+    def _health_check(self) -> None:
         """Watch the recording's health; armed by the controller itself.
 
         Owns the wall-clock duration cap (the engine's frame budget is
@@ -588,6 +649,7 @@ class ManualRecordingController:
             config = self._config
             start_ts = self._start_ts
             stall_watch = self._stall_watch
+            effective_fps = self._effective_fps
         if engine is None or not engine.is_recording or start_ts is None or config is None:
             return
         if self._clock() - start_ts >= config.duration_s:
@@ -596,8 +658,18 @@ class ManualRecordingController:
         if not self._scope.imaging.active_cached:
             self._stop_for_camera_loss(reason='camera_disconnected')
             return
-        if stall_watch is not None and stall_watch.stalled(engine.frames_selected, self._clock()):
+        if stall_watch is None:
+            return
+        # Exposure and gain stay open during a recording, so the interval
+        # between frames can grow after start: the bound follows it.
+        stall_watch.raise_threshold(self._stall_threshold_now(effective_fps))
+        if stall_watch.stalled(engine.frames_selected, self._clock()):
             self._stop_for_camera_loss(reason='camera_stalled')
+
+    def _stall_threshold_now(self, effective_fps: float | None, floor_ms: float = 0.0) -> float:
+        """The feed-death bound for the longest exposure the camera may be using now."""
+        exposure_ms = max(floor_ms, self._scope.imaging.longest_exposure_ms or 0.0)
+        return stall_threshold_s(effective_fps, exposure_ms / 1000.0)
 
     def _disarm_health_check(self) -> None:
         handle = self._health_handle
@@ -606,16 +678,14 @@ class ManualRecordingController:
             self._scheduler.unschedule(handle)
 
     def _stop_for_camera_loss(self, reason: str) -> None:
-        logger.error(f'[ManualRecord] Camera feed lost mid-recording ({reason}); stopping')
+        # The person reads one sentence for both reasons; the log keeps which.
+        logger.info(f'[ManualRecord] Camera feed lost mid-recording ({reason})')
         self.stop(reason=reason)
-        notifications.error(
-            'Recording',
-            'Recording Stopped',
-            'The camera stopped delivering frames, so the recording was '
-            'stopped. Frames captured so far are saved; check the camera '
-            'connection before recording again.',
+        notifications.report_outcome(
+            RecordingStoppedError(reason), solicited=False, category='Recording'
         )
 
+    @api
     def discard_pending(self) -> None:
         """Drop the unwritten backlog loudly (the app-close discard path)."""
         if self._engine is not None:
@@ -626,17 +696,29 @@ class ManualRecordingController:
     # ------------------------------------------------------------------
 
     def _on_camera_frame(self, image, timestamp, chunks) -> None:
-        """SDK-thread listener: rebase the timestamp, offer to the engine."""
+        """SDK-thread listener: rebase the timestamp, offer to the engine.
+
+        The frame's fact is read HERE, when the frame arrives, and rides
+        the queue with it: the write runs later, behind the backlog, and
+        a read then would put a stage move on the wrong frames. Only a
+        frames recording writes a per-frame file, so only it pays.
+        """
         engine = self._engine
         if engine is None or not engine.is_recording:
             return
-        engine.ingest_frame(image, self._rebaser.frame_time_s(timestamp, chunks), chunks)
+        plan = self._plan
+        fact = (
+            frame_fact(self._scope, channel_tiebreak=plan.layer, to_plate=plan.to_plate)
+            if plan.video_as_frames
+            else None
+        )
+        engine.ingest_frame(image, self._rebaser.frame_time_s(timestamp, chunks), chunks, fact=fact)
 
     # ------------------------------------------------------------------
     # Writer-lane edge
     # ------------------------------------------------------------------
 
-    def _write_frame(self, image, timestamp_s, frame_number, config, chunks) -> Path:
+    def _write_frame(self, image, timestamp_s, frame_number, config, chunks, fact) -> Path:
         """Write one kept frame as its final artifact (runs on the lane)."""
         self._check_disk_floor(config)
 
@@ -644,16 +726,16 @@ class ManualRecordingController:
 
         plan = self._plan
         if plan.video_as_frames:
-            return self._write_tiff_frame(image, timestamp_s, frame_number, config, chunks)
+            return self._write_tiff_frame(image, timestamp_s, frame_number, config, chunks, fact)
         return self._write_mp4_frame(image, timestamp_s)
 
-    def _write_tiff_frame(self, image, timestamp_s, frame_number, config, chunks) -> Path:
+    def _write_tiff_frame(self, image, timestamp_s, frame_number, config, chunks, fact) -> Path:
         plan = self._plan
         if config.bit_depth == 8 and image.dtype != np.uint8:
             image = image_utils.convert_to_8bit(image, config.bit_depth)
 
         metadata, ts_filename = tiff_frame_metadata(
-            timestamp_s, frame_number, chunks, plan.tick_freq_hz, plan.pixel_size_um
+            timestamp_s, frame_number, chunks, plan.tick_freq_hz, plan.pixel_size_um, fact
         )
         file_loc = config.output_dir / config.filename_template.format(
             n=frame_number, ts=ts_filename
@@ -663,18 +745,23 @@ class ManualRecordingController:
             frame=image,
             file_loc=file_loc,
             metadata=metadata,
-            channel=plan.layer,
+            # Rendered as the channel that lit THIS frame, so the file never
+            # states one channel and is coloured as another.
+            channel=fact.channel,
             false_color_on=plan.false_color_on,
             save_encoding=plan.save_encoding,
             capture_depth=plan.capture_depth,
         )
 
         if self._hyperstack_rows is not None:
-            position = plan.stage_position or {}
             # 'Scan Count' is the T-axis ordinal per the execution-record
             # contract; within one recording the temporal ordinal IS the
             # frame number (this dataframe never mixes with scan-indexed
             # rows -- it feeds only the per-recording hyperstack build).
+            # The row is THIS frame's fact, the same one its file carries:
+            # the stage and the LEDs are open to other callers while a
+            # manual recording runs, so a start-time snapshot would be a
+            # claim about frames it never saw.
             self._hyperstack_rows.append(
                 {
                     'Filepath': file_loc.name,
@@ -682,11 +769,11 @@ class ManualRecordingController:
                     # Channel identity: what was imaged. Independent of the
                     # false-color toggle, which governs display only, so it
                     # is recorded on every frame regardless of rendering.
-                    'Color': plan.layer,
+                    'Color': fact.channel,
                     'Z-Slice': 0,
-                    'X': position.get('X'),
-                    'Y': position.get('Y'),
-                    'Z': position.get('Z'),
+                    'X': fact.plate_x_mm,
+                    'Y': fact.plate_y_mm,
+                    'Z': fact.z_um,
                 }
             )
         return file_loc
@@ -714,16 +801,12 @@ class ManualRecordingController:
             logger.warning(f'[ManualRecord] Disk-floor probe failed: {e}')
             return
         if not ok and self._engine is not None and self._engine.is_recording:
-            logger.error(
+            logger.info(
                 f'[ManualRecord] Free disk fell to {free_mb:.0f} MB (floor '
-                f'{MIN_REQUIRED_DISK_MB} MB); stopping the recording'
+                f'{MIN_REQUIRED_DISK_MB} MB)'
             )
-            notifications.error(
-                'Recording',
-                'Recording Stopped -- Disk Almost Full',
-                'Free disk space fell below the safety floor, so the recording '
-                'was stopped early. Frames captured so far are saved; free up '
-                'space before recording again.',
+            notifications.report_outcome(
+                RecordingStoppedError('disk_floor'), solicited=False, category='Recording'
             )
             self.stop(reason='disk_floor')
 
@@ -774,19 +857,30 @@ class ManualRecordingController:
 
             if self._hyperstack_rows is not None:
                 self._build_hyperstack()
-        except Exception:
-            logger.exception('[ManualRecord] Post-drain finish failed')
-            notifications.error(
-                'Recording',
-                'Recording Finalize Failed',
-                'The recording finished but its output could not be fully '
-                'assembled. Frames already written are on disk; check the log.',
-            )
+        except HyperstackRefusedError as refused:
+            # The builder's reason is the whole answer, in its own words:
+            # "check the log" is no answer to a REST caller or to a user who
+            # cannot read one. The frames are on disk as recorded.
+            notifications.report_outcome(refused, solicited=False, category='Recording')
+        except Exception as failed:
+            fault = RecordingFinalizeError(protocol_step=False)
+            fault.__cause__ = failed
+            notifications.report_outcome(fault, solicited=False, category='Recording')
         finally:
             # Reporting needs the measured truth; completing the recording
             # does not. Keeping them apart is what lets the callback fire --
             # and the UI leave its recording state -- after a failed finish.
             if result is not None:
+                if result.writer_failure is not None:
+                    died = VideoWriterFailedError(protocol_step=False)
+                    died.__cause__ = result.writer_failure
+                    notifications.report_outcome(died, solicited=False, category='Recording')
+                if result.manifest_failure is not None:
+                    unsaved = RecordingDetailsNotSavedError()
+                    unsaved.__cause__ = result.manifest_failure
+                    notifications.report_outcome(
+                        unsaved, solicited=False, category='Video Recording'
+                    )
                 # Announce the artifact only once its existence is known.
                 # A recording that captured nothing leaves NO file at all --
                 # the mp4 muxer writes neither header nor trailer for an
@@ -804,12 +898,12 @@ class ManualRecordingController:
 
                 dropped = result.write_failures + writer_dropped
                 if dropped > 0 and not result.aborted:
-                    notifications.warning(
-                        'Recording',
-                        'Video Frames Dropped',
-                        f'{dropped} of {result.frames_selected} frame(s) could not '
-                        'be written, so the saved video is shorter than the '
-                        'recording. Check the log for the cause.',
+                    notifications.report_outcome(
+                        VideoFramesDroppedError(
+                            dropped, result.frames_selected, protocol_step=False
+                        ),
+                        solicited=False,
+                        category='Recording',
                     )
                 logger.info(
                     f'[ManualRecord] Finished: {result.frames_written} written, '
@@ -821,6 +915,12 @@ class ManualRecordingController:
                     self._on_complete()
                 except Exception:
                     logger.exception('[ManualRecord] on_complete callback failed')
+            # Last: once it reads False a new recording may start and rebind
+            # every per-recording slot this thread reads above. The claim was
+            # released when the drain ended, so this end is no transition of
+            # the claim's and is announced on its own.
+            self._finishing = False
+            self._claim.announce()
 
     def _build_hyperstack(self) -> None:
         plan = self._plan
@@ -832,14 +932,56 @@ class ManualRecordingController:
             df=df,
             path=plan.save_folder,
             output_file_loc=output,
+            save_encoding=plan.save_encoding,
         )
         # The builder reports refusal in its return value rather than by
-        # raising. Re-raise it so the finish handler's existing failure
-        # notification carries it to the user; announcing a hyperstack the
-        # builder declined to write would name a file that does not exist.
+        # raising. Raise it as the typed refusal so the finish handler tells
+        # the user the builder's reason; announcing a hyperstack the builder
+        # declined to write would name a file that does not exist.
         if not result['status']:
-            raise RuntimeError(f'hyperstack refused: {result["error"]}')
+            raise HyperstackRefusedError(result['error'])
         logger.info(f'[ManualRecord] Hyperstack created at {output}')
+
+
+def _say_what_the_frames_cannot_record(scope, to_plate) -> None:
+    """Tell the user, once at start, what a frames recording cannot yet record.
+
+    Each frame records the position the scope knows when the frame
+    arrives, so an axis unknown now is recorded from the moment it is
+    known -- a home during the recording makes the later frames say where
+    they were. The user still hears it once, in the axis's own name,
+    because a file with no position for its first frames is a surprise
+    without it. The turret is not part of the position. With no labware
+    or stage offset selected there is no plate frame to state X and Y in,
+    and no home will change that, so that is said too.
+    """
+    unknown = [ax for ax in ('X', 'Y', 'Z') if ax in scope.motion.axes_without_position()]
+    if not unknown and to_plate is not None:
+        return
+    notifications.report_outcome(
+        RecordingPositionNotRecordedNotice(unknown_axes=unknown, has_plate=to_plate is not None),
+        solicited=False,
+        category='Recording',
+    )
+
+
+def _discard_if_empty(frames_folder: Path | None) -> None:
+    """Remove the frames leg's reserved folder after a start that failed.
+
+    The folder is reserved before the engine's commit point, so a start
+    that fails afterwards leaves an empty ``Video_<timestamp>`` folder in
+    the user's Manual folder, reading as a recording that holds nothing --
+    the mp4 leg already deletes its empty container for the same reason.
+    Only an empty folder is removed: anything written into it is kept.
+    """
+    if frames_folder is None:
+        return
+    try:
+        frames_folder.rmdir()
+    except FileNotFoundError:
+        return
+    except OSError as e:
+        logger.warning(f'[ManualRecord] kept {frames_folder} after a failed start: {e}')
 
 
 @dataclass(frozen=True)
@@ -858,8 +1000,11 @@ class _RecordingPlan:
     capture_depth: int
     tick_freq_hz: float | None
     hyperstack: bool
-    stage_position: dict | None
     # Resolved once at start(), not per frame: the objective cannot change
     # mid-recording, and a per-frame resolve would let one stack hold frames
     # that disagree about their own scale.
     pixel_size_um: float | None
+    # The plate transform bound at start(), so every frame is stated in the
+    # frame of reference the recording began in; None when the scope had
+    # no labware or offset then, and frames record no plate position.
+    to_plate: Callable[[float, float], tuple[float, float]] | None

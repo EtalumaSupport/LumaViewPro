@@ -30,8 +30,10 @@ Usage:
     # ... Z arrives at target, settle check returns True ...
     fv.frames_until_valid()                # Returns 0 -- next frame is valid
 
-Autofocus can exclude Z motion from validity checks since a slightly
-defocused frame still produces a valid focus score:
+Excluding a source asks whether the frame is valid ignoring that change,
+so the frame can predate it: fit for showing a frame during motion, never
+for one that is measured or recorded (autofocus waits out each Z move, or a
+step's score would be the previous step's):
     fv.is_valid_for(exclude_sources=('z_move',))
 """
 
@@ -74,17 +76,17 @@ class FrameValidity:
     Motion sources additionally require physical completion (axis stopped).
     """
 
-    DEFAULT_SKIP_FRAMES = 2
-
     # Per-source skip frame counts (camera pipeline flush).
     # Default skip counts -- overridden by per-camera measured values
-    # from data/camera_timing/<model>.json via load_camera_timing().
+    # from data/camera_timing/<model>.json via load_camera_timing(). These
+    # are the shipped defaults; each instance copies them, so one camera's
+    # measured counts never outlive it into the next scope in the process.
     SKIP_FRAMES: ClassVar[dict] = {
         'led': 2,  # LED on/off or current change (measured: 2 on a2A3536)
         'gain': 2,  # Camera gain change (measured: 2 on a2A3536)
         'exposure': 3,  # Camera exposure time change (measured: 3 on a2A3536)
         'xy_move': 2,  # X or Y axis movement
-        'z_move': 2,  # Z axis movement (autofocus may exclude this)
+        'z_move': 2,  # Z axis movement
         'turret': 2,  # Turret rotation
         # Frames for hardware continuous auto-gain to settle against the lit
         # scene after arming. Like led/gain/exposure this is an instrumentation
@@ -104,6 +106,11 @@ class FrameValidity:
         'pixel_format': 3,
         'frame_size': 3,
         'binning': 3,
+        # Sensor settings that change the next frames like gain does. Unmeasured;
+        # gain's count until a bench measurement goes into camera_timing.
+        'black_level': 2,
+        'conversion_gain_mode': 2,
+        'line_noise_reduction': 2,
     }
 
     # One shape for every trace row this class writes. A row records the
@@ -163,6 +170,7 @@ class FrameValidity:
         self._lock = threading.Lock()
         self._frames_delivered = frames_delivered
         self._frame_counter = 0
+        self.SKIP_FRAMES = dict(FrameValidity.SKIP_FRAMES)
         self._pending = {}  # source -> _PendingSource
         self._settle_check_fn = None  # Optional: (source) -> bool
         self._target_values = {}  # source -> requested value (for chunk-match)
@@ -196,11 +204,15 @@ class FrameValidity:
         """Record that hardware state changed and frames need to settle.
 
         Args:
-            source: What changed ('led', 'gain', 'exposure', 'auto_gain',
-                    'xy_move', 'z_move', 'turret'). Unknown sources use
-                    DEFAULT_SKIP_FRAMES.
+            source: What changed: a key of SKIP_FRAMES.
+
+        Raises:
+            ValueError: ``source`` has no skip count. A source that settled
+                on a silent default had a count nobody chose.
         """
-        skip = self.SKIP_FRAMES.get(source, self.DEFAULT_SKIP_FRAMES)
+        skip = self.SKIP_FRAMES.get(source)
+        if skip is None:
+            raise ValueError(f'frame validity has no skip count for source {source!r}')
         with self._lock:
             # Read INSIDE the lock: two threads invalidating the same source
             # can otherwise store the earlier ordinal for the later write,
@@ -383,7 +395,7 @@ class FrameValidity:
     def is_valid_for(self, exclude_sources: tuple = ()) -> bool:
         """True if valid, ignoring specified sources.
 
-        Useful for autofocus which can accept frames during Z motion:
+        The frame can predate an excluded change: see the module docstring.
             fv.is_valid_for(exclude_sources=('z_move',))
         """
         with self._lock:

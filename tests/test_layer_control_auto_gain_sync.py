@@ -112,13 +112,12 @@ class TestApplySettingsSyncsAutoGainCheckbox:
     apply_settings call: the camera AG state ends up matching settings
     (correct) but the toggle UI continues to show the stale .kv default
     of False. The user has to click the toggle on-then-off to force the
-    update_auto_gain_cb path to re-write settings and re-fire
+    toggle's path to re-write settings and re-fire
     apply_settings, at which point the toggle visibly reflects state.
 
     The sync is gated by ``if not protocol_running_global.is_set()`` --
-    same guard as the rest of the auto_gain block. During protocols the
-    layer's AG state is managed by protocol_step_runner with
-    ignore_auto_gain=True; the UI-vs-settings sync is irrelevant there.
+    same guard as the rest of the auto_gain block. A run never applies
+    the layer's settings; the UI-vs-settings sync is irrelevant there.
     """
 
     def test_apply_settings_syncs_checkbox_active(self):
@@ -136,12 +135,14 @@ class TestApplySettingsSyncsAutoGainCheckbox:
     @pytest.mark.parametrize('widget_id', ['gain_slider', 'gain_text', 'exp_slider', 'exp_text'])
     def test_gain_exposure_widgets_follow_the_auto_gain_box_in_kv(self, widget_id):
         """The kv rule is the single owner of the four widgets' enabled
-        state: the run lockout OR the auto-gain box. A Python-side
-        `.disabled` write was clobbered at every run boundary (the rule
-        re-fires on the lockout edge), which left the sliders editable
-        under a live auto-gain after a run."""
+        state: the run lockout OR the auto-gain box OR no camera connected.
+        A Python-side `.disabled` write was clobbered at every run boundary
+        (the rule re-fires on the lockout edge), which left the sliders
+        editable under a live auto-gain after a run."""
         block = _kv_widget_block(widget_id)
-        assert 'disabled: app.run_lockout or auto_gain.active' in block, block
+        assert (
+            'disabled: app.run_lockout or auto_gain.active or not root.camera_connected' in block
+        ), block
 
     def test_no_imperative_disabled_write_for_the_gain_exposure_widgets(self):
         """No Python writer competes with the kv rule."""
@@ -153,19 +154,19 @@ class TestApplySettingsSyncsAutoGainCheckbox:
             )
 
     def test_apply_settings_sync_precedes_iotask_queue(self):
-        """The CheckBox + slider sync must precede the apply_layer_camera_settings
+        """The CheckBox + slider sync must precede the apply_layer_camera
         IOTask queue so the UI reflects the new state by the time the
         camera command lands. The opposite order would leave a brief
         window where the camera state has changed but the UI lags."""
         body = _method_body('LayerControl', 'apply_settings')
         sync_idx = body.find("self.ids['auto_gain'].active = auto_gain_enabled")
-        queue_idx = body.find('apply_layer_camera_settings')
+        queue_idx = body.find('apply_layer_camera')
         assert sync_idx >= 0, (
             'sync line missing (precondition test_apply_settings_syncs_checkbox_active)'
         )
-        assert queue_idx >= 0, 'apply_layer_camera_settings call missing (precondition)'
+        assert queue_idx >= 0, 'apply_layer_camera call missing (precondition)'
         assert sync_idx < queue_idx, (
-            'CheckBox sync must precede the apply_layer_camera_settings '
+            'CheckBox sync must precede the apply_layer_camera '
             'IOTask queue. Reverse ordering leaves a window where the '
             "camera state has changed but the UI hasn't caught up."
         )
@@ -173,9 +174,8 @@ class TestApplySettingsSyncsAutoGainCheckbox:
     def test_apply_settings_sync_inside_non_protocol_guard(self):
         """The sync code must be inside the ``if not protocol_running_global.is_set():``
         block (same guard as the rest of the auto_gain handling).
-        During protocols, protocol_step_runner manages AG state with
-        ignore_auto_gain=True; syncing the toggle UI from settings
-        during a protocol-driven layer switch would be incorrect."""
+        A run never applies the layer's settings, so syncing the toggle
+        UI from settings during one would be incorrect."""
         body = _method_body('LayerControl', 'apply_settings')
         # Find the guard line and the sync line; assert sync comes after the guard.
         guard_idx = body.find('if not ctx.session.run_lockout:')

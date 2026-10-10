@@ -15,8 +15,8 @@ import datetime
 import pathlib
 
 import pandas as pd
-import pytest
 
+from modules.notification_center import Severity
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunMode, SequencedCaptureRunner
 
@@ -76,26 +76,17 @@ def _scan_count(protocol: Protocol, max_scans=None) -> int:
     )
 
 
-@pytest.fixture
-def notices(monkeypatch):
-    import modules.notification_center as notification_center
-
-    captured = []
-    monkeypatch.setattr(
-        notification_center.notifications,
-        'notice',
-        lambda *args, **kwargs: captured.append(args),
-    )
-    return captured
+def _notices(centre_posts):
+    return [n for n in centre_posts if n.severity == Severity.NOTICE]
 
 
-def test_period_zero_runs_one_scan(notices):
+def test_period_zero_runs_one_scan(centre_posts):
     protocol = _protocol(period=datetime.timedelta(0), duration=datetime.timedelta(hours=1))
     assert _scan_count(protocol) == 1
-    assert len(notices) == 1, 'the user is told once that the run is a single scan'
+    assert len(_notices(centre_posts)) == 1, 'the user is told once that the run is a single scan'
 
 
-def test_period_zero_reloaded_from_tsv_runs_one_scan(tmp_path, notices):
+def test_period_zero_reloaded_from_tsv_runs_one_scan(tmp_path):
     # The bench recipe that found the crash: a Period 0 protocol on disk.
     protocol = _protocol(period=datetime.timedelta(0), duration=datetime.timedelta(hours=1))
     path = tmp_path / 'period_zero.tsv'
@@ -104,27 +95,27 @@ def test_period_zero_reloaded_from_tsv_runs_one_scan(tmp_path, notices):
     assert _scan_count(reloaded) == 1
 
 
-def test_duration_zero_runs_one_scan(notices):
+def test_duration_zero_runs_one_scan(centre_posts):
     protocol = _protocol(period=datetime.timedelta(minutes=10), duration=datetime.timedelta(0))
     assert _scan_count(protocol) == 1
-    assert len(notices) == 1
+    assert len(_notices(centre_posts)) == 1
 
 
-def test_duration_shorter_than_one_period_runs_one_scan(notices):
+def test_duration_shorter_than_one_period_runs_one_scan(centre_posts):
     protocol = _protocol(
         period=datetime.timedelta(hours=1), duration=datetime.timedelta(minutes=30)
     )
     assert _scan_count(protocol) == 1
-    assert len(notices) == 1
+    assert len(_notices(centre_posts)) == 1
 
 
-def test_ordinary_protocol_count_is_unchanged_and_silent(notices):
+def test_ordinary_protocol_count_is_unchanged_and_silent(centre_posts):
     protocol = _protocol(
         period=datetime.timedelta(minutes=20), duration=datetime.timedelta(hours=2)
     )
     assert _scan_count(protocol) == 6
     assert _scan_count(protocol, max_scans=2) == 2
-    assert notices == [], 'a multi-scan run gets no single-scan notice'
+    assert _notices(centre_posts) == [], 'a multi-scan run gets no single-scan notice'
 
 
 def test_exact_timedelta_arithmetic_is_kept():

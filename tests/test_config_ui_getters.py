@@ -3,12 +3,10 @@
 Tests for UI-dependent config getters in modules/config_ui_getters.py.
 
 Headless equivalents in modules/config_helpers.py are tested in
-tests/test_headless_config.py. Per Eric's 2026-04-25 directive,
-get_selected_labware() ALWAYS returns a valid (labware_id, plate) tuple
--- never None -- by falling back to the shipped default labware and then
-to the first available plate. Issue #634/#632 cluster: removing None
-from the contract retires the cluster of latent crash sites that
-consumed it without None-checking.
+tests/test_headless_config.py. get_selected_labware() answers the stored
+plate as a (labware_id, plate) tuple, never None, or raises ConfigError
+naming a plate the catalogue does not have. It never substitutes a
+different plate.
 """
 
 import datetime
@@ -35,7 +33,7 @@ def _patch_ctx(monkeypatch, *, spinner_text: str, settings: dict, loader):
 
 
 class TestGetSelectedLabware:
-    """UI variant -- always returns a valid (labware_id, plate) tuple."""
+    """UI variant -- the stored plate, or ConfigError; never another plate."""
 
     def test_settings_is_the_single_store(self, monkeypatch):
         # Settings owns the selection: the spinner writes through on
@@ -45,6 +43,7 @@ class TestGetSelectedLabware:
         # open between the GUI and headless paths.
         loader = MagicMock()
         plate = MagicMock()
+        loader.resolve_plate_key.side_effect = lambda name: name
         loader.get_plate.return_value = plate
         _patch_ctx(
             monkeypatch,
@@ -62,6 +61,7 @@ class TestGetSelectedLabware:
     def test_spinner_empty_falls_back_to_settings(self, monkeypatch):
         loader = MagicMock()
         plate = MagicMock()
+        loader.resolve_plate_key.side_effect = lambda name: name
         loader.get_plate.return_value = plate
         _patch_ctx(
             monkeypatch,
@@ -76,57 +76,47 @@ class TestGetSelectedLabware:
         assert labware_id == '96 well microplate'
         assert obj is plate
 
-    def test_invalid_stored_labware_falls_back_to_default(self, monkeypatch):
-        # Issue #634's class: an invalid stored labware key ('New' was
-        # the old KV spinner default that leaked into settings) falls
-        # back cleanly to DEFAULT_LABWARE_ID rather than returning None.
-        loader = MagicMock()
-        default_plate = MagicMock()
+    def test_invalid_stored_labware_is_refused_by_name(self, monkeypatch):
+        # 'New' was the old KV spinner default that leaked into settings.
+        # A plate the catalogue does not have is refused, never replaced
+        # by the default: the default's geometry would move every well.
+        from modules.exceptions import CatalogueNameRefusedError
+        from modules.labware_loader import WellPlateLoader
 
-        def fake_get_plate(plate_key=None):
-            if plate_key == 'New':
-                raise KeyError('New')
-            return default_plate
-
-        loader.get_plate.side_effect = fake_get_plate
         _patch_ctx(
             monkeypatch,
             spinner_text='New',
             settings={'protocol': {'labware': 'New'}},
-            loader=loader,
+            loader=WellPlateLoader(),
         )
 
         from modules.config_ui_getters import get_selected_labware
 
-        labware_id, obj = get_selected_labware()
-        # Falls back to '96 well microplate' (DEFAULT_LABWARE_ID).
-        assert labware_id == '96 well microplate'
-        assert obj is default_plate
+        with pytest.raises(CatalogueNameRefusedError, match=r"labware catalogue.*'New' is not one"):
+            get_selected_labware()
 
-    def test_spinner_empty_and_settings_missing_uses_default(self, monkeypatch):
-        loader = MagicMock()
-        default_plate = MagicMock()
-        loader.get_plate.return_value = default_plate
-        _patch_ctx(monkeypatch, spinner_text='', settings={}, loader=loader)
+    def test_spinner_empty_and_settings_missing_is_refused(self, monkeypatch):
+        from modules.exceptions import ConfigError
+        from modules.labware_loader import WellPlateLoader
+
+        _patch_ctx(monkeypatch, spinner_text='', settings={}, loader=WellPlateLoader())
 
         from modules.config_ui_getters import get_selected_labware
 
-        labware_id, obj = get_selected_labware()
-        assert labware_id == '96 well microplate'
-        assert obj is default_plate
+        with pytest.raises(ConfigError):
+            get_selected_labware()
 
-    def test_loader_keyerror_falls_back_to_first_available(self, monkeypatch):
-        # Both requested AND default missing -> fall back to first plate
-        # in loader.get_plate_list().
+    def test_no_first_available_plate_is_substituted(self, monkeypatch):
+        from modules.exceptions import CatalogueNameRefusedError
+
         loader = MagicMock()
-        first_plate = MagicMock()
-
-        def fake_get_plate(plate_key=None):
-            if plate_key in ('nonexistent plate', '96 well microplate'):
-                raise KeyError('not found')
-            return first_plate
-
-        loader.get_plate.side_effect = fake_get_plate
+        # The refusal the real loader raises for a plate its catalogue lacks.
+        loader.resolve_plate_key.side_effect = CatalogueNameRefusedError(
+            'labware_unknown',
+            argument='plate_key',
+            value='nonexistent plate',
+            offered=('some-other-plate',),
+        )
         loader.get_plate_list.return_value = ['some-other-plate']
         _patch_ctx(
             monkeypatch,
@@ -137,35 +127,28 @@ class TestGetSelectedLabware:
 
         from modules.config_ui_getters import get_selected_labware
 
-        labware_id, obj = get_selected_labware()
-        assert labware_id == 'some-other-plate'
-        assert obj is first_plate
+        with pytest.raises(CatalogueNameRefusedError, match='nonexistent plate'):
+            get_selected_labware()
+        loader.get_plate.assert_not_called()
 
-    def test_caller_tuple_unpack_does_not_crash_on_any_input(self, monkeypatch):
-        # The original #634 crash chain was `labware_id, _ = get_selected_labware()`
-        # blowing up on TypeError. With the always-valid contract, this
-        # path is impossible -- labware_id is always a non-None string.
-        loader = MagicMock()
-        default_plate = MagicMock()
+    def test_caller_tuple_unpack_gets_a_string_or_a_raise(self, monkeypatch):
+        # The original crash chain was `labware_id, _ = get_selected_labware()`
+        # blowing up on TypeError from a None. The answer is a non-empty
+        # string or a ConfigError the caller can report -- never None.
+        from modules.labware_loader import WellPlateLoader
 
-        def fake_get_plate(plate_key=None):
-            if plate_key == 'New':
-                raise KeyError('New')
-            return default_plate
-
-        loader.get_plate.side_effect = fake_get_plate
         _patch_ctx(
             monkeypatch,
-            spinner_text='New',
-            settings={'protocol': {'labware': 'New'}},
-            loader=loader,
+            spinner_text='',
+            settings={'protocol': {'labware': '6 well microplate'}},
+            loader=WellPlateLoader(),
         )
 
         from modules.config_ui_getters import get_selected_labware
 
         labware_id, _ = get_selected_labware()
         assert isinstance(labware_id, str)
-        assert labware_id  # non-empty
+        assert labware_id == '6 well microplate'
 
 
 class TestTimingAndBinningParseNotifies:
@@ -209,48 +192,27 @@ class TestTimingAndBinningParseNotifies:
 
         monkeypatch.setattr(app_context, 'ctx', ctx)
 
-        warnings = []
-        import modules.notification_center as nc
-
-        monkeypatch.setattr(
-            nc.notifications,
-            'warning',
-            lambda category, title, message, **k: warnings.append((category, title, message)),
-        )
-        return warnings
-
-    def test_unparseable_stored_period_refuses_on_both_lanes(self, monkeypatch):
-        # The whole point of the settings lane: a headless caller must get the
-        # failure the GUI gets. A notification cannot cross that boundary, so
-        # both lanes raise the one error type, and neither substitutes a
-        # default schedule the user never chose.
-        from modules.exceptions import ConfigError
-
-        warnings = self._patch(monkeypatch, period='not-a-number')
+    def test_an_unparseable_stored_period_is_refused_naming_it(self):
+        # The stored schedule is read in one place, the settings lane, and a
+        # value it cannot use is refused there -- never replaced by a default
+        # schedule the user did not choose.
         from modules.config_helpers import get_protocol_time_params_from_settings
-        from modules.config_ui_getters import get_protocol_time_params
+        from modules.protocol import ProtocolScheduleRefusedError
 
-        with pytest.raises(ConfigError) as ui_err:
-            get_protocol_time_params()
-        with pytest.raises(ConfigError) as settings_err:
+        with pytest.raises(ProtocolScheduleRefusedError) as err:
             get_protocol_time_params_from_settings(
                 {'protocol': {'period': 'not-a-number', 'duration': '1'}}
             )
+        assert 'period' in str(err.value)
 
-        # Same failure, and it names the field so the caller can fix it.
-        assert 'period' in str(ui_err.value)
-        assert str(ui_err.value) == str(settings_err.value)
-        # The GUI-only surface is no longer how this is reported.
-        assert warnings == []
+    def test_an_unparseable_stored_duration_is_refused_naming_it(self):
+        from modules.config_helpers import get_protocol_time_params_from_settings
+        from modules.protocol import ProtocolScheduleRefusedError
 
-    def test_unparseable_stored_duration_refuses(self, monkeypatch):
-        from modules.exceptions import ConfigError
-
-        self._patch(monkeypatch, duration='not-a-number')
-        from modules.config_ui_getters import get_protocol_time_params
-
-        with pytest.raises(ConfigError) as err:
-            get_protocol_time_params()
+        with pytest.raises(ProtocolScheduleRefusedError) as err:
+            get_protocol_time_params_from_settings(
+                {'protocol': {'period': '1', 'duration': 'not-a-number'}}
+            )
         assert 'duration' in str(err.value)
 
     def test_absent_schedule_still_defaults(self, monkeypatch):
@@ -264,194 +226,57 @@ class TestTimingAndBinningParseNotifies:
         assert params['period'] == datetime.timedelta(minutes=1)
         assert params['duration'] == datetime.timedelta(hours=1)
 
-    def test_binning_lane_answers_from_the_store_not_the_selector(self, monkeypatch):
-        # The selector is pointed at a label the store does not hold. A factor
-        # that could only have come from the widget is the two lanes drifting,
-        # and only the store is visible to a headless caller.
-        warnings = self._patch(monkeypatch, binning='2x2')
-        ctx_settings_binning = '4x4'
-        import modules.app_context as app_context
 
-        app_context.ctx.settings['binning']['size'] = ctx_settings_binning
-        app_context.ctx.motion_settings.ids['microscope_settings_id'].ids[
-            'binning_spinner'
-        ].text = '2x2'
+class TestGettersThatTakeTheirInputs:
+    """The getter that used to reach the app context for a GUI fact.
 
-        from modules.config_helpers import get_binning_from_settings
-        from modules.config_ui_getters import get_binning_from_ui
+    get_active_layer_config read which accordion drawer was open, so it could
+    not answer for a caller that is not the running app.
 
-        assert get_binning_from_ui() == 4
-        assert get_binning_from_ui() == get_binning_from_settings(app_context.ctx.settings)
-        assert warnings == []
-
-    def test_valid_values_do_not_notify(self, monkeypatch):
-        warnings = self._patch(monkeypatch, period='5', duration='2', binning='2x2')
-        from modules.config_ui_getters import get_binning_from_ui, get_protocol_time_params
-
-        get_protocol_time_params()
-        assert get_binning_from_ui() == 2
-        assert warnings == []
-
-    def test_subsecond_clamp_is_silent_in_getter(self, monkeypatch):
-        # The clamp warning moved OUT of this getter (which save + run-start
-        # also call, causing repeated warnings) into update_period /
-        # update_duration, which fire once at the field edit. So the getter
-        # itself must stay silent on a sub-second value.
-        warnings = self._patch(monkeypatch, period='0.001', duration='2')
-        from modules.config_ui_getters import get_protocol_time_params
-
-        get_protocol_time_params()
-        assert warnings == []
-
-    def test_zero_single_scan_does_not_notify(self, monkeypatch):
-        # 0 is the single-scan marker, preserved by the floor -- not a clamp.
-        warnings = self._patch(monkeypatch, period='0', duration='0')
-        from modules.config_ui_getters import get_protocol_time_params
-
-        get_protocol_time_params()
-        assert warnings == []
-
-
-class TestImageCaptureConfigSharedBuilder:
-    """The UI lane (get_image_capture_config_from_ui) and the settings/headless
-    lane (get_image_capture_config_from_settings) must forward an IDENTICAL
-    ImageCaptureConfig for the same image mode + inputs. They differ only in
-    where the mode / output formats / jpg_quality come from; the config shape
-    and the capture_depth / save_encoding derivation are folded into one shared
-    builder so the two paths cannot drift.
+    These build on the shipped template rather than a hand-made dict: layers
+    are top-level keys and the z-stack reference is a display label, and a
+    hand-made shape that gets either wrong tests a config that cannot occur.
     """
 
     @staticmethod
-    def _patch_ui_ctx(
-        monkeypatch,
-        *,
-        mode,
-        live,
-        sequenced,
-        jpg_quality,
-        widget_mode=None,
-        widget_live=None,
-        widget_sequenced=None,
-    ):
-        """A running GUI whose store holds mode/live/sequenced/jpg_quality.
+    def _ctx(monkeypatch, **overrides):
+        import json
+        import pathlib as _pathlib
 
-        The widgets carry the same values unless a widget_* override points
-        one somewhere else. An override is how a test distinguishes the two
-        possible sources: the store is the only one a headless caller can
-        see, so a value that could only have come from a widget is the
-        lanes drifting apart.
-        """
-        live_spinner = MagicMock()
-        live_spinner.text = live if widget_live is None else widget_live
-        seq_spinner = MagicMock()
-        seq_spinner.text = sequenced if widget_sequenced is None else widget_sequenced
-        microscope_settings = MagicMock()
-        microscope_settings.ids = {
-            'live_image_output_format_spinner': live_spinner,
-            'sequenced_image_output_format_spinner': seq_spinner,
-        }
+        repo = _pathlib.Path(__file__).resolve().parent.parent
+        settings = json.loads((repo / 'data' / 'settings.json').read_text())
+        settings.update(overrides)
+
         ctx = MagicMock()
-        ctx.motion_settings.ids = {'microscope_settings_id': microscope_settings}
-        ctx.scope_display.image_mode = mode if widget_mode is None else widget_mode
-        ctx.settings = {
-            'jpg_quality': jpg_quality,
-            'image_output_format': {'live': live, 'sequenced': sequenced},
-            'image_mode': mode,
-        }
+        ctx.settings = settings
 
         import modules.app_context as app_context
 
         monkeypatch.setattr(app_context, 'ctx', ctx)
+        return ctx
 
-    def test_ui_lane_answers_from_the_store_not_the_widgets(self, monkeypatch):
-        # Store and widgets deliberately disagree, every field distinguishable.
-        # The GUI commits each of these to settings the moment the user picks
-        # it, so the store is the current answer and the widget is a rendering
-        # of it -- a config assembled from the widgets is the drift itself, and
-        # it is invisible from a headless caller that has only the store.
-        self._patch_ui_ctx(
-            monkeypatch,
-            mode='12bit_scaled',
-            live='OME-TIFF',
-            sequenced='TIFF',
-            jpg_quality=70,
-            widget_mode='8bit',
-            widget_live='JPG',
-            widget_sequenced='JPG',
-        )
+    def test_the_layer_is_the_one_named(self, monkeypatch):
+        self._ctx(monkeypatch)
 
-        from modules.config_ui_getters import get_image_capture_config_from_ui
+        from modules.config_ui_getters import get_active_layer_config
 
-        cfg = get_image_capture_config_from_ui()
+        layer, config = get_active_layer_config('Blue')
 
-        assert cfg.image_mode == '12bit_scaled'
-        assert cfg.output_format_live == 'OME-TIFF'
-        assert cfg.output_format_sequenced == 'TIFF'
+        assert layer == 'Blue'
+        assert 'exposure_ms' in config
 
-    def test_ui_and_settings_lanes_produce_identical_config(self, monkeypatch):
-        mode = '12bit_scientific'
-        # Two DIFFERENT real formats: the point is that each lane forwards the
-        # value it was given, so they only need to be distinguishable from each
-        # other. 'PNG' stood here until the config learned to refuse a format
-        # this build cannot write.
-        live, sequenced, jpg_quality = 'OME-TIFF', 'JPG', 55
-        self._patch_ui_ctx(
-            monkeypatch, mode=mode, live=live, sequenced=sequenced, jpg_quality=jpg_quality
-        )
+    def test_no_layer_selected_is_refused(self, monkeypatch):
+        """The GUI passes whatever the open drawer was, including nothing.
 
-        from modules.config_ui_getters import get_image_capture_config_from_ui
-        from modules.config_helpers import get_image_capture_config_from_settings
-        from modules.image_mode import ImageCaptureConfig
+        The refusal lives in the getter rather than in each caller, so the
+        three GUI starters cannot come to disagree about it.
+        """
+        self._ctx(monkeypatch)
 
-        ui_cfg = get_image_capture_config_from_ui()
-        settings_cfg = get_image_capture_config_from_settings(
-            {
-                'image_output_format': {'live': live, 'sequenced': sequenced},
-                'image_mode': mode,
-                'jpg_quality': jpg_quality,
-            }
-        )
-        shared = ImageCaptureConfig.from_image_mode(
-            mode,
-            output_format_live=live,
-            output_format_sequenced=sequenced,
-            jpg_quality=jpg_quality,
-        )
+        from modules.config_ui_getters import get_active_layer_config
 
-        # All three are the SAME config value for the same inputs.
-        assert ui_cfg == settings_cfg == shared
+        from modules.exceptions import ArgumentRefusedError
 
-    def test_derived_keys_come_only_from_the_shared_builder(self, monkeypatch):
-        # Drift proof: patch the single mode-resolution the shared builder uses
-        # and confirm BOTH lanes pick up the changed capture_depth /
-        # save_encoding identically -- i.e. a new image-mode-derived key is a
-        # single edit in the builder, not one-per-lane.
-        mode = '12bit_scientific'
-        self._patch_ui_ctx(monkeypatch, mode=mode, live='TIFF', sequenced='TIFF', jpg_quality=90)
-
-        import modules.config_helpers as config_helpers
-        from modules.config_ui_getters import get_image_capture_config_from_ui
-
-        sentinel = {'capture_depth': 999, 'save_encoding': 'SENTINEL'}
-        monkeypatch.setattr(config_helpers.image_mode, 'resolve_image_mode', lambda _mode: sentinel)
-
-        ui_cfg = get_image_capture_config_from_ui()
-        settings_cfg = config_helpers.get_image_capture_config_from_settings({'image_mode': mode})
-
-        assert ui_cfg.capture_depth == settings_cfg.capture_depth == 999
-        assert ui_cfg.save_encoding == settings_cfg.save_encoding == 'SENTINEL'
-
-
-def test_protocol_time_clamped_detects_subsecond_per_unit():
-    # The edit handlers use this to decide whether to warn, with the correct
-    # unit: period is minutes, duration is hours.
-    from modules import config_helpers
-
-    assert config_helpers.protocol_time_clamped(0.001, 'minutes') is True
-    assert config_helpers.protocol_time_clamped(0.0001, 'hours') is True
-    # Normal values are not clamped.
-    assert config_helpers.protocol_time_clamped(5, 'minutes') is False
-    assert config_helpers.protocol_time_clamped(1, 'hours') is False
-    # 0 is the single-scan marker, not a clamp.
-    assert config_helpers.protocol_time_clamped(0, 'minutes') is False
-    assert config_helpers.protocol_time_clamped(0, 'hours') is False
+        with pytest.raises(ArgumentRefusedError) as refused:
+            get_active_layer_config(None)
+        assert refused.value.reason == 'no_layer_selected'

@@ -4,11 +4,23 @@
 The hook delegates to ``tools/check_rules.py --staged`` so every commit
 runs the mechanical CLAUDE.md rule checks before the commit lands.
 
-LVP-specific: the managed hook ALSO bumps version.txt (timestamp +
-branch fields) after the rule check passes, replacing the standalone
-version-bump hook that lived in LVP previously. Order is intentional:
-rule check first so a violation fails fast and version.txt isn't
-touched on a doomed commit.
+LVP-specific: the managed hook ALSO runs the guard gate, the no-quick-fix
+judge on the staged production change, judged whole, when a Claude Code session names one
+(COMMIT_JUDGE; a terminal commit and a merge commit are not judged),
+and bumps version.txt (timestamp + commit GUID) after everything else
+passes, replacing the standalone version-bump hook that lived in LVP
+previously. Order is intentional: rule check first so a violation fails
+fast, the guards next, the paid judge after the free gates, and
+version.txt isn't touched on a doomed commit.
+
+The guard gate: the tests under tests/guards/ measure the whole tree
+(count ratchets, surface parity, architecture sweeps), so no run near
+a changed file ever selects them, and only a per-commit run does. The
+hook exports the INDEX to a temporary directory and runs that
+directory there, so a pathspec or partial commit is judged as it will
+land. A red guard, a collection error, an empty directory or a missing
+pytest each refuse the commit; the one skip is a branch whose index
+carries no tests/guards/ at all, which predates the gate.
 
 Modes:
 
@@ -38,12 +50,52 @@ from pathlib import Path
 
 _HOOK_MARKER = '# managed by tools/install_hooks.py (CLAUDE.md Rule 31)'
 
+# The one writer of version.txt, embedded in the pre-commit hook; nothing
+# else in it writes the file. Expects $VERSION_FILE set and present. It
+# names no branch: a commit made from a detached worktree, as every track's
+# are, cannot know the branch it is going to, and a branch line kept the
+# name the worktree inherited (`fx2/stage4` on 30 of 40 trunk commits,
+# 2026-10-08). The GUID finds the commit, and the commit its branches.
+_STAMP_BLOCK = """VERSION=$(head -1 "$VERSION_FILE")
+TIMESTAMP=$(date "+%Y-%m-%d %H:%M")
+GUID=$(python3 -c "import uuid; print(uuid.uuid4().hex[:8])" 2>/dev/null \\
+    || openssl rand -hex 4 2>/dev/null \\
+    || echo "nogenuid")
+printf "%s\\n%s\\n%s\\n" "$VERSION" "$TIMESTAMP" "$GUID" > "$VERSION_FILE"
+git add "$VERSION_FILE"
+"""
+
+# The no-quick-fix judge on the staged production change, judged whole. Only a Claude Code
+# session names a judge (its settings set COMMIT_JUDGE), so a terminal
+# commit is not judged; a merge commit is not judged either (Eric,
+# 2026-10-03): the commits it carries were judged when made, and the stage
+# would otherwise read the whole incoming side, 95 to 201 hunks on the real
+# trunk merges. The subshell keeps pipefail local: a git diff that fails
+# must refuse the commit, not hand the judge an empty diff, which it reads
+# as nothing to judge. The flags make the diff the stage's own whatever the
+# session's git configuration says: --text --no-textconv against a -diff
+# attribute or a textconv, -M against diff.renames, the prefixes against
+# diff.noprefix, GIT_DIFF_OPTS unset against a context override.
+_JUDGE_STAGE = """if [ -n "${COMMIT_JUDGE:-}" ]; then
+    if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
+        echo "pre-commit: merge commit, not judged by the no-quick-fix judge (Eric, 2026-10-03)" >&2
+    else
+        (
+            set -o pipefail
+            unset GIT_DIFF_OPTS
+            git diff --cached --no-color --no-ext-diff --text --no-textconv -M --src-prefix=a/ --dst-prefix=b/ -U3 -- '*.py' \\
+                | "$COMMIT_JUDGE" --repo "$REPO_ROOT"
+        ) || exit 1
+    fi
+fi
+"""
+
 _HOOK_SCRIPT = f"""#!/usr/bin/env bash
 {_HOOK_MARKER}
-# Mechanical Rule 24 / 27 / 28 pre-commit gate + version.txt bump.
-# Edit tools/check_rules.py to change the checks; do NOT edit this
-# hook directly (re-running tools/install_hooks.py --install will
-# overwrite).
+# Mechanical Rule 24 / 27 / 28 pre-commit gate + ruff + guard gate + the
+# no-quick-fix judge (sessions only) + version.txt bump. Edit
+# tools/check_rules.py to change the checks; do NOT edit this hook directly
+# (re-running tools/install_hooks.py --install will overwrite).
 set -e
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
@@ -62,7 +114,7 @@ fi
 # partially staged, is judged as it will be committed, not as it sits
 # in the working tree. The absolute --stdin-filename keeps pyproject's
 # per-file-ignores and [tool.ruff.format].exclude binding; --force-exclude
-# keeps the top-level exclude lists binding for stdin. Skips gracefully
+# keeps the top-level exclude lists binding for stdin. Skips, and says so,
 # when ruff is unavailable so branches without it never block.
 if python3 -m ruff --version >/dev/null 2>&1; then
     while IFS= read -r -d '' f; do
@@ -75,41 +127,80 @@ if python3 -m ruff --version >/dev/null 2>&1; then
             exit 1
         fi
     done < <(git diff --cached --name-only --diff-filter=ACMR -z -- '*.py')
+else
+    echo "pre-commit: ruff not importable by $(command -v python3) -- skipping the ruff gate; staged .py files were NOT linted" >&2
 fi
 
-# version.txt refresh (LVP-specific). 4-line format:
+# Guard gate. The tests under tests/guards/ measure the whole tree, so no
+# run near a changed file selects them; this is the one run that does. The
+# INDEX is exported and run, so a pathspec or partial commit is judged as
+# it will land. Whether this branch has the gate at all is decided from the
+# index BEFORE anything is exported, so a broken export can never read as
+# an old branch. Inside the subshell every step refuses for itself: a
+# subshell whose status is inspected runs with `set -e` suppressed. pytest
+# exits 0 on an all-skipped selection, which is why no guard may skip
+# itself (tests/guards/test_guards_directory.py); every other way the run
+# can fail to happen is a refusal, because a gate that did not run has not
+# gated. Exit 6 is this stage's own code, outside pytest's 0-5.
+if [ -z "$(git ls-files --cached -- tests/guards)" ]; then
+    echo "pre-commit: no tests/guards/ in the index -- this branch predates the guard gate; skipping it" >&2
+else
+    GUARD_RC=0
+    (
+        EXPORT="$(mktemp -d)" || {{ echo "pre-commit: guard gate could not create an export directory" >&2; exit 6; }}
+        trap 'rm -rf "$EXPORT"' EXIT
+        git checkout-index -a --prefix="$EXPORT/" || {{ echo "pre-commit: guard gate could not export the index" >&2; exit 6; }}
+        cd "$EXPORT" || {{ echo "pre-commit: guard gate could not enter its export" >&2; exit 6; }}
+        python3 -c 'import pytest' 2>/dev/null || {{ echo "pre-commit: guard gate needs pytest, and $(command -v python3) cannot import it -- refusing the commit" >&2; exit 6; }}
+        # git hands a hook GIT_DIR and GIT_INDEX_FILE so it judges the index
+        # being committed; a test that runs git in a temporary repository
+        # would inherit them and operate on THIS repository instead (one
+        # did: it re-inited the checkout as bare and rewrote its user).
+        # The export is already made, so the run needs none of them.
+        unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_PREFIX GIT_COMMON_DIR
+        python3 -m pytest -o addopts= -q -p no:cacheprovider --tb=short -rf tests/guards
+    ) || GUARD_RC=$?
+    if [ "$GUARD_RC" -ne 0 ]; then
+        case "$GUARD_RC" in
+            1) GUARD_KIND="a guard is red" ;;
+            2) GUARD_KIND="collection was interrupted" ;;
+            5) GUARD_KIND="nothing was collected under tests/guards/" ;;
+            6) GUARD_KIND="the gate could not run (see above)" ;;
+            *) GUARD_KIND="pytest exited $GUARD_RC" ;;
+        esac
+        echo "pre-commit: guard gate refused the commit -- $GUARD_KIND." >&2
+        echo "  Fix the guard in this commit, then re-run: python3 -m pytest -o addopts= -q -p no:cacheprovider tests/guards" >&2
+        exit 1
+    fi
+fi
+
+{_JUDGE_STAGE}
+# version.txt refresh (LVP-specific). 3-line format:
 #   Line 1: release moniker (manual bump on promotion; path-safe)
 #   Line 2: commit timestamp (this hook rewrites)
-#   Line 3: branch name (this hook rewrites)
-#   Line 4: COMMIT GUID -- random per commit, embedded IN the commit
+#   Line 3: COMMIT GUID -- random per commit, embedded IN the commit
 #           that produces it. Sidesteps the SHA chicken-and-egg: the
 #           GUID does not need to match the resulting SHA; a unique
 #           tag per commit is enough for log triage. Lookup via:
 #               git log -S "<guid>" -- version.txt
-# This hook is version.txt's ONLY writer. The BUILD ID lives in its own
+# The stamp block below is version.txt's only writer. The BUILD ID lives in its own
 # build_id.txt, written by scripts/appBuild/build.ps1, and identifies a
 # build event rather than a commit. The two shared this file until a
 # build-time rewrite left a byte-order mark on line 1 -- and line 1 is
 # not a diagnostic: it names the user's Documents data folder and is
 # stamped into every saved image's TIFF Software tag, so the mark cost
 # every image save until the writers were separated.
-# Lines 2+3 give triage "branch + timestamp" identity for bench bundles;
-# line 4 gives an exact commit lookup that works in any distribution
-# (ZIP, clone, installer alike) without depending on GitHub or git
-# archive substitution; build_id.txt separates "which build" from "which
-# commit", which line 4 alone cannot do -- rebuilding one SHA produces
-# identical lines 1-4, so builds that differ only in bundled inputs
+# Line 2 gives triage a timestamp for bench bundles; line 3 gives an
+# exact commit lookup that works in any distribution (ZIP, clone,
+# installer alike) without depending on GitHub or git archive
+# substitution; build_id.txt separates "which build" from "which
+# commit", which line 3 alone cannot do -- rebuilding one SHA produces
+# identical lines 1-3, so builds that differ only in bundled inputs
 # were previously indistinguishable in the banner.
 VERSION_FILE="$REPO_ROOT/version.txt"
 if [ -f "$VERSION_FILE" ]; then
-    VERSION=$(head -1 "$VERSION_FILE")
-    TIMESTAMP=$(date "+%Y-%m-%d %H:%M")
-    BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
-    GUID=$(python3 -c "import uuid; print(uuid.uuid4().hex[:8])" 2>/dev/null \\
-        || openssl rand -hex 4 2>/dev/null \\
-        || echo "nogenuid")
-    printf "%s\\n%s\\n%s\\n%s\\n" "$VERSION" "$TIMESTAMP" "$BRANCH" "$GUID" > "$VERSION_FILE"
-    git add "$VERSION_FILE"
+{_STAMP_BLOCK}else
+    echo "pre-commit: version.txt absent on this branch -- skipping the version stamp" >&2
 fi
 """
 
@@ -147,52 +238,69 @@ def _repo_root() -> Path:
     return Path(out).resolve()
 
 
-def _hook_path() -> Path:
-    return _hooks_dir() / 'pre-commit'
+def _managed_hooks() -> list[tuple[Path, str]]:
+    return [(_hooks_dir() / 'pre-commit', _HOOK_SCRIPT)]
+
+
+def _remove_retired_hooks() -> None:
+    """Remove a post-merge hook this tool installed, which no longer exists.
+
+    It restamped version.txt's branch line after a merge, and the file names
+    no branch now. Left installed, its old stamp would write the line back on
+    every merge. One this tool did not write is left alone.
+    """
+    hook = _hooks_dir() / 'post-merge'
+    if hook.exists() and _HOOK_MARKER in hook.read_text(encoding='utf-8', errors='replace'):
+        hook.unlink()
+        print(f'Removed the retired post-merge hook at {hook}')
 
 
 def install() -> int:
-    hook = _hook_path()
-    if hook.exists():
-        existing = hook.read_text(encoding='utf-8', errors='replace')
-        if _HOOK_MARKER not in existing:
-            print(
-                f'ERROR: {hook} already exists and was not installed by '
-                f'this tool.\n'
-                f'  Refusing to overwrite. Integrate the rule-check call '
-                f'into the existing hook manually:\n'
-                f'    python3 "$(git rev-parse --show-toplevel)"'
-                f'/tools/check_rules.py --staged\n'
-                f'  Or remove the existing hook and re-run --install.',
-                file=sys.stderr,
-            )
-            return 2
-    hook.parent.mkdir(parents=True, exist_ok=True)
-    hook.write_text(_HOOK_SCRIPT, encoding='utf-8')
-    hook.chmod(0o755)
-    print(f'Installed pre-commit hook at {hook}')
-    print('  Hook delegates to tools/check_rules.py --staged.')
+    for hook, _script in _managed_hooks():
+        if hook.exists():
+            existing = hook.read_text(encoding='utf-8', errors='replace')
+            if _HOOK_MARKER not in existing:
+                print(
+                    f'ERROR: {hook} already exists and was not installed by '
+                    f'this tool.\n'
+                    f'  Refusing to overwrite. Move the existing hook aside and '
+                    f're-run --install.',
+                    file=sys.stderr,
+                )
+                return 2
+    for hook, script in _managed_hooks():
+        hook.parent.mkdir(parents=True, exist_ok=True)
+        hook.write_text(script, encoding='utf-8')
+        hook.chmod(0o755)
+        print(f'Installed {hook.name} hook at {hook}')
+    _remove_retired_hooks()
+    print('  pre-commit delegates to tools/check_rules.py --staged, runs ruff on the index,')
+    print('  runs tests/guards on an export of the index, judges the staged production')
+    print('  change whole when the session sets COMMIT_JUDGE, then stamps version.txt.')
     print('  To bypass for one commit: git commit --no-verify')
     print('  To remove: tools/install_hooks.py --uninstall')
     return 0
 
 
 def uninstall() -> int:
-    hook = _hook_path()
-    if not hook.exists():
-        print(f'No pre-commit hook at {hook}; nothing to uninstall.')
-        return 0
-    existing = hook.read_text(encoding='utf-8', errors='replace')
-    if _HOOK_MARKER not in existing:
-        print(
-            f'ERROR: {hook} exists but was not installed by this tool.\n'
-            f'  Refusing to remove. Inspect manually.',
-            file=sys.stderr,
-        )
-        return 2
-    hook.unlink()
-    print(f'Removed pre-commit hook at {hook}')
-    return 0
+    rc = 0
+    for hook, _script in _managed_hooks():
+        if not hook.exists():
+            print(f'No {hook.name} hook at {hook}; nothing to uninstall.')
+            continue
+        existing = hook.read_text(encoding='utf-8', errors='replace')
+        if _HOOK_MARKER not in existing:
+            print(
+                f'ERROR: {hook} exists but was not installed by this tool.\n'
+                f'  Refusing to remove. Inspect manually.',
+                file=sys.stderr,
+            )
+            rc = 2
+            continue
+        hook.unlink()
+        print(f'Removed {hook.name} hook at {hook}')
+    _remove_retired_hooks()
+    return rc
 
 
 def _walk_python_files(root: Path) -> list[Path]:

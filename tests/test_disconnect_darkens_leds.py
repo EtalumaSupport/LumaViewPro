@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import pytest
 
-from modules.lumascope_api import Lumascope
+from tests.scope_fakes import build_scope
 
 
 @pytest.fixture
@@ -40,29 +40,13 @@ def scope():
     The hook would darken the LEDs at interpreter exit and mask whether
     `disconnect()` did it, which is the whole question here.
     """
-    s = Lumascope(simulate=True, register_atexit=False, register_metrics=False)
+    s = build_scope(simulate=True, register_atexit=False)
     yield s
     s.disconnect()
 
 
 def _lit_channels(driver):
     return {ch for ch, ma in driver._channel_states.items() if ma and ma > 0}
-
-
-def test_disconnect_darkens_a_lit_channel(scope):
-    # The driver reference has to be captured first: disconnect() swaps the
-    # scope's slot to a NullLEDBoard, so reading it afterwards would inspect
-    # a fresh object that was never lit and pass no matter what.
-    driver = scope._led_driver
-    scope.illumination.led_on(channel=0, illumination_ma=50)
-    assert _lit_channels(driver), 'precondition: the channel must actually be lit'
-
-    scope.disconnect()
-
-    assert not _lit_channels(driver), (
-        'disconnect() must leave no channel driving current -- a closed port '
-        'with a lit sample is the failure this guards'
-    )
 
 
 def test_disconnect_darkens_every_lit_channel(scope):
@@ -84,4 +68,4 @@ def test_disconnect_completes_when_nothing_is_lit(scope):
     driver = scope._led_driver
     assert not _lit_channels(driver)
 
-    assert scope.disconnect() is True
+    assert scope.disconnect() is None

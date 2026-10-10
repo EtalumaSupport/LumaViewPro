@@ -30,6 +30,7 @@ import threading
 import pytest
 
 from modules.exceptions import ProtocolRunRefusedError
+from modules.run_events import RunEvents
 from tests.test_composite_run_e2e import (
     composite_session,  # noqa: F401  -- imported as a fixture, used by name
     headless_settings,
@@ -56,20 +57,19 @@ class _StepGate:
     already fires makes the mid-run window as wide as the test needs it,
     without the test reaching into the engine to create one.
 
-    ``update_step_number`` is the callback used because it is purely
-    observational: unlike ``go_to_step`` it does not REPLACE the move the
-    step runner would otherwise make, so the parked run still completes
-    normally once released.
+    ``step_started`` is the event used because it is purely observational:
+    it replaces nothing the step runner does, so the parked run still
+    completes normally once released.
     """
 
     def __init__(self):
         self.reached = threading.Event()
         self.release = threading.Event()
 
-    def callbacks(self):
-        return {'update_step_number': self._on_step}
+    def events(self):
+        return RunEvents(step_started=self._on_step)
 
-    def _on_step(self, _step_number):
+    def _on_step(self, _step_idx):
         self.reached.set()
         self.release.wait(timeout=60)
 
@@ -131,7 +131,7 @@ class TestARivalRunRefusesTheComposite:
         outcome = runner.start_composite(
             sequence_name='rival_incumbent',
             parent_dir=str(tmp_path),
-            callbacks=gate.callbacks(),
+            events=gate.events(),
         )
         try:
             assert gate.reached.wait(timeout=60), 'the first composite never reached a step'
@@ -164,12 +164,11 @@ class TestARivalRunRefusesTheComposite:
         session, runner, tmp_path = composite_session
         gate = _StepGate()
 
-        runner.run_single_scan(
+        pending = runner.run_single_scan(
             _plain_scan_protocol(session),
             sequence_name='scan_incumbent',
             parent_dir=str(tmp_path),
-            image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
-            callbacks=gate.callbacks(),
+            events=gate.events(),
         )
         try:
             assert gate.reached.wait(timeout=60), 'the scan never reached a step'
@@ -183,7 +182,12 @@ class TestARivalRunRefusesTheComposite:
             f'a composite clicked during a scan was refused for '
             f'{refusal.value.reason!r}, not for the run already holding the scope'
         )
-        assert runner.wait_for_completion(timeout=120), 'the scan never completed'
+        # Waited on through the scan's own handle: the refused composite
+        # returned none.
+        settled = pending.wait(timeout_s=120)
+        assert settled is not None and settled.status == 'completed', (
+            f'the scan never completed: {settled}'
+        )
         assert not session.is_protocol_running, 'the scan finished still holding the claim'
         # The scan's own directory, and only it.
         assert single_run_dir(tmp_path)
@@ -250,13 +254,27 @@ class TestADisconnectedCameraRefusesTheComposite:
         session.scope.imaging.start_streaming()
 
         artifact = pathlib.Path(
-            runner.run_composite(sequence_name='after', parent_dir=str(tmp_path))
+            runner.run_composite(sequence_name='after', parent_dir=str(tmp_path)).artifact_path
         )
         assert artifact.exists(), 'the composite produced no file after the camera came back'
 
 
 class TestFewerThanTwoChannels:
     """One channel and none: the same refusal, before the run exists."""
+
+    @pytest.mark.parametrize(
+        ('acquiring', 'counted'),
+        [(('BF',), 'but only 1 is set'), ((), 'but no channel is set')],
+    )
+    def test_the_sentence_counts_the_channels_in_words(self, tmp_path, acquiring, counted):
+        settings = headless_settings(tmp_path, acquiring=acquiring)
+        with (
+            open_composite_session(settings) as (_session, runner),
+            pytest.raises(ProtocolRunRefusedError) as refusal,
+        ):
+            runner.start_composite(sequence_name='too_few', parent_dir=str(tmp_path))
+
+        assert counted in str(refusal.value), str(refusal.value)
 
     @pytest.mark.parametrize('acquiring', [('BF',), ()])
     def test_fewer_than_two_channels_is_refused_before_any_hardware_is_touched(

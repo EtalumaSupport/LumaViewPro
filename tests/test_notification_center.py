@@ -46,7 +46,7 @@ class TestNotificationCenter:
     def test_dedup_suppresses_within_window(self):
         nc = NotificationCenter(dedup_window_s=1.0)
         received = []
-        nc.add_listener(lambda n: received.append(n), min_severity=Severity.ERROR)
+        nc.add_listener(lambda n: n.shown and received.append(n), min_severity=Severity.ERROR)
         nc.error('Motor', 'Timeout', 'msg1')
         nc.error('Motor', 'Timeout', 'msg2')  # same category+title
         nc.error('Motor', 'Timeout', 'msg3')
@@ -175,7 +175,7 @@ class TestShutdownSuppression:
     def test_shutting_down_blocks_listeners(self):
         nc = NotificationCenter()
         received = []
-        nc.add_listener(lambda n: received.append(n))
+        nc.add_listener(lambda n: n.shown and received.append(n))
         nc.set_shutting_down(True)
         nc.error('Task', 'IO Task Failed', 'move_turret failed')
         nc.error('Task', 'IO Task Failed', 'get_xy_targets failed')
@@ -192,7 +192,7 @@ class TestShutdownSuppression:
     def test_reenable_restores_listeners(self):
         nc = NotificationCenter()
         received = []
-        nc.add_listener(lambda n: received.append(n))
+        nc.add_listener(lambda n: n.shown and received.append(n))
         nc.set_shutting_down(True)
         nc.error('X', 'Y', 'z')
         assert received == []
@@ -211,15 +211,15 @@ class TestProtocolSuppression:
     def test_nonfatal_suppressed_during_protocol(self):
         nc = NotificationCenter()
         received = []
-        nc.add_listener(lambda n: received.append(n), min_severity=Severity.WARNING)
-        nc.set_protocol_running(True)
+        nc.add_listener(lambda n: n.shown and received.append(n), min_severity=Severity.WARNING)
+        nc.open_run_scope(attended=False)
         nc.warning('Autofocus', 'AF failed', 'curve degenerate')
         nc.error('Camera', 'Frame dropped', 'transient')
         assert received == []
 
     def test_nonfatal_still_logs_during_protocol(self, caplog):
         nc = NotificationCenter()
-        nc.set_protocol_running(True)
+        nc.open_run_scope(attended=False)
         with caplog.at_level('ERROR'):
             nc.error('Camera', 'Frame dropped', 'transient')
         # Message landed in the log even though the popup was suppressed.
@@ -229,7 +229,7 @@ class TestProtocolSuppression:
         nc = NotificationCenter()
         received = []
         nc.add_listener(lambda n: received.append(n), min_severity=Severity.WARNING)
-        nc.set_protocol_running(True)
+        nc.open_run_scope(attended=False)
         nc.error('Motor', 'Connection Lost', 'serial timeout', fatal=True)
         assert len(received) == 1
         assert received[0].title == 'Connection Lost'
@@ -238,18 +238,18 @@ class TestProtocolSuppression:
         nc = NotificationCenter()
         received = []
         nc.add_listener(lambda n: received.append(n), min_severity=Severity.WARNING)
-        nc.set_protocol_running(True)
+        nc.open_run_scope(attended=False)
         nc.critical('FileIO', 'Disk Full', 'cannot write capture')
         assert len(received) == 1
 
     def test_clearing_flag_restores_popups(self):
         nc = NotificationCenter()
         received = []
-        nc.add_listener(lambda n: received.append(n), min_severity=Severity.WARNING)
-        nc.set_protocol_running(True)
+        nc.add_listener(lambda n: n.shown and received.append(n), min_severity=Severity.WARNING)
+        nc.open_run_scope(attended=False)
         nc.warning('X', 'Y', 'z')
         assert received == []
-        nc.set_protocol_running(False)
+        nc.close_run_scope()
         nc.warning('X', 'Y', 'z')
         assert len(received) == 1
 
@@ -298,3 +298,62 @@ class TestConfirmationPopupIsModal:
             'programmatic dismisses (lifecycle / atexit / future Kivy '
             'changes) still release blocked workers via on_cancel.'
         )
+
+
+class TestEveryHostReadsAnOutcomeAlike:
+    """``outcome_of`` is the one reading of what an exception is: the reporter and the REST server both use it."""
+
+    def test_each_kind_is_read_from_its_type(self):
+        import datetime
+
+        from modules.exceptions import (
+            CaptureError,
+            LiveFolderPathRefusedError,
+            RefusalCause,
+            RunAlreadyEndedError,
+            SingleScanNotice,
+        )
+        from modules.notification_center import OutcomeKind, outcome_of
+
+        refusal = outcome_of(LiveFolderPathRefusedError('outside_live_folder', '..', 'Not there.'))
+        notice = outcome_of(
+            SingleScanNotice(period=datetime.timedelta(0), duration=datetime.timedelta(0))
+        )
+        quiet = outcome_of(RunAlreadyEndedError('The run has ended.'))
+        typed = outcome_of(CaptureError('The camera returned nothing.', 'no_frame'))
+        untyped = outcome_of(ValueError('bad shape (3,)'))
+
+        assert (refusal.kind, refusal.title, refusal.reason, refusal.words) == (
+            OutcomeKind.REFUSAL,
+            'Path Not Available',
+            'outside_live_folder',
+            'Not there.',
+        )
+        assert refusal.cause == RefusalCause.REQUEST
+        assert (notice.kind, notice.reason, notice.cause) == (
+            OutcomeKind.NOTICE,
+            'single_scan',
+            None,
+        )
+        assert (quiet.kind, quiet.cause) == (OutcomeKind.QUIET, RefusalCause.REQUEST)
+        assert quiet.for_person
+        assert (typed.kind, typed.title, typed.reason, typed.for_person, typed.cause) == (
+            OutcomeKind.FAULT,
+            'Capture Failed',
+            'no_frame',
+            True,
+            None,
+        )
+        # A fault whose type writes no words for the person, and no title:
+        # each host says so in its own way.
+        assert (untyped.kind, untyped.title, untyped.for_person, untyped.words) == (
+            OutcomeKind.FAULT,
+            None,
+            False,
+            'bad shape (3,)',
+        )
+
+    def test_a_quiet_kind_crosses_a_wire_as_its_value(self):
+        from modules.notification_center import OutcomeKind
+
+        assert OutcomeKind.QUIET.value == 'quiet'

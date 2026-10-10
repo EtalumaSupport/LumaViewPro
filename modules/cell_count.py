@@ -1,13 +1,13 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import math
+from collections.abc import Mapping
 
 import cv2
-import skimage
 import numpy as np
+import skimage
 
 import modules.image_utils as image_utils
-
 from modules.settings_transformer import SettingsTransformer
 
 
@@ -38,9 +38,16 @@ class CellCount:
         for region_idx, region in enumerate(regions):
             region_param_info = {}
             for param in region_prop_params:
-                if param == 'area':
+                # Without a scale the count measures in pixels and says so.
+                if param == 'area' and pixels_per_um is None:
+                    val = round(region[param], 2)
+                    units = 'px^2'
+                elif param == 'area':
                     val = round(region[param] / (pixels_per_um**2), 2)
                     units = 'um^2'
+                elif param in ('perimeter', 'equivalent_diameter') and pixels_per_um is None:
+                    val = round(region[param], 2)
+                    units = 'px'
                 elif param in ('perimeter', 'equivalent_diameter'):
                     val = round(region[param] / (pixels_per_um), 2)
                     units = 'um'
@@ -138,7 +145,14 @@ class CellCount:
 
         return filtered_region_info, filtered_contours
 
-    def process_image(self, image, settings, significant_bits: int, include_images=None):
+    def process_image(
+        self,
+        image: np.ndarray,
+        settings: Mapping,
+        significant_bits: int,
+        pixels_per_um: float | None,
+        include_images: list[str] | str | None = None,
+    ) -> tuple[dict, dict]:
         if include_images is None:
             include_images = ['filtered_contours']
 
@@ -159,7 +173,9 @@ class CellCount:
 
         return_images = {}
 
-        digital_settings = self._settings_transformer.transform(settings=settings)
+        digital_settings = self._settings_transformer.transform(
+            settings=settings, pixels_per_um=pixels_per_um
+        )
 
         gray_image = image_utils.rgb_image_to_gray(image=image)
 
@@ -206,12 +222,13 @@ class CellCount:
         region_info = self._get_region_info(
             labeled_mask=label_map,
             intensity_image=gray_image,
-            pixels_per_um=digital_settings['context']['pixels_per_um'],
+            pixels_per_um=pixels_per_um,
         )
 
         filtered_region_info, filtered_contours = self._filter_regions(
             region_info=region_info, contours=contours, settings=settings['filters']
         )
+        filtered_region_info['summary']['area_unit'] = 'px2' if pixels_per_um is None else 'um2'
 
         filtered_contours_img_for_display = image.copy()
         cv2.drawContours(filtered_contours_img_for_display, filtered_contours, -1, (255, 100, 0), 3)

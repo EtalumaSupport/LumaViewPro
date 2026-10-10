@@ -27,6 +27,7 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
 from modules import image_utils
+from tests.scope_fakes import bind_settings_like_a_session
 
 
 def test_convert_reuses_provided_out_buffer():
@@ -58,6 +59,7 @@ def test_get_image_from_buffer_reuses_caller_buffer():
     # buffer instead of allocating a fresh array per frame.
     from drivers.simulated_camera import SimulatedCamera
     from modules.lumascope_api import Lumascope
+    from tests.camera_fakes import grab_a_frame_made_after_now
     from modules.lumascope_api.imaging import ImagingAPI
     from modules.lumascope_api.runtime_state import RuntimeState
 
@@ -66,9 +68,11 @@ def test_get_image_from_buffer_reuses_caller_buffer():
     cam.open_and_start()
     assert cam.set_pixel_format('Mono12')
     scope = Lumascope.__new__(Lumascope)
+    bind_settings_like_a_session(scope)
     scope._camera_driver = cam
     scope.runtime_state = RuntimeState(scope)
     imaging = ImagingAPI(scope, cam)
+    grab_a_frame_made_after_now(cam)
 
     first, _ts = imaging.get_image_from_buffer(force_to_8bit=False)
     assert first is not None and first.dtype == np.uint16, (

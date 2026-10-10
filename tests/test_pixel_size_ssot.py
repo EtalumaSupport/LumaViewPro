@@ -16,16 +16,26 @@ import pytest
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
 from drivers.motorconfig import MotorConfig
+from modules.layer_record import load_scope_models
 from modules.scope_capabilities import (
+    _declared_optics,
     _resolve_lens_focal_length_mm,
     _resolve_pixel_size_um,
 )
+from modules.recording_frames import FrameFact
+
+_FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
 
 
 def _camera_with_pixel_size(pixel_size_um):
     """Minimal camera exposing profile.pixel_size_um, matching what the resolver
     reads (getattr(camera, 'profile').pixel_size_um)."""
     return SimpleNamespace(profile=SimpleNamespace(pixel_size_um=pixel_size_um))
+
+
+def _optics(model):
+    """The optics the shipped model catalogue declares for ``model``."""
+    return _declared_optics(load_scope_models(), model)
 
 
 def _motorconfig_with_optics(pixel_size, lens_focal_length):
@@ -41,34 +51,34 @@ class TestResolutionOrder:
         # optics. This is the bug site: the old code fell back to 2.0 here
         # instead of consulting the 2.2 the scope actually has.
         cam = _camera_with_pixel_size(2.2)
-        assert _resolve_pixel_size_um(None, 'LS620', cam) == 2.2
-        assert _resolve_lens_focal_length_mm(None, 'LS620') == 47.8
+        assert _resolve_pixel_size_um(None, _optics('LS620'), cam) == 2.2
+        assert _resolve_lens_focal_length_mm(None, _optics('LS620')) == 47.8
 
     def test_ls850t_motorconfig_wins_and_is_a_no_op(self):
         # A scope WITH a motorconfig sources optics from it; the fix must not
         # move the LS850T's 2.0.
         mc = _motorconfig_with_optics(2.0, 47.8)
-        assert _resolve_pixel_size_um(mc, 'LS850T', None) == 2.0
-        assert _resolve_lens_focal_length_mm(mc, 'LS850T') == 47.8
+        assert _resolve_pixel_size_um(mc, _optics('LS850T'), None) == 2.0
+        assert _resolve_lens_focal_length_mm(mc, _optics('LS850T')) == 47.8
 
     def test_motorconfig_optics_beats_scopes_json(self):
         # motorconfig is first in the order; a model that ALSO has a scopes.json
         # entry (LS620 -> 2.2) still takes the motorconfig value.
         mc = _motorconfig_with_optics(2.0, 47.8)
-        assert _resolve_pixel_size_um(mc, 'LS620', None) == 2.0
+        assert _resolve_pixel_size_um(mc, _optics('LS620'), None) == 2.0
 
     def test_camera_profile_fills_when_no_config_or_scopes_entry(self):
         # An unrecognized model with no motorconfig and no scopes.json entry
         # falls through to the camera's SDK-reported pitch.
         cam = _camera_with_pixel_size(2.19)
-        assert _resolve_pixel_size_um(None, 'NoSuchScope', cam) == 2.19
+        assert _resolve_pixel_size_um(None, _optics('NoSuchScope'), cam) == 2.19
 
     def test_unknown_scope_and_camera_yields_none(self):
         # Nothing can report a scale: stay None, never a guess. A generic camera
         # profile carries 0.0 until the SDK fills it, which must not count.
         cam = _camera_with_pixel_size(0.0)
-        assert _resolve_pixel_size_um(None, 'NoSuchScope', cam) is None
-        assert _resolve_lens_focal_length_mm(None, 'NoSuchScope') is None
+        assert _resolve_pixel_size_um(None, _optics('NoSuchScope'), cam) is None
+        assert _resolve_lens_focal_length_mm(None, _optics('NoSuchScope')) is None
 
 
 class TestEffectivePixelSize:
@@ -130,6 +140,7 @@ class TestVideoFrameScaleClaim:
             chunks=None,
             tick_freq_hz=None,
             pixel_size_um=None,
+            fact=_FACT,
         )
         path = tmp_path / 'ManualVideo_Frame_0000.tiff'
 
@@ -163,6 +174,7 @@ class TestVideoFrameScaleClaim:
             chunks=None,
             tick_freq_hz=None,
             pixel_size_um=None,
+            fact=_FACT,
         )
 
         assert 'pixel_size_um' in metadata
@@ -186,7 +198,7 @@ class TestVideoFrameCarriesScale:
 
         with pytest.raises(TypeError):
             tiff_frame_metadata(
-                timestamp_s=1755000000.0, frame_number=0, chunks=None, tick_freq_hz=None
+                timestamp_s=1755000000.0, frame_number=0, chunks=None, tick_freq_hz=None, fact=_FACT
             )
 
     def test_tiff_frame_metadata_carries_the_measured_scale(self):
@@ -198,6 +210,7 @@ class TestVideoFrameCarriesScale:
             chunks=None,
             tick_freq_hz=None,
             pixel_size_um=2.2,
+            fact=_FACT,
         )
 
         assert metadata['pixel_size_um'] == 2.2
@@ -214,6 +227,7 @@ class TestVideoFrameCarriesScale:
             chunks=None,
             tick_freq_hz=None,
             pixel_size_um=2.2,
+            fact=_FACT,
         )
         path = tmp_path / 'ManualVideo_Frame_0000.tiff'
         write_video_frame(
@@ -246,6 +260,7 @@ class TestVideoFrameCarriesScale:
             chunks=None,
             tick_freq_hz=None,
             pixel_size_um=None,
+            fact=_FACT,
         )
         path = tmp_path / 'ManualVideo_Frame_0001.tiff'
         write_video_frame(
@@ -280,6 +295,7 @@ class TestReadPixelSizeUm:
             chunks=None,
             tick_freq_hz=None,
             pixel_size_um=pixel_size_um,
+            fact=_FACT,
         )
         path = tmp_path / f'ManualVideo_Frame_{pixel_size_um}.tiff'
         write_video_frame(

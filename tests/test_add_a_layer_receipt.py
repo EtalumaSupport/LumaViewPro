@@ -22,6 +22,8 @@ import modules.common_utils as common_utils
 import modules.layer_record as layer_record
 from modules.image_save import generate_image_metadata
 from modules.protocol import Protocol
+from tests.frame_records import frame_record, plate
+from tests.scope_fakes import bind_settings_like_a_session
 
 EIGHT_KEYS = ['BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi', 'NIR']
 
@@ -55,24 +57,9 @@ def eighth_layer_release(tmp_path, monkeypatch):
     monkeypatch.setattr(
         layer_record,
         '_CATALOGUE_CACHE',
-        layer_record.load_layer_catalogue(layer_record.load_scopes_data(str(path))),
+        layer_record.load_layer_catalogue(json.loads(path.read_text(encoding='utf-8')), path),
     )
     return str(path)
-
-
-def test_identity_resolves_the_eighth_layer(eighth_layer_release):
-    identity = layer_record.resolve_layer_identity(
-        board_block=None,
-        board_config_read_ok=True,
-        motor_model='LS850T',
-        configured_model=None,
-        data_file=eighth_layer_release,
-    )
-    nir = identity.find('NIR')
-    assert nir is not None
-    assert nir.id == 7
-    assert nir.led_channel == (6,)
-    assert nir.excitation_nm == pytest.approx(780.0)
 
 
 def test_vocabulary_and_validation_accept_the_eighth_layer(eighth_layer_release):
@@ -81,13 +68,23 @@ def test_vocabulary_and_validation_accept_the_eighth_layer(eighth_layer_release)
 
 
 def test_metadata_accepts_the_eighth_layer(eighth_layer_release, sim_scope):
-    from modules.labware_loader import WellPlateLoader
-
-    loader = WellPlateLoader()
-    sim_scope.runtime_state.set_objective('20x Oly')
-    sim_scope.runtime_state.set_labware(loader.get_plate('96 well microplate'))
-    sim_scope.runtime_state.set_stage_offset({'x': 0.0, 'y': 0.0})
-    metadata = generate_image_metadata(sim_scope, channel='NIR', x=0, y=0, z=0)
+    bind_settings_like_a_session(
+        sim_scope,
+        objective_id='20x Oly',
+        protocol={'labware': '96 well microplate'},
+        stage_offset={'x': 0.0, 'y': 0.0},
+    )
+    metadata = generate_image_metadata(
+        sim_scope,
+        channel='NIR',
+        plate_x_mm=0,
+        plate_y_mm=0,
+        stage_z_um=0,
+        objective_id=sim_scope.runtime_state.get_current_objective_id(),
+        frame_record=frame_record(),
+        labware=plate(),
+        well_label=None,
+    )
     assert metadata['channel'] == 'NIR'
 
 

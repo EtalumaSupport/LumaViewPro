@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import pathlib
 import threading
+from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
@@ -39,18 +40,20 @@ class TestSaveQueuedOnEveryExitPath:
     success-branch-only save (the original bug) leaves the eager-made
     results dir empty whenever AF does not complete."""
 
-    def _queued_save_tasks(self, runner):
+    def _queued_save_tasks(self, runner, write_batch):
+        """The saves run() handed to its run's write batch."""
         return [
             call.args[0]
-            for call in runner._file_io_executor.protocol_put.call_args_list
-            if call.args[0].action == runner._save_autofocus_data
+            for call in write_batch.submit.call_args_list
+            if call.args[0] == runner._save_autofocus_data
         ]
 
     def test_success_exit_queues_save(self, tmp_path, monkeypatch):
         monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
         runner, _scope = af_runner_and_scope()
-        drive_af(runner, save_results_to_file=True, results_dir=tmp_path)
-        assert self._queued_save_tasks(runner), (
+        write_batch = MagicMock()
+        drive_af(runner, save_results_to_file=True, results_dir=tmp_path, write_batch=write_batch)
+        assert self._queued_save_tasks(runner, write_batch), (
             'a successful AF run must queue _save_autofocus_data'
         )
 
@@ -58,10 +61,13 @@ class TestSaveQueuedOnEveryExitPath:
         """The save fires from the finally path: an AF loop that raises
         must still queue the diagnostic save."""
         runner, scope = af_runner_and_scope()
-        scope.imaging._capture_and_wait_impl.side_effect = RuntimeError('camera fault')
+        scope.imaging.capture_and_wait.side_effect = RuntimeError('camera fault')
+        write_batch = MagicMock()
         with pytest.raises(RuntimeError, match='camera fault'):
-            drive_af(runner, save_results_to_file=True, results_dir=tmp_path)
-        assert self._queued_save_tasks(runner), (
+            drive_af(
+                runner, save_results_to_file=True, results_dir=tmp_path, write_batch=write_batch
+            )
+        assert self._queued_save_tasks(runner, write_batch), (
             'an AF run that raises must still queue _save_autofocus_data -- '
             'the failure data is the whole point of the diagnostic'
         )
@@ -77,14 +83,16 @@ class TestSaveQueuedOnEveryExitPath:
 
         monkeypatch.setattr('modules.autofocus_functions.focus_function', score_then_abort)
         runner, _scope = af_runner_and_scope()
+        write_batch = MagicMock()
         with pytest.raises(AutofocusAborted):
             drive_af(
                 runner,
                 abort_event=abort_event,
                 save_results_to_file=True,
                 results_dir=tmp_path,
+                write_batch=write_batch,
             )
-        assert self._queued_save_tasks(runner), (
+        assert self._queued_save_tasks(runner, write_batch), (
             'an aborted AF run must still queue _save_autofocus_data'
         )
         assert len(runner._af_data_full) == 1 and runner._af_data_pass == [], (
@@ -95,8 +103,9 @@ class TestSaveQueuedOnEveryExitPath:
     def test_no_save_queued_when_flag_off(self, monkeypatch):
         monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
         runner, _scope = af_runner_and_scope()
-        drive_af(runner, save_results_to_file=False)
-        assert not self._queued_save_tasks(runner), (
+        write_batch = MagicMock()
+        drive_af(runner, save_results_to_file=False, write_batch=write_batch)
+        assert not self._queued_save_tasks(runner, write_batch), (
             'non-engineering-mode AF runs must not queue the diagnostic save'
         )
 

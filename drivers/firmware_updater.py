@@ -706,10 +706,10 @@ def _run_post_update_test(board, board_config):
         # Verify LED enable/disable works
         r = board.exchange_command('LEDS_ENT', timeout=2.0)
         r2 = board.exchange_command('LEDS_ENF', timeout=2.0)
-        r_str = str(r or '')
-        r2_str = str(r2 or '')
-        if 'Error' in r_str or 'Error' in r2_str:
-            issues.append(f'LED enable/disable error: {r_str} / {r2_str}')
+        if r is None or r2 is None:
+            issues.append(f'LED enable/disable got no response: {r!r} / {r2!r}')
+        elif 'Error' in r or 'Error' in r2:
+            issues.append(f'LED enable/disable error: {r} / {r2}')
 
     elif board_config.board_type == BoardType.MOTOR:
         # Verify FULLINFO works

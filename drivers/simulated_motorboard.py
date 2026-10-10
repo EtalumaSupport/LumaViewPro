@@ -14,20 +14,55 @@ Failure injection (for testing error recovery):
   fail_on={'ZHOME'} -- return None for specific commands (simulates timeout)
 """
 
+import math
 import logging
-import pathlib
 import threading
 import time
 from typing import ClassVar
+from collections.abc import Iterable, Mapping
 from lvp_logger import logger
 from drivers.exceptions import HardwareError
-from drivers.motorconfig import MotorConfig
+from drivers.motorconfig import MotorConfig, read_only_axes_config
 from drivers.registry import motor_registry
 
 # SIM-SERIAL-LOG: emit the same serial.log line shape that the real
 # SerialBoard does (`{label} {command} -> {resp} ({elapsed_ms}ms)`).
 # See drivers/simulated_ledboard.py for rationale.
 _serial_log = logging.getLogger('LVP.serial')
+
+
+class TravelHold:
+    """A simulated axis's next move, stopped part of the way and held there.
+
+    The stage halts at ``at_fraction`` of that move's travel and stays,
+    reporting the target not reached, until ``release()``; it then travels
+    the rest in the time the rest takes. A real stage cannot be held, but a
+    test acting on a move "while it travels" otherwise guesses with a clock
+    how far a move has got, and a slow host makes the guess wrong. A STOP,
+    a home, or a new target on the axis ends the hold, since the move it
+    held is over.
+
+    Attributes:
+        axis: The axis whose next move is held.
+        at_fraction: How far along that move's travel it halts, between 0
+            and 1, exclusive.
+        reached: Set by the first position or status read that finds the
+            stage halted at the hold -- the motion monitor reads both on
+            every poll of a moving axis.
+    """
+
+    def __init__(self, board: 'SimulatedMotorBoard', axis: str, at_fraction: float):
+        self._board = board
+        self.axis = axis
+        self.at_fraction = at_fraction
+        self.reached = threading.Event()
+        # Whether the move it holds has had its target written. Read and
+        # written under the board's thread_lock.
+        self._bound = False
+
+    def release(self) -> None:
+        """Let the held move travel on and finish; no-op once the hold has ended."""
+        self._board._release_hold(self)
 
 
 @motor_registry.register('sim', priority=100, is_simulator=True)
@@ -74,29 +109,37 @@ class SimulatedMotorBoard:
         move_delay: float = 0.0,
         cmd_delay: float = 0.0,
         timing: str = 'fast',
-        firmware_version: str = '2.0.1',
+        firmware_version: str | None = '2.0.1',
+        firmware_date: str | None = None,
         protocol_version: str = 'legacy',  # v3.0 STUB: 'legacy' or 'v3'
-        motorconfig_defaults_file: pathlib.Path | None = None,
+        *,
+        motorconfig_defaults: Mapping,
         fail_after: int | None = None,
         fail_on: set | None = None,
+        axes: Iterable[str] | None = None,
         **kwargs,
     ):
+        """``axes``: the motor axes the board carries. A simulated scope
+        passes its model's axes from the catalogue; a board built on its
+        own, with none given, carries X/Y/Z for an LS85x model and Z
+        otherwise, plus T for a model whose name ends in T."""
         logger.info('[XYZ Sim   ] SimulatedMotorBoard.__init__()')
+        if axes is None:
+            axes = {'X', 'Y', 'Z'} if model.startswith('LS85') else {'Z'}
+            if model.endswith('T'):
+                axes.add('T')
+        self._axes = frozenset(axes)
 
         # Failure injection
         self._fail_after = fail_after  # disconnect after N commands
         self._fail_on = fail_on or set()  # return None for these commands
         self._cmd_count = 0
 
-        # Load hardware config (same defaults as real MotorBoard)
-        if motorconfig_defaults_file is None:
-            motorconfig_defaults_file = pathlib.Path('data/motorconfig_defaults.json')
-        self.motorconfig = MotorConfig(defaults_file=motorconfig_defaults_file)
+        # Hardware config: the same shipped defaults the real MotorBoard takes
+        self.motorconfig = MotorConfig(motorconfig_defaults)
 
         self.found = True
-        self.overshoot = False
-        self.backlash = self.motorconfig.antibacklash_um('Z')
-        self._has_turret = model.endswith('T')
+        self._has_turret = 'T' in self._axes
         self.initial_homing_complete = False
         self.initial_t_homing_complete = False
         self.port = '/dev/simulated_motor'
@@ -108,6 +151,10 @@ class SimulatedMotorBoard:
         self._move_delay = move_delay
         self._simulate_move_duration = False
         self.firmware_version = firmware_version  # Configurable for testing old firmware paths
+        # The date INFO carries; None as the original firmware's version is.
+        self.firmware_date = firmware_date
+        # The simulated board always answers INFO, as a connected real one does.
+        self.firmware_responding = True
         self.protocol_version = protocol_version  # v3.0 STUB: for future v3.0 simulation testing
 
         # Apply timing preset (overrides cmd_delay/move_delay if preset given)
@@ -122,25 +169,29 @@ class SimulatedMotorBoard:
         self._move_start_pos = {'X': 0, 'Y': 0, 'Z': 0, 'T': 0}
         self._move_start_time = {'X': 0.0, 'Y': 0.0, 'Z': 0.0, 'T': 0.0}
         self._move_end_time = {'X': 0.0, 'Y': 0.0, 'Z': 0.0, 'T': 0.0}
+        # At most one hold per axis (hold_travel).
+        self._holds: dict[str, TravelHold] = {}
 
         # Re-apply timing mode after all state is initialized
         self.set_timing_mode(timing)
 
-        self.axes_config = {
-            'Z': {
-                'limits': {'min': 0.0, 'max': self.motorconfig.travel_limit_um('Z')},
-                'move_func': self.z_um2ustep,
-            },
-            'X': {
-                'limits': {'min': 0.0, 'max': self.motorconfig.travel_limit_um('X')},
-                'move_func': self.xy_um2ustep,
-            },
-            'Y': {
-                'limits': {'min': 0.0, 'max': self.motorconfig.travel_limit_um('Y')},
-                'move_func': self.xy_um2ustep,
-            },
-            'T': {'move_func': self.t_pos2ustep},
-        }
+        self.axes_config = read_only_axes_config(
+            {
+                'Z': {
+                    'limits': {'min': 0.0, 'max': self.motorconfig.travel_limit_um('Z')},
+                    'move_func': self.z_um2ustep,
+                },
+                'X': {
+                    'limits': {'min': 0.0, 'max': self.motorconfig.travel_limit_um('X')},
+                    'move_func': self.xy_um2ustep,
+                },
+                'Y': {
+                    'limits': {'min': 0.0, 'max': self.motorconfig.travel_limit_um('Y')},
+                    'move_func': self.xy_um2ustep,
+                },
+                'T': {'move_func': self.t_pos2ustep},
+            }
+        )
 
     def set_timing_mode(self, mode: str) -> None:
         """Switch timing mode: 'instant', 'fast', or 'realistic'.
@@ -170,6 +221,53 @@ class SimulatedMotorBoard:
         self._simulate_move_duration = preset['simulate_move_duration']
         self._fast_move_duration = preset.get('fast_move_duration', 0.0)
         self._timing_mode = mode
+
+    def hold_travel(self, axis: str, at_fraction: float = 0.5) -> TravelHold:
+        """Hold ``axis``'s next move part of the way along; see ``TravelHold``.
+
+        Args:
+            axis: The axis whose next target write starts the held move.
+            at_fraction: How far along its travel the move halts.
+
+        Returns:
+            The hold: wait on its ``reached``, act, then ``release()`` it or
+            end it with a STOP or a new target.
+
+        Raises:
+            ValueError: the board is not in 'realistic' timing, the only one
+                in which a move travels; ``at_fraction`` is not strictly
+                between 0 and 1; or ``axis`` already has a hold.
+        """
+        if self._timing_mode != 'realistic':
+            raise ValueError(
+                f"a move travels only in 'realistic' timing; this board is in {self._timing_mode!r}"
+            )
+        if not 0.0 < at_fraction < 1.0:
+            raise ValueError(
+                f'a hold is part of the way along, 0 < at_fraction < 1; got {at_fraction}'
+            )
+        with self.thread_lock:
+            if axis in self._holds:
+                raise ValueError(f'{axis} already has a hold')
+            hold = TravelHold(self, axis, at_fraction)
+            self._holds[axis] = hold
+            return hold
+
+    def _release_hold(self, hold: TravelHold) -> None:
+        with self.thread_lock:
+            if self._holds.get(hold.axis) is not hold:
+                return
+            del self._holds[hold.axis]
+            if not hold.reached.is_set():
+                return
+            # The move resumes from the hold on its own timeline, shifted by
+            # how long it stood: the rest takes what the rest would have.
+            axis = hold.axis
+            start_t = self._move_start_time[axis]
+            halted_at = start_t + hold.at_fraction * (self._move_end_time[axis] - start_t)
+            shift = time.monotonic() - halted_at
+            self._move_start_time[axis] += shift
+            self._move_end_time[axis] += shift
 
     @property
     def is_v2(self) -> bool:
@@ -221,14 +319,26 @@ class SimulatedMotorBoard:
         return self.is_connected()
 
     def motor_stop(self) -> bool:
-        """Simulator answers True (sim firmware always supports STOP).
-        Mirrors the production MotorBoard method so
-        Lumascope.stop_motion works identically against the simulator.
+        """Send STOP to the simulated firmware, as the production MotorBoard
+        sends it to the board, so a stop reaches the simulated stage and the
+        failure injection applies to it.
 
         Returns:
-            bool: Always True.
+            bool: True: the simulated firmware implements STOP.
+
+        Raises:
+            HardwareError: the board did not answer the STOP, as the
+                production MotorBoard raises.
         """
+        if self.exchange_command('STOP') is None:
+            raise HardwareError(
+                'STOP: no reply from the motor board; the stage may still be moving'
+            )
         return True
+
+    def interlocks(self) -> frozenset[str]:
+        """The EL-0940 has no interlock inputs, so its stand-in has none open."""
+        return frozenset()
 
     def supports_motor_stop(self) -> bool:
         """Sim firmware supports every command family."""
@@ -323,13 +433,20 @@ class SimulatedMotorBoard:
                 return response
             return [response]
 
-    def exchange_multiline(self, command, timeout=60, end_markers=None):
+    def exchange_multiline(
+        self,
+        command: str,
+        timeout: float = 60,
+        end_markers: list[str] | None = None,
+        line_end: bytes = b'\n',
+    ) -> str | None:
         """Simulated multi-line response.
 
         Args:
             command: Command string to dispatch.
             timeout: Accepted for API parity; ignored by the simulator.
             end_markers: Accepted for API parity; ignored by the simulator.
+            line_end: Accepted for API parity; ignored by the simulator.
 
         Returns:
             Response string from ``exchange_command()``.
@@ -378,6 +495,13 @@ class SimulatedMotorBoard:
             value = int(cmd[9:])
             if value >= 0x80000000:
                 value -= 0x100000000
+            hold = self._holds.get(axis)
+            if hold is not None:
+                if hold._bound:
+                    # A new target ends the held move.
+                    del self._holds[axis]
+                else:
+                    hold._bound = True
             self._move_start_pos[axis] = self._actual[axis]
             self._move_start_time[axis] = time.monotonic()
             self._target[axis] = value
@@ -460,7 +584,15 @@ class SimulatedMotorBoard:
         # target=actual on every axis; sim mirrors that.
         if cmd == 'STOP':
             for ax in ('X', 'Y', 'Z', 'T'):
+                # Where the stage is now, then held there. Without the update
+                # the target was the last polled point and the interpolation
+                # ran on along the old timeline toward it, so the stage
+                # jumped back toward its start instead of stopping.
+                self._update_actual(ax)
                 self._target[ax] = self._actual[ax]
+                self._move_end_time[ax] = 0.0
+                # The held move is over; the stage stays where it stood.
+                self._holds.pop(ax, None)
             return 'STOP OK'
 
         return f'ERROR: unknown command {cmd}'
@@ -475,6 +607,15 @@ class SimulatedMotorBoard:
             return
         now = time.monotonic()
         end = self._move_end_time.get(axis, 0.0)
+        hold = self._holds.get(axis)
+        if hold is not None and hold._bound and self._fast_move_duration == 0:
+            start_t = self._move_start_time[axis]
+            halts_at = start_t + hold.at_fraction * (end - start_t)
+            if end > start_t and now >= halts_at:
+                start = self._move_start_pos[axis]
+                self._actual[axis] = int(start + hold.at_fraction * (self._target[axis] - start))
+                hold.reached.set()
+                return
         if now >= end:
             self._actual[axis] = self._target[axis]
         elif self._fast_move_duration > 0:
@@ -493,7 +634,6 @@ class SimulatedMotorBoard:
     def _calc_move_duration(self, axis, start_usteps, target_usteps) -> float:
         """Calculate move duration using TMC5072 trapezoidal ramp parameters.
 
-        Uses the same ramp_params as the position predictor in lumascope_api.
         Returns duration in seconds.
         """
         distance_usteps = abs(target_usteps - start_usteps)
@@ -549,6 +689,7 @@ class SimulatedMotorBoard:
             self._target[axis] = 0
             self._homed[axis] = True
             self._move_end_time[axis] = 0.0
+            self._holds.pop(axis, None)
 
     def _make_status(self, axis):
         status = 0
@@ -623,9 +764,9 @@ class SimulatedMotorBoard:
             um: Position in micrometers.
 
         Returns:
-            int: Microstep count (truncated toward zero).
+            int: Microstep count, rounded to the nearest microstep.
         """
-        return int(self.motorconfig.usteps_per_mm('Z') * um / 1000)
+        return math.floor(self.motorconfig.usteps_per_mm('Z') * um / 1000 + 0.5)
 
     def xy_ustep2um(self, ustep: int) -> float:
         """Convert XY microsteps to micrometers.
@@ -645,9 +786,9 @@ class SimulatedMotorBoard:
             um: Position in micrometers.
 
         Returns:
-            int: Microstep count (truncated toward zero).
+            int: Microstep count, rounded to the nearest microstep.
         """
-        return int(self.motorconfig.usteps_per_mm('X') * um / 1000)
+        return math.floor(self.motorconfig.usteps_per_mm('X') * um / 1000 + 0.5)
 
     def t_ustep2deg(self, ustep: int) -> float:
         """Convert turret microsteps to degrees.
@@ -743,10 +884,6 @@ class SimulatedMotorBoard:
         """
         return self.initial_homing_complete
 
-    def xycenter(self) -> None:
-        """Move the simulated XY stage to centre (sends CENTER)."""
-        self.exchange_command('CENTER')
-
     def thome(self) -> bool:
         """Simulated turret home. Mirrors `MotorBoard.thome` contract.
 
@@ -816,22 +953,13 @@ class SimulatedMotorBoard:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
 
         Returns:
-            float | int: Microns for X/Y/Z, 1-based position for T, 0
-                on read failure or unknown axis.
-        """
-        try:
-            response = self.exchange_command(f'TARGET_R{axis}')
-            position = int(response)
-        except Exception:
-            position = 0
+            float | int: Microns for X/Y/Z, 1-based position for T.
 
-        if axis == 'Z':
-            return self.z_ustep2um(position)
-        elif axis in ('X', 'Y'):
-            return self.xy_ustep2um(position)
-        elif axis == 'T':
-            return self.t_ustep2pos(position)
-        return 0
+        Raises:
+            ValueError: ``axis`` is not a motor axis.
+            HardwareError: the board did not report the target.
+        """
+        return self._user_units(axis, self._read_register('TARGET_R', axis))
 
     def current_pos(self, axis: str) -> float | int:
         """Get the current position of an axis in user units.
@@ -840,100 +968,44 @@ class SimulatedMotorBoard:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
 
         Returns:
-            float | int: Microns for X/Y/Z, 1-based position for T, 0
-                on read failure or unknown axis.
+            float | int: Microns for X/Y/Z, 1-based position for T.
+
+        Raises:
+            ValueError: ``axis`` is not a motor axis.
+            HardwareError: the board did not report the position.
         """
-        try:
-            response = self.exchange_command(f'ACTUAL_R{axis}')
-            position = int(response)
-        except Exception:
-            position = 0
+        return self._user_units(axis, self._read_register('ACTUAL_R', axis))
 
-        if axis == 'Z':
-            return self.z_ustep2um(position)
-        elif axis in ('X', 'Y'):
-            return self.xy_ustep2um(position)
-        elif axis == 'T':
-            return self.t_ustep2pos(position)
-        return 0
+    def backlash_um(self) -> float:
+        """Z antibacklash, um: how far below its target a downward Z move
+        approaches from (the motion API's backlash leg)."""
+        return self.motorconfig.antibacklash_um('Z')
 
-    def move_abs_pos(
-        self, axis: str, pos: float, overshoot_enabled: bool = True, ignore_limits: bool = False
-    ) -> None:
-        """Move an axis to an absolute position in user units.
+    def move_abs_pos(self, axis: str, pos: float) -> None:
+        """Move an axis to an absolute position in user units, in one leg.
 
-        Mirrors the production ``MotorBoard.move_abs_pos`` contract,
-        including Z backlash overshoot when ``overshoot_enabled`` is True.
+        Mirrors the production ``MotorBoard.move_abs_pos`` contract; the Z
+        backlash approach is the motion API's.
 
         Args:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
             pos: Target absolute position. Microns for X/Y/Z, 1-based
                 position for T.
-            overshoot_enabled: When True, apply Z backlash compensation
-                if the target is sufficiently below the current position.
-            ignore_limits: When True, skip the configured min/max
-                clamping.
+
+        Travel is not checked here, as in production: the motion API
+        refuses a target outside travel before it calls this.
 
         Raises:
-            Exception: ``axis`` is not in ``axes_config``.
+            HardwareError: ``axis`` is not in ``axes_config``, or the board
+                did not answer the target write.
         """
         if axis not in self.axes_config:
-            raise Exception(f'Unsupported axis ({axis})')
-
-        axis_config = self.axes_config[axis]
-        if 'limits' in axis_config and not ignore_limits:
-            limits = axis_config['limits']
-            pos = max(pos, limits['min'])
-            pos = min(pos, limits['max'])
-
-        steps = axis_config['move_func'](pos)
-
-        if overshoot_enabled and axis == 'Z':
-            current = self.current_pos('Z')
-            if current > pos and pos > (self.backlash + 50):
-                self.overshoot = True
-                overshoot = self.z_um2ustep(pos - self.backlash)
-                overshoot = max(1, overshoot)
-                self.move(axis, overshoot)
-                while not self.target_status('Z'):
-                    time.sleep(0.001)
-                self.overshoot = False
-
-        self.move(axis, steps)
-
-    def move_rel_pos(self, axis: str, um: float, overshoot_enabled: bool = False) -> None:
-        """Move an axis by a relative offset in user units.
-
-        Args:
-            axis: Axis letter ('X', 'Y', 'Z', 'T').
-            um: Offset to apply. Microns for X/Y/Z, position-count
-                offset for T.
-            overshoot_enabled: When True, apply Z backlash compensation
-                during the underlying absolute move.
-        """
-        pos = self.target_pos(axis)
-        self.move_abs_pos(axis, pos + um, overshoot_enabled=overshoot_enabled)
+            raise HardwareError(f'Unsupported axis ({axis})')
+        self.move(axis, self.axes_config[axis]['move_func'](pos))
 
     # ------------------------------------------------------------------
     # Status
     # ------------------------------------------------------------------
-    def home_status(self, axis: str) -> bool:
-        """Return True if the axis is at the home position.
-
-        Args:
-            axis: Axis letter ('X', 'Y', 'Z', 'T').
-
-        Returns:
-            bool: True when the simulated STATUS_R bit is set; False on
-                read failure (does not raise, unlike production).
-        """
-        try:
-            data = int(self.exchange_command(f'STATUS_R{axis}'))
-            bits = format(data, 'b').zfill(32)
-            return bits[31] == '1'
-        except Exception:
-            return False
-
     def target_status(self, axis: str) -> bool:
         """Return True if the axis has reached its target position.
 
@@ -941,15 +1013,13 @@ class SimulatedMotorBoard:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
 
         Returns:
-            bool: True when current == target; False on read failure
-                (does not raise, unlike production).
+            bool: True when current == target.
+
+        Raises:
+            HardwareError: No response from the motor board, as the board's
+                driver raises it.
         """
-        try:
-            data = int(self.exchange_command(f'STATUS_R{axis}'))
-            bits = format(data, 'b').zfill(32)
-            return bits[22] == '1'
-        except Exception:
-            return False
+        return format(self.reference_status(axis), 'b').zfill(32)[22] == '1'
 
     def reference_status(self, axis: str) -> int:
         """Read the raw STATUS register for an axis.
@@ -958,13 +1028,18 @@ class SimulatedMotorBoard:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
 
         Returns:
-            int: 32-bit register value, or 0 on read failure (does not
-                raise, unlike production).
+            int: 32-bit register value as returned by the firmware.
+
+        Raises:
+            HardwareError: No response from the motor board, as the board's
+                driver raises it.
         """
-        try:
-            return int(self.exchange_command(f'STATUS_R{axis}'))
-        except Exception:
-            return 0
+        response = self.exchange_command(f'STATUS_R{axis}')
+        if response is None:
+            raise HardwareError(
+                f'STATUS_R{axis}: no response from motor board (timeout or disconnect)'
+            )
+        return int(response)
 
     def limit_switch_status(self, axis: str) -> tuple[int, int]:
         """Read the left + right limit switch state for an axis.
@@ -1121,7 +1196,7 @@ class SimulatedMotorBoard:
         """
         return f'Etaluma Motor Controller {self._fullinfo["model"]} Firmware: SIMULATED'
 
-    def get_axes_config(self) -> dict:
+    def get_axes_config(self) -> Mapping:
         """Return the per-axis config (limits + unit-conversion func).
 
         Returns:
@@ -1129,7 +1204,7 @@ class SimulatedMotorBoard:
         """
         return self.axes_config
 
-    def get_axis_limits(self, axis: str) -> dict | None:
+    def get_axis_limits(self, axis: str) -> Mapping[str, float] | None:
         """Return the configured min/max travel limits for an axis.
 
         Args:
@@ -1140,10 +1215,11 @@ class SimulatedMotorBoard:
                 or ``None`` if the axis has no configured limits.
 
         Raises:
-            Exception: ``axis`` is not a supported axis at all.
+            HardwareError: ``axis`` is not a supported axis at all, as the
+                real board's driver raises.
         """
         if axis not in self.axes_config:
-            raise Exception(f'Unsupported axis ({axis})')
+            raise HardwareError(f'Unsupported axis ({axis})')
         if 'limits' not in self.axes_config[axis]:
             return None
         return self.axes_config[axis]['limits']
@@ -1157,13 +1233,7 @@ class SimulatedMotorBoard:
         Returns:
             list: Axis letters present (e.g. ``['X', 'Y', 'Z', 'T']``).
         """
-        axes = ['Z']  # Z always present
-        if self._fullinfo.get('model', '').startswith('LS85'):
-            axes = ['X', 'Y', 'Z']
-        model = self._fullinfo.get('model', '')
-        if model.endswith('T'):
-            axes.append('T')
-        return axes
+        return [axis for axis in ('X', 'Y', 'Z', 'T') if axis in self._axes]
 
     def detect_homed_axes(self) -> list:
         """Return the axes the simulated board reports as homed.
@@ -1184,28 +1254,63 @@ class SimulatedMotorBoard:
         ]
 
     def current_pos_steps(self, axis: str) -> int:
-        """Get current position in raw microsteps.
+        """Get current position in raw microsteps (no unit conversion).
 
         Args:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
 
         Returns:
-            int: Microstep position (0 if axis is unknown).
+            int: Microstep position.
+
+        Raises:
+            ValueError: ``axis`` is not a motor axis.
+            HardwareError: the board did not report the position.
         """
-        with self.thread_lock:
-            return self._actual.get(axis, 0)
+        return self._read_register('ACTUAL_R', axis)
 
     def target_pos_steps(self, axis: str) -> int:
-        """Get target position in raw microsteps.
+        """Get target position in raw microsteps (no unit conversion).
 
         Args:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
 
         Returns:
-            int: Microstep target (0 if axis is unknown).
+            int: Microstep target.
+
+        Raises:
+            ValueError: ``axis`` is not a motor axis.
+            HardwareError: the board did not report the target.
         """
-        with self.thread_lock:
-            return self._target.get(axis, 0)
+        return self._read_register('TARGET_R', axis)
+
+    def _read_register(self, register: str, axis: str) -> int:
+        """Read one position register, in microsteps.
+
+        A read the board did not answer raises, as an unanswered target
+        write does: an answer standing in for it (None, 0) was taken for
+        a position by the layers above.
+
+        Raises:
+            ValueError: ``axis`` is not a motor axis.
+            HardwareError: no reply, or a reply that is not a number.
+        """
+        if axis not in ('X', 'Y', 'Z', 'T'):
+            raise ValueError(f'Invalid axis {axis!r}')
+        response = self.exchange_command(register + axis)
+        try:
+            return int(response)
+        except (TypeError, ValueError) as e:
+            raise HardwareError(
+                f'{register}{axis}: the board did not report a position (reply {response!r})'
+            ) from e
+
+    def _user_units(self, axis: str, steps: int) -> float | int:
+        """Microsteps to microns for X/Y/Z, to the 1-based position for T."""
+        if axis == 'Z':
+            return self.z_ustep2um(steps)
+        if axis in ('X', 'Y'):
+            return self.xy_ustep2um(steps)
+        return self.t_ustep2pos(steps)
 
     # ------------------------------------------------------------------
     # Diagnostic commands (match MotorBoard API surface)
@@ -1279,20 +1384,14 @@ class SimulatedMotorBoard:
 
     def read_drv_status(self, axis: str) -> int | None:
         """Simulated TMC5072 DRV_STATUS register -- returns 0 (no fault flags)."""
-        axis = axis.upper()
-        if axis not in ('X', 'Y', 'Z', 'T'):
-            raise ValueError(f'Invalid axis: {axis!r}')
         return 0
 
     def read_fanspeed(self) -> int | None:
         """Simulated fan tachometer -- returns nominal RPM."""
         return 1200
 
-    def set_fan_duty(self, duty_pct: int) -> bool:
-        """Simulated fan PWM duty -- accepts any valid 0..100 setting."""
-        if not 0 <= duty_pct <= 100:
-            raise ValueError(f'Fan duty must be 0..100, got {duty_pct}')
-        return True
+    def set_fan_duty(self, duty_pct: int) -> None:
+        """Simulated fan PWM duty -- takes the 0..100 the diagnostics API has checked."""
 
     def wait_for_position(self, axis: str, timeout: float = 5.0) -> bool:
         """Simulated wait -- position is always reached instantly.

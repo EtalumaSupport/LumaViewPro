@@ -24,8 +24,8 @@ recommendation).
 Test approach
 -------------
 1. Behavioral: helper returns the right tuple by monkeypatching
-   psutil.disk_usage. conftest globally mocks psutil so a real
-   filesystem probe is impossible; the monkeypatch shapes the mock to
+   psutil.disk_usage. A real filesystem probe reports this machine's
+   free space, not the case's; the monkeypatch shapes the probe to
    return realistic free-bytes values per case.
 2. Source-text guards over the three call sites: shutil.disk_usage is
    gone; check_disk_space_ok is the new shape. Catches a reintroduction
@@ -95,7 +95,7 @@ def test_ok_false_when_threshold_exceeds_free(monkeypatch):
     assert free_mb == pytest.approx(100.0)
 
 
-def test_str_coercion_of_path_argument(monkeypatch):
+def test_str_coercion_of_path_argument(monkeypatch, tmp_path):
     """psutil receives the path as str even if a pathlib.Path was passed."""
     received = {}
 
@@ -104,9 +104,39 @@ def test_str_coercion_of_path_argument(monkeypatch):
         return SimpleNamespace(total=0, used=0, free=10**9)
 
     monkeypatch.setattr(common_utils.psutil, 'disk_usage', spy_disk_usage)
-    check_disk_space_ok(pathlib.Path('/tmp/example'), 0)
-    assert received['path'] == '/tmp/example'
+    check_disk_space_ok(tmp_path, 0)
+    assert received['path'] == str(tmp_path)
     assert isinstance(received['path'], str)
+
+
+def test_a_folder_not_made_yet_is_measured_on_its_nearest_existing_ancestor(monkeypatch, tmp_path):
+    """A run's output folder is often made only when its first file is
+    written; the check before that must measure the volume it will land
+    on, not raise and leave the run unchecked."""
+    received = {}
+
+    def spy_disk_usage(path):
+        received['path'] = path
+        return SimpleNamespace(total=0, used=0, free=10**9)
+
+    monkeypatch.setattr(common_utils.psutil, 'disk_usage', spy_disk_usage)
+    unborn = tmp_path / 'Autofocus Characterization' / '20261005_095105'
+
+    ok, _free_mb = check_disk_space_ok(unborn, 0)
+
+    assert ok is True
+    assert received['path'] == str(tmp_path)
+    assert not unborn.exists()
+
+
+def test_a_folder_not_made_yet_reads_the_real_free_space(tmp_path):
+    """The real probe, no stand-in: a missing folder under a real directory
+    answers that directory's free space instead of raising."""
+    ok, free_mb = check_disk_space_ok(tmp_path / 'not' / 'made', 0)
+
+    expected_mb = common_utils.psutil.disk_usage(str(tmp_path)).free / (1024**2)
+    assert ok is True
+    assert free_mb == pytest.approx(expected_mb, rel=0.01)
 
 
 def test_propagates_oserror(monkeypatch):

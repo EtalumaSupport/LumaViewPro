@@ -90,10 +90,10 @@ def test_unparseable_response_still_logs_error(monkeypatch):
 
 
 def test_valid_response_parses_model_and_serial(monkeypatch):
-    resp = 'Model: LS720T Serial: SN12345 X present: True'
+    resp = 'Model: LS820T Serial: SN12345 X present: True'
     board, rec = _make_board(resp, monkeypatch)
     result = board.fullinfo()
-    assert result['model'] == 'LS720T'
+    assert result['model'] == 'LS820T'
     assert result['serial_number'] == 'SN12345'
     assert result['_raw'] == resp
     # The trailing 'T' marks a turret-equipped scope.

@@ -49,6 +49,9 @@ USER_EVENTS = (
     'on_text_validate',
     'on_focus',
     'on_state',
+    # PickSpinner's: raised only by a person choosing from the dropdown,
+    # never by a write to the spinner's text.
+    'on_pick',
 )
 
 EMITTERS = (
@@ -198,8 +201,7 @@ def _direct_emitters(fn):
             and func.value.id == 'gui_logger'
             and func.attr in EMITTERS
         )
-        is_shared_helper = isinstance(func, ast.Name) and func.id == 'text_input_debounced'
-        if is_gui_logger_call or is_shared_helper:
+        if is_gui_logger_call:
             found.append(_record_name(node))
     return found
 
@@ -333,4 +335,75 @@ def census():
             'unresolved': sorted(unresolved),
             'file': blocks[0]['file'],
         }
+    out.update(accordion_items())
+    return out
+
+
+# An accordion item binds no user event in the kv: Kivy expands it from its own
+# touch handler, so the event scan above never saw one, and a drawer a person
+# opened left no record. LoggedAccordionItem writes the record from that
+# handler, under the group and item names its kv block sets.
+LOGGED_ACCORDION_ITEM = 'LoggedAccordionItem'
+
+
+def _accordion_kind(name):
+    """'logged', 'plain' (an AccordionItem that records nothing), or None."""
+    if name == 'AccordionItem':
+        return 'plain'
+    mro = _mro(name)
+    if LOGGED_ACCORDION_ITEM in mro:
+        return 'logged'
+    for cls_name in mro:
+        for base in _CLASSES[cls_name][1].bases:
+            if getattr(base, 'id', getattr(base, 'attr', None)) == 'AccordionItem':
+                return 'plain'
+    return None
+
+
+def _properties(lines, header):
+    """``name -> value`` for the properties one level under the header line."""
+    header_depth = _indent(lines[header])
+    props, depth = {}, None
+    for line in lines[header + 1 :]:
+        if not _is_code(line):
+            continue
+        indent = _indent(line)
+        if indent <= header_depth:
+            break
+        depth = depth or indent
+        match = re.match(r'^[ \t]*(\w+):\s*(.+?)\s*$', line)
+        if indent == depth and match:
+            props[match.group(1)] = match.group(2).strip('\'"')
+    return props
+
+
+def accordion_items():
+    """Every accordion item in the kv, as a control whose record is its group.
+
+    A ``LoggedAccordionItem`` that sets both ``log_group`` and ``log_item``
+    writes ``SELECT <log_group> <log_item>``; any other accordion item writes
+    nothing and is reported unlogged, so the ratchet fails on it.
+    """
+    out = {}
+    for label, text in kv_sources():
+        lines = text.splitlines()
+        for i, line in enumerate(lines):
+            if not _is_code(line):
+                continue
+            rule = re.match(r'^<([A-Za-z_]\w*)>:\s*$', line)
+            widget = re.match(r'^[ \t]+([A-Za-z_]\w*):\s*$', line)
+            name = rule.group(1) if rule else widget.group(1) if widget else None
+            kind = _accordion_kind(name) if name else None
+            if kind is None:
+                continue
+            props = _properties(lines, i)
+            owner = name if rule else _rule_root(lines, i)
+            identity = f'{owner}.{props.get("id", "<rule>")}'
+            logged = kind == 'logged' and props.get('log_group') and props.get('log_item')
+            out[identity] = {
+                'static': [props['log_group']] if logged else [],
+                'derived': [],
+                'unresolved': [],
+                'file': label,
+            }
     return out

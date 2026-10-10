@@ -1,0 +1,80 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+"""A home returns when the stage has stopped, on the firmware that ships.
+
+The field firmware answers HOME and then drives X, Y and Z to the centre
+of travel, and answers THOME and then drives Z back to where it was,
+without waiting for either move. What the driver returns after a home is
+therefore where the stage IS only if the driver waits: these run the real
+field firmware in realistic timing and read the stage the moment the home
+returns.
+"""
+
+import sys
+
+import pytest
+
+from drivers.exceptions import HardwareError
+from drivers.motorboard import MotorBoard
+from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
+from drivers.sim_wire.mp import tmc5072
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
+
+if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
+    pytest.skip(
+        'the firmware-backed simulator runs on macOS and Linux only', allow_module_level=True
+    )
+
+
+@pytest.fixture
+def board():
+    spec = MotorBoardSpec('LS850T', frozenset('XYZT'), dialect='field', timing='realistic')
+    b = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=SimWireBackend(spec))
+    try:
+        yield b
+    finally:
+        b.disconnect()
+
+
+def _raw(board, query, axis):
+    return int(board.exchange_command(f'{query}_R{axis}'))
+
+
+@pytest.mark.slow
+def test_after_home_every_axis_is_at_its_target(board):
+    assert board.home()
+    for axis in 'XYZT':
+        assert _raw(board, 'ACTUAL', axis) == _raw(board, 'TARGET', axis), axis
+
+
+@pytest.mark.slow
+def test_after_a_turret_home_z_is_back_at_its_target(board):
+    assert board.home()
+    board.move_abs_pos('Z', 3000.0)
+    assert board.wait_for_position('Z', timeout=10.0)
+    assert board.thome()
+    for axis in 'ZT':
+        assert _raw(board, 'ACTUAL', axis) == _raw(board, 'TARGET', axis), axis
+
+
+@pytest.fixture
+def faulted():
+    """(the production driver, the simulated board), field firmware, realistic timing."""
+    spec = MotorBoardSpec('LS850T', frozenset('XYZT'), dialect='field', timing='realistic')
+    backend = SimWireBackend(spec)
+    b = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=backend)
+    try:
+        yield b, backend.motor_board
+    finally:
+        b.disconnect()
+
+
+# A failed home is reported in the board's own words, which the board sends
+# only when its own sequence ends: the host waits that long.
+
+
+@pytest.mark.slow
+def test_a_stuck_z_switch_on_a_z_home_is_the_boards_own_timeout(faulted):
+    board, sim = faulted
+    sim.inject('Z', tmc5072.SWITCH_NEVER_TRIPS)
+    with pytest.raises(HardwareError, match='Z home timeout'):
+        board.zhome()

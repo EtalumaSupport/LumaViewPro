@@ -15,7 +15,7 @@ recording callback produced no record at all and the run looked like
 it had succeeded.
 
 These tests pin that the headless failure is VISIBLE, not that the two
-branches match. Logging rather than raising is a deliberate choice to
+branches match. Reporting rather than raising is a deliberate choice to
 be more forgiving than the GUI: a REST caller must not be killed by
 one bad UI callback. Silence is the only option with no argument for
 it.
@@ -32,29 +32,31 @@ import pytest
 from lvp_logger import logger
 
 from modules import kivy_utils
+from modules.scope_session import ScopeSession
 
 
 @pytest.fixture(autouse=True)
 def _headless_dispatcher():
-    """Force the no-GUI branch and restore whatever was there before."""
-    previous = kivy_utils._ui_dispatcher
-    kivy_utils.set_ui_dispatcher(None)
+    """Force the no-GUI branch, the one a test process runs on."""
+    ScopeSession.set_ui_dispatcher(None)
     logger.reset_mock()
-    yield
-    kivy_utils.set_ui_dispatcher(previous)
 
 
 def _boom(_dt):
     raise RuntimeError('callback exploded')
 
 
-def test_headless_callback_failure_is_logged_with_traceback():
+def test_headless_callback_failure_is_logged_with_traceback(monkeypatch):
+    from modules.notification_center import notifications
+
+    reported = []
+    monkeypatch.setattr(notifications, 'report_outcome', lambda ex, **kw: reported.append((ex, kw)))
+
     kivy_utils.schedule_ui(_boom)
 
-    assert logger.exception.called, (
-        'a callback that raised on the headless branch produced no log '
-        'record; the GUI path logs it, so headless silence is a '
-        'failure-parity gap'
+    assert [(type(ex), kw['solicited']) for ex, kw in reported] == [(RuntimeError, False)], (
+        'a callback that raised on the headless branch was not reported; '
+        'the GUI path is loud, so headless silence is a failure-parity gap'
     )
 
 

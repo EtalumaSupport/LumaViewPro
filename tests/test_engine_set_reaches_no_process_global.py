@@ -12,9 +12,10 @@ output encoding.
 Every one of those reads is now gone, and this guard keeps them gone. It walks
 the engine's import graph from the sequenced-capture runner and asserts the
 two reaches it still contains against an allowlist derived from the record:
-the two telemetry modules that read the context (capture fps off the display
-widget, executor queue sizes for the memory metrics -- guarded, empty when
-unset, and headless already gets the right answer), and the one startup
+the telemetry module that reads the context (executor queue sizes for the
+memory metrics -- guarded, empty when unset, and headless already gets the
+right answer; the metrics logger left the engine's graph when the session
+took it over from the scope), and the one startup
 composition read of the settings binding (the simulator's default model). A
 third name in either list is a regression.
 
@@ -33,7 +34,7 @@ ENGINE_ROOT_MODULE = 'modules.sequenced_capture_runner'
 
 # The reach of the application context the engine set may keep: telemetry,
 # guarded, correct headless.
-ALLOWED_CONTEXT_READERS = frozenset({'modules.config_helpers', 'modules.metrics_logger'})
+ALLOWED_CONTEXT_READERS = frozenset({'modules.config_helpers'})
 # The one import-time binding of the settings module the engine set may keep:
 # the simulated motor board's default model, read once at scope construction.
 ALLOWED_SETTINGS_BINDERS = frozenset({'modules.lumascope_api._lumascope'})

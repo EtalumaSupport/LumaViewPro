@@ -42,6 +42,12 @@ def bare_pylon_camera():
     # re-applies the registry onto a rebuilt handler).
     cam._frame_callback_lock = threading.Lock()
     cam._registered_frame_callbacks = []
+    cam._frame_window = None
+    cam.cam_image_handler = None
+    # The identity a connect reads off the device; none was read here.
+    cam.model_name = None
+    cam._device_serial = None
+    cam.timestamp_tick_frequency_hz = None
     cam.active = MagicMock()
     cam.active.IsGrabbing.return_value = False
     cam._mark_disconnected = MagicMock()
@@ -363,10 +369,12 @@ def bare_ids_camera():
     cam._gain_selector = None
     cam._max_binning = 2
     cam._profile_is_generic = False
-    # Oversize-then-crop framing state, seeded as __init__ would so
-    # set_frame_size / get_frame_size and the unpack crop run against real state.
-    cam._crop_spec = None
+    # Framing state, seeded as __init__ would so set_frame_size /
+    # get_frame_size run against real state.
+    cam._frame_window = None
+    cam.cam_image_handler = None
     cam._sensor_max = None
+    cam._offset_min = (0, 0)
     return cam
 
 
@@ -376,8 +384,8 @@ def bare_fx2_camera():
     Built via ``__new__`` so the base lifecycle state (config lock, depth
     counter, start-gate latch CLOSED) plus the FX2 streaming-state flags
     that ``is_grabbing()`` / ``start_grabbing()`` read are seeded here.
-    The platform-specific streaming starters are MagicMocks so
-    ``start_grabbing()`` is observable without touching USB.
+    The connection is a MagicMock so ``start_grabbing()`` is observable
+    without touching USB.
     """
     from drivers import fx2driver
 
@@ -386,15 +394,15 @@ def bare_fx2_camera():
     cam._lifecycle_lock = threading.RLock()
     cam._update_config_depth = 0
     cam._grab_gate_open = False
+    cam._frame_window = None
+    cam.cam_image_handler = None
     cam.active = MagicMock()
     cam._mark_disconnected = MagicMock()
     cam._device_removed = False
     cam._grabbing = False
     cam._grab_thread = None
     cam.stream_stats = MagicMock()
-    cam._start_iso_streaming = MagicMock()
-    cam._start_winusb_iso_streaming = MagicMock()
-    cam._start_bulk_streaming = MagicMock()
+    cam._fx2 = MagicMock()
     # start_grabbing() unconditionally spawns a _grab_loop daemon thread;
     # keep it inert so a fake that reaches the start path leaks no work.
     cam._grab_loop = MagicMock()
@@ -430,3 +438,20 @@ def bare_grab_worker():
     base._record_failure = MagicMock(return_value=False)
     worker = pyloncamera._PylonImageGrabWorker(parent, base, _queue_mod.Queue(maxsize=1))
     return worker, base
+
+
+def grab_a_frame_made_after_now(cam, timeout_s: float = 5.0) -> tuple:
+    """Read a frame a free-running camera made after this call, the way frame validity drains.
+
+    A camera that streams hands back the latest frame it has, and the frame
+    being made when a setting changed was made under the old setting. So the
+    first frame stored after the call may predate a change made just before
+    it; the one after that cannot. Returns ``cam.grab()``'s answer for that
+    frame.
+    """
+    handler = cam.cam_image_handler
+    since = handler.frames_delivered
+    assert handler.wait_for_frame_after(since + 1, timeout_s), (
+        f'the camera stored no new frame within {timeout_s} s'
+    )
+    return cam.grab()

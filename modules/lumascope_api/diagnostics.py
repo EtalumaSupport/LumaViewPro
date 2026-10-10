@@ -9,39 +9,201 @@ from __future__ import annotations
 
 import datetime
 import pathlib
+import re
 import time
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 from lvp_logger import log_dir, logger, version
+from modules.finite_number import refuse_unless_finite_number
+from modules.api_surface import ProgressCallback, api
+from modules.exceptions import ArgumentRefusedError, HardwareCommandRefusedError, MissingPart
+from modules.lumascope_api._constants import refuse_unknown_axis
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
 
+# Motor-board verbs that move a motor, stop one, or rewrite a position
+# register. Sent raw they change the hardware behind MotionAPI, which then
+# reports axes and a turret slot that are no longer true; each has a
+# MotionAPI member that does the same thing and keeps the record. Matched
+# as the firmware dispatches them: it upper-cases and strips the command,
+# compares the homes and STOP whole, and the shipping firmware finds
+# ACTUAL_W / TARGET_W / SPI anywhere in the command.
+_MOTOR_VERBS_WHOLE = frozenset({'HOME', 'CENTER', 'ZHOME', 'THOME', 'STOP'})
+_MOTOR_VERBS_ANYWHERE = ('ACTUAL_W', 'TARGET_W')
+# The one SPI form carried: an axis, a two-digit address below 0x80 (the
+# TMC5072 read half; bit 7 set is a register write) and a decimal payload.
+_SPI_READ = re.compile(r'SPI[A-Z]0X([0-7][0-9A-F])\d+')
+
+# What the diagnostics channel answers in place of a board's reply. They
+# come back as strings so a report can write them where the reply would
+# have gone; anything that times, parses or counts a reply tells them from
+# one with ``is_board_reply``.
+NOT_CONNECTED = 'Board not connected'
+NO_REPLY = 'None'  # a single-line read that timed out
+NO_RESPONSE = 'No response'  # a multi-line read that returned nothing
+ERROR_PREFIX = 'Error: '
+
+# The LED board's text command set, as ``get_led_info()['command_set']``
+# names it. INFO predates the v2 firmware; SELFTEST, I2CSCAN and the
+# LEDREAD current reads came with it. A board with no text command channel
+# at all (the FX2's LED peripheral) answers None.
+LED_COMMANDS_LEGACY = 'legacy'
+LED_COMMANDS_V2 = 'v2'
+
+# The motor board's text command set, as ``get_motor_info()['command_set']``
+# names it: the EL-0940's (INFO, FULLINFO, ACTUAL_R, SPI and the rest). A
+# board with no text command channel (the TMCM-6110, which speaks binary
+# datagrams), or no board connected, answers None.
+MOTOR_COMMANDS_TEXT = 'text'
+
+# What ``firmware_version`` names for a board that answered INFO with no
+# version string: the original firmware, which predates version numbers and
+# is told apart by its date. None is kept for a board that did not answer.
+ORIGINAL_FIRMWARE = 'original'
+
+
+def _firmware_identity(driver) -> dict:
+    """A board's firmware as the API names it: version and date.
+
+    The driver parses INFO; the original firmware carries a date but no
+    version, which the driver records as no version on a board that
+    answered. Named here, once, so the support report and a bench verdict
+    both say which firmware it was.
+    """
+    version = driver.firmware_version
+    if version is None and driver.firmware_responding:
+        version = ORIGINAL_FIRMWARE
+    return {'firmware_version': version, 'firmware_date': driver.firmware_date}
+
+
+def is_board_reply(response: str | list[str] | None) -> bool:
+    """True when ``response`` is a board's reply, not the channel's stand-in for one."""
+    if not response or response in (NOT_CONNECTED, NO_REPLY, NO_RESPONSE):
+        return False
+    return not (isinstance(response, str) and response.startswith(ERROR_PREFIX))
+
+
+def _refuse_motor_verb(command: str) -> None:
+    """Raise if ``command`` would move or stop a motor or rewrite a position."""
+    verb = command.strip().upper()
+    if (
+        verb in _MOTOR_VERBS_WHOLE
+        or any(v in verb for v in _MOTOR_VERBS_ANYWHERE)
+        or ('SPI' in verb and not _SPI_READ.fullmatch(verb))
+    ):
+        raise ValueError(
+            f'{command!r} moves, stops or repositions a motor and is not carried by '
+            f'the diagnostics channel: use the motion API (home, move_turret, '
+            f'move_absolute, stop_motion), which keeps the axis and turret record'
+        )
+
 
 class DiagnosticsAPI:
-    """Diagnostics sub-API. Forwards to Lumascope composition root."""
+    """Diagnostics sub-API. Forwards to Lumascope composition root.
+
+    Every member that transmits runs on its device's lane, so while a run, a
+    diagnostic or a home holds the scope it is refused to anyone not acting under
+    the holder's taking. The one exception is the camera temperature read,
+    which the lane admits whatever holds: it changes nothing a holder
+    depends on, and the temperature log keeps running through a run. The
+    board commands go on the IO lane through the motion API's dispatcher,
+    the lane's one blocking dispatch with a wait bound.
+    """
+
+    # Wait bounds past the command's own serial timeout: queue time behind
+    # the IO lane's other work, which is a liveness margin, not a budget.
+    _BOARD_QUEUE_MARGIN_S = 30.0
+    # A grab stop or start has been measured near 11 s on a Pylon body; a
+    # cycle is one of each, so this bounds one cycle with room to spare.
+    _GRAB_CYCLE_BOUND_S = 30.0
 
     def __init__(self, scope: Lumascope) -> None:
         self._scope = scope
 
     # --- Camera probes ---
-    def get_camera_temperatures_degc(self) -> dict:
+    @api
+    def get_camera_temperatures_degc(self) -> dict | None:
         """Get all camera temperature sensor readings.
 
-        Returns:
-            dict: Mapping of sensor name to temperature in degC.
-            Empty dict if camera is inactive or has no temperature sensors.
-        """
-        if not self._scope._camera_driver or not self._scope._camera_driver.active:
-            return {}
-        try:
-            return self._scope._camera_driver.get_all_temperatures()
-        except Exception as e:
-            logger.debug(f'[SCOPE API ] get_camera_temperatures_degc failed: {e}')
-            return {}
+        Runs on the camera lane, admitted whatever holds the scope: the read
+        sets the camera's temperature selector, which must not interleave
+        with another camera write, but a run does not stop it.
 
+        Returns:
+            dict | None: Mapping of sensor name to temperature in degC. Empty
+            only for a camera with no temperature sensor
+            (``capabilities.camera_reports_temperature`` False). None when no
+            camera is connected, after ``disconnect()`` too: a read with no
+            camera to describe.
+
+        Raises:
+            HardwareError: A camera is active and the read failed.
+        """
+        return self._read_camera_or_none(
+            self._get_camera_temperatures_degc_impl, 'get_camera_temperatures_degc'
+        )
+
+    def _get_camera_temperatures_degc_impl(self) -> dict | None:
+        driver = self._scope._camera_driver
+        if not driver or not driver.active:
+            return None
+        return driver.get_all_temperatures()
+
+    @api
+    def get_camera_link_info(self) -> dict | None:
+        """Read the camera's link, live.
+
+        Runs on the camera lane, admitted whatever holds the scope, like the
+        temperature read: the reads are node reads that must not interleave
+        with a camera write, and a run does not stop them.
+
+        Returns:
+            dict | None: ``{'transport', 'link_speed', 'link_speed_unit',
+                'packet_size_bytes', 'inter_packet_delay'}``, each None where
+                the camera does not report it. ``transport`` is 'USB3', 'GigE'
+                or 'USB2' (the SDK's own name when it is none of these).
+                ``link_speed`` is the negotiated speed in the unit the camera
+                declares, ``link_speed_unit`` (GenICam's DeviceLinkSpeed,
+                whose unit varies by Basler model; 'Mbps' from libusb on the
+                FX2); it is never converted, and a camera that declares no
+                unit reports the unit None. The packet size and inter-packet
+                delay are GigE's stream settings. None when no camera is
+                connected, after ``disconnect()`` too.
+
+        Raises:
+            HardwareError: A field the camera reports could not be read.
+        """
+        return self._read_camera_or_none(self._get_camera_link_info_impl, 'get_camera_link_info')
+
+    def _read_camera_or_none(self, impl, name: str) -> dict | None:
+        """Run a camera read on the camera lane; None with no camera connected.
+
+        Asked before dispatch, so after ``disconnect()`` -- when the lane
+        would refuse -- the read still answers that there is no camera to
+        read. A camera that leaves while the read is queued is answered the
+        same way at the lane.
+        """
+        imaging = self._scope.imaging
+        if not self._scope.camera_connected:
+            return None
+        return imaging._dispatch_camera(
+            impl,
+            name,
+            timeout_s=imaging._CAMERA_WRITE_TIMEOUT_S,
+            override=True,
+            satisfied_when_absent=None,
+        )
+
+    def _get_camera_link_info_impl(self) -> dict | None:
+        driver = self._scope._camera_driver
+        if not driver or not driver.active:
+            return None
+        return driver.get_link_info()
+
+    @api
     def get_camera_diagnostic_info(self) -> dict:
         """Read-only snapshot of camera state for diagnostics.
 
@@ -68,7 +230,7 @@ class DiagnosticsAPI:
             except Exception as e:
                 info[key] = f'Error: {e}'
 
-        _try('model', lambda: self._scope._camera_driver.get_model_name())
+        info['model'] = self._scope.capabilities.camera_model
         _try('pixel_format', lambda: self._scope._camera_driver.get_pixel_format())
 
         try:
@@ -90,15 +252,16 @@ class DiagnosticsAPI:
         # when unknown) -- a provenance label, not a control input.
         info['sdk_version'] = self._scope._camera_driver.get_sdk_info().get('version')
 
-        info['temperatures'] = self.get_camera_temperatures_degc()
+        _try('temperatures', self.get_camera_temperatures_degc)
         return info
 
+    @api
     def run_camera_bandwidth_test(
         self,
         num_frames: int,
         *,
         timeout_s: float = 60.0,
-        progress_cb=None,
+        progress_cb: ProgressCallback | None = None,
     ) -> dict:
         """Run an N-frame camera throughput test through the production capture path.
 
@@ -120,7 +283,12 @@ class DiagnosticsAPI:
                 num_frames_requested, num_frames_received, num_frames_none,
                 num_frames_error, total_bytes, elapsed_seconds,
                 mb_per_second, fps_actual, frame_sizes, errors, passed.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'``, ``timeout_s`` is not a finite
+                number. Nothing reached the camera.
         """
+        refuse_unless_finite_number(timeout_s, 'timeout_s')
         results = {
             'num_frames_requested': int(num_frames),
             'num_frames_received': 0,
@@ -207,7 +375,44 @@ class DiagnosticsAPI:
         )
         return results
 
+    @api
     def run_grab_lifecycle_benchmark(
+        self,
+        num_cycles: int = 100,
+        inter_cycle_delay_ms: float = 0.0,
+        vary_settings: bool = False,
+        *,
+        slow_threshold_s: float = 3.0,
+        progress_cb: ProgressCallback | None = None,
+    ) -> dict:
+        """Characterize stop_grabbing/start_grabbing latency, on the camera lane, and wait.
+
+        See ``_run_grab_lifecycle_benchmark_impl`` for the measurement and
+        the result; this adds the dispatch described on
+        ``ImagingAPI._dispatch_camera``, bounded per cycle. ``progress_cb``
+        is called on the camera lane's worker.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected.
+            ArgumentRefusedError: ``'not_a_number'``, a time is not a finite
+                number. Nothing reached the camera.
+        """
+        for name, value in (
+            ('inter_cycle_delay_ms', inter_cycle_delay_ms),
+            ('slow_threshold_s', slow_threshold_s),
+        ):
+            refuse_unless_finite_number(value, name)
+        bound_s = num_cycles * (self._GRAB_CYCLE_BOUND_S + max(0.0, inter_cycle_delay_ms) / 1000.0)
+        return self._scope.imaging._dispatch_camera(
+            self._run_grab_lifecycle_benchmark_impl,
+            'run_grab_lifecycle_benchmark',
+            args=(num_cycles, inter_cycle_delay_ms, vary_settings),
+            kwargs={'slow_threshold_s': slow_threshold_s, 'progress_cb': progress_cb},
+            timeout_s=max(bound_s, self._GRAB_CYCLE_BOUND_S),
+        )
+
+    def _run_grab_lifecycle_benchmark_impl(
         self,
         num_cycles: int = 100,
         inter_cycle_delay_ms: float = 0.0,
@@ -287,8 +492,11 @@ class DiagnosticsAPI:
 
         # Snapshot current settings so we can restore even when vary_settings
         # is on -- the benchmark must not leave the camera in an arbitrary state.
-        original_gain = getattr(self._scope._camera_driver, 'gain', None)
-        original_exposure = getattr(self._scope._camera_driver, 'exposure_time', None)
+        saved_camera_state = (
+            self._scope.imaging.save_camera_state('grab_lifecycle_benchmark')
+            if vary_settings
+            else None
+        )
 
         t_overall_start = time.monotonic()
         for i in range(int(num_cycles)):
@@ -350,10 +558,8 @@ class DiagnosticsAPI:
 
         # Restore caller's gain/exposure so vary_settings doesn't leak state.
         try:
-            if vary_settings and original_gain is not None:
-                self._scope.imaging.set_gain_db(float(original_gain))
-            if vary_settings and original_exposure is not None:
-                self._scope.imaging.set_exposure_ms(float(original_exposure))
+            if saved_camera_state is not None:
+                self._scope.imaging.restore_camera_state(saved_camera_state)
         except Exception as e:
             results['errors'].append(f'Restore settings failed: {type(e).__name__}: {e}')
 
@@ -377,6 +583,10 @@ class DiagnosticsAPI:
         # point. The log folder is the support-bundle root, so a benchmark run
         # travels with the logs; writing under the source tree instead both
         # polluted the checkout and left the data point out of the bundle.
+        # Two runs with the same model, SDK and delay inside one second used
+        # to share a name and the later one overwrote the earlier: the stamp
+        # carries microseconds, and the file is created exclusively so a name
+        # that is somehow taken is an error here, never an overwrite.
         try:
             import json
 
@@ -384,14 +594,14 @@ class DiagnosticsAPI:
             sdk = results['pylon_version'] or 'unknown_sdk'
             safe_model = str(model).replace(' ', '_').replace('/', '_')
             safe_sdk = str(sdk).replace(' ', '_').replace('/', '_')
-            ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S_%f')
             timing_dir = pathlib.Path(log_dir) / 'camera_timing'
             timing_dir.mkdir(parents=True, exist_ok=True)
             out_path = timing_dir / (
                 f'grab_lifecycle_benchmark_{safe_model}_sdk{safe_sdk}_'
                 f'delay{int(inter_cycle_delay_ms)}ms_{ts}.json'
             )
-            with open(out_path, 'w') as f:
+            with open(out_path, 'x') as f:
                 json.dump(results, f, indent=2)
             results['written_to'] = str(out_path)
         except Exception as e:
@@ -406,7 +616,41 @@ class DiagnosticsAPI:
         )
         return results
 
+    @api
     def run_pylon_diagnostic_probe(
+        self,
+        duration_s: float = 3.0,
+        *,
+        drain_camera_side_errors: bool = True,
+        progress_cb: ProgressCallback | None = None,
+    ) -> dict:
+        """One-shot Pylon-camera diagnostic probe, on the camera lane, and wait.
+
+        See ``_run_pylon_diagnostic_probe_impl`` for the probe and its JSON;
+        this adds the dispatch described on ``ImagingAPI._dispatch_camera``.
+        The probe pops the camera's error queue, so it is a write to the
+        camera and refused while another activity holds the scope.
+        ``progress_cb`` is called on the camera lane's worker.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected.
+            ArgumentRefusedError: ``'not_a_number'``, ``duration_s`` is not a finite
+                number. Nothing reached the camera.
+        """
+        refuse_unless_finite_number(duration_s, 'duration_s')
+        return self._scope.imaging._dispatch_camera(
+            self._run_pylon_diagnostic_probe_impl,
+            'run_pylon_diagnostic_probe',
+            args=(duration_s,),
+            kwargs={
+                'drain_camera_side_errors': drain_camera_side_errors,
+                'progress_cb': progress_cb,
+            },
+            timeout_s=duration_s + self._GRAB_CYCLE_BOUND_S,
+        )
+
+    def _run_pylon_diagnostic_probe_impl(
         self,
         duration_s: float = 3.0,
         *,
@@ -541,11 +785,14 @@ class DiagnosticsAPI:
             serial_t = _safe_token(snapshot.get('camera', {}).get('serial'), 'unknown_serial')
             fw_t = _safe_token(snapshot.get('firmware_version'), 'unknown_fw')
             host_t = _safe_token(snapshot['host']['hostname'], 'unknown_host').replace('.', '_')
-            ts_t = now_utc.strftime('%Y%m%dT%H%M%SZ')
+            # Microseconds, and an exclusive create: two probes of one camera
+            # inside one second would otherwise share a name, and the later
+            # would overwrite the earlier.
+            ts_t = now_utc.strftime('%Y%m%dT%H%M%S%fZ')
 
             fname = f'{model_t}__sn{serial_t}__fw{fw_t}__{host_t}__{dltl_token}__{ts_t}.json'
             out_path = out_dir / fname
-            with open(out_path, 'w') as f:
+            with open(out_path, 'x') as f:
                 json.dump(snapshot, f, indent=2, default=str)
             snapshot['output_path'] = str(out_path)
         except Exception as e:
@@ -587,34 +834,55 @@ class DiagnosticsAPI:
             str: Response from the board, ``'Board not connected'`` if the
                 target board is None/inactive, or ``'Error: <msg>'`` if the
                 exchange raised.
+
+        Raises:
+            ValueError: A motor command that moves, stops or repositions a
+                motor; the motion API carries those.
+            HardwareCommandRefusedError: a run, a diagnostic or a home holds the
+                scope and this call is not made under its taking; the
+                command is not sent. An exchange that fails once sent is
+                still answered with ``'Error: <msg>'``.
         """
+        if isinstance(target, str) and target.lower() in ('motor', 'motion'):
+            _refuse_motor_verb(command)
         try:
             board = self._diagnostic_target_board(target)
         except ValueError as e:
             logger.warning(f'[SCOPE API ] send_diagnostic_command: {e}')
-            return f'Error: {e}'
+            return f'{ERROR_PREFIX}{e}'
 
         if board is None or not getattr(board, 'found', False):
-            return 'Board not connected'
+            return NOT_CONNECTED
 
         logger.debug(
             f'[SCOPE API ] send_diagnostic_command(target={target}, command={command!r}, '
             f'response_numlines={response_numlines}, timeout_s={timeout_s})'
         )
+        kwargs = {}
+        if response_numlines is not None:
+            kwargs['response_numlines'] = response_numlines
+        if timeout_s is not None:
+            # driver exchange_command keeps bare `timeout` (pyserial-shaped)
+            kwargs['timeout'] = timeout_s
+        return self._scope.motion._dispatch_motion(
+            self._exchange_command_impl,
+            'send_diagnostic_command',
+            args=(board, target, command),
+            kwargs=kwargs,
+            timeout_s=(timeout_s or 0.0) + self._BOARD_QUEUE_MARGIN_S,
+            slow_task_threshold_sec=timeout_s,
+        )
+
+    @staticmethod
+    def _exchange_command_impl(board, target: str, command: str, **kwargs) -> str:
         try:
-            kwargs = {}
-            if response_numlines is not None:
-                kwargs['response_numlines'] = response_numlines
-            if timeout_s is not None:
-                # driver exchange_command keeps bare `timeout` (pyserial-shaped)
-                kwargs['timeout'] = timeout_s
             resp = board.exchange_command(command, **kwargs)
-            return resp if resp is not None else 'None'
+            return resp if resp is not None else NO_REPLY
         except Exception as e:
             logger.warning(
                 f'[SCOPE API ] send_diagnostic_command({target}, {command!r}) failed: {e}'
             )
-            return f'Error: {e}'
+            return f'{ERROR_PREFIX}{e}'
 
     def send_diagnostic_command_multiline(
         self,
@@ -639,15 +907,25 @@ class DiagnosticsAPI:
         Returns:
             Response (driver-defined; typically str or list[str]),
             ``'Board not connected'``, or ``'Error: <msg>'``.
+
+        Raises:
+            ValueError: A motor command that moves, stops or repositions a
+                motor; the motion API carries those.
+            HardwareCommandRefusedError: a run, a diagnostic or a home holds the
+                scope and this call is not made under its taking; the
+                command is not sent. An exchange that fails once sent is
+                still answered with ``'Error: <msg>'``.
         """
+        if isinstance(target, str) and target.lower() in ('motor', 'motion'):
+            _refuse_motor_verb(command)
         try:
             board = self._diagnostic_target_board(target)
         except ValueError as e:
             logger.warning(f'[SCOPE API ] send_diagnostic_command_multiline: {e}')
-            return f'Error: {e}'
+            return f'{ERROR_PREFIX}{e}'
 
         if board is None or not getattr(board, 'found', False):
-            return 'Board not connected'
+            return NOT_CONNECTED
 
         if end_markers is None:
             end_markers = ['PASS', 'FAIL', 'COMPLETE', 'DONE', 'ERROR']
@@ -656,35 +934,54 @@ class DiagnosticsAPI:
             f'[SCOPE API ] send_diagnostic_command_multiline(target={target}, '
             f'command={command!r}, timeout_s={timeout_s}, end_markers={end_markers})'
         )
+        return self._scope.motion._dispatch_motion(
+            self._exchange_multiline_impl,
+            'send_diagnostic_command_multiline',
+            args=(board, target, command, timeout_s, end_markers),
+            timeout_s=timeout_s + self._BOARD_QUEUE_MARGIN_S,
+            slow_task_threshold_sec=timeout_s,
+        )
+
+    @staticmethod
+    def _exchange_multiline_impl(board, target, command, timeout_s, end_markers):
         try:
             # driver exchange_multiline keeps bare `timeout` (pyserial-shaped)
             result = board.exchange_multiline(command, timeout=timeout_s, end_markers=end_markers)
-            return result if result else 'No response'
+            return result if result else NO_RESPONSE
         except Exception as e:
             logger.warning(
                 f'[SCOPE API ] send_diagnostic_command_multiline({target}, {command!r}) failed: {e}'
             )
-            return f'Error: {e}'
+            return f'{ERROR_PREFIX}{e}'
 
     # --- Motor driver / fan diagnostics ---
-    # Each returns parsed values or None when the firmware does not
+    # Each read returns parsed values or None when the firmware does not
     # support the command (legacy 2024-09-10 firmware did not include
     # DRVSTAT_<axis> / FANSPEED / FAN). Per Eric: the driver
     # owns firmware-version gating; callers (TSR, future REST
     # diagnostic endpoint) read None as "INCONCLUSIVE -- firmware
-    # does not support this probe."
+    # does not support this probe." The fan setter differs on purpose: a
+    # write that did not happen raises, so a caller cannot read a status
+    # for one that did.
 
+    @api
     def read_motor_drv_status(self, axis: str) -> int | None:
         """Read TMC5072 DRV_STATUS register for an axis.
 
         Returns the raw register value as int (caller decodes bits),
         or None when the firmware does not implement DRVSTAT_<axis>.
+
+        Raises:
+            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
+                name; nothing was read.
         """
+        refuse_unknown_axis(axis)
         drv = getattr(self._scope, '_motion_driver', None)
         if drv is None or not hasattr(drv, 'read_drv_status'):
             return None
         return drv.read_drv_status(axis)
 
+    @api
     def read_motor_fan_rpm(self) -> int | None:
         """Read motor-board fan tachometer RPM.
 
@@ -696,16 +993,38 @@ class DiagnosticsAPI:
             return None
         return drv.read_fanspeed()
 
-    def set_motor_fan_duty(self, duty_pct: int) -> bool:
-        """Set motor-board fan PWM duty cycle (0..100).
+    @api
+    def set_motor_fan_duty(self, duty_pct: int) -> None:
+        """Set motor-board fan PWM duty cycle (0..100), and wait for it.
 
-        Returns True if firmware accepted the command, False if firmware
-        does not implement FAN:<duty> or no motor driver is present.
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'`` (the motor
+                controller) or ``'axis_absent'``: ``MissingPart.MOTORS`` on a
+                manual scope, ``MissingPart.FAN_CONTROL`` for a controller
+                without fan control. Nothing was sent.
+            ArgumentRefusedError: ``'fan_duty_out_of_range'``, ``duty_pct``
+                is outside 0..100. Asked after the hardware, before anything
+                is sent.
+            HardwareError: The board answered the write with an error, or
+                did not answer.
         """
-        drv = getattr(self._scope, '_motion_driver', None)
-        if drv is None or not hasattr(drv, 'set_fan_duty'):
-            return False
-        return drv.set_fan_duty(duty_pct)
+        self._scope.motion._refuse_absent('set_motor_fan_duty')
+        if not 0 <= duty_pct <= 100:
+            raise ArgumentRefusedError('fan_duty_out_of_range', argument='duty_pct', value=duty_pct)
+        self._scope.motion._dispatch_motion(
+            self._set_motor_fan_duty_impl,
+            'set_motor_fan_duty',
+            args=(self._scope._motion_driver, duty_pct),
+            timeout_s=self._BOARD_QUEUE_MARGIN_S,
+        )
+
+    @staticmethod
+    def _set_motor_fan_duty_impl(drv, duty_pct: int) -> None:
+        # Asked on the lane: the support probe is a board exchange.
+        if not drv.supports_fan():
+            part = MissingPart.FAN_CONTROL
+            raise HardwareCommandRefusedError(part.reason, 'set_motor_fan_duty', missing=part)
+        drv.set_fan_duty(duty_pct)
 
     # --- LED engineering mode (LEDREADS / SELFTEST handshake) ---
     # Open-coded FACTORY / Y / Q sequences in callers were leaving the
@@ -716,56 +1035,78 @@ class DiagnosticsAPI:
     # entries keep the careful handshake as the single canonical
     # implementation.
 
-    def enter_led_engineering_mode(self, timeout_s: float = 5.0) -> bool:
-        """Enter LED engineering mode via the driver-canonical handshake.
+    def _refuse_no_led_engineering_mode(self, member: str) -> None:
+        """Refuse when no LED controller is connected, or it has no engineering mode.
 
-        Returns True on success, False when the LED driver is absent or
-        does not expose engineering-mode entry (legacy LED firmware
-        predating the FACTORY/Y/Q protocol).
+        No LED capability names the handshake, so the driver's having the
+        method is the dispatch: the Classic FX2 LED controller has none.
+        """
+        self._scope.illumination.refuse_controller_not_connected(member)
+        if not hasattr(self._scope._led_driver, 'enter_engineering_mode'):
+            part = MissingPart.LED_ENGINEERING_MODE
+            raise HardwareCommandRefusedError(part.reason, member, missing=part)
+
+    @api
+    def enter_led_engineering_mode(self, timeout_s: float = 5.0) -> None:
+        """Enter LED engineering mode via the driver-canonical handshake, and wait for it.
 
         Args:
             timeout_s: Max seconds to wait for the engineering-mode
                 handshake to complete.
-        """
-        drv = getattr(self._scope, '_led_driver', None)
-        if drv is None or not hasattr(drv, 'enter_engineering_mode'):
-            return False
-        try:
-            return drv.enter_engineering_mode(timeout=timeout_s)
-        except Exception:
-            return False
 
-    def exit_led_engineering_mode(self) -> bool:
-        """Exit LED engineering mode via the driver-canonical handshake.
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'`` (the LED
+                controller) or ``'axis_absent'``
+                (``MissingPart.LED_ENGINEERING_MODE``, a controller without
+                the handshake). Nothing was sent.
+            HardwareError: The board did not complete the handshake; the
+                driver has already tried to bring it back to safe mode.
+            ArgumentRefusedError: ``'not_a_number'``, ``timeout_s`` is not a
+                finite number. Nothing was sent.
+        """
+        self._refuse_no_led_engineering_mode('enter_led_engineering_mode')
+        refuse_unless_finite_number(timeout_s, 'timeout_s')
+        self._scope.motion._dispatch_motion(
+            self._enter_led_engineering_mode_impl,
+            'enter_led_engineering_mode',
+            args=(self._scope._led_driver, timeout_s),
+            timeout_s=timeout_s + self._BOARD_QUEUE_MARGIN_S,
+        )
+
+    @staticmethod
+    def _enter_led_engineering_mode_impl(drv, timeout_s: float) -> None:
+        drv.enter_engineering_mode(timeout=timeout_s)
+
+    @api
+    def exit_led_engineering_mode(self) -> None:
+        """Exit LED engineering mode via the driver-canonical handshake, and wait for it.
 
         Driver method drains and sleeps after Q so the LED firmware
         actually transitions out of eng mode.
 
-        Returns True on success, False when the LED driver is absent
-        or does not expose engineering-mode exit (symmetric with
-        ``enter_led_engineering_mode``).
+        Raises:
+            HardwareCommandRefusedError: as ``enter_led_engineering_mode``.
+            HardwareError: Q failed and the board's soft reset did not
+                bring its firmware back; it needs a power cycle.
         """
-        drv = getattr(self._scope, '_led_driver', None)
-        if drv is None or not hasattr(drv, 'exit_engineering_mode'):
-            return False
-        try:
-            return bool(drv.exit_engineering_mode())
-        except Exception:
-            return False
+        self._refuse_no_led_engineering_mode('exit_led_engineering_mode')
+        self._scope.motion._dispatch_motion(
+            self._exit_led_engineering_mode_impl,
+            'exit_led_engineering_mode',
+            args=(self._scope._led_driver,),
+            timeout_s=self._BOARD_QUEUE_MARGIN_S,
+        )
+
+    @staticmethod
+    def _exit_led_engineering_mode_impl(drv) -> None:
+        drv.exit_engineering_mode()
 
     # --- Facade getters relocated from Lumascope ---
     # Six thin getters that report hardware identity / connection state.
     # Bodies live here; Lumascope keeps thin wrappers calling down until
     # they retire.
 
-    def get_microscope_model(self) -> str | None:
-        """Get the microscope model identifier from the motion board.
-
-        Returns:
-            str | None: Model string, or None if motion board inactive.
-        """
-        return self._scope._motion_driver.get_microscope_model()
-
+    @api
     def get_motor_info(self) -> dict:
         """Get motor controller information.
 
@@ -776,83 +1117,135 @@ class DiagnosticsAPI:
         would add a serial round-trip to every capture.
 
         Returns:
-            dict: Keys 'model', 'serial_number', 'firmware_version'.
-                  model/serial are the real strings on a connected board,
-                  'unknown' when a connected board's FULLINFO failed to
-                  parse (the cached fallback), and None when no board is
-                  present (the null driver).
+            dict: Keys 'model', 'serial_number', 'firmware_version',
+                  'firmware_date' and 'command_set' (``MOTOR_COMMANDS_TEXT``,
+                  or None: no text command channel, or no board connected).
+                  model/serial are the real strings on a
+                  connected board, 'unknown' when a connected board's
+                  FULLINFO failed to parse (the cached fallback), and None
+                  when no board is present (the null driver).
+                  firmware_version is the parsed version, ``'original'``
+                  (ORIGINAL_FIRMWARE) for a board that answered INFO with
+                  no version string, or None when it did not answer;
+                  firmware_date is the date INFO carried, or None.
         """
         driver = self._scope._motion_driver
+        speaks_text = self._scope.motor_connected and hasattr(driver, 'exchange_multiline')
         return {
             'model': driver.get_microscope_model(),
             'serial_number': driver.get_serial_number(),
-            'firmware_version': getattr(driver, 'firmware_version', None),
+            **_firmware_identity(driver),
+            'command_set': MOTOR_COMMANDS_TEXT if speaks_text else None,
         }
 
+    @api
     def get_led_info(self) -> dict:
         """Get LED controller information.
 
         Returns:
-            dict: Keys 'firmware_version', 'connected'.
+            dict: Keys 'firmware_version' and 'firmware_date' (as
+                ``get_motor_info`` names them), 'connected' and
+                'command_set':
+                ``LED_COMMANDS_V2`` (INFO, SELFTEST, I2CSCAN, LEDREAD),
+                ``LED_COMMANDS_LEGACY`` (INFO only: firmware older than v2),
+                or None (no text command channel, as on an FX2 scope, or no
+                board connected).
         """
-        if not self._scope._led_driver or not self._scope._led_driver.is_connected():
-            return {'firmware_version': None, 'connected': False}
+        drv = self._scope._led_driver
+        if not drv or not drv.is_connected():
+            return {
+                'firmware_version': None,
+                'firmware_date': None,
+                'connected': False,
+                'command_set': None,
+            }
 
+        if not hasattr(drv, 'exchange_multiline'):
+            command_set = None
+        elif drv.is_v2:
+            command_set = LED_COMMANDS_V2
+        else:
+            command_set = LED_COMMANDS_LEGACY
         return {
-            'firmware_version': getattr(self._scope._led_driver, 'firmware_version', None),
+            **_firmware_identity(drv),
             'connected': True,
+            'command_set': command_set,
         }
 
-    def get_camera_info(self) -> dict:
-        """Get camera information.
+    @api
+    def read_led_currents_ma(self) -> dict[int, float | None]:
+        """Read the measured current of every LED channel, in mA.
+
+        One pass over the board's channels on the IO lane. The v2 firmware
+        answers these reads only in engineering mode; the caller enters it.
 
         Returns:
-            dict: Keys 'model', 'pixel_format', 'connected'.
+            dict: Channel -> mA, or None for a channel whose current could
+                not be read (no reply, an unparseable one, or a board with
+                no current sensing). Empty when no LED board is connected.
         """
-        if not self._scope._camera_driver or not self._scope._camera_driver.active:
-            return {'model': None, 'pixel_format': None, 'connected': False}
+        drv = self._scope._led_driver
+        if not self._scope.led_connected:
+            return {}
+        return self._scope.motion._dispatch_motion(
+            self._read_led_currents_impl,
+            'read_led_currents_ma',
+            args=(drv,),
+            timeout_s=self._BOARD_QUEUE_MARGIN_S,
+        )
 
-        return {
-            'model': self._scope._camera_driver.get_model_name(),
-            'pixel_format': self._scope._camera_driver.get_pixel_format(),
-            'connected': True,
-        }
+    @staticmethod
+    def _read_led_currents_impl(drv) -> dict[int, float | None]:
+        return {ch: drv.read_led_current(ch) for ch in drv.available_channels()}
 
+    @api
     def get_camera_profile_info(self) -> dict | None:
         """Get detailed camera profile information for display.
 
+        The camera's model, largest frame and binning sizes are on
+        ``scope.capabilities``; this reports the profile's sensor facts.
+
         Returns:
-            dict with model, sensor, pixel_size_um, shutter, resolution,
-            gain_range, max_exposure, binning_sizes. None if no camera.
+            dict with sensor, pixel_size_um, shutter, the gain range and the
+            exposure bounds. None if no camera.
+
+        Raises:
+            Whatever the driver raises reading a connected camera, so a
+            failed read is never mistaken for an absent camera.
         """
         if not self._scope._camera_driver or not self._scope._camera_driver.active:
             return None
-        try:
-            driver = self._scope._camera_driver
-            profile = driver.profile
-            # Exposure floor: the driver's LIVE minimum. The ExposureTime node
-            # minimum drifts above the connect-time value once other settings
-            # change, so the cached profile floor goes stale; get_min_exposure
-            # reads the live node (and itself falls back to the cached floor).
-            exposure_min_ms = driver.get_min_exposure()
-            exposure_min_us = exposure_min_ms * 1000.0 if exposure_min_ms is not None else None
-            return {
-                'model': profile.model_name,
-                'sensor': profile.sensor,
-                'pixel_size_um': profile.pixel_size_um,
-                'shutter': profile.shutter,
-                'resolution': profile.native_resolution,
-                'gain_min_db': profile.gain.total_min_db,
-                'gain_max_db': profile.gain.total_max_db,
-                'exposure_min_us': exposure_min_us,
-                'exposure_min_ms': exposure_min_ms,
-                'max_exposure_ms': self._scope.imaging.max_exposure_ms_cached,
-                'binning_sizes': profile.binning_sizes,
-            }
-        except Exception as e:
-            logger.debug(f'[SCOPE API ] get_camera_profile_info failed: {e}')
-            return None
+        driver = self._scope._camera_driver
+        profile = driver.profile
+        # Exposure floor: the driver's LIVE minimum. The ExposureTime node
+        # minimum drifts above the connect-time value once other settings
+        # change, so the cached profile floor goes stale; get_min_exposure
+        # reads the live node (and itself falls back to the cached floor).
+        exposure_min_ms = driver.get_min_exposure()
+        exposure_min_us = exposure_min_ms * 1000.0 if exposure_min_ms is not None else None
+        return {
+            'sensor': profile.sensor,
+            'pixel_size_um': profile.pixel_size_um,
+            'shutter': profile.shutter,
+            'gain_min_db': profile.gain.total_min_db,
+            'gain_max_db': profile.gain.total_max_db,
+            'exposure_min_us': exposure_min_us,
+            'exposure_min_ms': exposure_min_ms,
+            'max_exposure_ms': self._scope.imaging.max_exposure_ms_cached,
+        }
 
+    def _camera_summary(self) -> dict:
+        """The camera's model (``capabilities.camera_model``), its pixel
+        format now, and whether it is connected."""
+        driver = self._scope._camera_driver
+        connected = bool(driver and driver.active)
+        return {
+            'model': self._scope.capabilities.camera_model if connected else None,
+            'pixel_format': driver.get_pixel_format() if connected else None,
+            'connected': connected,
+        }
+
+    @api
     def get_system_info(self) -> dict:
         """Get consolidated system information for all hardware.
 
@@ -862,7 +1255,7 @@ class DiagnosticsAPI:
         return {
             'motor': self.get_motor_info(),
             'led': self.get_led_info(),
-            'camera': self.get_camera_info(),
+            'camera': self._camera_summary(),
             'simulated': self._scope._simulated,
             'lvp_version': version,
         }

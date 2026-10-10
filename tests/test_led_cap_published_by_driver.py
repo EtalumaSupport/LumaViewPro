@@ -25,10 +25,12 @@ from drivers.null_ledboard import NullLEDBoard
 from drivers.registry import led_registry
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from modules import config_helpers
+from modules.exceptions import ArgumentRefusedError
+from modules.layer_record import UNRESOLVED
+from modules.objectives_loader import ObjectiveLoader
 from modules.protocol import Protocol
 from modules.scope_capabilities import ScopeCapabilities
 from tests.ast_seams import find_def, parse_module
-
 
 # ---------------------------------------------------------------------------
 # Every registered LED driver publishes a cap (the build-failing guard)
@@ -60,13 +62,16 @@ def _caps_with(led) -> ScopeCapabilities:
     motion = MagicMock()
     motion.detect_present_axes.return_value = ()
     motion.get_microscope_model.return_value = ''
-    return ScopeCapabilities.from_drivers(motion=motion, led=led, camera=None)
+    return ScopeCapabilities.from_drivers(
+        motion=motion, led=led, camera=None, layer_identity=UNRESOLVED, scope_models={}
+    )
 
 
 def test_capabilities_reports_the_connected_drivers_cap():
     assert _caps_with(object.__new__(fx2driver.FX2LEDController)).led_max_ma == 840
     assert _caps_with(object.__new__(LEDBoard)).led_max_ma == 1000
-    assert _caps_with(NullLEDBoard()).led_max_ma == 0
+    # No board came up: there is no cap, not a cap of 0 mA.
+    assert _caps_with(NullLEDBoard()).led_max_ma is None
 
 
 def test_a_driver_that_does_not_answer_leaves_no_legal_current():
@@ -91,23 +96,22 @@ def test_the_module_constant_is_gone():
 
 def test_the_api_guard_refuses_one_over_the_boards_cap(sim_scope):
     sim_scope.capabilities = replace(sim_scope.capabilities, led_max_ma=840)
-    with pytest.raises(ValueError, match='0-840 mA'):
+    with pytest.raises(ArgumentRefusedError) as refused:
         sim_scope.illumination.led_on('Blue', 841)
+    assert (refused.value.reason, refused.value.limits) == ('illumination_out_of_range', (0, 840))
     sim_scope.illumination.led_on('Blue', 840)
     sim_scope.illumination.led_off('Blue')
 
 
 # ---------------------------------------------------------------------------
-# The Protocol carries the cap it was built under
+# The protocol validator judges by the cap its caller gives it
 # ---------------------------------------------------------------------------
 
 
-def _protocol_with(led_max_ma, illumination) -> Protocol:
+def _protocol_with(illumination) -> Protocol:
     import pandas as pd
 
     p = Protocol.__new__(Protocol)
-    if led_max_ma is not None:
-        p._led_max_ma = led_max_ma
     p._config = {
         'steps': pd.DataFrame(
             [
@@ -138,31 +142,37 @@ def _protocol_with(led_max_ma, illumination) -> Protocol:
         'labware_id': '96 well microplate',
     }
     p._num_steps_cache = None
-    p._objective_loader = SimpleNamespace(get_objective_info=lambda **kw: {})
     return p
 
 
-def test_a_protocol_built_under_a_cap_refuses_a_step_above_it():
-    errors = _protocol_with(840, 900).validate_steps()
+_CATALOGUE = ObjectiveLoader()
+
+
+def test_a_step_above_the_cap_given_is_refused():
+    errors = _protocol_with(900).validate_steps(_CATALOGUE, led_max_ma=840)
     assert any('Illumination must be 0-840 mA' in e for e in errors), errors
 
 
-def test_a_protocol_built_under_a_cap_accepts_a_step_at_it():
-    errors = _protocol_with(840, 840).validate_steps()
+def test_a_step_at_the_cap_given_is_accepted():
+    errors = _protocol_with(840).validate_steps(_CATALOGUE, led_max_ma=840)
     assert not any('Illumination' in e for e in errors), errors
 
 
-def test_a_protocol_with_no_authority_checks_format_only():
-    errors = _protocol_with(None, 5000).validate_steps()
-    assert not any('Illumination' in e for e in errors), errors
-    errors = _protocol_with(None, -1).validate_steps()
+def test_a_negative_current_is_refused_under_any_cap():
+    errors = _protocol_with(-1).validate_steps(_CATALOGUE, led_max_ma=840)
     assert any('Illumination must be 0 or more' in e for e in errors), errors
 
 
-def test_the_loaders_pass_the_cap_through():
-    src = inspect.getsource(Protocol.from_config)
-    assert 'led_max_ma=capabilities.led_max_ma' in src
-    assert 'led_max_ma' in inspect.signature(Protocol.from_file).parameters
+def test_the_protocol_carries_no_cap_of_its_own():
+    # A cap carried on the protocol was dropped by every copy made for a
+    # run, and the gate admitted a step the LED then refused: the cap is
+    # the scope's, and each validator asks its caller for it.
+    assert not hasattr(Protocol, '_led_max_ma')
+    assert 'led_max_ma' not in inspect.signature(Protocol).parameters
+    assert 'led_max_ma' not in inspect.signature(Protocol.from_file).parameters
+    for validator in (Protocol.validate_steps, Protocol.validate_for_run):
+        param = inspect.signature(validator).parameters['led_max_ma']
+        assert param.default is inspect.Parameter.empty, validator.__name__
 
 
 # ---------------------------------------------------------------------------
@@ -179,14 +189,6 @@ def test_slider_bound_is_the_cap_narrowed_by_transmitted_policy():
     assert config_helpers.layer_max_illumination_ma_for_ui(_fake_caps(840), 'PC') == 50
     assert config_helpers.layer_max_illumination_ma_for_ui(_fake_caps(840), 'Blue') == 840
     assert config_helpers.layer_max_illumination_ma_for_ui(_fake_caps(1000), 'Red') == 1000
-
-
-def test_text_bound_lets_bf_alone_exceed_its_slider():
-    assert config_helpers.layer_illumination_text_max_for_ui(_fake_caps(840), 'BF') == 500
-    assert config_helpers.layer_illumination_text_max_for_ui(_fake_caps(840), 'PC') == 50
-    assert config_helpers.layer_illumination_text_max_for_ui(_fake_caps(840), 'Blue') == 840
-    # Never above what the board can be asked for.
-    assert config_helpers.layer_illumination_text_max_for_ui(_fake_caps(200), 'BF') == 200
 
 
 def _calls_in(fn_node) -> set[str]:
@@ -234,10 +236,14 @@ def test_nothing_else_in_the_panel_writes_the_slider_bound():
     assert writers == ['set_layer_illumination_ranges'], writers
 
 
-def test_the_bf_text_bound_comes_from_the_getter_not_a_ui_constant():
+def test_the_text_box_carries_no_bound_of_its_own():
+    # The board's maximum is the writer's refusal (ScopeSession.update_settings
+    # hands check_write capabilities.led_max_ma); the box neither clips to a
+    # UI constant nor resolves a ceiling of its own.
     tree = parse_module('ui/layer_control.py')
     names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
     assert 'BF_MAX_ILLUMINATION' not in names
+    assert 'get_layer_illumination_text_max' not in names
     ill_text = find_def('ui/layer_control.py', 'ill_text', 'LayerControl')
     assert ill_text is not None
-    assert 'get_layer_illumination_text_max' in _calls_in(ill_text)
+    assert 'get_layer_illumination_text_max' not in _calls_in(ill_text)

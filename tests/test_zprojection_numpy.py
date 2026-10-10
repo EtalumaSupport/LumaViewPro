@@ -64,10 +64,11 @@ def test_median_even_n_rounds():
 
 
 def test_sum_in_range():
+    # A Sum of uint8 frames is uint16: its counts pass 255.
     frames = _stack([[[10, 20], [30, 40]], [[10, 20], [30, 40]]], np.uint8)
     result = zproject(frames, ZProjectMethod.Sum)
-    np.testing.assert_array_equal(result, np.array([[20, 40], [60, 80]], dtype=np.uint8))
-    assert result.dtype == np.uint8
+    np.testing.assert_array_equal(result, np.array([[20, 40], [60, 80]], dtype=np.uint16))
+    assert result.dtype == np.uint16
 
 
 def test_sum_saturates_on_overflow():
@@ -91,7 +92,8 @@ def test_stddev_known_value():
 def test_output_dtype_matches_input(dtype, method):
     frames = _stack([[[10, 20], [30, 40]], [[15, 25], [35, 45]]], dtype)
     result = zproject(frames, method)
-    assert result.dtype == dtype
+    expected = np.uint16 if method == ZProjectMethod.Sum else dtype
+    assert result.dtype == expected
 
 
 def test_empty_input_returns_none():

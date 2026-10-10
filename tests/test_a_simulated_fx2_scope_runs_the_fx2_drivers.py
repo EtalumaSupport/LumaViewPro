@@ -1,0 +1,292 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+"""A simulated LS620 or LS560 runs the production FX2 drivers over a simulated FX2.
+
+Before, the simulator stood an EL-0940-shaped Python LED board and a generic
+simulated camera in for every FX2 model: 1920x1200 with auto gain, so a
+simulated LS560 showed an Auto Gain checkbox the real one does not have, and
+no FX2 code path ran without hardware. Now both tiers build ``FX2Camera`` and
+``FX2LEDController`` on one simulated device, which takes the firmware upload,
+answers the sensor and LED writes as the wire carries them, and streams
+frames at the bench's period that are black unless its LED peripheral holds a
+channel lit.
+"""
+
+from __future__ import annotations
+
+import time
+
+import numpy as np
+import pytest
+
+from drivers import fx2driver
+from drivers.fx2driver import FX2Camera, FX2LEDController
+from drivers.simulated_fx2 import (
+    TRANSFER_S,
+    SimulatedFX2Device,
+    bytes_per_transfer,
+)
+from modules.scope_session import ScopeSession
+from tests.settings_fixtures import complete_settings
+
+SCOPES = [
+    pytest.param((model, tier), id=f'{model}-{tier}')
+    for model in ('LS620', 'LS560')
+    for tier in ('fast', 'firmware')
+]
+
+
+@pytest.fixture(scope='module', params=SCOPES)
+def session(request):
+    model, tier = request.param
+    settings = complete_settings()
+    settings['microscope'] = model
+    settings['simulator_tier'] = tier
+    session = ScopeSession.create(settings, simulate=True)
+    yield session
+    session.shutdown()
+
+
+def _device(session) -> SimulatedFX2Device:
+    return session.scope._led_driver._fx2._transport.device
+
+
+def _fresh_frame(scope) -> np.ndarray:
+    # A lit or darkened LED shows from the next frame the sensor starts, so
+    # the frame in flight at the change is passed over.
+    scope.imaging.get_image(force_new_capture=True)
+    return scope.imaging.get_image(force_new_capture=True)
+
+
+def test_the_scope_runs_the_fx2_drivers_on_the_device_it_uploaded(session):
+    scope = session.scope
+    assert isinstance(scope._camera_driver, FX2Camera)
+    assert isinstance(scope._led_driver, FX2LEDController)
+    assert scope._camera_driver._fx2 is scope._led_driver._fx2
+    device = _device(session)
+    assert device.uploads == 1
+    assert device.pid == fx2driver.PID_APP
+
+
+def test_the_camera_is_the_fx2s_mt9p031(session):
+    caps = session.scope.capabilities
+    camera = session.scope._camera_driver
+    assert caps.camera_model == 'MT9P031-LS620'
+    assert camera.get_max_frame_size() == {'width': 1900, 'height': 1900}
+    assert camera.get_supported_pixel_formats() == ('Mono8',)
+    assert camera.max_gain == pytest.approx(42.1442, abs=1e-4)  # 128x, DS Table 15
+    assert camera.max_exposure == 1000.0
+    assert caps.camera_supports_auto_gain is False
+
+
+def test_a_frame_is_black_with_nothing_lit_and_shows_the_field_with_bf_lit(session):
+    scope = session.scope
+    scope.illumination.leds_off()
+    dark = _fresh_frame(scope)
+    # The saved 1900 x 1900 frame, refitted to 1700 on the LS560 (its lens).
+    side = {'LS620': 1900, 'LS560': 1700}[scope.capabilities.model]
+    assert dark is not None and dark.shape == (side, side)
+    assert dark.max() == 0
+
+    # At the driver's own default exposure: bring-up puts BF's stored
+    # exposure on the camera, and how bright the field reads is not what
+    # this asks.
+    scope.imaging.set_exposure_ms(FX2Camera.DEFAULT_EXPOSURE_MS)
+    scope.illumination.led_on('BF', 100)
+    try:
+        lit = _fresh_frame(scope)
+    finally:
+        scope.illumination.leds_off()
+    assert lit.mean() > 20
+
+
+def test_a_delivered_frame_carries_the_specimen_the_way_up_it_was_rendered(session, monkeypatch):
+    # Through the production driver and parser: each specimen row carries its
+    # index, so the delivered frame's rows count up as the specimen's do. A
+    # frame the sensor read upside down counts down.
+    scope = session.scope
+    device = _device(session)
+
+    def numbered_rows(w, h):
+        return np.repeat((np.arange(h) % 251).astype(np.uint8)[:, None], w, axis=1)
+
+    monkeypatch.setattr(device, '_pixels', numbered_rows)
+    frame = _fresh_frame(scope)
+    steps = np.diff(frame[:, 0].astype(np.int16)) % 251
+    assert (steps == 1).all(), steps[:8]
+
+
+def test_a_stored_frame_counts_the_bytes_it_took_on_the_link(session):
+    # The link carries the whole layout -- the rows the parser skips included --
+    # and the delimiter before it; the stored array is only the window.
+    camera = session.scope._camera_driver
+    _fresh_frame(session.scope)
+    frames_0, bytes_0 = camera.delivered_counts
+    _fresh_frame(session.scope)
+    frames_1, bytes_1 = camera.delivered_counts
+    assert frames_1 > frames_0
+    wire = (
+        len(fx2driver.FRAME_DELIM)
+        + fx2driver.frame_layout(camera._width, camera._height).frame_bytes
+    )
+    assert (bytes_1 - bytes_0) == (frames_1 - frames_0) * wire
+
+
+def test_840_ma_reaches_the_peripheral_as_0xfe(session):
+    session.scope._led_driver.led_on(3, 840)
+    try:
+        assert _device(session).leds.commands[-1] == ('D', 0xFE)
+    finally:
+        session.scope._led_driver.leds_off()
+
+
+def test_blue_reaches_the_peripheral_as_c(session):
+    session.scope._led_driver.led_on(0, 100)
+    try:
+        assert _device(session).leds.commands[-1][0] == 'C'
+    finally:
+        session.scope._led_driver.leds_off()
+
+
+# ---------------------------------------------------------------------------
+# The device model, without a scope
+# ---------------------------------------------------------------------------
+
+
+def _running_device() -> SimulatedFX2Device:
+    from drivers.simulated_fx2 import SimulatedFX2
+
+    return SimulatedFX2().device
+
+
+def test_a_0xff_brightness_is_a_new_preamble_and_the_command_is_lost():
+    device = _running_device()
+    for byte in (0xFF, ord('D'), 0x40, 0xFF, ord('D'), 0xFF):
+        device.vendor_out(fx2driver.VR_I2C_WRITE, 0, fx2driver.I2C_LED, bytes([byte]))
+    assert device.leds.commands == [('D', 0x40)]
+    assert device.leds.lost_commands == 1
+    assert device.leds.brightness[ord('D')] == 0x40
+
+
+def test_a_long_exposure_stretches_the_frame():
+    # Past H + 25 rows of shutter the sensor adds blanking rows: the frame is
+    # SW + 1 rows (VBMIN = SW - H + 1).
+    device = _running_device()
+    device.sensor.write(bytes([fx2driver.REG_COL_SIZE, 0x03, 0xEB]))  # 1003, the driver's w + 3
+    device.sensor.write(bytes([fx2driver.REG_ROW_SIZE, 0x03, 0xE9]))
+    device.sensor.write(bytes([fx2driver.REG_EXPOSURE, 0x07, 0xD0]))  # 2000 rows
+    assert device.sensor.frame_period_s() == pytest.approx(2001 * fx2driver.row_time_s(1003))
+
+
+def test_the_stream_arrives_a_transfer_of_the_wires_bytes_at_a_time_frames_back_to_back():
+    # A whole frame delivered at once left the grab loop spinning on a
+    # frame's worth of bytes with no delimiter after it, a core at 100%; a
+    # transfer always full bunched a small window's frames seconds apart.
+    import threading
+
+    device = _running_device()
+    device.sensor.write(bytes([fx2driver.REG_COL_SIZE, 0, 103]))  # the driver writes w + 3
+    device.sensor.write(bytes([fx2driver.REG_ROW_SIZE, 0, 81]))
+    frame_bytes = len(fx2driver.FRAME_DELIM) + fx2driver.frame_layout(100, 80).frame_bytes
+    packets: list[tuple[float, bytes]] = []
+    two_frames = threading.Event()
+
+    def sink(data: bytes) -> None:
+        packets.append((time.monotonic(), data))
+        if sum(len(p) for _t, p in packets) > 2 * frame_bytes:
+            two_frames.set()
+
+    device.attach(sink)
+    device.vendor_out(fx2driver.VR_START_STREAMING, 0, 0, b'')
+    try:
+        assert two_frames.wait(5.0)
+    finally:
+        device.stop()
+    per_transfer = bytes_per_transfer(100, 80, device.sensor.frame_period_s())
+    assert per_transfer < frame_bytes
+    # The packets the wire carries: the delimiter alone, whole transactions,
+    # and the frame's short last packet.
+    short = (frame_bytes - len(fx2driver.FRAME_DELIM)) % (2 * fx2driver.ISO_TRANSACTION_SIZE)
+    assert {len(p) for _t, p in packets} <= {4, 2 * fx2driver.ISO_TRANSACTION_SIZE, short}
+    # A frame's packets come over several transfers, not at once.
+    first = [t for t, _p in packets[: len(packets) // 2]]
+    assert first[-1] - first[0] >= TRANSFER_S
+    stream = b''.join(p for _t, p in packets)
+    assert stream.find(fx2driver.FRAME_DELIM, 1) == frame_bytes
+
+
+def test_a_window_change_lets_the_frame_in_flight_finish_in_its_own_period():
+    # The sensor finishes the frame it is reading at that frame's rate. Paced
+    # at the new, smaller window's rate, a 1900-wide frame took about 17 s.
+    import threading
+
+    device = _running_device()
+    device.sensor.write(bytes([fx2driver.REG_COL_SIZE, 0x07, 0x6F]))  # 1903, the driver's w + 3
+    device.sensor.write(bytes([fx2driver.REG_ROW_SIZE, 0x07, 0x6D]))  # 1901
+    old_period_s = device.sensor.frame_period_s()
+    delimiters: list[float] = []
+    second = threading.Event()
+
+    def sink(data: bytes) -> None:
+        if data == fx2driver.FRAME_DELIM:
+            delimiters.append(time.monotonic())
+            if len(delimiters) == 2:
+                second.set()
+
+    device.attach(sink)
+    device.vendor_out(fx2driver.VR_START_STREAMING, 0, 0, b'')
+    try:
+        deadline = time.monotonic() + 5.0
+        while not delimiters and time.monotonic() < deadline:
+            time.sleep(0.001)
+        assert delimiters
+        device.sensor.write(bytes([fx2driver.REG_COL_SIZE, 0, 103]))
+        device.sensor.write(bytes([fx2driver.REG_ROW_SIZE, 0, 81]))
+        assert second.wait(10 * old_period_s)
+    finally:
+        device.stop()
+    assert delimiters[1] - delimiters[0] < 1.5 * old_period_s
+
+
+@pytest.mark.parametrize('window', [(1900, 1900), (1000, 1000)], ids=['1900x1900', '1000x1000'])
+def test_a_frames_bytes_take_its_period_on_the_wire(window):
+    w, h = window
+    period_s = fx2driver.frame_time_s(w + 3, h + 1, 1)
+    frame_bytes = len(fx2driver.FRAME_DELIM) + fx2driver.frame_layout(w, h).frame_bytes
+    transfers = frame_bytes / bytes_per_transfer(w, h, period_s)
+    assert transfers * TRANSFER_S == pytest.approx(period_s)
+
+
+def test_a_frame_is_as_long_as_the_parser_accepts():
+    device = _running_device()
+    device.sensor.write(bytes([fx2driver.REG_COL_SIZE, 0, 103]))  # the driver writes w + 3
+    device.sensor.write(bytes([fx2driver.REG_ROW_SIZE, 0, 81]))
+    frame = device.frame()
+    assert len(frame) == fx2driver.frame_layout(100, 80).frame_bytes
+    packets = device.packets()
+    assert packets[0] == fx2driver.FRAME_DELIM
+    assert sum(map(len, packets[1:])) == len(frame)
+
+
+def test_a_request_the_device_does_not_model_raises():
+    device = _running_device()
+    with pytest.raises(ValueError, match='no request'):
+        device.vendor_out(fx2driver.VR_INIT_GPIF, 0, 0, b'')
+    with pytest.raises(ValueError, match='no I2C device'):
+        device.vendor_out(fx2driver.VR_I2C_WRITE, 0, 0x50, b'\x00')
+
+
+def test_an_image_that_is_not_the_shipped_firmware_is_refused():
+    device = SimulatedFX2Device()
+    device.vendor_out(fx2driver.VR_ANCHOR_DLD, 0xE600, 0, b'\x01')
+    device.vendor_out(fx2driver.VR_ANCHOR_DLD, 0, 0, b'\x02\x00\x00')
+    with pytest.raises(RuntimeError, match='not the shipped firmware'):
+        device.vendor_out(fx2driver.VR_ANCHOR_DLD, 0xE600, 0, b'\x00')
+    assert device.pid == fx2driver.PID_BOOT
+
+
+def test_the_support_report_says_the_led_diagnostics_are_not_supported(session):
+    from modules.tech_support_report import FirmwareDiagnostics
+
+    assert session.scope.diagnostics.get_led_info()['command_set'] is None
+    answer = FirmwareDiagnostics(scope=session.scope).get_led_info()
+    assert answer.startswith('Not supported on this LED board'), answer

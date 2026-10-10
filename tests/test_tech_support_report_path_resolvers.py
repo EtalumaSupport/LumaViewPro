@@ -16,7 +16,9 @@ data root and bundle the wrong files. Rule-35 semantic-duplicate audit
 Fix
 ---
 Both helpers now wrap platformdirs.user_documents_dir() /
-platformdirs.user_desktop_dir().
+platformdirs.user_desktop_dir(). The Desktop's has since moved to
+path_utils.desktop_folder, the one Desktop for every caller; its tests
+are in test_a_report_names_its_folder.py.
 
 Test approach
 -------------
@@ -39,26 +41,6 @@ def test_get_user_documents_uses_platformdirs(monkeypatch):
     result = tech_support_report._get_user_documents()
     assert isinstance(result, pathlib.Path)
     assert str(result) == sentinel
-
-
-def test_get_desktop_uses_platformdirs_when_exists(monkeypatch, tmp_path):
-    """_get_desktop returns the platformdirs path when it exists."""
-    monkeypatch.setattr(tech_support_report.platformdirs, 'user_desktop_dir', lambda: str(tmp_path))
-    result = tech_support_report._get_desktop()
-    assert isinstance(result, pathlib.Path)
-    assert result == tmp_path
-
-
-def test_get_desktop_falls_back_to_home_when_platformdirs_missing(monkeypatch):
-    """_get_desktop falls back to home() when platformdirs path is absent."""
-    monkeypatch.setattr(
-        tech_support_report.platformdirs,
-        'user_desktop_dir',
-        lambda: '/tmp/.this_directory_does_not_exist_for_test',
-    )
-    result = tech_support_report._get_desktop()
-    assert isinstance(result, pathlib.Path)
-    assert result == pathlib.Path.home()
 
 
 def test_user_documents_no_hardcoded_documents_string():

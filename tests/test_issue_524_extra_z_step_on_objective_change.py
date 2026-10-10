@@ -20,16 +20,16 @@ line overwrote Z with the new step's target. ~visible extra Z step.
 
 Fix
 ---
-Option A (chosen): thread restore_z=False from go_to_step through
-the call chain so _safe_turret_move skips the wasted restore. The
-default in each function is restore_z=True so standalone callers
-(_home_turret_impl, UI turret button) preserve their existing contract.
+Option A (chosen): the run passes restore_z=False to its turret move
+so _safe_turret_move skips the wasted restore. The default is
+restore_z=True so standalone callers (the turret buttons) keep their
+contract. The run now moves the turret itself rather than through the
+GUI's step navigation, so the flag is passed by the run's step runner.
 
 Test approach
 -------------
-AST-based structural locks across the four signatures + the call
-site. Direct exec is impractical (each function depends on Kivy + a
-Lumascope instance).
+AST-based structural locks on the API's signatures; the run's use of
+the flag is pinned by behaviour in test_the_run_turns_the_turret_itself.
 """
 
 from __future__ import annotations
@@ -124,61 +124,11 @@ def test_tmove_threads_restore_z():
     )
 
 
-def test_turret_select_threads_restore_z():
-    method = _function_node(
-        _module_tree(VERTCTRL_SRC), 'turret_select', class_name='VerticalControl'
-    )
-    all_names = [a.arg for a in method.args.args] + [a.arg for a in method.args.kwonlyargs]
-    assert 'restore_z' in all_names, 'turret_select must accept restore_z. (#524)'
-    src = ast.unparse(method)
-    # restore_z must reach move_turret. In the non-protocol branch that is a
-    # direct keyword (restore_z=restore_z); in the protocol branch move_turret
-    # is routed through io_executor as IOTask(move_turret, kwargs={...,
-    # 'restore_z': restore_z}) so the keyword appears in dict form. Accept
-    # either -- both thread restore_z to move_turret.
-    assert ('restore_z=restore_z' in src) or ("'restore_z': restore_z" in src), (
-        'turret_select must pass restore_z through to move_turret. (#524)'
-    )
-
-
-def test_move_absolute_threads_restore_z_for_T():
-    method = _function_node(_module_tree(UIHELPERS_SRC), 'move_absolute')
-    all_names = [a.arg for a in method.args.args] + [a.arg for a in method.args.kwonlyargs]
-    assert 'restore_z' in all_names, 'ui_helpers.move_absolute must accept restore_z. (#524)'
-    src = ast.unparse(method)
-    # The T-axis branch must thread restore_z to turret_select. The
-    # non-T-axis branch does not need it.
-    assert 'restore_z=restore_z' in src, (
-        'ui_helpers.move_absolute must thread restore_z to '
-        'turret_select on the T-axis branch. (#524)'
-    )
-
-
-def test_go_to_step_passes_restore_z_false_on_T_move():
-    tree = _module_tree(STEPNAV_SRC)
-    # Find the call to move_absolute with axis='T' inside go_to_step.
-    found = False
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-            if node.func.id != 'move_absolute':
-                continue
-            kw_map = {k.arg: k.value for k in node.keywords}
-            # The T-axis call uses keyword args (axis= and pos=).
-            axis_kw = kw_map.get('axis')
-            if not (isinstance(axis_kw, ast.Constant) and axis_kw.value == 'T'):
-                continue
-            rz = kw_map.get('restore_z')
-            if rz is None:
-                continue
-            if isinstance(rz, ast.Constant) and rz.value is False:
-                found = True
-                break
-    assert found, (
-        'step_navigation.go_to_step must call move_absolute with '
-        'axis="T" + restore_z=False so _safe_turret_move skips the Z '
-        'restore that would be wasted by the immediately-following Z '
-        'move to step["Z"]. (#524)'
-    )
+# The run's own turret move is where restore_z=False is passed now: a run
+# moves the turret itself, on every host, and the GUI no longer has a
+# protocol lane to thread it through. Pinned by behaviour in
+# tests/test_the_run_turns_the_turret_itself.py (every run turret move
+# carries restore_z=False).
 
 
 # --------------------------------------------------------------------------

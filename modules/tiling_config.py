@@ -10,6 +10,7 @@ from lvp_logger import logger
 
 import modules.common_utils as common_utils
 from modules.exceptions import ConfigError
+from modules.api_surface import api, api_fields
 
 if TYPE_CHECKING:
     from modules.scope_capabilities import ScopeCapabilities
@@ -39,7 +40,19 @@ def _split_row_col(tile_label: str) -> tuple[str, int]:
     return letters, int(tile_label[len(letters) :])
 
 
+@api_fields('available', 'default', record=True)
 class TilingConfig:
+    """The tiling grids an installation offers, read from its tiling.json.
+
+    Attributes:
+        available: Each grid's label, as ``create_protocol`` and
+            ``Protocol.apply_tiling`` accept it.
+        default: The grid to preselect; None when the file names none.
+    """
+
+    available: tuple[str, ...]
+    default: str | None
+
     DEFAULT_FILL_FACTORS: ClassVar[dict] = {
         'position': 1.0  # No overlap needed for position-based tiling
     }
@@ -61,6 +74,8 @@ class TilingConfig:
             ) from e
 
         self._validate_tiling(tiling_configs_file_loc)
+        self.available = tuple(self._available_configs['data'].keys())
+        self.default = self._available_configs.get('metadata', {}).get('default')
 
     def _validate_tiling(self, filepath):
         """Check tiling.json has required structure."""
@@ -86,8 +101,10 @@ class TilingConfig:
                         f'got {type(entry[field]).__name__} in {filepath}'
                     )
 
+    @api(in_process=True)
     def available_configs(self) -> list[str]:
-        return list(self._available_configs['data'].keys())
+        """``available``, as a list."""
+        return list(self.available)
 
     def get_mxn_size(self, config_label: str) -> dict:
         return self._available_configs['data'][config_label]
@@ -144,8 +161,12 @@ class TilingConfig:
 
         return self.get_label_from_mxn_size(m=m, n=n)
 
+    @api(in_process=True)
     def default_config(self) -> str:
-        return self._available_configs['metadata']['default']
+        """``default``; KeyError when the file names none."""
+        if self.default is None:
+            raise KeyError('default')
+        return self.default
 
     @staticmethod
     def no_tiling_label() -> str:
@@ -205,7 +226,7 @@ class TilingConfig:
     def get_tile_centers(
         self,
         config_label: str,
-        focal_length: float,
+        focal_length: float | None,
         frame_size: dict[int],
         fill_factor: int,
         binning_size: int,

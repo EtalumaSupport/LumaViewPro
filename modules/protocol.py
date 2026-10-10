@@ -2,6 +2,7 @@
 
 import csv
 import ast
+import dataclasses
 import json
 import datetime
 import io
@@ -10,22 +11,38 @@ import pandas as pd
 import os
 import pathlib
 import re
+import contextlib
 import copy
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, NoReturn
 
 from lvp_logger import logger
-from modules.exceptions import ConfigError, ProtocolError
+from modules.exceptions import (
+    ArgumentRefusedError,
+    ConfigError,
+    DuplicateCaptureFilenamesNotice,
+    FocusNotWrittenError,
+    ProtocolError,
+    ProtocolNotLoadedError,
+    ProtocolNotSavedError,
+    ProtocolRunRefusedError,
+    Refusal,
+    RefusalCause,
+)
 from modules.notification_center import notifications
 
 import modules.common_utils as common_utils
+from modules.finite_number import is_finite_number, refuse_unless_finite_number
+from modules.layer_record import refuse_unknown_layer
+from modules.request_fields import key_path, refuse_unless_kind, required
 import modules.labware_loader as labware_loader
 from modules.tiling_config import TilingConfig
-from modules.objectives_loader import ObjectiveLoader
-from modules.zstack_config import ZStackConfig
+from modules.zstack_config import Z_REFERENCES, ZStackConfig
 from modules.coord_transformations import CoordinateTransformer
+from modules.api_surface import FilePath, api, api_fields
 
 if TYPE_CHECKING:
     import modules.labware as labware_module
+    from modules.objectives_loader import ObjectiveLoader
     from modules.scope_capabilities import ScopeCapabilities
 
 coordinate_transformer = CoordinateTransformer()
@@ -53,12 +70,662 @@ def to_python_scalars(step: pd.Series) -> pd.Series:
     return step.map(lambda v: v.item() if isinstance(v, np.generic) else v)
 
 
-class ProtocolFormatError(Exception):
-    pass
+# The step columns whose cells are dicts. A frame copy shares them, so they
+# are stored read-only: a copy of the frame can then share them safely.
+_DICT_COLUMNS = ('Video Config', 'Stim_Config')
 
 
+class ReadOnlyDict(dict):
+    """A dict a protocol stores in a step cell, which refuses every change.
+
+    A dict subclass, not a mapping proxy: readers ask ``isinstance(cell,
+    dict)`` and a proxy would read to them as no config at all. A write
+    raises TypeError, so a caller holding a cell from ``steps()``, ``step()``
+    or a run's copy cannot change the protocol, or another copy, behind its
+    writers. A deep copy is a plain dict, all the way down, for the caller
+    that means to edit its own.
+    """
+
+    def _refuse(self, *args, **kwargs):
+        raise TypeError(
+            "a protocol's step data is read-only: change a step through the "
+            "protocol's writers, or edit a copy.deepcopy() of it"
+        )
+
+    __setitem__ = __delitem__ = __ior__ = _refuse
+    clear = pop = popitem = setdefault = update = _refuse
+
+    def __deepcopy__(self, memo):
+        return {key: copy.deepcopy(value, memo) for key, value in self.items()}
+
+    def __copy__(self):
+        return dict(self)
+
+    def __reduce__(self):
+        return (ReadOnlyDict, (dict(self),))
+
+
+def _read_only(value):
+    """``value`` with every dict in it, nested ones included, read-only."""
+    if isinstance(value, dict) and not isinstance(value, ReadOnlyDict):
+        return ReadOnlyDict({key: _read_only(item) for key, item in value.items()})
+    return value
+
+
+def _refuse_build(*, reason: str, title: str, message: str) -> NoReturn:
+    """Report once, and raise, a refused protocol build (a tile grid, a z-stack).
+
+    Refused where the protocol is built, so the GUI, a script and REST are all
+    told the same thing. Callers pass the reason as a literal, which is how the
+    refusal census reads it.
+    """
+    refusal = ProtocolRunRefusedError(reason=reason, title=title, message=message)
+    # Solicited: the refusal answers the build the caller just asked for.
+    notifications.report_outcome(refusal, solicited=True, category='Protocol')
+    raise refusal
+
+
+def _refuse_unless_tiling_offered(tiling_config: TilingConfig, tiling: str) -> None:
+    """Refuse a tile grid this installation's tiling.json does not offer.
+
+    Both builds ask, so a new protocol and a grid over an existing one are
+    refused alike; the build from a config used to raise KeyError from the
+    grid lookup instead.
+    """
+    if tiling not in tiling_config.available_configs():
+        _refuse_build(
+            reason='tiling_unknown',
+            title='Tiling Not Available',
+            message=f'"{tiling}" is not one of the tiling grids this installation offers.',
+        )
+
+
+# What a layer's settings must hold for the build to make its step; a layer
+# that acquires nothing is read for its acquire mode only.
+_ACQUIRING_LAYER_KINDS: tuple[tuple[str, str, bool], ...] = (
+    ('focus', 'number', True),
+    ('autofocus', 'bool', False),
+    ('false_color', 'bool', False),
+    ('illumination_ma', 'number', False),
+    ('sum', 'whole', False),
+    ('gain_db', 'number', False),
+    ('auto_gain', 'bool', False),
+    ('exposure_ms', 'number', False),
+    ('video_config', 'dict', False),
+)
+
+
+def refuse_unless_buildable_config(config: object, argument: str, *, empty: bool) -> None:
+    """Refuse a client's protocol configuration the build cannot read, before anything is built.
+
+    Every key the build reads is judged here, present and of its kind,
+    whichever of them this build happens to reach: a one-tile or empty
+    build never reads the frame or the binning, so a check at the read
+    would leave them unjudged there. ``empty`` judges the five keys an
+    empty protocol takes. The schedule (``period``, ``duration``) is judged
+    by the protocol itself, as it is for a file.
+
+    Raises:
+        ArgumentRefusedError: ``'missing_key'``, ``'wrong_kind'``,
+            ``'not_a_number'``, ``'zstack_reference_unknown'``,
+            ``'acquire_mode_unknown'``, ``'layer_unknown'``; each names the
+            key's path inside ``argument``.
+    """
+    refuse_unless_kind(config, 'dict', argument)
+
+    def read(mapping, key, kind, path, *, nullable=False):
+        value = required(mapping, key, path)
+        refuse_unless_kind(value, kind, key_path(path, key), nullable=nullable)
+        return value
+
+    read(config, 'labware_id', 'str', argument)
+    required(config, 'period', argument)
+    required(config, 'duration', argument)
+    frame = read(config, 'frame_dimensions', 'dict', argument)
+    for side in ('width', 'height'):
+        read(frame, side, 'number', key_path(argument, 'frame_dimensions'))
+    read(config, 'binning_size', 'whole', argument)
+    if empty:
+        return
+
+    read(config, 'objective_id', 'str', argument, nullable=True)
+    read(config, 'tiling', 'str', argument)
+    if 'tiling_overlap_percent' in config:
+        refuse_unless_kind(
+            config['tiling_overlap_percent'], 'number', key_path(argument, 'tiling_overlap_percent')
+        )
+    read(config, 'stim_config', 'dict', argument)
+    if config.get('current_z') is not None:
+        refuse_unless_kind(config['current_z'], 'number', key_path(argument, 'current_z'))
+    if config.get('previous_well_z') is not None:
+        tuned_path = key_path(argument, 'previous_well_z')
+        tuned = config['previous_well_z']
+        refuse_unless_kind(tuned, 'dict', tuned_path)
+        for well, z in tuned.items():
+            refuse_unless_kind(z, 'number', key_path(tuned_path, well), nullable=True)
+
+    zstack = read(config, 'zstack_params', 'dict', argument)
+    if read(config, 'use_zstacking', 'bool', argument):
+        zstack_path = key_path(argument, 'zstack_params')
+        read(zstack, 'range', 'number', zstack_path)
+        read(zstack, 'step_size', 'number', zstack_path)
+        refuse_unless_zstack_reference(
+            required(zstack, 'z_reference', zstack_path), key_path(zstack_path, 'z_reference')
+        )
+
+    layers = read(config, 'layer_configs', 'dict', argument)
+    layers_path = key_path(argument, 'layer_configs')
+    for layer, layer_config in layers.items():
+        refuse_unknown_layer(layer, layers_path)
+        layer_path = key_path(layers_path, layer)
+        refuse_unless_kind(layer_config, 'dict', layer_path)
+        acquire = required(layer_config, 'acquire', layer_path)
+        if acquire is None:
+            continue
+        if not isinstance(acquire, str) or acquire not in Protocol.VALID_ACQUIRE_MODES:
+            raise ArgumentRefusedError(
+                'acquire_mode_unknown',
+                argument=key_path(layer_path, 'acquire'),
+                value=acquire,
+                offered=tuple(sorted(Protocol.VALID_ACQUIRE_MODES)),
+            )
+        for key, kind, nullable in _ACQUIRING_LAYER_KINDS:
+            read(layer_config, key, kind, layer_path, nullable=nullable)
+
+    positions = config.get('positions')
+    if positions is not None:
+        positions_path = key_path(argument, 'positions')
+        refuse_unless_kind(positions, 'list', positions_path)
+        for index, position in enumerate(positions):
+            position_path = key_path(positions_path, index)
+            refuse_unless_kind(position, 'dict', position_path)
+            read(position, 'x', 'number', position_path)
+            read(position, 'y', 'number', position_path)
+            read(position, 'z', 'number', position_path, nullable=True)
+            read(position, 'name', 'str', position_path)
+
+
+def refuse_unless_zstack_reference(reference: object, argument: str) -> None:
+    """Refuse a z-stack reference that is not one of ``Z_REFERENCES``.
+
+    Raises:
+        ArgumentRefusedError: ``'zstack_reference_unknown'``, naming
+            ``argument`` and offering the references.
+    """
+    if reference not in Z_REFERENCES:
+        raise ArgumentRefusedError(
+            'zstack_reference_unknown', argument=argument, value=reference, offered=Z_REFERENCES
+        )
+
+
+def _fill_factor_or_refuse(overlap_percent: object) -> float:
+    """The tile fill factor for ``overlap_percent``, or a refusal of the build.
+
+    One answer for both builds, a new protocol's grid and a grid over an
+    existing one. NaN passed the range test and built, and text or ``True``
+    was converted; each is ``not_a_number`` now.
+
+    Raises:
+        ArgumentRefusedError: ``'not_a_number'``.
+        ProtocolRunRefusedError: ``'overlap_out_of_range'``, outside 0-50.
+    """
+    refuse_unless_finite_number(overlap_percent, 'tiling_overlap_percent')
+    if not 0.0 <= overlap_percent <= 50.0:
+        _refuse_build(
+            reason='overlap_out_of_range',
+            title='Tile Overlap Out of Range',
+            message=f'The tile overlap must be 0 to 50 percent; {overlap_percent:g} is outside it.',
+        )
+    return TilingConfig.fill_factor_from_overlap_percent(overlap_percent)
+
+
+def _refuse_unless_zstack_has_extent(zstack_params: dict) -> None:
+    """Refuse a z-stack whose range or step size is not greater than zero.
+
+    Such a stack has no planes, and building it used to produce a protocol
+    unchanged (or one plane per position) reported as success: the caller
+    asked for a stack and got a photograph.
+
+    Raises:
+        ArgumentRefusedError: ``'not_a_number'``, the range or the step size
+            is not a finite number, which a comparison with zero would pass.
+    """
+    for key in ('range', 'step_size'):
+        refuse_unless_finite_number(zstack_params[key], f'z-stack {key}')
+    if zstack_params['range'] <= 0 or zstack_params['step_size'] <= 0:
+        _refuse_build(
+            reason='zstack_not_configured',
+            title='Z-Stack Not Configured',
+            message=(
+                f'Z-stack range ({zstack_params["range"]}) and step size '
+                f'({zstack_params["step_size"]}) must both be greater than zero.'
+            ),
+        )
+
+
+def axes_outside_travel(
+    position: dict,
+    axis_limits: dict,
+    *,
+    labware: 'labware_module.WellPlate | None' = None,
+    stage_offset: dict | None = None,
+) -> list[str]:
+    """The axes on which one position lies outside the stage's travel.
+
+    The one travel judgment: the run gate and both builders ask it, so a
+    position one of them admits is never one another refuses.
+
+    Args:
+        position: Any of 'X' and 'Y' in plate millimetres, and 'Z' in stage
+            micrometres -- the frames a step stores them in.
+        axis_limits: Axis name to ``{'min', 'max'}`` in stage micrometres. Only
+            the axes present in both this and *position* are judged.
+        labware: The plate X/Y are measured on; required when X or Y is judged.
+        stage_offset: ``{'x', 'y'}`` in micrometres; required when X or Y is
+            judged.
+
+    Returns:
+        The axes outside their limits, in X, Y, Z order; empty when inside.
+    """
+    stage = {}
+    if 'Z' in position:
+        stage['Z'] = float(position['Z'])
+    if ({'X', 'Y'} & set(axis_limits)) and {'X', 'Y'} <= set(position):
+        stage['X'], stage['Y'] = coordinate_transformer.plate_to_stage(
+            labware=labware,
+            stage_offset=stage_offset,
+            px=float(position['X']),
+            py=float(position['Y']),
+        )
+    return [
+        axis
+        for axis in ('X', 'Y', 'Z')
+        if axis in stage
+        and axis in axis_limits
+        and not (axis_limits[axis]['min'] <= stage[axis] <= axis_limits[axis]['max'])
+    ]
+
+
+def _refuse_positions_outside_travel(
+    *, reason: str, title: str, what: str, outside: dict[str, int], total: int, remedy: str
+) -> None:
+    """Refuse a build if any of its new positions lie outside the stage's travel.
+
+    Dropping them and building the rest made a grid with holes, or a stack
+    missing its ends, that stitched and projected as if it were whole; only a
+    caller that read a returned count knew. *outside* maps each step's name to
+    how many of its positions fall outside, in the protocol's step order.
+    """
+    if not outside:
+        return
+    count = sum(outside.values())
+    names = common_utils.first_few(list(outside), separator=', ')
+    _refuse_build(
+        reason=reason,
+        title=title,
+        message=(
+            f"{count} of the {total} {what} fall outside the stage's travel "
+            f'(steps: {names}).\n\n{remedy}'
+        ),
+    )
+
+
+def _axis_limits_or_refuse(axis_limits: dict, axes: tuple[str, ...], *, what: str) -> dict:
+    """The travel limits of each of *axes*, or a refusal naming the missing ones.
+
+    *axis_limits* maps each axis the scope has a motor for to its travel
+    limits; an axis absent from it has no motor.
+
+    A z-stack or a tile grid is built by moving an axis. On a scope without
+    that axis's motor there are no limits to build against, and building
+    nothing while reporting nothing read as success: the caller asked for a
+    stack and got a photograph. Refused here, where the protocol is built,
+    so every caller -- the GUI, a script, REST -- is told the same thing.
+
+    Raises:
+        ProtocolRunRefusedError: An axis in *axes* has no limits. It has
+            been logged and shown before it is raised.
+    """
+    limits = {axis: axis_limits.get(axis) for axis in axes}
+    missing = [axis for axis, axis_limits in limits.items() if axis_limits is None]
+    if missing:
+        _refuse_build(
+            reason='positions_unreachable',
+            title='Position Not Reachable',
+            message=(
+                f'This scope has no motor for {", ".join(missing)}, so {what} cannot be built.'
+            ),
+        )
+    return limits
+
+
+class ProtocolFormatError(Refusal, ProtocolError):
+    """A protocol LumaViewPro cannot take: a file it cannot parse, or steps that do not validate.
+
+    A refusal: the file or the configuration is the person's, nothing broke,
+    and the answer is to fix or choose another. The words say what is wrong
+    and, for a file, name it, so the one report -- a warning in these words,
+    one log line -- needs no log line of its own beside each check.
+
+    Attributes:
+        reason: ``'protocol_invalid'``.
+        file: The file refused, or None for a protocol built in memory.
+    """
+
+    cause = RefusalCause.REQUEST
+    reason = 'protocol_invalid'
+    title = 'Protocol Refused'
+
+    def __init__(self, problem: str, file=None):
+        super().__init__(problem if file is None else f'{file} was not loaded: {problem}')
+        self.file = file
+
+
+class StepNotFoundError(Refusal, ProtocolError):
+    """A step index the protocol does not have, refused before anything is read or written.
+
+    A refusal: the caller named a step, and the words say which steps there
+    are. Unmarked, a Delete on an empty protocol was reported as a fault --
+    "Operation failed", an ERROR and a traceback for a designed answer.
+
+    The words name no index: the index is the API's, zero-based, and a
+    person who typed a step number into the panel counts from 1. A caller
+    that wants it reads it here.
+
+    Attributes:
+        reason: ``'no_such_step'``.
+        index: The index refused, as the caller gave it.
+        num_steps: How many steps the protocol has.
+    """
+
+    cause = RefusalCause.REQUEST
+    reason = 'no_such_step'
+    title = 'No Such Step'
+
+    def __init__(self, index: int, num_steps: int):
+        if num_steps == 0:
+            words = 'The protocol has no steps.'
+        elif num_steps == 1:
+            words = 'The protocol has 1 step.'
+        else:
+            words = f'The protocol has {num_steps} steps.'
+        super().__init__(words)
+        self.index = index
+        self.num_steps = num_steps
+
+
+class StepEditRefusedError(Refusal, ProtocolError):
+    """A value a step writer cannot take; the protocol is unchanged.
+
+    A name with nothing left once cleaned, a value not of its column's type,
+    or an insert that names no place or two. A refusal, as a missing step is.
+    """
+
+    cause = RefusalCause.REQUEST
+    reason = 'step_value_refused'
+    title = 'Step Not Changed'
+
+
+class ProtocolScheduleRefusedError(ProtocolFormatError):
+    """A period or duration the scope cannot run, refused rather than changed.
+
+    Attributes:
+        reason: ``'schedule_not_runnable'``.
+        key: ``'period'`` or ``'duration'``.
+        value: What was given, as given.
+    """
+
+    reason = 'schedule_not_runnable'
+
+    _RULES: ClassVar[dict] = {
+        'period': 'a period is 0 (one scan) or at least 1 second',
+        'duration': 'a duration is 0 (one scan) or more',
+    }
+
+    def __init__(self, key: str, value: object, file=None):
+        shown = (
+            f'{value.total_seconds():g} s' if isinstance(value, datetime.timedelta) else repr(value)
+        )
+        super().__init__(f'the {key} {shown} cannot be run: {self._RULES[key]}', file=file)
+        self.key = key
+        self.value = value
+
+
+# Below a second, a period is a schedule the run loop cannot keep: it would
+# start each scan before the last one's captures are taken.
+_MIN_PERIOD = datetime.timedelta(seconds=1)
+_UNITS = {'period': 'minutes', 'duration': 'hours'}
+
+
+def _refuse_unless_runnable(
+    key: str, value: object, file: pathlib.Path | str | None = None
+) -> None:
+    """The one range rule for a protocol's period and duration.
+
+    None and 0 are one scan; a composite or standalone capture is built with
+    None.
+    """
+    if value is None:
+        return
+    if not isinstance(value, datetime.timedelta):
+        raise ProtocolScheduleRefusedError(key, value, file=file)
+    floor = _MIN_PERIOD if key == 'period' else datetime.timedelta(0)
+    if value != datetime.timedelta(0) and value < floor:
+        raise ProtocolScheduleRefusedError(key, value, file=file)
+
+
+def _bool_cell(value: object) -> bool:
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, str) and value.lower() in ('true', 'false'):
+        return value.lower() == 'true'
+    raise ValueError('is not True or False')
+
+
+def _float_cell(value: object) -> float:
+    if isinstance(value, (bool, np.bool_)):
+        raise ValueError('is not a number')
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise ValueError('is not a number') from None
+    if not is_finite_number(number):
+        raise ValueError('is not a number')
+    return number
+
+
+def _int_cell(value: object) -> int:
+    number = _float_cell(value)
+    if not number.is_integer():
+        raise ValueError('is not a whole number')
+    return int(number)
+
+
+def _acquire_cell(value: object) -> str:
+    if value not in ('image', 'video'):
+        raise ValueError("is not 'image' or 'video'")
+    return value
+
+
+def _str_cell(value: object) -> str:
+    if not isinstance(value, str):
+        raise ValueError('is not text')
+    return value
+
+
+def _dict_cell(value: object) -> dict:
+    """A config cell: a dict, or the text of one.
+
+    The current writer saves JSON; files written before it hold Python's
+    repr of the dict (single quotes, True/False), read by literal_eval.
+    """
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except ValueError:
+            try:
+                parsed = ast.literal_eval(value)
+            except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+                raise ValueError('is not a config') from None
+        if isinstance(parsed, dict):
+            return parsed
+    raise ValueError('is not a config')
+
+
+# Each step column with the type its cell is read as: the one reader for a
+# file's steps, a caller's frame and every in-place write. No cell is blank:
+# an empty position, number or True/False is a cell of the wrong type.
+_STEP_CELLS = {
+    'Name': _str_cell,
+    'X': _float_cell,
+    'Y': _float_cell,
+    'Z': _float_cell,
+    'Auto_Focus': _bool_cell,
+    'Color': _str_cell,
+    'False_Color': _bool_cell,
+    'Illumination': _float_cell,
+    'Gain': _float_cell,
+    'Auto_Gain': _bool_cell,
+    'Exposure': _float_cell,
+    'Sum': _int_cell,
+    'Objective': _str_cell,
+    'Well': _str_cell,
+    'Tile': _str_cell,
+    'Z-Slice': _int_cell,
+    'Custom Step': _bool_cell,
+    'Tile Group ID': _int_cell,
+    'Z-Stack Group ID': _int_cell,
+    'Acquire': _acquire_cell,
+    'Video Config': _dict_cell,
+    'Stim_Config': _dict_cell,
+    'Auto_Named': _bool_cell,
+    'Label': _str_cell,
+}
+
+
+def _read_step_cell(df: pd.DataFrame, column: str, position: int) -> object:
+    """The step at ``position``'s ``column`` cell, read as its column's type.
+
+    Raises:
+        ProtocolFormatError: the cell is not of its column's type; the words
+            name the step and the column.
+    """
+    cell = df[column].iloc[position]
+    try:
+        return _STEP_CELLS[column](cell)
+    except ValueError as e:
+        name = df['Name'].iloc[position]
+        raise ProtocolFormatError(
+            f'step {position + 1} ({name}) has {column} {cell!r}, which {e}.'
+        ) from None
+
+
+# Each Layer Settings column after 'Layer', with the type its cell is read
+# as. Every cell but Acquire may be blank, read as None: the layer's control
+# keeps what it holds.
+_LAYER_SETTINGS_CELLS = (
+    ('Acquire', _acquire_cell),
+    ('Illumination', _float_cell),
+    ('Gain', _float_cell),
+    ('Auto_Gain', _bool_cell),
+    ('Exposure', _float_cell),
+    ('False_Color', _bool_cell),
+    ('Sum', _int_cell),
+    ('Stim_Enabled', _bool_cell),
+)
+
+
+def _typed_layer_settings_row(row: dict) -> dict:
+    """One Layer Settings row with each cell read as its column's type.
+
+    The one reader for a saved block and an inferred one, so every caller
+    of ``layer_settings()`` gets the same types and none casts a cell itself.
+
+    Raises:
+        ProtocolFormatError: A cell is not of its column's type; the words
+            name the layer, the column and the cell.
+    """
+    layer = row.get('Layer')
+    if not isinstance(layer, str) or layer.strip() == '':
+        raise ProtocolFormatError(f'a Layer Settings row names no layer: {row!r}')
+    layer = layer.strip()
+    typed = {'Layer': layer}
+    for column, read in _LAYER_SETTINGS_CELLS:
+        cell = row.get(column)
+        if isinstance(cell, str):
+            cell = cell.strip()
+        if column != 'Acquire' and cell in (None, ''):
+            typed[column] = None
+            continue
+        try:
+            typed[column] = read(cell)
+        except ValueError as e:
+            raise ProtocolFormatError(
+                f'the Layer Settings {column} of {layer}, {cell!r}, {e}'
+            ) from None
+    return typed
+
+
+def _refuse_a_header_row_with_no_value(row: list[str], file_path: object) -> None:
+    """Refuse a protocol header row that holds its name and no value cell.
+
+    A row cut down to its name (a hand edit, a truncated save) reads as a
+    one-cell row, and indexing its value would raise IndexError out of the
+    reader instead of saying which row is wrong.
+    """
+    if len(row) < 2:
+        raise ProtocolFormatError(f"The '{row[0]}' row has no value.", file=file_path)
+
+
+def schedule_from_units(
+    key: str,
+    value: object,
+    *,
+    file: pathlib.Path | str | None = None,
+    judged: bool = True,
+) -> datetime.timedelta | None:
+    """A period in minutes or a duration in hours, as the protocol takes it.
+
+    The units the protocol file, the settings store and the GUI's fields
+    all hold. Anything that is not a finite number, or (when ``judged``) is
+    a number the protocol cannot run, is refused here in the range rule's
+    words.
+
+    Raises:
+        ProtocolScheduleRefusedError: ``value`` is not a runnable ``key``.
+    """
+    if value is None:
+        return None
+    try:
+        number = float(value)
+        schedule = datetime.timedelta(**{_UNITS[key]: number})
+    except (TypeError, ValueError, OverflowError):
+        raise ProtocolScheduleRefusedError(key, value, file=file) from None
+    if judged:
+        _refuse_unless_runnable(key, schedule, file)
+    return schedule
+
+
+@api_fields('message', 'num_steps', 'projected_mb')
+@dataclasses.dataclass(frozen=True)
+class ProtocolSizeAdvisory:
+    """A protocol big enough that the user should be told before running it.
+
+    Carries the numbers alongside the sentence so a caller that wants to
+    render something other than the sentence -- REST, a log line -- does not
+    have to parse it back out.
+    """
+
+    num_steps: int
+    projected_mb: float
+    message: str
+
+
+@api_fields('CURRENT_VERSION', 'PROTOCOL_FILE_HEADER')
 class Protocol:
-    PROTOCOL_FILE_HEADER = 'LumaViewPro Protocol'
+    PROTOCOL_FILE_HEADER: ClassVar[str] = 'LumaViewPro Protocol'
     COLUMNS: ClassVar[dict] = {
         1: [
             'Name',
@@ -169,7 +836,7 @@ class Protocol:
         # + gain + exposure + false_color + sum + stim-enabled) so a
         # protocol round-trips through the UI without losing per-layer
         # configuration. v5 files without the block fall back to
-        # inference from the steps Color column (see _infer_layer_settings).
+        # inference from the steps Color column (see layer_settings).
         6: [
             'Name',
             'X',
@@ -209,7 +876,7 @@ class Protocol:
     # ('Treatment_10x' -> 'Treatment') and dropped renames of well-anchored
     # steps entirely.
     COLUMNS[8] = COLUMNS[7] + ['Label']
-    CURRENT_VERSION = 8
+    CURRENT_VERSION: ClassVar[int] = 8
     CURRENT_COLUMNS = COLUMNS[CURRENT_VERSION]
 
     # Header columns for the v6 'Layer Settings' block. Order is the
@@ -228,22 +895,34 @@ class Protocol:
         'Stim_Enabled',
     ]
 
-    # The LED current cap this protocol was built under, from the scope's
-    # capabilities; None means no authority was given (a file opened with no
-    # scope, e.g. for post-processing) and validate_steps checks format only.
-    _led_max_ma: int | None = None
+    # Counts the changes to which steps this protocol holds and in what
+    # order: a step added or deleted, or the frame replaced. A change to a
+    # step's values does not count, since the step keeps its index. A step
+    # index means something only against the revision it was read at, so a
+    # caller holding one across a wait compares this before using it.
+    _step_list_revision: int = 0
 
     def __init__(
         self,
         tiling_configs_file_loc: pathlib.Path,
         config: dict | None = None,
         *,
-        led_max_ma: int | None = None,
+        runnable: bool = True,
     ):
-        self._led_max_ma = led_max_ma
+        """A protocol over ``config``.
 
-        self._objective_loader = ObjectiveLoader()
+        Args:
+            runnable: False only for a reader that never runs or edits the
+                protocol (``from_file``'s, which says when): its period and
+                duration are kept as given and not held to the range, and
+                its step cells are kept as read.
 
+        Raises:
+            ProtocolScheduleRefusedError: the config's period or duration
+                cannot be run, and ``runnable`` is True.
+            ProtocolFormatError: a step cell is not of its column's type, and
+                ``runnable`` is True.
+        """
         self._tiling_config = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
 
         if config is None:
@@ -251,10 +930,22 @@ class Protocol:
         else:
             self._config = config
 
-        # Cache for num_steps() -- invalidated by _set_steps() and delete_step().
+        self._runnable = runnable
+        for key in ('period', 'duration'):
+            if runnable and key in self._config:
+                _refuse_unless_runnable(key, self._config[key])
+
+        # Cache for num_steps() -- invalidated by _step_list_changed().
         # num_steps was called 35x per step during real-HW protocol runs, so
         # caching len(self._config['steps']) is a measurable win (M14 follow-up).
         self._num_steps_cache: int | None = None
+
+        # Construction is a frame replacement like any other, so it takes
+        # the same path: a caller's empty or column-less frame becomes the
+        # canonical typed empty frame here, not at the first consumer that
+        # asks it for a column.
+        if 'steps' in self._config:
+            self._set_steps(self._config['steps'])
 
     @staticmethod
     def _build_z_height_map(values) -> dict:
@@ -266,14 +957,31 @@ class Protocol:
 
         return z_height_map
 
+    @api
     def period(self) -> datetime.timedelta:
         return self._config['period']
 
+    @api
     def duration(self) -> datetime.timedelta:
         return self._config['duration']
 
+    @api
     def labware(self) -> str:
         return self._config['labware_id']
+
+    @api
+    def tiling(self) -> str | None:
+        """The tile grid this protocol's steps carry.
+
+        The no-tiling label when no step carries a tile; the grid's label
+        when the steps' tiles form a grid this installation offers; None
+        when they are tiled in a layout it does not offer, which only a
+        hand-edited file produces, since every offered grid is square.
+        """
+        tiles = [t for t in self._config['steps']['Tile'] if t not in (None, '')]
+        if not tiles:
+            return self._tiling_config.no_tiling_label()
+        return self._tiling_config.determine_tiling_label_from_tiles(tiles)
 
     @staticmethod
     def sanitize_step_name(input: str) -> str:
@@ -289,110 +997,112 @@ class Protocol:
         """
         label = Protocol.sanitize_step_name(step_name)
         if label == '':
-            raise ProtocolError(
+            raise StepEditRefusedError(
                 'Step name must contain at least one letter, digit, dash, or underscore.'
             )
         return label
 
+    @api
     def capture_root(self) -> str:
+        """The capture root as it was typed or loaded."""
         return self._config.get('capture_root', '')
 
+    @api
+    def capture_prefix(self) -> str:
+        """The capture root as the prefix of a saved file's name.
+
+        The one derivation, read by the image writer and by post-processing:
+        two derivations named the images ``exp202610_A1_BF`` and looked for
+        ``exp/2026:10_A1_BF``. Empty when there is no root.
+        """
+        return self.sanitize_step_name(self.capture_root() or '')
+
+    @api
     def layer_settings(self) -> dict:
-        """Return per-layer UI settings keyed by layer name.
+        """Return per-layer settings keyed by layer name, each cell typed.
 
-        v6 protocols carry an explicit 'Layer Settings' block in the
-        header; this method returns those values directly. For v5 (and
-        older) files that lack the block, per-layer state is inferred
-        from the steps DataFrame: each unique Color value yields one
-        entry seeded from the first matching step (Illumination, Gain,
-        Auto_Gain, Exposure, False_Color, Sum, Acquire). Returns an
-        empty dict when no inference is possible (no steps, etc.).
+        A protocol loaded from a file with a 'Layer Settings' block returns
+        that block. One without (a v5 file, or a protocol built in memory)
+        has it inferred from its steps: each Color yields one entry seeded
+        from its first step, its Acquire 'video' when any of its steps
+        records video, else 'image'. Stim_Enabled is not inferred: a v5
+        step carries its stimulation per step.
 
-        Values are returned as strings (matching the on-disk format).
-        The UI caller is responsible for casting to float/bool/int.
+        Every cell is read as its column's type: Acquire 'image' or 'video';
+        Illumination, Gain and Exposure floats; Sum an int; Auto_Gain,
+        False_Color and Stim_Enabled bools; any blank cell but Acquire None.
+        An inferred cell its step cannot supply is None (see
+        _layer_settings_inferred_from_steps).
+
+        Raises:
+            ProtocolFormatError: A block cell is not of its column's type. A
+                file is refused at load for it, so a loaded protocol does not.
         """
-        explicit = self._config.get('layer_settings')
-        if explicit:
-            return explicit
-        return self._infer_layer_settings_from_steps()
+        rows = self._config.get('layer_settings')
+        if rows is None:
+            return self._layer_settings_inferred_from_steps()
+        return {name: _typed_layer_settings_row(row) for name, row in rows.items()}
 
-    def _infer_layer_settings_from_steps(self) -> dict:
-        """Fallback for v5 files: build per-layer state from unique Colors.
+    def _layer_settings_inferred_from_steps(self) -> dict:
+        """Each Color's row, typed, from its steps.
 
-        Picks the first step per Color as the representative source
-        for that layer. Honors any 'Acquire' value present in the
-        step row (image/video). Stim_Enabled is left blank because v5
-        steps embed stim_config per-step rather than per-layer.
+        A layer with steps acquires: 'video' when any of its steps records
+        video, else 'image'. Every other cell is read from the layer's first
+        step by its column's reader. A runnable protocol's step cells were
+        typed when it was built, so each reader takes its cell; a cell a
+        reader cannot take, in a protocol kept as read, has no value to
+        infer, so it is None and the layer control keeps what it holds.
         """
+        steps = self._config.get('steps')
+        if steps is None or len(steps) == 0 or 'Color' not in steps.columns:
+            return {}
+        readers = dict(_LAYER_SETTINGS_CELLS)
         out = {}
-        try:
-            steps = self._config.get('steps')
-            if steps is None or len(steps) == 0:
-                return out
-            if 'Color' not in steps.columns:
-                return out
-            for color, group in steps.groupby('Color'):
-                if not color:
-                    continue
-                first = group.iloc[0]
-                acquire = 'image'
-                if 'Acquire' in group.columns:
-                    if (group['Acquire'] == 'video').any():
-                        acquire = 'video'
-                    else:
-                        acquire = str(first.get('Acquire', 'image')) or 'image'
-                out[str(color)] = {
-                    'Layer': str(color),
-                    'Acquire': acquire,
-                    'Illumination': str(first.get('Illumination', '')),
-                    'Gain': str(first.get('Gain', '')),
-                    'Auto_Gain': str(first.get('Auto_Gain', '')),
-                    'Exposure': str(first.get('Exposure', '')),
-                    'False_Color': str(first.get('False_Color', '')),
-                    'Sum': str(first.get('Sum', '')),
-                    'Stim_Enabled': '',
-                }
-        except Exception as e:
-            logger.warning(f'[Protocol] Layer Settings inference failed: {e}')
+        for color, group in steps.groupby('Color'):
+            if not color:
+                continue
+            first = group.iloc[0]
+            video = 'Acquire' in group.columns and (group['Acquire'] == 'video').any()
+            row = {'Layer': str(color), 'Acquire': 'video' if video else 'image'}
+            for column in ('Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'False_Color', 'Sum'):
+                cell = first.get(column)
+                try:
+                    row[column] = readers[column](cell.strip() if isinstance(cell, str) else cell)
+                except ValueError:
+                    row[column] = None
+            row['Stim_Enabled'] = None
+            out[str(color)] = row
         return out
 
-    def set_layer_settings(self, layer_settings: dict) -> None:
-        """Store per-layer UI settings for inclusion in the next to_file().
-
-        Caller (typically ui/protocol_settings.py:save_protocol) gathers
-        current settings[layer][*] from the UI and passes them here
-        right before calling to_file(). Stored on the Protocol instance
-        so to_file's signature stays clean for non-UI callers (REST,
-        headless tests).
-        """
-        if layer_settings is None:
-            self._config.pop('layer_settings', None)
-            return
-        # Defensive copy: don't keep a live reference to the UI's dict.
-        self._config['layer_settings'] = {
-            k: dict(v) for k, v in layer_settings.items() if isinstance(v, dict)
-        }
-
-    def copy_for_execution(self):
+    def copy_for_execution(self) -> 'Protocol':
         """Lightweight copy for protocol execution.
 
-        Copies the config dict and steps DataFrame (which get mutated by
-        autofocus Z updates) but shares the read-only ObjectiveLoader and
-        TilingConfig. Much cheaper than copy.deepcopy() for large protocols
-        with many steps (M14).
+        Copies the config dict, the steps DataFrame (which get mutated by
+        autofocus Z updates) and the Layer Settings, so nothing the run
+        writes reaches the caller's protocol; shares the read-only dicts in
+        the step cells and the read-only TilingConfig. Much cheaper than
+        copy.deepcopy() for large protocols with many steps.
         """
         new_config = dict(self._config)  # shallow copy of config dict
         if 'steps' in new_config:
-            new_config['steps'] = new_config['steps'].copy()  # DataFrame copy
+            new_config['steps'] = new_config['steps'].copy()
+        if 'layer_settings' in new_config:
+            new_config['layer_settings'] = copy.deepcopy(new_config['layer_settings'])
         new = Protocol.__new__(Protocol)
         new._config = new_config
-        new._objective_loader = self._objective_loader  # shared, read-only
         new._tiling_config = self._tiling_config  # shared, read-only
         new._num_steps_cache = None
+        new._runnable = self._runnable
         return new
 
-    def to_file(self, file_path: pathlib.Path, layer_settings: dict | None = None):
-        """Write the protocol to a TSV file.
+    @api
+    def to_file(self, file_path: FilePath, layer_settings: dict | None = None) -> None:
+        """Write the protocol to a TSV file, whole or not at all.
+
+        The file is written beside the target and replaces it only once it is
+        complete, so a write that fails part-way leaves a file already there
+        as it was: opening the target itself empties it first, and a failure
+        then left a stub that no longer loaded.
 
         Args:
             file_path: Destination path.
@@ -401,12 +1111,17 @@ class Protocol:
                 Auto_Gain, Exposure, False_Color, Sum, Stim_Enabled).
                 Only layers whose Acquire is 'image' or 'video' are
                 written. When None, falls back to any layer_settings
-                stored on the Protocol (set by load + the
-                set_layer_settings() helper); when both are absent
+                stored on the Protocol (set by load); when both are absent
                 the file is written without a 'Layer Settings'
                 block (channel-enable state will be inferred from
                 steps on reload, matching the v5 fallback path).
+
+        Raises:
+            ProtocolNotSavedError: the write failed (chained from its
+                ``OSError``); nothing at ``file_path`` changed.
         """
+        file_path = pathlib.Path(file_path)
+        tmp_loc = file_path.with_name(file_path.name + '.tmp')
         if layer_settings is None:
             layer_settings = self._config.get('layer_settings')
         # Manual Z-Stack + single-shot capture pass period=None /
@@ -427,7 +1142,7 @@ class Protocol:
         )
 
         try:
-            with open(file_path, 'w') as fp:
+            with open(tmp_loc, 'w') as fp:
                 csvwriter = csv.writer(
                     fp, delimiter='\t', lineterminator='\n'
                 )  # access the file using the CSV library
@@ -481,7 +1196,7 @@ class Protocol:
                 # Serialize dict columns as JSON strings before writing to CSV.
                 # Without this, pandas uses Python repr (single quotes) which
                 # fails json.loads() on reload.
-                steps_df = self.steps().copy()
+                steps_df = self._config['steps'].copy()
                 for col in ('Video Config', 'Stim_Config'):
                     if col in steps_df.columns:
                         steps_df[col] = steps_df[col].apply(
@@ -490,16 +1205,17 @@ class Protocol:
 
                 protocol_table_str = steps_df.to_csv(sep='\t', lineterminator='\n', index=False)
                 fp.write(protocol_table_str)
+            os.replace(tmp_loc, file_path)
         except Exception as e:
-            logger.error(
-                f'[Protocol] Error saving protocol to file {file_path}. File may be open in another window: {e}'
-            )
-            return f'Error saving protocol to file {file_path}.\n File may be open in another window.\n'
+            with contextlib.suppress(OSError):
+                tmp_loc.unlink(missing_ok=True)
+            if isinstance(e, OSError):
+                raise ProtocolNotSavedError(file=file_path, cause=e) from e
+            raise
 
-        return None
-
-    def optimize_step_ordering(self):
-        steps = self.steps()
+    @api
+    def optimize_step_ordering(self) -> None:
+        steps = self._config['steps']
 
         if len(steps) == 0:
             return
@@ -567,6 +1283,16 @@ class Protocol:
     VALID_ACQUIRE_MODES: ClassVar[set] = {'image', 'video'}
 
     @staticmethod
+    def layer_acquires(layer_config: dict) -> bool:
+        """Whether a layer's settings make it a step: acquire is image or video.
+
+        The one answer for the builder, the step add and the refusal that
+        guards both; a second spelling (``is not None``) once let a config
+        with an empty-string acquire pass the add and build no step.
+        """
+        return layer_config['acquire'] in Protocol.VALID_ACQUIRE_MODES
+
+    @staticmethod
     def _capture_base_names(steps_df: pd.DataFrame) -> pd.Series:
         """The filename base each step's captures render, one per step.
 
@@ -605,23 +1331,40 @@ class Protocol:
             }
         )
 
-    def validate_steps(self, objectives_file: str | None = None) -> list:
+    @api(in_process=True)
+    def validate_steps(
+        self, objective_helper: 'ObjectiveLoader', *, led_max_ma: int | None
+    ) -> list:
         """Validate all step fields and return a list of error strings.
+
+        In-process: a wire client holds no objective catalogue to pass. It is
+        told of a loaded protocol's invalid steps when the protocol loads,
+        and a run start refuses them.
+
+        Args:
+            objective_helper: The scope's objective catalogue; a step naming
+                an objective it lacks is an error.
+            led_max_ma: The connected scope's LED current cap
+                (``capabilities.led_max_ma``). Asked of the caller, not
+                carried on the protocol: a copy made for a run would not
+                carry it, and the gate would admit a step the LED refuses.
+                None on a scope that came up without its LED board: there
+                is no cap to judge against, and a run on it is refused for
+                the missing LED controller.
 
         Returns an empty list if all steps are valid.
         """
         errors = []
-        steps = self.steps()
+        steps = self._config['steps']
         if steps is None or len(steps) == 0:
             return errors
 
-        # Load valid objectives
-        valid_objectives = set()
-        try:
-            obj_loader = ObjectiveLoader()
-            valid_objectives = set(obj_loader.get_objectives_list())
-        except Exception:
-            pass  # skip objective validation if loader fails
+        # The caller's catalogue -- the scope's, read from its data folder. A
+        # loader built here used to answer a failed load by skipping the
+        # objective check for every step, and an empty catalogue skipped it
+        # the same way -- so the one protocol that most needed refusing
+        # validated clean.
+        valid_objectives = set(objective_helper.get_objectives_list())
 
         for idx, step in steps.iterrows():
             label = f'Step {idx + 1} ({step.get("Name", "?")})'
@@ -636,66 +1379,45 @@ class Protocol:
 
             # Objective
             obj = step.get('Objective', '')
-            if valid_objectives and obj not in valid_objectives:
+            if obj not in valid_objectives:
                 errors.append(f"{label}: Objective '{obj}' not found in objectives.json")
 
-            # Exposure -- 0 is valid (blank/placeholder steps)
-            try:
-                exposure = float(step.get('Exposure', 0))
-                if exposure < 0:
-                    errors.append(f'{label}: Exposure must be >= 0, got {exposure}')
-            except (ValueError, TypeError):
-                errors.append(f'{label}: Exposure is not a valid number')
+            # Every cell is already its column's type (_set_steps); what is
+            # judged here is whether the value is one the run can use.
 
-            # Illumination -- the cap is the connected board's, when known
-            try:
-                illum = float(step.get('Illumination', 0))
-                if illum < 0:
-                    errors.append(f'{label}: Illumination must be 0 or more mA, got {illum}')
-                elif self._led_max_ma is not None and illum > self._led_max_ma:
-                    errors.append(
-                        f'{label}: Illumination must be 0-{self._led_max_ma} mA, got {illum}'
-                    )
-            except (ValueError, TypeError):
-                errors.append(f'{label}: Illumination is not a valid number')
+            # Exposure -- no camera takes 0 ms; the camera's own floor is
+            # checked when the run is prepared, against the connected body.
+            exposure = step['Exposure']
+            if exposure <= 0:
+                errors.append(f'{label}: Exposure must be more than 0 ms, got {exposure}')
 
-            # Gain
-            try:
-                gain = float(step.get('Gain', 0))
-                if gain < 0:
-                    errors.append(f'{label}: Gain must be >= 0, got {gain}')
-            except (ValueError, TypeError):
-                errors.append(f'{label}: Gain is not a valid number')
+            # Illumination -- the cap is the connected board's
+            illum = step['Illumination']
+            if illum < 0:
+                errors.append(f'{label}: Illumination must be 0 or more mA, got {illum}')
+            elif led_max_ma is not None and illum > led_max_ma:
+                errors.append(f'{label}: Illumination must be 0-{led_max_ma} mA, got {illum}')
 
-            # Sum
-            try:
-                sum_count = int(step.get('Sum', 1))
-                if sum_count < 1:
-                    errors.append(f'{label}: Sum must be >= 1, got {sum_count}')
-                elif sum_count > 100:
-                    logger.warning(
-                        f'[PROTOCOL] {label}: Sum count {sum_count} is unusually high (> 100). This may cause long capture times.'
-                    )
-            except (ValueError, TypeError):
-                errors.append(f'{label}: Sum is not a valid integer')
+            gain = step['Gain']
+            if gain < 0:
+                errors.append(f'{label}: Gain must be >= 0, got {gain}')
 
-            # Acquire mode
-            acquire = step.get('Acquire', 'image')
-            if acquire not in self.VALID_ACQUIRE_MODES:
-                errors.append(f"{label}: Acquire must be 'image' or 'video', got '{acquire}'")
+            sum_count = step['Sum']
+            if sum_count < 1:
+                errors.append(f'{label}: Sum must be >= 1, got {sum_count}')
+            elif sum_count > 100:
+                logger.warning(
+                    f'[PROTOCOL] {label}: Sum count {sum_count} is unusually high (> 100). This may cause long capture times.'
+                )
 
-            # Video Config (only validate if acquire == 'video')
-            if acquire == 'video':
-                vc = step.get('Video Config', {})
-                if isinstance(vc, dict):
-                    fps = vc.get('fps', 0)
-                    duration = vc.get('duration', 0)
-                    if not isinstance(fps, (int, float)) or fps <= 0:
-                        errors.append(f'{label}: Video Config fps must be > 0')
-                    if not isinstance(duration, (int, float)) or duration <= 0:
-                        errors.append(f'{label}: Video Config duration must be > 0')
-                else:
-                    errors.append(f'{label}: Video Config is not a valid dict')
+            if step['Acquire'] == 'video':
+                vc = step['Video Config']
+                fps = vc.get('fps', 0)
+                duration = vc.get('duration', 0)
+                if not isinstance(fps, (int, float)) or fps <= 0:
+                    errors.append(f'{label}: Video Config fps must be > 0')
+                if not isinstance(duration, (int, float)) or duration <= 0:
+                    errors.append(f'{label}: Video Config duration must be > 0')
 
             # Name length
             name = step.get('Name', '')
@@ -705,44 +1427,36 @@ class Protocol:
         return errors
 
     def validate_for_run(
-        self, axis_limits: dict | None = None, stage_offset: dict | None = None
+        self,
+        *,
+        objective_helper: 'ObjectiveLoader',
+        wellplate_loader: 'labware_loader.WellPlateLoader',
+        led_max_ma: int | None,
     ) -> list:
-        """Validate protocol is safe to execute on hardware.
+        """Validate that the protocol's steps are well-formed enough to run.
 
-        Checks positions are within axis travel limits. Call this before
-        starting a protocol run. validate_steps() checks field format;
-        this method checks runtime safety.
-
-        Step X/Y are stored in plate millimetres -- the same values the
-        protocol runner feeds through plate_to_stage before moving -- while
-        the axis limits are stage micrometres. This converts X/Y to the stage
-        frame the same way the runner does, so a step that lands off the
-        physical stage is caught here instead of slipping through a
-        plate-mm-vs-stage-um mismatch. Z is stored in stage um and compared
-        directly.
+        validate_steps() checks the camera and objective fields; this adds the
+        checks a run needs on top: unique capture filenames and a known plate.
+        Whether the positions lie inside the stage's travel is the scope's
+        question, asked by the run gate
+        (``ProtocolsAPI.refuse_positions_outside_travel``).
 
         Args:
-            axis_limits: dict mapping axis name to {'min': float, 'max': float}
-                in stage um. Example: {'X': {'min': 0, 'max': 120000}, ...}
-            stage_offset: {'x': float, 'y': float} in um, used to convert step
-                X/Y from plate-mm to stage-um. Required when axis_limits
-                includes X or Y; may be None only when X/Y are not checked.
+            objective_helper: The scope's objective catalogue.
+            wellplate_loader: The scope's labware catalogue.
+            led_max_ma: The scope's LED current cap (``capabilities.led_max_ma``);
+                None with no LED board (see ``validate_steps``).
 
         Returns:
             List of error strings. Empty list if all checks pass.
-
-        Raises:
-            ValueError: If axis_limits requests an X or Y check but
-                stage_offset is None, since the plate-mm to stage-um
-                conversion cannot run without it.
         """
         errors = []
-        steps = self.steps()
+        steps = self._config['steps']
         if steps is None or len(steps) == 0:
             return errors
 
         # Validate step field values first
-        errors.extend(self.validate_steps())
+        errors.extend(self.validate_steps(objective_helper, led_max_ma=led_max_ma))
 
         # Refuse a run whose steps would write identical files. Collisions
         # are caught here, loudly, before any hardware moves -- never left
@@ -760,116 +1474,67 @@ class Protocol:
                         f'Rename these steps so each produces a unique filename.'
                     )
 
-        # Load labware once: it backs both the known-plate check and the
-        # plate-mm -> stage-um conversion the position check needs. Use
-        # is_known_plate() rather than plate_list membership so legacy/alias
-        # names (e.g. "384 well Corning Spheroid Microplate" -> "384 well
-        # microplate") are accepted here exactly as they are at runtime in
-        # get_plate(). Without this, validation hard-fails on names that
-        # would have run fine.
-        from modules import labware_loader
-
-        loader = labware_loader.WellPlateLoader()
+        # Use is_known_plate() rather than plate_list membership so
+        # legacy/alias names (e.g. "384 well Corning Spheroid Microplate" ->
+        # "384 well microplate") are accepted here exactly as they are at
+        # runtime in get_plate(). Without this, validation hard-fails on
+        # names that would have run fine.
+        loader = wellplate_loader
         labware_key = self.labware()
-        labware = None
         if labware_key:
             try:
-                if loader.is_known_plate(labware_key):
-                    labware = loader.get_plate(plate_key=labware_key)
-                else:
+                if not loader.is_known_plate(labware_key):
                     plate_list = loader.get_plate_list()
                     errors.append(
                         f"Labware '{labware_key}' not found. Available: {', '.join(plate_list)}"
                     )
             except Exception as ex:
-                # A loader failure leaves labware unvalidated and disables the
-                # X/Y position check (no plate to convert against); surface it
-                # so the gap is visible rather than a silently-skipped net.
+                # A loader failure leaves labware unvalidated; surface it so
+                # the gap is visible rather than a silently-skipped net.
                 logger.warning(f'[Protocol] Labware validation skipped for {labware_key!r}: {ex}')
-
-        if axis_limits:
-            checks_xy = ('X' in axis_limits) or ('Y' in axis_limits)
-            if checks_xy and labware is not None and stage_offset is None:
-                raise ValueError(
-                    'validate_for_run needs stage_offset to check X/Y travel limits: '
-                    'step X/Y are plate-mm and must convert to stage-um.'
-                )
-            from modules import coord_transformations
-
-            transformer = coord_transformations.CoordinateTransformer()
-            for idx, step in steps.iterrows():
-                label = f'Step {idx + 1} ({step.get("Name", "?")})'
-
-                # Convert this step's plate-mm X/Y into the stage-um frame the
-                # limits are in. stage_x/stage_y stay None when X/Y cannot be
-                # converted (no labware, or a non-numeric coordinate reported
-                # per-axis below), so the limit check is skipped rather than
-                # comparing the wrong frame.
-                stage_x = stage_y = None
-                x_invalid = y_invalid = False
-                if checks_xy and labware is not None:
-                    try:
-                        px = float(step.get('X', 0))
-                    except (ValueError, TypeError):
-                        x_invalid = True
-                    try:
-                        py = float(step.get('Y', 0))
-                    except (ValueError, TypeError):
-                        y_invalid = True
-                    if not x_invalid and not y_invalid:
-                        stage_x, stage_y = transformer.plate_to_stage(
-                            labware=labware, stage_offset=stage_offset, px=px, py=py
-                        )
-
-                for axis in ('X', 'Y', 'Z'):
-                    if axis not in axis_limits:
-                        continue
-                    if axis == 'Z':
-                        # Z is stored in stage um; no conversion needed.
-                        try:
-                            pos = float(step.get('Z', 0))
-                        except (ValueError, TypeError):
-                            errors.append(f'{label}: Z position is not a valid number')
-                            continue
-                    elif labware is None:
-                        # Cannot convert without labware; the missing/unknown
-                        # plate is already reported above and blocks the run.
-                        continue
-                    elif axis == 'X':
-                        if x_invalid:
-                            errors.append(f'{label}: X position is not a valid number')
-                            continue
-                        if stage_x is None:
-                            continue
-                        pos = stage_x
-                    else:
-                        if y_invalid:
-                            errors.append(f'{label}: Y position is not a valid number')
-                            continue
-                        if stage_y is None:
-                            continue
-                        pos = stage_y
-                    limits = axis_limits[axis]
-                    if pos < limits['min'] or pos > limits['max']:
-                        errors.append(
-                            f'{label}: {axis} position {pos} um is outside travel limits '
-                            f'({limits["min"]}-{limits["max"]} um)'
-                        )
 
         return errors
 
+    @api
     def num_steps(self) -> int:
         if self._num_steps_cache is None:
             self._num_steps_cache = len(self._config['steps'])
         return self._num_steps_cache
 
+    def _refuse_unless_in_range(self, idx: int, *, lowest: int = 0, past_end: int = 0) -> None:
+        """Refuse an index that names no step, before anything is written.
+
+        A step index is 0..num_steps-1. insert_step's places widen it by one
+        at an end: before_step may be num_steps (at the end) and after_step
+        -1 (after no step, which is how an empty protocol takes its first).
+        Checked here and not left to pandas, whose .at answers an index past
+        the end, or -1, by appending a row nobody added.
+
+        Raises:
+            StepNotFoundError: idx is outside the range.
+        """
+        num_steps = self.num_steps()
+        highest = num_steps - 1 + past_end
+        if lowest <= idx <= highest:
+            return
+        raise StepNotFoundError(idx, num_steps)
+
+    @api
+    @property
+    def step_list_revision(self) -> int:
+        return self._step_list_revision
+
+    def _step_list_changed(self) -> None:
+        self._num_steps_cache = None
+        self._step_list_revision += 1
+
     def _set_steps(self, df: pd.DataFrame) -> None:
-        """Assign the steps DataFrame and invalidate the num_steps cache.
+        """Assign the steps DataFrame and record that the step list changed.
 
         All code paths that replace self._config['steps'] should go through
-        this helper so the cache stays consistent. In-place mutations (e.g.
-        delete_step's drop(inplace=True)) must set self._num_steps_cache = None
-        explicitly.
+        this helper so the cache and the revision stay consistent. In-place
+        row mutations (e.g. delete_step's drop(inplace=True)) must call
+        _step_list_changed() explicitly.
 
         A steps frame always carries the full column schema, at any row
         count. The expansions build their replacement with
@@ -880,36 +1545,203 @@ class Protocol:
         the one place the frame is replaced, keeps a protocol with no steps
         a queryable protocol for every consumer instead of each one
         carrying its own guard.
+
+        A frame WITH rows must already carry every current column. Run code
+        indexes columns by name mid-scan (the capture path reads 'Label' for
+        the filename, tiling reads 'Auto_Named'), so a frame missing one
+        would pass construction and fail every scan as a bare KeyError that
+        the run loop cannot tell from a hardware fault. Extra columns are
+        allowed: the z-stack marking adds and removes its own.
+
+        Every cell of a runnable protocol is read by its column's reader
+        (_STEP_CELLS), and each column takes the schema's dtype
+        (_create_empty_steps_df): a cell of the wrong type refuses the frame,
+        so a reader never meets one and nothing is guessed for it. A
+        protocol that is not runnable keeps its cells as given.
+
+        The dicts in its Video Config and Stim_Config cells are stored
+        read-only (ReadOnlyDict), so a copy of the frame can share them.
+
+        A step's index is its position: the frame is renumbered 0..n-1 here.
+        The writers address a step by label (.at) and step() by position
+        (iloc), and a caller's frame may carry any index, so without this a
+        write to an index in range lands on a new row instead of that step.
+
+        Raises:
+            ProtocolError: a non-empty frame is missing current columns.
+            ProtocolFormatError: a cell of a runnable protocol is not of its
+                column's type; the words name the step and the column.
         """
         if df.empty:
             df = self._create_empty_steps_df()
+        else:
+            missing = [c for c in self.CURRENT_COLUMNS if c not in df.columns]
+            if missing:
+                raise ProtocolError(f'Protocol steps are missing required columns: {missing}')
+            if self._runnable:
+                df = self._typed_steps(df)
+            df = df.assign(
+                **{
+                    column: pd.Series(
+                        [_read_only(cell) for cell in df[column]], index=df.index, dtype=object
+                    )
+                    for column in _DICT_COLUMNS
+                    if column in df.columns
+                }
+            ).reset_index(drop=True)
         self._config['steps'] = df
-        self._num_steps_cache = None
+        self._step_list_changed()
 
+    @classmethod
+    def _typed_steps(cls, df: pd.DataFrame) -> pd.DataFrame:
+        """``df`` with every step column read by its reader and given its dtype.
+
+        Raises:
+            ProtocolFormatError: a cell is not of its column's type.
+        """
+        dtypes = cls._create_empty_steps_df().dtypes
+        columns = {
+            column: pd.Series(
+                [_read_step_cell(df, column, position) for position in range(len(df))],
+                index=df.index,
+                dtype=dtypes[column],
+            )
+            for column in _STEP_CELLS
+        }
+        return df.assign(**columns)
+
+    @staticmethod
+    def _typed_value(column: str, value: object) -> object:
+        """``value`` read as a ``column`` cell, for a write in place.
+
+        A frame does not hold its schema: pandas admits None into a number or
+        text column and anything into a dict column, so each in-place writer
+        reads its values here before it writes.
+
+        Raises:
+            StepEditRefusedError: ``value`` is not of the column's type.
+        """
+        try:
+            return _STEP_CELLS[column](value)
+        except ValueError as e:
+            raise StepEditRefusedError(f'a step {column} of {value!r} {e}') from None
+
+    @api(in_process=True)
     def steps(self) -> pd.DataFrame:
-        return self._config['steps']
+        """A copy of the steps frame.
 
-    def modify_autofocus(self, step_idx: int, enabled: bool):
-        self._config['steps'].at[step_idx, 'Auto_Focus'] = enabled
+        A write to it does not reach the protocol, and its dict cells are
+        read-only, so a write into one raises: the protocol changes only
+        through its writers. Readers inside this class use the stored frame.
+        """
+        return self._config['steps'].copy()
 
-    def modify_autofocus_all_steps(self, enabled: bool):
+    @api
+    def estimate_write_mb(self, *, video_as_frames: bool = False, global_max_fps: float) -> float:
+        """Estimate the disk this whole protocol will write, in MB.
+
+        One owner for "how big is this protocol", so the pre-run free-space
+        guard and anything that wants to tell the user up front cannot drift
+        apart. Lives on Protocol because the estimate has to know the steps
+        frame schema, and Protocol is what guarantees that schema at any row
+        count.
+
+        Stateless by design -- no cached total. A cache here has to be
+        invalidated by every mutator, and the in-place ones (modify_step
+        flipping Acquire, delete_step dropping rows) do not go through the
+        one place that would clear it; a stale total silently under-reserves
+        disk for a run. Recomputing costs single-digit milliseconds on a
+        protocol large enough to care about.
+
+        Returns the estimate only, NOT floored at the run's minimum free-disk
+        figure. That floor is the disk guard's refusal policy, not a property
+        of the protocol -- folding it in would project gigabytes for a
+        three-step protocol.
+
+        Total by construction, like the per-step estimator it sums: it must
+        not raise on any protocol, because the run loop calls it inside a
+        broad except where a raise would silently disable the disk guard.
+
+        Args:
+            video_as_frames: Run-level flag -- video saved as individual
+                frames rather than a compressed MP4.
+            global_max_fps: The run's snapshot of the global video FPS cap
+                (0 = uncapped), so a video step is never sized at a rate the
+                recording will not run at.
+
+        Returns:
+            Estimated megabytes the whole protocol will write.
+        """
+        steps = self._config['steps']
+        n_steps = len(steps)
+        if n_steps == 0:
+            return 0.0
+
+        # Every non-video step costs the same constant, so they are counted
+        # with one mask and multiplied; only video rows have to be visited.
+        # The mask matches the per-step estimator's own `!= 'video'` test --
+        # NaN, missing and 'image' all compare False.
+        video_mask = (steps['Acquire'] == 'video').to_numpy()
+        n_video = int(video_mask.sum())
+        image_mb = common_utils.estimate_step_write_mb(
+            None, video_as_frames=video_as_frames, global_max_fps=global_max_fps
+        )
+        total = float((n_steps - n_video) * image_mb)
+        # Positional, matching step()'s own .iloc, so this total and a
+        # per-step sum over the same protocol agree exactly.
+        for pos in np.flatnonzero(video_mask):
+            total += common_utils.estimate_step_write_mb(
+                steps.iloc[pos],
+                video_as_frames=video_as_frames,
+                global_max_fps=global_max_fps,
+            )
+        return total
+
+    @api
+    def size_advisory(
+        self, *, video_as_frames: bool = False, global_max_fps: float
+    ) -> ProtocolSizeAdvisory | None:
+        """Describe this protocol if it is large enough to warn about, else None.
+
+        The threshold and the sentence live here rather than in the GUI: a
+        REST caller asking how big a protocol is should get the same answer,
+        and the GUI's job is to render what comes back.
+
+        Advisory only. Nothing here refuses anything -- a legitimate large
+        protocol runs untouched, and the run-start disk guard is unchanged.
+        """
+        num_steps = self.num_steps()
+        if num_steps <= common_utils.PROTOCOL_SIZE_ADVISORY_STEPS:
+            return None
+
+        projected_mb = self.estimate_write_mb(
+            video_as_frames=video_as_frames, global_max_fps=global_max_fps
+        )
+        return ProtocolSizeAdvisory(
+            num_steps=num_steps,
+            projected_mb=projected_mb,
+            message=(
+                f'{num_steps:,} steps, about '
+                f'{common_utils.format_disk_size_mb(projected_mb)} of images. '
+                f'Check free disk before running.'
+            ),
+        )
+
+    @api
+    def modify_autofocus(self, step_idx: int, enabled: bool) -> None:
+        self._refuse_unless_in_range(step_idx)
+        self._config['steps'].at[step_idx, 'Auto_Focus'] = self._typed_value('Auto_Focus', enabled)
+
+    @api
+    def modify_autofocus_all_steps(self, enabled: bool) -> None:
         for idx, _ in self._config['steps'].iterrows():
             self.modify_autofocus(step_idx=idx, enabled=enabled)
 
-    def delete_step(self, step_idx: int):
-        num_steps = self.num_steps()
-
-        if num_steps < 1:
-            return
-
-        if step_idx >= self.num_steps():
-            raise ProtocolError(
-                f'Cannot delete step idx {step_idx}. Protocol only has {self.num_steps()}.'
-            )
-
+    def delete_step(self, step_idx: int) -> None:
+        self._refuse_unless_in_range(step_idx)
         self._config['steps'].drop(index=step_idx, axis=0, inplace=True)
         self._config['steps'].reset_index(drop=True, inplace=True)
-        self._num_steps_cache = None
+        self._step_list_changed()
 
     def modify_labware(
         self,
@@ -917,16 +1749,58 @@ class Protocol:
     ):
         self._config['labware_id'] = labware_id
 
+    @api
     def modify_time_params(
         self,
-        period: datetime.timedelta,
-        duration: datetime.timedelta,
-    ):
+        period: datetime.timedelta | None,
+        duration: datetime.timedelta | None,
+    ) -> None:
+        """Give the protocol a new period and duration, both or neither.
+
+        Raises:
+            ProtocolScheduleRefusedError: either cannot be run; the protocol keeps
+                the timing it had.
+        """
+        _refuse_unless_runnable('period', period)
+        _refuse_unless_runnable('duration', duration)
         self._config['period'] = period
         self._config['duration'] = duration
 
-    def modify_step_z_height(self, step_idx: int, z: float):
-        self._config['steps'].at[step_idx, 'Z'] = z
+    def modify_step_z_height(self, step_idx: int, z: float) -> None:
+        self._refuse_unless_in_range(step_idx)
+        self._config['steps'].at[step_idx, 'Z'] = self._typed_value('Z', z)
+
+    # What makes a step the one a focus was found for. Not the step-list
+    # revision: an Update moves a step without changing the list.
+    _FOCUS_IDENTITY = (
+        ('X', 'position'),
+        ('Y', 'position'),
+        ('Color', 'channel'),
+        ('Objective', 'objective'),
+    )
+
+    def adopt_focus_from(self, scanned: 'Protocol') -> None:
+        """Take the Z of every step from *scanned*, the copy a scan focused.
+
+        All or nothing: the steps must be the ones the scan focused -- the
+        same number, each at the same position, channel and objective --
+        or no Z is written.
+
+        Raises:
+            FocusNotWrittenError: The steps differ from the scanned copy's.
+        """
+        mine = self._config['steps']
+        theirs = scanned._config['steps']
+        if len(mine) != len(theirs):
+            raise FocusNotWrittenError(
+                f'the protocol has {len(mine)} steps, not the {len(theirs)} the scan focused'
+            )
+        for idx in range(len(mine)):
+            for column, words in self._FOCUS_IDENTITY:
+                now, then = mine.iloc[idx][column], theirs.iloc[idx][column]
+                if not (now == then or (pd.isna(now) and pd.isna(then))):
+                    raise FocusNotWrittenError(f"step {idx + 1}'s {words} changed")
+        mine['Z'] = theirs['Z'].to_numpy()
 
     def zstack_group_focus_anchor(self, step_idx: int) -> int | None:
         """The slice holding this step's group focus reference, or None.
@@ -961,6 +1835,8 @@ class Protocol:
 
         Returns the number of slices moved.
         """
+        self._refuse_unless_in_range(reference_step_idx)
+        z = self._typed_value('Z', z)
         steps = self._config['steps']
         group_id = steps.at[reference_step_idx, 'Z-Stack Group ID']
         shift = z - steps.at[reference_step_idx, 'Z']
@@ -988,6 +1864,7 @@ class Protocol:
         Returns:
             Number of steps updated.
         """
+        z = self._typed_value('Z', z)
         steps_df = self._config['steps']
         if steps_df is None or len(steps_df) == 0:
             return 0
@@ -997,8 +1874,21 @@ class Protocol:
             steps_df.loc[mask, 'Z'] = z
         return count
 
-    def modify_capture_root(self, capture_root: str):
+    @api
+    def modify_capture_root(self, capture_root: str) -> None:
         self._config['capture_root'] = capture_root
+
+    def _render_step_names(self) -> None:
+        """Render every step's derived Name from its structured columns."""
+        steps = self._config['steps']
+        steps['Name'] = pd.Series(
+            [
+                common_utils.build_step_name(common_utils.step_components(row))
+                for _, row in steps.iterrows()
+            ],
+            index=steps.index,
+            dtype=self._create_empty_steps_df().dtypes['Name'],
+        )
 
     def _regenerate_step_name(self, step_idx: int) -> str:
         """Re-render the step's derived Name from its structured columns.
@@ -1016,15 +1906,8 @@ class Protocol:
         self,
         step_idx: int,
         step_name: str,
-    ):
-        if step_idx < 0:
-            raise ProtocolError('Step idx must be > 0')
-
-        if step_idx >= self.num_steps():
-            raise ProtocolError(
-                f'Cannot modify step idx {step_idx}. Protocol only has {self.num_steps()}.'
-            )
-
+    ) -> None:
+        self._refuse_unless_in_range(step_idx)
         self._config['steps'].at[step_idx, 'Label'] = Protocol._sanitized_label(step_name)
         # A user typing a name makes it theirs: clear the auto flag so a later
         # channel change does not regenerate over it.
@@ -1040,7 +1923,7 @@ class Protocol:
         objective_id: str,
         stim_configs: dict,
         label: str | None = None,
-    ):
+    ) -> None:
         """Update a step in place; label=None keeps the step's existing label.
 
         A non-None label is a user rename (clears the auto flag). The derived
@@ -1048,39 +1931,33 @@ class Protocol:
         change updates exactly the channel token while the label -- user text
         or auto base -- rides along untouched.
         """
+        self._refuse_unless_in_range(step_idx)
 
-        def _validate_inputs():
-            if step_idx < 0:
-                raise ProtocolError('Step idx must be > 0')
-
-            if step_idx >= self.num_steps():
-                raise ProtocolError(
-                    f'Cannot modify step idx {step_idx}. Protocol only has {self.num_steps()}.'
-                )
-
-        _validate_inputs()
-
+        # Every value is read before any is written, so a refused one leaves
+        # the step as it was.
+        values = {
+            'X': plate_position['x'],
+            'Y': plate_position['y'],
+            'Z': plate_position['z'],
+            'Auto_Focus': layer_config['autofocus'],
+            'Color': layer,
+            'False_Color': layer_config['false_color'],
+            'Illumination': layer_config['illumination_ma'],
+            'Gain': layer_config['gain_db'],
+            'Auto_Gain': layer_config['auto_gain'],
+            'Exposure': layer_config['exposure_ms'],
+            'Sum': layer_config['sum'],
+            'Objective': objective_id,
+            'Acquire': layer_config['acquire'],
+            'Video Config': copy.deepcopy(layer_config['video_config']),
+            'Stim_Config': copy.deepcopy(stim_configs),
+        }
+        typed = {column: self._typed_value(column, value) for column, value in values.items()}
         if label is not None:
-            self._config['steps'].at[step_idx, 'Label'] = Protocol._sanitized_label(label)
-            self._config['steps'].at[step_idx, 'Auto_Named'] = False
-        self._config['steps'].at[step_idx, 'X'] = plate_position['x']
-        self._config['steps'].at[step_idx, 'Y'] = plate_position['y']
-        self._config['steps'].at[step_idx, 'Z'] = plate_position['z']
-
-        self._config['steps'].at[step_idx, 'Auto_Focus'] = layer_config['autofocus']
-        self._config['steps'].at[step_idx, 'Color'] = layer
-        self._config['steps'].at[step_idx, 'False_Color'] = layer_config['false_color']
-        self._config['steps'].at[step_idx, 'Illumination'] = layer_config['illumination_ma']
-        self._config['steps'].at[step_idx, 'Gain'] = layer_config['gain_db']
-        self._config['steps'].at[step_idx, 'Auto_Gain'] = layer_config['auto_gain']
-        self._config['steps'].at[step_idx, 'Exposure'] = layer_config['exposure_ms']
-        self._config['steps'].at[step_idx, 'Sum'] = int(layer_config['sum'])
-        self._config['steps'].at[step_idx, 'Objective'] = objective_id
-        self._config['steps'].at[step_idx, 'Acquire'] = layer_config['acquire']
-        self._config['steps'].at[step_idx, 'Video Config'] = copy.deepcopy(
-            layer_config['video_config']
-        )
-        self._config['steps'].at[step_idx, 'Stim_Config'] = copy.deepcopy(stim_configs)
+            typed['Label'] = Protocol._sanitized_label(label)
+            typed['Auto_Named'] = False
+        for column, value in typed.items():
+            self._config['steps'].at[step_idx, column] = _read_only(value)
         self._regenerate_step_name(step_idx=step_idx)
 
     def insert_step(
@@ -1091,22 +1968,21 @@ class Protocol:
         plate_position: dict,
         objective_id: str,
         stim_configs: dict,
-        before_step: int | None = 0,
+        before_step: int | None = None,
         after_step: int | None = None,
     ) -> str:
 
         def _validate_inputs():
             if (before_step is None) and (after_step is None):
-                raise ProtocolError('Must specify after_step or before_step')
+                raise StepEditRefusedError('Must specify after_step or before_step')
 
             if (before_step is not None) and (after_step is not None):
-                raise ProtocolError('Must specify only after_step or before_step, not both')
+                raise StepEditRefusedError('Must specify only after_step or before_step, not both')
 
-            if (before_step is not None) and (before_step < 0):
-                raise ProtocolError('before_step cannot be < 0')
-
-            if (after_step is not None) and (after_step > self.num_steps()):
-                raise ProtocolError('after_step cannot be > num_steps')
+            if before_step is not None:
+                self._refuse_unless_in_range(before_step, past_end=1)
+            else:
+                self._refuse_unless_in_range(after_step, lowest=-1)
 
         _validate_inputs()
 
@@ -1181,6 +2057,7 @@ class Protocol:
 
         return step_dict['Name']
 
+    @api
     def step(self, idx: int) -> pd.Series:
         """One step, as a DETACHED copy of its row.
 
@@ -1192,17 +2069,7 @@ class Protocol:
         position from, so a stale hold does not merely misinform the caller,
         it is written into the saved image.
         """
-
-        def _validate():
-            if idx < 0:
-                raise ProtocolError('Step index cannot be < 0')
-
-            if idx >= self.num_steps():
-                raise ProtocolError(
-                    f'Step idx {idx} does not exist. Protocol only has {self.num_steps()}.'
-                )
-
-        _validate()
+        self._refuse_unless_in_range(idx)
         return to_python_scalars(self._config['steps'].iloc[idx])
 
     def apply_tiling(
@@ -1210,50 +2077,78 @@ class Protocol:
         tiling: str,
         frame_dimensions: dict,
         binning_size: int,
-        curr_step_idx: int,
-        axes_config: dict,
+        axis_limits: dict,
         labware: 'labware_module.WellPlate',
         stage_offset: dict,
         overlap_percent: float = 0.0,
         *,
         capabilities: 'ScopeCapabilities',
-    ) -> dict:
-        """Expand every step into a tile grid; returns a status dict.
+        objective_helper: 'ObjectiveLoader',
+    ) -> None:
+        """Expand every step into a tile grid, in the order a run visits them.
 
         The tile spacing derives from each step's objective and the scope's
-        optics, so the caller that owns the scope hands its capabilities in;
-        a protocol is a data object handed a scale, never one that finds a
-        scope.
+        optics, so the caller that owns the scope hands its capabilities and
+        its objective catalogue in; a protocol is a data object handed a
+        scale, never one that finds a scope. *axis_limits* holds the travel
+        of each axis the scope has a motor for, and only those.
+
+        Raises:
+            ProtocolRunRefusedError: the grid is not one this installation
+                offers, the protocol is already tiled, a step's objective is
+                not in the catalogue, the scope has no X/Y motor, or a tile
+                falls outside the stage's travel. Each is refused before any
+                step changes, and reported once.
         """
 
-        status = {
-            'tiles_skipped': 0,
-        }
+        # Every refusal comes before anything below touches the steps: a
+        # refused build leaves the protocol as it was.
+        _refuse_unless_tiling_offered(self._tiling_config, tiling)
 
-        if tiling == '1x1':
-            return status
+        # Tiled steps are carried over as they are, so a second grid over a
+        # tiled protocol would change nothing while reporting success. There is
+        # no un-tile path; the untiled protocol has to be reloaded.
+        no_tiling = self._tiling_config.no_tiling_label()
+        current_tiling = self.tiling()
+        if current_tiling != no_tiling:
+            grid = f' ({current_tiling})' if current_tiling else ''
+            _refuse_build(
+                reason='already_tiled',
+                title='Protocol Already Tiled',
+                message=(
+                    f'This protocol is already tiled{grid}. Reload the '
+                    f'original (untiled) protocol before changing the tiling.'
+                ),
+            )
 
-        fill_factor = TilingConfig.fill_factor_from_overlap_percent(overlap_percent)
+        # Judged before the one-tile return: an overlap no grid can take is
+        # refused whatever grid it came with.
+        fill_factor = _fill_factor_or_refuse(overlap_percent)
+        if tiling == no_tiling:
+            return
 
-        try:
-            orig_steps_df = self.steps()
+        limits = _axis_limits_or_refuse(axis_limits, ('X', 'Y'), what='a tile grid')
 
-            # Add objective focal length to steps dataframe
-            objectives = self._objective_loader.get_objectives_dataframe()['focal_length']
+        # A copy: the focal-length column is working data for this build, and
+        # the stored frame is the protocol's own.
+        orig_steps_df = self._config['steps'].copy()
+        objectives = objective_helper.get_objectives_dataframe()['focal_length']
+        orig_steps_df['focal_length'] = orig_steps_df['Objective'].map(objectives)
 
-            orig_steps_df['focal_length'] = orig_steps_df['Objective'].map(objectives)
-
-        except Exception as e:
-            logger.error(f'Error adding objective focal length to steps dataframe: {e}')
-            return status
-
-        try:
-            x_limits = axes_config['X']['limits']
-            y_limits = axes_config['Y']['limits']
-
-        except Exception as e:
-            logger.error(f'Error getting axes limits from axes_config: {e}')
-            return status
+        # A step whose objective the catalogue does not know has no focal
+        # length, and its tiles would land at NaN positions.
+        unknown = sorted(
+            {str(o) for o in orig_steps_df.loc[orig_steps_df['focal_length'].isna(), 'Objective']}
+        )
+        if unknown:
+            _refuse_build(
+                reason='objective_not_in_catalogue',
+                title='Objective Not Known',
+                message=(
+                    f'The protocol names {", ".join(unknown)}, which is not in this '
+                    f"scope's objective catalogue, so its tile spacing cannot be worked out."
+                ),
+            )
 
         existing_max_tile_group_id = orig_steps_df['Tile Group ID'].max()
         tile_group_id = existing_max_tile_group_id + 1
@@ -1269,26 +2164,22 @@ class Protocol:
         tiled_zstack_group_ids: dict[tuple[int, str], int] = {}
 
         new_steps = []
+        outside: dict[str, int] = {}
+        new_tiles = 0
 
         for idx, row in orig_steps_df.iterrows():
-            try:
-                tiles = self._tiling_config.get_tile_centers(
-                    config_label=tiling,
-                    focal_length=row['focal_length'],
-                    frame_size=frame_dimensions,
-                    fill_factor=fill_factor,
-                    binning_size=binning_size,
-                    capabilities=capabilities,
-                )
-            except ConfigError:
-                # Scale unknown is a scope-wide condition, not a per-step bounds
-                # miss: every step shares the same pixel size, so no step can be
-                # tiled. Propagate to the UI, which reports tiling unavailable
-                # rather than silently building a partial, misaligned grid.
-                raise
-            except Exception as e:
-                logger.error(f'Error getting tile centers for step {idx}: {e}')
-                tiles = {}
+            # A step whose grid cannot be computed (ConfigError when the scale
+            # is unknown, which no step can tile around) fails the whole build:
+            # the steps are only replaced at the end, so the protocol is left
+            # as it was rather than silently missing that step.
+            tiles = self._tiling_config.get_tile_centers(
+                config_label=tiling,
+                focal_length=row['focal_length'],
+                frame_size=frame_dimensions,
+                fill_factor=fill_factor,
+                binning_size=binning_size,
+                capabilities=capabilities,
+            )
 
             orig_step_df = orig_steps_df.iloc[idx]
             orig_step_dict = orig_step_df.to_dict()
@@ -1304,6 +2195,7 @@ class Protocol:
 
             x = orig_step_df['X']
             y = orig_step_df['Y']
+            new_tiles += len(tiles)
 
             for tile_label, tile_position in tiles.items():
                 x_tile = round(
@@ -1313,21 +2205,14 @@ class Protocol:
                     y + tile_position['y'] / 1000, common_utils.max_decimal_precision('y')
                 )  # in 'plate' coordinates
 
-                sx, sy = coordinate_transformer.plate_to_stage(
-                    labware=labware, stage_offset=stage_offset, px=x_tile, py=y_tile
-                )
-
-                # Check if tile is within stage limits
-                if (
-                    (sx > x_limits['max'])
-                    or (sx < x_limits['min'])
-                    or (sy > y_limits['max'])
-                    or (sy < y_limits['min'])
+                if axes_outside_travel(
+                    {'X': x_tile, 'Y': y_tile},
+                    limits,
+                    labware=labware,
+                    stage_offset=stage_offset,
                 ):
-                    logger.info(
-                        f'[Protocol] Skipping tile {tile_label} for step {idx} - out of stage limits'
-                    )
-                    status['tiles_skipped'] += 1
+                    name = orig_step_df['Name']
+                    outside[name] = outside.get(name, 0) + 1
                     continue
 
                 # -1 is the not-part-of-a-stack sentinel this column uses
@@ -1372,37 +2257,55 @@ class Protocol:
 
             tile_group_id += 1
 
+        _refuse_positions_outside_travel(
+            reason='tiles_outside_travel',
+            title='Tiles Outside Stage Travel',
+            what='tiles',
+            outside=outside,
+            total=new_tiles,
+            remedy='Choose a smaller grid, or move those steps away from the edge of the stage.',
+        )
         self._set_steps(pd.DataFrame.from_dict(new_steps))
-
-        return status
+        self.optimize_step_ordering()
+        logger.info(
+            f'[Protocol] Tile grid {tiling} applied: {len(orig_steps_df)} -> '
+            f'{self.num_steps()} steps'
+        )
 
     def apply_zstacking(
         self,
         zstack_params: dict,
-        axes_config: dict,
-    ) -> dict:
-        "Returns status dict"
+        axis_limits: dict,
+    ) -> None:
+        """Expand every step not already in a stack into a z-stack, in the order a run visits them.
 
-        status = {
-            'zslices_skipped': 0,
-        }
+        *axis_limits* holds the travel of each axis the scope has a motor
+        for, and only those.
 
-        if zstack_params['step_size'] <= 0 or zstack_params['range'] <= 0:
-            return status
+        Raises:
+            ProtocolRunRefusedError: the range or step size is not greater
+                than zero, the scope has no Z motor, or a slice falls outside
+                the Z travel. Each is refused before any step changes, and
+                reported once.
+            ArgumentRefusedError: ``'zstack_reference_unknown'``, the
+                reference is not one of ``Z_REFERENCES``, refused before any
+                step changes -- on a protocol with no steps too, which never
+                reaches the slice positions that would read it.
+        """
+        refuse_unless_zstack_reference(zstack_params['z_reference'], 'z_reference')
+        _refuse_unless_zstack_has_extent(zstack_params)
 
-        try:
-            z_limits = axes_config['Z']['limits']
-        except Exception as e:
-            logger.error(f'Error getting Z axis limits from axes_config: {e}')
-            return status
+        z_limits = _axis_limits_or_refuse(axis_limits, ('Z',), what='a z-stack')
 
-        steps = self.steps()
+        steps = self._config['steps']
         existing_max_zstack_group_id = steps['Z-Stack Group ID'].max()
 
         zstack_group_id = existing_max_zstack_group_id + 1
 
         num_steps = self.num_steps()
         new_steps = []
+        outside: dict[str, int] = {}
+        new_slices = 0
 
         for row_idx in range(num_steps):
             orig_step_df = self.step(idx=row_idx)
@@ -1424,21 +2327,17 @@ class Protocol:
                 continue
 
             zstack_positions = zstack_config.step_positions()
+            new_slices += len(zstack_positions)
 
             # Create a z-stack. The slices are collected first so exactly one
             # of them can be marked as the group's focus reference below.
             group_steps: list[tuple[float, dict]] = []
             for zstack_slice, zstack_position in zstack_positions.items():
-                # Skip slices whose Z would drive the stage past its travel
-                # limits, mirroring the XY tile-bounds skip in apply_tiling. A
-                # z-stack range wider than the Z travel otherwise pushed the
-                # protocol to the end of travel and crashed the run.
-                if zstack_position < z_limits['min'] or zstack_position > z_limits['max']:
-                    logger.info(
-                        f'[Protocol] Skipping z-slice {zstack_slice} (Z={zstack_position}) '
-                        f'for step {row_idx} - out of Z stage limits'
-                    )
-                    status['zslices_skipped'] += 1
+                # A slice past the Z travel would drive the stage to the end of
+                # travel and stop the run there.
+                if axes_outside_travel({'Z': zstack_position}, z_limits):
+                    name = orig_step_df['Name']
+                    outside[name] = outside.get(name, 0) + 1
                     continue
 
                 new_step_dict = self._create_step_dict(
@@ -1475,8 +2374,7 @@ class Protocol:
             # the layer's focus -- the plane the stack was built around -- so a
             # focus found there re-centres the whole group. Picking it by
             # nearest Z rather than by index keeps it right for every
-            # z_reference and survives a reference slice dropped for being
-            # outside the Z travel.
+            # z_reference.
             if group_steps and orig_step_df['Auto_Focus']:
                 reference_position = orig_step_df['Z']
                 _, reference_step = min(
@@ -1488,9 +2386,20 @@ class Protocol:
 
             zstack_group_id += 1
 
+        _refuse_positions_outside_travel(
+            reason='zslices_outside_travel',
+            title='Z-Stack Outside Z Travel',
+            what='z-slices',
+            outside=outside,
+            total=new_slices,
+            remedy='Reduce the range, or move the focus of those steps away from the end of travel.',
+        )
         self._set_steps(pd.DataFrame.from_dict(new_steps))
-
-        return status
+        self.optimize_step_ordering()
+        logger.info(
+            f'[Protocol] Z-stack applied (range {zstack_params["range"]} um, step '
+            f'{zstack_params["step_size"]} um): {num_steps} -> {self.num_steps()} steps'
+        )
 
     @classmethod
     def from_config(
@@ -1499,6 +2408,8 @@ class Protocol:
         tiling_configs_file_loc: pathlib.Path,
         *,
         capabilities: 'ScopeCapabilities',
+        objective_helper: 'ObjectiveLoader',
+        wellplate_loader: 'labware_loader.WellPlateLoader',
     ) -> 'Protocol':
         tiling_config = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
 
@@ -1511,7 +2422,10 @@ class Protocol:
         # future opt-in. Empty / missing falls back to layer_config['focus'].
         previous_well_z = input_config.get('previous_well_z') or {}
 
-        labware_id = input_config['labware_id']
+        # Stored under the catalogue's key: a plate renamed since the caller
+        # named it is found under the old spelling, and the protocol then
+        # carries the name every later reader resolves.
+        labware_id = wellplate_loader.resolve_plate_key(input_config['labware_id'])
         objective_id = input_config['objective_id']
         zstack_params = input_config['zstack_params']
         use_zstacking = input_config['use_zstacking']
@@ -1523,14 +2437,46 @@ class Protocol:
         frame_dimensions = input_config['frame_dimensions']
         binning_size = input_config['binning_size']
         stim_config = input_config['stim_config']
+        # Where a layer whose focus was never saved is imaged: the stage's Z
+        # when the config was built. Read only for such a layer.
+        current_z = input_config.get('current_z')
 
-        objective_loader = ObjectiveLoader()
-        objective = objective_loader.get_objective_info(objective_id=objective_id)
+        # A stack was asked for and cannot be built: refuse here, before any
+        # of the work below, rather than in the per-position loop where the
+        # answer would be recomputed identically for every position. What
+        # this replaces built one plane per position and logged a warning --
+        # which produced a NON-EMPTY protocol, so the empty-protocol refusal
+        # downstream passed it too, and a caller that asked for a stack got
+        # a photograph and a reported success.
+        if use_zstacking:
+            _refuse_unless_zstack_has_extent(zstack_params)
+        _refuse_unless_tiling_offered(tiling_config, tiling)
 
-        fill_factor = TilingConfig.fill_factor_from_overlap_percent(tiling_overlap_percent)
+        # The objective is stamped into every step and sizes a spaced tiling
+        # grid; a protocol with neither -- an empty one -- is built with no
+        # objective (None), since there may be none in the light path to name.
+        acquiring = any(cls.layer_acquires(cfg) for cfg in layer_configs.values())
+        tiling_mxn = tiling_config.get_mxn_size(tiling)
+        single_tile = tiling_mxn['m'] == 1 and tiling_mxn['n'] == 1
+        if objective_id is None:
+            if acquiring or not single_tile:
+                _refuse_build(
+                    reason='objective_not_given',
+                    title='No Objective Given',
+                    message=(
+                        'Protocol steps and a tiling grid need an objective, '
+                        'and the configuration names none.'
+                    ),
+                )
+            focal_length = None
+        else:
+            objective = objective_helper.get_objective_info(objective_id=objective_id)
+            focal_length = objective['focal_length']
+
+        fill_factor = _fill_factor_or_refuse(tiling_overlap_percent)
         tiles = tiling_config.get_tile_centers(
             config_label=tiling,
-            focal_length=objective['focal_length'],
+            focal_length=focal_length,
             frame_size=frame_dimensions,
             fill_factor=fill_factor,
             binning_size=binning_size,
@@ -1551,7 +2497,6 @@ class Protocol:
             actual_positions = positions
             position_source = 'from_manual'
         else:
-            wellplate_loader = labware_loader.WellPlateLoader()
             labware_obj = wellplate_loader.get_plate(plate_key=labware_id)
             labware_obj.set_positions()
             well_positions = labware_obj.get_positions_with_labels()
@@ -1583,13 +2528,6 @@ class Protocol:
             for tile_label, tile_position in tiles.items():
                 if not use_zstacking:
                     zstack_position_offsets = {None: None}
-                elif zstack_params['step_size'] <= 0 or zstack_params['range'] <= 0:
-                    # Z-stack enabled but not configured -- treat as single Z
-                    logger.warning(
-                        f'[Protocol] Z-stack enabled but range={zstack_params["range"]} '
-                        f'step_size={zstack_params["step_size"]} -- using single Z position'
-                    )
-                    zstack_position_offsets = {None: None}
                 else:
                     zstack_config = ZStackConfig(
                         range=zstack_params['range'],
@@ -1601,7 +2539,7 @@ class Protocol:
 
                 for zstack_slice, zstack_position_offset in zstack_position_offsets.items():
                     for layer_name, layer_config in layer_configs.items():
-                        if layer_config['acquire'] not in ['image', 'video']:
+                        if not cls.layer_acquires(layer_config):
                             continue
 
                         x = round(
@@ -1616,14 +2554,26 @@ class Protocol:
                         # Resolve Z per (well, channel): a tuned carry-over for
                         # this exact channel wins (so New keeps per-channel
                         # focus, not one channel's z for all); else an explicit
-                        # manual-position z; else this channel's focus default.
+                        # manual-position z; else this channel's saved focus;
+                        # else, never saved, the current Z.
                         tuned_z = previous_well_z.get((pos.get('name'), layer_name))
                         if tuned_z is not None:
                             z = tuned_z
                         elif pos['z'] is not None:
                             z = pos['z']
-                        else:
+                        elif layer_config['focus'] is not None:
                             z = layer_config['focus']
+                        elif current_z is not None:
+                            z = current_z
+                        else:
+                            _refuse_build(
+                                reason='focus_not_given',
+                                title='No Focus Given',
+                                message=(
+                                    f'No focus is saved for {layer_name} and the '
+                                    'configuration names no current Z to image it at.'
+                                ),
+                            )
 
                         if zstack_slice is not None:
                             z += zstack_position_offset
@@ -1711,14 +2661,13 @@ class Protocol:
         protocol = cls(
             tiling_configs_file_loc=tiling_configs_file_loc,
             config=config,
-            led_max_ma=capabilities.led_max_ma,
         )
 
         # Validate step fields -- reject protocol if any errors found
-        validation_errors = protocol.validate_steps()
+        validation_errors = protocol.validate_steps(
+            objective_helper, led_max_ma=capabilities.led_max_ma
+        )
         if validation_errors:
-            for err in validation_errors:
-                logger.error(f'Protocol validation: {err}')
             raise ProtocolFormatError(
                 f'Protocol has {len(validation_errors)} validation error(s): {validation_errors[0]}'
             )
@@ -1732,11 +2681,15 @@ class Protocol:
         tiling_configs_file_loc: pathlib.Path,
         *,
         capabilities: 'ScopeCapabilities',
+        objective_helper: 'ObjectiveLoader',
+        wellplate_loader: 'labware_loader.WellPlateLoader',
     ) -> 'Protocol':
         tc = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
 
         labware_id = config['labware_id']
-        objective_id = config['objective_id']
+        # No steps and one tile: nothing to stamp an objective into, so none
+        # is read -- the protocol can be created before the objective is known.
+        objective_id = None
         zstack_params = {'range': 0, 'step_size': 0}
         use_zstacking = False
         tiling = tc.no_tiling_label()
@@ -1764,6 +2717,8 @@ class Protocol:
             input_config=input_config,
             tiling_configs_file_loc=tiling_configs_file_loc,
             capabilities=capabilities,
+            objective_helper=objective_helper,
+            wellplate_loader=wellplate_loader,
         )
 
     @staticmethod
@@ -1866,68 +2821,88 @@ class Protocol:
         file_path: pathlib.Path,
         tiling_configs_file_loc: pathlib.Path | None,
         *,
-        led_max_ma: int | None = None,
-    ) -> 'Protocol | bool':
+        wellplate_loader: 'labware_loader.WellPlateLoader | None' = None,
+        runnable: bool = True,
+    ) -> 'Protocol':
         """
         Returns Protocol object loaded from file on success
-        Raises ProtocolFormatError on format issues
+        Raises ProtocolNotLoadedError when the file cannot be read, and
+        ProtocolFormatError on format issues and, when ``wellplate_loader``
+        (the installation's catalogue) is given, on a Labware row naming a
+        plate that catalogue does not have
+
+        ``runnable`` is False for a reader that never runs or edits the
+        protocol -- post-processing a finished run reads its record and never
+        its period -- so a file saved before the period had a floor, or with
+        a blank step cell a run would refuse, stays readable there; a step
+        cell that is neither blank nor its column's type refuses the file
+        either way. Every other reader leaves it True: a period or duration no
+        protocol can run raises ProtocolScheduleRefusedError, naming the
+        file, and a step cell or a Layer Settings cell that is not of its
+        column's type raises ProtocolFormatError, naming the file, the step
+        or layer, and the column.
         """
 
+        # A bound on how much memory one file may ask for, not a judgement
+        # about the file. The whole file is read into memory here, several
+        # times over, so a large enough protocol exhausts the process before
+        # any of it is parsed. Step COUNT is deliberately not bounded: the
+        # count is known only after the parse has already spent that memory,
+        # so a ceiling on it protects nothing, and one sized below what this
+        # app's own writer produces made saved protocols unreadable.
         MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
-        MAX_STEP_COUNT = 10_000
 
         config = {}
-
-        # Check file size before reading
-        file_size = os.path.getsize(file_path)
-        if file_size > MAX_FILE_SIZE:
-            raise ValueError(
-                f'Protocol file exceeds maximum size of {MAX_FILE_SIZE // (1024 * 1024)} MB '
-                f'({file_size:,} bytes). File may be corrupt.'
-            )
 
         # Filter out blank lines
         file_content = None
         fp = None
 
         try:
+            file_size = os.path.getsize(file_path)
+            if file_size > MAX_FILE_SIZE:
+                raise ProtocolFormatError(
+                    f'it is larger than the {MAX_FILE_SIZE // (1024 * 1024)} MB a protocol '
+                    f'may be ({file_size:,} bytes) and cannot be loaded without exhausting memory.',
+                    file=file_path,
+                )
             with open(file_path) as fp_orig:
                 file_data_lines = [line for line in fp_orig.readlines() if line.strip()]
                 file_content = ''.join(file_data_lines)
                 fp = io.StringIO(file_content)
-        except Exception as e:
-            logger.error(f'Error reading protocol file {file_path}: {e}')
-            raise OSError(f'Error reading protocol file {file_path}') from e
+        except OSError as e:
+            raise ProtocolNotLoadedError(file=file_path, cause=e) from e
+        except UnicodeDecodeError as e:
+            raise ProtocolFormatError('it is not a text file.', file=file_path) from e
 
         csvreader = csv.reader(fp, delimiter='\t')
 
         try:
             verify = next(csvreader)
         except StopIteration:
-            logger.error(f'Protocol file {file_path} is empty or invalid.')
-            raise ProtocolFormatError('Protocol file is empty or invalid.') from None
+            raise ProtocolFormatError(
+                'Protocol file is empty or invalid.', file=file_path
+            ) from None
 
         if not (verify[0] == cls.PROTOCOL_FILE_HEADER):
-            raise ProtocolFormatError('Not a valid LumaViewPro Protocol')
+            raise ProtocolFormatError('Not a valid LumaViewPro Protocol', file=file_path)
 
         try:
             version_row = next(csvreader)
         except StopIteration:
-            logger.error(f'Protocol file {file_path} is missing version information.')
-            raise ProtocolFormatError('Protocol file is missing version information.') from None
+            raise ProtocolFormatError(
+                'Protocol file is missing version information.', file=file_path
+            ) from None
 
         if version_row[0] != 'Version':
-            logger.error(f"Unable to load {file_path} which is missing 'Version' row.")
-            raise ProtocolFormatError("Protocol format is missing 'Version' row.")
+            raise ProtocolFormatError("Protocol format is missing 'Version' row.", file=file_path)
+        _refuse_a_header_row_with_no_value(version_row, file_path)
 
         try:
             config['version'] = int(version_row[1])
         except ValueError as ve:
-            logger.error(
-                f"Invalid 'Version' value in protocol file {file_path}. 'Version' must be an integer: {ve}"
-            )
             raise ProtocolFormatError(
-                f"Invalid 'Version' value in protocol file {file_path}"
+                "Invalid 'Version' value in protocol file: must be a whole number", file=file_path
             ) from ve
 
         allowed = False
@@ -1941,38 +2916,31 @@ class Protocol:
             allowed = True
 
         if not allowed:
-            logger.error(
-                f'Unable to load {file_path} which contains protocol version {config["version"]}.\nPlease create a new protocol using this version of LumaViewPro.'
+            raise ProtocolFormatError(
+                f'protocol version {config["version"]} is not supported; create a new protocol '
+                'in this version of LumaViewPro.',
+                file=file_path,
             )
-            raise ProtocolFormatError(f'Protocol version {config["version"]} is not supported.')
 
         # Read Period
         try:
             period_row = next(csvreader)
             if period_row[0] != 'Period':
-                logger.error(f"Missing 'Period' row in protocol file {file_path}")
-                raise ProtocolFormatError("Missing 'Period' row in protocol file")
+                raise ProtocolFormatError("Missing 'Period' row in protocol file", file=file_path)
+            _refuse_a_header_row_with_no_value(period_row, file_path)
 
-            minutes = float(period_row[1])
             # Period == 0 is a valid single-scan / non-periodic marker
             # (Z-stack, single-shot capture, autofocus characterization);
             # downstream consumers in protocol_time_estimator already treat
             # period_s == 0 as one scan rather than dividing by zero.
-            if minutes < 0:
-                logger.error(f"Invalid 'Period' value in protocol file {file_path}: must be >= 0")
-                raise ProtocolFormatError("Invalid 'Period' value in protocol file: must be >= 0")
-
-            config['period'] = datetime.timedelta(minutes=minutes)
+            config['period'] = schedule_from_units(
+                'period', period_row[1], file=file_path, judged=runnable
+            )
 
         except StopIteration:
-            logger.error(f"Missing 'Period' row in protocol file {file_path}")
-            raise ProtocolFormatError("Missing 'Period' row in protocol file") from None
-
-        except ValueError as ve:
-            logger.error(
-                f"Invalid 'Period' value in protocol file {file_path} 'Period' must be numeric: {ve}"
-            )
-            raise ProtocolFormatError("Invalid 'Period' value in protocol file") from ve
+            raise ProtocolFormatError(
+                "Missing 'Period' row in protocol file", file=file_path
+            ) from None
 
         except ProtocolFormatError as pfe:
             raise pfe
@@ -1981,31 +2949,21 @@ class Protocol:
         try:
             duration = next(csvreader)
             if duration[0] != 'Duration':
-                logger.error(f"Missing 'Duration' row in protocol file {file_path}")
-                raise ProtocolFormatError("Missing 'Duration' row in protocol file")
+                raise ProtocolFormatError("Missing 'Duration' row in protocol file", file=file_path)
+            _refuse_a_header_row_with_no_value(duration, file_path)
 
-            hours = float(duration[1])
             # Duration == 0 mirrors Period == 0 -- valid single-scan
             # marker for Manual Z-Stack / single-shot capture (where the
-            # config carries duration=None). Hard-reject only negative
-            # values (corrupted TSV). Pre-fix the loader rejected 0 too,
-            # which kept Apply-Z-Projection broken after the Period side
-            # of the encoding bug was fixed (issue #669).
-            if hours < 0:
-                logger.error(f"Invalid 'Duration' value in protocol file {file_path}: must be >= 0")
-                raise ProtocolFormatError("Invalid 'Duration' value in protocol file: must be >= 0")
-
-            config['duration'] = datetime.timedelta(hours=hours)
+            # config carries duration=None). Refusing 0 here once kept
+            # Apply-Z-Projection broken: the writer saves None as 0.
+            config['duration'] = schedule_from_units(
+                'duration', duration[1], file=file_path, judged=runnable
+            )
 
         except StopIteration:
-            logger.error(f"Missing 'Duration' row in protocol file {file_path}")
-            raise ProtocolFormatError("Missing 'Duration' row in protocol file") from None
-
-        except ValueError as ve:
-            logger.error(
-                f"Invalid 'Duration' value in protocol file {file_path}. 'Duration' must be numeric: {ve}"
-            )
-            raise ProtocolFormatError("Invalid 'Duration' value in protocol file") from ve
+            raise ProtocolFormatError(
+                "Missing 'Duration' row in protocol file", file=file_path
+            ) from None
 
         except ProtocolFormatError as pfe:
             raise pfe
@@ -2014,14 +2972,28 @@ class Protocol:
         try:
             labware = next(csvreader)
             if labware[0] != 'Labware':
-                logger.error(f"Invalid 'Labware' row in protocol file {file_path}")
-                raise ProtocolFormatError("Invalid 'Labware' row in protocol file")
+                raise ProtocolFormatError("Invalid 'Labware' row in protocol file", file=file_path)
+            _refuse_a_header_row_with_no_value(labware, file_path)
 
-            config['labware_id'] = labware[1]
+            # Stored in the catalogue's spelling whatever the file carried:
+            # a plate renamed since the file was saved is translated here,
+            # once, and nothing downstream sees the old name. Whether the
+            # plate EXISTS is judged only when the caller handed over the
+            # installation's catalogue -- post-processing reads a run's
+            # protocol on whatever install it is on and never uses the
+            # plate, so it has no standing to refuse for it.
+            if wellplate_loader is None:
+                config['labware_id'] = labware_loader.canonical_plate_name(labware[1])
+            else:
+                try:
+                    config['labware_id'] = wellplate_loader.resolve_plate_key(labware[1])
+                except ConfigError as e:
+                    raise ProtocolFormatError(str(e), file=file_path) from e
 
         except StopIteration:
-            logger.error(f"Missing 'Labware' row in protocol file {file_path}")
-            raise ProtocolFormatError("Missing 'Labware' row in protocol file") from None
+            raise ProtocolFormatError(
+                "Missing 'Labware' row in protocol file", file=file_path
+            ) from None
 
         except ProtocolFormatError as pfe:
             raise pfe
@@ -2039,8 +3011,7 @@ class Protocol:
             else:
                 config['capture_root'] = ''
         except StopIteration:
-            logger.error(f'Protocol file {file_path} is incomplete.')
-            raise ProtocolFormatError('Protocol file is incomplete.') from None
+            raise ProtocolFormatError('Protocol file is incomplete.', file=file_path) from None
 
         # Search for "Steps" to indicate start of steps. Along the way,
         # optionally capture a v6 'Layer Settings' block -- a header row
@@ -2062,9 +3033,9 @@ class Protocol:
                         # Parse the block in place. The first non-blank row is
                         # the column header; subsequent non-blank rows are
                         # per-layer entries; block ends at the first blank
-                        # row or at the 'Steps' marker. Bad header (missing
-                        # 'Layer' key) is logged and the block is discarded;
-                        # the file still loads via inference fallback.
+                        # row or at the 'Steps' marker. A header with no
+                        # 'Layer' column is refused: an inference from the
+                        # steps would put back settings the file never held.
                         ls_header = None
                         config['layer_settings'] = {}
                         for sub_row in csvreader:
@@ -2078,37 +3049,33 @@ class Protocol:
                             if ls_header is None:
                                 ls_header = sub_row
                                 if 'Layer' not in ls_header:
-                                    logger.warning(
-                                        f'[Protocol] Layer Settings header missing '
-                                        f"'Layer' column in {file_path}; discarding block "
-                                        f'and falling back to inference.'
+                                    raise ProtocolFormatError(
+                                        "its Layer Settings block has no 'Layer' column.",
+                                        file=file_path,
                                     )
-                                    config['layer_settings'] = {}
-                                    ls_header = None
                                 continue
                             row_dict = dict(zip(ls_header, sub_row, strict=False))
                             layer_name = row_dict.get('Layer', '').strip()
-                            if layer_name:
-                                config['layer_settings'][layer_name] = row_dict
+                            if not layer_name:
+                                raise ProtocolFormatError(
+                                    'a row of its Layer Settings block names no layer.',
+                                    file=file_path,
+                                )
+                            config['layer_settings'][layer_name] = row_dict
             except StopIteration:
-                logger.error(f"Missing 'Steps' section in protocol file {file_path}")
-                raise ProtocolFormatError("Missing 'Steps' section in protocol file") from None
+                raise ProtocolFormatError(
+                    "Missing 'Steps' section in protocol file", file=file_path
+                ) from None
+            # The writer never writes a block with no rows; one that has none
+            # would turn every layer off at a restore.
+            if config.get('layer_settings') == {}:
+                raise ProtocolFormatError('its Layer Settings block has no rows.', file=file_path)
 
-        table_lines = []
-        for line in fp:
-            table_lines.append(line)
-
-        table_str = ''.join(table_lines)
-        # Pin the text-identity columns to str at read time: pandas type
-        # inference otherwise turns a numeric-looking name or label ('0600')
-        # into a float ('600.0') that corrupts every derived filename on
-        # reload.
-        protocol_df = pd.read_csv(
-            io.StringIO(table_str),
-            sep='\t',
-            lineterminator='\n',
-            dtype={'Name': str, 'Label': str, 'Well': str, 'Tile': str},
-        ).fillna('')
+        try:
+            header, rows = common_utils.read_table(''.join(fp), sep='\t')
+        except ValueError as e:
+            raise ProtocolFormatError(f'{e}.', file=file_path) from None
+        protocol_df = pd.DataFrame(rows, columns=header, dtype=object)
 
         # M19: Validate required columns before processing.
         # Old versions use 'Channel' instead of 'Color' -- accept either.
@@ -2129,7 +3096,9 @@ class Protocol:
             required_columns.add('Color')  # will trigger error
         missing = required_columns - actual_cols
         if missing:
-            raise ProtocolFormatError(f'Protocol missing required columns: {missing}')
+            raise ProtocolFormatError(
+                f'Protocol missing required columns: {missing}', file=file_path
+            )
 
         if 'Color' not in protocol_df.columns:
             # The oldest files name the channel column 'Channel'; everything
@@ -2137,14 +3106,32 @@ class Protocol:
             # reads 'Color', so normalize once at the read boundary.
             protocol_df = protocol_df.rename(columns={'Channel': 'Color'})
 
-        # Z-Slice arrives as float64 whenever any cell is blank (pandas NaN
-        # inference); normalize to the int / -1-sentinel form the rest of
-        # the app uses, so a z index can never render as 'Z3.0' in a name.
-        protocol_df['Z-Slice'] = protocol_df['Z-Slice'].apply(common_utils.to_int)
+        # Each step cell is read by its column's reader, so a name or label of
+        # 'NA' or '0600' stays that text and a number is the number written.
+        # A blank cell stays blank: a runnable protocol refuses it at
+        # construction, and post-processing's reader keeps it. Any other cell
+        # its reader refuses refuses the file, naming the step and column. The
+        # config columns are parsed below, with their legacy repairs.
+        for column in _STEP_CELLS:
+            if column in protocol_df.columns and column not in _DICT_COLUMNS:
+                try:
+                    protocol_df[column] = pd.Series(
+                        [
+                            '' if cell == '' else _read_step_cell(protocol_df, column, position)
+                            for position, cell in enumerate(protocol_df[column])
+                        ],
+                        index=protocol_df.index,
+                        dtype=object,
+                    ).infer_objects()
+                except ProtocolFormatError as e:
+                    raise ProtocolFormatError(str(e), file=file_path) from None
 
-        if len(protocol_df) == 0:
-            # Will create an empty protocol
-            return False
+        # A runnable protocol's Z-Slice is read with its other cells, and a
+        # blank one refuses the file (no shipped writer left one blank). The
+        # post-processing reader keeps the -1 sentinel for a blank, so a z
+        # index never renders as 'Z3.0' in the names it matches files by.
+        if not runnable:
+            protocol_df['Z-Slice'] = protocol_df['Z-Slice'].apply(common_utils.to_int)
 
         # Added in v3
         DEFAULT_VIDEO_CONFIG = {'fps': 5, 'duration': 5}
@@ -2199,55 +3186,57 @@ class Protocol:
                     layer_stim['illumination_ma'] = layer_stim.pop('illumination')
             return stim_config
 
-        def _parse_config_per_row(row, column, default):
-            """Parse a config string for a single row.
+        def _parse_config_per_row(position, row, column):
+            """One row's config cell, read by the step reader.
 
-            Returns the parsed dict, or a fresh deepcopy of default if that
-            row's value is missing or corrupt.  Errors are logged with the
-            step name so the bad row is easy to find.  If the value is already
-            a dict (programmatic build), returns it as-is.
-
-            Accepts both JSON (current save format) and Python-repr dict
-            strings (legacy TSVs written via pandas default stringification
-            with single quotes + True/False).  json.loads is tried first;
-            ast.literal_eval handles the legacy case.
+            Parsed here rather than in the constructor because the legacy
+            repairs below need the dict. A cell that is not a config refuses
+            a runnable file, naming the step; post-processing's reader keeps
+            it as read.
             """
-            val = row[column]
-            if isinstance(val, dict):
-                return val
             try:
-                return json.loads(val)
-            except Exception:
-                try:
-                    parsed = ast.literal_eval(val)
-                    if isinstance(parsed, dict):
-                        return parsed
-                    raise ValueError(f'not a dict: {type(parsed).__name__}')
-                except Exception as ex:
-                    step_name = row.get('Name', '?')
-                    logger.error(
-                        f"Unable to parse {column} for step '{step_name}', using default: {ex}"
-                    )
-                    return copy.deepcopy(default)
+                return _dict_cell(row[column])
+            except ValueError as e:
+                if not runnable:
+                    return row[column]
+                raise ProtocolFormatError(
+                    f'step {position + 1} ({row["Name"]}) has {column} {row[column]!r}, which {e}.',
+                    file=file_path,
+                ) from None
+
+        def _with_video_defaults(video_config):
+            """A legacy save that stored only some keys (an older one held just
+            'duration') takes the default for the rest, rather than failing
+            validation on fps 0."""
+            if not isinstance(video_config, dict):
+                return video_config
+            return {**DEFAULT_VIDEO_CONFIG, **video_config}
+
+        def _typed_column(values, dtype) -> pd.Series:
+            """A per-row column for the steps frame, typed explicitly.
+
+            A bare list assignment takes its dtype from its contents, and
+            DataFrame.apply(axis=1) invokes the function once on a phantom
+            all-NaN row to infer a result type. At zero rows the first
+            silently loses the column's type and the second logs errors for
+            a step that does not exist, so every per-row column is built
+            here: iterate the rows, then pin the dtype.
+            """
+            return pd.Series(list(values), dtype=dtype, index=protocol_df.index)
 
         if (config['version'] == 2) and (cls.CURRENT_VERSION >= 4):
             protocol_df['Acquire'] = 'image'
             # Each row gets its own independent dict
-            protocol_df['Video Config'] = [
-                copy.deepcopy(DEFAULT_VIDEO_CONFIG) for _ in range(len(protocol_df))
-            ]
+            protocol_df['Video Config'] = _typed_column(
+                (copy.deepcopy(DEFAULT_VIDEO_CONFIG) for _ in protocol_df.index), object
+            )
         else:
-            # Parse per-row so one corrupt row doesn't wipe all configs.
-            # Merge DEFAULT_VIDEO_CONFIG so legacy TSVs that only stored a
-            # subset of fields (e.g. older saves with just 'duration') fall
-            # back to defaults for missing keys instead of failing validation
-            # on fps=0.
-            protocol_df['Video Config'] = protocol_df.apply(
-                lambda row: {
-                    **DEFAULT_VIDEO_CONFIG,
-                    **_parse_config_per_row(row, 'Video Config', DEFAULT_VIDEO_CONFIG),
-                },
-                axis=1,
+            protocol_df['Video Config'] = _typed_column(
+                (
+                    _with_video_defaults(_parse_config_per_row(position, row, 'Video Config'))
+                    for position, (_, row) in enumerate(protocol_df.iterrows())
+                ),
+                object,
             )
 
         if (
@@ -2261,30 +3250,20 @@ class Protocol:
 
         if (config['version'] in (2, 3, 4)) and (cls.CURRENT_VERSION >= 5):
             # Each row gets its own independent dict
-            protocol_df['Stim_Config'] = [
-                copy.deepcopy(DEFAULT_STIM_CONFIG) for _ in range(len(protocol_df))
-            ]
+            protocol_df['Stim_Config'] = _typed_column(
+                (copy.deepcopy(DEFAULT_STIM_CONFIG) for _ in protocol_df.index), object
+            )
         else:
-            # Parse per-row so one corrupt row doesn't wipe all configs
-            protocol_df['Stim_Config'] = protocol_df.apply(
-                lambda row: _carry_stim_key_names(
-                    _parse_config_per_row(row, 'Stim_Config', DEFAULT_STIM_CONFIG)
+            protocol_df['Stim_Config'] = _typed_column(
+                (
+                    _carry_stim_key_names(_parse_config_per_row(position, row, 'Stim_Config'))
+                    for position, (_, row) in enumerate(protocol_df.iterrows())
                 ),
-                axis=1,
+                object,
             )
 
         if config['version'] in (2, 3, 4, 5):
             protocol_df['Step Index'] = protocol_df.index
-
-            # Extract tiling config from step names
-            tc = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
-
-            if len(protocol_df) > 0:
-                config['tiling'] = tc.determine_tiling_label_from_tiles(
-                    tiles=protocol_df['Tile'].to_list()
-                )
-            else:
-                config['tiling'] = tc.no_tiling_label()
 
         if 'Label' not in protocol_df.columns:
             # Pre-v8 files never persisted the label; recover it per row from
@@ -2293,9 +3272,11 @@ class Protocol:
             # verbatim). Files that also predate the auto/user flag take the
             # flag from the same classification; a stored flag is kept as-is.
             recovered = [common_utils.recover_step_label(row) for _, row in protocol_df.iterrows()]
-            protocol_df['Label'] = [label for label, _ in recovered]
+            protocol_df['Label'] = _typed_column((label for label, _ in recovered), str)
             if 'Auto_Named' not in protocol_df.columns:
-                protocol_df['Auto_Named'] = [is_auto for _, is_auto in recovered]
+                protocol_df['Auto_Named'] = _typed_column(
+                    (is_auto for _, is_auto in recovered), bool
+                )
 
         # The rename entry points store labels sanitized, but a file edited
         # outside the app may carry characters the writer strips at save
@@ -2314,15 +3295,6 @@ class Protocol:
             )
         protocol_df['Label'] = sanitized_labels
 
-        # Name is a derived rendering of the structured columns; re-render it
-        # so a stale or hand-edited Name cannot disagree with the fields it
-        # encodes. For auto-named rows this reproduces the stored Name
-        # byte-identically.
-        protocol_df['Name'] = [
-            common_utils.build_step_name(common_utils.step_components(row))
-            for _, row in protocol_df.iterrows()
-        ]
-
         # The in-memory steps now carry every current column; stamp the
         # current version so a save writes the format the file actually
         # holds instead of an older version label over new columns.
@@ -2338,11 +3310,31 @@ class Protocol:
             int(custom_indices.astype(int).max()) + 1 if len(custom_indices) else 0
         )
 
-        if len(protocol_df) > MAX_STEP_COUNT:
-            raise ValueError(
-                f'Protocol contains {len(protocol_df):,} steps, exceeding the maximum of '
-                f'{MAX_STEP_COUNT:,}. File may be corrupt.'
+        try:
+            protocol = cls(
+                tiling_configs_file_loc=tiling_configs_file_loc,
+                config=config,
+                runnable=runnable,
             )
+        except ProtocolFormatError as e:
+            raise ProtocolFormatError(str(e), file=file_path) from None
+
+        # Name is a derived rendering of the structured columns; re-render it
+        # so a stale or hand-edited Name cannot disagree with the fields it
+        # encodes. After the cells are typed, so it renders what they hold.
+        # For auto-named rows this reproduces the stored Name byte-identically.
+        protocol._render_step_names()
+        protocol_df = protocol._config['steps']
+
+        # A Layer Settings cell the reader cannot type refuses the file here,
+        # naming it, as a step cell does; a loaded protocol's layer_settings()
+        # then cannot raise. A run's protocol read back for post-processing
+        # is not judged: nothing there reads its layer settings.
+        if runnable:
+            try:
+                protocol.layer_settings()
+            except ProtocolFormatError as e:
+                raise ProtocolFormatError(str(e), file=file_path) from None
 
         # Warn -- do not reject -- when steps would render the same capture
         # filename (#636's harm class). The file must stay loadable so the
@@ -2353,50 +3345,16 @@ class Protocol:
             collision_key = cls._capture_collision_key(protocol_df)
             dup_mask = collision_key.duplicated(keep=False)
             if dup_mask.any():
-                n_collisions = int(dup_mask.sum())
-                n_unique = len(collision_key.loc[dup_mask].drop_duplicates())
-                warn_msg = (
-                    f'Protocol has {n_collisions} steps sharing '
-                    f'{n_unique} capture filenames. The protocol can be '
-                    f'edited, but running it will be refused until each '
-                    f'step produces a unique filename -- rename the '
-                    f'colliding steps first.'
-                )
-                logger.warning(f'Protocol load: {warn_msg}')
-                notifications.warning(
+                notifications.report_outcome(
+                    DuplicateCaptureFilenamesNotice(
+                        colliding_steps=int(dup_mask.sum()),
+                        shared_names=len(collision_key.loc[dup_mask].drop_duplicates()),
+                    ),
+                    solicited=False,
                     category='Protocol',
-                    title='Duplicate filenames in protocol',
-                    message=warn_msg,
                 )
 
-        return cls(
-            tiling_configs_file_loc=tiling_configs_file_loc,
-            config=config,
-            led_max_ma=led_max_ma,
-        )
-
-    def mark_zstack_starts_and_ends(self) -> None:
-        df = self.steps().copy()
-        df['Z-Stack Group Index'] = df.groupby(by=['Z-Stack Group ID']).cumcount()
-        df['First Z'] = df['Z-Stack Group Index'].apply(lambda x: x == 0)
-        df['Last Z'] = (
-            df.groupby(by=['Z-Stack Group ID'])['Z-Stack Group Index'].transform('max')
-            == df['Z-Stack Group Index']
-        )
-        df = df.drop(columns=['Z-Stack Group Index'])
-        self._set_steps(df)
-
-    def remove_zstack_starts_and_ends(self) -> None:
-        df = self.steps()
-        df = df.drop(columns=['First Z', 'Last Z'])
-        self._set_steps(df)
-
-    def has_zstacks(self) -> bool:
-        max_group_id = self.steps()['Z-Stack Group ID'].max()
-        # bool(), not the bare comparison: a pandas reduction returns
-        # np.bool_, and the annotation above promises a Python bool to
-        # every caller that stores or forwards this.
-        return bool(max_group_id > -1)
+        return protocol
 
 
 if __name__ == '__main__':

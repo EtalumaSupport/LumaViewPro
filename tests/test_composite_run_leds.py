@@ -31,6 +31,7 @@ import pytest
 
 import modules.protocol_image_writer as protocol_image_writer
 from modules.config_helpers import get_composite_channels
+from modules.run_events import RunEvents
 from tests.test_composite_run_e2e import (
     headless_settings,
     open_composite_session,
@@ -149,8 +150,8 @@ _ABORT_ACQUIRING = ('BF', 'Blue', 'Green')
 def aborted_composite(tmp_path):
     """One composite stopped from a per-step callback after step one.
 
-    The abort is fired from ``update_step_number``, which the step runner
-    invokes as it advances off a completed step -- so the run is
+    The abort is fired from ``step_started`` for the second step, which the
+    step runner sends as it advances off a completed step -- so the run is
     genuinely mid-sequence, with channels still uncaptured, rather than
     an abort racing a run that had already finished. ``reset()`` is
     documented non-blocking for its caller, so calling it from the
@@ -167,22 +168,28 @@ def aborted_composite(tmp_path):
 
         aborted_at = []
         fired = threading.Event()
+        started = []
+        have_handle = threading.Event()
 
-        def _abort_after_the_first_step(step):
-            if aborted_at:
+        def _abort_after_the_first_step(step_idx):
+            if step_idx == 0 or aborted_at:
                 return
-            aborted_at.append(step)
-            runner.abort()
+            aborted_at.append(step_idx)
+            # This callback can beat start_composite()'s return, so the Stop
+            # waits for the handle the caller holds.
+            assert have_handle.wait(120), 'start_composite never returned its handle'
+            started[0].stop()
             fired.set()
 
         outcome = runner.start_composite(
             sequence_name='abort',
             parent_dir=str(tmp_path),
-            callbacks={'update_step_number': _abort_after_the_first_step},
+            events=RunEvents(step_started=_abort_after_the_first_step),
             run_trigger_source='composite',
         )
+        started.append(outcome)
+        have_handle.set()
         settled = outcome.wait(timeout_s=120)
-        assert runner.wait_for_run_idle(timeout_s=60), 'the aborted run never went idle'
 
         yield {
             'session': session,
@@ -204,7 +211,7 @@ class TestAbortMidComposite:
         # restore and would stay green even if the abort path forced the
         # sample dark.
         assert aborted_composite['fired'], 'the per-step callback never fired, so nothing aborted'
-        assert aborted_composite['aborted_at'] == [2], (
+        assert aborted_composite['aborted_at'] == [1], (
             f'the abort was not fired at the first step boundary: {aborted_composite["aborted_at"]}'
         )
         assert len(aborted_composite['frames']) < len(_ABORT_ACQUIRING), (
@@ -219,8 +226,16 @@ class TestAbortMidComposite:
         assert settled is not None, 'the aborted run never settled its merge outcome'
         assert not settled.merged, f'an aborted run reported a merged artifact: {settled}'
         assert settled.artifact_path is None, f'an aborted run named an artifact: {settled}'
-        assert settled.reason == 'aborted', (
-            f"the abort reported reason {settled.reason!r}, not 'aborted'"
+        # status is the KIND of ending, reason is what caused it. A user
+        # Stop is 'aborted'/'stopped'; sharing one field meant the best a
+        # caller could read was the word 'aborted', which said nothing
+        # about whether a person or a ceiling had stopped the run.
+        assert settled.status == 'aborted', f'the abort reported status {settled.status!r}'
+        assert settled.reason == 'stopped', (
+            f"the abort reported reason {settled.reason!r}, not 'stopped'"
+        )
+        assert settled.merge_reason == '', (
+            'the run was stopped before any merge, so there is no merge verdict to report'
         )
 
     def test_the_run_releases_the_scope(self, aborted_composite):
@@ -274,7 +289,9 @@ class TestPreRunStateSurvivesACompleteRun:
                 'the pre-run setup did not light the channel under test'
             )
 
-            artifact = runner.run_composite(sequence_name='restore', parent_dir=str(tmp_path))
+            artifact = runner.run_composite(
+                sequence_name='restore', parent_dir=str(tmp_path)
+            ).artifact_path
             assert pathlib.Path(artifact).exists(), 'the run under test did not complete'
 
             lit = _lit_channels(session)
@@ -318,7 +335,9 @@ def ordered_composite(tmp_path, monkeypatch):
     expected = get_composite_channels(settings)
     with open_composite_session(settings) as (session, runner):
         events = _record_led_commands(monkeypatch, session)
-        artifact = runner.run_composite(sequence_name='order', parent_dir=str(tmp_path))
+        artifact = runner.run_composite(
+            sequence_name='order', parent_dir=str(tmp_path)
+        ).artifact_path
         yield {
             'expected': expected,
             'events': events,
@@ -370,18 +389,17 @@ class TestCaptureOrder:
 # ---------------------------------------------------------------------------
 
 
-_SEQUENCE_ACQUIRING = ('BF', 'Blue', 'Green', 'Lumi')
+_SEQUENCE_ACQUIRING = ('BF', 'Blue', 'Green')
 
 # Luminescence is emitted BY the sample; illuminating it is the one thing
 # that destroys the measurement. It is also the only acquiring channel
 # with no LED behind it, so it is the channel a run must capture DARK.
+# Only a scope with a Lumi layer acquires it: the Lumi model.
 _LUMINESCENCE = 'Lumi'
+_LUMINESCENT_ACQUIRING = ('BF', _LUMINESCENCE)
 
 
-@pytest.fixture
-def sequenced_composite(tmp_path, monkeypatch):
-    """A composite whose LED writes and frame grabs share one timeline."""
-    settings = headless_settings(tmp_path, acquiring=_SEQUENCE_ACQUIRING)
+def _sequenced_run(tmp_path, monkeypatch, settings):
     expected = get_composite_channels(settings)
     with open_composite_session(settings) as (session, runner):
         events = _record_led_commands(monkeypatch, session)
@@ -392,6 +410,22 @@ def sequenced_composite(tmp_path, monkeypatch):
             'events': events,
             'run_dir': single_run_dir(tmp_path),
         }
+
+
+@pytest.fixture
+def sequenced_composite(tmp_path, monkeypatch):
+    """A composite whose LED writes and frame grabs share one timeline."""
+    yield from _sequenced_run(
+        tmp_path, monkeypatch, headless_settings(tmp_path, acquiring=_SEQUENCE_ACQUIRING)
+    )
+
+
+@pytest.fixture
+def luminescent_composite(tmp_path, monkeypatch):
+    """The same timeline on a scope that has a luminescence layer."""
+    settings = headless_settings(tmp_path, acquiring=_LUMINESCENT_ACQUIRING)
+    settings['microscope'] = 'Lumi'
+    yield from _sequenced_run(tmp_path, monkeypatch, settings)
 
 
 def _replay(events):
@@ -441,25 +475,29 @@ class TestOneChannelAtATime:
                 f'{channel} was never extinguished after its capture: {timeline}'
             )
 
-    def test_luminescence_is_never_lit(self, sequenced_composite):
+
+class TestLuminescence:
+    """A luminescence channel is captured dark, and still captured."""
+
+    def test_luminescence_is_never_lit(self, luminescent_composite):
         # A luminescence channel measures light the sample emits; driving
         # an LED during that step does not merely add background, it
         # swamps the signal the step exists to record.
-        for kind, color, illumination_ma in sequenced_composite['events']:
+        for kind, color, illumination_ma in luminescent_composite['events']:
             assert not (kind == 'on' and color == _LUMINESCENCE), (
                 f'the run drove the luminescence channel on at {illumination_ma} mA'
             )
 
-    def test_luminescence_still_contributes_a_frame(self, sequenced_composite):
+    def test_luminescence_still_contributes_a_frame(self, luminescent_composite):
         # Not lighting it is not the same as skipping it: the merge needs
         # the dark-field emission frame, and a step silently dropped for
         # having no LED would leave the composite a channel short.
-        assert _LUMINESCENCE in sequenced_composite['expected'], (
+        assert _LUMINESCENCE in luminescent_composite['expected'], (
             'the config assembly dropped the luminescence channel'
         )
-        assert _frame_channels(sequenced_composite['run_dir'], (_LUMINESCENCE,)) == {
+        assert _frame_channels(luminescent_composite['run_dir'], (_LUMINESCENCE,)) == {
             _LUMINESCENCE
         }, (
             'the luminescence step wrote no frame: '
-            f'{sorted(p.name for p in sequenced_composite["run_dir"].glob("*.tiff"))}'
+            f'{sorted(p.name for p in luminescent_composite["run_dir"].glob("*.tiff"))}'
         )

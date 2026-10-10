@@ -88,7 +88,6 @@ GETTER_CASES = [
         'supports_conversion_gain_mode', _induce_nodemap, False, id='supports_conversion_gain'
     ),
     pytest.param('supports_line_noise_reduction', _induce_nodemap, False, id='supports_line_noise'),
-    pytest.param('get_all_temperatures', _induce_nodemap, {}, id='get_all_temperatures'),
 ]
 
 

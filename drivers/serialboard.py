@@ -12,7 +12,6 @@ import logging
 import re
 import time
 import serial
-import serial.tools.list_ports as list_ports
 from enum import Enum
 from lvp_logger import logger
 from lib.profile_trace import TimedLock
@@ -28,6 +27,7 @@ from drivers.raw_repl import (
 )
 
 from lib import profile_trace
+from drivers.serial_backend import PYSERIAL, SerialBackend
 
 _serial_log = logging.getLogger('LVP.serial')
 
@@ -38,7 +38,16 @@ class ProtocolVersion(Enum):
 
 
 class SerialBoard:
-    def __init__(self, vid, pid, label, timeout=0.1, write_timeout=0.1, port=None):
+    def __init__(
+        self,
+        vid,
+        pid,
+        label,
+        timeout=0.1,
+        write_timeout=0.1,
+        port=None,
+        backend: SerialBackend = PYSERIAL,
+    ):
         # Threading audit -- TimedLock records acquire-wait + hold time to
         # lock_trace.csv when profile_trace_enabled is set in settings.json
         # (zero overhead when off). The label (`[LED Class ]` / `[XYZ Class ]`)
@@ -47,6 +56,7 @@ class SerialBoard:
         # sessions and surfaces outliers.
         _lock_label = (label or 'SerialBoard').strip(' []') or 'SerialBoard'
         self._lock = TimedLock(threading.RLock(), name=f'SerialBoard._lock.{_lock_label}')
+        self._backend = backend
         self._vid = vid
         self._pid = pid
         self._label = label
@@ -74,9 +84,14 @@ class SerialBoard:
         self._error_log_interval = 2.0  # seconds between repeated error logs
         # monotonic() of the last failed connect(). Gates the immediate
         # auto-reconnect so a command fired right after a failed connect
-        # (e.g. the construction-time LEDS_OFF/CONFIG) does not re-run the
-        # full open+reset+detect sequence and re-log the same failure.
+        # does not re-run the full open+reset+detect sequence and re-log
+        # the same failure.
         self._last_connect_fail_time = 0.0
+        # Consecutive failed connects. After ten the failure stops logging
+        # at ERROR, so a board that stays unreachable cannot flood the
+        # error log; a successful connect resets it (per outage).
+        self._connect_fails = 0
+        self._connect_log_suppressed = False
         self._min_command_interval = 0.0  # seconds; 0 = no rate limit (subclass can override)
         self._last_command_time = 0.0
         self.baudrate = 115200
@@ -95,7 +110,7 @@ class SerialBoard:
 
     def _find_port(self):
         """Search for serial port matching VID/PID."""
-        ports = list_ports.comports(include_links=True)
+        ports = self._backend.comports()
         for port in ports:
             if port.vid == self._vid and port.pid == self._pid:
                 self.port = port.device
@@ -111,7 +126,7 @@ class SerialBoard:
         if self.port is None:
             raise ValueError(f'No port found for {self._label}')
         try:
-            self.driver = serial.Serial(
+            self.driver = self._backend.open(
                 port=self.port,
                 baudrate=self.baudrate,
                 bytesize=self.bytesize,
@@ -129,7 +144,7 @@ class SerialBoard:
             self._find_port()
             if self.port and self.port != old_port:
                 logger.info(f'{self._label} Found at new port {self.port}')
-                self.driver = serial.Serial(
+                self.driver = self._backend.open(
                     port=self.port,
                     baudrate=self.baudrate,
                     bytesize=self.bytesize,
@@ -483,7 +498,7 @@ class SerialBoard:
     # ------------------------------------------------------------------
     # Connection
     # ------------------------------------------------------------------
-    def connect(self):
+    def connect(self) -> None:
         """Open serial connection, reset firmware, detect version.
 
         On a genuinely silent board (zero bytes across entire connect
@@ -496,8 +511,7 @@ class SerialBoard:
             try:
                 self._open_serial()
                 self._reset_firmware()
-                # Connected: clear the reconnect-backoff window.
-                self._last_connect_fail_time = 0.0
+                self._connect_succeeded()
                 if self.firmware_version is not None:
                     logger.info(f'{self._label} Connected (firmware v{self.firmware_version})')
                 elif self.firmware_date is not None:
@@ -517,9 +531,28 @@ class SerialBoard:
                 else:
                     logger.info(f'{self._label} Connected (legacy firmware, no version info)')
             except Exception as e:
-                self._close_driver()
-                self._last_connect_fail_time = time.monotonic()
-                logger.error(f'{self._label} connect() failed: {e}')
+                self._connect_failed(e)
+
+    def _connect_succeeded(self) -> None:
+        """Clear the reconnect-backoff window and the failure count."""
+        self._last_connect_fail_time = 0.0
+        self._connect_fails = 0
+        self._connect_log_suppressed = False
+
+    def _connect_failed(self, exc: Exception) -> None:
+        """The one failure path of every board's connect: close, arm the
+        reconnect backoff, and log, until ten failures in a row."""
+        self._close_driver()
+        self._last_connect_fail_time = time.monotonic()
+        self._connect_fails += 1
+        if self._connect_fails >= 10 and not self._connect_log_suppressed:
+            logger.critical(
+                f'{self._label} connect() failed 10 times -- suppressing further connect '
+                'errors (other logging continues)'
+            )
+            self._connect_log_suppressed = True
+        if not self._connect_log_suppressed:
+            logger.error(f'{self._label} connect() failed: {exc}')
 
     def disconnect(self):
         """Close serial connection and clear cached state."""
@@ -547,8 +580,15 @@ class SerialBoard:
         pass
 
     def is_connected(self) -> bool:
-        with self._lock:
-            return self.driver is not None
+        """Whether the port is open, answered without the serial lock.
+
+        An exchange holds the lock until the board answers, and the motor
+        board answers HOME only when the home ends, so a question that
+        waited on the lock waited out the whole home -- the window froze
+        while the status bar asked it. The read is one reference, which
+        cannot tear, so the lock guarded nothing here.
+        """
+        return self.driver is not None
 
     def is_responsive(self) -> bool:
         """Whether the board answers, not merely whether its port opened.
@@ -822,6 +862,13 @@ class SerialBoard:
                 Safe because neither motor nor LED INFO responses
                 contain intentional empty lines in the middle of
                 their content.
+
+        Returns:
+            str | list[str] | None: The reply line, or the reply lines
+                (padded with '' to ``response_numlines``) for a
+                multi-line read. None when the board gave no reply: no
+                line arrived, the write timed out, or there is no
+                connection.
         """
         with self._lock:
             # Fail fast on silent boards (#619). exchange_command()
@@ -908,7 +955,14 @@ class SerialBoard:
                             resp_lines.append('')
                         break
 
-                response = resp_lines[0] if response_numlines == 1 else resp_lines
+                # A read that produced no line at all is no reply. A read
+                # timeout comes back from readline() as an empty line, and
+                # neither board ever answers a command with one, so handing
+                # the caller '' would let it read silence as an answer.
+                if not saw_content:
+                    response = None
+                else:
+                    response = resp_lines[0] if response_numlines == 1 else resp_lines
 
                 # Drain any remaining data from multi-line response bursts.
                 # Old firmware (pre-v3.0) sends multi-line INFO/STATUS even
@@ -925,6 +979,9 @@ class SerialBoard:
                 resp_repr = repr(response)
                 if len(resp_repr) > 200:
                     resp_repr = resp_repr[:200] + '...'
+                if response is None:
+                    _serial_log.info(f'{self._label} {command} -> NO REPLY ({elapsed_ms:.1f}ms)')
+                    return None
                 _serial_log.info(f'{self._label} {command} -> {resp_repr} ({elapsed_ms:.1f}ms)')
 
                 resp_str = str(response)
@@ -968,7 +1025,13 @@ class SerialBoard:
 
             return None
 
-    def exchange_multiline(self, command, timeout=60, end_markers=None):
+    def exchange_multiline(
+        self,
+        command: str,
+        timeout: float = 60,
+        end_markers: list[str] | None = None,
+        line_end: bytes = b'\n',
+    ) -> str | None:
         """Send command and read variable-length multi-line response.
 
         Reads lines until an end marker is found, no more data arrives,
@@ -981,6 +1044,10 @@ class SerialBoard:
             end_markers: List of strings to check for in each line
                 (case-insensitive). When found, reads a few more drain
                 lines then stops.  Defaults to common completion markers.
+            line_end: Bytes that end the command. A firmware main loop
+                reads with readline() and takes a newline; an input()
+                prompt on MicroPython 1.19 ends a line on a carriage
+                return only.
 
         Returns:
             Joined multi-line string, or None on error.
@@ -1013,7 +1080,7 @@ class SerialBoard:
                     self.driver.read(stale)
                     _serial_log.info(f'{self._label} FLUSH {stale}B')
 
-                self.driver.write(command.encode('utf-8') + b'\n')
+                self.driver.write(command.encode('utf-8') + line_end)
                 lines = []
                 start = time.monotonic()
                 while time.monotonic() - start < timeout:
@@ -1029,13 +1096,26 @@ class SerialBoard:
                     if line:
                         lines.append(line)
                     if any(m in line.upper() for m in [em.upper() for em in end_markers]):
-                        # Drain a few trailing lines
+                        # Take the few lines the board prints right after the
+                        # marker, and stop once it goes quiet for the port's own
+                        # read timeout: waiting the call's long per-line window
+                        # on each of them costs five full windows when the
+                        # reply is already over. Quiet is watched on in_waiting,
+                        # never by changing the port timeout: on Windows every
+                        # timeout change reconfigures the port, and doing that
+                        # while the board is still sending dropped bytes.
                         for _ in range(5):
+                            quiet_until = min(time.monotonic() + saved_timeout, start + timeout)
+                            while self.driver.in_waiting == 0 and time.monotonic() < quiet_until:
+                                time.sleep(0.005)
+                            if self.driver.in_waiting == 0:
+                                break
                             extra = self.driver.readline()
-                            if extra:
-                                decoded = extra.decode('utf-8', 'ignore').strip()
-                                if decoded and not decoded.startswith('RE:'):
-                                    lines.append(decoded)
+                            if not extra:
+                                break
+                            decoded = extra.decode('utf-8', 'ignore').strip()
+                            if decoded and not decoded.startswith('RE:'):
+                                lines.append(decoded)
                         break
 
                 elapsed_ms = (time.monotonic() - t_start) * 1000
