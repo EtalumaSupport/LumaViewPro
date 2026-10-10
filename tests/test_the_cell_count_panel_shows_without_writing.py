@@ -5,14 +5,16 @@ Two ways the panel wrote bounds nobody set: showing a method ran the area and
 perimeter handlers, which wrote the sliders' positions back as bounds; and the
 six range sliders were bound to on_touch_up, which Kivy delivers for a touch
 anywhere in the window, so every button click recorded six slider moves and
-rewrote six bounds. A slider at its stop is an open bound.
+rewrote six bounds. A slider at its stop is an open bound. The kv binding
+to on_release is pinned in
+tests/guards/test_the_range_sliders_commit_on_their_own_release.py.
 """
 
 from __future__ import annotations
 
 import copy
+import os
 import pathlib
-import re
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -88,14 +90,6 @@ def test_showing_a_method_writes_nothing_and_shows_open_bounds_at_the_stops(monk
     assert panel.ids['text_cell_count_pixels_per_um_id'].text == ''
 
 
-def test_the_range_sliders_commit_on_their_own_release_only():
-    kv = (REPO / 'ui' / 'lumaviewpro.kv').read_text()
-    for name in _RANGE_SLIDERS:
-        assert f'on_release: root.slider_adjustment_{name}()' in kv, name
-        assert f'on_touch_up: root.slider_adjustment_{name}()' not in kv, name
-    assert not re.search(r'on_touch_move: root\.slider_adjustment_', kv)
-
-
 _RELEASE_PROBE = r"""
 import os, sys
 os.environ['KIVY_NO_ARGS'] = '1'
@@ -113,13 +107,16 @@ print(len(released))
 """
 
 
-def test_a_range_slider_releases_only_the_touch_it_grabbed():
+def test_a_range_slider_releases_only_the_touch_it_grabbed(tmp_path):
     # Real Kivy in a child process: the test environment stands its widgets in.
+    # Kivy writes its config and icons into KIVY_HOME, so the child gets one
+    # of its own rather than the shared ~/.kivy.
     done = subprocess.run(
         [sys.executable, '-c', _RELEASE_PROBE, str(REPO)],
         capture_output=True,
         text=True,
         cwd=REPO,
+        env={**os.environ, 'KIVY_HOME': str(tmp_path)},
         timeout=60,
     )
     assert done.returncode == 0, done.stderr

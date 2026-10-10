@@ -1,90 +1,240 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Four text boxes that acted on an entry without recording it now report it.
+"""Four text boxes record what was typed, before the entry does anything.
 
-Each of these boxes committed a value that reached settings, the camera or the
-motor while ``gui_interactions.log`` said nothing about a user typing anything.
-Reading a bundle afterwards, the setting simply changed by itself -- or worse,
-was credited to whatever control the handler happened to touch on its way.
+Each of these boxes -- the frame width and height, the step name, Z, and the
+acceleration limit -- commits a value that reaches settings, the protocol, the
+camera or the motor. Each records ``TEXT_INPUT <NAME> <typed>`` with the box's
+own text, taken before anything parses, clamps or sanitises it, and writes it
+first, so a bundle reads in the order the person acted and a freeze between
+the record and the apply cannot lose the entry.
 
-Two shapes are pinned here:
+A typed Z and a dragged Z slider share a record name and not a verb: the box
+records ``TEXT_INPUT``, the slider ``SLIDER``, so a keystroke never reads as a
+drag.
 
-- the record carries the widget's OWN text, taken before the first transform.
-  A handler that logs after parsing, clamping or sanitising reports what the
-  app made of the entry and asserts the user typed it.
-- a typed commit and a dragged slider on the same setting stay
-  distinguishable. Z is the case that matters: one handler served both, so a
-  keystroke reported itself as a drag.
-
-The Z and frame-box cases are pinned through the AST because the suite mocks
-Kivy rather than instantiating widgets; the acceleration box is driven through
-its real handler.
+Kivy is stubbed in the test process, so each handler is driven on a stand-in
+shaped like its panel, and what it recorded is read off the
+``LVP.gui_interactions`` logger. Where order is the claim, the apply's catcher
+takes a copy of the records already in the log at the moment it runs.
 """
 
 from __future__ import annotations
 
-import ast
+import logging
+from types import SimpleNamespace
 from typing import ClassVar
 
 import pytest
 
-from modules import gui_logger
-from tests.ast_seams import find_def
+import modules.app_context as _app_ctx
+from ui.advanced_settings import AdvancedSettings
+from ui.microscope_settings import MicroscopeSettings, _CoalescingApplier
+from ui.protocol_settings import ProtocolSettings
+from ui.vertical_control import VerticalControl
 
-# Handler -> the record it must write with the box's own text.
-_TYPED_RECORDS = (
-    ('ui/microscope_settings.py', 'MicroscopeSettings', 'frame_size'),
-    ('ui/protocol_settings.py', 'ProtocolSettings', 'step_name_validation'),
-    ('ui/vertical_control.py', 'VerticalControl', 'set_position_text'),
-    ('ui/advanced_settings.py', 'AdvancedSettings', 'acceleration_pct_text'),
-)
+_GUI_LOG = 'LVP.gui_interactions'
 
 
-def _emitter_calls(fn, attr):
-    """Every ``gui_logger.<attr>(...)`` call inside ``fn``, in source order."""
-    return [
-        node
-        for node in ast.walk(fn)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == attr
-        and isinstance(node.func.value, ast.Name)
-        and node.func.value.id == 'gui_logger'
-    ]
+def _records(caplog):
+    return [r.getMessage() for r in caplog.records if r.name == _GUI_LOG]
 
 
-@pytest.mark.parametrize(('module', 'cls', 'handler'), _TYPED_RECORDS)
-def test_each_handler_records_the_entry(module, cls, handler):
-    """T1: the box that acts on an entry also reports it."""
-    fn = find_def(module, handler, class_name=cls)
-    assert fn is not None, f'{cls}.{handler} moved or was renamed'
-    assert _emitter_calls(fn, 'text_input'), (
-        f'{cls}.{handler} commits a typed value without recording it, so the '
-        f'setting changes in the bundle with nothing saying a user set it'
+@pytest.fixture
+def gui_log(caplog):
+    caplog.set_level(logging.INFO, logger=_GUI_LOG)
+    return caplog
+
+
+# --------------------------------------------------------------------------
+# The stand-in panels, each with a catcher on the apply its handler reaches.
+# --------------------------------------------------------------------------
+
+
+def _step_name_panel(monkeypatch, caplog, typed):
+    """The protocol panel on step 0, labelled 'Step 1'; the step-name box holding ``typed``."""
+    labels = ['Step 1']
+    applies = []
+
+    def rename_step(_protocol, idx, name):
+        applies.append(_records(caplog))
+        labels[idx] = name
+
+    monkeypatch.setattr(
+        _app_ctx, 'ctx', SimpleNamespace(session=SimpleNamespace(rename_step=rename_step))
     )
+    shown = []
+    # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's record
+    panel = SimpleNamespace(
+        _protocol=SimpleNamespace(step=lambda idx: {'Label': labels[idx]}),
+        curr_step=0,
+        ids={'step_name_input': SimpleNamespace(text=typed)},
+        generate_step_name_input=lambda: shown.append(labels[0]),
+        _draw_protocol_steps=lambda: None,
+    )
+    panel.step_name_validation_ex = lambda name: ProtocolSettings.step_name_validation_ex(
+        panel, name
+    )
+    return panel, applies, shown
 
 
-@pytest.mark.parametrize(('module', 'cls', 'handler'), _TYPED_RECORDS)
-def test_the_entry_is_recorded_before_anything_else_it_does(module, cls, handler):
-    """T1: the first emitter a handler reaches is the typed record.
+def _z_panel(monkeypatch, caplog, typed='', show_target=None):
+    """The real commit and queue; the move's trigger, the Z target and the box stood in.
+
+    Returns the panel, the positions queued, and the records in the log at each queue.
+    """
+    monkeypatch.setattr(
+        _app_ctx, 'ctx', SimpleNamespace(session=SimpleNamespace(controls_locked=False))
+    )
+    moves = []
+    seen = []
+
+    def _queued():
+        moves.append(panel._next_pos)
+        seen.append(_records(caplog))
+
+    # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's record
+    panel = SimpleNamespace(
+        ids={'z_position_id': SimpleNamespace(text=typed)},
+        _next_pos=None,
+        queue_slider_position_trigger=_queued,
+    )
+    panel._queue_z_move = lambda pos: VerticalControl._queue_z_move(panel, pos)
+    panel._show_z_target = lambda: show_target(panel.ids['z_position_id'])
+    return panel, moves, seen
+
+
+def _acceleration_panel(typed, caplog):
+    """The advanced panel, its slider at 50 and its box holding ``typed``.
+
+    Returns the panel, the limits handed to the setter, and the records in the
+    log at each hand-over.
+    """
+    applied = []
+    seen = []
+
+    # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's record
+    class _Panel:
+        ids: ClassVar[dict] = {
+            'acceleration_pct_slider': SimpleNamespace(min=10, max=100, value=50),
+            'acceleration_pct_text': SimpleNamespace(text=typed),
+        }
+        _show_acceleration_limit = AdvancedSettings._show_acceleration_limit
+
+        def set_acceleration_limit(self, val_pct):
+            applied.append(val_pct)
+            seen.append(_records(caplog))
+
+    return _Panel(), applied, seen
+
+
+class _InlineLane:
+    """The camera lane, run inline: the task's call, then its redraw."""
+
+    def put(self, task):
+        task.action()
+        task.callback()
+        return True
+
+
+def _frame_panel(monkeypatch, caplog, width_text):
+    """The microscope panel at 768x1200, its width box holding ``width_text``."""
+    settings = {'frame': {'width': 768, 'height': 1200}}
+    applies = []
+
+    def set_frame_size(width, height):
+        applies.append(_records(caplog))
+        settings['frame'] = {'width': width, 'height': height}
+
+    monkeypatch.setattr(
+        _app_ctx,
+        'ctx',
+        SimpleNamespace(
+            settings=settings,
+            session=SimpleNamespace(set_frame_size=set_frame_size),
+            # a stand-in by design: the lane's threading is not the subject; the handler's record is
+            camera_executor=_InlineLane(),
+        ),
+    )
+    # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's record
+    panel = SimpleNamespace(
+        ids={
+            'frame_width_id': SimpleNamespace(text=width_text, focus=False),
+            'frame_height_id': SimpleNamespace(text='1200', focus=False),
+        },
+        _frame_size_applier=_CoalescingApplier(name='FRAME_SIZE'),
+        _ui_binning_size=lambda: 1,
+        _redraw_framing=lambda: None,
+    )
+    panel._typed_frame_dimensions = lambda: MicroscopeSettings._typed_frame_dimensions(panel)
+    panel._framing_applied = lambda: MicroscopeSettings._framing_applied(panel)
+    return panel, applies
+
+
+# --------------------------------------------------------------------------
+# The record comes first.
+# --------------------------------------------------------------------------
+
+
+def _commit_frame_width(monkeypatch, caplog):
+    panel, applies = _frame_panel(monkeypatch, caplog, '800')
+    MicroscopeSettings.frame_size(panel, 'frame_width_id')
+    return 'TEXT_INPUT FRAME_WIDTH 800', applies
+
+
+def _commit_step_name(monkeypatch, caplog):
+    panel, applies, _shown = _step_name_panel(monkeypatch, caplog, 'well A1')
+    ProtocolSettings.step_name_validation(panel, 'well A1')
+    return 'TEXT_INPUT STEP_NAME well A1', applies
+
+
+def _commit_z(monkeypatch, caplog):
+    panel, _moves, seen = _z_panel(monkeypatch, caplog, '-3')
+    VerticalControl.set_position_text(panel, '-3')
+    return 'TEXT_INPUT Z_POSITION -3', seen
+
+
+def _commit_acceleration(monkeypatch, caplog):
+    panel, _applied, seen = _acceleration_panel('40', caplog)
+    AdvancedSettings.acceleration_pct_text(panel)
+    return 'TEXT_INPUT ACCELERATION 40', seen
+
+
+@pytest.mark.parametrize(
+    'commit',
+    [_commit_frame_width, _commit_step_name, _commit_z, _commit_acceleration],
+    ids=['frame_width', 'step_name', 'z', 'acceleration'],
+)
+def test_the_entry_is_recorded_before_anything_else_it_does(monkeypatch, gui_log, commit):
+    """When the entry reaches its apply, its record -- and only it -- is already in the log.
 
     A handler that records after its own apply puts the consequence in the log
-    ahead of the cause, and a freeze in between loses the entry entirely.
+    ahead of the cause, and a freeze in between loses the entry. The layer
+    panel's shared helper does not hold this today; its order is pinned in
+    ``tests/test_layer_text_input_logging.py``.
+
+    Fails if any of the four handlers moves its ``gui_logger.text_input`` call
+    after the apply (the frame size, the rename, the Z move, the acceleration
+    limit).
     """
-    fn = find_def(module, handler, class_name=cls)
-    emitters = [
-        node
-        for node in ast.walk(fn)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and isinstance(node.func.value, ast.Name)
-        and node.func.value.id == 'gui_logger'
-    ]
-    assert emitters, f'{cls}.{handler} reaches no emitter at all'
-    first = min(emitters, key=lambda n: n.lineno)
-    assert first.func.attr == 'text_input', (
-        f'{cls}.{handler} writes {first.func.attr.upper()} before it records '
-        f'what was typed, so the bundle reports the consequence before the cause'
-    )
+    typed_record, seen_at_apply = commit(monkeypatch, gui_log)
+
+    assert seen_at_apply == [[typed_record]]
+    assert _records(gui_log)[0] == typed_record
+
+
+def test_a_blank_step_name_is_recorded_though_nothing_is_renamed(monkeypatch, gui_log):
+    """A blank step name keeps the step's name; the entry is still recorded, as typed.
+
+    Fails if the step-name record moves below the branch that keeps the old
+    name, which returns before a later record would be written.
+    """
+    panel, applies, shown = _step_name_panel(monkeypatch, gui_log, '  ')
+
+    ProtocolSettings.step_name_validation(panel, '  ')
+
+    assert applies == []
+    assert shown == ['Step 1']
+    assert _records(gui_log) == ['TEXT_INPUT STEP_NAME   ']
 
 
 class TestATypedZCommitIsNotADrag:
@@ -95,154 +245,100 @@ class TestATypedZCommitIsNotADrag:
     dragging the slider to it.
     """
 
-    def test_the_box_records_a_typed_entry(self):
-        fn = find_def('ui/vertical_control.py', 'set_position_text', class_name='VerticalControl')
-        assert fn is not None, 'the Z box lost its own handler'
-        assert _emitter_calls(fn, 'text_input'), 'the Z box no longer records what was typed'
-        assert not _emitter_calls(fn, 'slider'), (
-            'a typed Z commit emits SLIDER, so a keystroke reads as a drag'
-        )
-
-    @staticmethod
-    def _z_box(monkeypatch, typed, show_target):
-        """The real commit and queue; the trigger, the target and the box stood in."""
-        from types import SimpleNamespace
-
-        import modules.app_context as _app_ctx
-        from ui.vertical_control import VerticalControl
-
-        lines = []
-        monkeypatch.setattr(
-            gui_logger, 'text_input', lambda name, value: lines.append((name, value))
-        )
-        monkeypatch.setattr(
-            _app_ctx, 'ctx', SimpleNamespace(session=SimpleNamespace(controls_locked=False))
-        )
-        moves = []
-        stand = SimpleNamespace(
-            ids={'z_position_id': SimpleNamespace(text=typed)},
-            _next_pos=None,
-            queue_slider_position_trigger=lambda: moves.append(stand._next_pos),
-        )
-        stand._queue_z_move = lambda pos: VerticalControl._queue_z_move(stand, pos)
-        stand._show_z_target = lambda: show_target(stand.ids['z_position_id'])
-        VerticalControl.set_position_text(stand, typed)
-        return stand, moves, lines
-
-    @pytest.mark.parametrize('typed', ['', '-', '.', '-.'])
     def test_a_typed_non_number_moves_nothing_and_the_box_shows_the_target(
-        self, monkeypatch, typed
+        self, monkeypatch, gui_log
     ):
-        """The kv float filter lets these through. Nothing moves; the box
-        shows the Z target again, and the record has what was typed, then
-        what the box went back to."""
-        stand, moves, lines = self._z_box(
-            monkeypatch, typed, lambda box: setattr(box, 'text', '4950.00')
+        """'-' passes the kv float filter. Nothing moves; the box shows the Z
+        target again, and the record has what was typed, then what the box
+        went back to."""
+        panel, moves, _seen = _z_panel(
+            monkeypatch, gui_log, '-', lambda box: setattr(box, 'text', '4950.00')
         )
+
+        VerticalControl.set_position_text(panel, '-')
 
         assert moves == []
-        assert stand.ids['z_position_id'].text == '4950.00'
-        assert lines == [('Z_POSITION', typed), ('Z_POSITION_APPLIED', '4950.00')]
+        assert panel.ids['z_position_id'].text == '4950.00'
+        assert _records(gui_log) == [
+            'TEXT_INPUT Z_POSITION -',
+            'TEXT_INPUT Z_POSITION_APPLIED 4950.00',
+        ]
 
-    def test_a_typed_number_is_queued_as_one(self, monkeypatch):
+    def test_a_typed_number_is_queued_as_one(self, monkeypatch, gui_log):
+        """A typed number is queued as that number and recorded once, as typed, never as SLIDER.
+
+        Fails if the box's handler records through ``gui_logger.slider``, or
+        records anything but the typed text.
+        """
+
         def _no_put_back(box):
             pytest.fail('a number does not put the box back')
 
-        _stand, moves, lines = self._z_box(monkeypatch, '-3', _no_put_back)
+        panel, moves, _seen = _z_panel(monkeypatch, gui_log, '-3', _no_put_back)
+
+        VerticalControl.set_position_text(panel, '-3')
 
         assert moves == [-3.0]
-        assert lines == [('Z_POSITION', '-3')]
+        assert _records(gui_log) == ['TEXT_INPUT Z_POSITION -3']
 
-    def test_the_slider_keeps_its_own_verb(self):
-        fn = find_def('ui/vertical_control.py', 'set_position', class_name='VerticalControl')
-        assert fn is not None, 'the Z slider lost its handler'
-        assert _emitter_calls(fn, 'slider'), 'the Z slider no longer records the drag'
-        assert not _emitter_calls(fn, 'text_input'), (
-            'the slider handler records a typed entry, so a drag reads as a keystroke'
-        )
+    def test_the_slider_keeps_its_own_verb(self, monkeypatch, gui_log):
+        """A slider release is queued and recorded as SLIDER with the value it resolved to.
+
+        Fails if ``set_position`` records through ``gui_logger.text_input``, or
+        the slider's verb changes.
+        """
+        panel, moves, _seen = _z_panel(monkeypatch, gui_log)
+
+        VerticalControl.set_position(panel, 4950.0)
+
+        assert moves == [4950.0]
+        assert _records(gui_log) == ['SLIDER Z_POSITION 4950.0']
 
 
 class TestTheAccelerationBoxReportsTheAttempt:
     """T4: the typed text, handed on as typed; the motion API owns the range."""
 
-    @pytest.fixture
-    def emitted(self, monkeypatch):
-        lines = []
-        monkeypatch.setattr(
-            gui_logger, 'text_input', lambda name, value: lines.append((name, str(value)))
-        )
-        return lines
-
-    def _panel(self, typed):
-        from types import SimpleNamespace
-
-        from ui.advanced_settings import AdvancedSettings
-
-        applied = []
-
-        class _Panel:
-            ids: ClassVar[dict] = {
-                'acceleration_pct_slider': SimpleNamespace(min=10, max=100, value=50),
-                'acceleration_pct_text': SimpleNamespace(text=typed),
-            }
-            _show_acceleration_limit = AdvancedSettings._show_acceleration_limit
-
-            def set_acceleration_limit(self, val_pct):
-                applied.append(val_pct)
-
-        return _Panel(), applied
-
-    def test_an_in_range_entry_reports_no_correction(self, emitted):
-        from ui.advanced_settings import AdvancedSettings
-
-        panel, applied = self._panel('40')
+    def test_an_in_range_entry_reports_no_correction(self, gui_log):
+        panel, applied, _seen = _acceleration_panel('40', gui_log)
         AdvancedSettings.acceleration_pct_text(panel)
 
-        assert ('ACCELERATION', '40') in emitted, f'the typed limit was not recorded: {emitted}'
-        assert not [n for n, _ in emitted if n == 'ACCELERATION_APPLIED'], (
-            f'a value the clamp never moved was reported as a correction: {emitted}'
+        assert _records(gui_log) == ['TEXT_INPUT ACCELERATION 40'], (
+            'an accepted limit is recorded as typed, with no correction'
         )
         assert applied == [40]
 
-    def test_an_out_of_range_entry_reaches_the_session_as_typed(self, emitted):
+    def test_an_out_of_range_entry_reaches_the_session_as_typed(self, gui_log):
         """The box does not clamp: the API refuses, and the refusal is shown."""
-        from ui.advanced_settings import AdvancedSettings
-
-        panel, applied = self._panel('5000')
+        panel, applied, _seen = _acceleration_panel('5000', gui_log)
         AdvancedSettings.acceleration_pct_text(panel)
 
-        assert emitted == [('ACCELERATION', '5000')], emitted
+        assert _records(gui_log) == ['TEXT_INPUT ACCELERATION 5000']
         assert applied == [5000]
 
     def test_the_redraw_shows_the_stored_limit_in_the_slider_and_the_box(self, monkeypatch):
         """After a refusal the slider has not moved, so its kv binding would
         not reset the box; the redraw sets both from the store."""
-        from types import SimpleNamespace
-
-        import modules.app_context as _app_ctx
-        from ui.advanced_settings import AdvancedSettings
-
         monkeypatch.setattr(
             _app_ctx,
             'ctx',
             SimpleNamespace(settings={'motion': {'acceleration_max_pct': 60}}),
         )
-        panel, _ = self._panel('5000')
+        panel, _applied, _seen = _acceleration_panel('5000', None)
         AdvancedSettings._show_stored_acceleration_limit(panel)
 
         assert panel.ids['acceleration_pct_slider'].value == 60
         assert panel.ids['acceleration_pct_text'].text == '60'
 
-    @pytest.mark.parametrize('typed', ['', '-', 'abc'])
-    def test_an_unparseable_entry_puts_the_box_back_and_reports_both(self, emitted, typed):
-        """The kv int filter lets '' and '-' through. Nothing reaches the
-        motor; the box shows the limit its slider holds again, and the
-        record has the attempt, then what the box went back to."""
-        from ui.advanced_settings import AdvancedSettings
-
-        panel, applied = self._panel(typed)
+    def test_an_unparseable_entry_puts_the_box_back_and_reports_both(self, gui_log):
+        """'-' passes the kv int filter. Nothing reaches the motor; the box
+        shows the limit its slider holds again, and the record has the
+        attempt, then what the box went back to."""
+        panel, applied, _seen = _acceleration_panel('-', gui_log)
         AdvancedSettings.acceleration_pct_text(panel)
 
-        assert emitted == [('ACCELERATION', typed), ('ACCELERATION_APPLIED', '50')]
+        assert _records(gui_log) == [
+            'TEXT_INPUT ACCELERATION -',
+            'TEXT_INPUT ACCELERATION_APPLIED 50',
+        ]
         assert panel.ids['acceleration_pct_text'].text == '50'
         assert applied == [], 'an unparseable entry must not reach the motor'

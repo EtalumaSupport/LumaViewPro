@@ -29,7 +29,6 @@ import pathlib
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 PROTOCOL_SETTINGS_SRC = REPO / 'ui' / 'protocol_settings.py'
-ADVANCED_SETTINGS_SRC = REPO / 'ui' / 'advanced_settings.py'
 
 
 def _method_source(path: pathlib.Path, class_name: str, method_name: str) -> str:
@@ -56,25 +55,40 @@ def test_tiling_overlap_percent_in_settings_schema():
     )
 
 
-def test_modal_overlap_handler_is_idempotent():
-    """The Advanced-modal overlap handler skips no-op programmatic populates.
+def test_the_modal_populating_the_overlap_is_not_a_pick(monkeypatch, caplog):
+    """Opening Advanced Settings writes the stored overlap into the spinner,
+    which runs its handler; that is not a person's pick, so nothing is
+    recorded or written. A different overlap is a pick: recorded once, and
+    stored."""
+    import logging
+    from types import SimpleNamespace
 
-    on_open sets the spinner text from the persisted value, which fires
-    on_text; without an early-return when the value already matches the
-    setting, the load would log a phantom TILING_OVERLAP user selection --
-    exactly the action-log noise this branch is meant to avoid. The guard
-    must precede the gui_logger.select call.
-    """
-    source = _method_source(ADVANCED_SETTINGS_SRC, 'AdvancedSettings', 'update_tiling_overlap')
-    guard = "== ctx.settings['tiling_overlap_percent']"
-    assert guard in source, 'update_tiling_overlap must guard against no-op programmatic writes'
-    guard_pos = source.index(guard)
-    return_pos = source.index('return', guard_pos)
-    log_pos = source.index('gui_logger.select')
-    assert return_pos < log_pos, (
-        'the idempotent early-return must precede the action-log call so a '
-        'programmatic populate does not log a phantom user selection'
+    import modules.app_context as _app_ctx
+    from tests.settings_fixtures import complete_settings, settings_writer
+    from ui.advanced_settings import AdvancedSettings
+
+    settings = complete_settings(tiling_overlap_percent=10.0)
+    monkeypatch.setattr(
+        _app_ctx,
+        'ctx',
+        SimpleNamespace(settings=settings, update_settings=settings_writer(settings)),
     )
+    spinner = SimpleNamespace(text='10%')
+    # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's record
+    panel = SimpleNamespace(ids={'tiling_overlap_spinner': spinner})
+
+    def _recorded():
+        return [r.getMessage() for r in caplog.records if r.name == 'LVP.gui_interactions']
+
+    with caplog.at_level(logging.INFO, logger='LVP.gui_interactions'):
+        AdvancedSettings.update_tiling_overlap(panel)
+        assert _recorded() == [], 'the populate was recorded as a pick'
+
+        spinner.text = '20%'
+        AdvancedSettings.update_tiling_overlap(panel)
+
+    assert _recorded() == ['SELECT TILING_OVERLAP 20.0']
+    assert settings['tiling_overlap_percent'] == 20.0
 
 
 def test_scan_config_carries_the_persisted_overlap():

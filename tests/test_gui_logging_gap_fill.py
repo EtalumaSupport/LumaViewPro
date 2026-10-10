@@ -1,27 +1,25 @@
-"""The thirteen controls that produced no gui_interactions record now produce one.
+"""A typed z-stack step or range is recorded as typed, before the handler that rewrites it.
 
-Each of these controls was operable by a user and left no line naming it in
-``gui_interactions.log``. Ten are wired from ``ui/lumaviewpro.kv`` to a small
-handler on the owning class; three already had a handler and gained the emitter
-inside it.
+The z-stack step-size and range boxes each bind two handlers to one commit in
+``ui/lumaviewpro.kv``: ``log_step_field``, which records what the box holds,
+and ``set_steps``, which puts an entry that is not a number back to the stored
+value by writing into the box. Kivy runs a widget's handlers in declaration
+order, so the record carries the typed text only while ``log_step_field`` is
+bound first.
 
-These tests read the kv as TEXT. The suite mocks Kivy -- ``kivy.lang.parser`` is
-not importable here -- so the real parse tree, which is what verified the wiring
-when it was built, is out of reach at test time. The text scan is narrower: it
-pins that each id's own block carries the expected binding, which is what would
-regress if someone moved or dropped a line.
+The test reads the kv as TEXT. The suite mocks Kivy -- ``kivy.lang.parser`` is
+not importable here -- so the parse tree and the dispatch order are out of
+reach at test time, and the order of the two lines in each id's block is the
+fact that would regress. The behavioural form waits on the record moving into
+``ZStack.set_steps`` itself, ahead of its read of the box.
 
-The pairing matters as much as the binding. A kv handler calls ``root.method()``,
-where ``root`` is the enclosing rule's class -- so a method living on the wrong
-class leaves the binding present and silently dead. Each case below therefore
-asserts both halves: the binding is in the widget's block AND the method exists
-on the class that owns that block.
+The layer panel's typed records, once pinned here through the AST, are pinned
+by driving the helper in ``tests/test_layer_text_input_logging.py``.
 """
 
-import ast
 import re
 
-from tests.ast_seams import REPO_ROOT, find_def
+from tests.ast_seams import REPO_ROOT
 
 _KV = 'ui/lumaviewpro.kv'
 
@@ -47,159 +45,6 @@ def _block_for(control_id):
             break
         block.append(ln)
     return block
-
-
-def _record_name_arg(fn, callee):
-    """The first positional argument of the call to ``callee`` inside ``fn``."""
-    for node in ast.walk(fn):
-        if not isinstance(node, ast.Call) or not node.args:
-            continue
-        f = node.func
-        name = f.id if isinstance(f, ast.Name) else getattr(f, 'attr', None)
-        if name == callee:
-            return node.args[0]
-    return None
-
-
-def test_layer_owned_records_carry_the_channel_suffix():
-    """A shared record name silently discards a line, so per-channel names differ.
-
-    LayerControl is instantiated once per channel with identical child ids, so
-    two channels emitting the same literal name would produce records a reader
-    cannot attribute -- the bundle would show an exposure edit without saying
-    which channel was edited.
-
-    So the assertion is on the ARGUMENT, not on the function text: the record
-    name must be an f-string interpolating ``self.layer``. A test that merely
-    looked for the word "layer" somewhere in the handler would pass on a plain
-    string literal, which is the bug it is meant to catch.
-    """
-    for handler, callee in (('log_histogram_scale', 'toggle'),):
-        fn = find_def('ui/layer_control.py', handler, class_name='LayerControl')
-        assert fn is not None, f'LayerControl.{handler} moved or was renamed'
-
-        arg = _record_name_arg(fn, callee)
-        assert arg is not None, f'LayerControl.{handler} no longer calls {callee}'
-        assert isinstance(arg, ast.JoinedStr), (
-            f'LayerControl.{handler} passes a plain string as the record name; '
-            f'every channel would emit the same name and collide'
-        )
-        interpolated = {
-            ast.unparse(v.value) for v in arg.values if isinstance(v, ast.FormattedValue)
-        }
-        assert 'self.layer' in interpolated, (
-            f'LayerControl.{handler} builds its record name without self.layer, '
-            f'so two channel panels share it and one line is silently dropped; '
-            f'found {sorted(interpolated)}'
-        )
-
-    # The typed boxes (exposure, gain, illumination, ...) record through the
-    # shared text handler, which builds the one record name they all use.
-    helper = find_def('ui/layer_control.py', _HELPER, class_name='LayerControl')
-    assert helper is not None, f'LayerControl.{_HELPER} moved or was renamed'
-    names = [
-        n.value
-        for n in ast.walk(helper)
-        if isinstance(n, ast.Assign)
-        and any(isinstance(t, ast.Name) and t.id == 'record_name' for t in n.targets)
-    ]
-    assert len(names) == 1 and isinstance(names[0], ast.JoinedStr), (
-        f'LayerControl.{_HELPER} must build record_name once, as an f-string'
-    )
-    interpolated = {
-        ast.unparse(v.value) for v in names[0].values if isinstance(v, ast.FormattedValue)
-    }
-    assert 'self.layer' in interpolated, (
-        f'LayerControl.{_HELPER} builds its record name without self.layer; '
-        f'found {sorted(interpolated)}'
-    )
-
-
-# --------------------------------------------------------------------------
-# A coercing text box records what was typed AND what took effect.
-#
-# The bare record name means "what the user typed". A companion <NAME>_APPLIED
-# line appears only when validation actually changed the value. The two names
-# must differ: one name for both would leave a reader unable to tell the entry
-# from the correction, which is the whole point of emitting the pair.
-# --------------------------------------------------------------------------
-
-_HELPER = '_validate_and_apply_text_input'
-
-
-def _text_input_calls(node):
-    return [
-        n
-        for n in ast.walk(node)
-        if isinstance(n, ast.Call)
-        and isinstance(n.func, ast.Attribute)
-        and n.func.attr == 'text_input'
-        and isinstance(n.func.value, ast.Name)
-        and n.func.value.id == 'gui_logger'
-        and n.args
-    ]
-
-
-def test_the_shared_helper_records_the_typed_text_not_the_clipped_value():
-    """The bare name carries what the user typed; clipping gets its own line."""
-    fn = find_def('ui/layer_control.py', _HELPER, class_name='LayerControl')
-    assert fn is not None, f'{_HELPER} is the seam these tests pin'
-
-    bare = [c for c in _text_input_calls(fn) if isinstance(c.args[0], ast.Name)]
-    assert bare, f'{_HELPER} no longer logs under a plain record name'
-    for call in bare:
-        assert ast.unparse(call.args[1]) == 'typed_text', (
-            'the plain record name must carry the typed text; logging the clipped '
-            'value there loses what the user actually entered'
-        )
-
-
-def test_the_shared_helper_reports_a_correction_under_its_own_name():
-    """An _APPLIED line exists and is guarded, so unchanged input stays quiet."""
-    fn = find_def('ui/layer_control.py', _HELPER, class_name='LayerControl')
-    applied = [
-        c
-        for c in _text_input_calls(fn)
-        if isinstance(c.args[0], ast.JoinedStr) and '_APPLIED' in ast.unparse(c.args[0])
-    ]
-    assert len(applied) == 2, (
-        'expected exactly two _APPLIED emissions -- one for an unparseable entry, one '
-        f'for an entry the writer refused; found {len(applied)}'
-    )
-
-    guarded = [
-        n
-        for n in ast.walk(fn)
-        if isinstance(n, ast.If)
-        and any('_APPLIED' in ast.unparse(c.args[0]) for c in _text_input_calls(n) if c.args)
-    ]
-    assert guarded, (
-        'the correction line must be conditional; emitting it unconditionally '
-        'would append a correction to every valid keystroke'
-    )
-    assert any(
-        isinstance(g.test, ast.Compare) and ast.unparse(g.test) == 'raw != stored' for g in guarded
-    ), 'the guard must compare the PARSED values -- string compare reports 5 -> 5.0 as a correction'
-
-
-def test_an_unparseable_entry_is_no_longer_invisible():
-    """The reject path used to return without logging anything at all."""
-    fn = find_def('ui/layer_control.py', _HELPER, class_name='LayerControl')
-    parses = [
-        n
-        for n in ast.walk(fn)
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == 'typed_number'
-    ]
-    assert parses, f'{_HELPER} no longer parses through typed_number, the one typed-number parse'
-    refusals = [
-        n for n in ast.walk(fn) if isinstance(n, ast.If) and ast.unparse(n.test) == 'raw is None'
-    ]
-    assert refusals, f'{_HELPER} no longer has a parse-failure path'
-    emitted = [c for r in refusals for c in _text_input_calls(r)]
-    assert len(emitted) == 2, (
-        'a rejected entry must record both the attempt and the value the box was '
-        f'reset to; found {len(emitted)} emission(s) on the reject path'
-    )
 
 
 def test_the_zstack_log_binding_runs_before_the_handler_that_coerces():

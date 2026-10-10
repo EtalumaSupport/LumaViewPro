@@ -628,6 +628,7 @@ class TestTheFrameBoxesRecordWhatWasTyped:
         from types import SimpleNamespace
 
         records = []
+        # The record and the apply in the one order they happened.
         settings = {'frame': {'width': 768, 'height': 1200}}
         boxes = {
             'frame_width_id': SimpleNamespace(text=width_text, focus=False),
@@ -678,20 +679,6 @@ class TestTheFrameBoxesRecordWhatWasTyped:
         )
         fake_self._write_frame_text = _bind_write_frame_text(fake_self)
         return fn, fake_self, records, applied, settings, boxes
-
-    def test_the_typed_width_is_recorded_before_the_apply(self):
-        fn, fake_self, records, applied, _settings, _boxes = self._make('800')
-
-        fn(fake_self, 'frame_width_id')
-
-        assert ('FRAME_WIDTH', '800') in records, (
-            f'the typed width left no record of its own: {records}'
-        )
-        assert applied, 'a parseable entry must still reach the camera'
-        assert records[0] == ('FRAME_WIDTH', '800'), (
-            'the typed value must be the first thing recorded, so a bundle '
-            f'reads in the order the user acted. Got {records}'
-        )
 
     def test_the_committed_box_names_itself(self):
         fn, fake_self, records, _applied, _settings, boxes = self._make('800')

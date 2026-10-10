@@ -13,41 +13,10 @@ name cleared for a new protocol -- is reached only on acceptance.
 import ast
 import logging
 import pathlib
-import sys
-import types
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-
-
-class _StubWidget:
-    def __init__(self, **kwargs):
-        pass
-
-
-for _name in (
-    'kivy.app',
-    'kivy.properties',
-    'kivy.uix',
-    'kivy.uix.label',
-    'kivy.uix.popup',
-    'kivy.lang',
-    'kivy.metrics',
-    'kivy.graphics',
-):
-    sys.modules.setdefault(_name, MagicMock())
-
-for _name, _attr in (
-    ('kivy.uix.floatlayout', 'FloatLayout'),
-    ('kivy.uix.boxlayout', 'BoxLayout'),
-    ('kivy.uix.scrollview', 'ScrollView'),
-    ('kivy.uix.widget', 'Widget'),
-):
-    if _name not in sys.modules:
-        _mod = types.ModuleType(_name)
-        setattr(_mod, _attr, _StubWidget)
-        sys.modules[_name] = _mod
 
 import modules.app_context as _app_ctx
 import ui.protocol_settings as ps
@@ -324,14 +293,14 @@ class TestLoad:
         assert (outcome.category, outcome.kind.value) == ('UI:LOAD_PROTOCOL', 'fault')
 
     @pytest.mark.parametrize('shown_plate', ['6 well microplate', '96 well microplate'])
-    def test_an_adoption_draws_the_stage_and_declares_only_a_spinner_write_that_dispatches(
-        self, ctx, centre_posts, tsv, monkeypatch, shown_plate
+    def test_an_adoption_draws_the_stage_and_its_spinner_write_is_not_a_pick(
+        self, ctx, centre_posts, tsv, monkeypatch, caplog, shown_plate
     ):
         """The stage redraws only on XY motion outside a run, so the adoption
-        draws the new steps itself. The spinner's write is declared to the GUI
-        log only when the text changes: an equal assignment dispatches no
-        record, and a declaration left pending would swallow the person's
-        next pick of that plate."""
+        draws the new steps itself. The spinner showing the protocol's plate
+        is the app's write: a changed text dispatches the spinner's pick
+        handler, and that record is dropped; an equal text dispatches
+        nothing, and the person's next pick of that plate is recorded."""
         opened = _protocol()
         opened.labware.return_value = '6 well microplate'
         ctx.session.open_protocol.return_value = opened
@@ -345,8 +314,13 @@ class TestLoad:
 
         assert panel.ids['labware_spinner'].text == '6 well microplate'
         ctx.stage.full_redraw.assert_called_once_with()
-        declared = ps.gui_logger.consume_write_back('LABWARE', '6 well microplate')
-        assert declared is (shown_plate != '6 well microplate')
+        # The record the spinner's handler writes: the dispatch of a changed
+        # text, or, where the text was already the plate, the person's pick.
+        with caplog.at_level(logging.INFO, logger='LVP.gui_interactions'):
+            ps.gui_logger.select('LABWARE', '6 well microplate')
+        recorded = [r.getMessage() for r in caplog.records if r.name == 'LVP.gui_interactions']
+        changed = shown_plate != '6 well microplate'
+        assert recorded == ([] if changed else ['SELECT LABWARE 6 well microplate']), recorded
 
     def test_the_adoption_only_draws(self):
         """Every write a Load makes is the Session's (``open_protocol``); the

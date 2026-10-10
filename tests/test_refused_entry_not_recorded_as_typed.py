@@ -13,19 +13,25 @@ The two halves of that split on whether the write dispatches:
   their REAL handlers here, one commit per test, and what is pinned is that the
   attempt and the correction are BOTH recorded and the reverted value is never
   reported as typed.
-- A SPINNER does. It needs a camera and a plate loader to drive, so for those
-  this pins the ordering invariant instead -- the declaration must precede the
-  write, because a spinner dispatches synchronously and a declaration made
-  afterwards arrives too late to absorb anything.
+- A SPINNER does: assigning a different ``.text`` dispatches its ``on_text``
+  pick handler synchronously. The cold start's restores are driven through
+  the real ``MicroscopeSettings.load_settings`` against the simulated session,
+  with spinners that dispatch their kv handler on a write, and what is pinned
+  is the record that comes out.
 """
 
-import ast
+import logging
+from types import SimpleNamespace
 from typing import ClassVar
 
 import pytest
 
+import modules.app_context as _app_ctx
+import ui.microscope_settings as ms
+import ui.protocol_settings as ps
 from modules import gui_logger
-from tests.ast_seams import find_def
+from modules.scope_session import ScopeSession
+from tests.settings_fixtures import complete_settings
 
 
 class _Widget:
@@ -100,31 +106,6 @@ def test_a_refused_duration_records_the_attempt_not_the_revert(emitted, monkeypa
     )
 
 
-def test_restoring_labware_at_startup_is_not_recorded_as_a_selection():
-    """Two LABWARE records fired at cold start from no user gesture.
-
-    Restoring the stored labware writes the spinner (which dispatches) AND
-    calls select_labware() explicitly, so startup emits twice. Each emission
-    needs its own declaration: only one is pending per record name at a time.
-    """
-    fn = find_def('ui/microscope_settings.py', 'load_settings', class_name='MicroscopeSettings')
-    declarations = [
-        node
-        for node in ast.walk(fn)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == 'note_write_back'
-        and node.args
-        and isinstance(node.args[0], ast.Constant)
-        and node.args[0].value == 'LABWARE'
-    ]
-    assert len(declarations) >= 2, (
-        'startup emits LABWARE twice -- once from the spinner write and once '
-        'from the explicit select_labware() call -- so each needs its own '
-        f'declaration. Found {len(declarations)}'
-    )
-
-
 def test_a_capture_root_records_and_stores_what_was_typed(emitted, monkeypatch):
     """A path-illegal root is recorded, and stored, as typed; the filename
     prefix made of it is the protocol's (capture_prefix), not the field's."""
@@ -147,25 +128,162 @@ def test_a_capture_root_records_and_stores_what_was_typed(emitted, monkeypatch):
     assert widget.text == 'my/run:1', 'the field shows what was typed'
 
 
-def test_restoring_binning_at_startup_is_not_recorded_as_a_selection():
-    """The twin of the labware restore, in the same startup block.
+class _Spinner:
+    """A Kivy Spinner's text: a write of a different text dispatches ``on_text``,
+    as the kv binding does, synchronously and whoever wrote it."""
 
-    Writing the spinner dispatches its text event AND select_binning_size() is
-    called explicitly, so cold start recorded two binning picks nobody made.
-    """
-    fn = find_def('ui/microscope_settings.py', 'load_settings', class_name='MicroscopeSettings')
-    declarations = [
-        node
-        for node in ast.walk(fn)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == 'note_write_back'
-        and node.args
-        and isinstance(node.args[0], ast.Constant)
-        and node.args[0].value == 'BINNING'
-    ]
-    assert len(declarations) >= 2, (
-        'startup emits BINNING twice -- once from the spinner write and once '
-        'from the explicit select_binning_size() call -- so each needs its own '
-        f'declaration. Found {len(declarations)}'
+    def __init__(self, text, on_text):
+        self._text = text
+        self._on_text = on_text
+        self.values = []
+
+    @property
+    def text(self):
+        return self._text
+
+    @text.setter
+    def text(self, value):
+        if value != self._text:
+            self._text = value
+            self._on_text()
+
+
+class _Labware(ps.ProtocolSettings):
+    """The real protocol panel, holding only the labware spinner (kv text '')."""
+
+    def __init__(self):
+        # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's record
+        self.ids = {'labware_spinner': _Spinner('', self.select_labware)}
+        self._protocol = None
+        self.picks = 0
+
+    def select_labware(self):
+        self.picks += 1
+        super().select_labware()
+
+
+class _Microscope(ms.MicroscopeSettings):
+    """The real panel; its spinners start at their kv text and dispatch their kv handlers."""
+
+    def __init__(self):
+        # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's record
+        self.ids = {
+            'image_mode_spinner': _Spinner('Select', self.select_image_mode),
+            'live_image_output_format_spinner': _Spinner(
+                'Select', self.select_live_image_output_format
+            ),
+            'sequenced_image_output_format_spinner': _Spinner(
+                'Select', self.select_sequenced_image_output_format
+            ),
+            'video_recording_format_spinner': _Spinner(
+                'Select', self.select_video_recording_format
+            ),
+            'binning_spinner': _Spinner('Select', self.select_binning_size),
+            'jpg_quality_slider': SimpleNamespace(value=0),
+            'jpg_quality_value_label': SimpleNamespace(text=''),
+            'frame_width_id': SimpleNamespace(text='', focus=False),
+            'frame_height_id': SimpleNamespace(text='', focus=False),
+            'enable_scale_bar_btn': SimpleNamespace(state='normal'),
+            'show_tooltips_btn': SimpleNamespace(state='normal'),
+        }
+        self.binning_picks = 0
+
+    def select_binning_size(self):
+        self.binning_picks += 1
+        super().select_binning_size()
+
+    # The drawing that needs a window: the scope's controls, the stimulation
+    # toggles on each layer, the field-of-view readout.
+    def reconfigure_for_scope(self):
+        pass
+
+    def set_ui_features_for_scope(self):
+        pass
+
+    def apply_stimulation_support(self):
+        pass
+
+    def refresh_fov_labels(self):
+        pass
+
+
+@pytest.fixture
+def cold_start(tmp_path, monkeypatch, caplog):
+    """Run the panel's settings load as the app's start does, and return
+    the GUI record it wrote with the two panels it filled."""
+    session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+    labware = _Labware()
+    layer_widget = SimpleNamespace(
+        ids={'gain_slider': SimpleNamespace(max=0), 'exp_slider': SimpleNamespace(max=0)},
+        sync_widgets_from_settings=lambda: None,
+    )
+    zstack = SimpleNamespace(
+        ids={
+            name: SimpleNamespace(text='')
+            for name in (
+                'zstack_spinner',
+                'zstack_stepsize_id',
+                'zstack_range_id',
+                'zstack_steps_id',
+            )
+        }
+    )
+    # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's record
+    ctx = SimpleNamespace(
+        session=session,
+        settings=session.settings,
+        update_settings=session.update_settings,
+        lumaview=SimpleNamespace(scope=session.scope),
+        wellplate_loader=session.wellplate_loader,
+        initializing=True,
+        camera_executor=None,
+        source_path=str(tmp_path),
+        scope_display=SimpleNamespace(image_mode=None),
+        stage=SimpleNamespace(full_redraw=lambda: None, show_protocol_steps=lambda enable: None),
+        motion_settings=SimpleNamespace(
+            ids={
+                'protocol_settings_id': labware,
+                'verticalcontrol_id': SimpleNamespace(
+                    ids={'zstack_id': zstack}, show_turret_state=lambda prompt: None
+                ),
+            }
+        ),
+        image_settings=SimpleNamespace(
+            layer_lookup=lambda layer: layer_widget,
+            reconcile_layers_to_camera_caps=lambda: None,
+        ),
+    )
+    monkeypatch.setattr(_app_ctx, 'ctx', ctx)
+    monkeypatch.setattr(gui_logger, '_write_backs', {})
+    microscope = _Microscope()
+    try:
+        with caplog.at_level(logging.INFO, logger='LVP.gui_interactions'):
+            microscope.load_settings()
+        recorded = [r.getMessage() for r in caplog.records if r.name == 'LVP.gui_interactions']
+        yield SimpleNamespace(
+            recorded=recorded, microscope=microscope, labware=labware, settings=session.settings
+        )
+    finally:
+        session.shutdown()
+
+
+def test_restoring_labware_at_startup_is_not_recorded_as_a_selection(cold_start):
+    """The restore writes the spinner, whose write runs select_labware, and
+    then calls it again: two records of the stored plate, neither a pick."""
+    plate = cold_start.settings['protocol']['labware']
+    assert cold_start.labware.ids['labware_spinner'].text == plate
+    assert cold_start.labware.picks == 2, 'the write and the call each ran the handler'
+    assert not [line for line in cold_start.recorded if line.startswith('SELECT LABWARE')], (
+        cold_start.recorded
+    )
+
+
+def test_restoring_binning_at_startup_is_not_recorded_as_a_selection(cold_start):
+    """The twin of the labware restore: the spinner write and the explicit
+    select_binning_size() each run the handler; neither is a pick."""
+    label = cold_start.settings['binning']['size']
+    assert cold_start.microscope.ids['binning_spinner'].text == label
+    assert cold_start.microscope.binning_picks == 2, 'the write and the call each ran the handler'
+    assert not [line for line in cold_start.recorded if line.startswith('SELECT BINNING')], (
+        cold_start.recorded
     )

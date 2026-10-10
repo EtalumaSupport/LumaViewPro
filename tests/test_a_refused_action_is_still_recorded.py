@@ -13,82 +13,122 @@ file-writes gate says the same words for five different buttons, and the
 protocol builder's refusal is shared by nine callers. The record names the
 control; the notification that follows says why it was refused.
 
-The ordering pins read the AST because the invariant is an ORDERING -- the
-record comes before the branch that returns -- and because the suite mocks
-Kivy rather than instantiating widgets. The stage boxes are driven through
-their real handlers.
+The two handlers whose refusal comes from the Session are driven against the
+real simulated session, with an input it refuses; the stage boxes are driven
+through their real handlers.
 """
 
 from __future__ import annotations
 
-import ast
+import datetime
+import logging
+from types import SimpleNamespace
 
 import pytest
 
-from tests.ast_seams import find_def
+import modules.app_context as _app_ctx
+import ui.microscope_settings as ms
+import ui.protocol_settings as ps
+from modules.exceptions import ProtocolRunRefusedError
+from modules.scope_session import ScopeSession
+from tests.settings_fixtures import complete_settings
 
-# handler -> the emitter and record that must precede its first refusal.
-_RECORD_BEFORE_REFUSAL = (
-    (
-        'ui/microscope_settings.py',
-        'MicroscopeSettings',
-        'select_binning_size',
-        'select',
-        'BINNING',
-    ),
-    (
-        'ui/protocol_settings.py',
-        'ProtocolSettings',
-        'new_protocol',
-        'button',
-        'NEW_PROTOCOL',
-    ),
-)
+_GUI_LOG = 'LVP.gui_interactions'
 
 
-def _emitter_calls(fn, attr, record=None):
-    found = []
-    for node in ast.walk(fn):
-        if not isinstance(node, ast.Call):
-            continue
-        func = node.func
-        if not (
-            isinstance(func, ast.Attribute)
-            and func.attr == attr
-            and isinstance(func.value, ast.Name)
-            and func.value.id == 'gui_logger'
-        ):
-            continue
-        if record is not None and not (
-            node.args and isinstance(node.args[0], ast.Constant) and node.args[0].value == record
-        ):
-            continue
-        found.append(node)
-    return found
+@pytest.fixture
+def session(tmp_path):
+    """The simulated session, on the shipped settings: no layer acquires."""
+    session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+    yield session
+    session.shutdown()
 
 
-@pytest.mark.parametrize(('module', 'cls', 'handler', 'attr', 'record'), _RECORD_BEFORE_REFUSAL)
-def test_the_action_is_recorded_before_the_branch_that_refuses_it(
-    module, cls, handler, attr, record
-):
-    fn = find_def(module, handler, class_name=cls)
-    assert fn is not None, f'{cls}.{handler} moved or was renamed'
+def _recorded(caplog):
+    return [r.getMessage() for r in caplog.records if r.name == _GUI_LOG]
 
-    emits = _emitter_calls(fn, attr, record)
-    assert emits, f'{cls}.{handler} no longer records {record} at all'
 
-    returns = [n for n in ast.walk(fn) if isinstance(n, ast.Return)]
-    assert returns, (
-        f'{cls}.{handler} has no early return; this pin assumes the refusal '
-        f'leaves through one, so it has gone stale rather than passed'
+class _Microscope(ms.MicroscopeSettings):
+    """The real class, with only the widget tree stubbed."""
+
+    def __init__(self, binning_label):
+        # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's record
+        self.ids = {
+            'binning_spinner': SimpleNamespace(text=binning_label),
+            'frame_width_id': SimpleNamespace(text='', focus=False),
+            'frame_height_id': SimpleNamespace(text='', focus=False),
+        }
+
+
+class _Protocols(ps.ProtocolSettings):
+    """The real class, with only the widget tree stubbed."""
+
+    def __init__(self):
+        # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's record
+        self.ids = {
+            'tiling_size_spinner': SimpleNamespace(text='1x1'),
+            'acquire_zstack_id': SimpleNamespace(active=False),
+        }
+        self._protocol = SimpleNamespace(
+            period=lambda: datetime.timedelta(minutes=20),
+            duration=lambda: datetime.timedelta(hours=48),
+        )
+
+    def update_step_ui(self):
+        pass
+
+
+def test_a_binning_the_session_refuses_is_still_recorded(session, monkeypatch, caplog):
+    """A binning this camera does not offer is refused by the Session; the
+    pick that asked for it is in the record all the same."""
+    raised = []
+
+    def _on_the_lane(call, redraw, label, *, lane=None):
+        # The camera lane, run here: the Session's answer is what is asked
+        # for, and the lane is not the subject.
+        try:
+            call()
+        except Exception as error:
+            raised.append(error)
+
+    monkeypatch.setattr(ms, 'submit_reported', _on_the_lane)
+    monkeypatch.setattr(
+        _app_ctx,
+        'ctx',
+        SimpleNamespace(
+            session=session,
+            settings=session.settings,
+            initializing=False,
+            camera_executor=None,
+        ),
     )
-    assert min(e.lineno for e in emits) < min(r.lineno for r in returns), (
-        f'{cls}.{handler} records {record} only after the branch that refuses '
-        f'the action, so a refused one leaves no line naming the control'
-    )
+    offered = session.scope.capabilities.camera_binning_sizes
+    unoffered = max(offered) + 1
+
+    with caplog.at_level(logging.INFO, logger=_GUI_LOG):
+        _Microscope(f'{unoffered}x{unoffered}').select_binning_size()
+
+    assert [getattr(e, 'reason', e) for e in raised] == ['binning_unsupported']
+    assert f'SELECT BINNING {unoffered}x{unoffered}' in _recorded(caplog)
 
 
-@pytest.mark.parametrize('typed', ['', '-', '.', '-.'])
+def test_a_new_protocol_the_session_refuses_is_still_recorded(session, monkeypatch, caplog):
+    """With no layer set to acquire, the Session refuses the build; the press
+    that asked for it is in the record, and nothing was built."""
+    with pytest.raises(ProtocolRunRefusedError) as refused:
+        session.new_protocol()
+    assert refused.value.reason == 'no_acquiring_layer'
+    monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(session=session))
+    caplog.clear()
+
+    with caplog.at_level(logging.INFO, logger=_GUI_LOG):
+        _Protocols().new_protocol()
+
+    recorded = _recorded(caplog)
+    assert 'BUTTON NEW_PROTOCOL ' in recorded, recorded
+    assert not [line for line in recorded if line.startswith('PROTOCOL NEW')], recorded
+
+
 @pytest.mark.parametrize(
     ('handler', 'box', 'record'),
     (
@@ -97,30 +137,32 @@ def test_the_action_is_recorded_before_the_branch_that_refuses_it(
     ),
 )
 def test_an_unparseable_stage_entry_is_recorded_as_a_refusal_and_the_box_goes_back(
-    monkeypatch, handler, box, record, typed
+    monkeypatch, handler, box, record
 ):
     """What the kv float filter lets through but is not a number moves
     nothing. The refusal leaves a line saying so -- the name alone would read
     as a successful move -- and then the box shows the target again, and
-    that is recorded too."""
-    from types import SimpleNamespace
-
-    import modules.app_context as _app_ctx
-    import ui.motion_settings as ms
+    that is recorded too. One entry: which entries are not numbers ('',
+    '-', '.', '-.') is typed_number's to decide, pinned in
+    test_a_typed_non_number_puts_its_box_back.py; here every one reaches the
+    same branch."""
+    import ui.motion_settings as motion
     from modules import gui_logger
+
+    typed = '-'
 
     lines = []
     monkeypatch.setattr(gui_logger, 'button', lambda name, detail='': lines.append((name, detail)))
     monkeypatch.setattr(gui_logger, 'text_input', lambda name, value: lines.append((name, value)))
     moves = []
-    monkeypatch.setattr(ms, 'move_absolute', lambda *a, **k: moves.append((a, k)))
+    monkeypatch.setattr(motion, 'move_absolute', lambda *a, **k: moves.append((a, k)))
     monkeypatch.setattr(
         _app_ctx, 'ctx', SimpleNamespace(session=SimpleNamespace(controls_locked=False))
     )
     stand = SimpleNamespace(ids={box: SimpleNamespace(text=typed)})
     stand.update_gui = lambda: setattr(stand.ids[box], 'text', '12.50')
 
-    getattr(ms.XYStageControl, handler)(stand, typed)
+    getattr(motion.XYStageControl, handler)(stand, typed)
 
     assert moves == []
     assert stand.ids[box].text == '12.50'
