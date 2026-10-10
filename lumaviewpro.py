@@ -91,8 +91,7 @@ if __name__ == '__main__':
             sys.exit(f'--sim-file-stall=AFTER,FOR (seconds): {_stall_error}')
     # --sim-walk=<file> performs a sim walk's steps on the GUI once bring-up
     # has finished (ui/sim_walk.py; what it waits on is _bring_up_owes
-    # below). Simulator only: a walk on hardware would move a real stage. Removed from argv here, before Kivy is imported,
-    # because Kivy exits on a flag it does not know.
+    # below). Simulator only: a walk on hardware would move a real stage.
     from ui.sim_walk_file import take_walk_flag
 
     try:
@@ -149,26 +148,15 @@ if __name__ == '__main__':
 
     memory_profile.start(source_path)
 
-    from modules.exceptions import InstallationFileError
+    # A settings or installation file that cannot be used stops the launch by
+    # escaping: the crash hook logs it, and the packaged build's bootloader
+    # shows its message. Never a SystemExit here, which the bootloader treats
+    # as a deliberate stop and shows nothing for.
+    from modules.settings_init import load_lvp_settings
 
-    try:
-        from modules.settings_init import load_lvp_settings
+    load_lvp_settings(logger, source_path)
 
-        load_lvp_settings(logger, source_path)
-
-        from modules.settings_init import settings as initialized_settings
-
-        settings = initialized_settings
-
-    # The settings check reads the release's layer vocabulary from the
-    # installation's scopes.json; a broken file there is the installation's
-    # fault, and saying "settings" would send the user to the wrong file.
-    except InstallationFileError as e:
-        logger.critical(f'[LVP Main  ] {e.title} -- cannot continue. {e}')
-        sys.exit(1)
-    except Exception as e:  # grain: ignore NAKED_EXCEPT
-        logger.critical(f'[LVP Main  ] Failed to load settings -- cannot continue. {e}')
-        sys.exit(1)
+    from modules.settings_init import settings
 
     import modules.app_context as app_context
     import modules.common_utils as common_utils
@@ -191,6 +179,10 @@ if __name__ == '__main__':
     # Disable Kivy's own file logging (LVP has its own RotatingFileHandler)
     os.environ['KIVY_NO_CONSOLELOG'] = '1'
     os.environ['KIVY_NO_FILELOG'] = '1'
+    # Kivy reads no command line: its parser exits on an argument it does not
+    # know, and a packaged build's bootloader shows nothing for that exit.
+    # LumaViewPro's own flags are read above, before Kivy loads.
+    os.environ['KIVY_NO_ARGS'] = '1'
 
     # Single-instance lock check BEFORE any Kivy import.
     # When the check lived inside App.build(), Kivy had already
