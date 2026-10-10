@@ -407,6 +407,10 @@ class RunPlan:
     # None only on a scope never initialized, which the run gate admits only
     # when it has no X/Y stage to convert plate positions for.
     stage_offset: dict | None
+    # The per-class AG/AE exposure ceilings ({'fluorescence': 200.0, ...}),
+    # read from the scope's settings at prepare as the offset is, so no
+    # caller can leave them out.
+    ag_ae_max_exposure_ms: dict
     # The settings-derived run values, resolved once by the caller that
     # owns the settings (config_helpers.get_sequenced_run_settings) and
     # frozen here so a mid-run toggle cannot make some steps of one scan
@@ -415,8 +419,6 @@ class RunPlan:
     bf_af_for_fluorescence: bool
     timestamp_overlay: bool
     video_max_fps: int
-    # Flat per-class AG/AE exposure ceilings ({'fluorescence': 150.0, ...}).
-    ag_ae_max_exposure_ms: dict
     # Whether the run names its files with the turret position. Stated by
     # the caller from the store its world owns -- the GUI's live flag, or
     # the mode a headless session was built in -- so the engine never
@@ -1058,7 +1060,6 @@ class SequencedCaptureRunner:
         bf_af_for_fluorescence: bool = False,
         timestamp_overlay: bool = True,
         video_max_fps: int = 0,
-        ag_ae_max_exposure_ms: dict | None = None,
         composite_thresholds_percent: dict | None = None,
         engineering_mode: bool = False,
         borrowed_claim: BorrowedClaim | None = None,
@@ -1353,6 +1354,7 @@ class SequencedCaptureRunner:
         # the offset it was admitted at.
         self._scope.protocols.refuse_positions_outside_travel(protocol.steps(), protocol.labware())
         stage_offset = copy.deepcopy(self._scope.runtime_state.get_stage_offset())
+        ag_ae_max_exposure_ms = self._scope.read_setting('ag_ae_max_exposure_ms')
 
         # The last gate, and the only one about where the run SAVES rather
         # than about the instrument. Without it a bad save location is
@@ -1444,7 +1446,7 @@ class SequencedCaptureRunner:
             bf_af_for_fluorescence=bf_af_for_fluorescence,
             timestamp_overlay=timestamp_overlay,
             video_max_fps=video_max_fps,
-            ag_ae_max_exposure_ms=copy.deepcopy(ag_ae_max_exposure_ms or {}),
+            ag_ae_max_exposure_ms=ag_ae_max_exposure_ms,
             composite_thresholds_percent=composite_thresholds_percent,
             engineering_mode=engineering_mode,
         )

@@ -45,7 +45,6 @@ _OWNED_PARAMS = (
     'bf_af_for_fluorescence',
     'timestamp_overlay',
     'video_max_fps',
-    'ag_ae_max_exposure_ms',
 )
 
 _RUN_CALL = re.compile(r'\.prepare\(')
@@ -88,7 +87,6 @@ def test_helper_passes_settings_values_through():
             'separate_folder_per_channel': True,
             'protocol': {'bf_af_for_fluorescence': True},
             'video': {'timestamp_overlay': False, 'max_fps': 5},
-            'ag_ae_max_exposure_ms': {'fluorescence': 123.0},
         },
         run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
     )
@@ -100,7 +98,6 @@ def test_helper_passes_settings_values_through():
         'bf_af_for_fluorescence': True,
         'timestamp_overlay': False,
         'video_max_fps': 5,
-        'ag_ae_max_exposure_ms': {'fluorescence': 123.0},
     }
 
 
@@ -119,7 +116,6 @@ def test_helper_defaults_missing_keys_to_the_shipped_defaults():
         'bf_af_for_fluorescence': False,
         'timestamp_overlay': True,
         'video_max_fps': 0,
-        'ag_ae_max_exposure_ms': {},
     }
 
 

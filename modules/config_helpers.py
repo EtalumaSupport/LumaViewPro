@@ -186,7 +186,6 @@ def get_sequenced_run_settings(settings: dict, *, run_mode: SequencedCaptureRunM
         'bf_af_for_fluorescence': settings.get('protocol', {}).get('bf_af_for_fluorescence', False),
         'timestamp_overlay': settings.get('video', {}).get('timestamp_overlay', True),
         'video_max_fps': settings.get('video', {}).get('max_fps', 0),
-        'ag_ae_max_exposure_ms': settings.get('ag_ae_max_exposure_ms', {}),
     }
 
 
@@ -201,28 +200,23 @@ def get_manual_video_max_duration(settings: dict) -> float:
     return settings.get('video', {}).get('max_duration_seconds', 300)
 
 
-def get_ag_ae_max_exposure_ms(layer: str, overrides: dict | None = None) -> float:
+def get_ag_ae_max_exposure_ms(layer: str, ceilings: dict) -> float:
     """Return the AG/AE exposure upper bound (ms) for a layer's channel class.
 
     AG/AE is capped per channel class so auto-exposure cannot drive the
-    sensor toward its native max on dim scenes. Resolves the layer to its
-    class, then returns the per-install override when present, else the
-    DEFAULT_AG_AE_MAX_EXPOSURE_MS default. Unknown layers fall back to the
-    fluorescence cap.
+    sensor toward its native max on dim scenes (especially with the
+    MinimizeGain profile), washing out brightfield and making the live-view
+    auto loop hunt. Distinct from the manual exposure-slider limits.
+    Transmitted light is bright (short exposures); fluorescence needs more;
+    luminescence integrates long. Resolves the layer to its class and
+    returns that class's ceiling. Unknown layers take the fluorescence cap.
 
-    ``overrides`` is the flat per-class map the settings hold under
-    ``ag_ae_max_exposure_ms`` (``{'fluorescence': 150.0, ...}``), handed
-    in by the caller that owns the settings -- a run carries it on its
-    plan, the live view reads it off the context. It is NOT the whole
-    settings dict: passing that resolves to the table default for every
-    class, silently.
+    ``ceilings`` is the per-class map the settings hold under
+    ``ag_ae_max_exposure_ms`` (``{'fluorescence': 200.0, ...}``), handed in
+    by the caller that owns the settings -- a run reads it at its prepare,
+    the live view off the session. It is NOT the whole settings dict.
     """
-    channel_class = _ag_ae_channel_class(layer)
-    if overrides:
-        override = overrides.get(channel_class)
-        if override is not None:
-            return float(override)
-    return DEFAULT_AG_AE_MAX_EXPOSURE_MS[channel_class]
+    return float(ceilings[_ag_ae_channel_class(layer)])
 
 
 def log_resolved_optics(
@@ -897,19 +891,6 @@ def focus_log(positions, values, focus_round: int, source_path: str) -> int:
 # is `scope.imaging.max_exposure_ms_cached or DEFAULT_MAX_EXPOSURE_MS`. See #616.
 DEFAULT_MAX_EXPOSURE_MS = 1000.0
 
-# Per-channel-class upper bound on the exposure AG/AE may drive to, in ms.
-# Distinct from the manual exposure-slider limits: on dim scenes (especially
-# with the MinimizeGain profile) AG/AE would otherwise push exposure to the
-# sensor's native max, washing out brightfield and making the live-view auto
-# loop hunt. Transmitted light is bright (short exposures); fluorescence needs
-# more; luminescence integrates long. Overridable per install via
-# settings['ag_ae_max_exposure_ms'][<class>]; these are the defaults.
-DEFAULT_AG_AE_MAX_EXPOSURE_MS = {
-    'transmitted': 50.0,
-    'fluorescence': 200.0,
-    'luminescence': 1000.0,
-}
-
 # The usable exposure FLOOR per channel class (ms): see
 # get_ag_ae_min_exposure_ms. Transmitted light can legitimately run at a
 # tenth of a millisecond; sub-millisecond fluorescence or luminescence is
@@ -996,9 +977,8 @@ def layer_max_illumination_ma_for_ui(capabilities: 'ScopeCapabilities', layer: s
 # bright enough that the useful manual range sits far under the sensor's
 # maximum, so the slider stops here rather than at the camera's cap.
 #
-# Deliberately NOT DEFAULT_AG_AE_MAX_EXPOSURE_MS: that one bounds what the AUTO
-# loop may drive to and is overridable per install through
-# settings['ag_ae_max_exposure_ms'], so reusing it would let auto-exposure
+# Deliberately NOT settings['ag_ae_max_exposure_ms']: that bounds what the AUTO
+# loop may drive to and is set per install, so reusing it would let auto-exposure
 # tuning silently resize the manual slider. It is also keyed by channel class,
 # where the manual ceiling differs between BF and the other transmitted layers.
 BF_MAX_MANUAL_EXPOSURE_MS = 50.0

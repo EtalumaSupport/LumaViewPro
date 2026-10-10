@@ -26,6 +26,7 @@ from modules.activity_claim import ActivityClaim, RunIdentity
 from modules.image_mode import ImageCaptureConfig
 from modules.run_outcome import CaptureTally
 from tests.scope_fakes import swap_lanes
+from tests.settings_fixtures import complete_settings
 
 
 def held_run_claim():
@@ -246,7 +247,7 @@ def scan_ready_runner(step, **state):
     runner._video_as_frames = False
     runner._run_mode = SequencedCaptureRunMode.FULL_PROTOCOL
     runner._keep_led_between_steps = False
-    runner._ag_ae_max_exposure_ms = {}
+    runner._ag_ae_max_exposure_ms = complete_settings()['ag_ae_max_exposure_ms']
     runner._write_focus_to = None
     runner._save_autofocus_data = False
     runner._parent_dir = None

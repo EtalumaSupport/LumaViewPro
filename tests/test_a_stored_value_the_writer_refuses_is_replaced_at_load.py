@@ -80,6 +80,38 @@ def test_a_stored_nan_is_replaced_and_told(tmp_path):
     assert math.isnan(saved)
 
 
+def test_a_stored_ceiling_no_write_could_store_is_replaced_and_told(tmp_path):
+    """A hand-edited auto-gain exposure ceiling of NaN or of the wrong kind
+    reached a run's camera arm unchanged; each class is replaced alone and
+    told, and a class the file leaves out takes the shipped value."""
+    shipped = json.loads(TEMPLATE.read_text())['ag_ae_max_exposure_ms']
+
+    def edit(current):
+        current['ag_ae_max_exposure_ms'] = {'fluorescence': math.nan, 'luminescence': True}
+
+    settings, told = _prepare(tmp_path, edit)
+
+    assert settings['ag_ae_max_exposure_ms'] == shipped
+    (notice,) = told
+    replaced = {path: (saved, by) for path, saved, by in notice.replacements}
+    assert set(replaced) == {
+        'ag_ae_max_exposure_ms.fluorescence',
+        'ag_ae_max_exposure_ms.luminescence',
+    }
+    assert math.isnan(replaced['ag_ae_max_exposure_ms.fluorescence'][0])
+    assert replaced['ag_ae_max_exposure_ms.luminescence'] == (True, shipped['luminescence'])
+
+
+def test_a_stored_ceiling_in_range_is_kept(tmp_path):
+    def edit(current):
+        current['ag_ae_max_exposure_ms'] = {'fluorescence': 150.0}
+
+    settings, told = _prepare(tmp_path, edit)
+
+    assert settings['ag_ae_max_exposure_ms']['fluorescence'] == 150.0
+    assert told == []
+
+
 def test_every_value_one_load_replaced_is_in_one_notice(tmp_path):
     """The centre shows one notice of a kind at a time: a notice per value
     showed the first and hid the rest."""

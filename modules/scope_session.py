@@ -1705,9 +1705,9 @@ class ScopeSession:
             exposure_ms = stored['exposure_ms']
             auto_gain = stored['auto_gain']
             auto_gain_settings = config_helpers.get_auto_gain_settings(self.settings)
-            overrides = copy.deepcopy(self.settings.get('ag_ae_max_exposure_ms', {}))
+            ceilings = copy.deepcopy(self.settings['ag_ae_max_exposure_ms'])
         auto_gain_settings['max_exposure_ms'] = config_helpers.get_ag_ae_max_exposure_ms(
-            layer, overrides
+            layer, ceilings
         )
         # The floor rides beside the ceiling so an auto-gain lock can say
         # whether exposure bottomed out of the usable range (AT_MINIMUM).

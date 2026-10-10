@@ -37,6 +37,7 @@ from tests.scope_fakes import home_sim_scope
 from tests.test_composite_run_config import _settings as _base_settings
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES
 from tests.installation_fixtures import copy_installation_files
+from tests.settings_fixtures import complete_settings
 
 # Two channels is the minimum a merge can consume, and one of them is
 # transmitted: that is the pairing whose blend actually reads a threshold,
@@ -83,6 +84,9 @@ def headless_settings(
     # The scope reads whether to draw the scale bar at every capture, so
     # the session refuses settings without it; the template's value.
     settings['scale_bar'] = {'enabled': False}
+    # The session reads the auto-gain exposure ceilings at every camera
+    # apply, bring-up's among them; the template's values.
+    settings['ag_ae_max_exposure_ms'] = complete_settings()['ag_ae_max_exposure_ms']
     return settings
 
 

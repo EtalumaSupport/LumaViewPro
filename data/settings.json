@@ -233,6 +233,11 @@
 
     "show_tooltips": false,
     "live_view_fps": 30,
+    "ag_ae_max_exposure_ms": {
+        "transmitted": 50.0,
+        "fluorescence": 200.0,
+        "luminescence": 1000.0
+    },
     "tiling_overlap_percent": 0.0,
     "show_step_locations": false,
     "protocol_led_on": false,
