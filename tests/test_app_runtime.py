@@ -20,6 +20,7 @@ import sys
 import pytest
 
 from modules import path_utils
+from modules.exceptions import InstallationFileError
 from modules.path_utils import INSTALLED_MARKER, AppRuntime
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -61,6 +62,18 @@ def test_a_frozen_build_beside_the_marker_is_installed_and_keeps_its_data_in_doc
 
     assert path_utils.app_runtime() is AppRuntime.INSTALLED
     assert path_utils.get_source_root() == documents / f'LumaViewPro {version}'
+
+
+def test_an_installed_build_whose_version_txt_names_no_version_is_refused(exe_folder, monkeypatch):
+    # Its data folder is named for its version; with none, there is no folder
+    # to answer, and the install folder it once fell back to cannot be written.
+    (exe_folder / INSTALLED_MARKER).write_text('')
+    monkeypatch.setattr(path_utils, 'read_version', lambda script_root=None: ('', ''))
+
+    with pytest.raises(InstallationFileError) as refused:
+        path_utils.get_source_root()
+
+    assert refused.value.file_path == path_utils.get_script_root() / 'version.txt'
 
 
 def test_the_marker_does_not_make_a_source_run_installed(tmp_path, monkeypatch):

@@ -283,6 +283,10 @@ def get_source_root(
     The one derivation of it: an installed build keeps its data in
     Documents, in a folder named for its version; any other run keeps it in
     the folder it was launched from.
+
+    Raises:
+        InstallationFileError: an installed build whose ``version.txt`` names
+            no version, so its data folder has no name.
     """
     if source_path is not None:
         return pathlib.Path(source_path)
@@ -292,7 +296,7 @@ def get_source_root(
 
     version, _build_timestamp = read_version()
     if not version:
-        return launch_root()
+        raise InstallationFileError(get_script_root() / 'version.txt', 'names no version')
 
     import platformdirs
 
