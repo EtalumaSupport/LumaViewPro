@@ -400,7 +400,7 @@ class TestFrameValidityDuringHoming:
     """Issue #609: the frame valid marker was showing green during homing
     because the homing bodies never called frame_validity.invalidate().
     The settle-check callback correctly rejects HOMING state, but only if
-    the source is actually in _pending -- which requires invalidate().
+    the source is actually pending -- which requires invalidate().
 
     These tests capture scope.imaging.frame_validity.is_valid at the moment the
     motion driver method is executing (axis state is HOMING, motion is in
@@ -493,23 +493,10 @@ class TestFrameValidityDuringHoming:
         assert captured['is_valid'] is False
 
     def test_thome_marks_frame_invalid_during_motion(self):
-        # Must use a turret-equipped sim (LS850T) since post-B4 the
-        # default LS850 sim has no T axis and `home(axis='T')` correctly
-        # no-ops there. The phantom-T behavior the original test relied
-        # on is gone.
-        from drivers.simulated_motorboard import SimulatedMotorBoard
-
-        scope = build_scope(simulate=True)
-        scope._motion_driver = SimulatedMotorBoard(
-            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850T'
-        )
-        present = scope._motion_driver.detect_present_axes()
-        assert 'T' in present
-        scope.motion._pos_cache = dict.fromkeys(present, 0.0)
-        scope.motion._axis_state = dict.fromkeys(present, AxisState.UNKNOWN)
-        scope.motion._arrival_events = {ax: threading.Event() for ax in present}
-        for ev in scope.motion._arrival_events.values():
-            ev.set()
+        # A turret-equipped sim (LS850T): an LS850 has no T axis, and
+        # `home(axis='T')` correctly no-ops there.
+        scope = build_scope(simulate=True, sim_model='LS850T')
+        assert 'T' in scope._motion_driver.detect_present_axes()
 
         captured = {}
         original_thome = scope._motion_driver.thome

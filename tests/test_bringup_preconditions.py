@@ -91,20 +91,19 @@ class TestInitializeStaysOnTheCallingThread:
 
         scope = build_scope(simulate=True, register_atexit=False)
         try:
-            # IlluminationAPI._driver is a read-only view of the scope's slot.
+            # a stand-in by design: the simulator has no scope without an LED
+            # board, so the production Null board goes into the slot a scope
+            # with no board holds. IlluminationAPI._driver is a read-only view
+            # of that slot.
             board = NullLEDBoard()
             monkeypatch.setattr(scope, '_led_driver', board)
             calls = []
             monkeypatch.setattr(board, 'leds_off', lambda: calls.append('leds_off'))
-            frame_validity = scope.imaging.frame_validity
-            real_invalidate = frame_validity.invalidate
-            monkeypatch.setattr(
-                frame_validity,
-                'invalidate',
-                lambda source: calls.append(source) if source == 'led' else real_invalidate(source),
-            )
+            led_changes_before = scope.imaging.frame_validity.invalidation_counts.get('led', 0)
             settings = bind_settings_like_a_session(scope, **_settings())
             scope.initialize(ScopeInitConfig.from_settings(settings, turreted=False))
+            led_changes = scope.imaging.frame_validity.invalidation_counts.get('led', 0)
+            assert led_changes == led_changes_before
             assert calls == []
         finally:
             scope.disconnect()

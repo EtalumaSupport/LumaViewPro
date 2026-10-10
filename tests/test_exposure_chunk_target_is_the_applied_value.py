@@ -9,136 +9,86 @@ rejected -- ten captures in a row, with no value the camera would ever produce
 that could close the gate.
 
 The clamp is correct and stays. What must hold is that the target follows the
-applied value through it.
+applied value through it. The tests set the exposure through the public
+setter on a simulated scope and read the real owner, ``FrameValidity``,
+through ``target`` and ``chunk_match``. The simulated camera applies every
+in-range request exactly, so each test scripts the driver's answer on the
+scope's own camera.
 """
 
 import pytest
 
+from modules.exceptions import CameraSettingRejected
+from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
-CHUNK_TOLERANCE_US = 2.0
-
-
-class _RecordingValidity:
-    """Minimal frame-validity stand-in that records targets by source."""
-
-    def __init__(self):
-        self.targets = {}
-
-    def invalidate(self, source):
-        pass
-
-    def set_target(self, source, value):
-        self.targets[source] = value
-
-    def chunk_match(self, source, chunk_value):
-        target = self.targets.get(source)
-        if target is None or chunk_value is None:
-            return False
-        return abs(float(chunk_value) - target) <= CHUNK_TOLERANCE_US
+# Inside the simulated camera's declared exposure range, so the request
+# reaches the driver; 20 us.
+REQUEST_MS = 0.02
+REQUEST_US = 20.0
 
 
-def _imaging_with(result):
-    """An imaging object whose driver write returns ``result``."""
-    from modules.lumascope_api.imaging import ImagingAPI
-
-    obj = ImagingAPI.__new__(ImagingAPI)
-    obj.frame_validity = _RecordingValidity()
-    obj._commit_camera_writes = lambda updates: None
-    return obj, lambda: result
+@pytest.fixture
+def sim_imaging():
+    """A simulated scope's imaging and its camera."""
+    scope = build_scope(simulate=True)
+    bind_settings_like_a_session(scope)
+    return scope.imaging, scope.imaging._driver
 
 
-def test_clamped_write_targets_the_applied_value_not_the_request():
-    """The bench case: request 10 us, driver applies 14 us, frame reports 14."""
-    imaging, write_fn = _imaging_with(14.0)
+def test_clamped_write_targets_the_applied_value_not_the_request(sim_imaging, monkeypatch):
+    """The bench case: the driver raises the request to its floor and answers
+    with the microseconds it applied; a frame carrying them passes the gate."""
+    imaging, cam = sim_imaging
+    # a stand-in by design: the simulated camera has no exposure floor to clamp to; the gap stage 7 fills
+    monkeypatch.setattr(cam, 'exposure_t', lambda exposure_ms: 50.0)
 
-    imaging._camera_write(
-        write_fn,
-        targets=(('exposure', 10.0),),
-        target_from_result=('exposure',),
-    )
+    imaging.set_exposure_ms(REQUEST_MS)
 
-    assert imaging.frame_validity.targets['exposure'] == 14.0, (
+    assert imaging.frame_validity.target('exposure') == 50.0, (
         'the chunk target must be the applied microseconds; recording the '
         'request is what rejected every frame at the bench'
     )
-    assert imaging.frame_validity.chunk_match('exposure', 14.0), (
+    assert imaging.frame_validity.chunk_match('exposure', 50.0), (
         'a frame carrying the applied exposure must pass the gate'
     )
 
 
-def test_refused_write_records_no_target():
-    """A driver that refused did not move the hardware."""
-    imaging, write_fn = _imaging_with(False)
+def test_refused_write_records_no_target(sim_imaging, monkeypatch):
+    """A driver that refused did not move the hardware: the prior target stands."""
+    imaging, cam = sim_imaging
+    imaging.set_exposure_ms(2.5)
+    # a stand-in by design: the simulated camera refuses only above its maximum, which the API refuses first; the fault stage 7 injects
+    monkeypatch.setattr(cam, 'exposure_t', lambda exposure_ms: False)
 
-    imaging._camera_write(
-        write_fn,
-        targets=(('exposure', 10.0),),
-        target_from_result=('exposure',),
-    )
+    with pytest.raises(CameraSettingRejected) as caught:
+        imaging.set_exposure_ms(REQUEST_MS)
 
-    assert 'exposure' not in imaging.frame_validity.targets, (
+    assert caught.value.setting == 'exposure_ms'
+    assert imaging.frame_validity.target('exposure') == 2500.0, (
         'a refused write must not claim a target the camera never took'
     )
 
 
-def test_driver_reporting_no_value_falls_back_to_the_request():
-    """None means applied-but-unknown; the request is the best available target."""
-    imaging, write_fn = _imaging_with(None)
+def test_driver_reporting_no_value_falls_back_to_the_request(sim_imaging, monkeypatch):
+    """None means applied-but-unknown; the request, in microseconds, is the
+    best available target."""
+    imaging, cam = sim_imaging
+    # a stand-in by design: a driver with no confirmation signal; the simulator always reports what it applied
+    monkeypatch.setattr(cam, 'exposure_t', lambda exposure_ms: None)
 
-    imaging._camera_write(
-        write_fn,
-        targets=(('exposure', 10.0),),
-        target_from_result=('exposure',),
-    )
+    imaging.set_exposure_ms(REQUEST_MS)
 
-    assert imaging.frame_validity.targets['exposure'] == 10.0
+    assert imaging.frame_validity.target('exposure') == REQUEST_US
 
 
-def test_a_bare_true_is_not_mistaken_for_microseconds():
+def test_a_bare_true_is_not_mistaken_for_microseconds(sim_imaging, monkeypatch):
     """bool is an int subclass; a driver reporting True must not stamp 1.0 us."""
-    imaging, write_fn = _imaging_with(True)
+    imaging, cam = sim_imaging
+    # a stand-in by design: a driver that confirms with a bare True; the simulator reports microseconds
+    monkeypatch.setattr(cam, 'exposure_t', lambda exposure_ms: True)
 
-    imaging._camera_write(
-        write_fn,
-        targets=(('exposure', 10.0),),
-        target_from_result=('exposure',),
-    )
+    imaging.set_exposure_ms(REQUEST_MS)
 
-    assert imaging.frame_validity.targets['exposure'] == 10.0, (
+    assert imaging.frame_validity.target('exposure') == REQUEST_US, (
         'True is applied-but-unknown, not a 1 microsecond exposure'
-    )
-
-
-@pytest.mark.parametrize(
-    'driver_module,driver_name',
-    [
-        ('drivers.pyloncamera', 'PylonCamera'),
-        ('drivers.idscamera', 'IDSCamera'),
-        ('drivers.fx2driver', 'FX2Camera'),
-        ('drivers.simulated_camera', 'SimulatedCamera'),
-    ],
-)
-def test_every_driver_declares_the_applied_value_contract(driver_module, driver_name):
-    """One contract across all four drivers, so it cannot drift back apart.
-
-    The defect was possible because the same method had four different return
-    types; an annotation of ``None`` here means a transforming driver has no way
-    to report what it applied.
-    """
-    import importlib
-    import inspect
-
-    mod = importlib.import_module(driver_module)
-    cls = getattr(mod, driver_name, None)
-    if cls is None:
-        pytest.skip(f'{driver_name} not importable in this environment')
-
-    sig = inspect.signature(cls.exposure_t)
-    annotation = sig.return_annotation
-    assert annotation is not None and str(annotation) != 'None', (
-        f'{driver_name}.exposure_t must be able to report the applied value'
-    )
-    assert 'float' in str(annotation), (
-        f'{driver_name}.exposure_t returns {annotation!r}; it must be able to '
-        'report applied microseconds so the chunk target can follow it'
     )

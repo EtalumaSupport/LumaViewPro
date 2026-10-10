@@ -171,7 +171,7 @@ def _by_design() -> list[str]:
 
 # Seeded at LVP dev/4.0.0 b17419cc (2026-10-09) with 237 entries. Only shrinks: a
 # commit that takes a stand-in to the simulator deletes its entry and lowers this.
-ALLOWED_ENTRIES = 233
+ALLOWED_ENTRIES = 230
 ALLOWED = frozenset(
     {
         'tests/af_drives.py::af_runner_and_scope',
@@ -261,7 +261,6 @@ ALLOWED = frozenset(
         'tests/test_camera_getter_sentinel_containment.py::test_writer_saves_capture_time_depth_not_save_time_rederivation',
         'tests/test_camera_profile_info_reports_its_failure.py::_scope_with',
         'tests/test_camera_rejection_reaches_the_caller.py::sim_imaging',
-        'tests/test_camera_write_authority.py::_build_imaging',
         'tests/test_capture_collision_policy.py::test_video_step_row_records_writers_actual_path',
         'tests/test_capture_diag_debug_gate.py::_drive_capture',
         'tests/test_capture_evidence_saturation_depth.py::_make_writer',
@@ -273,7 +272,6 @@ ALLOWED = frozenset(
         'tests/test_diagnostic_query_warning_suppression.py::TestDiagnosticQueryCapabilityProbe.test_diagnostic_query_returns_response_when_supported',
         'tests/test_exchange_multiline_logs_content.py::_make_board',
         'tests/test_exchange_multiline_logs_content.py::test_the_port_timeout_is_not_changed_while_the_reply_arrives',
-        'tests/test_exposure_chunk_target_is_the_applied_value.py::_imaging_with',
         'tests/test_fatal_abort_led_safety.py::_run_cleanup_capture_led_ctx',
         'tests/test_firmware_updater.py::TestBackupConfigs._make_board',
         'tests/test_firmware_updater.py::TestRestoreConfigs._make_board',
@@ -288,7 +286,6 @@ ALLOWED = frozenset(
         'tests/test_frame_carries_depth.py::TestGetImageFromBufferUsesFrameDepth.test_downconvert_uses_frame_depth_not_live_driver',
         'tests/test_frame_metadata_from_chunk.py::_imaging',
         'tests/test_frame_validity.py::TestCaptureTimeChunkVerification._make_imaging',
-        'tests/test_frame_validity_invariant.py::sim_imaging',
         'tests/test_fresh_process_reads_homed_state.py::TestAxisStateSeeding.test_homed_hardware_seeds_idle_so_the_gate_permits_motion',
         'tests/test_fresh_process_reads_homed_state.py::TestAxisStateSeeding.test_partially_homed_hardware_seeds_each_axis_on_its_own_answer',
         'tests/test_fresh_process_reads_homed_state.py::TestAxisStateSeeding.test_seeding_requires_the_hardware_answer',

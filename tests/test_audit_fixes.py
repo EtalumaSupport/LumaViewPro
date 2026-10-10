@@ -3679,78 +3679,16 @@ def _function_source(source: str, func_name: str) -> str:
     raise AssertionError(f'function {func_name!r} not found in source')
 
 
-class TestFrameValidity_AutofocusDrainsBeforeScore:
-    """AutofocusRunner's scan loop must drain LED/gain/exposure-pending
-    frames before scoring. Bare get_image after Z arrival can score on a
-    mid-LED-warmup or mid-gain-change frame, corrupting the focus curve
-    and landing the wrong best-Z. Z's own move is drained too: is_moving()
-    reporting idle says the stage stopped, not that the next frame was made
-    after it did."""
-
-    def _drive_full_af(self, monkeypatch):
-        from tests.af_drives import af_runner_and_scope, drive_af
-
-        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
-        runner, scope = af_runner_and_scope()
-        result = drive_af(runner)
-        return scope, result
-
-    def test_iterate_calls_capture_and_wait(self, monkeypatch):
-        scope, result = self._drive_full_af(monkeypatch)
-        assert scope.imaging.capture_and_wait.called, (
-            'the AF scan loop must grab via capture_and_wait '
-            'to drain LED/gain/exposure pending frames before scoring.'
-        )
-        assert result is not None, 'the drive must complete with a best-focus result'
-
-    def test_iterate_waits_out_every_source_z_move_included(self, monkeypatch):
-        """AF excluded z_move, so a frame already on its way when a step's
-        move went out was scored at the new Z (the load census, 2026-10-06:
-        the sweep's peak step scored the step before's frame)."""
-        scope, _ = self._drive_full_af(monkeypatch)
-        grabs = scope.imaging.capture_and_wait.call_args_list
-        assert grabs, 'the drive must reach the camera'
-        for grab in grabs:
-            assert not grab.kwargs.get('exclude_sources'), (
-                f'an AF grab must wait out every pending source; got {grab}'
-            )
-
-
-class TestFrameValidity_ManualCaptureDrains:
-    """The manual capture -- with or without an overlay -- grabs through the
-    capture-and-wait body. A bare get_image would persist a mid-transition raw
-    image to disk via the save that follows. It runs on the camera worker, so
-    the dispatching public form would deadlock; the body is the one to call."""
-
-    def test_manual_capture_grabs_through_capture_and_wait(self):
-        from pathlib import Path
-
-        src = (Path(__file__).resolve().parent.parent / 'modules' / 'manual_capture.py').read_text()
-        body = _function_source(src, '_capture_and_save')
-        assert 'scope.imaging._capture_and_wait_impl(' in body, (
-            'the manual capture must grab through the capture-and-wait body'
-        )
-        assert '.get_image(' not in body, 'the manual capture must not grab with a bare get_image'
-
-
 class TestFrameValidity_AllLedMutatorsInvalidate:
-    """Defensive coverage: every LED state-mutator on IlluminationAPI
-    must call frame_validity.invalidate('led'). All 6 currently
-    invalidate; this test locks the invariant so a future cleanup that
-    removes any call fires the regression.
-
-    Post-Wave-7-Phase-4d: frame_validity instance lives on ImagingAPI;
-    IlluminationAPI reaches it via
-    `self._scope.imaging.frame_validity.invalidate(...)`.
-    """
+    """The three public LED writes on IlluminationAPI -- ``led_on``,
+    ``led_off`` and ``leds_off`` -- each leave 'led' pending in the scope's
+    frame validity, so a capture after any of them drains past the change.
+    Read through the owner's public ``is_valid`` and ``pending_sources``."""
 
     def test_each_led_mutator_invalidates_validity(self, sim_scope):
         illum = sim_scope.illumination
         validity = sim_scope.imaging.frame_validity
         mutator_calls = {
-            # The API-level *_fast tier is gone; the driver keeps its own
-            # *_fast methods, which do not touch frame validity because
-            # they never reach this layer.
             'led_on': lambda: illum.led_on(channel=0, illumination_ma=10),
             'led_off': lambda: illum.led_off(channel=0),
             'leds_off': lambda: illum.leds_off(),
@@ -3810,60 +3748,6 @@ def _sim_backed_imaging():
     imaging = ImagingAPI(scope, cam)
     scope.imaging = imaging
     return imaging, cam
-
-
-class TestLumascopeRecordsTargetForChunkMatch:
-    """The API layer records requested gain / exposure values via
-    frame_validity.set_target() so capture_and_wait's chunk-match can
-    short-circuit skip-frames once a frame's chunks match the target.
-
-    Manual setters (set_gain_db, set_exposure_ms) record the value; auto
-    setters (set_auto_gain, set_auto_exposure_time) clear the target
-    (None) since auto dynamically changes the value and chunk-match
-    against a stale manual target would be wrong."""
-
-    @staticmethod
-    def _recording_imaging():
-        """Sim-backed ImagingAPI whose frame_validity.set_target records calls."""
-        imaging, _cam = _sim_backed_imaging()
-        calls = []
-        orig_set_target = imaging.frame_validity.set_target
-
-        def recording_set_target(source, value):
-            calls.append((source, value))
-            return orig_set_target(source, value)
-
-        imaging.frame_validity.set_target = recording_set_target
-        return imaging, calls
-
-    def test_set_exposure_time_records_target_in_microseconds(self):
-        """ChunkExposureTime is microseconds; API takes milliseconds.
-        Conversion must happen at the seam so chunk-match's tolerance
-        is in matching units."""
-        imaging, calls = self._recording_imaging()
-        imaging.set_exposure_ms(2.5)
-        assert ('exposure', 2500.0) in calls, (
-            'set_exposure_ms must record the target in microseconds '
-            f'(ms * 1000) for chunk-match; got {calls}'
-        )
-
-    def test_set_auto_gain_clears_target(self):
-        imaging, calls = self._recording_imaging()
-        imaging.set_auto_gain(
-            True,
-            {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 24.0},
-        )
-        assert ('gain', None) in calls, (
-            "set_auto_gain must clear the gain target (None) so chunk-match doesn't "
-            f'fire against a stale manual target while auto adjusts; got {calls}'
-        )
-
-    def test_set_auto_exposure_time_clears_target(self):
-        imaging, calls = self._recording_imaging()
-        imaging.set_auto_exposure_time(True)
-        assert ('exposure', None) in calls, (
-            f'set_auto_exposure_time must clear the exposure target (None); got {calls}'
-        )
 
 
 class TestImageHandlerBaseChunkSlot:

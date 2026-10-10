@@ -253,6 +253,10 @@ def test_capture_wait_scales_with_the_declared_work(sim_scope, executors):
     executor TimeoutError instead of the body's loud None."""
     imaging = sim_scope.imaging
     recorded = {}
+    # Settle work pending at submit, so the validity term is not zero.
+    imaging.frame_validity.invalidate('auto_gain')
+    pending = imaging.frame_validity.frames_until_valid()
+    assert pending > 0
 
     class _RecordingFuture:
         def result(self, timeout=None):
@@ -270,9 +274,7 @@ def test_capture_wait_scales_with_the_declared_work(sim_scope, executors):
         imaging._CAPTURE_WAIT_TIMEOUT_S
         + 5.0
         + 10 * (frame_cost + 0.2)
-        + imaging.frame_validity.frames_until_valid()
-        * frame_cost
-        * imaging._CAPTURE_DEADLINE_MARGIN
+        + pending * frame_cost * imaging._CAPTURE_DEADLINE_MARGIN
     )
     assert recorded['timeout'] == pytest.approx(expected), (
         f'the executor wait must be base + content budget + summed-frame '

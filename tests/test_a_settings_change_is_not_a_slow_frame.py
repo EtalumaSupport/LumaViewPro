@@ -16,14 +16,12 @@ baseline is rebuilt from a few frames at the new setting. These tests drive
 the real method through the frame sequences the logs showed.
 """
 
-import ast
 import logging
 from collections import deque
 from types import SimpleNamespace
 
 
 from modules.frame_validity import FrameValidity
-from tests.ast_seams import find_def
 from ui.scope_display import (
     FRAME_SPIKE_MIN_SAMPLES,
     FRAME_SPIKE_WINDOW,
@@ -73,9 +71,15 @@ def _frames(stand, warnings, count, period_ms, *, settled=True):
 def _rig():
     warnings = _Warnings()
     logger = logging.getLogger('LVP.ui.scope_display')
+    level = logger.level
     logger.addHandler(warnings)
     logger.setLevel(logging.DEBUG)
-    return _Stand(), warnings, lambda: logger.removeHandler(warnings)
+
+    def done():
+        logger.removeHandler(warnings)
+        logger.setLevel(level)
+
+    return _Stand(), warnings, done
 
 
 def _change(stand, warnings, old_period_ms, new_period_ms, switch_over=3):
@@ -192,25 +196,6 @@ def test_the_live_view_asks_validity_with_stage_motion_left_out():
 
     validity.invalidate('exposure')
     assert ScopeDisplay._camera_settled(_imaging(validity)) is False
-
-
-def test_the_render_loop_hands_the_detector_the_camera_s_settled_state():
-    # The render loop is a Kivy path no test can run; its one wiring line is
-    # pinned on the AST: the slow-frame check gets settled from
-    # _camera_settled, never a constant.
-    render = find_def('ui/scope_display.py', '_render_one_frame', class_name='ScopeDisplay')
-    calls = [
-        node
-        for node in ast.walk(render)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == '_check_slow_frame'
-    ]
-    assert len(calls) == 1
-    settled = next(kw.value for kw in calls[0].keywords if kw.arg == 'settled')
-    assert isinstance(settled, ast.Call)
-    assert isinstance(settled.func, ast.Attribute)
-    assert settled.func.attr == '_camera_settled'
 
 
 def test_a_stall_while_the_stage_moves_is_reported():

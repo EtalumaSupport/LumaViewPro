@@ -26,6 +26,7 @@ from __future__ import annotations
 import itertools
 import pathlib
 import sys
+import threading
 import time
 
 import numpy as np
@@ -42,6 +43,35 @@ def _cam():
     cam = SimulatedCamera(width=32, height=24)
     cam.start_grabbing()
     return cam
+
+
+def _poll_across_ten_stores(cam, poll):
+    """Call ``poll`` back to back until the camera has stored ten more frames.
+
+    The polls interleave with the acquisition thread's stores for exactly
+    as long as ten stores take; the bound is the owner's own frame wait,
+    whose timeout is the failure, never a fixed window. ``poll`` runs at
+    least ten times.
+    """
+    handler = cam.cam_image_handler
+    tenth = handler.frames_delivered + 9
+    stored = threading.Event()
+    reached = []
+
+    def wait_for_the_tenth():
+        reached.append(handler.wait_for_frame_after(tenth, 5.0))
+        stored.set()
+
+    waiter = threading.Thread(target=wait_for_the_tenth, name='ten-stores')
+    waiter.start()
+    try:
+        polls = 0
+        while not stored.is_set() or polls < 10:
+            poll()
+            polls += 1
+    finally:
+        waiter.join()
+    assert reached == [True], 'the camera stopped storing frames before ten more arrived'
 
 
 class TestTheOrdinalAdvancesWithTheFrame:
@@ -79,16 +109,21 @@ class TestTheOrdinalAdvancesWithTheFrame:
     def test_callback_frames_are_the_counted_frames(self):
         cam = _cam()
         seen = []
-        cam.register_frame_callback(lambda img, ts, chunks: seen.append(ts))
+        second_frame = threading.Event()
+
+        def on_frame(img, ts, chunks):
+            seen.append(ts)
+            if len(seen) >= 2:
+                second_frame.set()
+
+        before = cam.frames_delivered
+        cam.register_frame_callback(on_frame)
         try:
-            before = cam.frames_delivered
-            deadline = time.monotonic() + 5.0
-            while len(seen) < 2 and time.monotonic() < deadline:
-                time.sleep(0.01)
+            reached = second_frame.wait(5.0)
             after = cam.frames_delivered
         finally:
             cam.stop_grabbing()
-        assert len(seen) >= 2, 'no frame reached the callback; the rest of this test proves nothing'
+        assert reached, 'no second frame reached the callback; the rest of this test proves nothing'
         assert after > before, 'frames the callback saw are invisible to the settle gate'
 
 
@@ -139,20 +174,22 @@ class TestFieldsSurviveConcurrentStores:
 
         monkeypatch.setattr(cam, '_generate_image', stamped)
         cam.start_grabbing()
+        polls = 0
         try:
             grab_a_frame_made_after_now(cam)
-            deadline = time.monotonic() + 1.0
-            polls = 0
-            while time.monotonic() < deadline:
+
+            def poll():
+                nonlocal polls
                 _r, img, _ts, _bits, seq = cam.grab_latest()
                 assert img is not None
                 assert img[0, 0] == seq % 251, (
                     f'frame stamped {img[0, 0]} was handed out as ordinal {seq}'
                 )
                 polls += 1
+
+            _poll_across_ten_stores(cam, poll)
         finally:
             cam.stop_grabbing()
-        assert cam.frames_delivered >= 10, 'too few stores for the polls to have interleaved'
         assert polls >= 10
 
     def test_the_ordinal_never_runs_backwards_under_concurrency(self):
@@ -161,10 +198,7 @@ class TestFieldsSurviveConcurrentStores:
         seen = []
         try:
             grab_a_frame_made_after_now(cam)
-            deadline = time.monotonic() + 1.0
-            while time.monotonic() < deadline:
-                _r, _i, _t2, _b, seq = cam.grab_latest()
-                seen.append(seq)
+            _poll_across_ten_stores(cam, lambda: seen.append(cam.grab_latest()[4]))
         finally:
             cam.stop_grabbing()
         assert len(set(seen)) >= 10, 'too few distinct frames for the check to mean anything'

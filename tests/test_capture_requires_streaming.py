@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime
 from unittest.mock import patch
 
+from drivers.simulated_camera import SimulatedStall
 from modules.lumascope_api import imaging as imaging_module
 
 
@@ -44,22 +45,26 @@ def test_capture_and_wait_succeeds_while_streaming(sim_scope):
 
 
 def test_capture_and_wait_returns_none_when_drain_stalls(sim_scope):
-    # A live feed whose drain cannot complete (grab timeouts while frame
-    # validity still wants frames) is the stalled-feed failure mode. The
-    # contract's failure sentinel is None -- a bool here slips every
-    # `is None` caller check, so the stills leg skipped its capture
-    # strike (and reset the accumulated counter) on exactly this mode.
+    """A live feed whose drain gets no frame fails with None and no recheck.
+
+    The stalled-feed failure mode: a write is pending, so the capture must
+    drain, and the camera, connected and grabbing, stops delivering frames.
+    The contract's failure sentinel is None -- a bool here slips every
+    `is None` caller check, so the stills leg skipped its capture strike
+    (and reset the accumulated counter) on exactly this mode. The failure
+    is a clean window's, so the capture is not re-run: a recovery path that
+    retried a failure it cannot cure would hold the caller for nothing.
+    """
     assert sim_scope.imaging.is_streaming()
-    with (
-        patch.object(sim_scope.imaging.frame_validity, 'frames_until_valid', return_value=1),
-        patch.object(
-            sim_scope.imaging._driver, 'grab_new_capture', return_value=(False, None, None)
-        ),
-        patch.object(imaging_module, 'logger'),
-    ):
-        result = sim_scope.imaging.capture_and_wait(timeout_s=1.0)
+    sim_scope.imaging.frame_validity.invalidate('exposure')
+    sim_scope._camera_driver.hold_frames(SimulatedStall(after_s=0.0, for_s=30.0))
+
+    result = sim_scope.imaging.capture_and_wait(timeout_s=1.0)
 
     assert result is None, 'stalled-feed drain failure must return the None sentinel'
+    info = sim_scope.imaging.last_capture_info
+    assert info['drain_failed'] is True
+    assert info['rechecks'] == 0
 
 
 def test_a_summed_capture_survives_a_backwards_clock_step(sim_scope):

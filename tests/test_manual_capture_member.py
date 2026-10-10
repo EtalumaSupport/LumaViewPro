@@ -353,3 +353,27 @@ class TestTheRecordIsTheCapturesMoment:
         writer.join(RESULT_TIMEOUT_S)
 
         assert read_postproc_input_metadata(path)['gain_db'] == pytest.approx(1.0)
+
+
+class TestTheStillIsMadeAfterThePendingWrites:
+    def test_a_still_after_an_led_write_is_drained_past_it(self, still_session):
+        """A manual still saves a frame made after every pending change: an
+        LED change (the owner's ``invalidate('led')``, which every LED write
+        makes) leaves 'led' pending for its skip count, and the capture
+        drains that many frames before the one it saves. A still grabbed
+        without the drain (a bare get_image) would save a frame that may
+        have integrated before the LED changed, and records no drain."""
+        session, _ = still_session
+        imaging = session.scope.imaging
+        # A first still drains whatever bring-up left pending, so the
+        # second has the LED change alone to wait out.
+        _capture(session)
+        imaging.frame_validity.invalidate('led')
+
+        _capture(session)
+
+        info = imaging.last_capture_info
+        assert info is not None, 'the still was not captured through the drain'
+        assert info['drained'] >= imaging.frame_validity.SKIP_FRAMES['led'], (
+            f'the still was not drained past the LED write: {info}'
+        )

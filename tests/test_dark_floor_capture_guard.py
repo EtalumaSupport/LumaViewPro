@@ -28,12 +28,9 @@ the depth rule must match ``saturated_fraction`` (12-bit-in-uint16
 measures against 4095, not 65535).
 """
 
-from unittest.mock import patch
-
 import numpy as np
 import pytest
 
-import modules.lumascope_api.imaging as imaging_module
 from modules.lumascope_api.imaging import ImagingAPI
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
 
@@ -79,22 +76,18 @@ class TestDarkFrameDelivery:
         Destroying it would destroy a real observation -- a dim
         transmitted setting or a genuinely dark sample looks exactly like
         this, and the operator can see the dark image for themselves. The
-        darkness is not silent: it is warned in the log and carried on
-        last_capture_info so a writer, an L2 caller or REST can tell a
-        dark frame from a lit one without re-measuring pixels."""
+        darkness is not silent: it is carried on last_capture_info as
+        ``dark_saved`` so a writer, an L2 caller or REST can tell a dark
+        frame from a lit one without re-measuring pixels."""
         dark_scope.illumination.led_on('BF', 100)
         monkeypatch.setattr(dark_scope._camera_driver, 'get_array', lambda: _DARK)
 
-        with patch.object(imaging_module, 'logger') as mock_logger:
-            out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.3)
+        # The shortest retry budget that still takes the save branch: the
+        # branch is reached once the budget is past, however short.
+        out = dark_scope.imaging.capture_and_wait(timeout_s=0.05)
 
         assert out is not None, 'a dark frame under a lit channel must still be delivered'
         assert out.max() == _DARK.max(), 'the dark frame itself must come back untouched'
-        warned = ' '.join(str(c).lower() for c in mock_logger.warning.call_args_list)
-        assert 'dark' in warned, f'the darkness must be named in a warning; saw: {warned!r}'
-        assert 'rejected' not in warned, (
-            f'the capture was not rejected; the warning must not say so: {warned!r}'
-        )
         assert dark_scope.imaging.last_capture_info.get('dark_saved') is True, (
             'a dark frame must be recorded as dark_saved, or no caller can tell'
         )
