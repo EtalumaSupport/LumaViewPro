@@ -15,6 +15,7 @@ runs, and many clients waiting on jobs hold no thread a new call needs.
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 
@@ -23,6 +24,7 @@ from fastapi.testclient import TestClient
 
 import rest.jobs
 from modules.scope_session import ScopeSession
+from rest import problems
 from rest.app import build_app
 from tests.settings_fixtures import complete_settings
 
@@ -88,6 +90,26 @@ def test_a_call_past_the_clients_wait_is_a_job_that_ends_in_its_answer(client, h
     assert ended.json()['status'] == 'completed'
     assert ended.json()['result'] is None
     assert ended.json()['ended'] is not None
+
+
+def test_a_job_read_as_finished_has_its_end_time_however_soon_it_is_read():
+    # Read in the same loop pass its answer settles, before the loop runs
+    # anything else: a reader on the loop can be scheduled there.
+    async def read_as_it_settles():
+        jobs = rest.jobs.JobRegistry()
+        answered = asyncio.get_running_loop().create_future()
+        job = jobs.adopt(
+            answered, member='scope/illumination/leds_off', requested=problems.now(), progress=None
+        )
+        await asyncio.sleep(0)
+        answer = problems.result(None)
+        answered.set_result(answer)
+        return jobs.get(job.id).view(), answer
+
+    view, answer = asyncio.run(read_as_it_settles())
+
+    assert view['status'] == 'completed'
+    assert view['ended'] == answer.ended.isoformat()
 
 
 @pytest.mark.parametrize('prefer', ['wait=3; note=x', 'wait="3"', 'respond-async, wait=3'])

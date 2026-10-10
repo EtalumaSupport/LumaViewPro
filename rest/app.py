@@ -21,7 +21,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
-import datetime
 import inspect
 import logging
 import time
@@ -404,7 +403,7 @@ async def _identify_and_admit(
     """
     request_id = str(uuid.uuid4())
     request.state.request_id = request_id
-    request.state.requested = datetime.datetime.now().astimezone()
+    request.state.requested = problems.now()
     started = time.perf_counter()
     media = request.headers.get('content-type', '').split(';')[0].strip().lower()
     has_body = request.headers.get('content-length', '0') != '0' or (
