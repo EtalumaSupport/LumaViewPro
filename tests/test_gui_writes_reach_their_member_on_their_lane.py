@@ -41,6 +41,7 @@ def boundary():
 
 @pytest.fixture
 def ctx(monkeypatch):
+    # a stand-in by design: the lane dispatch is the subject; each member is interchangeable
     scope = SimpleNamespace(
         illumination=MagicMock(),
         imaging=MagicMock(),

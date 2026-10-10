@@ -344,6 +344,7 @@ def spec_scope(**attrs):
     """
     real = build_real_sim_scope()
     try:
+        # a stand-in by design: the specced double every spec_scope caller takes
         double = create_autospec(real, instance=True, spec_set=True)
     finally:
         # The spec is captured by create_autospec; the live object has
