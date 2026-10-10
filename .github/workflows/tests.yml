@@ -72,9 +72,11 @@ jobs:
       # No extra -q: pyproject addopts already carries `-q --tb=short`, and a
       # second one makes -qq, which suppresses the failure summary and leaves
       # a red run with nothing to read. -rfE restores the short summary of
-      # failures and errors.
+      # failures and errors. -n auto runs the suite across the runner's cores
+      # under pytest-xdist, as every local run does; serially it took 12 min
+      # on 2026-09-14, before the suite reached 11,000 tests.
       - name: Tests
-        run: python -m pytest -rfE
+        run: python -m pytest -n auto -rfE
 
       - name: Lint
         run: ruff check .
