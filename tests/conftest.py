@@ -853,6 +853,32 @@ def sim_scope():
     s.disconnect()
 
 
+@pytest.fixture(scope='module')
+def sim_turreted_session(tmp_path_factory):
+    """A homed LS850T session on the simulator, with the shipped template's plate and stage offset.
+
+    The template's 96-well plate and its 5500/4000 um stage offset give the
+    plate frame its reachable band, and the turret carries the test
+    objectives. Module-scoped: a refusal leaves nothing behind, and a test
+    that moves an axis reads where it landed in the same test, so the
+    tests of one module share one bring-up. A test that needs other
+    settings builds its own session.
+    """
+    from modules.scope_session import ScopeSession
+    from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
+    from tests.settings_fixtures import complete_settings
+
+    settings = complete_settings(
+        microscope='LS850T',
+        turret_objectives=dict(TEST_TURRET_OBJECTIVES),
+        live_folder=str(tmp_path_factory.mktemp('turreted')),
+    )
+    session = ScopeSession.create(settings, simulate=True)
+    home_sim_scope(session.scope)
+    yield session
+    session.shutdown()
+
+
 @pytest.fixture
 def scale_capabilities():
     """The optics of a scope that reports a known image scale.

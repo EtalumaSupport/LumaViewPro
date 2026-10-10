@@ -27,7 +27,7 @@ from tests.ast_seams import REPO_ROOT
 
 # The shipped 96-well geometry and a stock LS850T's travel. The reachable
 # plate band these produce -- X 2.26-122.26, Y 1.48-81.48 -- is the
-# quantity under test, so these are written out rather than imported: a
+# quantity under test, so these are written out rather than read back: a
 # defaults change should fail this file loudly, not silently retarget it.
 PLATE_DIMENSIONS = {'x': 127.76, 'y': 85.48}
 STAGE_OFFSET = {'x': 5500.0, 'y': 4000.0}
@@ -36,67 +36,55 @@ AXIS_TRAVEL = {'X': {'min': 0.0, 'max': 120000.0}, 'Y': {'min': 0.0, 'max': 8000
 REACHABLE = {'X': (2.26, 122.26), 'Y': (1.48, 81.48)}
 
 
-@pytest.fixture
-def motion():
-    """A MotionAPI with just enough scope to resolve a plate coordinate."""
-    from modules.lumascope_api.motion import MotionAPI
+@pytest.fixture(scope='module')
+def scope(sim_turreted_session):
+    """The simulated LS850T with the template's 96-well plate and stage offset."""
+    return sim_turreted_session.scope
 
-    from tests.scope_fakes import spec_scope
 
-    labware = MagicMock()
-    labware.get_dimensions.return_value = PLATE_DIMENSIONS
-
-    scope = spec_scope()
-    scope.runtime_state.get_labware.return_value = labware
-    scope.runtime_state.get_stage_offset.return_value = STAGE_OFFSET
-
-    transformer = CoordinateTransformer()
-
-    def _plate_to_stage_axis(axis, plate_mm):
-        sx, sy = transformer.plate_to_stage(
-            labware=labware,
-            stage_offset=STAGE_OFFSET,
-            px=plate_mm if axis == 'X' else 0,
-            py=plate_mm if axis == 'Y' else 0,
+class TestTheScopeCarriesTheGeometryTheBandsAssume:
+    def test_the_plate_the_offset_and_the_travel_are_the_written_ones(self, scope):
+        """The band constants below are derived from these three; a change
+        to any of them fails here, by name, before a band case fails by number."""
+        dimensions = scope.runtime_state.get_labware().get_dimensions()
+        assert {key: dimensions[key] for key in PLATE_DIMENSIONS} == PLATE_DIMENSIONS
+        assert scope.runtime_state.get_stage_offset() == STAGE_OFFSET
+        assert {axis: dict(scope.motion.get_axis_limits(axis)) for axis in AXIS_TRAVEL} == (
+            AXIS_TRAVEL
         )
-        return sx if axis == 'X' else sy
-
-    scope.runtime_state.plate_to_stage_axis.side_effect = _plate_to_stage_axis
-
-    api = MotionAPI.__new__(MotionAPI)
-    api._scope = scope
-    api.get_axis_limits = lambda axis: AXIS_TRAVEL.get(axis)
-    return api
 
 
 class TestRefusalNamesWhatTheUserTyped:
-    def test_out_of_plate_entry_reports_the_typed_number(self, motion):
-        """The message carries 180, not the -98520.0 it converts to."""
+    def test_out_of_plate_entry_reports_the_typed_number(self, scope):
+        """The message carries 180, not the -98520.0 it converts to, and Y stays."""
+        target_before = scope.motion.get_target_position('Y')
+
         with pytest.raises(PositionOutOfRangeError) as exc:
-            motion._plate_target_to_stage('Y', 180.0, ignore_limits=False)
+            scope.motion.move_absolute('Y', 180.0, frame='plate')
 
         assert '180' in str(exc.value)
         assert '-98520' not in str(exc.value)
         assert exc.value.bound == 'reachable range'
         assert exc.value.quantity == 'plate position'
+        assert scope.motion.get_target_position('Y') == target_before
 
-    def test_the_bound_is_reachable_not_the_labware_extent(self, motion):
+    def test_the_bound_is_reachable_not_the_labware_extent(self, scope):
         """85.0 is ON the plate (extent 85.48) and past what Y can reach.
 
         This is the case an extent check would let through, to be refused
         one layer down in stage microns -- the defect, one step later.
         """
         with pytest.raises(PositionOutOfRangeError) as exc:
-            motion._plate_target_to_stage('Y', 85.0, ignore_limits=False)
+            scope.motion.move_absolute('Y', 85.0, frame='plate')
 
         assert exc.value.bound == 'reachable range'
         assert (exc.value.low, exc.value.high) == REACHABLE['Y']
 
-    def test_a_reachable_coordinate_converts(self, motion):
-        """40 mm is inside the band and comes back as stage um."""
-        assert motion._plate_target_to_stage('Y', 40.0, ignore_limits=False) == pytest.approx(
-            41480.0
-        )
+    def test_a_reachable_coordinate_converts(self, scope):
+        """40 mm is inside the band and the stage goes to its stage um."""
+        scope.motion.move_absolute('Y', 40.0, frame='plate')
+
+        assert scope.motion.get_target_position('Y') == pytest.approx(41480.0)
 
 
 class TestEquivalentToTheTravelCheck:
@@ -109,41 +97,36 @@ class TestEquivalentToTheTravelCheck:
     """
 
     @pytest.mark.parametrize('axis', ['X', 'Y'])
-    def test_band_edges_agree_with_travel(self, motion, axis):
+    def test_band_edges_agree_with_travel(self, scope, axis):
         low, high = REACHABLE[axis]
-        travel = AXIS_TRAVEL[axis]
-        transformer = CoordinateTransformer()
-        labware = MagicMock()
-        labware.get_dimensions.return_value = PLATE_DIMENSIONS
+        motion = scope.motion
 
         for plate_mm in (low - 0.5, low, low + 0.5, high - 0.5, high, high + 0.5):
-            sx, sy = transformer.plate_to_stage(
-                labware=labware,
-                stage_offset=STAGE_OFFSET,
-                px=plate_mm if axis == 'X' else 0,
-                py=plate_mm if axis == 'Y' else 0,
-            )
-            stage = sx if axis == 'X' else sy
-            travel_would_refuse = not (travel['min'] <= stage <= travel['max'])
+            stage_um = scope.runtime_state.plate_to_stage_axis(axis=axis, plate_mm=plate_mm)
+            travel_refused = _refuses(motion.move_absolute, axis, stage_um)
+            plate_refused = _refuses(motion.move_absolute, axis, plate_mm, frame='plate')
 
-            plate_refused = False
-            try:
-                motion._plate_target_to_stage(axis, plate_mm, ignore_limits=False)
-            except PositionOutOfRangeError:
-                plate_refused = True
-
-            assert plate_refused == travel_would_refuse, (
-                f'{axis} {plate_mm}mm -> {stage}um: plate check said '
-                f'{plate_refused}, travel check says {travel_would_refuse}'
+            assert plate_refused == travel_refused, (
+                f'{axis} {plate_mm}mm -> {stage_um}um: plate check said '
+                f'{plate_refused}, travel check says {travel_refused}'
             )
+
+
+def _refuses(move, *args, **kwargs) -> bool:
+    try:
+        move(*args, **kwargs)
+    except PositionOutOfRangeError:
+        return True
+    return False
 
 
 class TestHatchesAndBoundaries:
-    def test_ignore_limits_bypasses_the_plate_bound(self, motion):
+    def test_ignore_limits_bypasses_the_plate_bound(self, scope):
         """Same hatch as the travel check: one bound, two units."""
-        assert motion._plate_target_to_stage('Y', 180.0, ignore_limits=True) == pytest.approx(
-            -98520.0
-        )
+        scope.motion.move_absolute('Y', 180.0, frame='plate', ignore_limits=True)
+
+        assert scope.motion.get_target_position('Y') == pytest.approx(-98520.0)
+        scope.motion.move_absolute('Y', 40000.0)
 
     def test_missing_stage_offset_refuses_legibly(self):
         """A scope no session bound has no offset; that must not be a TypeError."""

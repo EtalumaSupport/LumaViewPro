@@ -1,17 +1,17 @@
 """An absolute move beyond an axis's travel is refused, not clamped.
 
-The driver clamps an out-of-travel target to the nearest limit and drives
-there, reporting success at a position nobody asked for. A protocol step
-saved beyond this scope's travel then images the wrong place, and the log
-cannot tell that from a step that went where it was told.
+The motion API holds the one travel check; the drivers have none, and a
+driver handed a target past the travel drives there. A target outside
+the travel is refused with ``PositionOutOfRangeError``, the stage stays
+where it was and the previous target stands, so a protocol step saved
+beyond this scope's travel cannot image the wrong place while the log
+says it went where it was told. The turret has no travel: its bound is
+its four slots, and a refusal names them, never a distance.
 
-These tests drive the real ``MotionAPI._move_absolute_impl``. The gate
-raises before ``_pre_drive``, so the object needs only the attributes the
-path reads on the way there -- reimplementing the check in the test
-would pass whether or not the production wiring exists.
+Every case drives the simulated LS850T through the public movers,
+``move_absolute`` and ``move_turret``, so the travel the check reads is
+what the scope's own driver publishes.
 """
-
-from types import SimpleNamespace
 
 import pytest
 
@@ -20,48 +20,29 @@ from modules.exceptions import (
     HardwareCommandRefusedError,
     PositionOutOfRangeError,
 )
-from modules.lumascope_api.motion import MotionAPI
+from modules.lumascope_api._constants import MOTOR_POSITION_LIMIT
+from modules.scope_session import ScopeSession
+from tests.settings_fixtures import complete_settings
+
+# The LS850T's travel, in um, from the shipped motor defaults. Written out
+# rather than read back so a defaults change fails this file loudly instead
+# of silently retargeting every case; the first test pins the agreement.
+TRAVEL = {'X': (0.0, 120000.0), 'Y': (0.0, 80000.0), 'Z': (0.0, 14000.0)}
 
 
-LIMITS = {
-    'X': {'min': 0.0, 'max': 120000.0},
-    'Y': {'min': 0.0, 'max': 80000.0},
-    'Z': {'min': 0.0, 'max': 14000.0},
+@pytest.fixture(scope='module')
+def motion(sim_turreted_session):
+    return sim_turreted_session.scope.motion
+
+
+def test_the_simulated_scope_publishes_the_travel_these_cases_assume(motion):
+    published = {
+        axis: (limits['min'], limits['max'])
+        for axis, limits in ((axis, motion.get_axis_limits(axis)) for axis in TRAVEL)
+    }
+    assert published == TRAVEL
     # T carries no travel: its position is a slot, not a distance.
-    'T': None,
-}
-
-
-class _ReachedPreDriveError(Exception):
-    """The gate let the move through.
-
-    _pre_drive is the first statement after the gate, so reaching it is
-    how "allowed" is observed. It has to RAISE rather than record: the
-    rest of the method needs a position cache and a live driver, and this
-    fixture deliberately supplies neither.
-    """
-
-
-@pytest.fixture
-def api():
-    motion = MotionAPI.__new__(MotionAPI)
-    # get_axis_limits is the seam the gate reads; _driver is a read-only
-    # property, so the stub goes at the call the gate actually makes.
-    motion.get_axis_limits = lambda axis: LIMITS.get(axis)
-    # A connected controller with every axis: the presence question passes.
-    motion._scope = SimpleNamespace(
-        motor_connected=True,
-        motion_expected=True,
-        # Not disconnected: the lanes are open.
-        _io_executor=SimpleNamespace(pending_shutdown=False),
-        capabilities=SimpleNamespace(axes=('X', 'Y', 'Z', 'T')),
-    )
-
-    def _reached(axis, force=False):
-        raise _ReachedPreDriveError(axis)
-
-    motion._pre_drive = _reached
-    return motion
+    assert motion.get_axis_limits('T') is None
 
 
 def test_it_is_a_valueerror_subclass():
@@ -93,73 +74,44 @@ def test_the_message_names_the_axis_the_request_and_the_range():
         ('Z', -0.5),
     ],
 )
-def test_out_of_travel_is_refused(api, axis, position):
-    with pytest.raises(PositionOutOfRangeError) as caught:
-        api._move_absolute_impl(axis, position)
+def test_out_of_travel_is_refused_and_nothing_is_driven(motion, axis, position):
+    """A refused move writes no target, so the previous one stands."""
+    target_before = motion.get_target_position(axis)
 
-    assert caught.value.axis == axis
+    with pytest.raises(PositionOutOfRangeError) as caught:
+        motion.move_absolute(axis, position)
+
+    assert (caught.value.axis, caught.value.bound) == (axis, 'travel range')
+    assert motion.get_target_position(axis) == target_before
 
 
 @pytest.mark.parametrize(
     'axis,position',
     [('X', 0.0), ('X', 120000.0), ('Y', 40000.0), ('Z', 14000.0)],
 )
-def test_in_travel_and_the_boundaries_are_allowed(api, axis, position):
-    """The limits are inclusive; refusing an endpoint would break homing.
+def test_in_travel_and_the_boundaries_are_allowed(motion, axis, position):
+    """The limits are inclusive; refusing an endpoint would strand the stage at it.
 
-    Reaching _pre_drive is the pass condition: it is the statement
-    immediately after the gate, so catching its sentinel is how "the gate
-    allowed this" is observed.
+    ``move_absolute`` returns once the axis has arrived, so returning is
+    how "allowed" is observed; the target it wrote is the number asked for.
     """
-    with pytest.raises(_ReachedPreDriveError):
-        api._move_absolute_impl(axis, position)
+    motion.move_absolute(axis, position)
+
+    assert motion.get_target_position(axis) == position
+    assert motion.get_current_position(axis) == pytest.approx(position, abs=1.0)
 
 
-def test_the_turret_is_checked_against_its_slots_not_against_travel(api):
-    """The turret publishes no travel, so the um range check above refuses
-    nothing for it -- but it does have a real bound, and this is the door.
-
-    A real slot must pass: without that the gate would raise on every
-    turret move. A slot that does not exist must be refused here and not
-    only at move_turret, because the generic mover is reachable directly
-    by an L2 caller and the motor's answer to slot 99 is to drive 24.5
-    revolutions. The refusal must also name SLOTS -- telling someone 99 is
-    outside a metre-scale safety limit points them at a number that means
-    nothing for a turret.
-    """
-    with pytest.raises(_ReachedPreDriveError):
-        api._move_absolute_impl('T', 3)
-
-    with pytest.raises(PositionOutOfRangeError) as caught:
-        api._move_absolute_impl('T', 99)
-
-    assert caught.value.axis == 'T'
-    assert 'turret slots' in str(caught.value)
-    assert 'safety limit' not in str(caught.value)
-
-
-def test_ignore_limits_does_not_open_the_turret(api):
-    """The hatch is for driving outside TRAVEL deliberately, not for
-    handing the motor a slot the turret does not have -- the same reason
-    the coarse safety ceiling is not gated on it either."""
-    with pytest.raises(PositionOutOfRangeError):
-        api._move_absolute_impl('T', 99, ignore_limits=True)
-
-
-def test_ignore_limits_still_bypasses(api):
-    """A documented public bypass; the new refusal must not silently void it."""
-    with pytest.raises(_ReachedPreDriveError):
-        api._move_absolute_impl('X', 999999.0, ignore_limits=True)
-
-
-def test_an_absent_axis_is_refused_before_its_travel_is_judged(api):
+def test_an_absent_axis_is_refused_before_its_travel_is_judged(tmp_path):
     """A Z-only scope says it has no X, not that the target is outside X's travel."""
-    api._scope.capabilities.axes = ('Z',)
+    settings = complete_settings(microscope='LS820', live_folder=str(tmp_path))
+    session = ScopeSession.create(settings, simulate=True)
+    try:
+        with pytest.raises(HardwareCommandRefusedError) as caught:
+            session.scope.motion.move_absolute('X', 999999.0)
 
-    with pytest.raises(HardwareCommandRefusedError) as caught:
-        api._move_absolute_impl('X', 999999.0)
-
-    assert caught.value.reason == 'axis_absent'
+        assert caught.value.reason == 'axis_absent'
+    finally:
+        session.shutdown()
 
 
 def test_axis_state_unknown_is_a_separate_failure():
@@ -168,70 +120,40 @@ def test_axis_state_unknown_is_a_separate_failure():
     assert not issubclass(PositionOutOfRangeError, AxisStateUnknownError)
 
 
-class _ReachedPreDriveOnTurretError(Exception):
-    """The turret slot bound let the command through.
+@pytest.mark.parametrize(
+    'slot', [0, 5, 99, -1, 2.5, True, '3', None, MOTOR_POSITION_LIMIT + 1], ids=repr
+)
+def test_a_slot_the_turret_does_not_have_is_refused_before_z_is_parked(motion, slot):
+    """The motor accepts 99 and drives 24.5 revolutions; the API refuses it.
 
-    ``_move_turret_impl``'s first statement after the bound is
-    ``_pre_drive('T')``, so catching this is how "the bound allowed this
-    slot" is observed without a driver or a position cache.
+    The refusal names the slots, whatever the magnitude of the request:
+    naming slots for 5 and a metre-scale safety limit for 1000001 would
+    give a user two answers for one mistake, and the second points at a
+    number that means nothing for a turret. It is refused before the Z
+    park that precedes a real turret move, so Z stays where it was and
+    the slot on record is unchanged.
     """
+    motion.move_absolute('Z', 1000.0)
+    slot_before = motion.get_turret_slot()
 
-
-@pytest.fixture
-def turret():
-    """The real ``_move_turret_impl``, stopped at its first side effect.
-
-    The bound has to be exercised on the production method: a check
-    rebuilt in the test would pass whether or not the wiring exists.
-    """
-    motion = MotionAPI.__new__(MotionAPI)
-
-    def _reached(axis, force=False):
-        raise _ReachedPreDriveOnTurretError(axis)
-
-    motion._pre_drive = _reached
-    # A connected controller with every axis: the presence question passes.
-    motion._scope = SimpleNamespace(
-        motor_connected=True,
-        motion_expected=True,
-        # Not disconnected: the lanes are open.
-        _io_executor=SimpleNamespace(pending_shutdown=False),
-        capabilities=SimpleNamespace(axes=('X', 'Y', 'Z', 'T')),
-    )
-    # Never equal to a slot under test, so the same-position short-circuit
-    # cannot be what stops the call.
-    motion._last_turret_position = None
-    return motion
-
-
-@pytest.mark.parametrize('slot', [0, 5, 99, -1, 2.5, True, '3', None])
-def test_a_slot_the_turret_does_not_have_is_refused(turret, slot):
-    """The motor accepts 99 and drives 24.5 revolutions; the API must not.
-
-    ``_move_absolute_impl`` cannot catch this -- the turret publishes no
-    travel, which the case above pins -- so the refusal lives here.
-    """
     with pytest.raises(PositionOutOfRangeError) as caught:
-        turret._move_turret_impl(slot)
+        motion.move_turret(slot)
 
-    assert caught.value.axis == 'T'
-    assert caught.value.position == slot
+    assert (caught.value.axis, caught.value.position, caught.value.bound) == (
+        'T',
+        slot,
+        'turret slots',
+    )
+    assert '1 to 4' in str(caught.value)
+    assert 'travel range' not in str(caught.value)
+    assert 'safety limit' not in str(caught.value)
+    assert motion.get_current_position('Z') == pytest.approx(1000.0, abs=1.0)
+    assert motion.get_turret_slot() == slot_before
 
 
 @pytest.mark.parametrize('slot', [1, 2, 3, 4])
-def test_every_real_slot_is_allowed(turret, slot):
+def test_every_real_slot_is_taken(motion, slot):
     """All four inclusive; refusing an endpoint would strand slot 1 or 4."""
-    with pytest.raises(_ReachedPreDriveOnTurretError):
-        turret._move_turret_impl(slot)
+    motion.move_turret(slot)
 
-
-def test_the_refusal_names_the_slot_range_and_not_a_travel_range(turret):
-    """Two bounds can refuse a move, and naming the wrong one sends the
-    user to a number that means nothing for a turret."""
-    with pytest.raises(PositionOutOfRangeError) as caught:
-        turret._move_turret_impl(99)
-
-    text = str(caught.value)
-    assert 'turret slots' in text
-    assert '1 to 4' in text
-    assert 'travel range' not in text
+    assert motion.get_turret_slot() == slot

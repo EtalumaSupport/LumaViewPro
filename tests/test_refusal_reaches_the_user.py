@@ -19,45 +19,20 @@ reached the user at all. Measured: of nine refusals in that session,
 four produced no popup.
 """
 
-from types import SimpleNamespace
-
 import pytest
 
 from modules.exceptions import PositionOutOfRangeError
 from modules.lumascope_api._constants import MOTOR_POSITION_LIMIT
-from modules.lumascope_api.motion import MotionAPI
 
 
-class _ReachedPreDriveError(Exception):
-    """The gate let the move through."""
-
-
-# T publishes no travel: its position is a slot, not a distance.
-LIMITS = {'X': {'min': 0.0, 'max': 80000.0}, 'Y': {'min': 0.0, 'max': 80000.0}, 'T': None}
-
-
-@pytest.fixture
-def api():
-    motion = MotionAPI.__new__(MotionAPI)
-    motion.get_axis_limits = lambda axis: LIMITS.get(axis)
-    # A connected controller with every axis: the presence question passes.
-    motion._scope = SimpleNamespace(
-        motor_connected=True,
-        motion_expected=True,
-        # Not disconnected: the lanes are open.
-        _io_executor=SimpleNamespace(pending_shutdown=False),
-        capabilities=SimpleNamespace(axes=('X', 'Y', 'Z', 'T')),
-    )
-
-    def _reached(axis, force=False):
-        raise _ReachedPreDriveError(axis)
-
-    motion._pre_drive = _reached
-    return motion
+@pytest.fixture(scope='module')
+def motion(sim_turreted_session):
+    """The simulated LS850T's motion API; Y's travel is 0 to 80000 um."""
+    return sim_turreted_session.scope.motion
 
 
 @pytest.mark.parametrize('position', [90000.0, 13246567.0, MOTOR_POSITION_LIMIT + 1, 1e30])
-def test_one_mistake_gets_one_answer_whatever_its_magnitude(api, position):
+def test_one_mistake_gets_one_answer_whatever_its_magnitude(motion, position):
     """An axis that publishes travel always answers with TRAVEL.
 
     Eric, 2026-09-15: *"why are there two limits? Why does a user care? If
@@ -70,54 +45,32 @@ def test_one_mistake_gets_one_answer_whatever_its_magnitude(api, position):
     it had nothing of its own to say and was stealing the better message.
     """
     with pytest.raises(PositionOutOfRangeError) as caught:
-        api._move_absolute_impl('Y', position)
+        motion.move_absolute('Y', position)
 
     assert caught.value.bound == 'travel range'
     assert 'safety limit' not in str(caught.value)
 
 
-def test_the_turret_answers_in_one_vocabulary_however_absurd_the_request(api):
-    """The turret publishes no travel, but it is not unbounded: it has four
-    slots, and that bound answers before the coarse ceiling.
-
-    The ceiling used to be the only thing that could refuse this axis. It
-    is not any more, and it must not take the question back for large
-    values -- that would give a user two different answers for one
-    mistake, naming slots for 5 and a metre-scale limit for 2000000, which
-    is the same inconsistency the travel-before-ceiling order exists to
-    prevent for the axes that do publish travel.
-    """
-    for absurd in (5, MOTOR_POSITION_LIMIT + 1):
-        with pytest.raises(PositionOutOfRangeError) as caught:
-            api._move_absolute_impl('T', absurd)
-
-        assert caught.value.bound == 'turret slots'
-        assert 'safety limit' not in str(caught.value)
-
-
-def test_an_in_range_move_on_a_limitless_axis_is_allowed(api):
-    """The ceiling must not start refusing ordinary turret slots."""
-    with pytest.raises(_ReachedPreDriveError):
-        api._move_absolute_impl('T', 3)
-
-
-def test_ignore_limits_bypasses_travel_but_not_the_ceiling(api):
+def test_ignore_limits_bypasses_travel_but_not_the_ceiling(motion):
     """The hatch exists to drive outside TRAVEL deliberately. It is not a
     licence to hand the motor an arbitrary number."""
-    with pytest.raises(_ReachedPreDriveError):
-        api._move_absolute_impl('Y', 90000.0, ignore_limits=True)
+    motion.move_absolute('Y', 90000.0, ignore_limits=True)
+    assert motion.get_target_position('Y') == 90000.0
 
     with pytest.raises(PositionOutOfRangeError) as caught:
-        api._move_absolute_impl('Y', MOTOR_POSITION_LIMIT + 1, ignore_limits=True)
+        motion.move_absolute('Y', MOTOR_POSITION_LIMIT + 1, ignore_limits=True)
     assert caught.value.bound == 'safety limit'
+    assert motion.get_target_position('Y') == 90000.0
+
+    motion.move_absolute('Y', 40000.0)
 
 
-def test_a_relative_move_of_absurd_distance_is_refused_the_same_way(api):
+def test_a_relative_move_of_absurd_distance_is_refused_the_same_way(motion):
     """The sibling check on the relative path had the identical defect."""
     with pytest.raises(PositionOutOfRangeError) as caught:
-        api._move_relative_impl('X', MOTOR_POSITION_LIMIT + 1)
+        motion.move_relative('X', MOTOR_POSITION_LIMIT + 1)
 
-    assert caught.value.bound == 'safety limit'
+    assert (caught.value.bound, caught.value.quantity) == ('safety limit', 'distance')
     assert 'distance' in str(caught.value)
 
 

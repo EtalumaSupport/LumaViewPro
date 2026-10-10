@@ -24,9 +24,9 @@ This walk over every test module refuses four forms:
 
 The allowlist below was seeded from the census at the trunk tip the day
 the guard landed and only shrinks: a site not listed is refused, an entry
-with no site left is deleted, and the entry count never rises. A stand-in
-that is right by design is marked where it is built, on its statement's
-line or the line above::
+with no site left is deleted, and the entry count is pinned, lowered by
+the commit that removes entries. A stand-in that is right by design is
+marked where it is built, on its statement's line or the line above::
 
     # a stand-in by design: <why>
 
@@ -169,8 +169,9 @@ def _by_design() -> list[str]:
     return [f'{entry}:{line} {what}' for entry, line, what, marked in _found_in_tests() if marked]
 
 
-# Seeded at LVP dev/4.0.0 b17419cc (2026-10-09). Only shrinks.
-ENTRIES_AT_SEEDING = 237
+# Seeded at LVP dev/4.0.0 b17419cc (2026-10-09) with 237 entries. Only shrinks: a
+# commit that takes a stand-in to the simulator deletes its entry and lowers this.
+ALLOWED_ENTRIES = 233
 ALLOWED = frozenset(
     {
         'tests/af_drives.py::af_runner_and_scope',
@@ -178,7 +179,6 @@ ALLOWED = frozenset(
         'tests/camera_fakes.py::bare_ids_camera',
         'tests/camera_fakes.py::bare_pylon_camera',
         'tests/guards/test_live_display_hold_is_a_callback.py::_writer',
-        'tests/guards/test_plate_coordinate_authority.py::motion',
         'tests/guards/test_session_construction.py::TestCreateTakesTheHostInjections.test_create_takes_no_lanes',
         'tests/guards/test_session_construction.py::TestScopeOwnershipIsConstructorState.test_a_direct_construction_is_not_owned',
         'tests/guards/test_session_construction.py::TestScopeOwnershipIsConstructorState.test_a_passed_scope_is_not_owned',
@@ -332,8 +332,6 @@ ALLOWED = frozenset(
         'tests/test_motorconfig_provenance.py::bare_board',
         'tests/test_notification_supersession.py::TestARefusalThatNamesItsRemedyIsAnOffer.test_the_offer_s_confirm_applies_the_remedy_through_the_session',
         'tests/test_objective_info_boundary_is_honest.py::_turretless_state',
-        'tests/test_position_out_of_range.py::api',
-        'tests/test_position_out_of_range.py::turret',
         'tests/test_preview_lut_buffer_reuse.py::test_get_image_from_buffer_reuses_caller_buffer',
         'tests/test_protocol_engine_keeps_backlash_compensation.py::_runner_capturing_moves',
         'tests/test_protocol_modules.py::TestProtocolImageWriterWriteCapture._make_writer',
@@ -344,7 +342,6 @@ ALLOWED = frozenset(
         'tests/test_pylon_gain_reports_its_rejection.py::pylon_imaging',
         'tests/test_pylon_hardware.py::pylon_imaging',
         'tests/test_pylon_setter_short_circuit.py::_mock_camera',
-        'tests/test_refusal_reaches_the_user.py::api',
         'tests/test_regression_p2.py::_make_serial_board',
         'tests/test_run_autofocus_entry_point.py::_runner',
         'tests/test_run_encoding_ssot.py::TestOneRunOneEncoding._writer',
@@ -433,9 +430,10 @@ def test_every_allowlist_entry_still_names_a_site():
 
 
 def test_the_allowlist_only_shrinks():
-    assert len(ALLOWED) <= ENTRIES_AT_SEEDING, (
-        f'{len(ALLOWED)} entries, over the {ENTRIES_AT_SEEDING} seeded; '
-        'a new test uses the simulator or marks its stand-in by design'
+    assert len(ALLOWED) == ALLOWED_ENTRIES, (
+        f'{len(ALLOWED)} entries against the pinned {ALLOWED_ENTRIES}: a commit that removes '
+        'entries lowers the pin with them; a new test uses the simulator or marks its '
+        'stand-in by design'
     )
 
 
@@ -491,6 +489,9 @@ def test_what_is_not_a_stand_in_for_a_scope_passes():
 
 # Announced at the end of every run (tests/ratchets.py).
 ratchets.register(
-    'tests: scope-shaped stand-in sites allowlisted', lambda: len(ALLOWED), ENTRIES_AT_SEEDING
+    'tests: scope-shaped stand-in sites allowlisted',
+    lambda: len(ALLOWED),
+    ALLOWED_ENTRIES,
+    rule='equal',
 )
 ratchets.register('tests: stand-ins by design', lambda: len(_by_design()), 0, rule='announce')
