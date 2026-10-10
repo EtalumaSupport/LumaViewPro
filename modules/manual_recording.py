@@ -631,7 +631,7 @@ class ManualRecordingController:
         """
         return self._end_reason
 
-    def _health_check(self, dt: float | None = None) -> None:
+    def _health_check(self) -> None:
         """Watch the recording's health; armed by the controller itself.
 
         Owns the wall-clock duration cap (the engine's frame budget is

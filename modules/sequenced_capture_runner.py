@@ -2221,7 +2221,7 @@ class SequencedCaptureRunner:
             self._check_file_writer, self._FILE_WRITER_CHECK_INTERVAL_S
         )
 
-    def _check_file_writer(self, _dt: float = 0) -> None:
+    def _check_file_writer(self) -> None:
         batch = self._write_batch
         # A live run's own writes answer for a stuck writer; the watch is for
         # the drain nobody is waiting on.

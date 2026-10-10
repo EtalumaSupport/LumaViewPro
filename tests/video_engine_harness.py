@@ -65,7 +65,7 @@ class ManualFireScheduler:
     def fire(self):
         cb = self.callback
         if cb is not None:
-            cb(0)
+            cb()
 
 
 class FrameFeed:

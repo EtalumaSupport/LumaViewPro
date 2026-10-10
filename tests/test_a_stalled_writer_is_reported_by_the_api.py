@@ -42,7 +42,7 @@ class _Scheduler:
 
     def tick(self):
         for callback in list(self.callbacks):
-            callback(0)
+            callback()
 
 
 @pytest.fixture

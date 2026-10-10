@@ -29,10 +29,11 @@ from collections.abc import Callable
 from lvp_logger import logger
 
 
-# Type alias for a tick callback. Schedulers may invoke either
-# ``cb()`` (no-arg) OR ``cb(dt)`` (Kivy convention). Implementations
-# normalize so the user can pass a no-arg lambda safely.
-TickCallback = Callable[..., None]
+# A tick callback takes no arguments: every scheduler calls ``cb()``.
+# One convention, so no scheduler guesses a callback's signature by
+# catching TypeError -- which re-ran a callback whose own TypeError it
+# took for the wrong signature, and reported that instead of the error.
+TickCallback = Callable[[], None]
 
 
 @runtime_checkable
@@ -52,8 +53,7 @@ class Scheduler(Protocol):
         """Schedule ``callback`` to fire every ``interval_s`` seconds.
 
         Returns an opaque handle suitable for ``unschedule(handle)``.
-        Implementations may invoke ``callback()`` or ``callback(dt)`` --
-        wrap your callback to accept ``*args`` if you don't care which.
+        ``callback`` is called with no arguments.
         """
         ...
 
@@ -98,14 +98,7 @@ class _PeriodicTimer:
         if self._cancelled.is_set():
             return
         try:
-            # Callbacks may take a dt arg (the convention the pattern
-            # grew up with) or none: pass the interval as dt so
-            # callbacks that expect it get a sensible value; no-arg
-            # callbacks are caught by the TypeError shim.
-            try:
-                self._callback()
-            except TypeError:
-                self._callback(self._interval_s)
+            self._callback()
         except Exception as e:
             if self._on_error is not None:
                 try:
@@ -247,15 +240,13 @@ class _CallablePairScheduler:
         self._closed = False
         self._lock = threading.Lock()
 
-    def schedule_interval(self, callback, interval_s):
+    def schedule_interval(self, callback: TickCallback, interval_s: float) -> object:
         if self._closed:
             raise RuntimeError('_CallablePairScheduler is shutdown; refusing new schedule')
 
-        def _wrapped(dt=0):
-            try:
-                callback()
-            except TypeError:
-                callback(dt)
+        # The host clock passes the elapsed time; the callback takes none.
+        def _wrapped(_dt: float = 0) -> None:
+            callback()
 
         h = self._schedule(_wrapped, interval_s)
         with self._lock:

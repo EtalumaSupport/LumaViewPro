@@ -1114,7 +1114,7 @@ class ScopeSession:
         held = threading.Event()
         handles = []
 
-        def _hold(_dt: float = 0) -> None:
+        def _hold() -> None:
             if held.is_set():
                 return
             held.set()

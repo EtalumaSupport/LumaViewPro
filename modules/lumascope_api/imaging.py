@@ -5366,7 +5366,7 @@ class ImagingAPI:
             now,
         )
 
-    def _check_stream(self, _dt: float = 0) -> None:
+    def _check_stream(self) -> None:
         streaming = self._scope.camera_connected and self.is_streaming()
         self._sample_delivery(streaming)
         if not streaming:
