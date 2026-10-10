@@ -61,13 +61,35 @@ def _streaming_fast(session):
     return imaging, camera, camera_fps
 
 
+def _camera_and_api_rates(imaging, camera, span_s=1.0):
+    """The camera's own delivery rate over ``span_s``, and the API's rate read across it.
+
+    The camera's figure is its delivered-frame count over the span, so both
+    describe the same frames: on a loaded host the simulator delivers fewer
+    than its 40 fps (19.5 at load 31, 2026-10-09), and the API must read what
+    was delivered, not what the camera was set to. The API's figure is the
+    mean of its readings every half tick.
+    """
+    frames_before, _ = camera.delivered_counts
+    started = time.monotonic()
+    readings = []
+    while time.monotonic() - started < span_s:
+        readings.append(imaging.get_delivered_rate().frames_per_s)
+        time.sleep(TICK_S / 2)
+    frames_after, _ = camera.delivered_counts
+    camera_rate = (frames_after - frames_before) / (time.monotonic() - started)
+    return camera_rate, sum(readings) / len(readings)
+
+
 class TestTheRateIsTheCameras:
     def test_the_delivered_rate_is_the_cameras_with_no_display(self, session):
-        imaging, _camera, camera_fps = _streaming_fast(session)
-        assert _wait_for(lambda: imaging.get_delivered_rate().frames_per_s > 30, 5.0), (
-            f'the delivered rate never passed 30 fps: {imaging.get_delivered_rate()}'
+        imaging, camera, _camera_fps = _streaming_fast(session)
+        assert _wait_for(lambda: imaging.get_delivered_rate().frames_per_s > 0, 5.0), (
+            'a session with no display read no delivered rate'
         )
-        assert imaging.get_delivered_rate().frames_per_s == pytest.approx(camera_fps, rel=0.25)
+        camera_rate, api_rate = _camera_and_api_rates(imaging, camera)
+        assert camera_rate > 0
+        assert api_rate == pytest.approx(camera_rate, rel=0.25)
 
     def test_the_wire_rate_is_the_bytes_each_delivered_frame_took(self, session):
         imaging, camera, _camera_fps = _streaming_fast(session)
@@ -91,7 +113,21 @@ class TestTheRateIsTheCameras:
 class TestEveryHostLogsIt:
     def test_a_headless_session_logs_the_cameras_rate(self, session, monkeypatch, tmp_path):
         imaging, _camera, _camera_fps = _streaming_fast(session)
-        assert _wait_for(lambda: imaging.get_delivered_rate().frames_per_s > 30, 5.0)
+        assert _wait_for(lambda: imaging.get_delivered_rate().frames_per_s > 0, 5.0)
+
+        # The line logs the API's rate: what get_delivered_rate answered the
+        # tick, kept as it passes. Whether that rate is the camera's is
+        # TestTheRateIsTheCameras'; on a loaded host one window's rate and a
+        # longer average differ, so the two are not compared here.
+        answered = []
+        read_rate = imaging.get_delivered_rate
+
+        def _kept():
+            rate = read_rate()
+            answered.append(rate)
+            return rate
+
+        monkeypatch.setattr(imaging, 'get_delivered_rate', _kept)
 
         class _RecordingLogger:
             def __init__(self):
@@ -114,5 +150,7 @@ class TestEveryHostLogsIt:
         lines = [m for m in rec.messages if '[BUFFER METRICS]' in m]
         assert lines, 'a headless session logged no [BUFFER METRICS] line'
         fields = dict(part.strip().split('=', 1) for part in lines[0].split(']', 1)[1].split('|'))
-        assert float(fields['capture_fps']) > 30
+        assert len(answered) == 1, 'the tick did not read the API rate once'
+        assert answered[0].frames_per_s > 0
+        assert fields['capture_fps'] == f'{answered[0].frames_per_s:.1f}'
         assert 'display_fps' not in fields, 'a session with no display logged a display rate'
