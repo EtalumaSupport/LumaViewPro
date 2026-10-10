@@ -43,6 +43,13 @@ hypothesis==6.165.2
 # and the event-stream tests read a real uvicorn server through it.
 httpx==0.28.1
 
+# Validates each REST answer against the schema the OpenAPI declares for it
+# (tests/test_every_answer_matches_its_description.py). jsonschema checks a
+# `date-time` format only when rfc3339-validator is installed; without it any
+# string passes, so the two are declared together.
+jsonschema==4.26.0
+rfc3339-validator==0.1.4
+
 # Profiling — see Firmware/docs/PROFILING_PRACTICE.md
 # py-spy: sampling profiler, attaches to live LVP process without restart,
 # low overhead so it can run for hours without warping timing data.
