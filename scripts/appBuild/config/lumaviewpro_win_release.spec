@@ -179,12 +179,13 @@ exe = EXE(
     # log output is file-only (KIVY_NO_CONSOLELOG=1 at lumaviewpro.py
     # :115), so a windowed build doesn't lose any production logging.
     console=False,
-    # Suppress the PyInstaller bootloader's windowed-traceback dialog. On a
-    # hard crash (an exception escaping to the bootloader) PyInstaller pops a
-    # Windows message box containing a raw Python traceback -- a researcher
-    # must never see that. The crash is still captured: custom_except_hook
-    # logs uncaught exceptions to the file logs, and notifications.critical
-    # surfaces a plain-language popup at the app layer.
+    # Keep the raw traceback out of the bootloader's crash dialog: a
+    # researcher must never see one. The dialog itself stays. An exception
+    # escaping the application shows "Unhandled exception in script" with the
+    # exception's message, after sys.excepthook has run (once the logger is
+    # up, the crash hook, which logs it with its traceback). A SystemExit
+    # shows nothing, so a startup failure must escape as the exception it is,
+    # never as sys.exit.
     disable_windowed_traceback=True,
     argv_emulation=False,
     target_arch=None,
