@@ -222,7 +222,12 @@ class TestZStacking:
         assert protocol.num_steps() == 5
 
 
-def test_the_motion_api_has_one_read_of_the_travel(session):
-    # The limits are get_axis_limits'; a second door answered them as the
-    # driver's microstep config.
-    assert not hasattr(session.scope.motion, 'get_axes_config')
+def test_the_motion_api_has_one_read_of_the_travel():
+    """The limits are get_axis_limits'. Two retired doors answered them too:
+    the motion API's, as the driver's microstep config, and the composition
+    root's, as the motor config's own number."""
+    from modules.lumascope_api import Lumascope
+    from modules.lumascope_api.motion import MotionAPI
+
+    assert not hasattr(MotionAPI, 'get_axes_config')
+    assert not hasattr(Lumascope, 'travel_limit_um')

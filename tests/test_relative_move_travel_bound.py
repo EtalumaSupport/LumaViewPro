@@ -12,18 +12,17 @@ and autofocus step is a relative move.
 import pytest
 
 from modules.exceptions import PositionOutOfRangeError
-from modules.scope_session import ScopeSession
-from tests.scope_fakes import home_sim_scope
-from tests.settings_fixtures import complete_settings
+from tests.scope_fakes import build_scope, home_sim_scope
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def motion():
-    s = ScopeSession.create(complete_settings(), simulate=True)
-    home_sim_scope(s.scope)
-    s.scope._motion_driver.set_timing_mode('instant')
-    yield s.scope.motion
-    s.shutdown()
+    """One homed simulated scope for the module: every test places its
+    axis before it jogs, and a refused jog leaves the axis where it was."""
+    scope = home_sim_scope(build_scope(simulate=True))
+    scope._motion_driver.set_timing_mode('instant')
+    yield scope.motion
+    scope.disconnect()
 
 
 def test_a_jog_past_the_top_of_travel_is_refused_and_nothing_moves(motion):

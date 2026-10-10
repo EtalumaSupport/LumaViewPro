@@ -266,18 +266,15 @@ def executor(scope, executors):
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
     )
-    mock_transformer = MagicMock()
-    mock_transformer.plate_to_stage = MagicMock(return_value=(0.0, 0.0))
-    exc._coordinate_transformer = mock_transformer
     return exc
 
 
 @pytest.fixture
 def real_executor(scope, executors):
-    """Executor with REAL wellplate loader and coordinate transformer.
+    """Executor over the scope's real labware catalogue and coordinate transformer.
 
-    This exercises the full code path including move_abs_pos -> axes_config,
-    which catches init bugs that mocked fixtures miss.
+    A plate-frame step is converted by the production path, so a run here
+    reaches the motion API's plate conversion that a stand-in would skip.
     """
     mock_af = MagicMock()
     mock_af.reset = MagicMock()

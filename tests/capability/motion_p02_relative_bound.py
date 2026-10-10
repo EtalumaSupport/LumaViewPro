@@ -43,7 +43,11 @@ def body(s):
         m.move_relative('Z', MOTOR_POSITION_LIMIT + 1.0)
         check('relative jog past MOTOR_POSITION_LIMIT raises', False, 'NO RAISE')
     except PositionOutOfRangeError as e:
-        check('relative jog past MOTOR_POSITION_LIMIT raises', True, str(e)[:90])
+        check(
+            'relative jog past MOTOR_POSITION_LIMIT raises naming the safety limit',
+            e.bound == 'safety limit' and e.quantity == 'distance',
+            str(e)[:90],
+        )
 
 
 run(body)

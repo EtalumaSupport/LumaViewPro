@@ -13,56 +13,58 @@ from unittest.mock import patch
 import pytest
 
 from modules.exceptions import PositionOutOfRangeError
-from modules.scope_session import ScopeSession
-from tests.scope_fakes import home_sim_scope
-from tests.settings_fixtures import complete_settings
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
+from tests.scope_fakes import build_scope, home_sim_scope
 
 
-@pytest.fixture
-def session():
-    s = ScopeSession.create(complete_settings(), simulate=True)
-    home_sim_scope(s.scope)
-    s.scope._motion_driver.set_timing_mode('instant')
-    yield s
-    s.shutdown()
+@pytest.fixture(scope='module')
+def motion():
+    """One homed simulated scope: a refused edit lands nothing, so nothing carries over."""
+    scope = home_sim_scope(build_scope(simulate=True))
+    yield scope.motion
+    scope.disconnect()
 
 
-def _edits(session):
-    """Every way a caller could try to widen Z's travel through a read.
-
-    The API's one door is ``get_axis_limits``; the driver's axis config,
-    which that read and the move refusal both read, is the other.
-    """
-    motion = session.scope.motion
-    driver = session.scope._motion_driver
-
-    def limits_value():
-        motion.get_axis_limits('Z')['max'] = 114000.0
-
-    def config_value():
-        driver.get_axes_config()['Z']['limits']['max'] = 114000.0
-
-    def config_limits():
-        driver.get_axes_config()['Z']['limits'] = {'min': 0.0, 'max': 114000.0}
-
-    def config_axis():
-        driver.get_axes_config()['Z'] = {'limits': {'min': 0.0, 'max': 114000.0}}
-
-    return [limits_value, config_value, config_limits, config_axis]
-
-
-@pytest.mark.parametrize('which', range(4))
-def test_an_edit_through_a_read_is_refused_and_the_bound_holds(session, which):
-    motion = session.scope.motion
+def test_an_edit_through_the_apis_read_is_refused_and_the_bound_holds(motion):
+    """The API's one door is ``get_axis_limits``; what it hands out refuses
+    the edit, and the move refusal still reads the bound it had."""
     travel_max = motion.get_axis_limits('Z')['max']
 
     with pytest.raises(TypeError):
-        _edits(session)[which]()
+        motion.get_axis_limits('Z')['max'] = 114000.0
 
     assert motion.get_axis_limits('Z')['max'] == travel_max
     with pytest.raises(PositionOutOfRangeError):
         motion.move_absolute('Z', travel_max + 10000)
+
+
+def _config_value(board):
+    board.get_axes_config()['Z']['limits']['max'] = 114000.0
+
+
+def _config_limits(board):
+    board.get_axes_config()['Z']['limits'] = {'min': 0.0, 'max': 114000.0}
+
+
+def _config_axis(board):
+    board.get_axes_config()['Z'] = {'limits': {'min': 0.0, 'max': 114000.0}}
+
+
+@pytest.mark.parametrize(
+    'edit', [_config_value, _config_limits, _config_axis], ids=lambda f: f.__name__
+)
+def test_the_simulated_driver_builds_a_read_only_config(edit):
+    """The simulator builds its config in its own body, as the real and the
+    null drivers do; the driver's config is the other door onto the limits."""
+    from drivers.simulated_motorboard import SimulatedMotorBoard
+
+    board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
+    travel_max = board.get_axis_limits('Z')['max']
+
+    with pytest.raises(TypeError):
+        edit(board)
+
+    assert board.get_axis_limits('Z')['max'] == travel_max
 
 
 def test_the_hardware_driver_builds_a_read_only_config():

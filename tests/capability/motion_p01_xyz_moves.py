@@ -92,7 +92,11 @@ def body(s):
         m.move_absolute('X', 9999.0, frame='plate')
         check('plate-frame out-of-range raises', False, 'NO RAISE')
     except PositionOutOfRangeError as e:
-        check('plate-frame out-of-range raises', True, str(e)[:90])
+        check(
+            'plate-frame out-of-range raises in the plate frame',
+            e.bound == 'reachable range' and e.quantity == 'plate position',
+            str(e)[:90],
+        )
 
 
 run(body)

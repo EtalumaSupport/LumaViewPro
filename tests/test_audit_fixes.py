@@ -33,7 +33,6 @@ from modules.activity_claim import ActivityClaim
 from modules.exceptions import (
     HardwareCommandRefusedError,
     HomingFailedError,
-    PositionOutOfRangeError,
 )
 
 
@@ -121,35 +120,6 @@ class TestLedOnValidation:
 
     def test_accepts_valid_input(self, sim_scope):
         sim_scope.illumination.led_on(channel=0, illumination_ma=50)
-
-
-class TestMoveAbsolutePositionValidation:
-    """Verify move_absolute() rejects bad inputs."""
-
-    def test_rejects_position_above_limit(self, sim_scope):
-        from modules.lumascope_api import Lumascope
-
-        # Asserts the REFUSAL, not its sentence: an axis that publishes
-        # travel now answers with its travel range whatever the magnitude,
-        # so wording-coupled assertions here go stale every time the
-        # message improves.
-        with pytest.raises(PositionOutOfRangeError):
-            sim_scope.motion.move_absolute(axis='Z', position=Lumascope._MOTOR_POSITION_LIMIT + 1)
-
-    def test_rejects_large_negative_position(self, sim_scope):
-        from modules.lumascope_api import Lumascope
-
-        # Asserts the REFUSAL, not its sentence: an axis that publishes
-        # travel now answers with its travel range whatever the magnitude,
-        # so wording-coupled assertions here go stale every time the
-        # message improves.
-        with pytest.raises(PositionOutOfRangeError):
-            sim_scope.motion.move_absolute(
-                axis='Z', position=-(Lumascope._MOTOR_POSITION_LIMIT + 1)
-            )
-
-    def test_accepts_valid_input(self, sim_scope):
-        sim_scope.motion.move_absolute(axis='Z', position=1000)
 
 
 # ===========================================================================
@@ -9245,14 +9215,6 @@ class TestAxisTravelLimitsOnCapabilities:
     lived on the composition root but read `motorconfig.travel_limit_um`
     (motion-driver state). The travel bound's one door is
     `motion.get_axis_limits(axis)`. The wrapper is retired."""
-
-    def test_lumascope_class_does_not_carry_travel_limit_um(self):
-        from modules.lumascope_api import Lumascope
-
-        assert not hasattr(Lumascope, 'travel_limit_um'), (
-            'Lumascope.travel_limit_um must be retired per audit #20; '
-            'callers read scope.motion.get_axis_limits(axis) instead.'
-        )
 
     def test_null_motor_has_no_stage_or_turret(self):
         """A NullMotionBoard has no stage and no turret, which gates the

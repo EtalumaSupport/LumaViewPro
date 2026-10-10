@@ -1,11 +1,9 @@
-"""Regression for #431 (Z half): applying z-stacking must not create slices
-outside the Z travel range.
+"""A z-stack inside Z's travel builds whole: every slice kept, none skipped.
 
-XY tiling already checked its tiles against the travel; the matching Z-stack
-bounds check was never implemented, so a z-stack range wider than the Z travel pushed the
-protocol to the end of travel and crashed the run. Skipping the slices and
-returning a count left a stack missing its ends that projected as if whole, so
-apply_zstacking now refuses the stack and leaves the protocol as it was.
+The refusal of a stack with a slice outside the travel is pinned in
+test_a_build_outside_the_travel_is_refused.py; this is its admit side. A
+stack that skipped its out-of-range ends and reported a count would have
+projected as if whole (#431).
 
 Reuses the Protocol builders from test_protocol_roundtrip.
 """
