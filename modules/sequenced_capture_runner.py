@@ -1481,8 +1481,9 @@ class SequencedCaptureRunner:
         """Wait for the camera lane to finish what it holds, then make the camera this run's.
 
         start() puts the lane in protocol mode for the run, and the lane
-        refuses what was queued there before; but a command already
-        running (a still, a gain write, a settings widget's task) finishes
+        refuses what was queued there before behind other work; but a
+        command already running (a still, a gain write, a settings widget's
+        task), or put on the idle lane with nothing ahead of it, finishes
         on the lane's worker. Taking the camera before it has finished let
         the run's first LED land under a still's grab and its snapshot
         read the camera mid-command. So every read and write of the camera

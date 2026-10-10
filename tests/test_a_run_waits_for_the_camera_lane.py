@@ -16,8 +16,8 @@ holds the worker until released, which makes the wait as wide as a test
 needs without reaching into the engine.
 """
 
+import queue
 import threading
-import time
 from unittest.mock import patch
 
 import pytest
@@ -60,6 +60,36 @@ class _LaneHold:
         self._release.set()
 
 
+class _LateWorker:
+    """Keep the camera lane's worker from taking its next task until released.
+
+    A stand-in by design: the worker waking late on a loaded host, which the
+    simulator cannot produce. It parks the worker before it takes a task off
+    the queue, so a task put meanwhile is on an idle lane and not yet running;
+    released, the parked wait comes back empty, as a wait that timed out does,
+    and the worker goes round its loop again in whatever mode the lane is now.
+    """
+
+    def __init__(self, session):
+        self._queue = session.camera_executor.queue
+        self._get = self._queue.get
+        self._parked = threading.Event()
+        self._go = threading.Event()
+        self._queue.get = self._late_get
+        assert self._parked.wait(5.0), 'the camera worker never came back for work'
+
+    def _late_get(self, *args, **kwargs):
+        if not self._go.is_set():
+            self._parked.set()
+            self._go.wait(RESULT_TIMEOUT_S)
+            raise queue.Empty
+        return self._get(*args, **kwargs)
+
+    def release(self):
+        self._go.set()
+        del self._queue.get
+
+
 def _first_step_observer(session):
     """Record what the lane and the still looked like at the run's first step."""
     seen = {}
@@ -93,27 +123,19 @@ class TestAStillInFlightFinishesFirst:
         )
         assert seen['lane_busy'] is False, "the run's first step ran while the lane held work"
 
-    def test_a_slow_handoff_to_the_lane_does_not_lose_the_still(self, lane_session):
-        """However long the still takes to reach the lane, it is there when
-        capture() returns: a run started next waits for it, never refuses it."""
+    def test_a_still_on_an_idle_lane_is_kept_however_late_the_worker_wakes(self, lane_session):
+        """Order decides, never thread timing: a still put on an idle camera
+        lane is next, so a run that takes the scope before the worker has
+        taken the still waits for it instead of refusing it."""
         session, runner, tmp_path = lane_session
-        imaging_type = type(session.scope.imaging)
-        slowed = {}
-        for name in ('_dispatch_camera', '_submit_camera'):
-            original = getattr(imaging_type, name, None)
-            if original is None:
-                continue
-
-            def _slow(self, *args, _original=original, **kwargs):
-                time.sleep(0.3)
-                return _original(self, *args, **kwargs)
-
-            slowed[name] = _slow
-        with patch.multiple(imaging_type, **slowed):
+        late = _LateWorker(session)
+        try:
             still = session.manual_capture.capture(layer='BF', false_color_on=False)
-            outcome = runner.start_composite(sequence_name='after_slow', parent_dir=str(tmp_path))
-            paths = still.result(timeout=RESULT_TIMEOUT_S)
-        assert paths and paths[0].exists(), 'the run refused a still capture() had accepted'
+            outcome = runner.start_composite(sequence_name='after_late', parent_dir=str(tmp_path))
+        finally:
+            late.release()
+        paths = still.result(timeout=RESULT_TIMEOUT_S)
+        assert paths and paths[0].exists(), 'the run refused a still put on an idle lane'
         assert session.sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
         result = outcome.wait(timeout_s=RESULT_TIMEOUT_S)
         assert result is not None and result.status == 'completed', result

@@ -361,6 +361,11 @@ class IOTask:
         self.taking = None
         # Set only by the lane, for a submitter holding its override key.
         self.override = False
+        # Set by the lane when this task was put on it with nothing waiting
+        # and nothing running: it is next whatever the worker's timing, so a
+        # hold that begins before the worker takes it lets it run, as it
+        # lets the running task finish.
+        self.first_in_line = False
 
         # Per-task slow threshold. None -> use class default at run-time
         # (allows the class default to be tuned without per-instance
@@ -527,6 +532,9 @@ class SequentialIOExecutor:
         self.protocol_queue = queue.Queue(maxsize=protocol_queue_maxsize)
         self.protocol_queue_maxsize = protocol_queue_maxsize
         self._protocol_queue_dropped_count = 0
+        # Makes "nothing ahead" and the put one step, so two submitters
+        # cannot both be put first in line.
+        self._first_in_line_lock = threading.Lock()
         # Selective bound for frame-carrying (droppable_live) tasks on the
         # default queue. In-flight count guarded by its own lock; incremented
         # at put(), decremented when the worker dequeues. Must-execute tasks
@@ -648,7 +656,9 @@ class SequentialIOExecutor:
         While a run, a diagnostic or a home holds the scope, a task that was not
         made under the holder's taking is refused -- at submit and again
         when the worker takes it off the queue -- with
-        ``HardwareCommandRefusedError``, whoever made it and however; while
+        ``HardwareCommandRefusedError``, whoever made it and however, unless
+        it was put on the lane first in line, with nothing waiting or
+        running ahead of it, which runs as a running task does; while
         a recording holds it, a task marked ``falsifies_recording`` is. The
         key is the one way past that: the composition root keeps it for the
         named overrides, so a caller holding this executor cannot mark its
@@ -688,6 +698,12 @@ class SequentialIOExecutor:
         # would have wanted it is gone.
         if task.taking is not None and not task.taking.holds:
             return HardwareCommandRefusedError('activity_ended', who)
+        # Put on the lane ahead of any hold, with nothing before it: it runs
+        # as the task already running does, and the holder waits for it. A
+        # recording still refuses it in _admit, where a write that would
+        # falsify the file is counted.
+        if task.first_in_line:
+            return None
         holder = self._claim.refusing_holder(
             task.taking, falsifies_recording=task.falsifies_recording
         )
@@ -1034,7 +1050,12 @@ class SequentialIOExecutor:
             task._t_enqueue = time.monotonic()
             task._queue_depth_at_enqueue = self.queue.qsize() + (1 if self._running_task else 0)
             task._queue_kind = 'default'
-        self.queue.put(task)
+        with self._first_in_line_lock:
+            # A task the worker has dequeued but not yet recorded as running
+            # is missed here, so a task put in that instant is first in line
+            # beside it: erring kept costs a hold at most one task's wait.
+            task.first_in_line = self.queue.empty() and self.running_task is None
+            self.queue.put(task)
         self._accept_submit(_LANE_DEFAULT)
         return fut if return_future else ENQUEUED
 
@@ -1293,10 +1314,11 @@ class SequentialIOExecutor:
                 if self._claim is not None and not self.queue.empty():
                     self._refuse_queued()
                 try:
-                    if self.protocol_running.is_set() or self.protocol_finish.is_set():
+                    in_protocol = self.protocol_running.is_set() or self.protocol_finish.is_set()
+                    if in_protocol and not self._first_in_line_waiting():
                         task = self.protocol_queue.get(block=True, timeout=0.2)
                         task.protocol = True
-                    elif not self.protocol_queue.empty():
+                    elif not in_protocol and not self.protocol_queue.empty():
                         self.clear_protocol_pending()
                         continue
                     else:
@@ -1407,6 +1429,22 @@ class SequentialIOExecutor:
                     f'(dispatch or epilogue); the worker continues: {e}',
                     exc_info=True,
                 )
+
+    def _first_in_line_waiting(self) -> bool:
+        """Whether the default queue's next task was put first in line.
+
+        A run's protocol mode serves only the run's queue; the task put on
+        the lane before the run took the scope, with nothing ahead of it, is
+        served first, or the run's wait for an idle lane would never end.
+        """
+        q = self.queue
+        inner = q._q if isinstance(q, _PriorityFifoQueue) else q
+        with inner.mutex:
+            if not inner.queue:
+                return False
+            head = inner.queue[0]
+            task = head[2] if isinstance(q, _PriorityFifoQueue) else head
+            return task.first_in_line
 
     def _refuse_queued(self) -> None:
         """Refuse the default-queue tasks the claim now refuses, in place.
