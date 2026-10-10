@@ -3441,9 +3441,8 @@ class ScopeSession:
         Raises:
             CatalogueNameRefusedError: ``'labware_unknown'``, the labware
                 catalogue has no plate by that name. Nothing is written.
-            ConfigError: ``labware_name`` is not a string, or the settings
-                have no protocol block to hold the selection. Nothing is
-                written.
+            ConfigError: the settings have no protocol block to hold the
+                selection. Nothing is written.
             HardwareCommandRefusedError: A run, a diagnostic or a recording
                 holds the scope and ``labware_name`` is not the plate in place
                 (``exclusive_activity_running``): each states its positions
