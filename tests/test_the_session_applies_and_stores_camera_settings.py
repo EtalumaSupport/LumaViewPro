@@ -327,7 +327,7 @@ class TestTheImageMode:
         assert session.settings['image_mode'] == before
 
     # A dict cannot be looked up in the vocabulary; it is refused, not a TypeError.
-    @pytest.mark.parametrize('mode', ['16bit', {}])
+    @pytest.mark.parametrize('mode', ['16bit'])
     def test_an_unknown_mode_is_refused_and_nothing_is_applied_or_stored(self, session, mode):
         before = session.settings['image_mode']
         pixel_format = session.scope.imaging.pixel_format_cached

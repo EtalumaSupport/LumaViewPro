@@ -27,6 +27,7 @@ from drivers.simulated_ledboard import SimulatedLEDBoard
 from modules import config_helpers
 from modules.exceptions import ArgumentRefusedError
 from modules.layer_record import UNRESOLVED
+from modules.objectives_loader import ObjectiveLoader
 from modules.protocol import Protocol
 from modules.scope_capabilities import ScopeCapabilities
 from tests.ast_seams import find_def, parse_module
@@ -144,7 +145,7 @@ def _protocol_with(illumination) -> Protocol:
     return p
 
 
-_CATALOGUE = SimpleNamespace(get_objective_info=lambda **kw: {}, get_objectives_list=lambda: ['4x'])
+_CATALOGUE = ObjectiveLoader()
 
 
 def test_a_step_above_the_cap_given_is_refused():

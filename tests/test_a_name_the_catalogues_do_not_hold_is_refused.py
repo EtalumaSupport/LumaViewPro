@@ -9,14 +9,18 @@ now ``CatalogueNameRefusedError``, still a ``ConfigError`` for the callers
 that recover from a bad stored name, with a reason, the owner's parameter as
 ``argument`` and the catalogue's keys as ``offered``, refused before anything
 is stored. A null objective is the scope's "nothing selected"
-(``ObjectiveUnknownError('none_selected')``) at every door, and a turret slot
-is refused by one check wherever it is taken.
+(``ObjectiveUnknownError('none_selected')``) where a stored objective is read,
+and a turret slot is refused by one check wherever it is taken. A null asked
+of a member that names an objective to act on, or a slot that is no whole
+number, is the ``@api`` door's
+(``tests/test_an_argument_of_another_type_is_refused_at_the_door.py``).
 """
 
 import pytest
 from fastapi.testclient import TestClient
 
 from modules.exceptions import (
+    ArgumentTypeRefusedError,
     CatalogueNameRefusedError,
     ConfigError,
     ObjectiveUnknownError,
@@ -88,8 +92,8 @@ def test_an_objective_the_catalogue_lacks_is_refused_offering_its_keys(session, 
     assert _selection(session) == before
 
 
-@pytest.mark.parametrize('member', OBJECTIVE_MEMBERS)
-def test_no_objective_is_none_selected_at_every_door(session, member):
+@pytest.mark.parametrize('member', ['get_objective_info', 'runtime_state.get_objective_info'])
+def test_no_objective_is_none_selected_where_a_stored_one_is_read(session, member):
     before = _selection(session)
     with pytest.raises(ObjectiveUnknownError) as refused:
         OBJECTIVE_MEMBERS[member](session, None)
@@ -104,7 +108,7 @@ SLOT_MEMBERS = {
 }
 
 
-@pytest.mark.parametrize('slot', [0, 5, -1, True, 1.5, '2', None])
+@pytest.mark.parametrize('slot', [0, 5, -1])
 @pytest.mark.parametrize('member', SLOT_MEMBERS)
 def test_a_slot_that_is_not_one_is_refused_as_the_turrets_range(session, member, slot):
     before = _selection(session)
@@ -178,30 +182,22 @@ def test_none_is_refused_when_the_active_objective_is_already_unknown(tmp_path):
 
     The no-op compare ran before the owner, so ``select_objective(None)``
     returned False and ``confirm_objective(None)`` recorded the objective as
-    confirmed with none named.
+    confirmed with none named. The door now refuses the None first.
     """
     s = _session(tmp_path, 'LS850')
     try:
         s.settings['objective_id'] = None
         s.settings['objective_confirmed'] = False
         for call in (lambda: s.select_objective(None), lambda: s.confirm_objective(None)):
-            with pytest.raises(ObjectiveUnknownError) as refused:
+            with pytest.raises(ArgumentTypeRefusedError) as refused:
                 call()
-            assert refused.value.reason == 'none_selected'
+            assert refused.value.argument == 'objective_id'
         assert s.settings['objective_confirmed'] is False
     finally:
         s.shutdown()
 
 
-@pytest.mark.parametrize(
-    ('name', 'refusal', 'reason'),
-    [
-        (None, ObjectiveUnknownError, 'none_selected'),
-        ('zzz', CatalogueNameRefusedError, 'objective_not_in_catalogue'),
-    ],
-)
-def test_the_slot_lookup_asks_the_catalogue_first(session, name, refusal, reason):
-    # None would otherwise match a slot with no objective assigned.
-    with pytest.raises(refusal) as refused:
-        session.scope.motion.get_turret_position_for_objective_id(name)
-    assert refused.value.reason == reason
+def test_the_slot_lookup_asks_the_catalogue_first(session):
+    with pytest.raises(CatalogueNameRefusedError) as refused:
+        session.scope.motion.get_turret_position_for_objective_id('zzz')
+    assert refused.value.reason == 'objective_not_in_catalogue'

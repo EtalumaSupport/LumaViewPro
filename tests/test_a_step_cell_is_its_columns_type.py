@@ -158,7 +158,9 @@ WRITES = {
 
 
 @pytest.mark.parametrize('value', [None, 'tall'])
-@pytest.mark.parametrize('writer', WRITES)
+# modify_autofocus is an API member: its argument door refuses a value that
+# is no bool before the writer runs.
+@pytest.mark.parametrize('writer', [writer for writer in WRITES if writer != 'modify_autofocus'])
 def test_every_in_place_writer_refuses_a_value_not_of_its_columns_type(writer, value):
     column, write = WRITES[writer]
     protocol = _build_protocol(TWO_STEPS)

@@ -16,6 +16,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from modules.protocol_image_writer import RunWriteBatch
+from modules.run_outcome import PendingRunOutcome
+from modules.sequenced_capture_runner import RunHandle
 from tests.test_diagnostic_claim import _make_session
 from tests.protocol_drives import run_identity
 
@@ -94,7 +97,8 @@ class TestHeldByOther:
             return True
 
         monkeypatch.setattr(session.sequenced_capture_runner, 'held_by_other', _held_by_other)
-        handle = object()
+        engine = session.sequenced_capture_runner
+        handle = RunHandle(engine, PendingRunOutcome(), RunWriteBatch(session.file_io_executor))
         assert session.held_by_other(handle) is True
         assert asked == [handle]
 

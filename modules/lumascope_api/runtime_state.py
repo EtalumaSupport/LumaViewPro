@@ -206,7 +206,7 @@ class RuntimeState:
         return self._derive_current_objective()[0]
 
     @api
-    def get_objective_info(self, objective_id: str) -> dict:
+    def get_objective_info(self, objective_id: str | None) -> dict:
         """Get objective metadata by ID.
 
         Args:

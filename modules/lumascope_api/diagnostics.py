@@ -1002,15 +1002,13 @@ class DiagnosticsAPI:
                 controller) or ``'axis_absent'``: ``MissingPart.MOTORS`` on a
                 manual scope, ``MissingPart.FAN_CONTROL`` for a controller
                 without fan control. Nothing was sent.
-            ArgumentRefusedError: ``'not_a_number'``, ``duty_pct`` is not a
-                finite number (a ``bool`` included); ``'fan_duty_out_of_range'``,
-                it is outside 0..100. Asked after the hardware, before
-                anything is sent.
+            ArgumentRefusedError: ``'fan_duty_out_of_range'``, ``duty_pct``
+                is outside 0..100. Asked after the hardware, before anything
+                is sent.
             HardwareError: The board answered the write with an error, or
                 did not answer.
         """
         self._scope.motion._refuse_absent('set_motor_fan_duty')
-        refuse_unless_finite_number(duty_pct, 'duty_pct')
         if not 0 <= duty_pct <= 100:
             raise ArgumentRefusedError('fan_duty_out_of_range', argument='duty_pct', value=duty_pct)
         self._scope.motion._dispatch_motion(

@@ -175,11 +175,6 @@ def test_a_wire_client_is_refused_as_the_request_naming_the_key(session, config)
     assert problem['argument'] == "input_config['layer_configs']['BF']['gain_db']"
 
 
-def test_a_configuration_that_is_not_a_dictionary_is_refused(session):
-    refusal = _refused(session, 'wrong_kind', input_config=['not', 'a', 'dict'])
-    assert refusal.argument == 'input_config'
-
-
 def test_the_zstack_keys_are_not_read_when_not_stacking(session, config):
     # A composite or a plain scan carries no stack; its zstack_params may be empty.
     config['use_zstacking'] = False

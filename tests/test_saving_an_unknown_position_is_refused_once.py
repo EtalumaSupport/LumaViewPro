@@ -24,6 +24,7 @@ from modules.layer_record import LayerIdentity, LayerRecord
 from modules.lumascope_api.protocols import ProtocolsAPI
 from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
+from tests.test_run_refusal_contract import _make_single_step_protocol
 
 
 def _stand(cls, *names, **attrs):
@@ -109,13 +110,17 @@ def unknown(monkeypatch, centre_posts):
         '_store_setting',
     ):
         setattr(session, name, getattr(ScopeSession, name).__get__(session))
+    # The protocol panel, holding a protocol with no step selected.
+    panel = SimpleNamespace(
+        _protocol=_make_single_step_protocol(), curr_step=-1, update_step_ui=lambda: None
+    )
     ctx = SimpleNamespace(
         scope=scope,
         session=session,
         lumaview=SimpleNamespace(scope=scope),
         settings=settings,
         settings_lock=MagicMock(),
-        motion_settings=MagicMock(),
+        motion_settings=SimpleNamespace(ids={'protocol_settings_id': panel}),
         stage=MagicMock(),
         protocol=None,
     )

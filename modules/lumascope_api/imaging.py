@@ -3130,7 +3130,7 @@ class ImagingAPI:
         all_ones_check: bool = False,
         timeout_s: float = 0.0,
         sum_count: int = 1,
-        sum_delay_s: float = 0,
+        sum_delay_s: float = 0.0,
         sum_iteration_callback=None,
     ) -> np.ndarray | None:
         """Capture a frame guaranteed to reflect the current hardware state.
@@ -3524,7 +3524,7 @@ class ImagingAPI:
         all_ones_check: bool = False,
         timeout_s: float = 0.0,
         sum_count: int = 1,
-        sum_delay_s: float = 0,
+        sum_delay_s: float = 0.0,
         sum_iteration_callback: Callable[[], None] | None = None,
     ) -> np.ndarray | None:
         """Capture a frame-valid image on the camera worker, and wait for it.
@@ -3640,7 +3640,7 @@ class ImagingAPI:
         all_ones_check: bool = False,
         dark_floor_check: bool = False,
         sum_count: int = 1,
-        sum_delay_s: float = 0,
+        sum_delay_s: float = 0.0,
         sum_iteration_callback: Callable[[], None] | None = None,
         force_new_capture: bool = False,
         new_capture_timeout_s: float = 5.0,
@@ -3981,7 +3981,7 @@ class ImagingAPI:
         timeout_s: float = 5.0,
         all_ones_check: bool = False,
         sum_count: int = 1,
-        sum_delay_s: float = 0,
+        sum_delay_s: float = 0.0,
         sum_iteration_callback: Callable[[], None] | None = None,
         force_new_capture: bool = False,
         new_capture_timeout_s: float = 5.0,

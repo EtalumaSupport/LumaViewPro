@@ -5,11 +5,13 @@ A name that was no axis met seven answers: five members raised a bare
 ``ValueError``, a home raised its own, ``get_axis_state`` answered
 ``'unknown'``, the position reads answered None, ``position_is_known``
 answered False, ``get_axis_limits`` raised whatever the driver raised, and
-the drive-status read passed it to the driver. A home took ``'all'``, ``None``
-crashed it, and a fan duty of ``True`` reached the board. Each is now one
-check, asked first, refused with ``ArgumentRefusedError`` whose cause is the
-request's, so a client is told to change it rather than to retry. An axis
-the model lacks is still a name, and keeps the answer a missing axis gives.
+the drive-status read passed it to the driver. A home took ``'all'``, and a
+fan duty of 101 reached the board. Each is now one check, asked first,
+refused with ``ArgumentRefusedError`` whose cause is the request's, so a
+client is told to change it rather than to retry. An axis the model lacks is
+still a name, and keeps the answer a missing axis gives. A value that is not
+a name or a number at all -- None, ``True``, NaN for a duty -- is the
+``@api`` door's (``tests/test_an_argument_of_another_type_is_refused_at_the_door.py``).
 """
 
 import math
@@ -63,13 +65,7 @@ def _motion_state(scope):
     return states, motion.get_target_position(), motion.get_turret_slot()
 
 
-# None asks the two position reads for every axis, so it is no bad name there.
-NO_AXIS = [
-    (member, name)
-    for member in AXIS_MEMBERS
-    for name in ('Q', 'x', None)
-    if not (name is None and member in ('get_target_position', 'get_current_position'))
-]
+NO_AXIS = [(member, name) for member in AXIS_MEMBERS for name in ('Q', 'x')]
 
 
 @pytest.mark.parametrize('member, name', NO_AXIS)
@@ -82,7 +78,7 @@ def test_a_name_that_is_no_axis_is_refused_and_nothing_moves(scope, member, name
     assert _motion_state(scope) == before
 
 
-@pytest.mark.parametrize('name', ['X', 'all', 'z', None])
+@pytest.mark.parametrize('name', ['X', 'all', 'z'])
 @pytest.mark.parametrize('member', ['home', 'start_home'])
 def test_a_home_takes_z_the_turret_or_all_in_capitals(scope, member, name):
     refusal = _refused(lambda: getattr(scope.motion, member)(name), 'axis_unknown')
@@ -138,10 +134,6 @@ def test_a_plate_target_for_z_is_refused_by_the_plate_owner(scope):
     [
         (101, 'fan_duty_out_of_range'),
         (-1, 'fan_duty_out_of_range'),
-        (True, 'not_a_number'),
-        (math.nan, 'not_a_number'),
-        ('50', 'not_a_number'),
-        (None, 'not_a_number'),
     ],
 )
 def test_a_fan_duty_off_the_percent_scale_is_refused_and_nothing_is_written(

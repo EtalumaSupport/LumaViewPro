@@ -57,7 +57,7 @@ class TestTheSessionSetsTheMode:
         assert 'Infrared' not in session.settings
 
     # A list cannot be looked up in the vocabulary; it is refused, not a TypeError.
-    @pytest.mark.parametrize('mode', ['still', 'none', '', 'Image', ['image']])
+    @pytest.mark.parametrize('mode', ['still', 'none', '', 'Image'])
     def test_an_unknown_mode_is_refused_and_nothing_changes(self, session, mode):
         before = session.settings['BF']['acquire']
 

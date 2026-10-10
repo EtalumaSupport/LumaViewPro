@@ -120,9 +120,9 @@ def test_axis_state_unknown_is_a_separate_failure():
     assert not issubclass(PositionOutOfRangeError, AxisStateUnknownError)
 
 
-@pytest.mark.parametrize(
-    'slot', [0, 5, 99, -1, 2.5, True, '3', None, MOTOR_POSITION_LIMIT + 1], ids=repr
-)
+# A slot that is no whole number at all is refused at move_turret's argument
+# door (tests/test_an_argument_of_another_type_is_refused_at_the_door.py).
+@pytest.mark.parametrize('slot', [0, 5, 99, -1, MOTOR_POSITION_LIMIT + 1], ids=repr)
 def test_a_slot_the_turret_does_not_have_is_refused_before_z_is_parked(motion, slot):
     """The motor accepts 99 and drives 24.5 revolutions; the API refuses it.
 

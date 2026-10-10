@@ -144,7 +144,7 @@ class TestGetSelectedLabware:
         assert labware_id == 'Center Plate'
 
     def test_settings_naming_no_plate_are_refused(self):
-        with pytest.raises(ConfigError, match='labware name must be a string'):
+        with pytest.raises(ConfigError, match='the settings name no plate'):
             get_selected_labware_from_settings({}, _wellplate_loader())
 
     def test_an_unknown_plate_is_refused_by_name(self):

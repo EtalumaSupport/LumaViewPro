@@ -120,8 +120,7 @@ class LayerIdentity:
         told it is missing hardware.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'`` or
-                ``'no_layer_selected'``.
+            ArgumentRefusedError: ``'layer_unknown'``.
             HardwareCommandRefusedError: ``'axis_absent'``, naming the
                 layer (``MissingPart.layer``).
             ConfigError: this unit's layers could not be resolved, so

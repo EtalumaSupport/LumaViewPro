@@ -1090,7 +1090,10 @@ def get_selected_labware_from_settings(
             replaces a stored plate the catalogue cannot resolve; this
             reader still refuses one in settings no bring-up has read.
     """
-    labware_id = wellplate_loader.resolve_plate_key(settings.get('protocol', {}).get('labware'))
+    stored = settings.get('protocol', {}).get('labware')
+    if not isinstance(stored, str):
+        raise ConfigError(f'the settings name no plate: protocol.labware is {stored!r}')
+    labware_id = wellplate_loader.resolve_plate_key(stored)
     return labware_id, wellplate_loader.get_plate(plate_key=labware_id)
 
 

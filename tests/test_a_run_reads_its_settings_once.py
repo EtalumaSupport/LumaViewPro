@@ -80,8 +80,8 @@ _MEMBERS = {
     'composite': lambda runner: runner.start_composite(),
     'autofocus': lambda runner: runner.run_autofocus(layer='BF'),
     'zstack': lambda runner: runner.run_zstack(layer='BF'),
-    'single_scan': lambda runner: runner.run_single_scan(protocol=MagicMock()),
-    'protocol': lambda runner: runner.run_protocol(protocol=MagicMock()),
+    'single_scan': lambda runner: runner.run_single_scan(protocol=_make_single_step_protocol()),
+    'protocol': lambda runner: runner.run_protocol(protocol=_make_single_step_protocol()),
 }
 
 

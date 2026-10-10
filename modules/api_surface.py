@@ -20,6 +20,10 @@ callback is annotated ``ProgressCallback``, so a host that carries the
 call elsewhere -- the REST server's jobs -- passes its own and reports
 how far the call has got.
 
+A marked member's annotations are its contract at the call as well: an
+argument of another type is refused before the member runs, for every
+caller (``modules.api_arguments``).
+
 An event declares its record where it is delivered: a listener member as
 ``@api(event=Record)``, a ``RunEvents`` field through
 ``event_metadata(Record)``.
@@ -34,6 +38,8 @@ No project imports: every module that declares API imports this one.
 """
 
 import dataclasses
+import functools
+import inspect
 import os
 from collections.abc import Callable
 
@@ -79,16 +85,54 @@ def _function_of(member: object) -> object:
     return member
 
 
+def _with_a_door(function: Callable, *, bound: bool) -> Callable:
+    """``function`` behind its argument door, or ``function`` itself when it takes no argument.
+
+    ``bound`` says the first parameter is ``self`` or ``cls``. The door is
+    built at the first call (``modules.api_arguments``): its annotations
+    resolve only once every class they name is loaded.
+    """
+    if len(inspect.signature(function).parameters) <= (1 if bound else 0):
+        return function
+    door = None
+
+    @functools.wraps(function)
+    def guarded(*args, **kwargs):
+        nonlocal door
+        if door is None:
+            from modules.api_arguments import door_for
+
+            door = door_for(function, bound=bound)
+        args, kwargs = door(args, kwargs)
+        return function(*args, **kwargs)
+
+    return guarded
+
+
+def _guarded(member: object) -> object:
+    """``member`` with its function behind the argument door, as the same kind of descriptor."""
+    if isinstance(member, property):
+        return member
+    if isinstance(member, (classmethod, staticmethod)):
+        function = _with_a_door(member.__func__, bound=isinstance(member, classmethod))
+        return member if function is member.__func__ else type(member)(function)
+    return _with_a_door(member, bound=True)
+
+
 def api[M](
     member: M | None = None, *, in_process: bool = False, event: type | None = None
 ) -> M | Callable[[M], M]:
     """Mark a member as API; used bare (``@api``) or as ``@api(in_process=True)``.
 
     ``event`` is the record of the event a listener member delivers.
-    Goes outermost in a decorator stack and returns the member unchanged.
+    Goes outermost in a decorator stack. A member that takes an argument is
+    returned behind its argument door, which refuses a value of another
+    type than its annotation declares (``modules.api_arguments``); one that
+    takes none is returned unchanged.
     """
 
     def mark(target: M) -> M:
+        target = _guarded(target)
         function = _function_of(target)
         setattr(function, MARK_ATTRIBUTE, IN_PROCESS if in_process else API)
         if event is not None:

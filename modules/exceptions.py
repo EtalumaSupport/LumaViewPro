@@ -2707,6 +2707,45 @@ class ArgumentRefusedError(Refusal, ValueError):
         self.kind = kind
 
 
+@api_fields('member', 'argument', 'declared')
+class ArgumentTypeRefusedError(Refusal, TypeError):
+    """An argument whose type its member does not take, refused before the member runs.
+
+    Raised by the ``@api`` door for every caller alike -- the GUI, a
+    script, the engineering plugin, a member calling another -- from the
+    member's own annotation, so the body never meets a value of another
+    type. A ``TypeError``, as Python raises for a call it cannot take. The
+    door judges the type only: a number's range and finiteness, a name's
+    membership and a dictionary's contents stay their member's.
+
+    Attributes:
+        reason: ``'wrong_argument_type'``.
+        member: The member called, as ``Class.member``.
+        argument: The name of the argument refused.
+        declared: The type the member takes, as its annotation reads.
+        value: What was given, as given.
+    """
+
+    member: str
+    argument: str
+    declared: str
+    cause = RefusalCause.REQUEST
+    reason = 'wrong_argument_type'
+    title = 'Wrong Type of Argument'
+
+    def __init__(self, *, member: str, argument: str, declared: str, value: object):
+        shown = repr(value)
+        if len(shown) > 80:
+            shown = shown[:77] + '...'
+        super().__init__(
+            f'{member} takes {argument} as {declared}; {shown} is a {type(value).__name__}.'
+        )
+        self.member = member
+        self.argument = argument
+        self.declared = declared
+        self.value = value
+
+
 class AccelerationLimitRefusedError(Refusal, ValueError):
     """An acceleration limit no board may be given was refused; nothing was commanded or stored.
 

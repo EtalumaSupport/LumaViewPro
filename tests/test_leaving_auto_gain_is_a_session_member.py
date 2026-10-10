@@ -22,7 +22,11 @@ import pytest
 
 import modules.app_context as _app_ctx
 import modules.config_helpers as config_helpers
-from modules.exceptions import ArgumentRefusedError, ConfigError, HardwareCommandRefusedError
+from modules.exceptions import (
+    ArgumentRefusedError,
+    ArgumentTypeRefusedError,
+    HardwareCommandRefusedError,
+)
 from modules.layer_record import LayerIdentity, LayerRecord
 from modules.lumascope_api.imaging import (
     AutoGainConvergence,
@@ -151,7 +155,7 @@ def test_turning_on_stores_only_the_preference_and_locks_nothing():
             'layer_unknown',
         ),  # not a layer of this release
         ('Blue', True, ('BF', 'Green'), HardwareCommandRefusedError, 'axis_absent'),  # no Blue here
-        ('BF', 'off', ('BF',), ConfigError, None),  # not a bool
+        ('BF', 'off', ('BF',), ArgumentTypeRefusedError, 'wrong_argument_type'),  # not a bool
     ],
 )
 def test_a_refused_request_changes_nothing(layer, enabled, layers, refused, reason):

@@ -3,11 +3,15 @@
 import copy
 import logging
 import pathlib
+import typing
 
 import modules.labware as labware
 from modules.exceptions import CatalogueNameRefusedError, ConfigError
 from modules.path_utils import read_installation_file, resolve_data_file
 from modules.api_surface import api
+
+if typing.TYPE_CHECKING:
+    from modules.settings_init import SettingValue
 
 logger = logging.getLogger('LVP.modules.labware_loader')
 
@@ -128,15 +132,10 @@ class WellPlateLoader(LabwareLoader):
         """The catalogue key for ``plate_key``, whatever spelling it arrived in.
 
         Raises:
-            ConfigError: ``plate_key`` is not a string.
             CatalogueNameRefusedError: ``'labware_unknown'``, ``plate_key``
                 names a plate this catalogue does not have; ``offered``
                 carries the plates it has.
         """
-        if not isinstance(plate_key, str):
-            # The table lookup answers an unhashable value with TypeError,
-            # which is not a refusal anyone should catch by type.
-            raise ConfigError(f'labware name must be a string, got {type(plate_key).__name__}')
         resolved_key = canonical_plate_name(plate_key)
         if resolved_key not in self.labware['Wellplate']:
             raise CatalogueNameRefusedError(
@@ -148,13 +147,17 @@ class WellPlateLoader(LabwareLoader):
         return resolved_key
 
     @api
-    def is_known_plate(self, plate_key: str) -> bool:
+    def is_known_plate(self, plate_key: 'SettingValue') -> bool:
         """Whether ``plate_key`` resolves to a plate, directly or under a retired spelling.
 
         Use this for validation so callers accept exactly what get_plate() accepts.
         get_plate_list() returns only canonical keys and would reject legacy/alias
-        names that get_plate() would resolve correctly at runtime.
+        names that get_plate() would resolve correctly at runtime. Takes
+        whatever a stored setting can hold, since bring-up asks it of the
+        stored plate: a value that is not a name is no plate.
         """
+        if not isinstance(plate_key, str):
+            return False
         try:
             self.resolve_plate_key(plate_key)
         except ConfigError:

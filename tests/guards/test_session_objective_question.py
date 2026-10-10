@@ -469,7 +469,7 @@ class TestT10TurretWriters:
         assert session.settings['turret_objectives'][2] == '10x Oly'
         assert session.scope.runtime_state.get_turret_config()[2] == '10x Oly'
 
-    @pytest.mark.parametrize('position', ['2', 5])
+    @pytest.mark.parametrize('position', [5])
     def test_a_bad_position_is_refused_as_out_of_range(self, sessions, position):
         session = sessions(**_turret_settings())
         before = dict(session.settings['turret_objectives'])

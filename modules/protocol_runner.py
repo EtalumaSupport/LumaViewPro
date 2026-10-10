@@ -232,7 +232,7 @@ class ProtocolRunner:
     @api
     def run_autofocus(
         self,
-        layer: str,
+        layer: str | None,
         save_characterization_data: bool = False,
         sequence_name: str = 'autofocus',
         parent_dir: FilePath | None = None,
@@ -406,7 +406,7 @@ class ProtocolRunner:
     @api
     def run_zstack(
         self,
-        layer: str,
+        layer: str | None,
         sequence_name: str = 'zstack',
         parent_dir: FilePath | None = None,
         events: RunEvents | None = None,

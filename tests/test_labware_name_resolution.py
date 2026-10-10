@@ -96,13 +96,6 @@ class TestTheResolver:
             CATALOGUE.resolve_plate_key(UNKNOWN_PLATE)
         assert '96 well microplate' in str(refusal.value)
 
-    @pytest.mark.parametrize('not_a_name', [None, 7, ['a', 'list'], {'k': 1}])
-    def test_a_non_string_is_refused_not_crashed(self, not_a_name):
-        # A wire payload can decode to anything; the dict lookup would answer
-        # an unhashable one with TypeError instead of a refusal.
-        with pytest.raises(ConfigError, match='must be a string'):
-            CATALOGUE.resolve_plate_key(not_a_name)
-
     def test_the_membership_test_and_the_lookup_agree_with_the_resolver(self):
         for old_name, key in RENAMED.items():
             assert CATALOGUE.is_known_plate(old_name)

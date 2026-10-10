@@ -8,15 +8,14 @@ mode a plugin may have flipped after the session was built. A caller that
 passes neither gets the API's own trigger and the session's mode.
 """
 
-from unittest.mock import MagicMock
-
 import pytest
 
+from tests.test_run_refusal_contract import _make_single_step_protocol
 from tests.test_run_zstack_entry_point import _prepared, _runner
 
 
 def _run(runner, member, **kwargs):
-    protocol = MagicMock()
+    protocol = _make_single_step_protocol()
     getattr(runner, member)(protocol, **kwargs)
     return protocol
 

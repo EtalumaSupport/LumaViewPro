@@ -42,8 +42,10 @@ UNRUNNABLE = [
     pytest.param(datetime.timedelta(milliseconds=500), DURATION, id='half-second-period'),
     pytest.param(datetime.timedelta(minutes=-1), DURATION, id='negative-period'),
     pytest.param(PERIOD, datetime.timedelta(hours=-1), id='negative-duration'),
-    pytest.param(5, DURATION, id='period-not-a-time'),
 ]
+# A period that is no time at all reaches the constructors' file and dict
+# readers; the writer, an API member, refuses it at its argument door.
+NOT_A_TIME = pytest.param(5, DURATION, id='period-not-a-time')
 RUNNABLE = [
     pytest.param(None, None, id='none'),
     pytest.param(datetime.timedelta(0), datetime.timedelta(0), id='zero'),
@@ -87,7 +89,7 @@ class TestTheProtocolsWriter:
 
 
 class TestTheConstructors:
-    @pytest.mark.parametrize('period, duration', UNRUNNABLE)
+    @pytest.mark.parametrize('period, duration', [*UNRUNNABLE, NOT_A_TIME])
     def test_a_protocol_built_with_an_unrunnable_schedule_is_refused(self, period, duration):
         with pytest.raises(ProtocolScheduleRefusedError):
             _protocol(period, duration)

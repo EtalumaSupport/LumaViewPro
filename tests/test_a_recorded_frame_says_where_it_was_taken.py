@@ -228,9 +228,11 @@ class TestTheBoundPlateTransform:
         the protocol's plate, whatever the scope has selected, and the
         offset the run started with, whatever is edited later."""
         from modules.lumascope_api.protocols import ProtocolsAPI
+        from tests.test_run_refusal_contract import _make_single_step_protocol
 
+        protocol = _make_single_step_protocol()
         plates = {
-            'wide': SimpleNamespace(get_dimensions=lambda: {'x': 100.0, 'y': 50.0}),
+            protocol.labware(): SimpleNamespace(get_dimensions=lambda: {'x': 100.0, 'y': 50.0}),
             'narrow': SimpleNamespace(get_dimensions=lambda: {'x': 10.0, 'y': 5.0}),
         }
         scope = SimpleNamespace(
@@ -238,7 +240,6 @@ class TestTheBoundPlateTransform:
             # The selected plate: never read for a run's frames.
             read_setting=lambda path: 'narrow',
         )
-        protocol = SimpleNamespace(labware=lambda: 'wide')
         offset = {'x': 0.0, 'y': 0.0}
         to_plate = ProtocolsAPI(scope).plate_transform(protocol, stage_offset=offset)
         offset['x'] = 5000.0
@@ -246,8 +247,10 @@ class TestTheBoundPlateTransform:
 
     def test_a_scope_with_no_offset_has_no_plate_position_to_state(self):
         from modules.lumascope_api.protocols import ProtocolsAPI
+        from tests.test_run_refusal_contract import _make_single_step_protocol
 
-        assert ProtocolsAPI(SimpleNamespace()).plate_transform(None, stage_offset=None) is None
+        protocol = _make_single_step_protocol()
+        assert ProtocolsAPI(SimpleNamespace()).plate_transform(protocol, stage_offset=None) is None
 
 
 def _engine(writer, clock):

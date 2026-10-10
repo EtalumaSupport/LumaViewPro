@@ -176,12 +176,8 @@ class TestLEDSaveRestore:
         assert scope.illumination.get_led_state(scope.illumination.ch2color(1))['enabled']
 
     def test_restore_empty_snapshot(self, scope):
-        """Restoring None/empty snapshot is a no-op."""
+        """Restoring an empty snapshot is a no-op."""
         scope.illumination.led_on(channel=0, illumination_ma=100)
-        scope.illumination.restore_led_state(None)
-        assert scope.illumination.get_led_state(scope.illumination.ch2color(0))[
-            'enabled'
-        ]  # unchanged
         scope.illumination.restore_led_state({})
         assert scope.illumination.get_led_state(scope.illumination.ch2color(0))[
             'enabled'

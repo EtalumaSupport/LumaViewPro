@@ -135,8 +135,8 @@ def project_classes() -> dict[str, type]:
     return found
 
 
-def project_aliases() -> dict[str, str]:
-    """Every ``type`` alias defined under ``modules/``, by name, as the text of its value."""
+def project_type_aliases() -> dict[str, typing.TypeAliasType]:
+    """Every ``type`` alias defined under ``modules/``, by name, as the alias itself."""
     project_classes()
     found = {}
     for name, module in list(importlib.sys.modules.items()):
@@ -144,8 +144,15 @@ def project_aliases() -> dict[str, str]:
             continue
         for alias_name, obj in vars(module).items():
             if isinstance(obj, typing.TypeAliasType):
-                found[alias_name] = _annotation_text(obj.__value__)
+                found[alias_name] = obj
     return found
+
+
+def project_aliases() -> dict[str, str]:
+    """Every ``type`` alias defined under ``modules/``, by name, as the text of its value."""
+    return {
+        name: _annotation_text(alias.__value__) for name, alias in project_type_aliases().items()
+    }
 
 
 def _marked(cls: type) -> dict[str, object]:

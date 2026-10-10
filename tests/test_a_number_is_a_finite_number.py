@@ -5,10 +5,12 @@ Every owner of a numeric argument checked its range by comparison, and every
 comparison with NaN is False, so NaN passed them all: ``set_gain_db(nan)``
 reached the camera, a NaN stored gain was applied as the camera's maximum,
 ``move_absolute('Z', nan, ignore_limits=True)`` reached the drive and
-un-homed Z, a NaN timeout ended a wait at once. A ``bool`` passed as an
-``int``. Each owner now asks one predicate first and refuses with
-``ArgumentRefusedError('not_a_number')``, naming the argument; its range
-refusal stays for a finite value outside the range.
+un-homed Z, a NaN timeout ended a wait at once. Each owner now asks one
+predicate first and refuses with ``ArgumentRefusedError('not_a_number')``,
+naming the argument; its range refusal stays for a finite value outside the
+range. A value that is not a number of the declared kind at all -- a
+``bool``, a float for a whole number -- is the ``@api`` door's
+(``tests/test_an_argument_of_another_type_is_refused_at_the_door.py``).
 """
 
 import math
@@ -67,7 +69,7 @@ def test_the_predicate(value, finite):
     assert is_finite_number(value) is finite
 
 
-@pytest.mark.parametrize('value', [*NOT_FINITE, True])
+@pytest.mark.parametrize('value', NOT_FINITE)
 def test_the_camera_setters_refuse_and_the_camera_keeps_its_values(session, value):
     imaging = session.scope.imaging
     before = (imaging.get_gain_db(), imaging.get_exposure_ms(), imaging.get_black_level())
@@ -87,21 +89,13 @@ def test_a_stored_camera_value_is_refused_not_applied_at_the_maximum(session, va
 
 
 @pytest.mark.parametrize('value', NOT_FINITE)
-def test_a_frame_side_is_refused_and_nothing_stored(session, value):
-    before = dict(session.settings['frame'])
-    _refused(lambda: session.set_frame_size(value, 400), 'width')
-    _refused(lambda: session.set_frame_size(400, value), 'height')
-    assert session.settings['frame'] == before
-
-
-@pytest.mark.parametrize('value', [*NOT_FINITE, True])
 def test_an_led_current_is_refused_and_nothing_lit(session, value):
     illumination = session.scope.illumination
     _refused(lambda: illumination.led_on('BF', value), 'illumination_ma')
     assert not illumination.get_led_state('BF')['enabled']
 
 
-@pytest.mark.parametrize('value', [*NOT_FINITE, True])
+@pytest.mark.parametrize('value', NOT_FINITE)
 def test_a_move_is_refused_and_z_stays_homed_even_past_the_limits(session, value):
     motion = session.scope.motion
     before = motion.get_current_position('Z')

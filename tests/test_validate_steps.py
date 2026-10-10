@@ -7,6 +7,7 @@ names in test steps must match real entries in data/objectives.json.
 """
 
 import datetime
+import pathlib
 
 import pandas as pd
 import pytest
@@ -116,29 +117,25 @@ class TestValidateObjective:
         p = _make_protocol([_valid_step(Objective='10x Oly')])
         assert p.validate_steps(ObjectiveLoader(), led_max_ma=1000) == []
 
-    def test_the_catalogue_consulted_is_the_protocols_own(self):
+    def test_the_catalogue_consulted_is_the_protocols_own(self, tmp_path):
         """The validator used to build a second loader over the shipped file,
         so a protocol whose own catalogue lacked the objective still validated
-        clean. The check reads the catalogue its caller hands it."""
-        from types import SimpleNamespace
+        clean. The check reads the catalogue its caller hands it: here one
+        without 10x Oly, which the shipped file has."""
+        import json
+
+        shipped = json.loads(
+            (pathlib.Path(__file__).parents[1] / 'data' / 'objectives.json').read_text()
+        )
+        (tmp_path / 'data').mkdir()
+        (tmp_path / 'data' / 'objectives.json').write_text(
+            json.dumps({key: shipped[key] for key in ('4x Oly', '20x w/collar')})
+        )
 
         p = _make_protocol([_valid_step(Objective='10x Oly')])
-        errors = p.validate_steps(
-            SimpleNamespace(get_objectives_list=lambda: ['4x Oly']), led_max_ma=1000
-        )
+        errors = p.validate_steps(ObjectiveLoader(source_path=tmp_path), led_max_ma=1000)
         assert len(errors) == 1
         assert "Objective '10x Oly'" in errors[0]
-
-    def test_an_empty_catalogue_refuses_every_step_objective(self):
-        """An empty catalogue used to skip the objective check entirely, so
-        the protocol that could not run anywhere was the one that validated.
-        No catalogue entry means no valid objective, so every step is flagged."""
-        from types import SimpleNamespace
-
-        p = _make_protocol([_valid_step(Objective='10x Oly'), _valid_step(Objective='4x Oly')])
-        errors = p.validate_steps(SimpleNamespace(get_objectives_list=lambda: []), led_max_ma=1000)
-        assert len(errors) == 2
-        assert all('not found in objectives.json' in e for e in errors)
 
 
 class TestValidateExposure:

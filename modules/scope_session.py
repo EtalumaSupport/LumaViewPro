@@ -42,7 +42,6 @@ from modules import (
     path_utils,
     settings_paths,
 )
-from modules.finite_number import refuse_unless_finite_number
 from modules.layer_record import refuse_unknown_layer
 from modules.activity_claim import (
     SCOPE_HOLDING_KINDS,
@@ -921,7 +920,7 @@ class ScopeSession:
     def create(
         cls,
         settings: dict,
-        source_path: str | None = None,
+        source_path: FilePath | None = None,
         scope: 'Lumascope | None' = None,
         *,
         simulate: bool = False,
@@ -1164,7 +1163,7 @@ class ScopeSession:
 
     @api(in_process=True)
     @staticmethod
-    def load_user_settings(source_path: str) -> dict:
+    def load_user_settings(source_path: FilePath) -> dict:
         """The user's configuration, as the GUI would configure a scope from it.
 
         For a host with no GUI -- a script, a server -- to pass to
@@ -1375,8 +1374,7 @@ class ScopeSession:
         """The Z saved as ``layer``'s focus.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'`` or
-                ``'no_layer_selected'``, ``layer`` is not a layer.
+            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
             FocusNotSavedError: no focus was ever saved for ``layer``; a step
                 built for it takes the current Z instead.
         """
@@ -1589,8 +1587,7 @@ class ScopeSession:
         stimulate at once.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'`` or
-                ``'no_layer_selected'``, ``layer`` is not a layer.
+            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
             SettingRefusedError: ``'out_of_range'``, ``mode`` is not
                 ``'image'``, ``'video'`` or None.
             ConfigError: this scope's layers could not be resolved.
@@ -1635,10 +1632,8 @@ class ScopeSession:
             None when turning on.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'`` or
-                ``'no_layer_selected'``, ``layer`` is not a layer.
-            ConfigError: ``enabled`` is not a bool, or this scope's layers
-                could not be resolved.
+            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
+            ConfigError: this scope's layers could not be resolved.
             HardwareCommandRefusedError: ``'axis_absent'``, ``enabled`` is
                 True and this scope does not have ``layer``.
             Nothing is changed on any of these. Turning auto-gain off is
@@ -1647,8 +1642,6 @@ class ScopeSession:
                 nothing is stored.
         """
         refuse_unknown_layer(layer)
-        if not isinstance(enabled, bool):
-            raise ConfigError(f'auto-gain enabled must be True or False, got {enabled!r}')
         lock = None
         if enabled:
             self.scope.layer_identity.refuse_unless_on_scope(
@@ -1683,8 +1676,7 @@ class ScopeSession:
             gain and exposure now in effect.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'`` or
-                ``'no_layer_selected'``, ``layer`` is not a layer.
+            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has
                 no ``layer``.
             ConfigError: this scope's layers could not be resolved. Nothing is applied.
@@ -1839,8 +1831,7 @@ class ScopeSession:
         Returns the step's name after the update.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'`` or
-                ``'no_layer_selected'``, ``layer`` is not a layer.
+            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has
                 no ``layer``.
             Nothing is changed on either.
@@ -1878,8 +1869,7 @@ class ScopeSession:
             AxisStateUnknownError: Z lost its reference. Nothing is written.
             ProtocolError: ``step_idx`` is not a step of ``protocol``.
                 Nothing is written.
-            ArgumentRefusedError: ``'layer_unknown'`` or
-                ``'no_layer_selected'``, ``layer`` is not a layer.
+            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has
                 no ``layer``.
             ConfigError: this scope's layers could not be resolved. Nothing is written.
@@ -1906,8 +1896,7 @@ class ScopeSession:
         ``save_focus``, which saves the live Z, writes through the same path.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'`` or
-                ``'no_layer_selected'``, ``layer`` is not a layer.
+            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has
                 no ``layer``.
             ConfigError: this scope's layers could not be resolved. Nothing is written.
@@ -1991,8 +1980,7 @@ class ScopeSession:
             ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
                 has no Z axis. Nothing is written.
             AxisStateUnknownError: Z lost its reference. Nothing is written.
-            ArgumentRefusedError: ``'layer_unknown'`` or
-                ``'no_layer_selected'``, ``layer`` is not a layer.
+            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has
                 no ``layer``.
             ConfigError: this scope's layers could not be resolved. Nothing is written.
@@ -3787,13 +3775,9 @@ class ScopeSession:
                 at the stored binning. Nothing is stored.
             CameraSettingRejected: The camera refused the frame. Nothing is
                 stored.
-            ArgumentRefusedError: ``'not_a_number'``, a side is not a finite
-                number. Nothing is stored.
         """
-        for side, value in (('width', width), ('height', height)):
-            refuse_unless_finite_number(value, side)
         factor = binning.binning_size_str_to_int(self.settings['binning']['size'])
-        native = {'width': int(width) * factor, 'height': int(height) * factor}
+        native = {'width': width * factor, 'height': height * factor}
         target = binning.native_to_displayed(
             native, factor, self.scope.imaging.get_pixel_alignment()
         )

@@ -12,7 +12,6 @@ extension.
 from __future__ import annotations
 
 import enum
-import numbers
 import logging as _logging
 import threading
 import typing
@@ -467,41 +466,34 @@ class IlluminationAPI:
     listener registry. Stateful bodies live here post-Phase 3d.
     """
 
-    def _refuse_not_a_channel(self, channel: object) -> None:
-        """Refuse a value that names no LED channel of any scope with this board.
+    def _refuse_not_a_channel(self, channel: int | str) -> None:
+        """Refuse a channel that names no LED channel of any scope with this board.
 
         Asked at the door of every LED command, before the lane, so a
         caller is told so whatever the scope is doing. A channel is a layer
         of this release, by name, or a number on the attached board's
-        table; a ``bool`` is neither, though ``True == 1``.
+        table; the ``@api`` door has refused any other type, a ``bool``
+        among them, though ``True == 1``.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'`` or
-                ``'no_layer_selected'`` for a name or None,
-                ``'led_channel_unknown'`` for anything else not on the
-                board's table.
+            ArgumentRefusedError: ``'layer_unknown'`` for a name,
+                ``'led_channel_unknown'`` for a number not on the board's
+                table.
         """
-        if channel is None or isinstance(channel, str):
+        if isinstance(channel, str):
             refuse_unknown_layer(channel, argument='channel')
         else:
             self._refuse_not_a_board_channel(channel)
 
-    def _refuse_not_a_board_channel(self, channel: object) -> None:
-        """Refuse a value that is not a number on the attached board's table.
-
-        A channel is an integer: a ``bool`` (Python's or numpy's) is not
-        one though ``True == 1``, and a float is not one though ``3.0 == 3``.
+    def _refuse_not_a_board_channel(self, channel: int) -> None:
+        """Refuse a number that is not on the attached board's table.
 
         Raises:
             ArgumentRefusedError: ``'led_channel_unknown'``, offering the
                 board's channels.
         """
         board_channels = tuple(self._driver.available_channels())
-        if (
-            not isinstance(channel, numbers.Integral)
-            or isinstance(channel, bool)
-            or channel not in board_channels
-        ):
+        if channel not in board_channels:
             raise ArgumentRefusedError(
                 'led_channel_unknown', argument='channel', value=channel, offered=board_channels
             )
@@ -1063,8 +1055,7 @@ class IlluminationAPI:
             installed (none came up, or after ``disconnect()``).
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'`` or
-                ``'no_layer_selected'``, ``channel`` is not a layer.
+            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a layer.
         """
         refuse_unknown_layer(channel, argument='channel')
         if not self._has_board():
@@ -1532,8 +1523,7 @@ class IlluminationAPI:
         into a named refusal at `_on_channel`, off-paths no-op.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'`` or
-                ``'no_layer_selected'``, *color* is not a layer.
+            ArgumentRefusedError: ``'layer_unknown'``, *color* is not a layer.
         """
         refuse_unknown_layer(color, argument='color')
         record = self._scope.layer_identity.find(color)

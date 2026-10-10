@@ -19,7 +19,7 @@ import logging
 import pytest
 
 from modules import labware_loader
-from modules.exceptions import CatalogueNameRefusedError, ConfigError
+from modules.exceptions import ArgumentTypeRefusedError, CatalogueNameRefusedError, ConfigError
 from modules.scope_session import ScopeSession
 from tests.ast_seams import writers_of_settings_keys
 from tests.settings_fixtures import complete_settings
@@ -180,17 +180,18 @@ class TestRefusals:
         with pytest.raises(ConfigError, match='no usable protocol block'):
             session.select_labware(OTHER_PLATE)
 
-    def test_a_non_string_is_refused_by_name_not_by_TypeError(self, sessions):
+    def test_a_non_string_is_refused_at_the_door_and_nothing_stored(self, sessions):
         """A wire payload decodes to whatever it decodes to.
 
         The loader resolves through a dict lookup, so an unhashable value
-        raises TypeError out of the membership test instead of answering it.
-        A caller handing one over gets the same refusal as any other bad name.
+        raised a bare TypeError out of the membership test. The argument
+        door refuses it first, typed, before the selection is touched.
         """
         session = sessions()
 
-        with pytest.raises(ConfigError, match='must be a string'):
+        with pytest.raises(ArgumentTypeRefusedError) as refused:
             session.select_labware(['96 well microplate'])
+        assert refused.value.argument == 'labware_name'
 
         assert session.settings['protocol']['labware'] == STARTING_PLATE
 

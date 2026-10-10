@@ -6,10 +6,14 @@ ConfigError naming the model's LEDs, another naming the catalogue, a
 KeyError, a ValueError calling it a channel, a silent off, a read of
 "dark". ``led_on(True)`` lit Green, since ``True == 1``, and a still named
 for Lumi on a scope with no Lumi was written to disk. Each member now asks
-one check first -- ``ArgumentRefusedError`` ``layer_unknown`` or
-``no_layer_selected`` offering the catalogue, ``led_channel_unknown``
-offering the board's numbers -- and a layer the model lacks is absent
-hardware, ``axis_absent`` naming the layer.
+one check first -- ``ArgumentRefusedError`` ``layer_unknown`` offering
+the catalogue, ``led_channel_unknown`` offering the board's numbers -- and
+a layer the model lacks is absent hardware, ``axis_absent`` naming the
+layer. A value that is no name and no whole number -- None, a ``bool``, a
+float -- is the ``@api`` door's
+(``tests/test_an_argument_of_another_type_is_refused_at_the_door.py``),
+except for the two runs, whose GUI hands None when no drawer is open:
+``no_layer_selected``.
 """
 
 import numpy as np
@@ -83,14 +87,7 @@ def test_a_name_that_is_no_layer_is_refused_offering_the_catalogue(session, memb
     assert _lit(session) == []
 
 
-@pytest.mark.parametrize(
-    'member', ['led_on', 'led_off', 'get_led_state', 'set_layer_acquire', 'saved_focus']
-)
-def test_none_is_no_layer_selected(session, member):
-    _refused(lambda: NAME_MEMBERS[member](session, None), 'no_layer_selected')
-
-
-@pytest.mark.parametrize('channel', [True, False, np.bool_(True), 99, -1, 2.5, 3.0])
+@pytest.mark.parametrize('channel', [99, -1, np.int64(99)])
 def test_a_number_off_the_boards_table_lights_nothing(session, channel):
     refusal = _refused(
         lambda: session.scope.illumination.led_on(channel, 10.0), 'led_channel_unknown'
@@ -130,8 +127,13 @@ RUNNERS = {
 }
 
 
-@pytest.mark.parametrize('member', ['led_on', 'led_off', *RUNNERS])
-@pytest.mark.parametrize('name, reason', [('Purple', 'layer_unknown'), (None, 'no_layer_selected')])
+@pytest.mark.parametrize(
+    'member, name, reason',
+    [
+        *((member, 'Purple', 'layer_unknown') for member in ('led_on', 'led_off', *RUNNERS)),
+        *((member, None, 'no_layer_selected') for member in RUNNERS),
+    ],
+)
 def test_a_name_is_refused_whatever_the_scope_is_doing(tmp_path, member, name, reason):
     """Refused at the door, so a shut scope does not answer for the name."""
     s = _session(tmp_path, 'LS850')
