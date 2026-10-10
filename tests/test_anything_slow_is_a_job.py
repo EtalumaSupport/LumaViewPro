@@ -245,11 +245,21 @@ def test_a_finished_job_past_the_count_bound_is_let_go(client, held, monkeypatch
 
 
 def test_many_clients_waiting_on_a_job_hold_nothing_a_new_call_needs(client, held):
+    """A new call is answered while 45 clients still wait on a job.
+
+    A wait that held what a new call needs would answer it only once a
+    waiter's own wait ran out, so the call is bounded by the waiters' wait,
+    never by how fast the host is: a loaded host answers it in about half
+    a second, a held one in no less than the wait.
+    """
+    waiters_wait_s = 10
     accepted = client.post('/api/v1/scope/illumination/leds_off', headers={'Prefer': 'wait=0'})
     location = accepted.headers['Location']
     waiting = [
         threading.Thread(
-            target=client.get, args=(location,), kwargs={'headers': {'Prefer': 'wait=10'}}
+            target=client.get,
+            args=(location,),
+            kwargs={'headers': {'Prefer': f'wait={waiters_wait_s}'}},
         )
         for _ in range(45)
     ]
@@ -260,9 +270,13 @@ def test_many_clients_waiting_on_a_job_hold_nothing_a_new_call_needs(client, hel
     start = time.monotonic()
     answered = client.get('/api/v1/app_version')
     took = time.monotonic() - start
+    still_waiting = sum(t.is_alive() for t in waiting)
 
     held.set()
     for t in waiting:
-        t.join(10)
+        t.join(waiters_wait_s)
     assert answered.status_code == 200
-    assert took < 0.1, f'{took:.3f} s behind 45 waiting clients'
+    assert still_waiting == len(waiting), (
+        f'answered only after {len(waiting) - still_waiting} waiters gave up'
+    )
+    assert took < waiters_wait_s / 2, f'{took:.3f} s behind {len(waiting)} waiting clients'
