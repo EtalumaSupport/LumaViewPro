@@ -1973,8 +1973,9 @@ class AutofocusFailedError(Fault, CaptureError):
 
     Attributes:
         reason: ``'flat_focus_curve'`` (every score zero or invalid),
-            ``'out_of_travel'`` (a window the sweep would search reaches
-            past Z's travel; refused before the stage moves there) or
+            ``'out_of_travel'`` (a window the sweep reached after it moved
+            the stage reaches past Z's travel; refused before the stage
+            moves there) or
             ``'unexpected_error'`` (the sweep raised; its cause is chained).
     """
 
@@ -1990,6 +1991,28 @@ class AutofocusFailedError(Fault, CaptureError):
 
     def __init__(self, reason: str):
         super().__init__(self._WORDS[reason], reason)
+
+
+class AutofocusOutOfTravelError(Refusal, CaptureError):
+    """An autofocus whose first window reaches past Z's travel, refused before the stage moves.
+
+    The window is centred on where Z stands, so the same autofocus started
+    further from the travel limit runs. A window the sweep reaches later,
+    after the stage has moved, is ``AutofocusFailedError('out_of_travel')``.
+
+    Attributes:
+        reason: ``'out_of_travel'``.
+    """
+
+    cause = RefusalCause.STATE
+    title = 'Autofocus Not Started'
+
+    def __init__(self):
+        super().__init__(
+            'Autofocus would search past the end of Z travel -- start it further from the '
+            "travel limit, or narrow the objective's autofocus range.",
+            reason='out_of_travel',
+        )
 
 
 class AutofocusZNotRestoredError(Fault, CaptureError):
@@ -3296,11 +3319,68 @@ class HomingFailedError(Fault, Exception):
         super().__init__(sentence)
 
 
-class AutofocusAborted(Fault, Exception):  # noqa: N818 -- cancellation/abort signal, not an error; non-Error suffix is intentional
-    """Autofocus run aborted by caller (e.g. user cancelled, protocol
-    aborted, or app teardown)."""
+class AutofocusAborted(_Umbrella, Exception):  # noqa: N818 -- cancellation/abort signal, not an error; non-Error suffix is intentional
+    """An autofocus sweep cut short before it chose a focus: the subject, never raised itself.
 
-    pass
+    ``except AutofocusAborted`` catches every way a sweep is cut short; the
+    child raised says which, and its kind with it.
+    """
+
+
+class AutofocusStopped(Quiet, AutofocusAborted):
+    """The sweep was stopped by its caller: a Stop, the run's cleanup, the app closing.
+
+    Recorded, never shown: the run's own end is the report.
+
+    Attributes:
+        reason: ``'stopped'``.
+    """
+
+    cause = RefusalCause.STATE
+
+    def __init__(self):
+        super().__init__('Autofocus was stopped before it chose a focus.')
+        self.reason = 'stopped'
+
+
+class AutofocusRunEnded(Quiet, AutofocusAborted):
+    """The run a sweep belongs to had ended when the sweep went to take its LEDs.
+
+    Recorded, never shown: whatever holds the LEDs now is not that run, and
+    the run's own end is the report.
+
+    Attributes:
+        reason: ``'run_ended'``.
+    """
+
+    cause = RefusalCause.STATE
+
+    def __init__(self):
+        super().__init__('Autofocus did not start: the run it belongs to had ended.')
+        self.reason = 'run_ended'
+
+
+class AutofocusLedsHeldError(Refusal, AutofocusAborted):
+    """The sweep's run is live, but another lease on top of the run's holds the LEDs.
+
+    Without them the sweep would scan an unlit field and commit a wrong Z,
+    so it does not start. The run goes on and captures at its fallback Z.
+
+    Attributes:
+        reason: ``'leds_held'``.
+        holder: The purpose of the lease that holds the LEDs.
+    """
+
+    cause = RefusalCause.STATE
+    title = 'LEDs In Use'
+
+    def __init__(self, holder: str):
+        super().__init__(
+            f'Autofocus did not start: {holder!r} holds the LEDs. '
+            'The step is captured at its fallback focus.'
+        )
+        self.reason = 'leds_held'
+        self.holder = holder
 
 
 class CameraSettingRejected(Fault, Exception):  # noqa: N818 -- named for the event it signals; one type covers the defect class

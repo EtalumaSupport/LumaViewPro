@@ -115,7 +115,8 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
     its own run: AutofocusAborted raised, no focus sweep, no Z walk, camera
     state restored, in-progress flags cleared, nothing posted -- and the
     live holder's lease and lit channel are untouched."""
-    from modules.exceptions import AutofocusAborted
+    from modules.exceptions import AutofocusAborted, RefusalCause
+    from modules.notification_center import OutcomeKind, outcome_of
 
     ill = scope.illumination
     # AF is handed the lease of a run that already ended; the live holder
@@ -143,7 +144,7 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
     pre_gain = scope.imaging.get_gain_db()
     pre_exposure = scope.imaging.get_exposure_ms()
 
-    with pytest.raises(AutofocusAborted):
+    with pytest.raises(AutofocusAborted) as aborted:
         runner.run(
             objective_id='objective-under-test',
             run_trigger_source='manual',
@@ -153,6 +154,13 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
             led_lease=ended_run,
         )
 
+    # Its run had ended: recorded, never shown.
+    outcome = outcome_of(aborted.value)
+    assert (outcome.kind, outcome.cause, outcome.reason) == (
+        OutcomeKind.QUIET,
+        RefusalCause.STATE,
+        'run_ended',
+    )
     assert iterations == [], 'no focus iteration may run without the LED lease'
     z_targets = [pos for axis, pos in moves if axis == 'Z']
     assert all(abs(pos - pre_z) < 1e-6 for pos in z_targets), (
@@ -178,3 +186,44 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
     )
     assert not ill.get_led_state('Green')['enabled'], 'the refused AF must not light its channel'
     holder.release(leave_on=False)
+
+
+def test_af_under_a_live_run_whose_leds_another_holds_is_refused_and_says_so(scope, centre_posts):
+    """The run is live, but a lease left on top of its own holds the LEDs.
+
+    Not an abort the run's end reports: the run goes on and captures at its
+    fallback Z, so the refusal is the only word of it, reported once by the
+    autofocus worker under its own title.
+    """
+    from modules.exceptions import AutofocusAborted, RefusalCause
+    from modules.notification_center import OutcomeKind, outcome_of
+
+    ill = scope.illumination
+    run = ill.acquire_led_lease('protocol', claim=held_run_claim())
+    on_top = run.acquire_child('autofocus')
+    assert on_top is not None
+    runner = _af_runner(scope)
+    iterations = []
+    runner._iterate = lambda: iterations.append(1)
+
+    try:
+        with pytest.raises(AutofocusAborted) as refused:
+            runner.run(
+                objective_id='objective-under-test',
+                run_trigger_source='manual',
+                abort_event=threading.Event(),
+                led_color='Green',
+                led_illumination=250.0,
+                led_lease=run,
+            )
+    finally:
+        run.release(leave_on=False)
+
+    outcome = outcome_of(refused.value)
+    assert (outcome.kind, outcome.cause, outcome.reason) == (
+        OutcomeKind.REFUSAL,
+        RefusalCause.STATE,
+        'leds_held',
+    )
+    assert iterations == [], 'no focus iteration may run without the LED lease'
+    assert [n.title for n in centre_posts if n.category == 'Autofocus'] == [outcome.title]

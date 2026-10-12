@@ -9,8 +9,8 @@ one reporter (``notification_center.outcome_of``), so a class with no kind
 reads as a fault by default and a class with two reads as whichever the
 reporter asks about first.
 
-The three umbrellas (``ConfigError``, ``ProtocolError``, ``CaptureError``)
-name a subject, not a kind: each child states its own.
+The umbrellas (``ConfigError``, ``ProtocolError``, ``CaptureError``,
+``AutofocusAborted``) name a subject, not a kind: each child states its own.
 
 Discovered, not listed: every class in ``modules/``, ``drivers/`` and
 ``rest/`` whose bases reach a built-in exception. The simulator walker's two
@@ -27,6 +27,7 @@ import pytest
 
 from lib.lumascope_error import Fault, LumascopeError
 from modules.exceptions import (
+    AutofocusAborted,
     CaptureError,
     ConfigError,
     InstallationFileError,
@@ -39,7 +40,7 @@ from modules.exceptions import (
 from tests.ast_seams import REPO_ROOT, module_name
 
 KINDS = (Refusal, Notice, Quiet, Fault)
-UMBRELLAS = (ConfigError, ProtocolError, CaptureError)
+UMBRELLAS = (ConfigError, ProtocolError, CaptureError, AutofocusAborted)
 _BUILTIN_EXCEPTIONS = {
     name
     for name, value in vars(builtins).items()

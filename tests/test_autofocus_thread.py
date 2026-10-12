@@ -22,7 +22,7 @@ import time
 import pytest
 
 from modules.autofocus_thread import AutofocusThread
-from modules.exceptions import AutofocusAborted
+from modules.exceptions import AutofocusAborted, AutofocusStopped
 from tests.protocol_drives import run_identity
 
 
@@ -61,7 +61,7 @@ class _FakeAFE:
         deadline = time.monotonic() + self._run_delay
         while time.monotonic() < deadline:
             if abort_event.wait(timeout=0.01):
-                raise AutofocusAborted('aborted via abort_event')
+                raise AutofocusStopped()
 
         self.exit_run.set()
         return self._result

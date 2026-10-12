@@ -22,6 +22,10 @@ from modules.activity_claim import current_taking
 from modules.exceptions import (
     AutofocusAborted,
     AutofocusFailedError,
+    AutofocusLedsHeldError,
+    AutofocusOutOfTravelError,
+    AutofocusRunEnded,
+    AutofocusStopped,
     AutofocusZNotRestoredError,
     CameraSettingRejected,
     HardwareCommandRefusedError,
@@ -117,7 +121,8 @@ class AutofocusRunner:
 
         z_min = center - range
         z_max = center + range
-        self._refuse_outside_travel(z_min, z_max, 'the first window')
+        if self._past_travel(z_min, z_max, 'the first window'):
+            raise AutofocusOutOfTravelError()
         resolution = self._objective['AF_max']
         exposure = self._scope.imaging.get_exposure_ms()
 
@@ -130,26 +135,25 @@ class AutofocusRunner:
             'exposure': exposure,
         }
 
-    def _refuse_outside_travel(self, low: float, high: float, what: str) -> None:
-        """Refuse a sweep window that reaches past Z's travel, before any move into it.
+    def _past_travel(self, low: float, high: float, what: str) -> bool:
+        """Whether a sweep window reaches past Z's travel, judged before any move into it.
 
         A move past the travel is refused mid-sweep, which ended the
         autofocus as an unexpected error. A window is never narrowed to fit:
         a focus beyond the travel would come back as the travel's edge, a
         plausible wrong result. An axis with no configured limits has no
-        bound, as the move itself has none.
-
-        Raises:
-            AutofocusFailedError: ``'out_of_travel'``.
+        bound, as the move itself has none. The caller raises: the first
+        window is refused before the stage has moved, any later one fails a
+        sweep that has.
         """
         limits = self._scope.motion.get_axis_limits('Z')
         if limits is None or (limits['min'] <= low and high <= limits['max']):
-            return
+            return False
         _af_log.warning(
             f'--- AF REFUSED: {what} [{low:.1f}, {high:.1f}] reaches past '
             f'Z travel [{limits["min"]:.1f}, {limits["max"]:.1f}] ---'
         )
-        raise AutofocusFailedError('out_of_travel')
+        return True
 
     def run(
         self,
@@ -196,7 +200,13 @@ class AutofocusRunner:
             curve was degenerate.
 
         Raises:
-            AutofocusAborted: abort_event was set during the run.
+            AutofocusStopped: abort_event was set during the run.
+            AutofocusRunEnded: the run it belongs to had ended before it
+                took its LEDs.
+            AutofocusLedsHeldError: another lease on top of the run's holds
+                the LEDs.
+            AutofocusOutOfTravelError: the first window reaches past Z's
+                travel; nothing moved.
             Exception: any other AF failure; logged + user-notified
                 before re-raising.
         """
@@ -306,15 +316,15 @@ class AutofocusRunner:
             # is_focusing.
             self._led_lease = led_lease.acquire_child('autofocus')
             if self._led_lease is None:
-                # The child is refused only once the lease AF was handed has
-                # been released: the run this sweep belongs to has ended, and
-                # whatever holds the LEDs now is not it. AF without the lease
-                # would sweep an unlit field and commit a garbage Z, so it
-                # stops as an abort. Nobody is told: the run's own end is the
-                # report.
-                holder = self._scope.illumination.led_lease_purpose
-                logger.error(f'[AF] LED lease refused (held live by {holder!r}); aborting run')
-                raise AutofocusAborted(f'LED authority held live by {holder!r}')
+                # AF without the lease would sweep an unlit field and commit
+                # a garbage Z, so it does not start. Refused with the lease
+                # it was handed released, the run this sweep belongs to has
+                # ended, and whatever holds the LEDs now is not it; with that
+                # lease still held, a lease left on top of the run's holds
+                # them while the run goes on.
+                if not led_lease.held:
+                    raise AutofocusRunEnded()
+                raise AutofocusLedsHeldError(self._scope.illumination.led_lease_purpose)
             # Make the AF channel the only lit one before scanning, confirmed
             # on (AF_ENTER blocks) so the focus metric never reads a dark or
             # mixed-illumination frame: a Live-mode LED on another channel
@@ -373,12 +383,16 @@ class AutofocusRunner:
 
             if abort_event.is_set() and not self._is_complete_event.is_set():
                 _af_log.info(f'--- AF ABORTED by caller (source={self._run_trigger_source}) ---')
-                raise AutofocusAborted('autofocus aborted by caller')
+                raise AutofocusStopped()
 
             completed_successfully = True
             return self._best_focus_position
 
-        except AutofocusAborted:
+        except AutofocusAborted as ex:
+            # Cut short, not failed: reported here, where its flight stops,
+            # as its type says -- recorded when stopped or its run had ended,
+            # shown when another lease holds the LEDs under a live run.
+            notifications.report_outcome(ex, solicited=False, category='Autofocus')
             raise
         except Exception as ex:
             # Restore Z precision ON before propagating so the next
@@ -390,7 +404,9 @@ class AutofocusRunner:
                 logger.debug('[AF] precision restore in error path failed', exc_info=True)
             self._is_focusing_event.clear()
             self._is_complete_event.clear()
-            if isinstance(ex, (AutofocusFailedError, HardwareCommandRefusedError)):
+            if isinstance(
+                ex, (AutofocusFailedError, AutofocusOutOfTravelError, HardwareCommandRefusedError)
+            ):
                 # A refusal the sweep decided, already logged with its
                 # numbers, is reported as itself; so is a command the
                 # hardware refused -- the light that could not go on names
@@ -777,11 +793,12 @@ class AutofocusRunner:
                 if peak_idx >= len(pass_scores) - 2 and pass_max > 0:
                     recent = pass_scores[-2:]
                     if not all(s < pass_max * 0.5 for s in recent):
-                        self._refuse_outside_travel(
+                        if self._past_travel(
                             self._params['z_min'],
                             self._params['z_max'] + resolution,
                             'the extended window',
-                        )
+                        ):
+                            raise AutofocusFailedError('out_of_travel')
                         self._params['z_max'] += resolution
                         _af_log.info(
                             f'  EXTEND: peak at edge, extending z_max to {self._params["z_max"]:.1f}'
@@ -842,7 +859,8 @@ class AutofocusRunner:
             # is upward; this side of the curve is the one the fine
             # pass measured most densely.
             approach = best_focus_position - self._params['resolution']
-            self._refuse_outside_travel(approach, best_focus_position, 'the final approach')
+            if self._past_travel(approach, best_focus_position, 'the final approach'):
+                raise AutofocusFailedError('out_of_travel')
             self._move_absolute_position(position=approach)
 
             af_elapsed = (time.monotonic() - self._af_start_time) * 1000
@@ -880,11 +898,12 @@ class AutofocusRunner:
             self._best_focus_position = float(best_focus_position)
             return
 
-        self._refuse_outside_travel(
+        if self._past_travel(
             best_focus_position - prev_resolution,
             best_focus_position + prev_resolution,
             'the refined window',
-        )
+        ):
+            raise AutofocusFailedError('out_of_travel')
         self._params['z_min'] = best_focus_position - prev_resolution
         self._params['z_max'] = best_focus_position + prev_resolution
 

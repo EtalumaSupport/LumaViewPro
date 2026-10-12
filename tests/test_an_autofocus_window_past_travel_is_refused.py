@@ -22,7 +22,8 @@ import pytest
 import modules.autofocus_runner as autofocus_runner_module
 from modules.autofocus_runner import AutofocusRunner
 from modules.autofocus_thread import AutofocusThread
-from modules.exceptions import AutofocusFailedError
+from modules.exceptions import AutofocusFailedError, CaptureError, RefusalCause
+from modules.notification_center import OutcomeKind, outcome_of
 from tests.af_drives import AF_CENTER_Z, af_runner_and_scope, drive_af
 from tests.protocol_drives import held_run_claim, run_identity
 from tests.scope_fakes import home_sim_scope
@@ -69,10 +70,17 @@ def test_a_first_window_past_travel_is_refused_before_the_stage_moves(scope, mon
     # bottom used to be clamped to 0 and the top ran on until a sweep
     # move was refused as an unexpected error.
     limit = scope.motion.get_axis_limits('Z')[edge]
-    with pytest.raises(AutofocusFailedError) as refused:
+    with pytest.raises(CaptureError) as refused:
         _autofocus_from(scope, limit, monkeypatch, peak=limit)
 
-    assert refused.value.reason == 'out_of_travel'
+    # Declined before anything moved, for where Z stands: a refusal, not a
+    # failure, and the same autofocus started further from the limit runs.
+    outcome = outcome_of(refused.value)
+    assert (outcome.kind, outcome.cause, outcome.reason) == (
+        OutcomeKind.REFUSAL,
+        RefusalCause.STATE,
+        'out_of_travel',
+    )
     assert scope.motion.get_current_position('Z') == pytest.approx(limit)
 
 
@@ -88,7 +96,10 @@ def test_a_sweep_led_past_travel_is_refused_and_z_goes_back(scope, monkeypatch, 
     with pytest.raises(AutofocusFailedError) as refused:
         _autofocus_from(scope, start, monkeypatch, peak=limit)
 
+    # The sweep had moved the stage when it found it could not go on: a
+    # failure, where the same refusal before the first move is not.
     assert refused.value.reason == 'out_of_travel'
+    assert outcome_of(refused.value).kind == OutcomeKind.FAULT
     # The restore is a move; read Z once it has arrived, within a motor
     # step, since the stage lands on its own step grid.
     while scope.motion.is_moving():
@@ -131,7 +142,7 @@ def test_a_final_approach_past_the_travel_minimum_is_refused(monkeypatch, report
 
 
 def test_a_refusal_is_reported_once_as_itself(monkeypatch, reported):
-    """The runner reports the refusal and raises the same object.
+    """The runner reports the first window's refusal and raises the same object.
 
     The autofocus worker is the boundary of its own flight: inside a run
     its future is read only by a log line, so no caller above it reports.
@@ -141,10 +152,11 @@ def test_a_refusal_is_reported_once_as_itself(monkeypatch, reported):
     # The first window (centre +- AF_range) reaches below this minimum.
     scope.motion.get_axis_limits.return_value = {'min': AF_CENTER_Z - 5.0, 'max': 14000.0}
 
-    with pytest.raises(AutofocusFailedError) as raised:
+    with pytest.raises(CaptureError) as raised:
         drive_af(runner)
 
     assert raised.value.reason == 'out_of_travel'
+    assert outcome_of(raised.value).kind == OutcomeKind.REFUSAL
     assert reported == [raised.value]
 
 
