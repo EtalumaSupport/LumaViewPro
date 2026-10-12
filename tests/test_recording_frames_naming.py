@@ -80,6 +80,25 @@ class TestFramePredicates:
 
 
 class TestVideoDirPathClassification:
+    def test_a_folder_holding_a_video_steps_frames_is_a_recording(self, tmp_path):
+        step = 'A1_BF_0003_video'
+        folder = tmp_path / step
+        folder.mkdir()
+        (folder / recording_frames.protocol_frame_filename_template(step).format(n=0)).touch()
+        assert recording_frames.is_video_recording_dir(folder)
+
+    def test_a_run_folder_renamed_to_end_in_video_is_scanned_as_a_run(self, tmp_path):
+        # A person's own name for a run folder: it holds stills, not a video
+        # step's frames. Read as a recording, the scan stepped out of it and
+        # every build found no images.
+        root = tmp_path / 'plate1_video'
+        (root / 'BF').mkdir(parents=True)
+        (root / 'BF' / 'A1_BF_0000.tiff').touch()
+
+        assert not recording_frames.is_video_recording_dir(root)
+        names = ProtocolPostProcessingHelper._get_image_filenames_from_folder(path=root)
+        assert names['raw'] == [pathlib.Path('BF/A1_BF_0000.tiff')]
+
     def test_root_with_video_token_in_ancestor_is_not_stepped_up(self, tmp_path):
         # A protocol root living under a folder that carries '_video'
         # anywhere in its path must scan normally; the old

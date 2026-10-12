@@ -106,12 +106,28 @@ def is_video_frame(filename: str | pathlib.Path) -> bool:
 
 
 def is_video_recording_dir_name(dirname: str) -> bool:
-    """True when a directory NAME is a protocol video recording folder.
+    """True when a directory NAME is a protocol video step's folder name.
 
-    Tests the final path component only -- a parent folder that happens
-    to carry the token anywhere in its path must not classify.
+    A name only: the support report's census, which would rather list a
+    recording that wrote nothing than miss it. A build asks
+    ``is_video_recording_dir``, which reads the frames. Tests the final path
+    component only -- a parent folder that happens to carry the token
+    anywhere in its path must not classify.
     """
     return dirname.endswith(_VIDEO_RECORDING_DIR_SUFFIX)
+
+
+def is_video_recording_dir(path: str | pathlib.Path) -> bool:
+    """True when *path* is a protocol video recording folder: it holds a video step's frames.
+
+    Read from what the folder holds, never from its name: a run folder a
+    person renames ``plate1_video`` holds stills, and read as a recording it
+    was scanned as one and every build on it found no images. Only the
+    folder itself is read, so a parent that carries the token does not
+    classify.
+    """
+    path = pathlib.Path(path)
+    return path.is_dir() and any(is_protocol_video_frame(p.name) for p in path.iterdir())
 
 
 class CameraTickRebaser:

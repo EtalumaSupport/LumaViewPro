@@ -44,10 +44,10 @@ class ProtocolPostProcessingHelper:
 
         # A video recording folder holds frames one level below the
         # protocol folder that owns the execution record; step up so
-        # relative names compute against the protocol folder. Tested on
-        # the final path component only -- a protocol ROOT that happens
-        # to carry the token in its name must not step out of itself.
-        if recording_frames.is_video_recording_dir_name(path.name):
+        # relative names compute against the protocol folder. Told from the
+        # frames it holds -- a protocol ROOT whose name carries the token
+        # must not step out of itself.
+        if recording_frames.is_video_recording_dir(path):
             path = path.parent
 
         for image in images:
@@ -348,10 +348,9 @@ class ProtocolPostProcessingHelper:
             include_subpaths = [selected_path.name]
 
         # A selected video recording folder scans itself for images
-        # instead of the root folder. Tested on the final path component
-        # only -- a root that carries the token elsewhere in its path
-        # must keep the normal root scan.
-        if recording_frames.is_video_recording_dir_name(path.name):
+        # instead of the root folder. Told from the frames it holds -- a
+        # root whose name carries the token must keep the normal root scan.
+        if recording_frames.is_video_recording_dir(path):
             image_names = self._get_image_filenames_from_folder(
                 path=path, exclude_subpaths=[], include_subpaths=[]
             )
