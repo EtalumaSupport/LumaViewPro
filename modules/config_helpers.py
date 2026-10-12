@@ -18,6 +18,7 @@ import modules.binning as binning
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 from lvp_logger import logger, metrics_logger
+from modules.api_surface import api
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol_state_machine import SequencedCaptureRunMode
@@ -27,6 +28,7 @@ if typing.TYPE_CHECKING:
     # Import-time only: modules.protocol imports this module's siblings, so
     # a runtime import here would close a cycle.
     from modules.coord_transformations import CoordinateTransformer
+    from modules.executor_registry import ExecutorBundle
     from modules.lumascope_api._lumascope import Lumascope
     from modules.lumascope_api.imaging import ImagingAPI
     from modules.protocol import Protocol
@@ -460,8 +462,36 @@ def log_environment_once():
     )
 
 
-def log_system_metrics(settings: dict, *, scope: 'Lumascope') -> None:
-    """Log CPU, RAM, and disk metrics, and the scope's camera delivery."""
+@typing.runtime_checkable
+class DisplayRates(typing.Protocol):
+    """A live display's own rates, which only a host with a display has.
+
+    The GUI hands its display down through ``ScopeSession.start_metrics``;
+    a module never reaches up to it.
+    """
+
+    @api(in_process=True)
+    def display_fps(self) -> float:
+        """The frames drawn in the last second."""
+        ...
+
+    @api(in_process=True)
+    def frame_interval_percentiles_ms(self) -> dict[str, float]:
+        """``p50``, ``p95``, ``p99`` and ``max`` intervals between drawn
+        frames, in ms, and ``n`` the samples; empty before the first."""
+        ...
+
+
+def log_system_metrics(
+    settings: dict,
+    *,
+    scope: 'Lumascope',
+    executors: 'ExecutorBundle',
+    display: DisplayRates | None = None,
+) -> None:
+    """Log CPU, RAM, and disk metrics, the scope's camera delivery, the
+    session's executor queues and futures, and the display's rates when
+    the host has a display."""
     path = settings['live_folder']
     # Resolve relative paths and handle missing directories gracefully.
     # On installed apps, live_folder may still be './capture' before
@@ -697,35 +727,28 @@ def log_system_metrics(settings: dict, *, scope: 'Lumascope') -> None:
     wire_frame_bytes = (
         delivered.bytes_per_s / delivered.frames_per_s if delivered.frames_per_s else 0.0
     )
-    from modules import app_context as _app_ctx
-
-    sd = _app_ctx.ctx.scope_display if _app_ctx.ctx is not None else None
-    display_field = f'display_fps={sd.display_fps():.1f} | ' if sd is not None else ''
+    display_field = f'display_fps={display.display_fps():.1f} | ' if display is not None else ''
     metrics_logger.info(
         f'[BUFFER METRICS] capture_fps={delivered.frames_per_s:.1f} | '
         f'{display_field}'
         f'camera_data_rate={delivered.megabytes_per_s:.1f} MB/s | '
         f'frame_size={wire_frame_bytes / 1000:.0f} KB',
     )
-    if sd is not None:
+    if display is not None:
         # Frame-interval percentiles -- consumer-stall detection.
         # Spikes in p99/max correlate with main-thread congestion
         # or worker-thread blocks; tracking these surfaces UI lock
         # contention and IO scheduling issues.
-        try:
-            if hasattr(sd, 'frame_interval_percentiles_ms'):
-                pcts = sd.frame_interval_percentiles_ms()
-                if pcts:
-                    metrics_logger.info(
-                        f'[FRAME INTERVAL] '
-                        f'p50={pcts["p50"]:.1f} ms | '
-                        f'p95={pcts["p95"]:.1f} ms | '
-                        f'p99={pcts["p99"]:.1f} ms | '
-                        f'max={pcts["max"]:.1f} ms | '
-                        f'n={pcts["n"]}',
-                    )
-        except Exception as e:
-            logger.debug(f'[FRAME INTERVAL] unavailable: {e}')
+        pcts = display.frame_interval_percentiles_ms()
+        if pcts:
+            metrics_logger.info(
+                f'[FRAME INTERVAL] '
+                f'p50={pcts["p50"]:.1f} ms | '
+                f'p95={pcts["p95"]:.1f} ms | '
+                f'p99={pcts["p99"]:.1f} ms | '
+                f'max={pcts["max"]:.1f} ms | '
+                f'n={pcts["n"]}',
+            )
 
     # --- Defender (MsMpEng.exe) metrics ---
     # Direct signal for the "Defender memory-maps every TIFF write"
@@ -758,77 +781,28 @@ def log_system_metrics(settings: dict, *, scope: 'Lumascope') -> None:
         )
 
     # --- Queue depth ---
-    # protocol_queue is unbounded with advisory-only depth warning.
     # Monotonic queue growth = save can't keep up, frames pile up
     # retaining 16-48 MB each. Direct mechanism for slow-onset
-    # multi-hour memory growth on the save path.
-    try:
-        ctx = _app_ctx.ctx if _app_ctx.ctx is not None else None
-    except Exception:
-        ctx = None
-    if ctx is not None:
-        queue_parts = []
-        # Walk known executors. Each may use a queue.Queue (qsize) or a
-        # ThreadPoolExecutor (_work_queue.qsize). Both expose qsize().
-        for name in (
-            'sequenced_capture_runner',
-            'io_executor',
-            'camera_executor',
-            'file_io_executor',
-            'post_processing_executor',
-            'worker_pool',
-        ):
-            # protocol_thread, scope_display_thread, autofocus_thread,
-            # autofocus_runner excluded: they are bare Threads (or a
-            # plain algorithm runner) with no queue and no
-            # caller_futures.
-            try:
-                exe = getattr(ctx, name, None)
-                if exe is None:
-                    continue
-                wq = getattr(exe, '_work_queue', None) or getattr(exe, 'queue', None)
-                if wq is None and hasattr(exe, 'qsize'):
-                    wq = exe
-                if wq is not None and hasattr(wq, 'qsize'):
-                    queue_parts.append(f'{name}={wq.qsize()}')
-            except Exception:
-                continue
-        if queue_parts:
-            metrics_logger.info(
-                f'[QUEUE METRICS] {" | ".join(queue_parts)}',
-            )
+    # multi-hour memory growth on the save path. The session's own
+    # executors, so every host logs it.
+    depths = executors.snapshot()
+    metrics_logger.info(
+        f'[QUEUE METRICS] {" | ".join(f"{name}={depth}" for name, depth in depths.items())}',
+    )
 
-        # Per-executor caller_futures alloc/pop/live counters. Sustained
-        # drift between allocs and pops means Future entries are
-        # accumulating in caller_futures; on Windows each orphan Future
-        # leaves a Lock/Semaphore kernel handle open. Steady-state
-        # invariant: alloc == pop within a few per cadence (each
-        # in-flight task is one of the few "live" entries).
-        futures_parts = []
-        for name in (
-            'sequenced_capture_runner',
-            'io_executor',
-            'camera_executor',
-            'file_io_executor',
-            'post_processing_executor',
-            'worker_pool',
-        ):
-            # protocol_thread, scope_display_thread, autofocus_thread,
-            # autofocus_runner excluded: they are bare Threads (or a
-            # plain algorithm runner) with no queue and no
-            # caller_futures.
-            try:
-                exe = getattr(ctx, name, None)
-                if exe is None or not hasattr(exe, 'caller_futures_stats'):
-                    continue
-                allocs, pops, live = exe.caller_futures_stats()
-                futures_parts.append(f'{name}: alloc={allocs} pop={pops} live={live}')
-            except Exception:
-                continue
-        if futures_parts:
-            metrics_logger.info(
-                f'[FUTURES METRICS] {" | ".join(futures_parts)}',
-            )
+    # Per-executor caller_futures alloc/pop/live counters. Sustained
+    # drift between allocs and pops means Future entries are
+    # accumulating in caller_futures; on Windows each orphan Future
+    # leaves a Lock/Semaphore kernel handle open. Steady-state
+    # invariant: alloc == pop within a few per cadence (each
+    # in-flight task is one of the few "live" entries).
+    futures_parts = []
+    for name, executor in executors.queued_executors():
+        allocs, pops, live = executor.caller_futures_stats()
+        futures_parts.append(f'{name}: alloc={allocs} pop={pops} live={live}')
+    metrics_logger.info(
+        f'[FUTURES METRICS] {" | ".join(futures_parts)}',
+    )
 
     # --- tracemalloc top-N (settings-gated) ---
     # Off by default. Enable with tracemalloc_enabled: true in

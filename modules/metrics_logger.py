@@ -24,6 +24,8 @@ callables instead of importing Kivy.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from lvp_logger import logger
 import modules.config_helpers as config_helpers
 from modules.scheduler import Scheduler, _CallablePairScheduler
@@ -85,6 +87,9 @@ class MetricsLogger:
         self._scope = scope
         self._bundle = executor_bundle
         self._settings = settings
+        # The host's live display, handed in at start(); None on a host
+        # with none.
+        self._display: config_helpers.DisplayRates | None = None
 
         # Scheduler bound at start() -- None means not started.
         self._scheduler: Scheduler | None = None
@@ -109,7 +114,9 @@ class MetricsLogger:
         Safe to call on demand from a status endpoint.
         """
         try:
-            config_helpers.log_system_metrics(self._settings, scope=self._scope)
+            config_helpers.log_system_metrics(
+                self._settings, scope=self._scope, executors=self._bundle, display=self._display
+            )
         except Exception as e:
             logger.warning(f'[MetricsLogger] tick_system_metrics failed: {type(e).__name__}: {e}')
 
@@ -162,13 +169,14 @@ class MetricsLogger:
 
     def start(
         self,
-        scheduler=None,
-        unschedule_fn=None,
+        scheduler: Scheduler | Callable[[Callable[..., object], float], object] | None = None,
+        unschedule_fn: Callable[[object], object] | None = None,
         *,
         system_metrics_interval_s: float = DEFAULT_SYSTEM_METRICS_INTERVAL_S,
         executor_watchdog_interval_s: float = DEFAULT_EXECUTOR_WATCHDOG_INTERVAL_S,
         camera_temp_interval_s: float = DEFAULT_CAMERA_TEMP_INTERVAL_S,
         start_camera_temp: bool | None = None,
+        display: config_helpers.DisplayRates | None = None,
     ) -> None:
         """Schedule all periodic ticks.
 
@@ -193,7 +201,10 @@ class MetricsLogger:
             start_camera_temp: If None (default), starts the camera-temp
                 logger only when ``scope.camera_connected``. Pass False to
                 skip even when connected (rare; mostly tests).
+            display: The host's live display, whose rates the system tick
+                logs beside the camera's; None on a host with none.
         """
+        self._display = display
         # Normalize scheduler argument: Scheduler instance, callable
         # pair (legacy), or None (rejected).
         if scheduler is None:

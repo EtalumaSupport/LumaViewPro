@@ -23,6 +23,7 @@ string, and reading it loosely would switch the probe back on while its
 operator believed it off.
 """
 
+import re
 from collections import defaultdict
 from unittest.mock import MagicMock, patch
 
@@ -30,7 +31,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from modules import app_context, common_utils, config_helpers
+from modules import common_utils, config_helpers
 from tests.scope_fakes import real_executor_bundle, scope_delivering_nothing
 from tests.settings_fixtures import complete_settings
 
@@ -61,9 +62,6 @@ def _drive_log_system_metrics(monkeypatch, settings, metrics, on_call=None):
     """
     rec = _RecordingLogger()
     monkeypatch.setattr(config_helpers, 'metrics_logger', rec)
-    ctx = MagicMock()
-    ctx.scope_display.display_fps.return_value = 0.0
-    monkeypatch.setattr(app_context, 'ctx', ctx)
     monkeypatch.setattr(config_helpers.common_utils, 'check_disk_space', lambda **k: 1.0e5)
 
     def _stub(**kwargs):
@@ -72,7 +70,9 @@ def _drive_log_system_metrics(monkeypatch, settings, metrics, on_call=None):
         return metrics
 
     monkeypatch.setattr(config_helpers.common_utils, 'system_metrics', _stub)
-    config_helpers.log_system_metrics(settings, scope=scope_delivering_nothing())
+    config_helpers.log_system_metrics(
+        settings, scope=scope_delivering_nothing(), executors=real_executor_bundle()
+    )
     return rec
 
 
@@ -183,20 +183,20 @@ class TestCadence:
     def test_no_override_outside_engineering_mode_uses_the_default(self):
         session = _make_session()
         session.start_metrics()
-        session.metrics_logger.start.assert_called_once_with(_SCHEDULER)
+        session.metrics_logger.start.assert_called_once_with(_SCHEDULER, display=None)
 
     def test_engineering_mode_keeps_sixty_seconds(self):
         # The session's own flag, the one a plugin turns on when it loads.
         session = _make_session(engineering_mode=True)
         session.start_metrics()
         session.metrics_logger.start.assert_called_once_with(
-            _SCHEDULER, system_metrics_interval_s=60.0
+            _SCHEDULER, display=None, system_metrics_interval_s=60.0
         )
 
     def test_engineering_mode_false_uses_the_default(self):
         session = _make_session(engineering_mode=False)
         session.start_metrics()
-        session.metrics_logger.start.assert_called_once_with(_SCHEDULER)
+        session.metrics_logger.start.assert_called_once_with(_SCHEDULER, display=None)
 
     def test_explicit_override_beats_engineering_mode(self):
         # A bench operator naming an interval is honoured even on a machine
@@ -206,13 +206,48 @@ class TestCadence:
         )
         session.start_metrics()
         session.metrics_logger.start.assert_called_once_with(
-            _SCHEDULER, system_metrics_interval_s=42.0
+            _SCHEDULER, display=None, system_metrics_interval_s=42.0
         )
 
-    def test_unset_context_reads_as_production(self, monkeypatch):
-        # Headless / REST / test contexts leave ctx None; that must resolve to
-        # the production cadence rather than raising.
-        session = _make_session()
-        monkeypatch.setattr(app_context, 'ctx', None)
-        session.start_metrics()
-        session.metrics_logger.start.assert_called_once_with(_SCHEDULER)
+
+class TestEveryHostLogsTheExecutors:
+    """The queue and futures lines come from the session's own executors, so a
+    REST or headless host logs them too; only the display's rates need a
+    display, which the GUI hands down."""
+
+    def _lines(self, monkeypatch, tmp_path, display=None):
+        rec = _RecordingLogger()
+        monkeypatch.setattr(config_helpers, 'metrics_logger', rec)
+        config_helpers.log_system_metrics(
+            complete_settings(live_folder=str(tmp_path)),
+            scope=scope_delivering_nothing(),
+            executors=real_executor_bundle(),
+            display=display,
+        )
+        return rec.messages
+
+    def test_a_host_with_no_display_logs_queues_and_futures(self, monkeypatch, tmp_path):
+        lines = self._lines(monkeypatch, tmp_path)
+        queues = [m for m in lines if m.startswith('[QUEUE METRICS]')]
+        futures = [m for m in lines if m.startswith('[FUTURES METRICS]')]
+        assert queues and 'IO=0' in queues[0]
+        # Named fields, not A/P/L, which read as Active/Pending/Leaked.
+        assert futures and re.search(r'IO: alloc=\d+ pop=\d+ live=\d+', futures[0])
+        assert not any('display_fps' in m or '[FRAME INTERVAL]' in m for m in lines)
+
+    def test_a_display_handed_down_is_logged(self, monkeypatch, tmp_path):
+        # a stand-in by design: the display is the GUI's widget, which the
+        # test process cannot build; the subject is the line it feeds.
+        display = SimpleNamespace(
+            display_fps=lambda: 24.0,
+            frame_interval_percentiles_ms=lambda: {
+                'p50': 40.0,
+                'p95': 45.0,
+                'p99': 50.0,
+                'max': 60.0,
+                'n': 24,
+            },
+        )
+        lines = self._lines(monkeypatch, tmp_path, display)
+        assert any('display_fps=24.0' in m for m in lines)
+        assert any(m.startswith('[FRAME INTERVAL] p50=40.0 ms') for m in lines)

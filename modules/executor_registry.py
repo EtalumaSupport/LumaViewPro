@@ -67,6 +67,17 @@ class ExecutorBundle:
     worker_pool: SequentialIOExecutor
     diagnostics_executor: SequentialIOExecutor
 
+    def queued_executors(self) -> list[tuple[str, SequentialIOExecutor]]:
+        """Every executor with a queue, by its logical name; aliases omitted."""
+        return [
+            ('IO', self.io_executor),
+            ('CAMERA', self.camera_executor),
+            ('FILE', self.file_io_executor),
+            ('POSTPROC', self.post_processing_executor),
+            ('WORKER_POOL', self.worker_pool),
+            ('DIAGNOSTICS', self.diagnostics_executor),
+        ]
+
     def snapshot(self) -> dict[str, int]:
         """Return ``{logical_name: queue_size}`` for every executor.
 
@@ -81,16 +92,8 @@ class ExecutorBundle:
         WORKER_POOL is priority-aware; queue_size aggregates all
         priorities (HIGH + MED + LOW).
         """
-        executors = [
-            ('IO', self.io_executor),
-            ('CAMERA', self.camera_executor),
-            ('FILE', self.file_io_executor),
-            ('POSTPROC', self.post_processing_executor),
-            ('WORKER_POOL', self.worker_pool),
-            ('DIAGNOSTICS', self.diagnostics_executor),
-        ]
         out = {}
-        for name, ex in executors:
+        for name, ex in self.queued_executors():
             try:
                 out[name] = ex.queue_size()
             except Exception:

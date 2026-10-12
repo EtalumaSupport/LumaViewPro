@@ -32,9 +32,9 @@ from tests.ast_seams import REPO_ROOT, parse_module
 
 ENGINE_ROOT_MODULE = 'modules.sequenced_capture_runner'
 
-# The reach of the application context the engine set may keep: telemetry,
-# guarded, correct headless.
-ALLOWED_CONTEXT_READERS = frozenset({'modules.config_helpers'})
+# The engine set reaches the application context nowhere: the metrics
+# telemetry, its last reader, is handed what it logs.
+ALLOWED_CONTEXT_READERS: frozenset[str] = frozenset()
 # The one import-time binding of the settings module the engine set may keep:
 # the simulated motor board's default model, read once at scope construction.
 ALLOWED_SETTINGS_BINDERS = frozenset({'modules.lumascope_api._lumascope'})

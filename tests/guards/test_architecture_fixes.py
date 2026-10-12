@@ -764,7 +764,6 @@ _GUI_ORCHESTRATION_PIN = {
 }
 
 _MODULES_CONTEXT_READ_PIN = {
-    'modules/config_helpers.py': 4,
     'modules/config_ui_getters.py': 7,
     'modules/derived_output_encoding.py': 3,
     'modules/executor_registry.py': 0,

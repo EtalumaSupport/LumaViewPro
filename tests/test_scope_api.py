@@ -458,7 +458,9 @@ class TestLogSystemMetrics:
             }
             mock_disk.return_value = 100000  # plenty of space
             mock_extra.return_value = None
-            config_helpers.log_system_metrics(settings, scope=scope_delivering_nothing())
+            config_helpers.log_system_metrics(
+                settings, scope=scope_delivering_nothing(), executors=real_executor_bundle()
+            )
             import pathlib
 
             expected_path = str(pathlib.Path('/tmp').resolve())

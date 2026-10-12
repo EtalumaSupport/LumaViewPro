@@ -57,13 +57,13 @@ class TestStartStop:
         session = _make_session()
         session.start_metrics()
         session.metrics_logger.start.assert_called_once_with(
-            _SCHEDULER, system_metrics_interval_s=42.0
+            _SCHEDULER, display=None, system_metrics_interval_s=42.0
         )
 
     def test_start_metrics_without_override_uses_logger_defaults(self):
         session = _make_session(settings={'profiling': {'metrics_interval_s': None}})
         session.start_metrics()
-        session.metrics_logger.start.assert_called_once_with(_SCHEDULER)
+        session.metrics_logger.start.assert_called_once_with(_SCHEDULER, display=None)
 
     def test_default_session_owns_a_real_scheduler_and_metrics_stay_opt_in(self):
         # No injected scheduler: the session builds and owns its own, and

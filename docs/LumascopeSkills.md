@@ -528,7 +528,11 @@ a safety bound armed on a UI loop stops when the UI freezes). The
 scheduler existing does not start metrics: they run only after
 `start_metrics()`, so every session, factory-built or not, keeps metrics
 off unless the host opts in. `settings['profiling']['metrics_interval_s']`
-overrides the default hourly cadence. `start_metrics()` raises
+overrides the default hourly cadence. Every host's metrics log the
+session's executor queues and futures; a host with a live display passes
+it as `start_metrics(display=...)` (a `DisplayRates`: the GUI passes its
+own), and its drawn rate and frame intervals are logged beside the
+camera's. `start_metrics()` raises
 `RuntimeError` if metrics are already running; `stop_metrics()` is
 idempotent. These members
 are host-serialized: call them from one thread (the GUI uses its main
@@ -3306,6 +3310,13 @@ Reached through returned by `scope.imaging.get_delivered_rate`.
 
 - `bytes_per_s`
 - `frames_per_s`
+
+### DisplayRates
+
+Implemented by a host with a live display, and passed to `session.start_metrics(display=...)`.
+
+- `display_fps` (in-process)
+- `frame_interval_percentiles_ms` (in-process)
 
 ### EnhanceResult
 

@@ -80,6 +80,7 @@ from modules.lumascope_api.illumination import LedLease, LedTransition, LedTrans
 from modules.manual_capture import ManualCaptureController
 from modules.notification_center import Notification
 from modules.manual_recording import ManualRecordingController
+from modules.config_helpers import DisplayRates
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
 from modules.plugins import PLUGIN_API_LEVEL, PluginRegistry
 from modules.scheduler import Scheduler, ThreadingTimerScheduler
@@ -3982,7 +3983,7 @@ class ScopeSession:
     # ------------------------------------------------------------------
 
     @api(in_process=True)
-    def start_metrics(self) -> None:
+    def start_metrics(self, display: DisplayRates | None = None) -> None:
         """Start the session's periodic metrics logging.
 
         Uses the session's scheduler and the
@@ -3990,6 +3991,11 @@ class ScopeSession:
         present. Metrics stay opt-in by the call itself: a host that runs
         the scope for others calls it -- the GUI does, and so does a
         server host -- and a script that only drives the scope need not.
+
+        Args:
+            display: The host's live display (the GUI's), whose drawn
+                rate and frame intervals the system tick logs beside the
+                camera's. A host with no display passes none.
 
         Raises:
             RuntimeError: Metrics are already running. A second
@@ -4019,7 +4025,7 @@ class ScopeSession:
             start_kwargs['system_metrics_interval_s'] = float(interval_s)
         elif self.engineering_mode:
             start_kwargs['system_metrics_interval_s'] = ENGINEERING_METRICS_INTERVAL_S
-        self.metrics_logger.start(self._scheduler, **start_kwargs)
+        self.metrics_logger.start(self._scheduler, display=display, **start_kwargs)
         self._metrics_started = True
 
     @api(in_process=True)
