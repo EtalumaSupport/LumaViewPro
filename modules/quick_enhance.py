@@ -358,9 +358,18 @@ class QuickEnhancer:
         display_callback: Callable[[np.ndarray, int], None] | None = None,
     ) -> dict:
         source_path = pathlib.Path(source_path)
-        source_pixels, significant_bits = image_utils.load_pixels(
-            source_path, collapse_legacy_false_color=False
-        )
+        try:
+            source_pixels, significant_bits = image_utils.load_pixels(
+                source_path, collapse_legacy_false_color=False
+            )
+        except ValueError as e:
+            # Refused as the cell count refuses the same file: what is wrong
+            # is the file the caller chose, not the enhance.
+            raise PostProcessingRefusedError(
+                operation=QUICK_ENHANCE_OPERATION,
+                reason='unreadable',
+                message=f'{source_path.name} cannot be enhanced: {e}.',
+            ) from e
         legacy_channel = self._legacy_false_color_channel(source_pixels)
         image = (
             source_pixels[..., legacy_channel[1]].copy()
@@ -478,16 +487,28 @@ class QuickEnhancer:
                         display_callback=display_callback,
                     )
                 )
-            except (OSError, ValueError, cv2.error, MemoryError) as exc:
+            except (PostProcessingRefusedError, OSError, ValueError, cv2.error, MemoryError) as exc:
                 logger.warning('[QuickEnhance] Skipping %s: %s', source_path, exc, exc_info=True)
-                skipped.append({'source_path': source_path, 'error': str(exc)})
+                skipped.append(
+                    {
+                        'source_path': source_path,
+                        'error': str(exc),
+                        'refused': isinstance(exc, PostProcessingRefusedError),
+                    }
+                )
             if progress_callback is not None:
                 progress_callback(completed, total, source_path)
-        if not files:
+        # Nothing enhanced and nothing failed in the enhance itself: the
+        # folder holds no image this can read, as the cell count says of it.
+        if not created and all(item['refused'] for item in skipped):
             raise PostProcessingRefusedError(
                 operation=QUICK_ENHANCE_OPERATION,
                 reason='no_data',
-                message='The folder holds no image Quick Enhance can read.',
+                message=(
+                    f'None of the {total} image(s) in the folder can be read by Quick Enhance.'
+                    if files
+                    else 'The folder holds no image Quick Enhance can read.'
+                ),
             )
         if skipped:
             produced = [str(item['output_path']) for item in created]

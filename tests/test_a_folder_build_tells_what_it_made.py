@@ -163,24 +163,43 @@ def test_an_enhance_of_one_image_answers_with_its_folder_progress_and_display(tm
     assert shown == [8]
 
 
-@pytest.mark.parametrize('raised', ['not a tiff', 'cv2'])
-def test_an_enhance_of_one_image_that_fails_is_typed(tmp_path, monkeypatch, raised):
+def test_an_enhance_of_one_image_that_fails_is_typed(tmp_path, monkeypatch):
     import cv2
 
     from modules.post_processing_api import PostProcessingAPI
 
-    source = tmp_path / 'broken.tif'
-    source.write_bytes(b'not a tiff')
-    if raised == 'cv2':
+    source = tmp_path / 'image.tif'
+    source.write_bytes(b'decoded by the stand-in below')
 
-        def fail(self, *args, **kwargs):
-            raise cv2.error('codec')
+    # a stand-in by design: an image the enhance itself fails on, which no
+    # file on disk produces reliably; a file that cannot be decoded is
+    # refused instead (the test below).
+    def fail(self, *args, **kwargs):
+        raise cv2.error('codec')
 
-        monkeypatch.setattr(QuickEnhancer, 'export_file', fail)
+    monkeypatch.setattr(QuickEnhancer, 'export_file', fail)
 
     with pytest.raises(PostProcessingFailedError) as failure:
         PostProcessingAPI._enhance(source, None, None)
     assert failure.value.produced_paths == ()
+
+
+def test_an_enhance_of_one_file_that_cannot_be_decoded_is_refused_as_the_count_refuses_it(
+    tmp_path,
+):
+    from modules.post_processing import read_cell_count_image
+    from modules.post_processing_api import PostProcessingAPI
+
+    source = tmp_path / 'broken.tif'
+    source.write_bytes(b'not a tiff')
+
+    with pytest.raises(PostProcessingRefusedError) as enhance:
+        PostProcessingAPI._enhance(source, None, None)
+    with pytest.raises(PostProcessingRefusedError) as count:
+        read_cell_count_image(source)
+
+    assert enhance.value.reason == count.value.reason == 'unreadable'
+    assert 'broken.tif' in str(enhance.value)
 
 
 class _ScriptedBuild:

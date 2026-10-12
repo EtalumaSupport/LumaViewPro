@@ -10,7 +10,7 @@ import pytest
 import tifffile as tf
 
 from modules import image_utils
-from modules.exceptions import PostProcessingFailedError
+from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
 from modules.quick_enhance import QUANTITATIVE_USE_WARNING, QuickEnhanceSettings, QuickEnhancer
 
 
@@ -409,6 +409,17 @@ def test_fixed_recipe_deepens_a_close_bead_pair_saddle_without_lifting_backgroun
 
     assert saddle_to_peak(result) < saddle_to_peak(image) * 0.9
     assert result[0, 0] == image[0, 0]
+
+
+def test_a_folder_of_only_undecodable_images_is_refused_as_the_count_refuses_it(tmp_path):
+    (tmp_path / 'bad.tif').write_bytes(b'not a tiff')
+
+    with pytest.raises(PostProcessingRefusedError) as refused:
+        QuickEnhancer().export_folder(tmp_path, QuickEnhanceSettings())
+
+    assert refused.value.reason == 'no_data'
+    assert 'None of the 1 image(s)' in str(refused.value)
+    assert not list(tmp_path.glob('*_enhanced*'))
 
 
 def test_folder_batch_skips_unreadable_file_and_continues(tmp_path):
