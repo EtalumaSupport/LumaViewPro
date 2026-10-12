@@ -55,6 +55,7 @@ from drivers.exceptions import HardwareError
 from modules.exceptions import (
     AutofocusAborted,
     CaptureError,
+    CaptureFailedError,
     ConfigError,
     ProtocolError,
 )
@@ -79,24 +80,20 @@ class TestDomainExceptions:
 
     @pytest.mark.parametrize(
         'exc_cls',
-        [
-            HardwareError,
-            ProtocolError,
-            ConfigError,
-        ],
+        [HardwareError],
     )
     def test_raise_and_catch_with_message(self, exc_cls):
         msg = f'test message for {exc_cls.__name__}'
         with pytest.raises(exc_cls, match=msg):
             raise exc_cls(msg)
 
-    def test_capture_error_carries_a_reason_beside_its_message(self):
-        # CaptureError left the message-only group above when it gained a
-        # required failure code: a caller mapping failures onto responses
-        # reads the code, and the prose stays for the human.
+    def test_a_capture_failure_carries_a_reason_beside_its_message(self):
+        # A capture failure carries a required failure code: a caller
+        # mapping failures onto responses reads the code, and the prose
+        # stays for the human.
         with pytest.raises(CaptureError, match='test message') as excinfo:
-            raise CaptureError('test message', 'test_reason')
-        assert excinfo.value.reason == 'test_reason'
+            raise CaptureFailedError('test message', 'no_frame_returned')
+        assert excinfo.value.reason == 'no_frame_returned'
 
 
 # ===========================================================================

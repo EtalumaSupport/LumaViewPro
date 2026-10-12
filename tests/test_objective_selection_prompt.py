@@ -20,7 +20,7 @@ import pytest
 import modules.app_context as _app_ctx
 import ui.notification_popup as notification_popup
 import ui.vertical_control as vc
-from modules.exceptions import ConfigError
+from modules.exceptions import ConfigurationDefectError
 from modules.scope_session import ObjectiveQuestion
 from tests.ast_seams import parse_module
 from ui.vertical_control import VerticalControl
@@ -163,12 +163,22 @@ class TestTheQuestionIsRendered:
     def test_a_failed_query_is_one_notification_and_no_question(self, monkeypatch, centre_posts):
         from modules.notification_center import Severity
 
-        h = _Harness(monkeypatch, _ScriptedSession(ConfigError('the objective catalogue is empty')))
+        h = _Harness(
+            monkeypatch,
+            _ScriptedSession(
+                ConfigurationDefectError(
+                    'objective_catalogue_empty', 'the objective catalogue is empty'
+                )
+            ),
+        )
         h.prompt()
         assert h.popups == []
-        assert [(n.severity, n.message) for n in centre_posts] == [
-            (Severity.ERROR, 'the objective catalogue is empty')
+        # A defect's words are a developer's: the person reads the title and
+        # the generic sentence, and the log carries the rest.
+        assert [(n.severity, n.title) for n in centre_posts] == [
+            (Severity.ERROR, 'Configuration Fault')
         ]
+        assert 'catalogue' not in centre_posts[0].message
         assert h.error_popups == []
 
 
@@ -196,7 +206,14 @@ class TestTheContinuationFollowsTheQuestion:
 
     def test_a_fault_is_shown_once_and_the_continuation_runs_once(self, monkeypatch, centre_posts):
 
-        h = _Harness(monkeypatch, _ScriptedSession(ConfigError('the objective catalogue is empty')))
+        h = _Harness(
+            monkeypatch,
+            _ScriptedSession(
+                ConfigurationDefectError(
+                    'objective_catalogue_empty', 'the objective catalogue is empty'
+                )
+            ),
+        )
         runs = self._prompt(h)
         assert len(centre_posts) == 1
         assert runs == [1]

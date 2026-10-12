@@ -27,7 +27,7 @@ from collections.abc import Iterable
 import numpy as np
 
 from lvp_logger import logger
-from modules.exceptions import ConfigError
+from modules.exceptions import ConfigurationDefectError
 
 IMAGE_MODE_8BIT = '8bit'
 IMAGE_MODE_12BIT_SCIENTIFIC = '12bit_scientific'
@@ -113,7 +113,9 @@ def resolve_image_mode(mode: str) -> dict:
     try:
         return dict(_MODE_TABLE[mode])
     except KeyError:
-        raise ConfigError(f'unknown image_mode: {mode!r}') from None
+        raise ConfigurationDefectError(
+            'settings_not_prepared', f'unknown image_mode: {mode!r}'
+        ) from None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -142,10 +144,11 @@ class ImageCaptureConfig:
             self.capture_depth != derived['capture_depth']
             or self.save_encoding != derived['save_encoding']
         ):
-            raise ConfigError(
+            raise ConfigurationDefectError(
+                'capture_config_inconsistent',
                 f'ImageCaptureConfig pair (capture_depth={self.capture_depth}, '
                 f'save_encoding={self.save_encoding!r}) does not match '
-                f'image_mode {self.image_mode!r}; build via from_image_mode()'
+                f'image_mode {self.image_mode!r}; build via from_image_mode()',
             )
         # Refused here rather than at the writer, for the same reason the pair
         # above is: the writer's fallback is a silently valid plain .tiff, so
@@ -161,11 +164,12 @@ class ImageCaptureConfig:
             ),
         ):
             if value not in allowed:
-                raise ConfigError(
+                raise ConfigurationDefectError(
+                    'settings_not_prepared',
                     f'ImageCaptureConfig {field_name}={value!r} is not a format '
                     f'this build writes; expected one of {sorted(allowed)}. A run '
                     f'started with it would save plain TIFFs and no hyperstack, '
-                    f'silently -- check image_output_format in the settings file.'
+                    f'silently -- check image_output_format in the settings file.',
                 )
 
         # Coerce here, not in from_image_mode, so a directly-constructed

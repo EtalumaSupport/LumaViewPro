@@ -239,6 +239,25 @@ class Notice(LumascopeError):  # noqa: N818 -- a kind of outcome, not an error
     remedy: Remedy | None = None
 
 
+class _Umbrella(LumascopeError):  # noqa: N818 -- a mixin on the root, not an error
+    """A subject several outcomes share, caught by name and never raised itself.
+
+    ``except ConfigError`` catches every configuration outcome, whatever its
+    kind; a raise of the subject alone would have no kind, reason or title
+    to answer with, so constructing an umbrella itself is refused. Its
+    children -- each a refusal, a notice, a quiet outcome or a fault -- are
+    constructed as before.
+    """
+
+    def __new__(cls, *args, **kwargs):
+        if _Umbrella in cls.__bases__:
+            raise TypeError(
+                f'{cls.__name__} names a subject and is never raised: raise the child '
+                'that says what happened'
+            )
+        return super().__new__(cls, *args, **kwargs)
+
+
 class ExposureAtMaximumNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
     """Auto-gain reached its exposure ceiling and the scene was still too dark.
 
@@ -560,12 +579,14 @@ class LayerSettingCappedNotice(Notice, Exception):  # noqa: N818 -- a notice, no
         self.capped = capped
 
 
-class ProtocolError(LumascopeError, Exception):
-    """Protocol file parsing, validation, or execution error."""
+class ProtocolError(_Umbrella, Exception):
+    """A protocol's file, steps or run: the subject, never raised itself.
+
+    Its children's words are written for the person unless a child says
+    otherwise.
+    """
 
     words_for_person = True
-
-    pass
 
 
 class ProtocolNotLoadedError(Fault, ProtocolError):
@@ -639,12 +660,56 @@ class FocusNotWrittenError(Refusal, ProtocolError):
         self.difference = difference
 
 
-class ConfigError(LumascopeError, Exception):
-    """Application configuration or settings error."""
+class ConfigError(_Umbrella, Exception):
+    """The application's configuration or settings: the subject, never raised itself.
+
+    Its children's words are written for the person unless a child says
+    otherwise.
+    """
 
     words_for_person = True
 
-    pass
+
+class ConfigurationDefectError(Fault, ConfigError):
+    """The program, the installation or the scope's composition broke a configuration contract.
+
+    Not the request's and not the scope's state: no caller can change what it
+    sent to make it succeed, so it is a fault, never a refusal. Raised where
+    a value every door has already judged arrives unjudged, where a scope is
+    used before it is composed, or where the installation lacks what the
+    release ships. Its words are a developer's, kept in the log, except where
+    the reason's are written for the person.
+
+    Attributes:
+        reason: One of ``_TITLES``' keys.
+    """
+
+    _TITLES: ClassVar[dict[str, str]] = {
+        'settings_not_prepared': 'Configuration Fault',
+        'composite_thresholds_missing': 'Configuration Fault',
+        'composite_threshold_out_of_range': 'Configuration Fault',
+        'capture_config_inconsistent': 'Configuration Fault',
+        'tail_id_mode_unknown': 'Configuration Fault',
+        'objective_entry_incomplete': 'Configuration Fault',
+        'labware_not_given': 'Configuration Fault',
+        'layers_unresolved': 'Scope Model Not Known',
+        'scope_not_composed': 'Configuration Fault',
+        'scope_not_initialized': 'Configuration Fault',
+        'objective_catalogue_empty': 'Configuration Fault',
+        'zstack_reference_unchecked': 'Configuration Fault',
+    }
+    _FOR_PERSON: ClassVar[frozenset[str]] = frozenset({'layers_unresolved'})
+
+    def __init__(self, reason: str, message: str):
+        if reason not in self._TITLES:
+            raise TypeError(f'ConfigurationDefectError has no reason {reason!r}')
+        super().__init__(message)
+        self.reason = reason
+        self.title = self._TITLES[reason]
+
+    @property
+    def words_for_person(self) -> bool:
+        return self.reason in self._FOR_PERSON
 
 
 class InstallationFileError(Fault, Exception):
@@ -1082,8 +1147,8 @@ class ScopeModelUnknownError(Refusal, ValueError):
         self.model = model
 
 
-class CaptureError(LumascopeError, Exception):
-    """Image capture, save, or processing failure.
+class CaptureError(_Umbrella, Exception):
+    """Image capture, save or processing: the subject, never raised itself.
 
     Attributes:
         reason: Machine-readable failure code for callers that map
@@ -1106,6 +1171,34 @@ class CaptureError(LumascopeError, Exception):
     def __init__(self, message: str, reason: str):
         super().__init__(message)
         self.reason = reason
+
+
+class CaptureFailedError(Fault, CaptureError):
+    """A capture or a recording was attempted and produced nothing.
+
+    Attributes:
+        reason: ``'no_frame_returned'`` -- the camera returned no image;
+            ``'recording_not_started'`` -- the camera did not take the
+            recording's frame listener; ``'unknown_save_encoding'`` -- a
+            frame was handed an encoding no writer knows, which the
+            program, not the person, got wrong.
+    """
+
+    _TITLES: ClassVar[dict[str, str]] = {
+        'no_frame_returned': 'Capture Failed',
+        'recording_not_started': 'Recording Not Started',
+        'unknown_save_encoding': 'Capture Failed',
+    }
+
+    def __init__(self, message: str, reason: str):
+        if reason not in self._TITLES:
+            raise TypeError(f'CaptureFailedError has no reason {reason!r}')
+        super().__init__(message, reason)
+        self.title = self._TITLES[reason]
+
+    @property
+    def words_for_person(self) -> bool:
+        return self.reason != 'unknown_save_encoding'
 
 
 class ProtocolRunRefusedError(Refusal, ProtocolError):
@@ -1170,6 +1263,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'validation_failed': RefusalCause.REQUEST,
         'composite_needs_two_channels': RefusalCause.REQUEST,
         'tiling_unknown': RefusalCause.REQUEST,
+        'tiling_scale_unknown': RefusalCause.REQUEST,
         'zstack_not_configured': RefusalCause.REQUEST,
         'already_tiled': RefusalCause.REQUEST,
         'objective_not_in_catalogue': RefusalCause.REQUEST,
@@ -1336,19 +1430,29 @@ class HyperstackRefusedError(Fault, CaptureError):
     """The hyperstack builder declined to build a recording's frames into one file.
 
     Raised by the manual recording's finish when the builder answers
-    status=False: the frames are on disk as recorded, and no file exists
-    to announce. The builder's own sentence rides in ``message`` so the
-    notification the user sees says why, in the builder's words, rather
-    than telling them to read a log.
+    status=False, and by the builder itself when a frame it was given cannot
+    be read or cannot share the stack: the frames are on disk as recorded.
+    The builder's own sentence rides in ``message`` so the notification the
+    user sees says why, in the builder's words, rather than telling them to
+    read a log.
 
     Attributes:
         message: The builder's one-paragraph reason, user-facing.
+        reason: ``'hyperstack_refused'`` -- the builder answered status=False;
+            ``'unreadable_input_frame'`` -- a frame could not be read;
+            ``'mixed_pixel_types'`` -- frames of different pixel types
+            cannot share one stack.
     """
 
     title = 'Hyperstack Not Built'
+    _REASONS: ClassVar[frozenset[str]] = frozenset(
+        {'hyperstack_refused', 'unreadable_input_frame', 'mixed_pixel_types'}
+    )
 
-    def __init__(self, message: str):
-        super().__init__(message, 'hyperstack_refused')
+    def __init__(self, message: str, reason: str = 'hyperstack_refused'):
+        if reason not in self._REASONS:
+            raise TypeError(f'HyperstackRefusedError has no reason {reason!r}')
+        super().__init__(message, reason)
         self.message = message
 
 
@@ -2571,6 +2675,8 @@ class ArgumentRefusedError(Refusal, ValueError):
               settings file, so it is not an LVP installation root.
             - ``'part_unknown'`` -- a part name that is not one of
               ``offered``, the parts the record holds.
+            - ``'binning_size_invalid'`` -- a binning label that is not a
+              positive square ``NxN``.
         argument: The name of the argument refused.
         value: What was given, as given.
         offered: The values the argument takes, where it takes a list;
@@ -2642,6 +2748,11 @@ class ArgumentRefusedError(Refusal, ValueError):
         'protocol_source_ambiguous': (
             'Protocol Source Ambiguous',
             'Pass exactly one of {offered}; {value} were given.',
+        ),
+        'binning_size_invalid': (
+            'Not a Binning Size',
+            '{argument} must be NxN, with N a whole number of at least 1, such as 2x2; '
+            '{value!r} is not.',
         ),
         'zstack_reference_unknown': (
             'Not a Z-Stack Reference',

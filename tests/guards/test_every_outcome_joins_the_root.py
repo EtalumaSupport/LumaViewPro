@@ -34,6 +34,7 @@ from modules.exceptions import (
     ProtocolError,
     Quiet,
     Refusal,
+    _Umbrella,
 )
 from tests.ast_seams import REPO_ROOT
 
@@ -69,8 +70,8 @@ def _resolved():
     classes = []
     for module, name in _exception_classes():
         cls = getattr(importlib.import_module(module), name, None)
-        # The kinds are mixins on the root, not outcomes of their own.
-        if cls in KINDS:
+        # The kinds and the umbrella mixin sit on the root; none is an outcome.
+        if cls in KINDS or cls is _Umbrella:
             continue
         if isinstance(cls, type) and issubclass(cls, BaseException):
             classes.append(cls)
@@ -112,6 +113,44 @@ def test_except_exception_still_catches_every_one(cls):
     assert issubclass(cls, Exception), (
         f'{cls.__qualname__} left Exception: every except Exception would stop catching it'
     )
+
+
+@pytest.mark.parametrize('umbrella', UMBRELLAS, ids=lambda cls: cls.__name__)
+def test_an_umbrella_cannot_be_raised(umbrella):
+    """A raise of the subject alone has no kind, no reason and no title to answer with."""
+    with pytest.raises(TypeError, match='never raised'):
+        umbrella('a message', 'a_reason') if umbrella is CaptureError else umbrella('a message')
+
+
+def test_an_umbrella_s_children_are_still_caught_by_it():
+    from modules.exceptions import CaptureFailedError, ConfigurationDefectError
+
+    assert isinstance(ConfigurationDefectError('settings_not_prepared', 'x'), ConfigError)
+    assert isinstance(CaptureFailedError('x', 'no_frame_returned'), CaptureError)
+
+
+def test_a_configuration_defect_outside_its_vocabulary_fails_where_it_is_raised():
+    from modules.exceptions import ConfigurationDefectError
+
+    with pytest.raises(TypeError, match='nope'):
+        ConfigurationDefectError('nope', 'x')
+
+
+def test_a_capture_failure_outside_its_vocabulary_fails_where_it_is_raised():
+    from modules.exceptions import CaptureFailedError
+
+    with pytest.raises(TypeError, match='nope'):
+        CaptureFailedError('x', 'nope')
+
+
+def test_a_defect_s_words_are_shown_only_where_they_are_written_for_the_person():
+    from modules.exceptions import CaptureFailedError, ConfigurationDefectError
+    from modules.notification_center import outcome_of
+
+    assert outcome_of(ConfigurationDefectError('settings_not_prepared', 'x')).for_person is False
+    assert outcome_of(ConfigurationDefectError('layers_unresolved', 'x')).for_person is True
+    assert outcome_of(CaptureFailedError('x', 'no_frame_returned')).for_person is True
+    assert outcome_of(CaptureFailedError('x', 'unknown_save_encoding')).for_person is False
 
 
 def test_no_kind_is_itself_an_exception():

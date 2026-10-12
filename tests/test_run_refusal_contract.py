@@ -656,6 +656,10 @@ RUNNER_REFUSAL_COVERAGE = {
         'tests/test_a_tile_grid_is_the_protocols_to_refuse.py::'
         'test_a_grid_the_installation_does_not_offer_is_refused'
     ),
+    'tiling_scale_unknown': (
+        'tests/test_tiling_overlap.py::TestTileCentersWithoutScale::'
+        'test_real_grid_still_refuses_without_field_of_view'
+    ),
     'objective_not_given': (
         'tests/test_a_protocols_configuration_is_refused_at_the_door.py::'
         'test_steps_with_no_objective_are_refused_and_post_nothing'

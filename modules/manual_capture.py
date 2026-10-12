@@ -20,9 +20,10 @@ import modules.config_helpers as config_helpers
 import modules.image_utils as image_utils
 from modules import capture_overlays, path_utils
 from modules.exceptions import (
-    CaptureError,
+    CaptureFailedError,
     CapturePositionNotRecordedNotice,
     HardwareCommandRefusedError,
+    LiveFolderPathRefusedError,
 )
 from modules.image_save import save_image
 from modules.lumascope_api.imaging import capture_failure_cause
@@ -101,7 +102,10 @@ class ManualCaptureController:
             after it waits for it when it is running or was put on an idle
             lane. The Future raises what the
             capture raised: ``ObjectiveUnknownError`` when the objective in
-            the light path is unknown (nothing captured), ``CaptureError``
+            the light path is unknown (nothing captured),
+            ``LiveFolderPathRefusedError`` (reason
+            ``'capture_location_unusable'``) when the live folder cannot
+            take the still, ``CaptureFailedError``
             (reason ``'no_frame_returned'``) when no frame passed, with the
             capture engine's cause as its message;
             ``HardwareCommandRefusedError`` (reason
@@ -194,11 +198,15 @@ class ManualCaptureController:
                 save_folder = save_folder / channel
             save_folder.mkdir(parents=True, exist_ok=True)
         except path_utils.CaptureLocationError as exc:
-            raise CaptureError(str(exc), 'capture_location_unusable') from exc
+            raise LiveFolderPathRefusedError(
+                'capture_location_unusable', str(settings['live_folder']), str(exc)
+            ) from exc
         except OSError as exc:
-            raise CaptureError(
-                f'Could not create {save_folder} in the capture location: {exc}',
+            raise LiveFolderPathRefusedError(
                 'capture_location_unusable',
+                str(settings['live_folder']),
+                f'{save_folder.parent} is not an accessible save location. Check that it '
+                'exists and any external drive is connected, then try again.',
             ) from exc
 
         # The summing row is the imaged channel's; the delay is a settle
@@ -218,7 +226,7 @@ class ManualCaptureController:
             sum_delay_s=sum_delay_s,
         )
         if array is None:
-            raise CaptureError(
+            raise CaptureFailedError(
                 capture_failure_cause(scope.imaging.last_capture_info),
                 'no_frame_returned',
             )

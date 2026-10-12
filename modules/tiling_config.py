@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, ClassVar
 from lvp_logger import logger
 
 import modules.common_utils as common_utils
-from modules.exceptions import ConfigError
+from modules.exceptions import ProtocolRunRefusedError
 from modules.api_surface import api, api_fields
 
 if TYPE_CHECKING:
@@ -202,9 +202,13 @@ class TilingConfig:
             # cannot report its pixel size has no field of view to tile
             # against. A grid laid out from a guessed FOV produces a
             # misaligned montage, which is worse than no tiling -- refuse.
-            raise ConfigError(
-                'Tiling is unavailable: this scope cannot report its pixel size, '
-                'so the field of view (and therefore the tile spacing) is unknown.'
+            raise ProtocolRunRefusedError(
+                reason='tiling_scale_unknown',
+                title='Tiling Not Available',
+                message=(
+                    'This microscope cannot report its pixel size, so the spacing of a '
+                    'tile grid is unknown. Build the protocol without tiling (1x1).'
+                ),
             )
 
         x_step = fill_factor * fov_size['width']

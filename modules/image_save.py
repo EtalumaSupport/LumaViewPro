@@ -30,7 +30,7 @@ import modules.image_mode as image_mode
 import modules.image_utils as image_utils
 from lib.handle_trace import tick as _h_tick
 from lvp_logger import logger, version
-from modules.exceptions import CaptureError, ConfigError, ImageSaveError
+from modules.exceptions import CaptureFailedError, ConfigurationDefectError, ImageSaveError
 
 if TYPE_CHECKING:
     from modules.labware import LabWare
@@ -75,11 +75,12 @@ def write_video_frame(
             uint16 frames.
 
     Raises:
-        CaptureError: if save_encoding is not a recognized image-mode encoding
-            (a typo would otherwise fall through to a plain mono write).
+        CaptureFailedError: ``'unknown_save_encoding'``, if save_encoding is
+            not a recognized image-mode encoding (a typo would otherwise
+            fall through to a plain mono write).
     """
     if save_encoding not in image_mode.VALID_SAVE_ENCODINGS:
-        raise CaptureError(
+        raise CaptureFailedError(
             f'unknown save_encoding {save_encoding!r}; a video frame cannot be saved '
             'with an unrecognized image-mode encoding',
             'unknown_save_encoding',
@@ -237,7 +238,9 @@ def generate_image_save_path(
         path = save_folder / filename
 
     else:
-        raise ConfigError(f'tail_id_mode: {tail_id_mode} not implemented')
+        raise ConfigurationDefectError(
+            'tail_id_mode_unknown', f'tail_id_mode: {tail_id_mode} not implemented'
+        )
 
     return path
 
@@ -355,10 +358,12 @@ def generate_image_metadata(
     objective = scope.runtime_state.get_objective_info(objective_id)
 
     if 'focal_length' not in objective:
-        raise ConfigError('[SCOPE API ] Objective focal length not provided')
+        raise ConfigurationDefectError(
+            'objective_entry_incomplete', '[SCOPE API ] Objective focal length not provided'
+        )
 
     if labware is None:
-        raise ConfigError('[SCOPE API ] Labware not set')
+        raise ConfigurationDefectError('labware_not_given', '[SCOPE API ] Labware not set')
 
     _position_fields = position_metadata_fields(plate_x_mm, plate_y_mm, stage_z_um)
 
@@ -665,7 +670,7 @@ def save_image(
         pathlib.Path: Path to the saved file.
 
     Raises:
-        CaptureError: If ``array`` is None (camera silent-stuck or
+        CaptureFailedError: ``'no_frame_returned'``, if ``array`` is None (camera silent-stuck or
             grab-timeout). Surfaces to IOTask popup with a user-friendly
             message instead of a raw AttributeError downstream.
         ImageSaveError: The file could not be written (a missing or
@@ -677,7 +682,7 @@ def save_image(
     # instead of a raw AttributeError. The deeper recovery work
     # (camera reset / USB reset on persistent stuck) lives elsewhere.
     if array is None:
-        raise CaptureError(
+        raise CaptureFailedError(
             'Camera did not return an image. The capture was skipped; '
             'the protocol will retry on the next step.',
             'no_frame_returned',

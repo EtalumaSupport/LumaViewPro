@@ -1567,7 +1567,7 @@ class Protocol:
         write to an index in range lands on a new row instead of that step.
 
         Raises:
-            ProtocolError: a non-empty frame is missing current columns.
+            ProtocolFormatError: a non-empty frame is missing current columns.
             ProtocolFormatError: a cell of a runnable protocol is not of its
                 column's type; the words name the step and the column.
         """
@@ -1576,7 +1576,10 @@ class Protocol:
         else:
             missing = [c for c in self.CURRENT_COLUMNS if c not in df.columns]
             if missing:
-                raise ProtocolError(f'Protocol steps are missing required columns: {missing}')
+                named = ', '.join(repr(column) for column in missing)
+                raise ProtocolFormatError(
+                    f"The protocol's steps lack the columns {named}, which every step needs."
+                )
             if self._runnable:
                 df = self._typed_steps(df)
             df = df.assign(

@@ -18,7 +18,7 @@ import modules.binning as binning
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 from lvp_logger import logger, metrics_logger
-from modules.exceptions import ConfigError
+from modules.exceptions import ConfigurationDefectError
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol_state_machine import SequencedCaptureRunMode
@@ -1083,7 +1083,9 @@ def get_selected_labware_from_settings(
     """
     stored = settings['protocol']['labware']
     if not isinstance(stored, str):
-        raise ConfigError(f'the settings name no plate: protocol.labware is {stored!r}')
+        raise ConfigurationDefectError(
+            'settings_not_prepared', f'the settings name no plate: protocol.labware is {stored!r}'
+        )
     labware_id = wellplate_loader.resolve_plate_key(stored)
     return labware_id, wellplate_loader.get_plate(plate_key=labware_id)
 
@@ -1115,7 +1117,9 @@ def get_zstack_params_from_settings(settings: dict) -> dict:
             # A raw ValueError from float() escapes this lane untyped, so the
             # GUI and a REST caller see different failures for one corrupt
             # value. Both get the refusal the rest of the lane raises.
-            raise ConfigError(f'Z-stack {key} is not a number: {raw!r}') from None
+            raise ConfigurationDefectError(
+                'settings_not_prepared', f'Z-stack {key} is not a number: {raw!r}'
+            ) from None
     return {
         'range': parsed['range'],
         'step_size': parsed['step_size'],

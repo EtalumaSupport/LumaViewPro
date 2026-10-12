@@ -49,11 +49,11 @@ import modules.binning as binning
 from modules.exceptions import (
     ArgumentRefusedError,
     BinningSubstitutedNotice,
-    InstallationFileError,
-    FrameRefittedNotice,
     CameraNotAvailableError,
     CameraSettingRejected,
-    ConfigError,
+    ConfigurationDefectError,
+    FrameRefittedNotice,
+    InstallationFileError,
     LedBoardUnavailableError,
     LedSafetyOffNotTakenError,
     MissingPart,
@@ -1123,9 +1123,10 @@ class Lumascope:
                 ``ScopeSession`` first.
         """
         if self._settings_reader is None:
-            raise ConfigError(
+            raise ConfigurationDefectError(
+                'scope_not_composed',
                 f'this scope has no settings to read {path!r} from: compose it into a '
-                'ScopeSession (ScopeSession.create) before using it'
+                'ScopeSession (ScopeSession.create) before using it',
             )
         return self._settings_reader(path)
 

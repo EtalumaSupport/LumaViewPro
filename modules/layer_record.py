@@ -29,10 +29,11 @@ from dataclasses import dataclass
 from lvp_logger import logger
 from modules.exceptions import (
     ArgumentRefusedError,
-    ConfigError,
+    ConfigurationDefectError,
     HardwareCommandRefusedError,
     InstallationFileError,
     MissingPart,
+    ScopeModelUnknownError,
 )
 from modules.path_utils import read_installation_file, resolve_data_file
 from modules.api_surface import api, api_fields
@@ -123,8 +124,8 @@ class LayerIdentity:
             ArgumentRefusedError: ``'layer_unknown'``.
             HardwareCommandRefusedError: ``'axis_absent'``, naming the
                 layer (``MissingPart.layer``).
-            ConfigError: this unit's layers could not be resolved, so
-                ``layer`` cannot ``then``.
+            ConfigurationDefectError: ``'layers_unresolved'``, this unit's
+                layers could not be resolved, so ``layer`` cannot ``then``.
         """
         refuse_unknown_layer(layer)
         if self.find(layer) is not None:
@@ -132,9 +133,10 @@ class LayerIdentity:
         if self.layers:
             part = MissingPart.layer(layer)
             raise HardwareCommandRefusedError(part.reason, member, missing=part)
-        raise ConfigError(
+        raise ConfigurationDefectError(
+            'layers_unresolved',
             f"this scope's layers could not be resolved (model {self.model}), "
-            f'so {layer} cannot {then}'
+            f'so {layer} cannot {then}',
         )
 
 
@@ -269,10 +271,7 @@ def model_axes(models: dict, model: str) -> frozenset[str]:
     """
     entry = models.get(model)
     if not isinstance(entry, dict):
-        raise ConfigError(
-            f'scopes.json lists no model {model!r} (known: {sorted(models)}); '
-            'the microscope setting names a model the catalogue lacks'
-        )
+        raise ScopeModelUnknownError(model, sorted(models))
     return entry_axes(entry)
 
 

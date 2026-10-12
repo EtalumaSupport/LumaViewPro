@@ -15,13 +15,14 @@ verbatim -- an 8x8 selection captured UNBINNED while the screen read 8x8.
 Two halves are pinned here:
 
 1. The parse accepts a positive SQUARE label and refuses everything else as
-   ``ConfigError`` -- and as nothing else. The refusals are not academic:
+   ``ArgumentRefusedError`` (``'binning_size_invalid'``) -- and as nothing
+   else. The refusals are not academic:
    the retired table was silently containing ``'0x0'`` (a divide-by-zero in
    ``native_to_displayed``), ``'-1x-1'`` (a negative native ROI that
    ``_store_native_roi`` would persist as the source of truth) and ``'2x4'``
    (not a single factor at all).
 2. The exception TYPE is a contract, not an implementation detail. Callers
-   boundary on ``ConfigError`` alone, so a leaked ``ValueError`` from a bare
+   boundary on that refusal alone, so a leaked ``ValueError`` from a bare
    ``int()`` or an ``AttributeError`` from ``.split`` on a non-string would
    walk straight past every one of them into the host's re-raise -- and the
    container shape check lets non-string values through, so that is
@@ -34,7 +35,7 @@ import pytest
 
 import modules.binning as binning
 import tests.ast_seams as ast_seams
-from modules.exceptions import ConfigError
+from modules.exceptions import ArgumentRefusedError
 
 
 class TestTheParseAcceptsWhatTheCameraCanOffer:
@@ -66,30 +67,32 @@ class TestTheParseRefusesWhatIsNotAFactor:
             '2x2x2',
         ],
     )
-    def test_a_label_that_is_not_a_positive_square_raises_config_error(self, label):
-        with pytest.raises(ConfigError):
+    def test_a_label_that_is_not_a_positive_square_is_refused(self, label):
+        with pytest.raises(ArgumentRefusedError) as refused:
             binning.binning_size_str_to_int(label)
+        assert refused.value.reason == 'binning_size_invalid'
 
     @pytest.mark.parametrize('value', [4, None, 2.0, ['2x2']])
-    def test_a_non_string_raises_config_error_not_attribute_error(self, value):
+    def test_a_non_string_is_refused_not_an_attribute_error(self, value):
         # _check_container_shape compares container KIND only, so a
         # "size": 4 or a "size": null in current.json reaches the converter
         # intact. A bare .split() here would leak AttributeError past every
-        # except ConfigError boundary in the app.
-        with pytest.raises(ConfigError):
+        # boundary in the app that catches the refusal.
+        with pytest.raises(ArgumentRefusedError) as refused:
             binning.binning_size_str_to_int(value)
+        assert refused.value.reason == 'binning_size_invalid'
 
     @pytest.mark.parametrize('label', ['0x0', '-1x-1', '2x4', 'Select', '', '2x2x2', 4, None, 2.0])
     def test_no_other_exception_type_escapes(self, label):
         # The type IS the contract. Assert it directly rather than relying on
-        # pytest.raises(ConfigError) above, which would also pass for a
-        # subclass raised from somewhere unintended.
+        # pytest.raises(ArgumentRefusedError) above, which would also pass
+        # for a subclass raised from somewhere unintended.
         try:
             binning.binning_size_str_to_int(label)
-        except ConfigError:
+        except ArgumentRefusedError:
             pass
         except Exception as exc:
-            pytest.fail(f'{label!r} leaked {type(exc).__name__}, not ConfigError: {exc}')
+            pytest.fail(f'{label!r} leaked {type(exc).__name__}, not the refusal: {exc}')
         else:
             pytest.fail(f'{label!r} was accepted; it is not a positive square label')
 
@@ -122,20 +125,27 @@ class TestTheWhitelistIsGone:
 
 
 class TestTheHostBoundsTheFailure:
-    """``ConfigError`` reaches the GUI host, and the host comes up anyway.
+    """A stored value only bring-up can refuse reaches the GUI host, and the host comes up anyway.
 
-    ``ScopeInitConfig.from_settings`` converts the stored label during
-    ``ScopeSession.create``, which ``build()`` calls with nothing above it
-    that catches -- its only handler logs and RE-RAISES. ``ConfigError``
-    derives from ``Exception``, not ``ValueError``, so ``settings_init``'s
-    corrupt-current.json fallback does not catch it either. Without a
-    boundary here a malformed stored label does not degrade the app, it
-    stops the app from launching at all.
+    A malformed stored binning label never gets that far: preparing the
+    settings judges it (``settings_paths``) and replaces it with the shipped
+    one. What only bring-up can refuse -- a stored model the installation's
+    catalogue does not list, an objective it does not hold -- reaches
+    ``build()`` from ``ScopeSession.create`` with nothing above it that
+    catches. Without a boundary here such a value does not degrade the
+    app, it stops the app from launching at all. The boundary names those
+    refusals and nothing else: a program or installation defect is not
+    repaired by the template.
     """
 
     @staticmethod
     def _build_def():
         return ast_seams.find_def('lumaviewpro.py', 'build', class_name='LumaViewProApp')
+
+    @staticmethod
+    def _caught(handler):
+        types = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
+        return {t.id for t in types if isinstance(t, ast.Name)}
 
     def _config_error_handler(self):
         build = self._build_def()
@@ -143,24 +153,17 @@ class TestTheHostBoundsTheFailure:
         return next(
             h
             for h in ast.walk(build)
-            if isinstance(h, ast.ExceptHandler)
-            and isinstance(h.type, ast.Name)
-            and h.type.id == 'ConfigError'
+            if isinstance(h, ast.ExceptHandler) and 'ScopeModelUnknownError' in self._caught(h)
         )
 
-    def test_build_catches_config_error(self):
-        build = self._build_def()
-        assert build is not None
-        caught = [
-            handler
-            for handler in ast.walk(build)
-            if isinstance(handler, ast.ExceptHandler)
-            and isinstance(handler.type, ast.Name)
-            and handler.type.id == 'ConfigError'
-        ]
-        assert caught, (
-            'build() must bound ConfigError around the session compose; '
-            'without it a malformed stored value stops the app launching'
+    def test_build_falls_back_only_on_what_the_template_repairs(self):
+        assert self._caught(self._config_error_handler()) == {
+            'ScopeModelUnknownError',
+            'CatalogueNameRefusedError',
+            'ObjectiveUnknownError',
+        }, (
+            'build() bounds the session compose on the stored values bring-up refuses, '
+            'and on nothing the template cannot repair'
         )
 
     def test_the_recovery_delegates_to_the_one_settings_policy(self):

@@ -14,7 +14,7 @@ import pathlib
 import pytest
 
 from modules import path_utils
-from modules.exceptions import CaptureError, RecordingRefusedError
+from modules.exceptions import LiveFolderPathRefusedError, RecordingRefusedError
 from tests.test_manual_capture_overlay_save import (  # noqa: F401 -- the fixture is used by name
     LAYER,
     capture_ctx,
@@ -52,7 +52,7 @@ def test_a_manual_still_into_a_missing_folder_is_refused_before_the_grab(capture
     )
 
     future = capture.capture(layer=LAYER, false_color_on=False, bullseye=False, crosshairs=False)
-    with pytest.raises(CaptureError) as refused:
+    with pytest.raises(LiveFolderPathRefusedError) as refused:
         future.result(timeout=10)
 
     assert refused.value.reason == 'capture_location_unusable'

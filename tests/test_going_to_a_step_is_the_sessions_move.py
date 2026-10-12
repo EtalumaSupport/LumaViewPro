@@ -25,7 +25,7 @@ import logging
 import pandas as pd
 import pytest
 
-from modules.exceptions import AxisStateUnknownError, ConfigError, ProtocolRunRefusedError
+from modules.exceptions import ArgumentRefusedError, AxisStateUnknownError, ProtocolRunRefusedError
 from modules.protocol import Protocol, StepNotFoundError
 from modules.scope_session import ScopeSession
 from tests.ast_seams import REPO_ROOT, parse_module, production_modules, walk_defs
@@ -338,9 +338,10 @@ class TestTheStepIntoItsLayer:
         protocol = _protocol(_PLATE, step)
         before = copy.deepcopy(session.settings['BF'])
 
-        with pytest.raises(ConfigError):
+        with pytest.raises(ArgumentRefusedError) as refused:
             session.go_to_step(protocol, 0)
 
+        assert (refused.value.reason, refused.value.value) == ('layer_unknown', 'Purple')
         assert moves == []
         assert session.settings['BF'] == before
         assert 'Purple' not in session.settings

@@ -25,7 +25,7 @@ import pytest
 import modules.app_context as _app_ctx
 import modules.settings_init as settings_init
 import ui.notification_popup as notification_popup
-from modules.exceptions import ConfigError
+from drivers.exceptions import HardwareError
 from modules.scope_session import ObjectiveQuestion, ScopeSession
 from tests.ast_seams import (
     REPO_ROOT,
@@ -335,7 +335,7 @@ class TestTheFlagCannotStrand:
         stand = _Stand()
 
         def _boom(objective_id, turret_position=None):
-            raise ConfigError('turret write failed')
+            raise HardwareError('turret write failed')
 
         monkeypatch.setattr(session, 'confirm_objective', _boom)
 

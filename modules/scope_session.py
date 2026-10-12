@@ -52,12 +52,13 @@ from modules.activity_claim import (
 )
 from modules.common_utils import CustomJSONizer
 from modules.exceptions import (
-    HARDWARE_STATE_REASONS,
     ArgumentRefusedError,
     CameraSettingUnsupportedError,
     ConfigError,
+    ConfigurationDefectError,
     DiagnosticRefusedError,
     FileWriterNotStuckError,
+    HARDWARE_STATE_REASONS,
     HardwareCommandRefusedError,
     HomingFailedError,
     LiveFolderPathRefusedError,
@@ -1202,7 +1203,9 @@ class ScopeSession:
 
         tier = settings['simulator_tier']
         if tier not in SIMULATOR_TIERS:
-            raise ConfigError(f'simulator_tier {tier!r} is not one of {SIMULATOR_TIERS}')
+            raise ConfigurationDefectError(
+                'settings_not_prepared', f'simulator_tier {tier!r} is not one of {SIMULATOR_TIERS}'
+            )
         missing = runtime_missing(DEFAULT_DIALECT) if tier != 'fast' else None
         if missing is not None:
             logger.warning(
@@ -2199,9 +2202,11 @@ class ScopeSession:
                 not a layer. Nothing changes.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has
                 no layer of the step's colour. Nothing changes.
-            ConfigError: the step's stimulation names a layer this release
-                has not, or this scope's layers could not be resolved.
-                Nothing changes.
+            ArgumentRefusedError: ``'layer_unknown'``, the step's
+                stimulation names a layer this release has not. Nothing
+                changes.
+            ConfigurationDefectError: ``'layers_unresolved'``, this scope's
+                layers could not be resolved. Nothing changes.
             AxisStateUnknownError: an axis the step moves does not know
                 its position. Nothing changes.
             HardwareCommandRefusedError: ``'not_connected'``, this scope's
@@ -2224,9 +2229,11 @@ class ScopeSession:
         if isinstance(stim_configs, dict):
             unknown = sorted(set(stim_configs) - set(common_utils.get_layers()))
             if unknown:
-                raise ConfigError(
-                    f'step {step_idx} stimulates {unknown}, not layers; '
-                    f'the layers are {common_utils.get_layers()}'
+                raise ArgumentRefusedError(
+                    'layer_unknown',
+                    argument="the step's stimulation layer",
+                    value=unknown[0],
+                    offered=tuple(common_utils.get_layers()),
                 )
         # Converted here, from the step read above, so the lane moves to the
         # step this call was made for whatever the list holds by then.
@@ -2643,9 +2650,10 @@ class ScopeSession:
         holder = self.settings
         for block in blocks:
             if not isinstance(holder.get(block), dict):
-                raise ConfigError(
+                raise ConfigurationDefectError(
+                    'settings_not_prepared',
                     f'these settings have no {block!r} block for {path}: they were '
-                    'not prepared from the template'
+                    'not prepared from the template',
                 )
             holder = holder[block]
         holder[leaf] = value
@@ -3383,8 +3391,9 @@ class ScopeSession:
             raise ObjectiveUnknownError('slot_unknown')
         choices = tuple(self.objective_helper.get_objectives_list())
         if not choices:
-            raise ConfigError(
-                'the objective catalogue is empty; cannot ask which objective is installed'
+            raise ConfigurationDefectError(
+                'objective_catalogue_empty',
+                'the objective catalogue is empty; cannot ask which objective is installed',
             )
         # Only the slot's own assignment names glass anyone has confirmed. The
         # stored objective_id does not: the question is owed on a turretless
@@ -3507,9 +3516,10 @@ class ScopeSession:
             # which holds this block to the template's kind; a dict that
             # bypassed it is a bug, named here so the refusal says what is
             # wrong rather than failing inside the write.
-            raise ConfigError(
+            raise ConfigurationDefectError(
+                'settings_not_prepared',
                 'settings have no usable protocol block; the labware selection '
-                f'has nowhere to live (found {type(protocol_settings).__name__})'
+                f'has nowhere to live (found {type(protocol_settings).__name__})',
             )
         if labware_name == protocol_settings.get('labware'):
             # A holder is refused only a different plate: the GUI re-selects
