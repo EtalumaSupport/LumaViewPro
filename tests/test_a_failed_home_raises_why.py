@@ -84,7 +84,7 @@ def test_a_driver_that_raises_is_chained_not_rewrapped(scope, monkeypatch, route
 @pytest.mark.parametrize('route', ROUTES)
 def test_a_home_whose_position_is_unread_names_the_unread_axis(scope, route):
     unread = 'Z' if route in ('ALL', 'Z') else 'T'
-    scope._motion_driver._fail_on.add(f'TARGET_R{unread}')
+    scope.simulation.drop_replies('motor', count=None, command=f'TARGET_R{unread}')
 
     with pytest.raises(HomingFaultError) as raised:
         scope.motion.home(route)

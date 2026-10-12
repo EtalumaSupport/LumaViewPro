@@ -67,12 +67,12 @@ def test_an_unreadable_target_is_refused_and_drives_nothing(scope):
     motion = scope.motion
     driver = scope._motion_driver
     motion.move_absolute('X', 5000.0)
-    driver._fail_on.add('TARGET_RX')
+    scope.simulation.drop_replies('motor', count=None, command='TARGET_RX')
 
     with pytest.raises(HardwareCommandRefusedError) as exc:
         motion.move_relative('X', 10.0)
 
     assert exc.value.reason == 'position_unread'
     assert motion.get_axis_state('X') == AxisState.IDLE
-    driver._fail_on.discard('TARGET_RX')
+    scope.simulation.clear()
     assert driver.target_pos('X') == pytest.approx(5000.0, abs=0.1)

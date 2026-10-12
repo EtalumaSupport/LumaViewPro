@@ -101,7 +101,7 @@ def test_every_switch_with_a_pulled_cable_is_refused(make_session, monkeypatch):
 
 def test_a_failed_arrival_read_raises(make_session):
     scope = make_session('LS850').scope
-    scope._motion_driver._fail_on.add('STATUS_RZ')
+    scope.simulation.drop_replies('motor', count=None, command='STATUS_RZ')
 
     with pytest.raises(HardwareError):
         scope.motion.get_target_status('Z')
@@ -109,7 +109,7 @@ def test_a_failed_arrival_read_raises(make_session):
 
 def test_a_failed_switch_read_is_the_documented_unread(make_session):
     scope = make_session('LS850').scope
-    scope._motion_driver._fail_on.add('STATUS_RZ')
+    scope.simulation.drop_replies('motor', count=None, command='STATUS_RZ')
 
     assert scope.motion.get_limit_switch_status('Z') == (-1, -1)
 
@@ -131,7 +131,7 @@ def test_a_move_whose_arrival_is_never_read_ends_status_unread(make_session, cen
     motion = scope.motion
     # Give up on the next poll rather than after the production bound.
     motion._MOTION_SETTLE_TIMEOUT_S = 0.0
-    scope._motion_driver._fail_on.add('STATUS_RZ')
+    scope.simulation.drop_replies('motor', count=None, command='STATUS_RZ')
 
     with caplog.at_level(logging.WARNING, logger='LVP.api'):
         move = motion.start_move_relative('Z', 50.0)
@@ -157,7 +157,7 @@ def test_a_home_whose_switch_read_fails_still_homes(make_session):
     session = make_session('LS850', homed=False)
     scope = session.scope
     for axis in scope.capabilities.axes:
-        scope._motion_driver._fail_on.add(f'STATUS_R{axis}')
+        scope.simulation.drop_replies('motor', count=None, command=f'STATUS_R{axis}')
 
     scope.motion.home()
 

@@ -33,7 +33,7 @@ def scope():
 def test_a_failed_read_raises(scope, read):
     driver = scope._motion_driver
     register = 'ACTUAL_RX' if read.startswith('current') else 'TARGET_RX'
-    driver._fail_on.add(register)
+    scope.simulation.drop_replies('motor', count=None, command=register)
     with pytest.raises(HardwareError):
         getattr(driver, read)('X')
 
@@ -52,7 +52,7 @@ def test_a_z_move_whose_position_cannot_be_read_is_refused_with_nothing_written(
         return real(command, *args, **kwargs)
 
     driver.exchange_command = recorded
-    driver._fail_on.add('ACTUAL_RZ')
+    scope.simulation.drop_replies('motor', count=None, command='ACTUAL_RZ')
 
     with pytest.raises(HardwareCommandRefusedError) as exc:
         motion.move_absolute('Z', 1000.0, overshoot_enabled=True)
@@ -63,7 +63,7 @@ def test_a_z_move_whose_position_cannot_be_read_is_refused_with_nothing_written(
 
 
 def test_the_actual_position_raises_when_the_board_does_not_report_it(scope):
-    scope._motion_driver._fail_on.add('ACTUAL_RZ')
+    scope.simulation.drop_replies('motor', count=None, command='ACTUAL_RZ')
     with pytest.raises(HardwareError):
         scope.motion.get_actual_position('Z')
 
@@ -83,7 +83,7 @@ def _move_x_and_lose_its_position(scope):
     driver = scope._motion_driver
     driver.set_timing_mode('realistic')
     handle = motion.start_move_absolute('X', 20000.0)
-    driver._fail_on.add('ACTUAL_RX')
+    scope.simulation.drop_replies('motor', count=None, command='ACTUAL_RX')
     deadline = time.monotonic() + 5.0
     while not driver.target_status('X'):
         assert time.monotonic() < deadline, 'the simulated move never arrived'
@@ -96,12 +96,11 @@ def test_an_arrival_whose_position_was_not_read_is_not_written(scope):
     """The monitor wrote IDLE on the reached bit whatever its position read
     did, so the axis was 'known' at a number nobody read."""
     motion = scope.motion
-    driver = scope._motion_driver
     handle = _move_x_and_lose_its_position(scope)
 
     assert motion.get_axis_state('X') == AxisState.MOVING
 
-    driver._fail_on.discard('ACTUAL_RX')
+    scope.simulation.clear()
     handle.wait()
     assert motion.get_axis_state('X') == AxisState.IDLE
     assert motion.get_current_position('X') == pytest.approx(20000.0, abs=0.1)
@@ -120,7 +119,7 @@ def test_an_arrival_never_read_is_given_up_as_that(scope, monkeypatch):
     assert exc.value.reason == 'position_unread'
     assert exc.value.title == 'Motor Position Unknown'
     assert motion.get_axis_state('X') == AxisState.UNKNOWN
-    scope._motion_driver._fail_on.discard('ACTUAL_RX')
+    scope.simulation.clear()
 
 
 def test_a_read_that_keeps_failing_is_warned_of_once_per_move(scope, caplog):
@@ -128,7 +127,7 @@ def test_a_read_that_keeps_failing_is_warned_of_once_per_move(scope, caplog):
     in a field log, and about fifty a second where it was shown."""
     with caplog.at_level(logging.DEBUG, logger='LVP.api'):
         _move_x_and_lose_its_position(scope)
-        scope._motion_driver._fail_on.discard('ACTUAL_RX')
+        scope.simulation.clear()
         scope.motion.wait_until_finished_moving()
 
     unread = [r for r in caplog.records if r.name == 'LVP.api' and 'ACTUAL_RX' in r.getMessage()]
