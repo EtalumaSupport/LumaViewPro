@@ -956,6 +956,7 @@ class ImagingAPI:
         self,
         write_fn: Callable[[], object],
         *,
+        member: str,
         refusal: Callable[[], CameraSettingRejected] | None,
         invalidates: tuple[str, ...] = (),
         force_invalidate: tuple[str, ...] = (),
@@ -981,9 +982,21 @@ class ImagingAPI:
         and ``refusal()`` is raised with the driver's exception as its cause,
         so no setter lets a driver's own exception out of the API.
 
+        A camera declared removed by the time a sent write returns is refused
+        as an absent one, whatever the driver answered: a camera that is gone
+        has no value in effect, and its absence is one answer however the
+        command met it. Asked here, after the unconditional block and before
+        anything is recorded, because every camera write passes through. The
+        removal latch is asked, not ``active``: ``_mark_disconnected()``
+        leaves the SDK handle attached until its teardown runs off this
+        thread, so a write to a vanished camera still reaches the driver and
+        comes back looking like a refusal.
+
         Args:
             write_fn: Zero-arg callable performing the driver write (including
                 any lock it needs) and returning the driver's result.
+            member: The public command the write belongs to, named by the
+                refusal when the camera is found gone.
             refusal: Builds the ``CameraSettingRejected`` this write raises
                 when the driver raises, in the words of the setting's
                 refusal. Required, so a new setter states it; ``None`` only
@@ -1017,18 +1030,29 @@ class ImagingAPI:
         Returns:
             The driver write's result, so the caller can do its own rejection
             handling / listener fire.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera: it was declared removed by the time the write
+                returned. Chained to the driver's exception when it raised.
+            CameraSettingRejected: The driver raised from the write, the
+                camera still present; chained.
         """
         try:
             result = write_fn()
         except Exception as ex:
             if refusal is None:
                 raise
+            if self.camera_removed:
+                raise _camera_not_connected(member) from ex
             raise refusal() from ex
         finally:
             for source in force_invalidate:
                 self.frame_validity.invalidate(source)
             for source in force_clear:
                 self.frame_validity.set_target(source, None)
+        if refusal is not None and self.camera_removed:
+            raise _camera_not_connected(member)
         applied = result is not False
         if applied:
             for source in invalidates:
@@ -1110,30 +1134,6 @@ class ImagingAPI:
         return self._driver is not None and self._driver.is_device_removed()
 
     # --- Setters ---
-    def _removed_during_write(self, setting: str, absent_label: str, requested: float) -> bool:
-        """Whether a write that reported refused had in fact lost its camera.
-
-        ``_mark_disconnected()`` deliberately leaves ``_active`` attached --
-        the SDK handle is released later, off this thread, so the C++
-        destructor cannot fire on an SDK callback thread -- so the driver's
-        own inactive branch never fires for a removed device, and a write
-        that failed because the hardware vanished arrives at the value
-        setters looking exactly like a refusal. Reporting it as one names
-        the wrong cause: it tells the user to check that their value is
-        within the camera limits, and raises ``CameraSettingRejected`` at
-        the public setter for what the missing-hardware contract calls a
-        quiet no-op. True here means the caller answers "not confirmed"
-        instead, which is what a vanished camera actually leaves behind.
-        """
-        if not self.camera_removed:
-            return False
-        logger.error(
-            f'[SCOPE API ] {setting}: camera removed during the write; '
-            f'{requested!r} was not applied'
-        )
-        self._notify_camera_absent(absent_label)
-        return True
-
     def _set_gain_db_impl(self, gain_db: float) -> float | bool | None:
         """Set the camera gain, and answer with the gain now in effect.
 
@@ -1155,8 +1155,12 @@ class ImagingAPI:
                 own answer when it gives one, since a body that clamps or
                 quantizes applies something other than the request, else the
                 request. ``False`` on a confirmed driver refusal. ``None``
-                when no camera is active or the camera was removed during the
-                write -- neither is a refusal.
+                when no camera is active.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, when it was removed during the write
+                (``_camera_write``).
         """
         if not self._driver or not self._driver.active:
             return
@@ -1177,14 +1181,13 @@ class ImagingAPI:
 
         ok = self._camera_write(
             _write_gain,
+            member='set_gain_db',
             refusal=lambda: _value_rejection('gain_db', gain_db),
             force_invalidate=('gain',),
             targets=(('gain', float(gain_db)),),
             target_from_result=('gain',),
         )
         if ok is False:
-            if self._removed_during_write('gain_db', 'gain', float(gain_db)):
-                return None
             # Frames keep streaming at the OLD gain, and IDS has no chunk
             # backstop to catch a mismatch downstream, so the request is not
             # recorded as truth.
@@ -1211,8 +1214,12 @@ class ImagingAPI:
                 them, since a body that clamps to its floor or quantizes onto
                 a row grid applies something other than the request, else the
                 request. ``False`` on a confirmed driver refusal. ``None``
-                when no camera is active or the camera was removed during the
-                write -- neither is a refusal.
+                when no camera is active.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, when it was removed during the write
+                (``_camera_write``).
         """
         if not self._driver or not self._driver.active:
             return
@@ -1250,14 +1257,13 @@ class ImagingAPI:
 
         ok = self._camera_write(
             _write_exposure,
+            member='set_exposure_ms',
             refusal=lambda: _value_rejection('exposure_ms', exposure_ms),
             force_invalidate=('exposure',),
             targets=(('exposure', float(exposure_ms) * 1000.0),),
             target_from_result=('exposure',),
         )
         if ok is False:
-            if self._removed_during_write('exposure_ms', 'exposure', float(exposure_ms)):
-                return None
             # Frames keep streaming at the OLD exposure, and IDS has no chunk
             # backstop to catch a mismatch downstream, so the request is not
             # recorded as truth.
@@ -1397,7 +1403,9 @@ class ImagingAPI:
         The camera's one presence question for an outside command, asked
         after the lane admits it and before the body writes: with no camera
         connected the command is refused naming it, or answers
-        ``satisfied_when_absent`` when its dispatch names one. Bring-up's
+        ``satisfied_when_absent`` when its dispatch names one. A camera the
+        body's write finds removed (``_camera_write``) is answered the same
+        way, so an off is satisfied whenever the camera went. Bring-up's
         direct ``_impl`` calls do not pass through here and ask for
         themselves. A body handed ``_DECIDED_IN_BODY`` is run as it is.
         """
@@ -1410,7 +1418,15 @@ class ImagingAPI:
                 if satisfied_when_absent is _REFUSED_WHEN_ABSENT:
                     raise _camera_not_connected(member)
                 return satisfied_when_absent
-            return impl(*args, **kwargs)
+            try:
+                return impl(*args, **kwargs)
+            except HardwareCommandRefusedError as refusal:
+                if (
+                    satisfied_when_absent is _REFUSED_WHEN_ABSENT
+                    or refusal.missing is not MissingPart.CAMERA
+                ):
+                    raise
+                return satisfied_when_absent
 
         return ask_then_run
 
@@ -1489,8 +1505,8 @@ class ImagingAPI:
 
         Returns:
             float | None: The gain in dB now in effect, which differs from the
-                request when the camera snapped it. ``None`` when the camera
-                was removed during the write.
+                request when the camera snapped it. ``None`` when the camera's
+                teardown landed after the lane asked for it.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, the gain is not a
@@ -1501,7 +1517,7 @@ class ImagingAPI:
                 from the write (chained). It carries the words its reporter
                 shows; nothing is shown here.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, with none connected.
+                camera, with none connected or one removed during the write.
         """
         self._refuse_out_of_range(
             'gain_db',
@@ -1536,8 +1552,8 @@ class ImagingAPI:
         Returns:
             float | None: The exposure in milliseconds now in effect, which
                 differs from the request when the camera clamped it to its
-                floor or quantized it. ``None`` when the camera was removed
-                during the write.
+                floor or quantized it. ``None`` when the camera's teardown
+                landed after the lane asked for it.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, the exposure is not a
@@ -1548,7 +1564,7 @@ class ImagingAPI:
                 raised from the write (chained). It carries the words its
                 reporter shows; nothing is shown here.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, with none connected.
+                camera, with none connected or one removed during the write.
         """
         self._refuse_out_of_range(
             'exposure_ms',
@@ -1587,7 +1603,9 @@ class ImagingAPI:
             CameraSettingUnsupportedError: Turning auto-gain on for a camera
                 without it.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, for turning auto-gain on with no camera connected.
+                camera, for turning auto-gain on with no camera connected or
+                one removed during the write; turning it off is satisfied
+                either way.
         """
         result = self._dispatch_camera(
             self._set_auto_gain_impl,
@@ -1669,6 +1687,7 @@ class ImagingAPI:
             self._clamp_exposure_to_ceiling_before_arm(settings.get('max_exposure_ms'))
         result = self._camera_write(
             _write_auto_gain,
+            member='set_auto_gain',
             refusal=lambda: _mode_rejection('auto_gain', state, 'auto-gain'),
             force_invalidate=('gain', 'auto_gain') if arm_settle else ('gain',),
             force_clear=('gain',),
@@ -1738,7 +1757,9 @@ class ImagingAPI:
             # No usable achieved value: drop the stale exposure target too
             # (the disarm dropped the gain target) so the capture proceeds
             # without an exposure/gain gate rather than rejecting forever.
-            self._camera_write(lambda: None, refusal=None, force_clear=('exposure',))
+            self._camera_write(
+                lambda: None, member='lock_auto_gain', refusal=None, force_clear=('exposure',)
+            )
             logger.warning(
                 '[AG CONVERGE] locked: state=FAILED -- the camera reported no '
                 f'usable achieved exposure/gain (exposure={exp_ms} gain={gain}); '
@@ -1842,7 +1863,9 @@ class ImagingAPI:
             # The arm goes ahead at the exposure the camera holds.
             self._report_refused_write(_value_rejection('exposure_ms', float(ceiling_ms)))
 
-    def _report_refused_write(self, rejection: CameraSettingRejected) -> None:
+    def _report_refused_write(
+        self, rejection: CameraSettingRejected | HardwareCommandRefusedError
+    ) -> None:
         """Report a camera refusal whose flight ends in this class.
 
         The auto-gain lock's write-back and disarm, the exposure-ceiling clamp,
@@ -1857,7 +1880,14 @@ class ImagingAPI:
         """Re-arm continuous auto-gain after a capture locked a live-view arm."""
         if lock.state is None or not lock.resume_after_capture or lock.settings is None:
             return
-        if self._set_auto_gain_impl(True, lock.settings, resume_after_capture=True) is False:
+        # Run after the capture's frame is in hand, often from its finally: a
+        # camera found gone here is reported, never raised over that frame.
+        try:
+            result = self._set_auto_gain_impl(True, lock.settings, resume_after_capture=True)
+        except HardwareCommandRefusedError as absent:
+            self._report_refused_write(absent)
+            return
+        if result is False:
             self._report_refused_write(_mode_rejection('auto_gain', True, 'auto-gain'))
 
     @api
@@ -1877,7 +1907,9 @@ class ImagingAPI:
             CameraSettingUnsupportedError: Turning auto-exposure on for a
                 camera without it.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, for turning auto-exposure on with no camera connected.
+                camera, for turning auto-exposure on with no camera connected
+                or one removed during the write; turning it off is satisfied
+                either way.
         """
         result = self._dispatch_camera(
             self._set_auto_exposure_time_impl,
@@ -1926,6 +1958,7 @@ class ImagingAPI:
         # invalidate + target-clear are forced, not gated on a value delta.
         result = self._camera_write(
             lambda: self._driver.auto_exposure_t(state),
+            member='set_auto_exposure_time',
             refusal=lambda: _mode_rejection('auto_exposure', state, 'auto-exposure'),
             force_invalidate=('exposure',),
             force_clear=('exposure',),
@@ -1965,6 +1998,8 @@ class ImagingAPI:
                 camera; an undeclared end is not checked.
             HardwareCommandRefusedError: A recording holds the scope: its
                 frames are fitted to the geometry it started with.
+                ``'not_connected'``, naming the camera, with none connected
+                or one removed during the write.
         """
         minimum = self.min_frame_size_cached
         maximum = self._max_frame_unbinned()
@@ -2045,6 +2080,7 @@ class ImagingAPI:
         # entry (still describing the hardware) is left in place.
         delivered = self._camera_write(
             lambda: self._driver.set_frame_size(w, h),
+            member='set_frame_size',
             refusal=_refused,
             force_invalidate=('frame_size',),
         )
@@ -2053,29 +2089,6 @@ class ImagingAPI:
         delivered_size = {'width': int(delivered['width']), 'height': int(delivered['height'])}
         self._commit_camera_writes({'frame_size': dict(delivered_size)})
         return delivered_size
-
-    def _notify_camera_absent(self, op_label: str) -> None:
-        """Fire a deduped notification when the camera was removed during a
-        value write (``_removed_during_write``), past the lane's presence
-        question, which refuses a command with no camera before it runs.
-        notification_center collapses repeats by (category, title) over 5s
-        so a chain of failed writes in the removal window yields one popup,
-        not dozens.
-
-        Suppressed in no_hardware mode (cold-start with nothing
-        connected) -- the consolidated "No hardware detected" popup
-        fires from lumaviewpro.on_start and the per-setter popup
-        would stack on top of it. Runtime disconnects (camera unplugged
-        mid-session) still notify because no_hardware is False then.
-        """
-        if getattr(self._scope, 'no_hardware', False):
-            return
-        notifications.warning(
-            'Camera',
-            'Camera not connected',
-            f'Cannot change {op_label} -- camera is not connected. '
-            f'Check USB and reconnect, then try again.',
-        )
 
     def set_binning_size(self, size: int) -> None:
         """Set camera pixel binning size, and wait for it.
@@ -2088,7 +2101,7 @@ class ImagingAPI:
             HardwareCommandRefusedError: A recording holds the scope: its
                 frames and their pixel size follow the binning it started
                 with. ``'not_connected'``, naming the camera, when it is gone
-                before the body runs.
+                before the body runs or during the write.
             CameraSettingRejected: The camera refused the binning.
         """
         if not self._dispatch_camera(
@@ -2139,6 +2152,7 @@ class ImagingAPI:
         # is still at the previous binning.
         ok = self._camera_write(
             lambda: self._driver.set_binning_size(size=size),
+            member='set_binning_size',
             refusal=_refused,
             invalidates=('binning',),
             cache_update={'binning': int(size)},
@@ -2181,7 +2195,7 @@ class ImagingAPI:
             HardwareCommandRefusedError: A recording holds the scope: its
                 frames are written at the depth it started with.
                 ``'not_connected'``, naming the camera, when it is gone
-                before the body runs.
+                before the body runs or during the write.
             CameraSettingRejected: The camera refused the format.
         """
         if not self._dispatch_camera(
@@ -2228,6 +2242,7 @@ class ImagingAPI:
         # it, so invalidate + snapshot are gated on the driver result.
         result = self._camera_write(
             lambda: self._driver.set_pixel_format(pixel_format),
+            member='set_pixel_format',
             refusal=_refused,
             invalidates=('pixel_format',),
             cache_update={'pixel_format': pixel_format},
@@ -2244,7 +2259,7 @@ class ImagingAPI:
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, with none connected.
+                camera, with none connected or one removed during the write.
             CameraSettingUnsupportedError: ``'High'`` on a camera without
                 the mode, or a mode that is neither ``'High'`` nor ``'Low'``.
                 Nothing reaches the camera.
@@ -2304,6 +2319,7 @@ class ImagingAPI:
             )
         result = self._camera_write(
             lambda: self._driver.set_conversion_gain_mode(mode),
+            member='set_conversion_gain_mode',
             refusal=lambda: _mode_rejection('conversion_gain_mode', mode, 'conversion gain mode'),
             invalidates=('conversion_gain_mode',),
         )
@@ -2319,7 +2335,7 @@ class ImagingAPI:
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, with none connected.
+                camera, with none connected or one removed during the write.
             CameraSettingUnsupportedError: Turning the filter on for a camera
                 without it. Nothing reaches the camera.
             CameraSettingRejected: The camera refused the change or raised
@@ -2369,6 +2385,7 @@ class ImagingAPI:
             )
         result = self._camera_write(
             lambda: self._driver.set_line_noise_reduction(enabled=enabled),
+            member='set_line_noise_reduction',
             refusal=lambda: _mode_rejection(
                 'line_noise_reduction', enabled, 'line noise reduction'
             ),
@@ -2469,7 +2486,7 @@ class ImagingAPI:
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, with none connected.
+                camera, with none connected or one removed during the write.
             CameraSettingUnsupportedError: This camera has no black level
                 setting (``capabilities.camera_supports_black_level`` is
                 False). Nothing reached the camera.
@@ -2518,13 +2535,10 @@ class ImagingAPI:
 
         result = self._camera_write(
             _write_black_level,
+            member='set_black_level',
             refusal=lambda: _value_rejection('black_level', value),
             invalidates=('black_level',),
         )
-        if result is False and self._removed_during_write(
-            'black_level', 'black level', float(value)
-        ):
-            return None
         return result
 
     # --- SDK-perf knobs (write-only by design) ---
@@ -4615,7 +4629,7 @@ class ImagingAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera: none is connected and the snapshot holds a setting
-                to restore.
+                to restore, or it was removed during the restore.
         """
         return self._dispatch_camera(
             self._restore_camera_state_impl,
@@ -4896,6 +4910,8 @@ class ImagingAPI:
                 auto-gain, so there is no target to set.
             ArgumentRefusedError: ``'not_a_number'``, the target is not a
                 finite number.
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected or one removed during the write.
         """
         refuse_unless_finite_number(target_brightness, 'target_brightness')
         result = self._dispatch_camera(
@@ -4938,6 +4954,7 @@ class ImagingAPI:
         # arms, since this is the same convergence.
         return self._camera_write(
             lambda: self._driver.update_auto_gain_target_brightness(target_brightness),
+            member='update_auto_gain_target_brightness',
             refusal=lambda: _mode_rejection(
                 'auto_gain_target_brightness', target_brightness, 'auto-gain target brightness'
             ),
@@ -4955,19 +4972,25 @@ class ImagingAPI:
         """Run one-shot auto-gain, and wait for it.
 
         See ``_auto_gain_once_impl`` for the settle contract; this adds
-        only the dispatch described on ``_dispatch_camera``.
+        the dispatch described on ``_dispatch_camera`` and the raise below.
 
         Raises:
+            CameraSettingRejected: The camera refused the one-shot; nothing
+                is shown here.
             CameraSettingUnsupportedError: The camera has no hardware
                 auto-gain.
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected or one removed during the write.
         """
-        return self._dispatch_camera(
+        result = self._dispatch_camera(
             self._auto_gain_once_impl,
             'auto_gain_once',
             args=(state, target_brightness, min_gain_db, max_gain_db),
             kwargs={'ae_max_exposure_ms': ae_max_exposure_ms},
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
+        if result is False:
+            raise _mode_rejection('auto_gain', state, 'one-shot auto-gain')
 
     def _auto_gain_once_impl(
         self,
@@ -4976,7 +4999,7 @@ class ImagingAPI:
         min_gain_db: float,
         max_gain_db: float,
         ae_max_exposure_ms: float | None = None,
-    ) -> None:
+    ) -> bool | None:
         """Run auto-gain for a single frame on the camera.
 
         Args:
@@ -4986,6 +5009,10 @@ class ImagingAPI:
             max_gain_db: Maximum gain in dB.
             ae_max_exposure_ms: Optional per-channel-class upper bound (ms)
                 on the exposure auto-exposure may drive to.
+
+        Returns:
+            bool | None: ``False`` when the driver refused, and then the arm
+                and the cache are left as they were; otherwise ``None``.
         """
         if not self._driver or not self._driver.active:
             return
@@ -5006,7 +5033,7 @@ class ImagingAPI:
         # target and fall back to skip-frames settling. Both invalidations and
         # target-clears are forced -- one call, two sources, no value write the
         # authority could observe.
-        self._camera_write(
+        result = self._camera_write(
             lambda: self._driver.auto_gain_once(
                 state=state,
                 target_brightness=target_brightness,
@@ -5014,10 +5041,13 @@ class ImagingAPI:
                 max_gain_db=max_gain_db,
                 ae_max_exposure_ms=ae_max_exposure_ms,
             ),
+            member='auto_gain_once',
             refusal=lambda: _mode_rejection('auto_gain', state, 'one-shot auto-gain'),
             force_invalidate=('gain', 'exposure'),
             force_clear=('gain', 'exposure'),
         )
+        if result is False:
+            return False
         with self._state_lock:
             self._auto_gain_arm = None
         # One-shot AG always ends with the auto cycle complete and the

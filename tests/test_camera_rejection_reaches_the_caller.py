@@ -17,8 +17,9 @@ the scan. The public setters are the L2 surface and have no in-run callers, so
 the contract is repaired where it is consumed.
 
 Only an explicit ``False`` is a confirmed rejection. A driver with no
-confirmation signal answers ``None``, and no camera at all is a quiet no-op;
-neither is a refusal and neither raises.
+confirmation signal answers ``None``, which is not a refusal and does not
+raise. A camera that is not there, before or during the write, is refused
+naming it (``tests/test_a_camera_command_with_no_camera_is_refused.py``).
 """
 
 import threading
@@ -46,6 +47,9 @@ def sim_imaging():
     imaging = ImagingAPI(scope, cam)
     scope.imaging = imaging
     return imaging, cam
+
+
+_AUTO_GAIN = {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
 
 
 def _errors(centre_posts):
@@ -85,6 +89,14 @@ class TestAConfirmedRejectionReachesTheCaller:
             imaging.set_gain_db(7.0)
 
         assert not _errors(centre_posts), 'the refusal is shown by its reporter, not by the API'
+
+    def test_a_refused_one_shot_auto_gain_raises_by_name(self, sim_scope):
+        sim_scope.simulation.refuse_camera_write('auto_gain_once', 'false')
+
+        with pytest.raises(CameraSettingRejected) as excinfo:
+            sim_scope.imaging.auto_gain_once(True, 0.5, 0.0, 20.0)
+
+        assert excinfo.value.setting == 'auto_gain'
 
 
 class TestOnlyAConfirmedRejectionRaises:
@@ -155,64 +167,6 @@ class TestARefusalIsNotRecordedAsTruth:
         assert imaging.gain_db_cached == 9.0
 
 
-class TestARemovedCameraIsNotAValueRejection:
-    """A camera that vanished mid-write is the missing-hardware contract's
-    quiet no-op, not a refusal of the value.
-
-    ``_mark_disconnected()`` deliberately leaves the SDK handle attached -- the
-    release is deferred to a teardown thread -- so the driver's own inactive
-    branch never fires for a removed device and the failed write arrives here
-    looking exactly like a rejection. Both consequences name the wrong cause:
-    the user is told to check that the value is within the camera limits, and
-    an L2 caller gets ``CameraSettingRejected`` for a camera that is gone.
-
-    These pin today's answer, None with a "not connected" warning. Ruling K6
-    (``Firmware/docs/AUDIT_TEST_SUITE_OWNER_ROWS_2026-10-09.md``) refuses a
-    removed camera as an absent one, ``HardwareCommandRefusedError
-    ('not_connected')``, and the build of that ruling flips them.
-    """
-
-    def test_a_removed_camera_does_not_raise_a_rejection(self, sim_scope):
-        sim_scope.simulation.refuse_camera_write('gain', 'removed')
-
-        assert sim_scope.imaging.set_gain_db(9.0) is None
-
-    def test_a_removed_camera_reads_as_absent_not_as_refused(self, sim_scope, centre_posts):
-        sim_scope.simulation.refuse_camera_write('gain', 'removed')
-
-        sim_scope.imaging.set_gain_db(9.0)
-
-        warned = [n for n in centre_posts if n.severity == Severity.WARNING]
-        assert warned, 'a vanished camera still has to reach the user'
-        assert 'not connected' in warned[0].title.lower()
-        assert not _errors(centre_posts), 'and must not be reported as a refused value'
-
-    def test_a_live_camera_still_reports_its_refusal(self, sim_scope):
-        """The discrimination must not swallow a real refusal -- the whole
-        point of the driver-side fix is that this one is reachable."""
-        sim_scope.simulation.refuse_camera_write('gain', 'false')
-
-        with pytest.raises(CameraSettingRejected):
-            sim_scope.imaging.set_gain_db(9.0)
-
-    def test_the_exposure_twin_discriminates_the_same_way(self, sim_scope):
-        sim_scope.simulation.refuse_camera_write('exposure', 'removed')
-
-        assert sim_scope.imaging.set_exposure_ms(25.0) is None
-
-    def test_a_refused_write_on_a_removed_camera_still_records_nothing(self, sim_scope):
-        """Not raising must not become recording: the cache and the chunk
-        target stay where the hardware was."""
-        imaging = sim_scope.imaging
-        imaging.set_gain_db(3.0)
-        sim_scope.simulation.refuse_camera_write('gain', 'removed')
-
-        imaging.set_gain_db(9.0)
-
-        assert imaging.gain_db_cached == 3.0
-        assert imaging.frame_validity.target('gain') == 3.0
-
-
 class TestTheImplsStayNonRaising:
     """The in-run composition primitive must not throw into the scan loop.
 
@@ -267,6 +221,9 @@ class TestARaisingWriteIsARejection:
             'binning': lambda: imaging.set_binning_size(2),
             'pixel_format': lambda: imaging.set_pixel_format('Mono12'),
             'black_level': lambda: imaging.set_black_level(10.0),
+            'auto_gain': lambda: imaging.set_auto_gain(True, _AUTO_GAIN),
+            'auto_gain_once': lambda: imaging.auto_gain_once(True, 0.5, 0.0, 20.0),
+            'auto_gain_target_brightness': lambda: imaging.update_auto_gain_target_brightness(0.6),
         }
         escaped = {}
         for node, setter in setters.items():

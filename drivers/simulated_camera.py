@@ -156,6 +156,9 @@ class SimulatedCamera(Camera):
         'binning': 'set_binning_size',
         'pixel_format': 'set_pixel_format',
         'black_level': 'set_black_level',
+        'auto_gain': 'auto_gain',
+        'auto_gain_once': 'auto_gain_once',
+        'auto_gain_target_brightness': 'update_auto_gain_target_brightness',
     }
     # What a refused write answers, by name: a real SDK's node write
     # answers False, nothing, a bare True that confirms no value, or raises;

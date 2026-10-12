@@ -3663,9 +3663,9 @@ class CameraSettingRejected(Fault, Exception):  # noqa: N818 -- named for the ev
     """The camera driver rejected a state-changing setting apply.
 
     Raised by ImagingAPI setters (frame size, binning, pixel format, gain,
-    exposure) when a LIVE driver refuses the apply -- distinct from the
-    camera-absent no-op, which stays a quiet sentinel per the
-    missing-hardware contract. Success is observed by receiving the
+    exposure) when a LIVE driver refuses the apply -- distinct from a
+    camera that is not there, before or during the write, which is refused
+    as ``HardwareCommandRefusedError('not_connected')``. Success is observed by receiving the
     applied/delivered value, failure by this raise, so a caller cannot
     record a rejected apply as applied by forgetting to check a return code.
 

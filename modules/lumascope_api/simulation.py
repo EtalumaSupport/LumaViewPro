@@ -444,7 +444,8 @@ class SimulationAPI:
         Args:
             node: The setting written: ``'gain'``, ``'exposure'``,
                 ``'auto_exposure'``, ``'frame_size'``, ``'binning'``,
-                ``'pixel_format'`` or ``'black_level'``.
+                ``'pixel_format'``, ``'black_level'``, ``'auto_gain'``,
+                ``'auto_gain_once'`` or ``'auto_gain_target_brightness'``.
             answer: What the node write answers: ``'false'``, ``'none'``
                 (no confirmation), ``'true'`` (a bare True that confirms no
                 value), ``'raise'``, or ``'removed'`` (False, with the camera

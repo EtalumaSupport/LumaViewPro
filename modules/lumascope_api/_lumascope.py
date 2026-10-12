@@ -53,6 +53,7 @@ from modules.exceptions import (
     CameraSettingRejected,
     ConfigurationDefectError,
     FrameRefittedNotice,
+    HardwareCommandRefusedError,
     InstallationFileError,
     LedBoardUnavailableError,
     LedSafetyOffNotTakenError,
@@ -1110,6 +1111,12 @@ class Lumascope:
                 except CameraSettingRejected as ex:
                     # Bring-up continues at the value the camera holds.
                     notifications.report_outcome(ex, solicited=False, category='Camera')
+                except HardwareCommandRefusedError as ex:
+                    # The camera left during bring-up (an impl's only refusal):
+                    # there is nothing to apply the rest to, and each would
+                    # be refused again.
+                    notifications.report_outcome(ex, solicited=False, category='Camera')
+                    break
         # Asked first: a scope with no motor controller has no limit to set.
         if self.motor_connected:
             self.motion._set_acceleration_limit_impl(val_pct=config.acceleration_pct)

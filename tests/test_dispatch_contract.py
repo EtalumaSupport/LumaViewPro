@@ -123,7 +123,13 @@ FAMILY_IDS = [f'{family}.{member}' for family, member, _, _ in FAMILIES]
 # A member that answers by raising: its body's answer says only whether the
 # camera was there, so it returns nothing rather than passing the answer on.
 _RETURNS_NOTHING = frozenset(
-    {'set_binning_size', 'set_pixel_format', 'set_conversion_gain_mode', 'set_line_noise_reduction'}
+    {
+        'set_binning_size',
+        'set_pixel_format',
+        'set_conversion_gain_mode',
+        'set_line_noise_reduction',
+        'auto_gain_once',
+    }
 )
 
 # A member whose body is not named after it: the start members share the

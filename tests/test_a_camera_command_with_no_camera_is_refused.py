@@ -33,6 +33,7 @@ from modules.exceptions import (
     RecordingRefusedError,
 )
 from modules.lumascope_api import _lumascope
+from modules.scope_session import ScopeSession
 from tests.test_a_command_for_absent_motion_hardware_is_refused import (
     _protocol,
     _refused,
@@ -400,6 +401,181 @@ def test_a_camera_removed_mid_run_ends_the_run_hardware_disconnected(
     )
 
     assert _wait(run) == ('failed', 'hardware_disconnected')
+
+
+# --- A camera removed during its write -------------------------------------------
+
+# The commands of REFUSED the simulator can take the camera away during, by the
+# node each one writes.
+REMOVED_DURING = {
+    'gain': 'set_gain_db',
+    'exposure': 'set_exposure_ms',
+    'black_level': 'set_black_level',
+    'auto_exposure': 'set_auto_exposure_time_on',
+    'frame_size': 'set_frame_size',
+    'binning': 'set_binning_size',
+    'pixel_format': 'set_pixel_format',
+    'auto_gain': 'set_auto_gain_on',
+    'auto_gain_once': 'auto_gain_once',
+    'auto_gain_target_brightness': 'update_auto_gain_target_brightness',
+}
+
+
+def test_a_camera_removed_during_the_write_is_refused_as_an_absent_one(make_session, centre_posts):
+    """A camera that leaves the bus during the write is refused as one gone
+    before it: naming the camera, nothing stored, nothing posted by the API.
+    Not a rejection of the value, and not a None a caller reads as applied."""
+    answered = {}
+    for node, name in REMOVED_DURING.items():
+        session = make_session('LS850')
+        before = _camera_store(session)
+        session.scope.simulation.refuse_camera_write(node, 'removed')
+        centre_posts.clear()
+        try:
+            REFUSED[name](session.scope.imaging)
+        except HardwareCommandRefusedError as refusal:
+            if (refusal.reason, refusal.missing) != ('not_connected', MissingPart.CAMERA):
+                answered[name] = f'refused {refusal.reason} {refusal.missing}'
+        except Exception as other:  # the defect under test: any other answer
+            answered[name] = repr(other)
+        else:
+            answered[name] = 'no raise'
+        if _camera_store(session) != before:
+            answered[f'{name} store'] = 'changed'
+        if _camera_posts(centre_posts):
+            answered[f'{name} posts'] = [n.title for n in _camera_posts(centre_posts)]
+    assert not answered, answered
+
+
+def test_an_off_is_satisfied_when_the_camera_leaves_during_it(make_session):
+    answers = {}
+    for node, name in (
+        ('auto_gain', 'set_auto_gain_off'),
+        ('auto_exposure', 'set_auto_exposure_time_off'),
+    ):
+        session = make_session('LS850')
+        session.scope.simulation.refuse_camera_write(node, 'removed')
+        answers[name] = SATISFIED[name](session.scope.imaging)
+
+    assert answers == {'set_auto_gain_off': True, 'set_auto_exposure_time_off': True}
+
+
+def test_a_write_the_camera_left_during_records_nothing(make_session):
+    session = make_session('LS850')
+    im = session.scope.imaging
+    im.set_gain_db(3.0)
+    before = (im.gain_db_cached, im.frame_validity.target('gain'))
+    session.scope.simulation.refuse_camera_write('gain', 'removed')
+
+    _refused(lambda: im.set_gain_db(9.0))
+
+    assert (im.gain_db_cached, im.frame_validity.target('gain')) == before
+
+
+def test_a_write_that_raises_as_the_camera_leaves_is_refused_as_an_absent_one(
+    make_session, monkeypatch
+):
+    """The driver raised and the camera was declared removed: the absence is
+    the answer, chained to the driver's error, not a rejection of the value."""
+    session = make_session('LS850')
+    driver = session.scope._camera_driver
+
+    # A stand-in by design: the simulator's 'removed' write answers False; a
+    # write that raises as its camera leaves is a fault it does not offer.
+    def leaves_and_raises(*args, **kwargs):
+        session.scope.simulation.remove_camera()
+        raise RuntimeError('simulated node write lost its device')
+
+    monkeypatch.setattr(driver, 'gain', leaves_and_raises)
+
+    refusal = _refused(lambda: session.scope.imaging.set_gain_db(9.0))
+
+    assert (refusal.reason, refusal.missing) == ('not_connected', MissingPart.CAMERA)
+    assert isinstance(refusal.__cause__, RuntimeError)
+
+
+def test_turning_auto_gain_off_as_the_camera_leaves_stores_it_off(make_session):
+    """The lock's disarm finds the camera gone: no arm can stand, so the lock
+    answers as with no camera, and the layer stores auto-gain off."""
+    session = make_session('LS850')
+    session.set_layer_auto_gain('BF', True)
+    session.scope.imaging.set_auto_gain(True, _AUTO_GAIN)
+    session.scope.simulation.refuse_camera_write('auto_gain', 'removed')
+
+    lock = session.set_layer_auto_gain('BF', False)
+
+    assert lock.state is None
+    assert session.settings['BF']['auto_gain'] is False
+
+
+def test_a_camera_removed_as_the_run_takes_the_auto_gain_arm_ends_the_run_hardware_disconnected(
+    make_session, tmp_path
+):
+    """The run's start turns a live-view arm off; the camera leaving then is
+    the run's disconnect, not a crash of the run loop."""
+    session = make_session('LS850')
+    session.scope.imaging.set_auto_gain(True, _AUTO_GAIN)
+    session.scope.simulation.refuse_camera_write('auto_gain', 'removed')
+    step = {**_make_single_step_protocol().step(idx=0), 'Z': 3000.0}
+
+    run = session.create_protocol_runner().run_single_scan(
+        protocol=_build_real_protocol([step]),
+        sequence_name='removed',
+        parent_dir=str(tmp_path),
+    )
+
+    assert _wait(run) == ('failed', 'hardware_disconnected')
+
+
+def test_a_camera_removed_as_live_view_re_arms_auto_gain_keeps_the_frame(
+    make_session, monkeypatch, centre_posts
+):
+    """The frame was grabbed before the camera left; the re-arm after it is
+    the camera's absence, reported once, and the frame is still returned."""
+    session = make_session('LS850')
+    im = session.scope.imaging
+    driver = session.scope._camera_driver
+    im.set_auto_gain(True, _AUTO_GAIN)
+    real_auto_gain = driver.auto_gain
+
+    # A stand-in by design: the simulator refuses a node's next write, and the
+    # re-arm is the capture's second auto-gain write (the lock's disarm is the
+    # first).
+    def leaves_on_the_re_arm(state=True, **kwargs):
+        if state:
+            session.scope.simulation.remove_camera()
+            return False
+        return real_auto_gain(state, **kwargs)
+
+    monkeypatch.setattr(driver, 'auto_gain', leaves_on_the_re_arm)
+    centre_posts.clear()
+
+    image = im.capture_and_wait()
+
+    assert image is not None
+    assert [n.message for n in _camera_posts(centre_posts)] == ['The camera is not connected.']
+
+
+def test_a_camera_removed_during_bring_up_is_reported_once_and_the_scope_comes_up(
+    make_session, monkeypatch, centre_posts
+):
+    """Bring-up's first camera write finds the camera gone: the camera's
+    settings stop there, reported once, and the session comes up."""
+
+    configure = ScopeSession._configure_scope
+
+    # A stand-in by design: the simulator's faults are injected on a session
+    # that is already up; this arms one on the scope as bring-up configures it.
+    def removed_at_bring_up(session, replaced):
+        session.scope.simulation.refuse_camera_write('binning', 'removed')
+        return configure(session, replaced)
+
+    monkeypatch.setattr(ScopeSession, '_configure_scope', removed_at_bring_up)
+
+    session = make_session('LS850')
+
+    assert session.scope.imaging.camera_removed
+    assert [n.message for n in _camera_posts(centre_posts)] == ['The camera is not connected.']
 
 
 @pytest.mark.parametrize('connected', (True, False))
