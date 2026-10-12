@@ -68,16 +68,16 @@ def test_a_move_that_ended_is_answered_while_a_later_one_travels(session):
     first = motion.start_move_absolute('X', 1000.0)
     motion.wait_until_finished_moving()
     driver.set_timing_mode('realistic')
-    hold = driver.hold_travel('X')
+    held = session.scope.simulation.hold_axis('X')
     motion.start_move_absolute('X', 60000.0)
-    assert hold.reached.wait(_WAIT_S), 'the later move never got part of the way'
+    assert held.wait(_WAIT_S), 'the later move never got part of the way'
 
     reasons = []
     waiter = threading.Thread(target=lambda: reasons.append(_reason(first)), daemon=True)
     waiter.start()
     waiter.join(_WAIT_S)
     alive = waiter.is_alive()
-    hold.release()
+    session.scope.simulation.clear()
 
     assert not alive, 'the ended move waited on the later one'
     assert reasons == ['arrived']

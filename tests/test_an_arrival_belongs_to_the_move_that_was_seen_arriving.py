@@ -166,9 +166,9 @@ def test_the_previous_targets_bit_read_during_the_send_is_no_arrival(session, mo
 
     # A stands part of the way until B is inside its driver call, so A
     # arrives only then, however late any thread runs.
-    hold = driver.hold_travel('X')
+    held = session.scope.simulation.hold_axis('X')
     a = motion.start_move_absolute('X', 10200.0)
-    assert hold.reached.wait(_HOLD_WAIT_S), 'A never got part of the way'
+    assert held.wait(_HOLD_WAIT_S), 'A never got part of the way'
 
     def start_b():
         b['h'] = motion.start_move_absolute('X', 13000.0)
@@ -176,7 +176,7 @@ def test_the_previous_targets_bit_read_during_the_send_is_no_arrival(session, mo
 
     _start_in_thread(start_b)
     assert b_in_driver.wait(5.0), 'B never reached its driver call'
-    hold.release()
+    session.scope.simulation.clear()
     a_out = _outcome(a)
     assert b_started.wait(5.0)
     b_out = _outcome(b['h'])
@@ -220,9 +220,9 @@ def test_the_overshoot_legs_arrival_is_nobodys(session, monkeypatch):
     monkeypatch.setattr(driver, 'target_status', the_lane_waits_for_the_monitors_read)
     motion.move_absolute('Z', 4000.0)
     # Move 1 stands part of the way until move 2's first target ends it.
-    hold = driver.hold_travel('Z')
+    held = session.scope.simulation.hold_axis('Z')
     m1 = motion.start_move_absolute('Z', 6000.0)
-    assert hold.reached.wait(_HOLD_WAIT_S), 'move 1 never got part of the way'
+    assert held.wait(_HOLD_WAIT_S), 'move 1 never got part of the way'
     m2 = {}
     t = _start_in_thread(
         lambda: m2.update(h=motion.start_move_absolute('Z', 3000.0, overshoot_enabled=True))
@@ -287,7 +287,7 @@ def test_a_timed_out_wait_does_not_fault_the_move_that_started_in_its_window(ses
     monkeypatch.setattr(motion, '_set_axis_state', start_m2_inside_the_waiters_write)
     # Move 1 stands part of the way, so its wait's 0.3 s runs out first
     # however slowly the waiter runs; move 2's target ends the hold.
-    driver.hold_travel('X')
+    session.scope.simulation.hold_axis('X')
     m1 = motion.start_move_absolute('X', 40000.0)
     m1_out = _outcome(m1)
     monkeypatch.setattr(motion, '_set_axis_state', real_set)

@@ -123,14 +123,14 @@ def test_a_fault_is_500_titled_by_its_class_in_its_own_words(client, session, mo
 
 def test_a_move_another_request_stopped_answers_409_as_a_notice(client, session):
     home_sim_scope(session.scope)
-    hold = session.scope._motion_driver.hold_travel('X')
+    held = session.scope.simulation.hold_axis('X')
     started = client.post(
         '/api/v1/scope/motion/move_absolute',
         json={'axis': 'X', 'position': 60000},
         headers={'Prefer': 'wait=0'},
     )
     assert started.status_code == 202
-    assert hold.reached.wait(10), 'the move never got part of the way'
+    assert held.wait(10), 'the move never got part of the way'
 
     assert client.post('/api/v1/scope/motion/stop_motion').status_code == 200
     job = client.get(started.headers['Location'], headers={'Prefer': 'wait=10'}).json()

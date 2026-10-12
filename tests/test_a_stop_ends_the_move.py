@@ -64,9 +64,9 @@ def test_a_stop_mid_move_leaves_the_stage_short_and_at_rest(session):
     running on its old timeline."""
     motion = session.scope.motion
     driver = motion._driver
-    hold = driver.hold_travel('X')
+    held = session.scope.simulation.hold_axis('X')
     handle = motion.start_move_absolute('X', 60000.0)
-    assert hold.reached.wait(_HOLD_WAIT_S), 'the move never got part of the way'
+    assert held.wait(_HOLD_WAIT_S), 'the move never got part of the way'
     motion.stop_motion()
 
     assert _reason(handle) == 'stopped'
@@ -116,13 +116,13 @@ def test_a_stop_during_the_backlash_leg_ends_the_move_there(session):
     sent = _wire(driver)
     final = f'TARGET_WZ{driver.z_um2ustep(1000.0)}'
     # The move's first Z target is its backlash leg's.
-    hold = driver.hold_travel('Z')
+    held = session.scope.simulation.hold_axis('Z')
 
     def stop_during_the_leg():
         # The leg runs inside the move's body, before start_move_absolute
         # returns, so the stop comes from another thread, once the leg
         # stands part of the way down.
-        assert hold.reached.wait(_HOLD_WAIT_S), 'the leg never got part of the way'
+        assert held.wait(_HOLD_WAIT_S), 'the leg never got part of the way'
         motion.stop_motion()
 
     stopper = threading.Thread(target=stop_during_the_leg)
@@ -168,9 +168,9 @@ def test_a_move_a_stop_ended_reads_stopped_not_superseded(session, monkeypatch):
     when nothing was sent."""
     motion = session.scope.motion
     driver = motion._driver
-    hold = driver.hold_travel('X')
+    held = session.scope.simulation.hold_axis('X')
     first = motion.start_move_absolute('X', 60000.0)
-    assert hold.reached.wait(_HOLD_WAIT_S), 'the first move never got part of the way'
+    assert held.wait(_HOLD_WAIT_S), 'the first move never got part of the way'
     real_send = motion._send_drive
 
     def a_stop_lands_first(axis, stop_generation, send, member):
@@ -222,10 +222,10 @@ def test_a_stop_during_the_turret_leg_leaves_z_parked_and_no_slot(turret_session
     motion = turret_session.scope.motion
     driver = motion._driver
     sent = _wire(driver)
-    hold = driver.hold_travel('T')
+    held = turret_session.scope.simulation.hold_axis('T')
 
     def stop_during_the_turn():
-        assert hold.reached.wait(_HOLD_WAIT_S), 'the turn never got part of the way'
+        assert held.wait(_HOLD_WAIT_S), 'the turn never got part of the way'
         motion.stop_motion()
 
     stopper = threading.Thread(target=stop_during_the_turn)

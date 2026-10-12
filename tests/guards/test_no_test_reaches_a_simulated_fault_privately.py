@@ -102,10 +102,6 @@ _PRIVATE_REACH_PIN: dict[str, int] = {
     'tests/capability/serial_p01_cable_pull.py': 2,
     'tests/test_a_camera_stream_stall_is_reported.py': 6,
     'tests/test_a_home_is_believed_only_when_it_happened.py': 1,
-    'tests/test_a_move_is_judged_when_it_ends.py': 1,
-    'tests/test_a_stop_ends_the_move.py': 4,
-    'tests/test_a_wire_client_is_refused_as_a_python_caller_is.py': 1,
-    'tests/test_an_arrival_belongs_to_the_move_that_was_seen_arriving.py': 3,
     'tests/test_an_fx2_frame_ends_where_the_device_ends_it.py': 1,
     'tests/test_an_unplugged_fx2_is_removed.py': 8,
     'tests/test_audit_fixes.py': 3,
@@ -123,7 +119,6 @@ _PRIVATE_REACH_PIN: dict[str, int] = {
     'tests/test_simulated_camera_stall.py': 1,
     'tests/test_simulators.py': 18,
     'tests/test_the_ls720_in_the_simulator.py': 10,
-    'tests/test_the_target_is_what_was_commanded.py': 1,
     'tests/test_tmcm6110.py': 20,
 }
 
