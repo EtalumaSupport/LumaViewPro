@@ -82,7 +82,7 @@ def test_a_fault_is_reported_once_as_that_fault_under_the_events_name(
 
 
 def test_a_refusal_is_reported_once_as_that_refusal(immediate_gui_dispatcher, reported):
-    refusal = ProtocolRunRefusedError(reason='run_not_live', title='Not Live', message='No.')
+    refusal = ProtocolRunRefusedError(reason='run_not_live', message='No.')
     deliver(_raise(refusal), 'run_ended', None, None, None)
 
     assert [ex for ex, _a, _k in reported] == [refusal]

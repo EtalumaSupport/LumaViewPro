@@ -106,7 +106,10 @@ class TestTheApiRefuses:
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             _update(scope, protocol)
 
-        assert excinfo.value.reason == 'step_position_unknown'
+        assert (excinfo.value.reason, excinfo.value.title) == (
+            'step_position_unknown',
+            'Step Not Saved',
+        )
         assert excinfo.value.message == (
             'Cannot update the step. The X position is unknown. '
             'Home the scope, then update the step.'
@@ -128,7 +131,10 @@ class TestTheApiRefuses:
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             _update(scope, protocol)
 
-        assert excinfo.value.reason == 'turret_objective_unset'
+        assert (excinfo.value.reason, excinfo.value.title) == (
+            'turret_objective_unset',
+            'Step Not Saved',
+        )
         assert list(captured) == []
         assert _step(protocol) == before
 
@@ -140,7 +146,10 @@ class TestTheApiRefuses:
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             _update(scope, protocol, objective_id=None)
 
-        assert excinfo.value.reason == 'objective_unknown'
+        assert (excinfo.value.reason, excinfo.value.title) == (
+            'objective_unknown',
+            'Step Not Saved',
+        )
         assert list(captured) == []
         assert _step(protocol) == before
 
@@ -245,6 +254,9 @@ class TestAScriptUpdatesAStepThroughTheSession:
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             session.update_step(protocol, 0, layer='BF')
 
-        assert excinfo.value.reason == 'step_position_unknown'
+        assert (excinfo.value.reason, excinfo.value.title) == (
+            'step_position_unknown',
+            'Step Not Saved',
+        )
         assert list(captured) == []
         assert _step(protocol) == before

@@ -191,7 +191,7 @@ def test_a_press_starts_its_run_through_the_apis_runner(
 
 def test_a_refused_start_is_shown_once_and_the_button_draws_idle(app_ctx, engine, centre_posts):
     engine.prepare.side_effect = ProtocolRunRefusedError(
-        'already_running', 'Already Running', 'Another run is already in progress.'
+        'already_running', 'Another run is already in progress.'
     )
     panel = _Panel()
     panel.ids['run_scan_btn'].state = 'down'  # Kivy flips the toggle at touch-down
@@ -206,9 +206,7 @@ def test_a_refused_start_is_shown_once_and_the_button_draws_idle(app_ctx, engine
 
 
 def test_an_empty_protocol_is_the_engines_refusal_not_the_panels(app_ctx, engine, centre_posts):
-    engine.prepare.side_effect = ProtocolRunRefusedError(
-        'empty_protocol', 'No Steps', 'Protocol has no steps.'
-    )
+    engine.prepare.side_effect = ProtocolRunRefusedError('empty_protocol', 'Protocol has no steps.')
     panel = _Panel()
     panel._protocol.num_steps.return_value = 0
 
@@ -314,12 +312,12 @@ def test_a_refused_stop_leaves_every_button_showing_its_own_run(app_ctx, engine,
     panel._runs_started_here['protocol'] = theirs
     _live(engine, mine, theirs)
     engine._reset.side_effect = ProtocolRunRefusedError(
-        'run_not_live', 'Not Running', 'That run is not the one running.'
+        'run_not_live', 'That run is not the one running.'
     )
 
     panel.run_scan_from_ui()
 
-    assert [n.title for n in centre_posts] == ['Not Running']
+    assert [n.title for n in centre_posts] == ['Run Already Ended']
     assert panel.ids['run_scan_btn'].state == 'down'
     assert panel.ids['run_protocol_btn'].state == 'down'
 
@@ -465,7 +463,7 @@ def test_a_press_during_a_finished_runs_drain_is_the_engines_to_refuse(
     session.protocol_files_draining = True
     session.protocol_files_pending = 3
     engine.prepare.side_effect = ProtocolRunRefusedError(
-        'files_writing', 'Files Still Writing', 'The last run is still writing its files.'
+        'files_writing', 'The last run is still writing its files.'
     )
     panel = _Panel()
 

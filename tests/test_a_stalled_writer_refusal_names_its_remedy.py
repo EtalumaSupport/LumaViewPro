@@ -111,7 +111,6 @@ class TestTheReporterCarriesTheRemedyToItsListeners:
         # by the reporter it raised through, and is not shown again.
         refusal = ProtocolRunRefusedError(
             reason='files_writing_stalled',
-            title='File Writer Stalled',
             message='Recover it.',
             remedy=Remedy(member='recover_file_writer', confirm_text='Go', cancel_text='Wait'),
         )
@@ -130,9 +129,7 @@ class TestTheReporterCarriesTheRemedyToItsListeners:
         center.add_listener(heard.append, min_severity=Severity.DEBUG)
 
         center.report_outcome(
-            ProtocolRunRefusedError(
-                reason='files_writing', title='Files Still Writing', message='Wait.'
-            ),
+            ProtocolRunRefusedError(reason='files_writing', message='Wait.'),
             solicited=True,
             category='Protocol',
         )

@@ -124,7 +124,6 @@ def test_the_gui_boundary_delivers_a_funnel_refusal_during_an_unattended_run(
     def press():
         runner._refuse(
             reason='already_running',
-            title='Already Running',
             message='A protocol run is already in progress.',
         )
 
@@ -151,7 +150,6 @@ def test_a_funnel_refusal_outside_any_boundary_is_raised_and_posts_nothing(centr
     with pytest.raises(ProtocolRunRefusedError) as raised:
         runner._refuse(
             reason='already_running',
-            title='Already Running',
             message='A protocol run is already in progress.',
         )
 

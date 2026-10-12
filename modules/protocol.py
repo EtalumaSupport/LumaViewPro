@@ -112,7 +112,7 @@ def _read_only(value):
     return value
 
 
-def _refuse_build(*, reason: str, title: str, message: str) -> NoReturn:
+def _refuse_build(*, reason: str, message: str) -> NoReturn:
     """Raise a refused protocol build (a tile grid, a z-stack).
 
     Refused where the protocol is built, so the GUI, a script and REST are all
@@ -121,7 +121,7 @@ def _refuse_build(*, reason: str, title: str, message: str) -> NoReturn:
     Callers pass the reason as a literal, which is how the refusal census
     reads it.
     """
-    raise ProtocolRunRefusedError(reason=reason, title=title, message=message)
+    raise ProtocolRunRefusedError(reason=reason, message=message)
 
 
 def _refuse_unless_tiling_offered(tiling_config: TilingConfig, tiling: str) -> None:
@@ -134,7 +134,6 @@ def _refuse_unless_tiling_offered(tiling_config: TilingConfig, tiling: str) -> N
     if tiling not in tiling_config.available_configs():
         _refuse_build(
             reason='tiling_unknown',
-            title='Tiling Not Available',
             message=f'"{tiling}" is not one of the tiling grids this installation offers.',
         )
 
@@ -272,7 +271,6 @@ def _fill_factor_or_refuse(overlap_percent: object) -> float:
     if not 0.0 <= overlap_percent <= 50.0:
         _refuse_build(
             reason='overlap_out_of_range',
-            title='Tile Overlap Out of Range',
             message=f'The tile overlap must be 0 to 50 percent; {overlap_percent:g} is outside it.',
         )
     return TilingConfig.fill_factor_from_overlap_percent(overlap_percent)
@@ -294,7 +292,6 @@ def _refuse_unless_zstack_has_extent(zstack_params: dict) -> None:
     if zstack_params['range'] <= 0 or zstack_params['step_size'] <= 0:
         _refuse_build(
             reason='zstack_not_configured',
-            title='Z-Stack Not Configured',
             message=(
                 f'Z-stack range ({zstack_params["range"]}) and step size '
                 f'({zstack_params["step_size"]}) must both be greater than zero.'
@@ -346,7 +343,7 @@ def axes_outside_travel(
 
 
 def _refuse_positions_outside_travel(
-    *, reason: str, title: str, what: str, outside: dict[str, int], total: int, remedy: str
+    *, reason: str, what: str, outside: dict[str, int], total: int, remedy: str
 ) -> None:
     """Refuse a build if any of its new positions lie outside the stage's travel.
 
@@ -361,7 +358,6 @@ def _refuse_positions_outside_travel(
     names = common_utils.first_few(list(outside), separator=', ')
     _refuse_build(
         reason=reason,
-        title=title,
         message=(
             f"{count} of the {total} {what} fall outside the stage's travel "
             f'(steps: {names}).\n\n{remedy}'
@@ -390,7 +386,6 @@ def _axis_limits_or_refuse(axis_limits: dict, axes: tuple[str, ...], *, what: st
     if missing:
         _refuse_build(
             reason='positions_unreachable',
-            title='Position Not Reachable',
             message=(
                 f'This scope has no motor for {", ".join(missing)}, so {what} cannot be built.'
             ),
@@ -2116,7 +2111,6 @@ class Protocol:
             grid = f' ({current_tiling})' if current_tiling else ''
             _refuse_build(
                 reason='already_tiled',
-                title='Protocol Already Tiled',
                 message=(
                     f'This protocol is already tiled{grid}. Reload the '
                     f'original (untiled) protocol before changing the tiling.'
@@ -2145,7 +2139,6 @@ class Protocol:
         if unknown:
             _refuse_build(
                 reason='objective_not_in_catalogue',
-                title='Objective Not Known',
                 message=(
                     f'The protocol names {", ".join(unknown)}, which is not in this '
                     f"scope's objective catalogue, so its tile spacing cannot be worked out."
@@ -2261,7 +2254,6 @@ class Protocol:
 
         _refuse_positions_outside_travel(
             reason='tiles_outside_travel',
-            title='Tiles Outside Stage Travel',
             what='tiles',
             outside=outside,
             total=new_tiles,
@@ -2390,7 +2382,6 @@ class Protocol:
 
         _refuse_positions_outside_travel(
             reason='zslices_outside_travel',
-            title='Z-Stack Outside Z Travel',
             what='z-slices',
             outside=outside,
             total=new_slices,
@@ -2464,7 +2455,6 @@ class Protocol:
             if acquiring or not single_tile:
                 _refuse_build(
                     reason='objective_not_given',
-                    title='No Objective Given',
                     message=(
                         'Protocol steps and a tiling grid need an objective, '
                         'and the configuration names none.'
@@ -2570,7 +2560,6 @@ class Protocol:
                         else:
                             _refuse_build(
                                 reason='focus_not_given',
-                                title='No Focus Given',
                                 message=(
                                     f'No focus is saved for {layer_name} and the '
                                     'configuration names no current Z to image it at.'

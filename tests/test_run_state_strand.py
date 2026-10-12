@@ -159,7 +159,7 @@ class TestClaimRefusalLeavesNoState:
                     sequence_name='claim_refused_scan',
                     parent_dir=str(tmp_path),
                 )
-            assert excinfo.value.reason == 'exclusive_activity_running'
+            assert excinfo.value.reason == 'recording_active'
             # The refusal says busy-with-what: the holder's KIND rides
             # the payload (a recording has no trigger; its kind is the
             # whole answer).

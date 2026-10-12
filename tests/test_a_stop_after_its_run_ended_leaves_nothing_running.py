@@ -69,7 +69,6 @@ def test_a_stale_stop_while_another_run_is_live_is_one_warning(stop):
     runner = _runner_raising(
         ProtocolRunRefusedError(
             reason='run_not_live',
-            title='Run Already Ended',
             message='That run has already ended.',
             holder='protocol',
             holder_trigger='scan',

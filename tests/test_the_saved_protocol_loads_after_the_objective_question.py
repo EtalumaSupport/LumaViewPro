@@ -215,7 +215,6 @@ class TestARefusedStartupLoadIsShown:
 
         refusal = ProtocolRunRefusedError(
             reason='objective_not_mounted',
-            title='Objective Not Mounted',
             message='The protocol names an objective that is not mounted.',
         )
 

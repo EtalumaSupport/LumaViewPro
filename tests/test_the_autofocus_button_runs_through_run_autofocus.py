@@ -133,12 +133,12 @@ def test_the_button_starts_no_run_of_its_own(pressed):
 
 def test_a_refused_start_is_shown_once_and_the_button_draws_idle(pressed):
     pressed.member.run_autofocus.side_effect = ProtocolRunRefusedError(
-        reason='objective_unknown', title='Objective Unknown', message='m'
+        reason='autofocus_running', message='m'
     )
 
     pressed.button.run_autofocus_from_ui()
 
-    assert [n.title for n in pressed.posts] == ['Objective Unknown']
+    assert [n.title for n in pressed.posts] == ['Autofocus Running']
     assert (pressed.button.button.state, pressed.button.button.text) == ('normal', 'Autofocus')
     assert pressed.button.autofocus_pending is False, 'the button must come back for the next press'
 
@@ -197,12 +197,12 @@ def test_a_refused_stop_leaves_the_button_showing_its_own_run(pressed):
     pressed.button._autofocus_run = pressed.handle
     _live(pressed.engine, pressed.handle)
     pressed.engine._reset.side_effect = ProtocolRunRefusedError(
-        reason='run_not_live', title='Not Running', message='That run is not the one running.'
+        reason='run_not_live', message='That run is not the one running.'
     )
 
     pressed.button.run_autofocus_from_ui()
 
-    assert [n.title for n in pressed.posts] == ['Not Running']
+    assert [n.title for n in pressed.posts] == ['Run Already Ended']
     assert (pressed.button.button.state, pressed.button.button.text) == ('down', 'Focusing...')
 
 

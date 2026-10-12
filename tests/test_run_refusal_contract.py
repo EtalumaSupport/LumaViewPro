@@ -701,7 +701,8 @@ RUNNER_REFUSAL_COVERAGE = {
     'lid_open': _FUNNEL_LOOP,
     # Raised at start(), not prepare(), so it cannot ride the scenario
     # loop (which drives _prepare); it gets the start-tier twin below.
-    'exclusive_activity_running': ('test_start_refused_while_recording_holds_activity_claim'),
+    'recording_active': ('test_start_refused_while_recording_holds_activity_claim'),
+    'exclusive_activity_running': ('test_start_refused_while_a_diagnostic_holds_activity_claim'),
     # Raised at prepare() only for a composite run, so the SINGLE_SCAN
     # loop cannot reach it; its own class drives prepare() in that mode.
     'composite_needs_two_channels': (
@@ -898,7 +899,12 @@ class TestTheRefusalFunnel:
             )
         finally:
             recording.release()
-        assert excinfo.value.reason == 'exclusive_activity_running'
+        # A recording holding the scope is the recording's own condition,
+        # under the reason a recording start already uses for it.
+        assert (excinfo.value.reason, excinfo.value.title) == (
+            'recording_active',
+            'Recording Active',
+        )
         assert 'recording' in excinfo.value.message.lower(), (
             'the recording-holder branch must name the recording, not the '
             f'generic other-activity copy; got {excinfo.value.message!r}'

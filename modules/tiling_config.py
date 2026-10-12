@@ -204,7 +204,6 @@ class TilingConfig:
             # misaligned montage, which is worse than no tiling -- refuse.
             raise ProtocolRunRefusedError(
                 reason='tiling_scale_unknown',
-                title='Tiling Not Available',
                 message=(
                     'This microscope cannot report its pixel size, so the spacing of a '
                     'tile grid is unknown. Build the protocol without tiling (1x1).'

@@ -1232,7 +1232,8 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
     Attributes:
         reason: Machine-readable refusal code for callers that map
             refusals to responses (REST status codes, UI branches).
-        title: The heading shown above the sentence.
+        title: The heading shown above the sentence, the reason's
+            (``_TITLES``).
         message: The sentence; the same text as the exception's message.
         holder: What holds the microscope at refusal time
             ('protocol' or 'recording' for the exclusive-activity claim
@@ -1256,6 +1257,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
     causes: ClassVar[dict[str, RefusalCause]] = {
         'already_running': RefusalCause.STATE,
         'exclusive_activity_running': RefusalCause.STATE,
+        'recording_active': RefusalCause.STATE,
         'files_writing': RefusalCause.STATE,
         'files_writing_stalled': RefusalCause.STATE,
         'autofocus_running': RefusalCause.STATE,
@@ -1292,18 +1294,60 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'overlap_out_of_range': RefusalCause.REQUEST,
     }
 
+    # Keyed as ``causes`` is. The three step refusals share one heading: the
+    # step was not saved, whether it was being added or updated.
+    _TITLES: ClassVar[dict[str, str]] = {
+        'already_running': 'Already Running',
+        'exclusive_activity_running': 'Another Activity Running',
+        'recording_active': 'Recording Active',
+        'files_writing': 'Files Still Writing',
+        'files_writing_stalled': 'File Writer Stalled',
+        'autofocus_running': 'Autofocus Running',
+        'hardware_disconnected': 'Hardware Disconnected',
+        'camera_not_streaming': 'Camera Not Streaming',
+        'position_unknown': 'Scope Not Homed',
+        'lid_open': 'Lid Open',
+        'capture_location_unusable': 'Save Location Unusable',
+        'no_acquiring_layer': 'No Channel Set to Acquire',
+        'step_position_unknown': 'Step Not Saved',
+        'turret_objective_unset': 'Step Not Saved',
+        'turret_objectives_unassigned': 'Turret Configuration Required',
+        'objective_not_mounted': 'Objective Not Mounted',
+        'objective_unknown': 'Step Not Saved',
+        'run_not_live': 'Run Already Ended',
+        'sequence_name_invalid': 'Run Name Not Valid',
+        'empty_protocol': 'No Steps',
+        'validation_failed': 'Validation failed',
+        'composite_needs_two_channels': 'Not Enough Channels',
+        'tiling_unknown': 'Tiling Not Available',
+        'tiling_scale_unknown': 'Tiling Not Available',
+        'zstack_not_configured': 'Z-Stack Not Configured',
+        'already_tiled': 'Protocol Already Tiled',
+        'objective_not_in_catalogue': 'Objective Not Known',
+        'tiles_outside_travel': 'Tiles Outside Stage Travel',
+        'zslices_outside_travel': 'Z-Stack Outside Z Travel',
+        'positions_outside_travel': 'Positions Outside Stage Travel',
+        'camera_setting_out_of_range': 'Camera Setting Out of Range',
+        'positions_unreachable': 'Position Not Reachable',
+        'layer_not_on_scope': 'Layer Not on This Scope',
+        'objectives_require_turret': 'One Objective At A Time',
+        'objective_not_given': 'No Objective Given',
+        'focus_not_given': 'No Focus Given',
+        'overlap_out_of_range': 'Tile Overlap Out of Range',
+    }
+
     def __init__(
         self,
         reason: str,
-        title: str,
         message: str,
+        *,
         holder: 'str | None' = None,
         holder_trigger: 'str | None' = None,
         remedy: Remedy | None = None,
     ):
         super().__init__(message)
         self.reason = self._declared(reason)
-        self.title = title
+        self.title = self._TITLES[reason]
         self.message = message
         self.holder = holder
         self.holder_trigger = holder_trigger
@@ -1323,17 +1367,23 @@ class RunCheckFailedError(Fault, ProtocolError):
     it where its flight ends.
 
     Attributes:
-        reason: Machine-readable cause ('validation_crashed',
-            'hardware_state_unknown').
-        title: Short heading for the user.
+        reason: Machine-readable cause, one of ``_TITLES``' keys.
+        title: Short heading for the user, the reason's.
         message: The sentence a user reads; the same text as the
             exception's message.
     """
 
-    def __init__(self, reason: str, title: str, message: str):
+    _TITLES: ClassVar[dict[str, str]] = {
+        'validation_crashed': 'Cannot validate protocol',
+        'hardware_state_unknown': 'Cannot verify hardware state',
+    }
+
+    def __init__(self, reason: str, message: str):
+        if reason not in self._TITLES:
+            raise TypeError(f'RunCheckFailedError has no reason {reason!r}')
         super().__init__(message)
         self.reason = reason
-        self.title = title
+        self.title = self._TITLES[reason]
         self.message = message
 
 

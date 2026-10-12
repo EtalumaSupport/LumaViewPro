@@ -86,7 +86,10 @@ class TestTheApiRefuses:
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             _add(scope, protocol, _layer_configs(BF='image'), before_step=0)
 
-        assert excinfo.value.reason == 'turret_objective_unset'
+        assert (excinfo.value.reason, excinfo.value.title) == (
+            'turret_objective_unset',
+            'Step Not Saved',
+        )
         assert list(captured) == []
         assert protocol.num_steps() == 0
 
@@ -100,7 +103,10 @@ class TestTheApiRefuses:
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             _add(scope, protocol, _layer_configs(BF='image'), objective_id=None, before_step=0)
 
-        assert excinfo.value.reason == 'objective_unknown'
+        assert (excinfo.value.reason, excinfo.value.title) == (
+            'objective_unknown',
+            'Step Not Saved',
+        )
         # The objective in the light path becomes known on a home or a
         # select, so the same add can succeed later.
         assert excinfo.value.cause == RefusalCause.STATE
@@ -124,7 +130,10 @@ class TestTheApiRefuses:
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             _add(scope, protocol, _layer_configs(BF='image'), before_step=0)
 
-        assert excinfo.value.reason == 'step_position_unknown'
+        assert (excinfo.value.reason, excinfo.value.title) == (
+            'step_position_unknown',
+            'Step Not Saved',
+        )
         assert excinfo.value.message == (
             'Cannot add the step. Z is still homing; the Y position is unknown. '
             'Home the scope, then add the step.'

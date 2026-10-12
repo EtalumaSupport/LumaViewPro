@@ -159,7 +159,7 @@ class TestTheRunnerReadsTheClaim:
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             runner.prepare(**scr_run_kwargs())
 
-        assert excinfo.value.reason == 'exclusive_activity_running'
+        assert excinfo.value.reason == 'recording_active'
         assert excinfo.value.holder == 'recording'
         assert excinfo.value.holder_trigger is None, 'a recording has no trigger to name'
 

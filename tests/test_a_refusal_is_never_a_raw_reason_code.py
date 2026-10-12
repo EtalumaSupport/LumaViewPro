@@ -48,7 +48,6 @@ from modules.sequenced_capture_runner import RunHandle
 # Its words are the engine's; only the joined form is the bug.
 RUN_NOT_LIVE = ProtocolRunRefusedError(
     reason='run_not_live',
-    title='Run Already Ended',
     message='That run has already ended. A protocol run is using the microscope now.',
 )
 
@@ -164,7 +163,6 @@ class TestARefusedZStackTeardown:
 # why the assertion below is that NO popup appears, not that one does.
 ZSTACK_NO_RANGE = ProtocolRunRefusedError(
     reason='zstack_not_configured',
-    title='Z-Stack Not Configured',
     message='Z-stack range and step size must both be greater than zero.',
 )
 

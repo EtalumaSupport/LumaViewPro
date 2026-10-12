@@ -108,7 +108,7 @@ class TestBringUpIsHeard:
 class TestWhatASubscriberHears:
     def test_each_kind_arrives_declared(self, session):
         heard = _listening(session)
-        refusal = ProtocolRunRefusedError('empty_protocol', 'Protocol Empty', 'Add a step first.')
+        refusal = ProtocolRunRefusedError('empty_protocol', 'Add a step first.')
 
         notifications.report_outcome(refusal, solicited=True, category='Protocol')
         notifications.report_outcome(
@@ -120,7 +120,7 @@ class TestWhatASubscriberHears:
         notifications.warning('Camera', 'Raw', 'posted straight to the centre')
 
         assert [(n.title, n.kind) for n in heard] == [
-            ('Protocol Empty', OutcomeKind.REFUSAL),
+            ('No Steps', OutcomeKind.REFUSAL),
             ('Position Not Recorded', OutcomeKind.NOTICE),
             ('Operation failed', OutcomeKind.FAULT),
             ('Raw', OutcomeKind.UNCLASSIFIED),

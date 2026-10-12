@@ -789,7 +789,6 @@ class SequencedCaptureRunner:
                 holder = self._run_identity
                 self._refuse(
                     reason='run_not_live',
-                    title='Run Already Ended',
                     message=(
                         'That run has already ended. '
                         f'{the_run_named(holder, sentence_start=True)} '
@@ -934,7 +933,6 @@ class SequencedCaptureRunner:
         holder = self._run_identity
         self._refuse(
             reason='already_running',
-            title='Already Running',
             message=(
                 f'{the_run_named(holder, sentence_start=True)} is using the microscope. '
                 'Stop it from the control that started it, or let it finish.'
@@ -963,23 +961,26 @@ class SequencedCaptureRunner:
         it are one fact rather than two reads that can disagree.
         """
         kind = holder.kind if holder is not None else None
+        trigger = holder.run_trigger_source if holder is not None else None
+        # A recording holding the scope is its own condition, under the
+        # reason a recording start already uses for it.
         if kind == 'recording':
-            title = 'Recording Active'
-            message = (
-                'A video recording is in progress. Stop it or let it finish, then start the run.'
-            )
-        else:
-            title = 'Another Activity Running'
-            message = (
-                f'{the_holder_named(holder)} is using the microscope. '
-                'Let it finish, then start the run.'
+            self._refuse(
+                reason='recording_active',
+                message=(
+                    'A video recording is in progress. Stop it or let it finish, then start the run.'
+                ),
+                holder=kind,
+                holder_trigger=trigger,
             )
         self._refuse(
             reason='exclusive_activity_running',
-            title=title,
-            message=message,
+            message=(
+                f'{the_holder_named(holder)} is using the microscope. '
+                'Let it finish, then start the run.'
+            ),
             holder=kind,
-            holder_trigger=(holder.run_trigger_source if holder is not None else None),
+            holder_trigger=trigger,
         )
 
     @staticmethod
@@ -995,7 +996,6 @@ class SequencedCaptureRunner:
         """
         raise RunCheckFailedError(
             reason='hardware_state_unknown',
-            title='Cannot verify hardware state',
             message=(
                 f'Could not {what}: {type(ex).__name__}: {ex}. Reconnect the scope and try again.'
             ),
@@ -1004,8 +1004,8 @@ class SequencedCaptureRunner:
     def _refuse(
         self,
         reason: str,
-        title: str,
         message: str,
+        *,
         holder: 'str | None' = None,
         holder_trigger: 'str | None' = None,
         remedy: Remedy | None = None,
@@ -1019,7 +1019,6 @@ class SequencedCaptureRunner:
         """
         raise ProtocolRunRefusedError(
             reason=reason,
-            title=title,
             message=message,
             holder=holder,
             holder_trigger=holder_trigger,
@@ -1121,7 +1120,6 @@ class SequencedCaptureRunner:
                 self._refuse(
                     holder_trigger=self._last_run_trigger(),
                     reason='files_writing_stalled',
-                    title=FileWriterStalledError.title,
                     message=(
                         f'{stalled} Recover the file writer before starting a new run: '
                         f'{FileWriterStalledError.cost_sentence(unsaved)}'
@@ -1130,7 +1128,6 @@ class SequencedCaptureRunner:
                 )
             self._refuse(
                 reason='files_writing',
-                title='Files Still Writing',
                 message=(
                     f'{the_run_named(self._run_identity, sentence_start=True)} is still '
                     'writing its files. Please wait.'
@@ -1151,7 +1148,6 @@ class SequencedCaptureRunner:
         if in_flight_sweep is not None:
             self._refuse(
                 reason='autofocus_running',
-                title='Autofocus Running',
                 message=(
                     f'The autofocus sweep from {the_run_named(in_flight_sweep.run)} '
                     'did not stop when its run ended. Restart LumaViewPro if it '
@@ -1174,7 +1170,6 @@ class SequencedCaptureRunner:
                 )
                 self._refuse(
                     reason='composite_needs_two_channels',
-                    title='Not Enough Channels',
                     message=(
                         f'A composite combines at least {COMPOSITE_MIN_CHANNELS} channels, '
                         f'but {set_to_capture} set to capture an image. Turn on another '
@@ -1185,7 +1180,6 @@ class SequencedCaptureRunner:
         if protocol.num_steps() == 0:
             self._refuse(
                 reason='empty_protocol',
-                title='No Steps',
                 message='Protocol has no steps. Add at least one step before running.',
             )
 
@@ -1201,7 +1195,6 @@ class SequencedCaptureRunner:
             parts = named[0] if len(named) == 1 else f'{", ".join(named[:-1])} and {named[-1]}'
             self._refuse(
                 reason='hardware_disconnected',
-                title='Hardware Disconnected',
                 message=(
                     f'{parts[0].upper()}{parts[1:]} {"is" if len(named) == 1 else "are"} '
                     'not connected. Check connections and try again.'
@@ -1219,7 +1212,6 @@ class SequencedCaptureRunner:
         if not streaming:
             self._refuse(
                 reason='camera_not_streaming',
-                title='Camera Not Streaming',
                 message=(
                     'The camera is connected but is not delivering frames. Start its '
                     'live feed and try again.'
@@ -1241,7 +1233,6 @@ class SequencedCaptureRunner:
             # bad coordinates.
             raise RunCheckFailedError(
                 reason='validation_crashed',
-                title='Cannot validate protocol',
                 message=(
                     f'Pre-run validation could not run: {type(ex).__name__}: {ex}. '
                     f'Check the labware + objectives configuration and try again.'
@@ -1255,7 +1246,6 @@ class SequencedCaptureRunner:
                 err_summary += f'\n  ... and {len(validation_errors) - 5} more (see log)'
             self._refuse(
                 reason='validation_failed',
-                title='Validation failed',
                 message=(
                     f'Protocol has {len(validation_errors)} validation error(s):\n{err_summary}'
                 ),
@@ -1312,7 +1302,6 @@ class SequencedCaptureRunner:
             waiting = all(state == AxisState.HOMING for state in unknown_axes.values())
             self._refuse(
                 reason='position_unknown',
-                title='Scope Not Homed',
                 message=(
                     f'Cannot start the run: {describe_unknown_positions(unknown_axes)}. '
                     + (
@@ -1336,7 +1325,6 @@ class SequencedCaptureRunner:
         if 'lid_open' in open_interlocks:
             self._refuse(
                 reason='lid_open',
-                title='Lid Open',
                 message=(
                     "Cannot start the run: the microscope's lid is open. "
                     'Close it, then start the run.'
@@ -1371,7 +1359,6 @@ class SequencedCaptureRunner:
                     # reason hoisted into a local becomes invisible to the
                     # guard that makes the vocabulary a contract.
                     reason='capture_location_unusable',
-                    title='Save Location Unusable',
                     message=(
                         f'Cannot save this run to {parent_dir}: {location_problem}. '
                         'Reconnect the drive or choose an accessible save '
@@ -1391,7 +1378,6 @@ class SequencedCaptureRunner:
         ):
             self._refuse(
                 reason='sequence_name_invalid',
-                title='Run Name Not Valid',
                 message=(
                     f'Cannot start the run: its name {sequence_name!r} is a path, not a '
                     "name. Name it without '/', '\\', a drive or '..', then try again."

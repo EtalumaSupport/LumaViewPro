@@ -39,7 +39,6 @@ from modules.sequenced_capture_runner import RunHandle
 
 REFUSAL = ProtocolRunRefusedError(
     reason='already_running',
-    title='Run In Progress',
     message='A protocol run is using the microscope.',
 )
 

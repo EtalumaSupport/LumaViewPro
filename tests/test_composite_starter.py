@@ -119,7 +119,7 @@ def test_a_refused_start_is_shown_once_and_the_button_draws_idle(app_ctx, runner
     # The button changed nothing ahead of the engine's answer, so there is
     # nothing to undo: the redraw asks the engine, which has no live run.
     runner.start_composite.side_effect = ProtocolRunRefusedError(
-        'already_running', 'Already Running', 'Another run is already in progress.'
+        'already_running', 'Another run is already in progress.'
     )
     starter = _Starter()
 

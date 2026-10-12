@@ -51,7 +51,7 @@ def _drive_new_protocol(monkeypatch, *, tiling: str, use_zstacking: bool) -> dic
 
     def new_protocol(**choices):
         asked.update(choices)
-        raise ProtocolRunRefusedError(reason='zstack_not_configured', title='t', message='m')
+        raise ProtocolRunRefusedError(reason='zstack_not_configured', message='m')
 
     session = SimpleNamespace(new_protocol=new_protocol)
     monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(session=session))
@@ -129,7 +129,7 @@ def test_new_protocol_goes_ahead_while_a_finished_run_s_files_drain(monkeypatch)
     not refuse it: the drain is no reason for the GUI to say no."""
     session = SimpleNamespace(
         new_protocol=MagicMock(
-            side_effect=ProtocolRunRefusedError(reason='files_writing', title='t', message='m')
+            side_effect=ProtocolRunRefusedError(reason='files_writing', message='m')
         ),
         protocol_files_draining=True,
         protocol_files_stalled=False,

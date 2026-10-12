@@ -34,8 +34,7 @@ from tests.settings_fixtures import protocol_filepath_writer, settings_writer
 
 def _refusal():
     return ProtocolRunRefusedError(
-        reason='turret_objectives_unassigned',
-        title='Objective Not Available',
+        reason='objective_not_mounted',
         message='That objective is not on the turret.',
     )
 
@@ -112,7 +111,7 @@ class TestAddStep:
 
         panel.insert_step(after_current_step=True)
 
-        assert [n.title for n in centre_posts] == ['Objective Not Available']
+        assert [n.title for n in centre_posts] == ['Objective Not Mounted']
         assert panel.moves == [], 'a refused step has nowhere to go'
         assert panel.curr_step == 0
         assert panel.redraws == 1, 'the panel still shows its protocol as the API has it'
@@ -135,7 +134,7 @@ class TestModifyStep:
 
         panel.modify_step()
 
-        assert [n.title for n in centre_posts] == ['Objective Not Available']
+        assert [n.title for n in centre_posts] == ['Objective Not Mounted']
         assert panel.redraws == 1
 
 
@@ -159,7 +158,7 @@ class TestNewProtocol:
 
         panel.new_protocol()
 
-        assert [n.title for n in centre_posts] == ['Objective Not Available']
+        assert [n.title for n in centre_posts] == ['Objective Not Mounted']
         assert panel._protocol is previous
 
 

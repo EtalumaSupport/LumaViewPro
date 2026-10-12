@@ -182,7 +182,7 @@ class TestCompositeOutcomeIsObservable:
 
         runner = _runner()
         runner._executor.start.side_effect = ProtocolRunRefusedError(
-            'already_running', 'Run refused', 'Another run is already in progress.'
+            'already_running', 'Another run is already in progress.'
         )
 
         with pytest.raises(ProtocolRunRefusedError):

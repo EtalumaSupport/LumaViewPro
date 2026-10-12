@@ -28,7 +28,6 @@ def _refuse_through_the_runner():
     runner = object.__new__(SequencedCaptureRunner)
     runner._refuse(
         reason='already_running',
-        title='Already Running',
         message='A run is using the microscope.',
     )
 
@@ -39,7 +38,6 @@ def _refuse_through_the_protocols_api():
     api = object.__new__(ProtocolsAPI)
     api._refuse(
         reason='objective_not_mounted',
-        title='Objective Not On The Turret',
         message='The protocol names an objective no turret slot holds.',
     )
 
@@ -76,7 +74,7 @@ def test_a_funnel_refusal_is_one_warning_line_naming_its_reason(centre_posts, ca
 
 
 def test_a_refusals_words_are_its_sentence():
-    run = ProtocolRunRefusedError(reason='already_running', title='T', message='Stop it first.')
+    run = ProtocolRunRefusedError(reason='already_running', message='Stop it first.')
     recording = RecordingRefusedError(reason='camera_inactive', title='T', message='No camera.')
     for refusal in (run, recording):
         assert isinstance(refusal, Refusal)
@@ -100,7 +98,6 @@ def test_a_crashed_check_is_one_error_with_both_tracebacks(centre_posts, caplog)
         except OSError as crash:
             raise RunCheckFailedError(
                 reason='validation_crashed',
-                title='Cannot validate protocol',
                 message='Pre-run validation could not run.',
             ) from crash
     except RunCheckFailedError as raised:

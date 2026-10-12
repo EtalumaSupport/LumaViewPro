@@ -67,7 +67,7 @@ def _mixed(types):
 # test_the_factories_cover_every_mixed_type until it has a row here.
 _FACTORIES = {
     'LiveFolderPathRefusedError': lambda reason: LiveFolderPathRefusedError(reason, 'n', 'm'),
-    'ProtocolRunRefusedError': lambda reason: ProtocolRunRefusedError(reason, 't', 'm'),
+    'ProtocolRunRefusedError': lambda reason: ProtocolRunRefusedError(reason, 'm'),
     'HardwareCommandRefusedError': lambda reason: HardwareCommandRefusedError(reason, 'member'),
 }
 

@@ -375,7 +375,6 @@ class ProtocolsAPI:
         if not Protocol.layer_acquires(layer_configs[layer]):
             self._refuse(
                 reason='no_acquiring_layer',
-                title='No Channel Set to Acquire',
                 message=(
                     f'{layer} is not set to acquire, so there is no step to make. '
                     f'Set {layer} to Image or Video first.'
@@ -451,7 +450,6 @@ class ProtocolsAPI:
         if not self._scope.capabilities.has_focus:
             self._refuse(
                 reason='positions_unreachable',
-                title='Position Not Reachable',
                 message=f'This scope has no motor for Z, so it cannot {then}.',
             )
 
@@ -761,7 +759,6 @@ class ProtocolsAPI:
         drift apart: a step records where the scope is and which objective
         it is looking through, and either can be unknown.
         """
-        title = f'Protocol {verb.capitalize()} Step Error'
         # First, because a step is a saved position and ``plate_position``
         # is only as good as the axes it was read from: an axis that lost
         # its reference keeps answering the last number it reported, so the
@@ -774,7 +771,6 @@ class ProtocolsAPI:
         if unknown_axes:
             self._refuse(
                 reason='step_position_unknown',
-                title=title,
                 message=(
                     f'Cannot {verb} the step. '
                     + unknown_positions_sentence(unknown_axes, then=f'{verb} the step')
@@ -785,7 +781,6 @@ class ProtocolsAPI:
         ):
             self._refuse(
                 reason='turret_objective_unset',
-                title=title,
                 message=(
                     f'Cannot {verb} the step. Please set objective for current turret position.'
                 ),
@@ -793,7 +788,6 @@ class ProtocolsAPI:
         if objective_id is None:
             self._refuse(
                 reason='objective_unknown',
-                title=title,
                 message=(
                     f'Cannot {verb} the step: the objective in the light path is unknown, so '
                     'the step could not say which objective it was taken with.'
@@ -855,7 +849,6 @@ class ProtocolsAPI:
         if not any(Protocol.layer_acquires(cfg) for cfg in layer_configs.values()):
             self._refuse(
                 reason='no_acquiring_layer',
-                title='No Channel Set to Acquire',
                 message=(
                     'No channel is set to acquire, so there is no step to make. '
                     'Set a channel to Image or Video first.'
@@ -894,7 +887,6 @@ class ProtocolsAPI:
             scope = f"This scope's layers could not be resolved (model {identity.model})"
         self._refuse(
             reason='layer_not_on_scope',
-            title='Layer Not on This Scope',
             message=(
                 f'{scope}, so {len(absent)} step(s) cannot be run: {names}. '
                 f'Delete those steps, or open the protocol on a scope that has the layer.'
@@ -960,7 +952,6 @@ class ProtocolsAPI:
             if not named.issubset(carried):
                 self._refuse(
                     reason='turret_objectives_unassigned',
-                    title='Turret Configuration Required',
                     message=(
                         'This protocol uses objectives that are not assigned to turret '
                         f'positions.\n\nIt needs: {self._render(named)}\n'
@@ -971,7 +962,6 @@ class ProtocolsAPI:
         elif len(named) > 1:
             self._refuse(
                 reason='objectives_require_turret',
-                title='One Objective At A Time',
                 message=(
                     'This protocol changes objective between steps, and this scope has '
                     'no way to change it: the objective in the light path is the one '
@@ -993,7 +983,6 @@ class ProtocolsAPI:
                 )
                 self._refuse(
                     reason='objective_not_mounted',
-                    title='Objective Not Mounted',
                     message=(
                         f'This protocol was made for {self._render(named)}, and {mounted}.'
                         '\n\nSelect the mounted objective, or use a protocol made for it.'
@@ -1037,7 +1026,6 @@ class ProtocolsAPI:
             missing = ', '.join(axis for axis in ('X', 'Y', 'Z') if axis not in present)
             self._refuse(
                 reason='positions_unreachable',
-                title='Position Not Reachable',
                 message=(
                     f'This protocol needs the scope to move, and this scope has no motor for '
                     f'{missing}: {"; ".join(needed)}.\n\nUse a protocol whose steps are all at '
@@ -1089,7 +1077,6 @@ class ProtocolsAPI:
         if outside:
             self._refuse(
                 reason='positions_outside_travel',
-                title='Positions Outside Stage Travel',
                 message=(
                     f"{len(outside)} of the {len(steps)} steps fall outside the stage's travel "
                     f'({common_utils.first_few(outside, separator="; ")}).\n\nMove those steps '
@@ -1149,7 +1136,6 @@ class ProtocolsAPI:
         if problems:
             self._refuse(
                 reason='camera_setting_out_of_range',
-                title='Camera Setting Out of Range',
                 message=(
                     common_utils.first_few(problems, separator='\n')
                     + '\n\nEdit these steps to values this camera can take, then run again.'
@@ -1168,7 +1154,7 @@ class ProtocolsAPI:
         """
         return ', '.join(sorted(map(str, objective_ids)))
 
-    def _refuse(self, reason: str, title: str, message: str) -> typing.NoReturn:
+    def _refuse(self, reason: str, message: str) -> typing.NoReturn:
         """Raise the typed refusal.
 
         The single funnel this surface's refusals route through, so one
@@ -1180,4 +1166,4 @@ class ProtocolsAPI:
         in its place makes the refusal invisible to the census, which is how
         a reason ships with no coverage.
         """
-        raise ProtocolRunRefusedError(reason=reason, title=title, message=message)
+        raise ProtocolRunRefusedError(reason=reason, message=message)

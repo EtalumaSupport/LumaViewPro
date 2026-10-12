@@ -129,7 +129,7 @@ def test_the_stop_names_the_handle_the_member_returned(clicked):
 
 def test_a_refusal_is_shown_once_draws_idle_and_links_no_folder(clicked):
     clicked.runner.run_zstack.side_effect = ProtocolRunRefusedError(
-        reason='zstack_not_configured', title='Z-Stack Not Configured', message='m'
+        reason='zstack_not_configured', message='m'
     )
 
     clicked.starter.run_zstack_acquire_from_ui()
