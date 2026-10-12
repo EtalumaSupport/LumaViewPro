@@ -21,8 +21,9 @@ The lid. The LS720's deck lid is an input on the board, not an interlock the
 board enforces. As LumaView Classic did, every command that starts X or Y
 motion reads it first, in the one path every datagram takes and under the
 same lock as the command, a home's starts included; open, all three axes
-are stopped and the command is refused with ``MotionInterlockError``. Z
-moves with the lid open, and stopping is never gated.
+are stopped and the command is refused with ``MotionInterlockError``. An X
+or Y move already under way is checked on every arrival poll, and stopped
+the same way. Z moves with the lid open, and stopping is never gated.
 
 The datagram codec is here once, both directions: the simulated board
 (``drivers/simulated_tmcm6110.py``) decodes what this driver encodes.
@@ -583,10 +584,14 @@ class Tmcm6110Board:
 
         Raises:
             HardwareError: the board did not answer.
+            MotionInterlockError: X or Y is moving with the lid open; all
+                three axes were stopped (``moved=True``).
         """
         motor = self._motor(axis)
         with self._lock:
             if self._exchange(GAP, AP_ACTUAL_VELOCITY, motor) != 0:
+                if motor in LID_GATED_MOTORS and self._lid_open():
+                    self._refuse_for_lid(moved=True)
                 return False
             actual = self._exchange(GAP, AP_ACTUAL_POSITION, motor)
             return actual == self._exchange(GAP, AP_TARGET_POSITION, motor)

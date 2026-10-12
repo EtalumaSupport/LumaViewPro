@@ -1416,6 +1416,9 @@ scope.motion.start_move_relative('Z', 100).wait()
 # 'stage_unpowered' (title 'No Stage Power'; it refuses a home). The refused
 # axis did not move and its position stays known; an axis the stage stopped
 # in refusing it ends where it stopped, its position known, as after a Stop.
+# A lid opened while an X or Y move is under way stops all three axes: every
+# move in flight ends MoveStoppedError reason 'stopped', each axis where
+# it stopped, its position known; interlocks() says why.
 # stop_motion works with the lid open. A board with no interlocks (every
 # EL-0940 scope) never raises these.
 scope.motion.interlocks()                        # frozenset of open interlocks, e.g. {'lid_open'}; empty when none

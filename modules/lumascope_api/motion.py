@@ -1378,7 +1378,10 @@ class MotionAPI:
 
         Returns:
             bool: True when the motor board reports the axis at its target,
-            False when it reports the axis short of it.
+            False when it reports the axis short of it. An interlock found
+            open while the axis moved (the LS720's lid) stops the stage:
+            answered False, and that stop is a Stop, so every move in
+            flight ends ``'stopped'``.
 
         Raises:
             ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
@@ -1392,7 +1395,12 @@ class MotionAPI:
         """
         refuse_unknown_axis(axis)
         self._refuse_absent('get_target_status', axis)
-        return self._driver.target_status(axis)
+        try:
+            return self._driver.target_status(axis)
+        except MotionInterlockError as e:
+            self._note_interlock_stop(e)
+            _api_log.warning(f'{axis} moving with {e.reason}: the stage stopped every axis')
+            return False
 
     @api
     def get_limit_switch_status(self, axis: str) -> tuple[int, int]:
