@@ -108,7 +108,6 @@ _COMPUTED_PIN = {
     'tests/guards/test_architecture_fixes.py': 2,
     'tests/guards/test_every_ranged_setting_is_refused_and_replaced.py': 2,
     'tests/guards/test_every_refusal_declares_its_cause.py': 1,
-    'tests/guards/test_l2_surface_vocabulary.py': 1,
     'tests/test_a_camera_command_with_no_camera_is_refused.py': 3,
     'tests/test_a_cell_count_method_file_is_read_by_its_owner.py': 1,
     'tests/test_a_command_for_absent_motion_hardware_is_refused.py': 2,

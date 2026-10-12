@@ -27,8 +27,6 @@ if the old name comes back, not a one-time sweep.
 
 import ast
 
-import pytest
-
 from tests.ast_seams import iter_package_modules, parse_module
 
 PROD_PACKAGES = ('modules', 'ui')
@@ -59,18 +57,17 @@ def _retired_identifier_hits(tree: ast.AST) -> list[tuple[int, str]]:
     return hits
 
 
-@pytest.mark.parametrize(
-    'rel_path, tree',
-    list(iter_package_modules(PROD_PACKAGES)),
-    ids=lambda v: v if isinstance(v, str) else '',
-)
-def test_no_retired_l2_spelling_in_production(rel_path, tree):
-    hits = _retired_identifier_hits(tree)
+def test_no_retired_l2_spelling_in_production():
+    hits = [
+        (rel_path, line, name)
+        for rel_path, tree in iter_package_modules(PROD_PACKAGES)
+        for line, name in _retired_identifier_hits(tree)
+    ]
     assert not hits, '\n'.join(
         f'{rel_path}:{line} uses retired `{name}` -- the L2 surface spells this '
         f'`{RETIRED[name]}`. If this is driver vocabulary it belongs in drivers/, '
         f'not here.'
-        for line, name in hits
+        for rel_path, line, name in hits
     )
 
 
