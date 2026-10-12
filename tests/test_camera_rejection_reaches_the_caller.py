@@ -165,6 +165,11 @@ class TestARemovedCameraIsNotAValueRejection:
     looking exactly like a rejection. Both consequences name the wrong cause:
     the user is told to check that the value is within the camera limits, and
     an L2 caller gets ``CameraSettingRejected`` for a camera that is gone.
+
+    These pin today's answer, None with a "not connected" warning. Ruling K6
+    (``Firmware/docs/AUDIT_TEST_SUITE_OWNER_ROWS_2026-10-09.md``) refuses a
+    removed camera as an absent one, ``HardwareCommandRefusedError
+    ('not_connected')``, and the build of that ruling flips them.
     """
 
     def test_a_removed_camera_does_not_raise_a_rejection(self, sim_scope):
