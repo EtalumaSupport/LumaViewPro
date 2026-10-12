@@ -57,9 +57,9 @@ def test_tiling_overlap_percent_in_settings_schema():
 
 def test_the_modal_populating_the_overlap_is_not_a_pick(monkeypatch, caplog):
     """Opening Advanced Settings writes the stored overlap into the spinner,
-    which runs its handler; that is not a person's pick, so nothing is
-    recorded or written. A different overlap is a pick: recorded once, and
-    stored."""
+    which runs its handler; that writes nothing and records nothing. A
+    different overlap is stored, and the handler records nothing either: a
+    person's pick is recorded by the spinner itself, from the pick."""
     import logging
     from types import SimpleNamespace
 
@@ -87,7 +87,7 @@ def test_the_modal_populating_the_overlap_is_not_a_pick(monkeypatch, caplog):
         spinner.text = '20%'
         AdvancedSettings.update_tiling_overlap(panel)
 
-    assert _recorded() == ['SELECT TILING_OVERLAP 20.0']
+    assert _recorded() == []
     assert settings['tiling_overlap_percent'] == 20.0
 
 

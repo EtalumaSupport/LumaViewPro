@@ -98,7 +98,6 @@ class ZStack(FloatLayout):
         gui_logger.text_input(name, self.ids[widget_id].text)
 
     def set_position(self) -> None:
-        gui_logger.select('ZSTACK_REFERENCE_POSITION', self.ids['zstack_spinner'].text)
         _app_ctx.ctx.update_settings('zstack.position', self.ids['zstack_spinner'].text)
 
     def run_zstack_acquire_from_ui(self):

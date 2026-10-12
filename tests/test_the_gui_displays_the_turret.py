@@ -23,7 +23,6 @@ from modules.sequential_io_executor import ENQUEUED
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
-from ui.pick_spinner import PickSpinner
 from ui.vertical_control import VerticalControl
 
 ASSIGNED = {'1': '10x Oly', '2': '4x Oly', '3': None, '4': 'no such glass'}
@@ -191,14 +190,6 @@ class TestAPickReachesTheSessionOnce:
         assert stand.popups == []
         assert stand.ids['objective_spinner2'].text == 'Unknown'
         assert session.settings['turret_objectives'][3] is None
-
-    def test_the_spinner_reports_a_pick_without_taking_it(self):
-        spinner = SimpleNamespace(text='10x Oly', is_open=True, dispatched=[])
-        spinner.dispatch = lambda event, value: spinner.dispatched.append((event, value))
-        PickSpinner._on_dropdown_select(spinner, None, '20x Oly')
-        assert spinner.dispatched == [('on_pick', '20x Oly')]
-        assert spinner.text == '10x Oly'
-        assert spinner.is_open is False
 
 
 class TestResetClearsTheApisSlot:

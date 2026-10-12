@@ -35,7 +35,12 @@ before editing the roster.
 
 from __future__ import annotations
 
-from tests.gui_logging_census import LOAD_STRING_MODULES, census
+from tests.gui_logging_census import (
+    LOAD_STRING_MODULES,
+    census,
+    person_handlers_called_from_python,
+    person_records_on_value_changes,
+)
 from tests.ast_seams import REPO_ROOT
 
 
@@ -451,3 +456,70 @@ def test_an_accordion_item_that_records_nothing_is_reported(monkeypatch):
     assert items['Scratch.plain_item']['static'] == []
     assert items['Scratch.half_named_item']['static'] == []
     assert items['Scratch.named_item']['static'] == ['SETTINGS_SECTION']
+
+
+def test_no_person_record_is_written_on_a_value_change():
+    """A value change fires for the app's write as much as for a person's.
+
+    A ``SELECT`` / ``SLIDER`` / ``TOGGLE`` / ``BUTTON`` / ``TEXT_INPUT`` written
+    from ``on_text`` / ``on_value`` / ``on_active`` / ``on_state`` therefore
+    records a pick nobody made whenever the app writes the control -- the
+    startup restore, a redraw, a put-back. A person's record is written from
+    an event only a person raises (a spinner's pick, a slider's release, a
+    press). A handler that returns on ``self._initializing`` before its record
+    is the layer panel's, which writes its own controls with it set.
+    """
+    found = person_records_on_value_changes()
+    assert not found, (
+        f'{len(found)} value-change binding(s) write a person record: {found}. '
+        'Record the person from the pick or the release, not the value change.'
+    )
+
+
+# Callers that run only on a person's act though no kv binding names them.
+_PERSON_CALLERS = {
+    # A native file dialog's result: the person's pick, delivered by the OS
+    # dialog rather than a widget event; the pick's record, and the run it
+    # starts, are that person's.
+    'handle_selection': "the file dialog's result",
+    'on_selection_function': "the file dialog's result",
+}
+
+
+def test_the_app_never_calls_a_persons_handler():
+    """A function that writes a person record, called by the app, records a person who did nothing.
+
+    Matched by name over every Python call in ``ui/`` and ``lumaviewpro.py``
+    made from outside a person's path (a kv binding on a person-only event,
+    a widget's touch handler, or a caller in ``_PERSON_CALLERS``), so a new
+    caller fails here rather than in a bundle.
+    """
+    found = [
+        site
+        for site in person_handlers_called_from_python()
+        if site.split(' ')[1] not in _PERSON_CALLERS
+    ]
+    assert not found, (
+        f'{len(found)} call(s) of a person handler from app code: {found}. '
+        'Call the effect by its own name; the record belongs to the person.'
+    )
+
+
+def test_a_pick_spinner_that_names_no_record_is_reported(monkeypatch):
+    # The census's known positive for spinners: a PickSpinner with no
+    # log_name writes nothing from its pick.
+    import tests.gui_logging_census as gui_census
+
+    scratch = (
+        '<Scratch@BoxLayout>:\n'
+        '    PickSpinner:\n'
+        '        id: unnamed_spinner\n'
+        '        text_follows_pick: True\n'
+        '    PickSpinner:\n'
+        '        id: named_spinner\n'
+        "        log_name: 'TILING'\n"
+    )
+    monkeypatch.setattr(gui_census, 'kv_sources', lambda: [('scratch.kv', scratch)])
+    spinners = gui_census.pick_spinners()
+    assert spinners['Scratch.unnamed_spinner']['static'] == []
+    assert spinners['Scratch.named_spinner']['static'] == ['TILING']

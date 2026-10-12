@@ -118,14 +118,13 @@ def go_to_step_update_ui(step):
 
     # Open the ImageSettings panel so the step's settings are visible.
     # Act only when it is not already open: this runs on every step
-    # navigation, and the panel toggle is an expand/collapse handler,
-    # not an idempotent refresh -- re-invoking it on an already-open panel
-    # repeats the reposition + histogram rescheduling every step and logs a
-    # toggle line when nothing actually toggled.
+    # navigation, and placing the panel repeats the reposition + histogram
+    # rescheduling. The app opens it here, so the person's toggle handler,
+    # and its record, are not called.
     imagesettings_toggle = ctx.image_settings.ids['toggle_imagesettings']
     if imagesettings_toggle.state != 'down':
         imagesettings_toggle.state = 'down'
-        ctx.image_settings.toggle_settings()
+        ctx.image_settings.place_settings()
 
     # Expand the accordion to the step's channel. Direct
     # `collapse = False` on a single item doesn't propagate to siblings

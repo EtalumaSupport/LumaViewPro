@@ -275,8 +275,7 @@ class ProtocolSettings(FloatLayout):
         self._show_schedule()
 
         # The panel applying the plate it already shows, so the scope is on it
-        # even when no protocol loaded; not a user pick.
-        gui_logger.note_write_back('LABWARE', self.ids['labware_spinner'].text)
+        # even when no protocol loaded.
         self.select_labware()
         self.update_step_ui()
 
@@ -381,14 +380,12 @@ class ProtocolSettings(FloatLayout):
         logger.info('[LVP Main  ] ProtocolSettings.select_labware()')
         spinner = self.ids['labware_spinner']
         spinner.values = ctx.wellplate_loader.get_plate_list()
-        gui_logger.select('LABWARE', spinner.text)
 
         def _show_the_sessions_plate():
             # The write dispatches this handler again, which re-selects the
-            # plate in place: a no-op at the Session, and a record declared.
+            # plate in place: a no-op at the Session.
             plate = ctx.settings['protocol']['labware']
             if spinner.text != plate:
-                gui_logger.note_write_back('LABWARE', plate)
                 spinner.text = plate
 
         # An empty spinner (not yet populated at startup) names no plate, so
@@ -425,8 +422,7 @@ class ProtocolSettings(FloatLayout):
         labware_spinner.disabled = not visible
 
         if not visible:
-            # The app hides the choice and parks the spinner; not a user pick.
-            gui_logger.note_write_back('LABWARE', CENTER_PLATE)
+            # The app hides the choice and parks the spinner.
             labware_spinner.text = CENTER_PLATE
         else:
             # When labware selection comes back after a scope switch (e.g.
@@ -437,7 +433,6 @@ class ProtocolSettings(FloatLayout):
             wellplate_loader = ctx.wellplate_loader
             labware_spinner.values = wellplate_loader.get_plate_list()
             if saved_labware and saved_labware in labware_spinner.values:
-                gui_logger.note_write_back('LABWARE', saved_labware)
                 labware_spinner.text = saved_labware
 
     def apply_tiling(self) -> None:
@@ -725,11 +720,8 @@ class ProtocolSettings(FloatLayout):
 
         # The spinner shows the plate the Session put the scope on. A changed
         # text dispatches its select_labware, which re-selects that plate (a
-        # no-op at the Session) and logs it, so the write is declared; an
-        # equal text dispatches nothing, and a declaration left pending would
-        # swallow the person's next record of that plate.
+        # no-op at the Session).
         if self.ids['labware_spinner'].text != labware:
-            gui_logger.note_write_back('LABWARE', labware)
             self.ids['labware_spinner'].text = labware
         self.ids['capture_root'].text = self._protocol.capture_root()
 
@@ -989,9 +981,6 @@ class ProtocolSettings(FloatLayout):
             'PROTOCOL_DISABLE_IMAGE_SAVING',
             bool(self.ids['protocol_disable_image_saving_id'].active),
         )
-
-    def update_tiling_selection(self):
-        gui_logger.select('TILING', self.ids['tiling_size_spinner'].text)
 
     def get_curr_step(self):
         if self._protocol.num_steps() == 0:

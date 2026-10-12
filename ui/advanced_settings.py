@@ -247,10 +247,9 @@ class AdvancedSettings(Popup):
         ctx = _app_ctx.ctx
         overlap = float(self.ids['tiling_overlap_spinner'].text.strip().rstrip('%'))
         # on_open populates the spinner with the stored value; that programmatic
-        # write is not a user change, so skip the action log and redundant write.
+        # write is not a user change, so skip the redundant write.
         if overlap == ctx.settings['tiling_overlap_percent']:
             return
-        gui_logger.select('TILING_OVERLAP', overlap)
         run_reported(
             lambda: ctx.update_settings('tiling_overlap_percent', overlap),
             None,
@@ -276,7 +275,6 @@ class AdvancedSettings(Popup):
         # already in effect is not a scope change, so skip the reconfigure.
         if new_model == settings['microscope']:
             return
-        gui_logger.select('SCOPE', new_model)
         run_reported(
             lambda: ctx.session.select_model(new_model),
             self._show_saved_model,
@@ -433,7 +431,7 @@ kv = Builder.load_string(
                         size_hint_x: None
                         width: '110dp'
                         font_size: '12sp'
-                    Spinner:
+                    PickSpinner:
                         id: scope_spinner
                         disabled: app.run_lockout
                         sync_height: True
@@ -441,6 +439,8 @@ kv = Builder.load_string(
                         font_size: '12sp'
                         option_cls: 'SpinnerOption0'
                         on_release: root.load_scopes()
+                        log_name: 'SCOPE'
+                        text_follows_pick: True
                         on_text: root.select_scope()
 
                 BoxLayout:
@@ -735,7 +735,7 @@ kv = Builder.load_string(
                         valign: 'middle'
                         text_size: self.size
                         font_size: '12sp'
-                    Spinner:
+                    PickSpinner:
                         id: tiling_overlap_spinner
                         disabled: app.run_lockout
                         sync_height: True
@@ -748,6 +748,8 @@ kv = Builder.load_string(
                         option_cls: 'SpinnerOption0'
                         text_autoupdate: True
                         values: ('0%', '10%', '15%', '20%')
+                        log_name: 'TILING_OVERLAP'
+                        text_follows_pick: True
                         on_text: root.update_tiling_overlap()
                     # Kivy sizes a Spinner's dropdown to the Spinner itself, so
                     # the 65dp this carried clipped the option list rather than

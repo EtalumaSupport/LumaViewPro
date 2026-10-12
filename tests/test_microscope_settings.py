@@ -286,12 +286,6 @@ class _RecordingGuiLogger:
         self.calls = []
         self._ids = ids or {}
 
-    def note_write_back(self, name, value):
-        # The text the spinner holds when the declaration is made, so a test
-        # can tell a declaration before the write from one after it.
-        spinner = {'BINNING': 'binning_spinner', 'IMAGE_MODE': 'image_mode_spinner'}[name]
-        self.calls.append(('note_write_back', name, value, self._ids[spinner].text))
-
     def frame_size(self, width, height, binning_size):
         self.calls.append(('frame_size', width, height, binning_size))
 
@@ -341,21 +335,17 @@ class TestTheFramingRedrawShowsTheStore:
             'the framing the camera answered with is recorded once'
         )
 
-    def test_a_refused_pick_puts_the_selector_back_and_declares_it(self):
+    def test_a_refused_pick_puts_the_selector_back(self):
         # The Session refused the pick and stored nothing, so the selector
-        # goes back to the stored factor and the boxes to the stored frame;
-        # the selector write is the app's, declared before it dispatches.
+        # goes back to the stored factor and the boxes to the stored frame.
         settings = {'frame': {'width': 960, 'height': 600}, 'binning': {'size': '2x2'}}
-        applied, ids, log, _fov = self._make(settings, '8x8')
+        applied, ids, _log, _fov = self._make(settings, '8x8')
 
         applied()
 
         assert ids['binning_spinner'].text == '2x2'
         assert ids['frame_width_id'].text == '960'
         assert ids['frame_height_id'].text == '600'
-        assert ('note_write_back', 'BINNING', '2x2', '8x8') in log.calls, (
-            f'the selector restore was not declared before the write: {log.calls}'
-        )
 
     def _refresh_fov(self, scale_capabilities, monkeypatch, objective):
         """Run the refresh against a scope whose active objective is
@@ -626,13 +616,12 @@ class TestImageModeMirrorAgreesWithTheStore:
             )
             assert ids['image_mode_spinner'].text == image_mode_real.IMAGE_MODE_LABELS[stored]
 
-    def test_a_refused_format_puts_the_selector_back_and_declares_it(self):
+    def test_a_refused_format_puts_the_selector_back(self):
         # The Session refused 12-bit and stored nothing; the selector the
-        # person moved goes back to the stored mode, declared as the app's
-        # write before it dispatches.
+        # person moved goes back to the stored mode.
         import modules.image_mode as image_mode_real
 
-        redraw, _settings, scope_display, ids, log = self._make_redraw(
+        redraw, _settings, scope_display, ids, _log = self._make_redraw(
             '8bit', shown_mode='12bit_scientific'
         )
         scope_display.image_mode = '8bit'
@@ -641,10 +630,6 @@ class TestImageModeMirrorAgreesWithTheStore:
 
         assert ids['image_mode_spinner'].text == image_mode_real.IMAGE_MODE_LABELS['8bit']
         assert scope_display.image_mode == '8bit'
-        shown_12bit = image_mode_real.IMAGE_MODE_LABELS['12bit_scientific']
-        assert ('note_write_back', 'IMAGE_MODE', '8bit', shown_12bit) in log.calls, (
-            f'the selector restore was not declared before the write: {log.calls}'
-        )
 
 
 class TestTheFrameBoxesRecordWhatWasTyped:

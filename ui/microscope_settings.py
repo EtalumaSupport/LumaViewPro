@@ -223,15 +223,7 @@ class MicroscopeSettings(BoxLayout):
 
         # Pixel Binning -- UI recalculation only, scope.imaging.set_binning_size()
         # was applied by the Session's bring-up
-        # The twin of the labware restore below: writing the spinner
-        # dispatches its text event, and the explicit call emits again, so
-        # cold start recorded two binning selections nobody made. Declared
-        # twice because only one declaration is pending per name -- whichever
-        # emission happens consumes one, and the second replaces any the
-        # first left unconsumed.
-        gui_logger.note_write_back('BINNING', binning_size_str)
         self.ids['binning_spinner'].text = binning_size_str
-        gui_logger.note_write_back('BINNING', binning_size_str)
         self.select_binning_size()
 
         # The settings-to-scope bring-up ran in the Session before this
@@ -249,23 +241,13 @@ class MicroscopeSettings(BoxLayout):
             self.ids['enable_scale_bar_btn'].state = 'normal'
 
         protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
-        # Restoring the stored labware dispatches the spinner's event, and
-        # the explicit call below emits again -- neither is a user pick.
-        # Declared twice because only one declaration is pending per name:
-        # whichever of the two emissions happens consumes one, and the
-        # second declaration replaces any the first left unconsumed.
-        gui_logger.note_write_back('LABWARE', settings['protocol']['labware'])
         protocol_settings.ids['labware_spinner'].text = settings['protocol']['labware']
-        gui_logger.note_write_back('LABWARE', settings['protocol']['labware'])
         protocol_settings.select_labware()
         # Apply the persisted step-location view at startup; the toggle
         # that edits this now lives in Advanced Settings.
         ctx.stage.show_protocol_steps(enable=settings['show_step_locations'])
 
         zstack_settings = ctx.motion_settings.ids['verticalcontrol_id'].ids['zstack_id']
-        # Restoring the stored position dispatches the spinner's event, which
-        # would read as the user choosing it during startup.
-        gui_logger.note_write_back('ZSTACK_REFERENCE_POSITION', settings['zstack']['position'])
         zstack_settings.ids['zstack_spinner'].text = settings['zstack']['position']
         zstack_settings.ids['zstack_stepsize_id'].text = str(settings['zstack']['step_size'])
         zstack_settings.ids['zstack_range_id'].text = str(settings['zstack']['range'])
@@ -381,7 +363,6 @@ class MicroscopeSettings(BoxLayout):
         mode = image_mode.LABEL_TO_IMAGE_MODE.get(label)
         if mode is None:
             return  # 'Select' placeholder or an unknown label -- ignore
-        gui_logger.select('IMAGE_MODE', mode)
 
         # During app init, bring-up applies the stored format while the
         # camera start gate is still closed, and the spinner is only being
@@ -405,9 +386,6 @@ class MicroscopeSettings(BoxLayout):
         ctx.scope_display.image_mode = mode
         label = image_mode.IMAGE_MODE_LABELS[mode]
         if self.ids['image_mode_spinner'].text != label:
-            # The selector going back to the stored mode is the app's write,
-            # not a pick.
-            gui_logger.note_write_back('IMAGE_MODE', mode)
             self.ids['image_mode_spinner'].text = label
         self._refresh_binning_depth_hint()
         self._refresh_jpg_depth_hint()
@@ -415,10 +393,9 @@ class MicroscopeSettings(BoxLayout):
     def select_live_image_output_format(self):
         fmt = self.ids['live_image_output_format_spinner'].text
         # The settings load sets the spinner from the store, which fires this
-        # too; that is not a pick, so nothing is logged or written.
+        # too; that is not a pick, so nothing is written.
         if fmt == _app_ctx.ctx.settings['image_output_format']['live']:
             return
-        gui_logger.select('LIVE_IMAGE_OUTPUT_FORMAT', fmt)
         run_reported(
             lambda: _app_ctx.ctx.update_settings('image_output_format.live', fmt),
             None,
@@ -434,14 +411,22 @@ class MicroscopeSettings(BoxLayout):
         _app_ctx.ctx.update_settings('jpg_quality', quality)
         if 'jpg_quality_value_label' in self.ids:
             self.ids['jpg_quality_value_label'].text = str(quality)
-        gui_logger.slider('JPG_QUALITY', quality)
+
+    def record_jpg_quality(self, value):
+        """Record the quality a person set, on the slider's release.
+
+        The value change also fires when the settings load sets the slider,
+        so the record is written from the release, which only a person makes.
+        The quality drives no hardware, so recording it once the value has
+        landed loses nothing.
+        """
+        gui_logger.slider('JPG_QUALITY', int(value))
 
     def select_sequenced_image_output_format(self):
         fmt = self.ids['sequenced_image_output_format_spinner'].text
-        # As the live format: a spinner set from the store is not a pick.
+        # As the live format: a spinner set from the store writes nothing.
         if fmt == _app_ctx.ctx.settings['image_output_format']['sequenced']:
             return
-        gui_logger.select('SEQUENCED_IMAGE_OUTPUT_FORMAT', fmt)
         run_reported(
             lambda: _app_ctx.ctx.update_settings('image_output_format.sequenced', fmt),
             None,
@@ -450,7 +435,6 @@ class MicroscopeSettings(BoxLayout):
         self._refresh_jpg_depth_hint()
 
     def select_video_recording_format(self) -> None:
-        gui_logger.select('VIDEO_RECORDING_FORMAT', self.ids['video_recording_format_spinner'].text)
         as_frames = self.ids['video_recording_format_spinner'].text != 'mp4'
         _app_ctx.ctx.update_settings('video_as_frames', as_frames)
 
@@ -532,7 +516,6 @@ class MicroscopeSettings(BoxLayout):
     def select_binning_size(self):
         ctx = _app_ctx.ctx
         label = self.ids['binning_spinner'].text
-        gui_logger.select('BINNING', label)
 
         # During app init, bring-up applies the stored binning and frame;
         # the spinner is only being set from the store.
@@ -576,9 +559,6 @@ class MicroscopeSettings(BoxLayout):
         settings = _app_ctx.ctx.settings
         label = settings['binning']['size']
         if self.ids['binning_spinner'].text != label:
-            # The selector going back to the stored binning is the app's
-            # write, not a pick.
-            gui_logger.note_write_back('BINNING', label)
             self.ids['binning_spinner'].text = label
         self._write_frame_text(settings['frame']['width'], settings['frame']['height'])
         self._refresh_binning_depth_hint()

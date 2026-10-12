@@ -297,29 +297,23 @@ class TestLoad:
     ):
         """The stage redraws only on XY motion outside a run, so the adoption
         draws the new steps itself. The spinner showing the protocol's plate
-        is the app's write: a changed text dispatches the spinner's pick
-        handler, and that record is dropped; an equal text dispatches
-        nothing, and the person's next pick of that plate is recorded."""
+        is the app's write, and records no pick: a person's pick is recorded
+        by the spinner itself, from the pick."""
         opened = _protocol()
         opened.labware.return_value = '6 well microplate'
         ctx.session.open_protocol.return_value = opened
         monkeypatch.setattr(ps, 'reset_acquire_ui', lambda: None)
         monkeypatch.setattr(ps, 'reset_stim_ui', lambda: None)
-        monkeypatch.setattr(ps.gui_logger, '_write_backs', {})
         panel = _Panel(_protocol())
         panel.ids['labware_spinner'] = SimpleNamespace(text=shown_plate)
 
-        assert panel.load_protocol(filepath=str(tsv), navigate=True) is True
+        with caplog.at_level(logging.INFO, logger='LVP.gui_interactions'):
+            assert panel.load_protocol(filepath=str(tsv), navigate=True) is True
 
         assert panel.ids['labware_spinner'].text == '6 well microplate'
         ctx.stage.full_redraw.assert_called_once_with()
-        # The record the spinner's handler writes: the dispatch of a changed
-        # text, or, where the text was already the plate, the person's pick.
-        with caplog.at_level(logging.INFO, logger='LVP.gui_interactions'):
-            ps.gui_logger.select('LABWARE', '6 well microplate')
         recorded = [r.getMessage() for r in caplog.records if r.name == 'LVP.gui_interactions']
-        changed = shown_plate != '6 well microplate'
-        assert recorded == ([] if changed else ['SELECT LABWARE 6 well microplate']), recorded
+        assert not [line for line in recorded if line.startswith('SELECT')], recorded
 
     def test_the_adoption_only_draws(self):
         """Every write a Load makes is the Session's (``open_protocol``); the

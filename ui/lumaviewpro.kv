@@ -687,6 +687,7 @@
 			# a person's pick arrives as on_pick and reaches the Session, and
 			# the display follows the Session's answer.
 	        on_release: root.load_objectives()
+	        log_name: 'OBJECTIVE'
 	        on_pick: root.pick_objective(args[1])
 
 	RoundedButton:
@@ -780,7 +781,7 @@
 				text: '0'
 		        disabled: True
 
-	    Spinner:
+	    PickSpinner:
 			id: zstack_spinner
 			tooltip_text: 'Position to start Z-Stack'
 			sync_height: True
@@ -792,6 +793,8 @@
 			text_autoupdate: True
 			disabled: app.controls_locked
 			values: ('Current Position at Top', 'Current Position at Center', 'Current Position at Bottom')
+			log_name: 'ZSTACK_REFERENCE_POSITION'
+			text_follows_pick: True
 			on_text: root.set_position()
 			# values: ('Focus at Top', 'Focus at Center', 'Focus at Bottom', 'Current Position at Top', 'Current Position at Center', 'Current Position at Bottom')
 
@@ -1136,7 +1139,7 @@
 					font_size: '12sp'
 
 			# Select Labware
-			Spinner:
+			PickSpinner:
 				id: labware_spinner
 				disabled: app.run_lockout
 				tooltip_text: 'Select Labware to be used in the Protocol'
@@ -1153,6 +1156,8 @@
 				# 'New' KV default that bypassed the empty-text -> settings fallback
 				# in get_selected_labware() and crashed first-run before
 				# select_labware() could populate the spinner.
+				log_name: 'LABWARE'
+				text_follows_pick: True
 				on_text: root.select_labware()
 
 
@@ -1451,7 +1456,7 @@
 					font_size: '12sp'
 					
 				# Select tiling size
-				Spinner:
+				PickSpinner:
 					id: tiling_size_spinner
 					disabled: app.run_lockout
 					sync_height: True
@@ -1463,7 +1468,8 @@
 					option_cls: "SpinnerOption0"
 					text_autoupdate: True
 					values: ''
-					on_text: root.update_tiling_selection()
+					log_name: 'TILING'
+					text_follows_pick: True
 
 				RoundedButton:
 					id: tiling_size_apply_id
@@ -1876,9 +1882,10 @@
             size_hint_x: None
             width: '120dp'
 			
-		Spinner:
+		PickSpinner:
 			id: zprojection_method_spinner
-			on_text: root.log_zprojection_method()
+			log_name: 'ZPROJECTION_METHOD'
+			text_follows_pick: True
 			sync_height: True
 	        text: 'Select'
 			font_size:'12sp'
@@ -2412,7 +2419,7 @@
 					valign: 'middle'
 					text_size: self.size
 					font_size: '12sp'
-				Spinner:
+				PickSpinner:
 					id: live_image_output_format_spinner
 					disabled: app.run_lockout
 					sync_height: True
@@ -2420,6 +2427,8 @@
 					font_size:'12sp'
 					option_cls: "SpinnerOption0"
 					text_autoupdate: True
+					log_name: 'LIVE_IMAGE_OUTPUT_FORMAT'
+					text_follows_pick: True
 					on_text: root.select_live_image_output_format()
 					values: ('TIFF', 'OME-TIFF', 'JPG')
 
@@ -2434,7 +2443,7 @@
 					valign: 'middle'
 					text_size: self.size
 					font_size: '12sp'
-				Spinner:
+				PickSpinner:
 					id: sequenced_image_output_format_spinner
 					disabled: app.run_lockout
 					sync_height: True
@@ -2442,6 +2451,8 @@
 					font_size:'12sp'
 					option_cls: "SpinnerOption0"
 					text_autoupdate: True
+					log_name: 'SEQUENCED_IMAGE_OUTPUT_FORMAT'
+					text_follows_pick: True
 					on_text: root.select_sequenced_image_output_format()
 					values: ('TIFF', 'OME-TIFF', 'OME-TIFF Hyperstack', 'JPG')
 
@@ -2479,6 +2490,7 @@
 					value_track: True
 					value_track_width: dp(5)
 					on_value: root.update_jpg_quality(self.value)
+					on_release: root.record_jpg_quality(self.value)
 				Label:
 					id: jpg_quality_value_label
 					text: '90'
@@ -2497,7 +2509,7 @@
 					valign: 'middle'
 					text_size: self.size
 					font_size: '12sp'
-				Spinner:
+				PickSpinner:
 					id: video_recording_format_spinner
 					disabled: app.run_lockout
 					sync_height: True
@@ -2505,6 +2517,8 @@
 					font_size:'12sp'
 					option_cls: "SpinnerOption0"
 					text_autoupdate: True
+					log_name: 'VIDEO_RECORDING_FORMAT'
+					text_follows_pick: True
 					on_text: root.select_video_recording_format()
 					values: ('mp4', 'Frames')
 
@@ -2519,7 +2533,7 @@
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
-				Spinner:
+				PickSpinner:
 					id: image_mode_spinner
 					disabled: app.run_lockout
 					sync_height: True
@@ -2527,6 +2541,8 @@
 					font_size: '12sp'
 					option_cls: "SpinnerOption0"
 					on_release: root.load_image_modes()
+					log_name: 'IMAGE_MODE'
+					text_follows_pick: True
 					on_text: root.select_image_mode()
 
 			BoxLayout:
@@ -2558,7 +2574,7 @@
 					valign: 'middle'
 					text_size: self.size
 					font_size: '12sp'
-				Spinner:
+				PickSpinner:
 					id: binning_spinner
 					disabled: app.run_lockout or not root.camera_connected
 					sync_height: True
@@ -2570,6 +2586,8 @@
 					# .text to the alphabetically-first entry and fire on_text
 					# with the wrong selection.
 					on_release: root.load_binning_sizes()
+					log_name: 'BINNING'
+					text_follows_pick: True
 					on_text: root.select_binning_size()
 
 			BoxLayout:
@@ -3846,13 +3864,15 @@
 				font_size: '12sp'
 				halign: 'left'
 
-			Spinner:
+			PickSpinner:
 				id: graphing_x_axis_spinner
 				sync_height: True
 				size_hint_y: None
 				font_size: '12sp'
 				height: '30dp'
 				text: 'X-Axis'
+				log_name: 'GRAPHING_X_AXIS'
+				text_follows_pick: True
 				on_text: root.set_x_axis()
 
 		# Pad
@@ -3905,13 +3925,15 @@
 				font_size: '12sp'
 				halign: 'left'
 
-			Spinner:
+			PickSpinner:
 				id: graphing_y_axis_spinner
 				sync_height: True
 				size_hint_y: None
 				height: '30dp'
 				font_size: '12sp'
 				text: 'Y-Axis'
+				log_name: 'GRAPHING_Y_AXIS'
+				text_follows_pick: True
 				on_text: root.set_y_axis()
 
 		# Pad
@@ -3934,13 +3956,15 @@
 				font_size: '12sp'
 				halign: 'left'
 			
-			Spinner:
+			PickSpinner:
 				id: trendline_spinner
 				sync_height: True
 				size_hint_y: None
 				height: '30dp'
 				font_size: '12sp'
 				text: ''
+				log_name: 'TRENDLINE'
+				text_follows_pick: True
 				on_text: root.update_trendline()
 				values: ('None', 'Linear', 'Quadratic', 'Exponential', 'Power', 'Logarithmic')
 

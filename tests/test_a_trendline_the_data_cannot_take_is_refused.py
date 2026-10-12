@@ -203,7 +203,9 @@ def test_a_pick_the_data_cannot_take_is_refused_once_and_the_spinner_reads_none(
     assert isinstance(boundary[0][1], PostProcessingRefusedError)
     assert graph.fits == 1
     assert graph.ids.trendline_spinner.text == 'None'
-    assert records == [('TRENDLINE', 'Exponential')]
+    # The pick is recorded by the spinner itself; the handler, and the
+    # redraw's write back to None, record nothing.
+    assert records == []
 
 
 def test_an_axis_change_after_a_refused_pick_asks_for_no_fit_again(monkeypatch, boundary, records):
@@ -212,7 +214,7 @@ def test_an_axis_change_after_a_refused_pick_asks_for_no_fit_again(monkeypatch, 
     graph.ids.graphing_x_axis_spinner.text = 'perimeter'
     assert len(boundary) == 1
     assert graph._trendline is None
-    assert records == [('TRENDLINE', 'Exponential'), ('GRAPHING_X_AXIS', 'perimeter')]
+    assert records == []
 
 
 def test_a_pick_fits_once_and_an_axis_change_fits_once_more(monkeypatch, boundary, records):

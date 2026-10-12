@@ -185,15 +185,8 @@ class ZProjectionControls(BoxLayout):
         Clock.schedule_once(self._init_ui, 0)
 
     def _init_ui(self, dt=0):
-        # Each assignment below dispatches the spinner's text-change event, so
-        # populating this panel used to record two selections nobody made --
-        # setting .values snaps the text to the first option, then .text moves
-        # it to the default. Declared before each write, because the dispatch is
-        # synchronous and the record would otherwise already be out.
         methods = zprojector.ZProjector.methods()
-        gui_logger.note_write_back('ZPROJECTION_METHOD', methods[0])
         self.ids['zprojection_method_spinner'].values = methods
-        gui_logger.note_write_back('ZPROJECTION_METHOD', methods[1])
         self.ids['zprojection_method_spinner'].text = methods[1]
 
     @show_popup
@@ -214,19 +207,6 @@ class ZProjectionControls(BoxLayout):
             popup,
             'RUN_ZPROJECTION',
         )
-
-    def log_zprojection_method(self) -> None:
-        """Record a z-projection method selection.
-
-        Bound on the spinner's text change, which is what every other logged
-        spinner in this app uses. That event cannot see a re-selection of the
-        value already shown, and it does fire on the programmatic write this
-        panel makes while setting its options up, so a selection record
-        appears at app start. Both are properties of the event rather than of
-        this call, and both are fixed for every spinner at once when spinner
-        selection moves to the dropdown's own event.
-        """
-        gui_logger.select('ZPROJECTION_METHOD', self.ids['zprojection_method_spinner'].text)
 
 
 class CompositeGenControls(BoxLayout):
@@ -338,14 +318,13 @@ class GraphingControls(BoxLayout):
         self._redraw_graph()
 
     # Each spinner handler returns when the spinner shows what is already
-    # chosen: that is the redraw writing the stored choice back, not a person
-    # choosing, so it is neither logged nor fitted again.
+    # chosen: that is the redraw writing the stored choice back, so nothing is
+    # fitted again. A person's pick is recorded by the spinner itself.
 
     def set_x_axis(self):
         axis = self.ids['graphing_x_axis_spinner'].text
         if axis == (self.selected_x_axis or _NO_X_AXIS):
             return
-        gui_logger.select('GRAPHING_X_AXIS', axis)
         self.selected_x_axis = axis
         self.ids.x_axis_label_input.text = axis
         run_reported(self._fit_trendline, self._redraw_graph, 'GRAPHING_X_AXIS')
@@ -354,7 +333,6 @@ class GraphingControls(BoxLayout):
         axis = self.ids['graphing_y_axis_spinner'].text
         if axis == (self.selected_y_axis or _NO_Y_AXIS):
             return
-        gui_logger.select('GRAPHING_Y_AXIS', axis)
         self.selected_y_axis = axis
         self.ids.y_axis_label_input.text = axis
         run_reported(self._fit_trendline, self._redraw_graph, 'GRAPHING_Y_AXIS')
@@ -363,7 +341,6 @@ class GraphingControls(BoxLayout):
         kind = self.ids.trendline_spinner.text
         if kind == self._trendline_kind:
             return
-        gui_logger.select('TRENDLINE', kind)
         self._trendline_kind = kind
         run_reported(self._fit_trendline, self._redraw_graph, 'TRENDLINE')
 

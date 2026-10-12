@@ -254,7 +254,6 @@ def cold_start(tmp_path, monkeypatch, caplog):
         ),
     )
     monkeypatch.setattr(_app_ctx, 'ctx', ctx)
-    monkeypatch.setattr(gui_logger, '_write_backs', {})
     microscope = _Microscope()
     try:
         with caplog.at_level(logging.INFO, logger='LVP.gui_interactions'):

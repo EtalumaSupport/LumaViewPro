@@ -261,7 +261,6 @@ class VerticalControl(BoxLayout):
         -- is shown, and either way the display shows the API's answer, so
         a refused pick never stays on screen as if it had been taken.
         """
-        gui_logger.select('OBJECTIVE', objective_id)
         run_reported(
             lambda: _app_ctx.ctx.session.select_objective(objective_id),
             redraw=lambda: self.show_turret_state(prompt=False),

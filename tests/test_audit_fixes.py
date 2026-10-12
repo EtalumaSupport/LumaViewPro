@@ -3137,10 +3137,10 @@ class TestProtocolStepPanelToggleIdempotent:
     misleading 'toggle_settings' line -- roughly one per captured frame,
     ~15k across a long soak.
 
-    Fix: only open when the panel is not already open, so the expand/
-    collapse handler runs once when the preview opens it, not once per
-    step. toggle_settings() is an expand/collapse handler, not an
-    idempotent refresh, so it must be state-guarded at this call site.
+    Fix: only open when the panel is not already open, so the panel is
+    placed once when the preview opens it, not once per step.
+    place_settings() is not an idempotent refresh, so it must be
+    state-guarded at this call site.
     """
 
     def _body(self):
@@ -3154,19 +3154,18 @@ class TestProtocolStepPanelToggleIdempotent:
         return body if end == -1 else body[:end]
 
     def test_panel_toggle_guarded_by_state_check(self):
-        """The toggle_settings() call in go_to_step_update_ui must be
+        """The place_settings() call in go_to_step_update_ui must be
         guarded by a `state != 'down'` check so it fires once per preview,
         not once per protocol step."""
         body = self._body()
-        idx = body.find('toggle_settings()')
-        assert idx != -1, 'toggle_settings() call must exist in go_to_step_update_ui'
+        idx = body.find('place_settings()')
+        assert idx != -1, 'place_settings() call must exist in go_to_step_update_ui'
         guard_window = body[max(0, idx - 300) : idx]
         assert "!= 'down'" in guard_window, (
             'the ImageSettings panel toggle must be guarded by a '
-            "`state != 'down'` check so toggle_settings() runs once when the "
+            "`state != 'down'` check so place_settings() runs once when the "
             'preview opens the panel, not once per protocol step (avoids '
-            'per-step reposition + histogram churn and a misleading '
-            'toggle_settings log line)'
+            'per-step reposition + histogram churn)'
         )
 
 

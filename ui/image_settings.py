@@ -600,13 +600,17 @@ class ImageSettings(BoxLayout):
 
     # Hide (and unhide) main settings
     def toggle_settings(self):
-        if not _app_ctx.ctx.session.run_lockout:
-            self.update_transmitted()
+        """A person pressed the panel's tab: record it, then place the panel."""
         # State after toggle reflects target visibility -- 'normal' = settings
         # tab going invisible (panel collapsing to side), 'down' = expanding.
-        state_down = self.ids['toggle_imagesettings'].state == 'down'
-        gui_logger.toggle('IMAGE_SETTINGS_PANEL', state_down)
-        logger.info('[LVP Main  ] ImageSettings.toggle_settings()')
+        gui_logger.toggle('IMAGE_SETTINGS_PANEL', self.ids['toggle_imagesettings'].state == 'down')
+        self.place_settings()
+
+    def place_settings(self):
+        """Place the panel where its tab says: open beside the view, or folded to the side."""
+        if not _app_ctx.ctx.session.run_lockout:
+            self.update_transmitted()
+        logger.info('[LVP Main  ] ImageSettings.place_settings()')
         ctx = _app_ctx.ctx
         lumaview = ctx.lumaview
 

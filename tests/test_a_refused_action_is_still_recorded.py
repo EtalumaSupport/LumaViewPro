@@ -107,7 +107,15 @@ def test_a_binning_the_session_refuses_is_still_recorded(session, monkeypatch, c
     unoffered = max(offered) + 1
     microscope = _Microscope(f'{unoffered}x{unoffered}')
 
+    from ui.pick_spinner import PickSpinner
+
+    spinner = microscope.ids['binning_spinner']
+    # a stand-in by design: Kivy is stubbed in the test process; the pick's
+    # own path records, then the text it shows runs the handler as on_text does
+    spinner.log_name, spinner.text_follows_pick, spinner.is_open = 'BINNING', True, True
+    spinner.dispatch = lambda event, value: None
     with caplog.at_level(logging.INFO, logger=_GUI_LOG):
+        PickSpinner._on_dropdown_select(spinner, None, f'{unoffered}x{unoffered}')
         microscope.select_binning_size()
 
     assert [getattr(e, 'reason', e) for e in reported] == ['binning_unsupported']
