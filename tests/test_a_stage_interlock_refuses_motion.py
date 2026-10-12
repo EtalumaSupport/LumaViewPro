@@ -38,6 +38,7 @@ from modules.exceptions import (
 from modules.lumascope_api import AxisState
 from modules.sequential_io_executor import IOTask
 from tests.scope_fakes import build_scope, home_sim_scope
+from tests.case_walk import failing_cases
 
 LID_WORDS = "The microscope's lid is open. Close it to move or home the stage."
 POWER_WORDS = "The stage has no power. Check the stage's power supply, then home."
@@ -154,19 +155,22 @@ class TestAMoveTheLidRefuses:
 
 
 class TestAHomeTheInterlockRefuses:
-    @pytest.mark.parametrize('reason', sorted(INTERLOCK_REASONS))
     @pytest.mark.parametrize('route, call', [('ALL', 'home'), ('Z', 'zhome')])
     def test_before_anything_moved_is_refused_and_every_axis_keeps_its_state(
-        self, scope, monkeypatch, reason, route, call
+        self, scope, monkeypatch, route, call
     ):
-        before = {axis: scope.motion.get_axis_state(axis) for axis in scope.capabilities.axes}
-        monkeypatch.setattr(scope._motion_driver, call, _refuse(reason, stopped=False))
+        def check(reason):
+            before = {axis: scope.motion.get_axis_state(axis) for axis in scope.capabilities.axes}
+            monkeypatch.setattr(scope._motion_driver, call, _refuse(reason, stopped=False))
 
-        with pytest.raises(HardwareCommandRefusedError) as raised:
-            scope.motion.home(route)
+            with pytest.raises(HardwareCommandRefusedError) as raised:
+                scope.motion.home(route)
 
-        assert (raised.value.reason, raised.value.member) == (reason, 'home')
-        assert {axis: scope.motion.get_axis_state(axis) for axis in before} == before
+            assert (raised.value.reason, raised.value.member) == (reason, 'home')
+            assert {axis: scope.motion.get_axis_state(axis) for axis in before} == before
+
+        failed = failing_cases(sorted(INTERLOCK_REASONS), check)
+        assert not failed, failed
 
     def test_a_turret_keeps_its_slot(self, monkeypatch):
         scope = home_sim_scope(

@@ -33,6 +33,7 @@ import subprocess
 import sys
 
 import pytest
+from tests.case_walk import failing_cases
 
 EXAMPLES_DIR = pathlib.Path(__file__).resolve().parents[1] / 'docs' / 'api_examples'
 # Derived from the directory, never hand-listed: a roster has to be
@@ -117,41 +118,49 @@ def test_the_derived_corpus_is_not_empty():
     assert EXAMPLES, f'no examples found under {EXAMPLES_DIR}'
 
 
-@pytest.mark.parametrize('name', EXAMPLES)
-def test_every_example_obtains_a_scope_session(name):
+def test_every_example_obtains_a_scope_session():
     """The layer rule: an L2 caller reaches the instrument through the
     Session. An example that never names ScopeSession is teaching a
     reader to skip it."""
-    calls = _scope_session_calls(EXAMPLES_DIR / f'{name}.py')
-    assert calls, (
-        f'{name}.py never calls a ScopeSession member, so it demonstrates '
-        'reaching the scope without the Session layer an L2 caller is '
-        'required to come through. Build the session from the supported '
-        'factory and take the composition root from session.scope.'
-    )
+
+    def check(name):
+        calls = _scope_session_calls(EXAMPLES_DIR / f'{name}.py')
+        assert calls, (
+            f'{name}.py never calls a ScopeSession member, so it demonstrates '
+            'reaching the scope without the Session layer an L2 caller is '
+            'required to come through. Build the session from the supported '
+            'factory and take the composition root from session.scope.'
+        )
+
+    failed = failing_cases(EXAMPLES, check)
+    assert not failed, failed
 
 
-@pytest.mark.parametrize('name', EXAMPLES)
-def test_every_session_call_resolves_and_binds(name):
+def test_every_session_call_resolves_and_binds():
     """The member an example names exists on the live class and accepts the
     arguments the example passes it -- resolution, not spelling, so a
     renamed factory is caught here instead of in a customer's terminal."""
-    from modules.scope_session import ScopeSession
 
-    failures = []
-    for member, nargs, kwnames, lineno in _scope_session_calls(EXAMPLES_DIR / f'{name}.py'):
-        target = getattr(ScopeSession, member, None)
-        if target is None or not callable(target):
-            failures.append(f'  {name}.py:{lineno}  ScopeSession.{member} does not resolve')
-            continue
-        try:
-            inspect.signature(target).bind(
-                *(_SENTINEL,) * nargs, **dict.fromkeys(kwnames, _SENTINEL)
-            )
-        except TypeError as exc:
-            failures.append(f'  {name}.py:{lineno}  ScopeSession.{member}(...) -> {exc}')
+    def check(name):
+        from modules.scope_session import ScopeSession
 
-    assert not failures, (
-        'A shipped example calls a ScopeSession member the live class will not '
-        'accept. Correct the EXAMPLE to match the signature.\n' + '\n'.join(failures)
-    )
+        failures = []
+        for member, nargs, kwnames, lineno in _scope_session_calls(EXAMPLES_DIR / f'{name}.py'):
+            target = getattr(ScopeSession, member, None)
+            if target is None or not callable(target):
+                failures.append(f'  {name}.py:{lineno}  ScopeSession.{member} does not resolve')
+                continue
+            try:
+                inspect.signature(target).bind(
+                    *(_SENTINEL,) * nargs, **dict.fromkeys(kwnames, _SENTINEL)
+                )
+            except TypeError as exc:
+                failures.append(f'  {name}.py:{lineno}  ScopeSession.{member}(...) -> {exc}')
+
+        assert not failures, (
+            'A shipped example calls a ScopeSession member the live class will not '
+            'accept. Correct the EXAMPLE to match the signature.\n' + '\n'.join(failures)
+        )
+
+    failed = failing_cases(EXAMPLES, check)
+    assert not failed, failed

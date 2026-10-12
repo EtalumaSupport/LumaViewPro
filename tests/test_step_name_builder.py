@@ -30,6 +30,7 @@ from modules.common_utils import (
     build_step_name,
     parse_legacy_step_name,
 )
+from tests.case_walk import failing_cases
 
 _KNOWN_LAYERS = ['Blue', 'Green', 'Red', 'BF', 'PC', 'DF', 'Lumi']
 _KNOWN_OBJECTIVES = ['10x', '4x', '20x']
@@ -94,15 +95,18 @@ class TestCanonicalOutput:
 
 
 class TestRoundTrip:
-    @pytest.mark.parametrize('c', _FRESH_CASES)
-    def test_build_parse_build_is_identity(self, c):
-        name = build_step_name(c)
-        reparsed = parse_legacy_step_name(
-            name, known_layers=_KNOWN_LAYERS, known_objectives=_KNOWN_OBJECTIVES
-        )
-        assert build_step_name(reparsed) == name, (
-            f'round-trip changed {name!r} -> {build_step_name(reparsed)!r}'
-        )
+    def test_build_parse_build_is_identity(self):
+        def check(c):
+            name = build_step_name(c)
+            reparsed = parse_legacy_step_name(
+                name, known_layers=_KNOWN_LAYERS, known_objectives=_KNOWN_OBJECTIVES
+            )
+            assert build_step_name(reparsed) == name, (
+                f'round-trip changed {name!r} -> {build_step_name(reparsed)!r}'
+            )
+
+        failed = failing_cases(_FRESH_CASES, check)
+        assert not failed, failed
 
     def test_parse_classifies_a_full_name(self):
         c = parse_legacy_step_name(

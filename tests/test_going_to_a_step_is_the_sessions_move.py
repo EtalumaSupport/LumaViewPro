@@ -32,6 +32,7 @@ from tests.ast_seams import REPO_ROOT, parse_module, production_modules, walk_de
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
+from tests.case_walk import failing_cases
 
 _PLATE = '96 well microplate'
 _OTHER_PLATE = 'Four-Slide Holder'
@@ -248,13 +249,16 @@ class TestOneTargetComputation:
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
         }
 
-    @pytest.mark.parametrize('caller', _CALLERS)
-    def test_a_step_mover_takes_its_targets_from_the_protocols_api(self, caller):
-        called = self._called_attrs(parse_module(caller))
-        assert 'step_targets' in called, f'{caller} does not call step_targets'
-        assert 'get_turret_position_for_objective_id' not in called, (
-            f'{caller} looks a turret slot up itself'
-        )
+    def test_a_step_mover_takes_its_targets_from_the_protocols_api(self):
+        def check(caller):
+            called = self._called_attrs(parse_module(caller))
+            assert 'step_targets' in called, f'{caller} does not call step_targets'
+            assert 'get_turret_position_for_objective_id' not in called, (
+                f'{caller} looks a turret slot up itself'
+            )
+
+        failed = failing_cases(self._CALLERS, check)
+        assert not failed, failed
 
     def test_the_session_converts_no_plate_coordinate_itself(self):
         called = self._called_attrs(parse_module('modules/scope_session.py'))

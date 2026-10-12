@@ -41,6 +41,7 @@ import pytest
 
 from modules import common_utils
 from modules.common_utils import check_disk_space_ok
+from tests.case_walk import failing_cases
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -161,20 +162,26 @@ SITES = {
 }
 
 
-@pytest.mark.parametrize('relpath, needle', list(SITES.items()))
-def test_site_uses_helper(relpath, needle):
-    # pin-justified: structural cross-site guard that all three callers use
-    # the one canonical helper; the disk-abort behavior itself has a
-    # behavioral twin (test_protocol_image_writer_disk_exhaustion_aborts),
-    # and the main_display caller is Kivy-bound (no headless drive).
-    src = (REPO / relpath).read_text()
-    assert needle in src, f'{relpath} no longer calls {needle}; the consolidated probe is gone'
+def test_site_uses_helper():
+    def check(relpath, needle):
+        # pin-justified: structural cross-site guard that all three callers use
+        # the one canonical helper; the disk-abort behavior itself has a
+        # behavioral twin (test_protocol_image_writer_disk_exhaustion_aborts),
+        # and the main_display caller is Kivy-bound (no headless drive).
+        src = (REPO / relpath).read_text()
+        assert needle in src, f'{relpath} no longer calls {needle}; the consolidated probe is gone'
+
+    failed = failing_cases(list(SITES.items()), check)
+    assert not failed, failed
 
 
-@pytest.mark.parametrize('relpath', list(SITES.keys()))
-def test_site_no_longer_calls_shutil_disk_usage(relpath):
-    src = (REPO / relpath).read_text()
-    assert 'shutil.disk_usage' not in src, (
-        f'{relpath} still calls shutil.disk_usage; this is exactly the '
-        'Windows-disagree-with-psutil case the consolidation prevents'
-    )
+def test_site_no_longer_calls_shutil_disk_usage():
+    def check(relpath):
+        src = (REPO / relpath).read_text()
+        assert 'shutil.disk_usage' not in src, (
+            f'{relpath} still calls shutil.disk_usage; this is exactly the '
+            'Windows-disagree-with-psutil case the consolidation prevents'
+        )
+
+    failed = failing_cases(list(SITES.keys()), check)
+    assert not failed, failed

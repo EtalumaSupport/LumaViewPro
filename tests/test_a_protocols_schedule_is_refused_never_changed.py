@@ -31,6 +31,7 @@ from modules.protocol import Protocol, ProtocolScheduleRefusedError, schedule_fr
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
+from tests.case_walk import failing_cases
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 TILING = REPO / 'data' / 'tiling.json'
@@ -89,10 +90,13 @@ class TestTheProtocolsWriter:
 
 
 class TestTheConstructors:
-    @pytest.mark.parametrize('period, duration', [*UNRUNNABLE, NOT_A_TIME])
-    def test_a_protocol_built_with_an_unrunnable_schedule_is_refused(self, period, duration):
-        with pytest.raises(ProtocolScheduleRefusedError):
-            _protocol(period, duration)
+    def test_a_protocol_built_with_an_unrunnable_schedule_is_refused(self):
+        def check(period, duration):
+            with pytest.raises(ProtocolScheduleRefusedError):
+                _protocol(period, duration)
+
+        failed = failing_cases([*UNRUNNABLE, NOT_A_TIME], check)
+        assert not failed, failed
 
     def test_a_file_carrying_a_half_second_period_is_refused_naming_the_file(self, tmp_path):
         path = tmp_path / 'short.tsv'

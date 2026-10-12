@@ -29,6 +29,7 @@ import pytest
 
 from modules.notification_center import NotificationCenter, Severity, notifications
 from modules.protocol_state_machine import SequencedCaptureRunMode
+from tests.case_walk import failing_cases
 
 
 # --------------------------------------------------------------------------
@@ -120,15 +121,18 @@ def test_a_run_under_a_borrowed_claim_is_unattended(monkeypatch):
     assert opened == [False]
 
 
-@pytest.mark.parametrize(
-    ('run_mode', 'leds_state_at_end'),
-    [(mode, 'return_to_original' if attended else 'off') for mode, _, attended in _RUN_KINDS],
-    ids=lambda v: v.value if isinstance(v, SequencedCaptureRunMode) else v,
-)
-def test_the_same_declaration_decides_how_the_leds_are_left(run_mode, leds_state_at_end):
+def test_the_same_declaration_decides_how_the_leds_are_left():
     """A one-position run hands the LEDs back as it found them; a plate
     traverse ends dark. One fact about the run, read in one place."""
-    assert run_mode.leds_state_at_end == leds_state_at_end
+
+    def check(run_mode, leds_state_at_end):
+        assert run_mode.leds_state_at_end == leds_state_at_end
+
+    failed = failing_cases(
+        [(mode, 'return_to_original' if attended else 'off') for mode, _, attended in _RUN_KINDS],
+        check,
+    )
+    assert not failed, failed
 
 
 # --------------------------------------------------------------------------

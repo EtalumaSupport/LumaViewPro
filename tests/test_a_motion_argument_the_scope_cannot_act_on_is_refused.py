@@ -20,6 +20,7 @@ import pytest
 
 from modules.exceptions import ArgumentRefusedError, RefusalCause
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
+from tests.case_walk import failing_cases
 
 EVERY_AXIS = ('X', 'Y', 'Z', 'T')
 
@@ -68,14 +69,17 @@ def _motion_state(scope):
 NO_AXIS = [(member, name) for member in AXIS_MEMBERS for name in ('Q', 'x')]
 
 
-@pytest.mark.parametrize('member, name', NO_AXIS)
-def test_a_name_that_is_no_axis_is_refused_and_nothing_moves(scope, member, name):
-    before = _motion_state(scope)
+def test_a_name_that_is_no_axis_is_refused_and_nothing_moves(scope):
+    def check(member, name):
+        before = _motion_state(scope)
 
-    refusal = _refused(lambda: AXIS_MEMBERS[member](scope, name), 'axis_unknown')
+        refusal = _refused(lambda: AXIS_MEMBERS[member](scope, name), 'axis_unknown')
 
-    assert (refusal.argument, refusal.value, refusal.offered) == ('axis', name, EVERY_AXIS)
-    assert _motion_state(scope) == before
+        assert (refusal.argument, refusal.value, refusal.offered) == ('axis', name, EVERY_AXIS)
+        assert _motion_state(scope) == before
+
+    failed = failing_cases(NO_AXIS, check)
+    assert not failed, failed
 
 
 @pytest.mark.parametrize('name', ['X', 'all', 'z'])

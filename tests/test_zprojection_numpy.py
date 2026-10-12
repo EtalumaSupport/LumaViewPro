@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from modules.zprojection import ZProjectMethod, zproject
+from tests.case_walk import failing_cases
 
 
 def _stack(frames, dtype):
@@ -88,12 +89,15 @@ def test_stddev_known_value():
 
 
 @pytest.mark.parametrize('dtype', [np.uint8, np.uint16])
-@pytest.mark.parametrize('method', list(ZProjectMethod))
-def test_output_dtype_matches_input(dtype, method):
-    frames = _stack([[[10, 20], [30, 40]], [[15, 25], [35, 45]]], dtype)
-    result = zproject(frames, method)
-    expected = np.uint16 if method == ZProjectMethod.Sum else dtype
-    assert result.dtype == expected
+def test_output_dtype_matches_input(dtype):
+    def check(method):
+        frames = _stack([[[10, 20], [30, 40]], [[15, 25], [35, 45]]], dtype)
+        result = zproject(frames, method)
+        expected = np.uint16 if method == ZProjectMethod.Sum else dtype
+        assert result.dtype == expected
+
+    failed = failing_cases(list(ZProjectMethod), check)
+    assert not failed, failed
 
 
 def test_empty_input_returns_none():

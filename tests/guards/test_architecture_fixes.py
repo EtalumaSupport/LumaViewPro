@@ -19,7 +19,6 @@ import os
 from typing import ClassVar
 
 import numpy as np
-import pytest
 
 from tests.ast_seams import REPO_ROOT
 
@@ -84,41 +83,27 @@ class TestLayerViolations:
     new files added under those directories are checked automatically.
     """
 
-    @pytest.mark.parametrize(
-        'driver_path',
-        _DRIVERS_FILES,
-        ids=lambda p: os.path.basename(p),
-    )
-    def test_drivers_no_toplevel_modules_or_ui_import(self, driver_path):
+    def test_drivers_no_toplevel_modules_or_ui_import(self):
         """drivers/ must not import from modules/ or ui/ (Rule 1: drivers
         are below both). Shared utilities go in lib/ (e.g. lib/profile_trace).
         """
-        violations = _check_no_toplevel_imports(
-            driver_path,
-            ('modules.', 'ui.'),
-        )
-        assert not violations, (
-            f'{os.path.basename(driver_path)}: top-level modules/ or ui/ '
-            f'imports found: {violations}'
-        )
+        found = {
+            os.path.basename(path): violations
+            for path in _DRIVERS_FILES
+            if (violations := _check_no_toplevel_imports(path, ('modules.', 'ui.')))
+        }
+        assert not found, f'top-level modules/ or ui/ imports found: {found}'
 
-    @pytest.mark.parametrize(
-        'lib_path',
-        _LIB_FILES,
-        ids=lambda p: os.path.basename(p),
-    )
-    def test_lib_no_toplevel_drivers_modules_or_ui_import(self, lib_path):
+    def test_lib_no_toplevel_drivers_modules_or_ui_import(self):
         """lib/ must be cross-layer-shared and dependency-free relative to
         drivers/, modules/, ui/. lib/ can only import stdlib + same-layer.
         """
-        violations = _check_no_toplevel_imports(
-            lib_path,
-            ('drivers.', 'modules.', 'ui.'),
-        )
-        assert not violations, (
-            f'{os.path.basename(lib_path)}: top-level drivers/, modules/, '
-            f'or ui/ imports found: {violations}'
-        )
+        found = {
+            os.path.basename(path): violations
+            for path in _LIB_FILES
+            if (violations := _check_no_toplevel_imports(path, ('drivers.', 'modules.', 'ui.')))
+        }
+        assert not found, f'top-level drivers/, modules/, or ui/ imports found: {found}'
 
 
 # ---------------------------------------------------------------------------

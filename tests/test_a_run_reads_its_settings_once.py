@@ -32,6 +32,7 @@ from tests.settings_fixtures import complete_settings
 from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT, _settings
 from tests.test_composite_run_config import _settings as _run_settings
 from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol
+from tests.case_walk import failing_cases
 
 _POSITION = {'x': 1.0, 'y': 2.0, 'z': 3.0}
 
@@ -92,12 +93,15 @@ def _expected_image_config(member):
 
 
 class TestEveryRunKindTakesItsSettingsFromOneSnapshot:
-    @pytest.mark.parametrize('member', sorted(_MEMBERS))
-    def test_the_image_config_is_the_snapshot_taken_at_the_start(self, member):
-        runner = _runner_over_a_store_edited_after_the_first_read()
-        _MEMBERS[member](runner)
-        prepared = runner._executor.prepare.call_args.kwargs
-        assert prepared['image_capture_config'] == _expected_image_config(member)
+    def test_the_image_config_is_the_snapshot_taken_at_the_start(self):
+        def check(member):
+            runner = _runner_over_a_store_edited_after_the_first_read()
+            _MEMBERS[member](runner)
+            prepared = runner._executor.prepare.call_args.kwargs
+            assert prepared['image_capture_config'] == _expected_image_config(member)
+
+        failed = failing_cases(sorted(_MEMBERS), check)
+        assert not failed, failed
 
     @pytest.mark.parametrize('member', ['composite', 'autofocus', 'zstack'])
     def test_the_position_is_stated_on_the_snapshots_plate(self, member):

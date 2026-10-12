@@ -21,6 +21,7 @@ from modules.notification_center import OutcomeKind
 from modules.protocol_image_writer import RunWriteBatch
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.protocol_drives import bare_capture_runner
+from tests.case_walk import failing_cases
 
 
 def _hyperstack_runner(tmp_path, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL):
@@ -244,47 +245,55 @@ def test_every_run_mode_states_its_engine_behavior():
     )
 
 
-@pytest.mark.parametrize('run_mode', list(RUN_MODE_ENGINE_BEHAVIOR), ids=lambda m: m.value)
-def test_run_mode_hyperstack_applicability_matches_its_declared_row(run_mode, tmp_path):
-    runner = _hyperstack_runner(tmp_path, run_mode=run_mode)
-    with patch('modules.stack_builder.build_hyperstacks_for_run'):
-        result = runner._start_hyperstack_build()
-        if isinstance(result, threading.Thread):
-            _join(result)
-    blocked = result is None
-    assert blocked == RUN_MODE_ENGINE_BEHAVIOR[run_mode]['blocks_hyperstack_build']
+def test_run_mode_hyperstack_applicability_matches_its_declared_row(tmp_path):
+    def check(run_mode):
+        run_dir = tmp_path / run_mode.value
+        run_dir.mkdir()
+        runner = _hyperstack_runner(run_dir, run_mode=run_mode)
+        with patch('modules.stack_builder.build_hyperstacks_for_run'):
+            result = runner._start_hyperstack_build()
+            if isinstance(result, threading.Thread):
+                _join(result)
+        blocked = result is None
+        assert blocked == RUN_MODE_ENGINE_BEHAVIOR[run_mode]['blocks_hyperstack_build']
+
+    failed = failing_cases(list(RUN_MODE_ENGINE_BEHAVIOR), check, label=lambda m: m.value)
+    assert not failed, failed
 
 
-@pytest.mark.parametrize('run_mode', list(RUN_MODE_ENGINE_BEHAVIOR), ids=lambda m: m.value)
-def test_run_mode_scan_count_matches_its_declared_row(run_mode):
-    from modules.sequenced_capture_runner import SequencedCaptureRunner
+def test_run_mode_scan_count_matches_its_declared_row():
+    def check(run_mode):
+        from modules.sequenced_capture_runner import SequencedCaptureRunner
 
-    protocol = MagicMock()
-    protocol.period.return_value = datetime.timedelta(seconds=60)
-    protocol.duration.return_value = datetime.timedelta(seconds=300)
+        protocol = MagicMock()
+        protocol.period.return_value = datetime.timedelta(seconds=60)
+        protocol.duration.return_value = datetime.timedelta(seconds=300)
 
-    n_scans = SequencedCaptureRunner._calculate_num_scans(
-        protocol=protocol, run_mode=run_mode, max_scans=1
-    )
-    if RUN_MODE_ENGINE_BEHAVIOR[run_mode]['derives_scans_from_duration']:
-        # 300/60 == 5 scans, clamped by max_scans to 1 -- the clamp is what
-        # distinguishes it from the verbatim branch, so read the unclamped
-        # count too.
-        assert (
-            SequencedCaptureRunner._calculate_num_scans(
-                protocol=protocol, run_mode=run_mode, max_scans=None
-            )
-            == 5
+        n_scans = SequencedCaptureRunner._calculate_num_scans(
+            protocol=protocol, run_mode=run_mode, max_scans=1
         )
-        assert n_scans == 1
-    else:
-        assert n_scans == 1
-        assert (
-            SequencedCaptureRunner._calculate_num_scans(
-                protocol=protocol, run_mode=run_mode, max_scans=None
+        if RUN_MODE_ENGINE_BEHAVIOR[run_mode]['derives_scans_from_duration']:
+            # 300/60 == 5 scans, clamped by max_scans to 1 -- the clamp is what
+            # distinguishes it from the verbatim branch, so read the unclamped
+            # count too.
+            assert (
+                SequencedCaptureRunner._calculate_num_scans(
+                    protocol=protocol, run_mode=run_mode, max_scans=None
+                )
+                == 5
             )
-            is None
-        ), 'a non-derived run mode must pass max_scans through verbatim'
+            assert n_scans == 1
+        else:
+            assert n_scans == 1
+            assert (
+                SequencedCaptureRunner._calculate_num_scans(
+                    protocol=protocol, run_mode=run_mode, max_scans=None
+                )
+                is None
+            ), 'a non-derived run mode must pass max_scans through verbatim'
+
+    failed = failing_cases(list(RUN_MODE_ENGINE_BEHAVIOR), check)
+    assert not failed, failed
 
 
 def test_a_composite_run_never_carries_the_hyperstack_format():

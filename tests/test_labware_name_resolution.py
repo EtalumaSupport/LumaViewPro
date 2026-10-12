@@ -20,6 +20,7 @@ from modules.exceptions import ConfigError
 from modules.protocol import Protocol, ProtocolFormatError
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
+from tests.case_walk import failing_cases
 
 
 TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
@@ -66,9 +67,12 @@ def _protocol_file(tmp_path, labware):
 class TestTheFold:
     """One alias table, read through one function, usable without the catalogue."""
 
-    @pytest.mark.parametrize('old_name, key', sorted(RENAMED.items()))
-    def test_a_retired_spelling_folds_to_its_key(self, old_name, key):
-        assert labware_loader.canonical_plate_name(old_name) == key
+    def test_a_retired_spelling_folds_to_its_key(self):
+        def check(old_name, key):
+            assert labware_loader.canonical_plate_name(old_name) == key
+
+        failed = failing_cases(sorted(RENAMED.items()), check)
+        assert not failed, failed
 
     def test_a_key_folds_to_itself(self):
         for key in CATALOGUE.get_plate_list():
@@ -87,9 +91,12 @@ class TestTheFold:
 class TestTheResolver:
     """The catalogue key, or a refusal that names the plate and the plates there are."""
 
-    @pytest.mark.parametrize('old_name, key', sorted(RENAMED.items()))
-    def test_a_retired_spelling_resolves_to_its_key(self, old_name, key):
-        assert CATALOGUE.resolve_plate_key(old_name) == key
+    def test_a_retired_spelling_resolves_to_its_key(self):
+        def check(old_name, key):
+            assert CATALOGUE.resolve_plate_key(old_name) == key
+
+        failed = failing_cases(sorted(RENAMED.items()), check)
+        assert not failed, failed
 
     def test_an_unknown_plate_is_refused_by_name_with_the_choices(self):
         with pytest.raises(ConfigError, match=UNKNOWN_PLATE) as refusal:
@@ -108,13 +115,16 @@ class TestTheResolver:
 class TestTheReader:
     """The TSV reader canonicalizes always and judges only when handed the catalogue."""
 
-    @pytest.mark.parametrize('old_name, key', sorted(RENAMED.items()))
-    def test_a_retired_spelling_loads_as_its_key(self, tmp_path, old_name, key):
-        proto = Protocol.from_file(
-            file_path=_protocol_file(tmp_path, old_name),
-            tiling_configs_file_loc=TILING_CONFIGS,
-        )
-        assert proto.labware() == key
+    def test_a_retired_spelling_loads_as_its_key(self, tmp_path):
+        def check(old_name, key):
+            proto = Protocol.from_file(
+                file_path=_protocol_file(tmp_path, old_name),
+                tiling_configs_file_loc=TILING_CONFIGS,
+            )
+            assert proto.labware() == key
+
+        failed = failing_cases(sorted(RENAMED.items()), check)
+        assert not failed, failed
 
     def test_with_the_catalogue_an_unknown_plate_is_refused_before_any_object_exists(
         self, tmp_path

@@ -48,6 +48,7 @@ from drivers.tmcm6110 import (
     encode_version_reply,
 )
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
+from tests.case_walk import failing_cases
 
 # How much faster than the wall clock the simulated board runs in these
 # tests, so a millimetre's move takes milliseconds.
@@ -135,14 +136,17 @@ def test_the_firmware_reply_is_ascii_with_no_checksum(board):
 # --- Finding the board ----------------------------------------------------
 
 
-@pytest.mark.parametrize('usb_id', USB_IDS)
-def test_either_usb_identity_is_found(usb_id):
-    sim = SimulatedTmcm6110(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, usb_id=usb_id)
-    board = Tmcm6110Board(
-        motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=SimulatedTmcm6110Backend(sim)
-    )
-    assert board.found
-    assert board.is_connected()
+def test_either_usb_identity_is_found():
+    def check(usb_id):
+        sim = SimulatedTmcm6110(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, usb_id=usb_id)
+        board = Tmcm6110Board(
+            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=SimulatedTmcm6110Backend(sim)
+        )
+        assert board.found
+        assert board.is_connected()
+
+    failed = failing_cases(USB_IDS, check)
+    assert not failed, failed
 
 
 def test_a_port_that_is_not_a_6110_is_closed_and_not_found():

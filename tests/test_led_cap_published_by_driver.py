@@ -31,19 +31,23 @@ from modules.objectives_loader import ObjectiveLoader
 from modules.protocol import Protocol
 from modules.scope_capabilities import ScopeCapabilities
 from tests.ast_seams import find_def, parse_module
+from tests.case_walk import failing_cases
 
 # ---------------------------------------------------------------------------
 # Every registered LED driver publishes a cap (the build-failing guard)
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize('name', sorted(led_registry.registered_names()))
-def test_every_registered_led_driver_answers_max_ma(name):
-    cls = led_registry.get(name)
-    fn = getattr(cls, 'max_ma', None)
-    assert callable(fn), f'{cls.__name__} does not publish max_ma()'
-    value = fn(object.__new__(cls))
-    assert isinstance(value, int) and value >= 0, f'{cls.__name__}.max_ma() -> {value!r}'
+def test_every_registered_led_driver_answers_max_ma():
+    def check(name):
+        cls = led_registry.get(name)
+        fn = getattr(cls, 'max_ma', None)
+        assert callable(fn), f'{cls.__name__} does not publish max_ma()'
+        value = fn(object.__new__(cls))
+        assert isinstance(value, int) and value >= 0, f'{cls.__name__}.max_ma() -> {value!r}'
+
+    failed = failing_cases(sorted(led_registry.registered_names()), check)
+    assert not failed, failed
 
 
 def test_the_four_drivers_publish_their_own_boards_ceiling():

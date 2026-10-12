@@ -22,6 +22,7 @@ from modules.activity_claim import ActivityClaim
 from modules.exceptions import HardwareCommandRefusedError
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 from tests.protocol_drives import run_identity
+from tests.case_walk import failing_cases
 
 _WAIT_S = 2.0
 
@@ -153,25 +154,24 @@ _OPEN = [
 
 
 class TestTheMembers:
-    @pytest.mark.parametrize(
-        ('api', 'impl', 'call'), [f[1:] for f in _FALSIFIERS], ids=[f[0] for f in _FALSIFIERS]
-    )
-    def test_a_falsifier_is_refused_and_its_body_never_runs(
-        self, sim_session, recording, api, impl, call
-    ):
-        target = getattr(sim_session.scope, api)
-        ran = []
+    def test_a_falsifier_is_refused_and_its_body_never_runs(self, sim_session, recording):
+        def check(api, impl, call):
+            target = getattr(sim_session.scope, api)
+            ran = []
 
-        def _body(*args, **kwargs):
-            ran.append(impl)
+            def _body(*args, **kwargs):
+                ran.append(impl)
 
-        with (
-            patch.object(target, impl, _body),
-            pytest.raises(HardwareCommandRefusedError) as refused,
-        ):
-            call(sim_session.scope)
-        assert refused.value.holder == 'recording'
-        assert ran == [], f'{impl} ran inside the recording'
+            with (
+                patch.object(target, impl, _body),
+                pytest.raises(HardwareCommandRefusedError) as refused,
+            ):
+                call(sim_session.scope)
+            assert refused.value.holder == 'recording'
+            assert ran == [], f'{impl} ran inside the recording'
+
+        failed = failing_cases([f[1:] for f in _FALSIFIERS], check, label=lambda case: case[1])
+        assert not failed, failed
 
     @pytest.mark.slow
     # parametrize-justified: each admitted write runs and changes the scope

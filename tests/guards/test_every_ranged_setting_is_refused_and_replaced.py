@@ -23,6 +23,7 @@ from modules.exceptions import SettingRefusedError
 from modules.scope_session import ScopeSession
 from tests.ast_seams import REPO_ROOT
 from tests.settings_fixtures import complete_settings
+from tests.case_walk import failing_cases
 
 TEMPLATE = REPO_ROOT / 'data' / 'settings.json'
 
@@ -81,21 +82,24 @@ def session(tmp_path_factory):
     s.shutdown()
 
 
-@pytest.mark.parametrize(('path', 'value'), _CASES)
-def test_a_write_outside_the_range_is_refused_and_nothing_is_written(session, path, value):
-    before = session.get_settings_snapshot()
-    if settings_paths.member_for(path) is not None:
-        # A ranged setting with its own member is refused for the member
-        # first; its range is the load's half only.
-        with pytest.raises(SettingRefusedError) as refused:
-            session.update_settings(path, value)
-        assert refused.value.reason == 'has_member'
-    else:
-        with pytest.raises(SettingRefusedError) as refused:
-            session.update_settings(path, value)
-        assert refused.value.reason == 'out_of_range'
-        assert refused.value.path == path
-    assert session.get_settings_snapshot() == before
+def test_a_write_outside_the_range_is_refused_and_nothing_is_written(session):
+    def check(path, value):
+        before = session.get_settings_snapshot()
+        if settings_paths.member_for(path) is not None:
+            # A ranged setting with its own member is refused for the member
+            # first; its range is the load's half only.
+            with pytest.raises(SettingRefusedError) as refused:
+                session.update_settings(path, value)
+            assert refused.value.reason == 'has_member'
+        else:
+            with pytest.raises(SettingRefusedError) as refused:
+                session.update_settings(path, value)
+            assert refused.value.reason == 'out_of_range'
+            assert refused.value.path == path
+        assert session.get_settings_snapshot() == before
+
+    failed = failing_cases(_CASES, check)
+    assert not failed, failed
 
 
 # parametrize-justified: each case writes its own data folder and runs its own load

@@ -26,6 +26,7 @@ from modules.exceptions import (
     RefusalCause,
 )
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
+from tests.case_walk import failing_cases
 
 CATALOGUE = ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi')
 
@@ -127,22 +128,26 @@ RUNNERS = {
 }
 
 
-@pytest.mark.parametrize(
-    'member, name, reason',
-    [
-        *((member, 'Purple', 'layer_unknown') for member in ('led_on', 'led_off', *RUNNERS)),
-        *((member, None, 'no_layer_selected') for member in RUNNERS),
-    ],
-)
-def test_a_name_is_refused_whatever_the_scope_is_doing(tmp_path, member, name, reason):
+def test_a_name_is_refused_whatever_the_scope_is_doing(tmp_path):
     """Refused at the door, so a shut scope does not answer for the name."""
-    s = _session(tmp_path, 'LS850')
-    runner = s.create_protocol_runner()
-    s.shutdown()
-    if member in RUNNERS:
-        _refused(lambda: RUNNERS[member](runner, name), reason)
-    else:
-        _refused(lambda: NAME_MEMBERS[member](s, name), reason)
+
+    def check(member, name, reason):
+        s = _session(tmp_path, 'LS850')
+        runner = s.create_protocol_runner()
+        s.shutdown()
+        if member in RUNNERS:
+            _refused(lambda: RUNNERS[member](runner, name), reason)
+        else:
+            _refused(lambda: NAME_MEMBERS[member](s, name), reason)
+
+    failed = failing_cases(
+        [
+            *((member, 'Purple', 'layer_unknown') for member in ('led_on', 'led_off', *RUNNERS)),
+            *((member, None, 'no_layer_selected') for member in RUNNERS),
+        ],
+        check,
+    )
+    assert not failed, failed
 
 
 def test_a_reason_takes_limits_exactly_when_its_words_name_them():

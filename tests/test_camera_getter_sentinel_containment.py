@@ -33,7 +33,6 @@ import threading
 from types import SimpleNamespace
 
 import numpy as np
-import pytest
 
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate, unpositioned
@@ -64,6 +63,7 @@ GOOD_ROUND = {
 
 from modules.run_outcome import EndingLatch
 from tests.scope_fakes import give_camera_capabilities, give_stub_lanes
+from tests.case_walk import failing_cases
 
 
 class _StampedFrameHandler:
@@ -214,7 +214,6 @@ CONVERTED_PRIVATE_GETTERS = [
 ]
 
 _SWEEP = CONVERTED_GETTERS + CONVERTED_PRIVATE_GETTERS
-_SWEEP_IDS = [name for name, _, _ in _SWEEP]
 
 
 def _assert_value(actual, expected):
@@ -224,40 +223,52 @@ def _assert_value(actual, expected):
         assert actual == expected
 
 
-@pytest.mark.parametrize(('getter', 'absent', '_lkg'), _SWEEP, ids=_SWEEP_IDS)
-def test_all_reads_fail_cold_cache_returns_absent_default(getter, absent, _lkg):
-    # Active driver, every read raises, nothing ever validly read: the getter
-    # must answer the documented camera-absent default and raise nothing.
-    imaging = _build_imaging(all_reads_fail_driver())
-    assert imaging._driver.active
-    for _ in range(2):
+def test_all_reads_fail_cold_cache_returns_absent_default():
+    def check(getter, absent, _lkg):
+        # Active driver, every read raises, nothing ever validly read: the getter
+        # must answer the documented camera-absent default and raise nothing.
+        imaging = _build_imaging(all_reads_fail_driver())
+        assert imaging._driver.active
+        for _ in range(2):
+            _assert_value(getattr(imaging, getter)(), absent)
+
+    failed = failing_cases(_SWEEP, check, label=lambda case: case[0])
+    assert not failed, failed
+
+
+def test_failing_reads_after_good_populate_return_last_known_good():
+    def check(getter, _absent, lkg):
+        # One good round is consumed by the init-time populate; every driver read
+        # after that raises. The getter must keep answering the last-known-good
+        # value -- never a sentinel, never an exception.
+        imaging = _build_imaging(good_then_failing_driver())
+        for _ in range(3):
+            _assert_value(getattr(imaging, getter)(), lkg)
+
+    failed = failing_cases(_SWEEP, check, label=lambda case: case[0])
+    assert not failed, failed
+
+
+def test_no_driver_returns_absent_default():
+    def check(getter, absent, _lkg):
+        imaging = _build_imaging(None)
         _assert_value(getattr(imaging, getter)(), absent)
 
-
-@pytest.mark.parametrize(('getter', '_absent', 'lkg'), _SWEEP, ids=_SWEEP_IDS)
-def test_failing_reads_after_good_populate_return_last_known_good(getter, _absent, lkg):
-    # One good round is consumed by the init-time populate; every driver read
-    # after that raises. The getter must keep answering the last-known-good
-    # value -- never a sentinel, never an exception.
-    imaging = _build_imaging(good_then_failing_driver())
-    for _ in range(3):
-        _assert_value(getattr(imaging, getter)(), lkg)
+    failed = failing_cases(_SWEEP, check, label=lambda case: case[0])
+    assert not failed, failed
 
 
-@pytest.mark.parametrize(('getter', 'absent', '_lkg'), _SWEEP, ids=_SWEEP_IDS)
-def test_no_driver_returns_absent_default(getter, absent, _lkg):
-    imaging = _build_imaging(None)
-    _assert_value(getattr(imaging, getter)(), absent)
+def test_inactive_driver_returns_absent_default():
+    def check(getter, absent, _lkg):
+        # Driver object present but inactive: the active gate answers the
+        # camera-absent default without touching the (would-be-good) reads.
+        driver = steady_good_driver()
+        driver.active = False
+        imaging = _build_imaging(driver)
+        _assert_value(getattr(imaging, getter)(), absent)
 
-
-@pytest.mark.parametrize(('getter', 'absent', '_lkg'), _SWEEP, ids=_SWEEP_IDS)
-def test_inactive_driver_returns_absent_default(getter, absent, _lkg):
-    # Driver object present but inactive: the active gate answers the
-    # camera-absent default without touching the (would-be-good) reads.
-    driver = steady_good_driver()
-    driver.active = False
-    imaging = _build_imaging(driver)
-    _assert_value(getattr(imaging, getter)(), absent)
+    failed = failing_cases(_SWEEP, check, label=lambda case: case[0])
+    assert not failed, failed
 
 
 # --- Completeness guard -----------------------------------------------------

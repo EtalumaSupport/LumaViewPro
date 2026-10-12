@@ -24,6 +24,7 @@ import pytest
 from modules.protocol import Protocol, ProtocolFormatError, StepEditRefusedError
 from tests.ast_seams import parse_module, walk_defs
 from tests.test_protocol_roundtrip import TILING_CONFIGS, _build_protocol, _make_step
+from tests.case_walk import failing_cases
 
 
 def _saved(tmp_path, steps) -> pathlib.Path:
@@ -160,17 +161,20 @@ WRITES = {
 @pytest.mark.parametrize('value', [None, 'tall'])
 # modify_autofocus is an API member: its argument door refuses a value that
 # is no bool before the writer runs.
-@pytest.mark.parametrize('writer', [writer for writer in WRITES if writer != 'modify_autofocus'])
-def test_every_in_place_writer_refuses_a_value_not_of_its_columns_type(writer, value):
-    column, write = WRITES[writer]
-    protocol = _build_protocol(TWO_STEPS)
-    before = protocol.steps()
+def test_every_in_place_writer_refuses_a_value_not_of_its_columns_type(value):
+    def check(writer):
+        column, write = WRITES[writer]
+        protocol = _build_protocol(TWO_STEPS)
+        before = protocol.steps()
 
-    with pytest.raises(StepEditRefusedError) as refused:
-        write(protocol, value)
+        with pytest.raises(StepEditRefusedError) as refused:
+            write(protocol, value)
 
-    assert column in str(refused.value)
-    assert protocol.steps().equals(before)
+        assert column in str(refused.value)
+        assert protocol.steps().equals(before)
+
+    failed = failing_cases([writer for writer in WRITES if writer != 'modify_autofocus'], check)
+    assert not failed, failed
 
 
 def test_no_step_frame_write_sits_outside_the_typed_writers():

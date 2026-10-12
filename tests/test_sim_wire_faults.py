@@ -24,6 +24,7 @@ from drivers.sim_wire.backend import DIALECTS, MotorBoardSpec, SimWireBackend
 from drivers.sim_wire.mp import channel, tmc5072
 from drivers.sim_wire.port import BoardImage, EmulatedBoard, RegisterWrite
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
+from tests.case_walk import failing_cases
 
 firmware_only = pytest.mark.skipif(
     not (sys.platform == 'darwin' or sys.platform.startswith('linux')),
@@ -84,15 +85,18 @@ class TestTheChipModelsFaults:
         assert motor.read(tmc5072.RAMP_STAT) & tmc5072.POSITION_REACHED
         assert motor.stop_status() == (0, 0)
 
-    @pytest.mark.parametrize('fault', tmc5072.FAULTS)
-    def test_a_faulted_motor_has_no_flag_edge_ahead(self, fault):
-        # A stage that is not following, or a switch that never changes, can
-        # meet no edge; offering one would walk a move to its goal an edge's
-        # distance at a time, since the stalled stage never reaches it.
-        motor = _motor(start_usteps=1.0)
-        assert motor.next_edge(-1) == 0.0
-        motor.set_fault(fault, True)
-        assert motor.next_edge(-1) is None
+    def test_a_faulted_motor_has_no_flag_edge_ahead(self):
+        def check(fault):
+            # A stage that is not following, or a switch that never changes, can
+            # meet no edge; offering one would walk a move to its goal an edge's
+            # distance at a time, since the stalled stage never reaches it.
+            motor = _motor(start_usteps=1.0)
+            assert motor.next_edge(-1) == 0.0
+            motor.set_fault(fault, True)
+            assert motor.next_edge(-1) is None
+
+        failed = failing_cases(tmc5072.FAULTS, check)
+        assert not failed, failed
 
     def test_once_a_stall_clears_the_stage_moves_from_where_it_stalled(self):
         motor = _motor()

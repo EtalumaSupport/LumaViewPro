@@ -26,6 +26,7 @@ from drivers.tmcm6110 import Tmcm6110Board
 from modules import layer_record
 from modules.exceptions import ArgumentRefusedError, InstallationFileError
 from tests.scope_fakes import build_scope
+from tests.case_walk import failing_cases
 
 REPO_DATA = pathlib.Path(__file__).resolve().parents[1] / 'data'
 MODELS = layer_record.load_scope_models()
@@ -44,14 +45,17 @@ def _scope(model, **kwargs):
     return build_scope(simulate=True, sim_model=model, warn_pre_release=False, **kwargs)
 
 
-@pytest.mark.parametrize('model', sorted(MODELS))
-def test_every_row_names_an_led_board_and_a_motor_board_exactly_when_it_has_axes(model):
-    entry = MODELS[model]
-    assert entry['LEDBoard'] in ('EL-0940', 'FX2')
-    if layer_record.model_axes(MODELS, model):
-        assert entry['MotorBoard'] in ('EL-0940', 'TMCM-6110')
-    else:
-        assert 'MotorBoard' not in entry
+def test_every_row_names_an_led_board_and_a_motor_board_exactly_when_it_has_axes():
+    def check(model):
+        entry = MODELS[model]
+        assert entry['LEDBoard'] in ('EL-0940', 'FX2')
+        if layer_record.model_axes(MODELS, model):
+            assert entry['MotorBoard'] in ('EL-0940', 'TMCM-6110')
+        else:
+            assert 'MotorBoard' not in entry
+
+    failed = failing_cases(sorted(MODELS), check)
+    assert not failed, failed
 
 
 # parametrize-justified: each model brings up its own scope

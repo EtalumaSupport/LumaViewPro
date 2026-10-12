@@ -37,6 +37,7 @@ from modules.exceptions import (
 )
 from tests import ast_seams
 from tests.guards.test_every_refusal_states_its_reason import _base_name, _classes
+from tests.case_walk import failing_cases
 
 
 def _types_mixing_in(mixin):
@@ -123,10 +124,13 @@ def test_the_factories_cover_every_mixed_type():
     assert set(_mixed(_types_mixing_in(Refusal))) == set(_FACTORIES)
 
 
-@pytest.mark.parametrize('name', sorted(_FACTORIES))
-def test_a_mixed_type_is_not_built_with_a_reason_it_declares_no_cause_for(name):
-    with pytest.raises(TypeError, match="declares no cause for the reason 'no_such_reason'"):
-        _FACTORIES[name]('no_such_reason')
+def test_a_mixed_type_is_not_built_with_a_reason_it_declares_no_cause_for():
+    def check(name):
+        with pytest.raises(TypeError, match="declares no cause for the reason 'no_such_reason'"):
+            _FACTORIES[name]('no_such_reason')
+
+    failed = failing_cases(sorted(_FACTORIES), check)
+    assert not failed, failed
 
 
 def test_a_mixed_types_cause_follows_its_reason():
