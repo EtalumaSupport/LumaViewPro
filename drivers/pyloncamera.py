@@ -2,6 +2,7 @@
 
 import contextlib
 import datetime
+import logging
 import math
 import os
 import queue
@@ -775,15 +776,81 @@ class PylonCamera(Camera):
         # poller doesn't read a half-disposed StreamGrabber. No-op when
         # the poller wasn't started (profile_trace_enabled false).
         self._stop_stats_poller()
-        camera = self.active
-        if _cam_log is not None:
-            _cam_log.info('pylon StopGrabbing()')
+        try:
+            self._timed_stop_grabbing(self.active, 'stop_grabbing')
+        except Exception as e:
+            _cam_log.warning(f'[CAM Class ] stop_grabbing ignored error: {e}')
+
+    # A stop at or past this is logged as a WARNING. The fast stops measured
+    # on a daA3840-45um took 14-71 ms; its stalled ones a near-constant 11 s.
+    _SLOW_GRAB_STOP_S = 1.0
+
+    def _timed_stop_grabbing(self, camera, caller: str) -> None:
+        """Call ``camera.StopGrabbing()``, logging the state it stopped from and how long it took.
+
+        One line before the stop records what was in flight, one after
+        records the elapsed time (WARNING at ``_SLOW_GRAB_STOP_S`` or more),
+        so a bundle tells a slow stop from a fast one, and shows what
+        differed between them, without anyone timing log lines by hand. A
+        failure is logged with its elapsed time and raised to the caller.
+        """
+        _cam_log.info(f'pylon StopGrabbing() [{caller}]: {self._grab_stop_state(camera)}')
+        t0 = time.perf_counter()
         try:
             camera.StopGrabbing()
         except Exception as e:
-            if _cam_log is not None:
-                _cam_log.warning(f'pylon StopGrabbing FAILED: {e}')
-            _cam_log.warning(f'[CAM Class ] stop_grabbing ignored error: {e}')
+            elapsed_ms = (time.perf_counter() - t0) * 1000.0
+            _cam_log.warning(f'pylon StopGrabbing [{caller}] FAILED after {elapsed_ms:.1f} ms: {e}')
+            raise
+        elapsed_s = time.perf_counter() - t0
+        level = logging.WARNING if elapsed_s >= self._SLOW_GRAB_STOP_S else logging.INFO
+        _cam_log.log(
+            level, f'pylon StopGrabbing [{caller}] returned after {elapsed_s * 1000.0:.1f} ms'
+        )
+
+    def _grab_stop_state(self, camera) -> str:
+        """Describe the grab a stop is about to end, for the pre-stop log line.
+
+        Host-side reads first (frames stored, the stream grabber's status and
+        statistics, the instant camera's buffer counts), then the stop mode,
+        then a timed live read of ``AcquisitionActive`` / ``ExposureActive``:
+        the values say whether an exposure or transfer was in flight, and the
+        read's time says whether the camera's control channel was already
+        slow before the stop. A node that is absent or unreadable is named
+        in the line by ``_safe_node``'s sentinel; a nodemap that cannot be
+        fetched is named by its error.
+        """
+        if camera is None:
+            return 'no camera'
+        parts = [f'frames_delivered={self.frames_delivered}']
+        try:
+            sg = camera.GetStreamGrabberNodeMap()
+            parts.append(f'grabber_status={self._safe_node(sg, "Status")}')
+            parts.extend(f'{name}={self._safe_node(sg, name)}' for name in self._DIAG_STAT_NODES)
+        except Exception as e:
+            parts.append(f'stream_nodemap=<{type(e).__name__}: {e}>')
+        try:
+            icm = camera.GetInstantCameraNodeMap()
+            parts.extend(
+                f'{name}={self._safe_node(icm, name)}'
+                for name in ('NumQueuedBuffers', 'NumReadyBuffers', 'NumEmptyBuffers')
+            )
+        except Exception as e:
+            parts.append(f'instant_camera_nodemap=<{type(e).__name__}: {e}>')
+        try:
+            nm = camera.GetNodeMap()
+            parts.append(f'BslAcquisitionStopMode={self._safe_node(nm, "BslAcquisitionStopMode")}')
+            t0 = time.perf_counter()
+            acquisition_active = self._safe_node(nm, 'AcquisitionActive')
+            exposure_active = self._safe_node(nm, 'ExposureActive')
+            live_read_ms = (time.perf_counter() - t0) * 1000.0
+            parts.append(
+                f'AcquisitionActive={acquisition_active} ExposureActive={exposure_active} '
+                f'live_read_ms={live_read_ms:.1f}'
+            )
+        except Exception as e:
+            parts.append(f'device_nodemap=<{type(e).__name__}: {e}>')
+        return ' '.join(parts)
 
     _ACQ_IDLE_POLL_INTERVAL_S = 0.020
 
@@ -921,8 +988,19 @@ class PylonCamera(Camera):
                 'OneByOne': pylon.GrabStrategy_OneByOne,
             }
             _strategy = _strategy_map.get(_strategy_name, pylon.GrabStrategy_LatestImageOnly)
-            if _cam_log is not None:
-                _cam_log.info(f'pylon StartGrabbing({_strategy_name}, ProvidedByInstantCamera)')
+            # The counts at the start, against the pre-stop line's, give how
+            # long the camera ran before its next stop and what it delivered.
+            try:
+                _total_buffers = self._safe_node(
+                    camera.GetStreamGrabberNodeMap(), 'Statistic_Total_Buffer_Count'
+                )
+            except Exception as e:
+                _total_buffers = f'<{type(e).__name__}: {e}>'
+            _cam_log.info(
+                f'pylon StartGrabbing({_strategy_name}, ProvidedByInstantCamera): '
+                f'frames_delivered={self.frames_delivered} '
+                f'Statistic_Total_Buffer_Count={_total_buffers}'
+            )
             camera.StartGrabbing(_strategy, pylon.GrabLoop_ProvidedByInstantCamera)
             # Mirror the IDS free-run delivered-depth line so an 8-bit run on
             # either camera prints the same "delivers=" fact: Pylon Mono8 is
@@ -1050,7 +1128,7 @@ class PylonCamera(Camera):
             # a genuine SDK failure propagates to connect()'s own handler.
             _opened = True
             if camera.IsGrabbing():
-                camera.StopGrabbing()
+                self._timed_stop_grabbing(camera, 'post-Open')
                 _log_cam('info', '[CAM Class ] post-Open: stopped SDK auto-start grab (start gate)')
 
             # MaxNumBuffer cap. Applied post-Open() -- earliest window
