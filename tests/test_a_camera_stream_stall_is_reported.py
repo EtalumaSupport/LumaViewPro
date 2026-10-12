@@ -133,6 +133,32 @@ class TestWhatIsNotAStall:
         assert shown == []
         assert _stall_lines(caplog) == []
 
+    def test_the_frames_exposed_before_a_drop_to_a_short_exposure_are_not_a_stall(
+        self, session, shown, caplog
+    ):
+        # A sensor still delivers the frames it exposed before the change, at
+        # the old exposure: here the camera's frames are held for 1.2 s at the
+        # drop, past the short exposure's 0.5 s bound and inside the long
+        # one's 10 s. Once the camera's pipeline of frames has come the short
+        # bound applies: the next hold of 1.5 s is a stall.
+        imaging = session.scope.imaging
+        camera = session.scope._camera_driver
+        imaging.set_exposure_ms(1000.0)
+        before = imaging._frames_delivered()
+        assert _wait_for(lambda: imaging._frames_delivered() > before, 3.0), (
+            'precondition: the long-exposure stream delivered'
+        )
+        time.sleep(0.3)  # the check has run at the long exposure's bound
+        with caplog.at_level(logging.INFO):
+            camera.hold_frames(SimulatedStall(after_s=0.0, for_s=1.2))
+            imaging.set_exposure_ms(5.0)
+            time.sleep(1.6)
+            assert shown == [], 'the frames in the pipeline were reported as a stall'
+            assert _stall_lines(caplog) == []
+
+            camera.hold_frames(SimulatedStall(after_s=0.3, for_s=1.5))
+            assert _wait_for(lambda: shown, 3.0), 'the short bound never came back'
+
     def test_a_camera_that_is_not_streaming_is_not_stalled(self, session, shown, caplog):
         session.scope.imaging.stop_streaming()
         with caplog.at_level(logging.INFO):

@@ -667,6 +667,9 @@ class ImagingAPI:
         self._stream_check_handle: object | None = None
         self._stream_watch: StallWatch | None = None
         self._stream_watch_bound_s: float | None = None
+        # The delivered count when the exposure's bound last dropped: the
+        # longer bound holds until the frames in the pipeline then have come.
+        self._stream_bound_dropped_at: int | None = None
         self._stream_stall_reported = False
         # The delivered rate (_sample_delivery), written only on the
         # scheduler's thread: the last (frames, wire bytes, time) reading, and
@@ -5373,17 +5376,34 @@ class ImagingAPI:
             # A camera that is not streaming delivers nothing by design; the
             # watch starts again from the stream's next frame.
             self._stream_watch = None
+            self._stream_watch_bound_s = None
+            self._stream_bound_dropped_at = None
             self._stream_stall_reported = False
             return
         exposure_s = max(0.0, self.longest_exposure_ms or 0.0) / 1000.0
         bound_s = prologue_stall_threshold_s(exposure_s)
+        delivered = self._frames_delivered()
+        held_s = self._stream_watch_bound_s
+        if held_s is not None and bound_s < held_s:
+            # A shorter exposure: the frames already in the camera's pipeline
+            # were exposed at the longer one, so the longer bound holds until
+            # as many frames as the camera's measured exposure change takes
+            # to reach its output have come.
+            if self._stream_bound_dropped_at is None:
+                self._stream_bound_dropped_at = delivered
+            in_pipeline = self.frame_validity.SKIP_FRAMES['exposure']
+            if delivered - self._stream_bound_dropped_at < in_pipeline:
+                bound_s = held_s
+            else:
+                self._stream_bound_dropped_at = None
+        else:
+            self._stream_bound_dropped_at = None
         watch = self._stream_watch
         if watch is None or self._stream_watch_bound_s != bound_s:
             # A new exposure changes how long a healthy frame can take; the
             # bound is set from it and the window starts again.
             watch = self._stream_watch = StallWatch(bound_s)
             self._stream_watch_bound_s = bound_s
-        delivered = self._frames_delivered()
         now = time.monotonic()
         if not watch.stalled(delivered, now):
             if self._stream_stall_reported:
