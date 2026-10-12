@@ -55,6 +55,7 @@ import datetime
 import enum
 import importlib
 import inspect
+import math
 import pathlib
 import pkgutil
 import typing
@@ -405,7 +406,10 @@ def encode(
     form of a live object and of a call still running.
 
     Raises:
-        NoWireFormError: *value*, or something in it, has no wire form.
+        NoWireFormError: *value*, or something in it, has no wire form --
+            a NaN or an infinity among them: JSON has none, and the answer
+            is refused here, where the call ends, rather than when it is
+            rendered, after a job may already hold it.
     """
 
     def form(v: object) -> object:
@@ -415,6 +419,8 @@ def encode(
             return v.value
         if isinstance(v, enum.Enum):
             return v.name
+        if isinstance(v, float) and not math.isfinite(v):
+            raise NoWireFormError(f'{v!r} is not a finite number, and JSON carries no other')
         if v is None or isinstance(v, (bool, int, float, str)):
             return v
         if isinstance(v, datetime.timedelta):
