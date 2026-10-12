@@ -5,6 +5,7 @@ import contextlib
 import threading
 from collections.abc import Iterator
 from dataclasses import dataclass
+from lib.lumascope_error import Fault
 from modules.api_surface import api
 from modules.exceptions import SessionClosingError, the_activity_named
 
@@ -19,7 +20,7 @@ SCOPE_HOLDING_KINDS = frozenset({'protocol', 'diagnostic', 'home'})
 _acting = threading.local()
 
 
-class FalsifyingChangeInFlightError(Exception):
+class FalsifyingChangeInFlightError(Fault, Exception):
     """A recording was asked for while a write that would falsify it runs.
 
     Raised by ``try_claim('recording')``. A recording writes nothing to a

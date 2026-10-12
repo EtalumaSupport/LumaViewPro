@@ -2,11 +2,13 @@
 
 """Driver-layer exception classes (raised from drivers/, caught at module/API)."""
 
+from lib.lumascope_error import Fault
 
-class HardwareError(Exception):
+
+class HardwareError(Fault, Exception):
     """Hardware communication or configuration failure (motor, LED, camera)."""
 
-    pass
+    words_for_person = True
 
 
 class ConfigReadError(HardwareError):

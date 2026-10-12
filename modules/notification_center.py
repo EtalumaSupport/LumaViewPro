@@ -29,25 +29,13 @@ from concurrent.futures import CancelledError
 from dataclasses import dataclass, field
 from enum import IntEnum, StrEnum
 
-from drivers.exceptions import HardwareError
 from lib import profile_trace
 from modules.exceptions import (
-    BringUpError,
-    CameraSettingRejected,
-    CaptureError,
-    ConfigError,
-    HomingFailedError,
-    MotorStopFailedError,
-    MoveNotCompletedError,
     Notice,
-    PluginError,
-    ProtocolError,
     Quiet,
     Refusal,
     RefusalCause,
     Remedy,
-    ScopeDisconnectError,
-    SupportReportNotSavedError,
 )
 from modules.api_surface import api_fields
 
@@ -57,24 +45,6 @@ logger = logging.getLogger('LVP.notifications')
 # one is shown. A shown refusal's or notice's one line is its display line,
 # on the notifications logger, so an outcome is never read as two events.
 _outcome_logger = logging.getLogger('LVP.outcomes')
-
-# Faults whose message is written for the person. Any other exception's
-# str() is a developer's words -- a Python class name, a repr -- so the
-# person reads a generic sentence and the log carries the rest.
-_TYPED_FAULTS = (
-    BringUpError,
-    CameraSettingRejected,
-    CaptureError,
-    ProtocolError,
-    ConfigError,
-    HardwareError,
-    HomingFailedError,
-    MotorStopFailedError,
-    MoveNotCompletedError,
-    PluginError,
-    ScopeDisconnectError,
-    SupportReportNotSavedError,
-)
 
 _UNTYPED_FAULT_BODY = 'The operation did not complete. Check the main log for details.'
 
@@ -191,7 +161,10 @@ def outcome_of(exception: BaseException) -> Outcome:
         kind=kind,
         title=getattr(exception, 'title', None) or None,
         words=words,
-        for_person=not fault or (isinstance(exception, _TYPED_FAULTS) and bool(words)),
+        # A fault's words are a developer's -- a Python class name, a repr --
+        # unless its type says it writes them for the person; otherwise the
+        # person reads a generic sentence and the log carries the rest.
+        for_person=not fault or (getattr(exception, 'words_for_person', False) and bool(words)),
         reason=getattr(exception, 'reason', None) or '',
         remedy=getattr(exception, 'remedy', None),
         fatal=fault and bool(getattr(exception, 'fatal', False)),

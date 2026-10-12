@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from collections.abc import Callable, Iterable
 
+from lib.lumascope_error import Fault
 from modules.exceptions import (
     PluginFailedError,
     PluginNotLoadedError,
@@ -89,7 +90,7 @@ UI_MOUNT_POINTS = frozenset(
 # ---------------------------------------------------------------------------
 
 
-class PluginRegistrationError(Exception):
+class PluginRegistrationError(Fault, Exception):
     """Raised when a plugin cannot be registered.
 
     Causes: name collision within a namespace, unknown mount point,

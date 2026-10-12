@@ -9,13 +9,14 @@ import pathlib
 import sys
 from enum import StrEnum
 
+from lib.lumascope_error import Fault
 from modules.exceptions import InstallationFileError
 
 
 MAX_COLLISION_SUFFIX = 999
 
 
-class CaptureLocationError(Exception):
+class CaptureLocationError(Fault, Exception):
     """The capture location cannot hold a new output directory."""
 
 

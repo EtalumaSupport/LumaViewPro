@@ -10,6 +10,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import ClassVar
+
+from lib.lumascope_error import Fault, LumascopeError
 from modules.api_surface import api_fields
 
 
@@ -36,7 +38,7 @@ class Remedy:
     cancel_text: str
 
 
-class Refusal:
+class Refusal(LumascopeError):  # noqa: N818 -- a kind of outcome, not an error
     """A request the scope declined: nothing broke, and the person who asked can act on it.
 
     Mixed into an exception whose message is written for that person. The
@@ -193,7 +195,7 @@ class LiveFolderPathRefusedError(Refusal, ValueError):
         self.name = name
 
 
-class Quiet:
+class Quiet(LumascopeError):  # noqa: N818 -- a kind of outcome, not an error
     """An outcome that is recorded and never shown: nothing failed and nothing was declined.
 
     Mixed into an exception that tells a caller something it may need to act
@@ -216,7 +218,7 @@ class Quiet:
         _require_a_cause(cls, Quiet, ('cause',))
 
 
-class Notice:
+class Notice(LumascopeError):  # noqa: N818 -- a kind of outcome, not an error
     """An outcome that tells the person something: nothing failed and nothing was declined.
 
     Mixed into an exception whose message is written for the person -- a
@@ -558,13 +560,15 @@ class LayerSettingCappedNotice(Notice, Exception):  # noqa: N818 -- a notice, no
         self.capped = capped
 
 
-class ProtocolError(Exception):
+class ProtocolError(LumascopeError, Exception):
     """Protocol file parsing, validation, or execution error."""
+
+    words_for_person = True
 
     pass
 
 
-class ProtocolNotLoadedError(ProtocolError):
+class ProtocolNotLoadedError(Fault, ProtocolError):
     """A protocol file could not be read.
 
     Raised by ``Protocol.from_file``, chained from the ``OSError`` of the
@@ -585,7 +589,7 @@ class ProtocolNotLoadedError(ProtocolError):
         self.file = file
 
 
-class ProtocolNotSavedError(ProtocolError):
+class ProtocolNotSavedError(Fault, ProtocolError):
     """A protocol could not be written to its file.
 
     Raised by ``Protocol.to_file``, chained from the ``OSError`` of the write,
@@ -635,13 +639,15 @@ class FocusNotWrittenError(Refusal, ProtocolError):
         self.difference = difference
 
 
-class ConfigError(Exception):
+class ConfigError(LumascopeError, Exception):
     """Application configuration or settings error."""
+
+    words_for_person = True
 
     pass
 
 
-class InstallationFileError(Exception):
+class InstallationFileError(Fault, Exception):
     """A file the installation ships is missing, unreadable, or not the shape its reader needs.
 
     The installation is at fault, not the user's settings, so this is
@@ -654,6 +660,7 @@ class InstallationFileError(Exception):
         file_path: The file that could not be used.
     """
 
+    words_for_person = True
     title = 'Installation File Unusable'
 
     def __init__(self, file_path, problem: str):
@@ -665,7 +672,7 @@ class InstallationFileError(Exception):
         self.file_path = file_path
 
 
-class BringUpError(Exception):
+class BringUpError(Fault, Exception):
     """A part of the scope did not come up as it should have; the rest of the scope runs.
 
     Reported, never raised: bring-up goes on without the part, and the
@@ -677,6 +684,7 @@ class BringUpError(Exception):
         reason: The machine-readable code a client branches on.
     """
 
+    words_for_person = True
     title = 'Hardware Unavailable'
 
     def __init__(self, message: str, reason: str):
@@ -1020,7 +1028,7 @@ class SettingRefusedError(Refusal, ConfigError):
         self.member = member
 
 
-class SettingsFileNotReplacedError(ConfigError):
+class SettingsFileNotReplacedError(Fault, ConfigError):
     """The unreadable settings file could not be moved aside after the user chose to start over.
 
     Raised by the retire, chained from the ``OSError`` the rename raised, so
@@ -1074,7 +1082,7 @@ class ScopeModelUnknownError(Refusal, ValueError):
         self.model = model
 
 
-class CaptureError(Exception):
+class CaptureError(LumascopeError, Exception):
     """Image capture, save, or processing failure.
 
     Attributes:
@@ -1092,6 +1100,7 @@ class CaptureError(Exception):
     same; a subclass with its own heading sets its own.
     """
 
+    words_for_person = True
     title = 'Capture Failed'
 
     def __init__(self, message: str, reason: str):
@@ -1194,7 +1203,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         self.remedy = remedy
 
 
-class RunCheckFailedError(ProtocolError):
+class RunCheckFailedError(Fault, ProtocolError):
     """A run could not be checked before it started: a check itself crashed.
 
     Raised by SequencedCaptureRunner.prepare() when validating the protocol,
@@ -1240,7 +1249,7 @@ class RunAlreadyEndedError(Quiet, ProtocolError):
     title = 'Run Already Ended'
 
 
-class RunWaitOnUiThreadError(ProtocolError):
+class RunWaitOnUiThreadError(Fault, ProtocolError):
     """A run's wait was made on the thread that delivers the run's callbacks.
 
     Under the GUI a run's ``run_ended`` and ``files_written`` are
@@ -1257,7 +1266,7 @@ class RunWaitOnUiThreadError(ProtocolError):
         )
 
 
-class RunStartError(ProtocolError):
+class RunStartError(Fault, ProtocolError):
     """A sequenced run failed after it was committed but before it ran.
 
     The counterpart of ProtocolRunRefusedError on the other side of the
@@ -1323,7 +1332,7 @@ class RecordingRefusedError(Refusal, CaptureError):
         self.holder_trigger = holder_trigger
 
 
-class HyperstackRefusedError(CaptureError):
+class HyperstackRefusedError(Fault, CaptureError):
     """The hyperstack builder declined to build a recording's frames into one file.
 
     Raised by the manual recording's finish when the builder answers
@@ -1379,7 +1388,7 @@ class PostProcessingRefusedError(Refusal, CaptureError):
         self.title = 'No Z-Stack Data Found' if zstack_missing else f'{operation} Not Possible'
 
 
-class PostProcessingFailedError(CaptureError):
+class PostProcessingFailedError(Fault, CaptureError):
     """A post-processing build did not produce everything it was asked for.
 
     Raised whether nothing or only part was produced: a group that failed,
@@ -1420,7 +1429,7 @@ class PostProcessingFailedError(CaptureError):
         self.title = f'{operation} Incomplete' if produced_paths else f'{operation} Failed'
 
 
-class RecordingStoppedError(CaptureError):
+class RecordingStoppedError(Fault, CaptureError):
     """A manual recording was stopped before anyone asked it to stop.
 
     Built by the recording's own watch when the camera stops delivering
@@ -1456,7 +1465,7 @@ class RecordingStoppedError(CaptureError):
         self.title = self._TITLES[reason]
 
 
-class RecordingFinalizeError(CaptureError):
+class RecordingFinalizeError(Fault, CaptureError):
     """A recording finished but its output could not be fully assembled.
 
     Raised around what failed in the finish of a manual recording or of a
@@ -1487,7 +1496,7 @@ class RecordingFinalizeError(CaptureError):
         self.protocol_step = protocol_step
 
 
-class VideoFramesDroppedError(CaptureError):
+class VideoFramesDroppedError(Fault, CaptureError):
     """Frames a recording selected could not be written, so its video is short.
 
     Each dropped frame is a write that failed; the recording's manifest
@@ -1519,7 +1528,7 @@ class VideoFramesDroppedError(CaptureError):
         self.protocol_step = protocol_step
 
 
-class VideoWriterFailedError(CaptureError):
+class VideoWriterFailedError(Fault, CaptureError):
     """The recording's video writer stopped working, so the recording ended.
 
     Chained from what escaped the writer. The frames already written are on
@@ -1548,7 +1557,7 @@ class VideoWriterFailedError(CaptureError):
         self.protocol_step = protocol_step
 
 
-class RecordingDetailsNotSavedError(CaptureError):
+class RecordingDetailsNotSavedError(Fault, CaptureError):
     """A recording's details file could not be written; its frames are whole.
 
     Chained from the write's error. The details file is the only record of
@@ -1567,7 +1576,7 @@ class RecordingDetailsNotSavedError(CaptureError):
         )
 
 
-class ImageSaveError(CaptureError):
+class ImageSaveError(Fault, CaptureError):
     """An image could not be written to disk.
 
     Raised by ``save_image`` from the ``OSError`` of the write -- a missing
@@ -1589,7 +1598,7 @@ class ImageSaveError(CaptureError):
         self.file_loc = file_loc
 
 
-class RunFilesNotWrittenError(CaptureError):
+class RunFilesNotWrittenError(Fault, CaptureError):
     """A build that reads a run's images back found them not all written.
 
     Raised by the wait a post-run build makes on its run's writes -- the
@@ -1656,7 +1665,7 @@ class RunFilesNotWrittenError(CaptureError):
         super().__init__(message, reason)
 
 
-class RunImagesNotSavedError(CaptureError):
+class RunImagesNotSavedError(Fault, CaptureError):
     """Images a run captured are not on disk.
 
     Reported once, when the run's last write lands -- the one moment the
@@ -1687,7 +1696,7 @@ class RunImagesNotSavedError(CaptureError):
         self.not_written = not_written
 
 
-class RunCleanupFailedError(CaptureError):
+class RunCleanupFailedError(Fault, CaptureError):
     """Steps that put the scope back after a run did not finish.
 
     The run's own ending stands; what failed is the restore after it, so
@@ -1711,7 +1720,7 @@ class RunCleanupFailedError(CaptureError):
         self.steps = [step for step, _ in failures]
 
 
-class RecordIncompleteError(CaptureError):
+class RecordIncompleteError(Fault, CaptureError):
     """Captures a run made are missing from its execution record.
 
     Post-processing reads the record to find a run's images, so an image
@@ -1735,7 +1744,7 @@ class RecordIncompleteError(CaptureError):
         self.attempted = attempted
 
 
-class DiskSpaceCriticalError(CaptureError):
+class DiskSpaceCriticalError(Fault, CaptureError):
     """An image was not saved because the save drive is nearly full.
 
     Raised by the save that refused it, after the run has been stopped and
@@ -1755,7 +1764,7 @@ class DiskSpaceCriticalError(CaptureError):
         self.free_mb = free_mb
 
 
-class RunIncompleteError(CaptureError):
+class RunIncompleteError(Fault, CaptureError):
     """A run reached its end without every capture it was asked for.
 
     The run's outcome carries it as status ``'incomplete'``, reason
@@ -1791,7 +1800,7 @@ class RunIncompleteError(CaptureError):
         self.failed_steps = list(failed_steps)
 
 
-class RunFailedError(CaptureError):
+class RunFailedError(Fault, CaptureError):
     """The instrument ended a run: the fault that ended it, in its own words.
 
     Fatal: the person is told even during an unattended run, since the run
@@ -1811,7 +1820,7 @@ class RunFailedError(CaptureError):
         self.title = title
 
 
-class RunFailedToStartError(CaptureError):
+class RunFailedToStartError(Fault, CaptureError):
     """A run was committed to and did not start, in its ending's words.
 
     Not fatal: it is reported after the run's cleanup has lifted the
@@ -1827,7 +1836,7 @@ class RunFailedToStartError(CaptureError):
         self.title = title
 
 
-class CompositeFailedError(CaptureError):
+class CompositeFailedError(Fault, CaptureError):
     """A run's composite was not merged; the run's own images stand.
 
     Attributes:
@@ -1837,7 +1846,7 @@ class CompositeFailedError(CaptureError):
     title = 'Composite Failed'
 
 
-class AutoGainNotSettledError(CaptureError):
+class AutoGainNotSettledError(Fault, CaptureError):
     """Auto-gain locked with no usable exposure or gain from the camera.
 
     The previous settings were kept, so a capture taken with it had no
@@ -1855,7 +1864,7 @@ class AutoGainNotSettledError(CaptureError):
         )
 
 
-class AutofocusFailedError(CaptureError):
+class AutofocusFailedError(Fault, CaptureError):
     """An autofocus sweep chose no focus; the stage goes back to where it started.
 
     Attributes:
@@ -1879,7 +1888,7 @@ class AutofocusFailedError(CaptureError):
         super().__init__(self._WORDS[reason], reason)
 
 
-class AutofocusZNotRestoredError(CaptureError):
+class AutofocusZNotRestoredError(Fault, CaptureError):
     """Autofocus stopped without a result and could not put Z back.
 
     What the person must do depends on how the restore failed: a move that
@@ -1902,7 +1911,7 @@ class AutofocusZNotRestoredError(CaptureError):
         super().__init__(f'Could not restore Z position after autofocus stopped. {what}', reason)
 
 
-class RunWriteRefusedError(CaptureError):
+class RunWriteRefusedError(Fault, CaptureError):
     """A write was handed to a run whose writes have ended.
 
     A run's writes end when its cleanup closes them, or when a writer
@@ -1958,7 +1967,7 @@ class FileWriterNotStuckError(Refusal, Exception):
         self.pending = pending
 
 
-class CameraStreamStalledError(CaptureError):
+class CameraStreamStalledError(Fault, CaptureError):
     """The camera stopped delivering frames while it stayed connected and streaming.
 
     A camera's link or grab loop can stall without the device being removed:
@@ -1983,7 +1992,7 @@ class CameraStreamStalledError(CaptureError):
         self.seconds = seconds
 
 
-class FileWriterStalledError(CaptureError):
+class FileWriterStalledError(Fault, CaptureError):
     """A finished run's file writer stopped making progress on one of its files.
 
     Nobody is waiting on a run's files once it has ended, so the run engine
@@ -2028,7 +2037,7 @@ class FileWriterStalledError(CaptureError):
         )
 
 
-class FrameListenerNotRegisteredError(CaptureError):
+class FrameListenerNotRegisteredError(Fault, CaptureError):
     """The camera driver would not take a frame listener, so it will receive no frames.
 
     Raised by ``add_frame_listener`` to whoever registered it -- a plugin, a
@@ -2090,7 +2099,7 @@ class FrameHandlerRemovedError(Refusal, Exception):
         self.reason = reason
 
 
-class PluginError(Exception):
+class PluginError(Fault, Exception):
     """A plugin failed: it did not load, or it failed after loading.
 
     Nothing raises these: the plugin host catches the plugin's own failure
@@ -2106,6 +2115,8 @@ class PluginError(Exception):
     Attributes:
         plugin_name: The plugin that failed.
     """
+
+    words_for_person = True
 
     def __init__(self, plugin_name: str, title: str, message: str):
         super().__init__(message)
@@ -2938,7 +2949,7 @@ class AxisStateUnknownError(Refusal, Exception):
         self.axis = next(iter(axes))
 
 
-class MoveNotCompletedError(Exception):
+class MoveNotCompletedError(Fault, Exception):
     """A move ended without its axis arriving at the target.
 
     The move was driven, so this is a failure, not a refusal: the motor
@@ -2976,6 +2987,7 @@ class MoveNotCompletedError(Exception):
         title: The heading shown with the sentence, which follows the reason.
     """
 
+    words_for_person = True
     _SENTENCES: ClassVar[dict[str, str]] = {
         'driver_failed': (
             'the motor board did not take the command. The {axis} position is now '
@@ -3026,7 +3038,7 @@ class MoveNotCompletedError(Exception):
         self.title = self._TITLES.get(reason, 'Move Did Not Complete')
 
 
-class MotorStopFailedError(Exception):
+class MotorStopFailedError(Fault, Exception):
     """The motor STOP command failed, so the stage may still be moving.
 
     Raised by ``stop_motion`` when the board did not take the STOP, chained
@@ -3035,6 +3047,7 @@ class MotorStopFailedError(Exception):
     moved, so no waited move reads itself as arrived.
     """
 
+    words_for_person = True
     title = 'Motor Stop Failed'
 
     def __init__(self):
@@ -3044,7 +3057,7 @@ class MotorStopFailedError(Exception):
         )
 
 
-class ScopeDisconnectError(Exception):
+class ScopeDisconnectError(Fault, Exception):
     """One or more parts of the microscope did not shut down cleanly.
 
     Raised by ``Lumascope.disconnect`` only after every teardown step has
@@ -3058,6 +3071,7 @@ class ScopeDisconnectError(Exception):
         causes: Each failed part's error, keyed by part.
     """
 
+    words_for_person = True
     title = 'Disconnect Failed'
 
     _WORDS: ClassVar[dict[str, str]] = {
@@ -3085,7 +3099,7 @@ class ScopeDisconnectError(Exception):
         super().__init__(' '.join(self._WORDS[part] for part in self.parts))
 
 
-class HomingFailedError(Exception):
+class HomingFailedError(Fault, Exception):
     """A home did not establish a reference position.
 
     The driver answered that the home failed, the driver raised, or the
@@ -3106,6 +3120,7 @@ class HomingFailedError(Exception):
             Stop ended before it was driven.
     """
 
+    words_for_person = True
     title = 'Homing Failed'
 
     _SUBJECTS: ClassVar[dict[str, str]] = {
@@ -3141,14 +3156,14 @@ class HomingFailedError(Exception):
         super().__init__(sentence)
 
 
-class AutofocusAborted(Exception):  # noqa: N818 -- cancellation/abort signal, not an error; non-Error suffix is intentional
+class AutofocusAborted(Fault, Exception):  # noqa: N818 -- cancellation/abort signal, not an error; non-Error suffix is intentional
     """Autofocus run aborted by caller (e.g. user cancelled, protocol
     aborted, or app teardown)."""
 
     pass
 
 
-class CameraSettingRejected(Exception):  # noqa: N818 -- named for the event it signals; one type covers the defect class
+class CameraSettingRejected(Fault, Exception):  # noqa: N818 -- named for the event it signals; one type covers the defect class
     """The camera driver rejected a state-changing setting apply.
 
     Raised by ImagingAPI setters (frame size, binning, pixel format, gain,
@@ -3168,6 +3183,8 @@ class CameraSettingRejected(Exception):  # noqa: N818 -- named for the event it 
         requested: The value the caller asked for.
         title: The notification title the reporter shows.
     """
+
+    words_for_person = True
 
     def __init__(self, setting: str, requested, *, title: str, message: str):
         super().__init__(message)
@@ -3248,7 +3265,7 @@ class CameraSettingOutOfRangeError(Refusal, ValueError):
         self.title = title
 
 
-class FrameDepthError(Exception):
+class FrameDepthError(Fault, Exception):
     """A frame carries a payload value above its declared significant-bits depth.
 
     The downconvert to 8-bit scales against ``significant_bits`` -- the meaningful
@@ -3278,7 +3295,7 @@ class FrameDepthError(Exception):
 SUPPORT_ADDRESS = 'support@etaluma.com'
 
 
-class SupportReportNotSavedError(Exception):
+class SupportReportNotSavedError(Fault, Exception):
     """A support report or a logs zip was not saved.
 
     A fault, not a refusal: the report ran and something under it failed.
@@ -3290,6 +3307,7 @@ class SupportReportNotSavedError(Exception):
         report: ``'support report'`` or ``'logs zip'``.
     """
 
+    words_for_person = True
     title = 'Support Report Not Saved'
 
     def __init__(self, report: str, cause: BaseException):

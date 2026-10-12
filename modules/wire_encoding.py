@@ -62,6 +62,7 @@ import warnings
 from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import Future
 
+from lib.lumascope_error import Fault
 from modules.api_surface import API, fields_of, is_record, mark_of
 
 # The forms a value takes on the wire.
@@ -109,7 +110,7 @@ _TRANSPARENT = {'ClassVar', 'Optional', 'Union'}
 _HOST_FILLED = {'Callable', 'ProgressCallback', 'RunEvents'}
 
 
-class NoWireFormError(TypeError):
+class NoWireFormError(Fault, TypeError):
     """A value whose type has no wire form reached ``encode``."""
 
 

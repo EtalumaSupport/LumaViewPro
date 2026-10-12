@@ -50,6 +50,7 @@ from collections.abc import Callable
 
 import serial.tools.list_ports as list_ports
 
+from lib.lumascope_error import Fault
 from drivers.serialboard import SerialBoard
 
 logger = logging.getLogger(__name__)
@@ -81,7 +82,7 @@ class UpdateStage(Enum):
     FAILED = 'failed'
 
 
-class UpdateError(Exception):
+class UpdateError(Fault, Exception):
     """Firmware update failure with stage and recoverability info."""
 
     def __init__(self, message: str, stage: UpdateStage, recoverable: bool = True):

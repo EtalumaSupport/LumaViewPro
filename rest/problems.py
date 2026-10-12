@@ -32,6 +32,7 @@ import datetime
 
 from fastapi.responses import JSONResponse
 
+from lib.lumascope_error import Fault
 from modules import notification_center
 from modules.api_surface import fields_of
 from modules.exceptions import RefusalCause
@@ -124,7 +125,7 @@ def result(value: object) -> Answer:
     return Answer(200, value)
 
 
-class ServerRefusedError(Exception):
+class ServerRefusedError(Fault, Exception):
     """A request the server itself answers: it never reached a member.
 
     Attributes:

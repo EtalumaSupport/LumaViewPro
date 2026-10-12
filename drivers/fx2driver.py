@@ -88,6 +88,7 @@ from datetime import datetime
 
 import numpy as np
 
+from lib.lumascope_error import Fault
 from lvp_logger import logger
 
 try:
@@ -1376,7 +1377,7 @@ def _platform_transport() -> _PyusbTransport:
 # ---------------------------------------------------------------------------
 
 
-class _FX2AbsentError(RuntimeError):
+class _FX2AbsentError(Fault, RuntimeError):
     """No FX2 is on the bus, under either the application or the bootloader PID.
 
     Told apart from every other connection failure because it is not one: the
