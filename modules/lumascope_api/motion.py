@@ -341,6 +341,13 @@ class MotionAPI:
         # nobody commanded; a waited move compares this against the value
         # it saw before driving to tell a stop from an arrival.
         self._stop_generation = 0
+        # Bumped by the Stops someone asked for (stop_motion, the teardown's
+        # stop), not by a stop the stage made in refusing for an interlock:
+        # a home that has not driven yet is ended by an asked Stop, while
+        # the lid's stop halts what was moving and the home's own interlock
+        # read refuses it with the lid as the cause. Written and read under
+        # _stop_lock.
+        self._stops_asked = 0
         self._stop_lock = threading.Lock()
         # How many homes drive now on a board that cannot take a STOP until
         # the home ends: stop_motion is refused while any does, not queued
@@ -566,15 +573,18 @@ class MotionAPI:
     def _driving_home(
         self,
         home: str,
-        stop_generation: int,
+        stops_asked: int,
         states_before: Mapping[str, str],
         turret_before: int | None,
     ) -> Iterator[None]:
         """The span in which a home drives, entered immediately before it does.
 
-        A home whose Stop landed before it drives ends here. The driver
+        A home whose Stop landed before it drives ends here: ``stops_asked``
+        is ``_stops_asked`` as the home read it when it was asked. The driver
         forgets a stop that came before its home began, so a Stop pressed
-        just after Home would otherwise be lost and the whole home run.
+        just after Home would otherwise be lost and the whole home run. A
+        stop the stage made for an interlock is not one: it halted what was
+        moving, and the home's own interlock read refuses it with its cause.
         Nothing of the home has moved the axes it homes, so each gets back
         the state it had and the turret its slot, as a home the interlock
         refuses before it moves.
@@ -589,7 +599,7 @@ class MotionAPI:
         """
         unstoppable = int(not self._driver.supports_stopping_a_home())
         with self._stop_lock:
-            stopped = self._stop_generation != stop_generation
+            stopped = self._stops_asked != stops_asked
             if not stopped:
                 self._unstoppable_homes_driving += unstoppable
         if stopped:
@@ -872,6 +882,7 @@ class MotionAPI:
             stopped = self._driver.motor_stop()
             if stopped:
                 self._stop_generation += 1
+                self._stops_asked += 1
                 logger.info('[SCOPE API ] stop_motion: motors stopped')
             else:
                 logger.debug(
@@ -882,6 +893,7 @@ class MotionAPI:
             # The exchange may have failed after the board took the STOP,
             # so a move in flight cannot be vouched for as arrived.
             self._stop_generation += 1
+            self._stops_asked += 1
             raise MotorStopFailedError() from e
 
     @api
@@ -1004,6 +1016,7 @@ class MotionAPI:
         # A homing turret is in no known slot until the home succeeds.
         self._last_turret_position = None
         stop_generation = self._stop_generation
+        stops_asked = self._stops_asked
         if 'Z' in present_axes:
             self._scope.imaging.frame_validity.invalidate('z_move')
         if 'X' in present_axes or 'Y' in present_axes:
@@ -1013,7 +1026,7 @@ class MotionAPI:
         try:
             with (
                 self._reference_position_logger(),
-                self._driving_home('ALL', stop_generation, states_before, turret_before),
+                self._driving_home('ALL', stops_asked, states_before, turret_before),
             ):
                 self._driver.home()
             # The position is read BEFORE an axis says IDLE: a reader that
@@ -1141,12 +1154,13 @@ class MotionAPI:
         # A homing turret is in no known slot until the home succeeds.
         self._last_turret_position = None
         stop_generation = self._stop_generation
+        stops_asked = self._stops_asked
         try:
             with (
                 self._reference_position_logger(),
                 # Before Z's park, and around it and the restore: a Stop
                 # already pressed parks nothing, and the park is the home's.
-                self._driving_home('T', stop_generation, {'T': state_before}, turret_before),
+                self._driving_home('T', stops_asked, {'T': state_before}, turret_before),
                 self._safe_turret_move(),
             ):
                 self._set_axis_state('T', AxisState.HOMING)
@@ -1658,12 +1672,13 @@ class MotionAPI:
         state_before = self._axis_states(('Z',))['Z']
         self._set_axis_state('Z', AxisState.HOMING)
         stop_generation = self._stop_generation
+        stops_asked = self._stops_asked
         self._scope.imaging.frame_validity.invalidate('z_move')
         try:
             with (
                 self._reference_position_logger(),
                 self._driving_home(
-                    'Z', stop_generation, {'Z': state_before}, self._last_turret_position
+                    'Z', stops_asked, {'Z': state_before}, self._last_turret_position
                 ),
             ):
                 self._driver.zhome()

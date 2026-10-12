@@ -138,14 +138,30 @@ def test_a_lid_refusal_ends_a_waited_move_on_another_axis_as_a_stop_does(homed):
     assert 0 < _at(homed, 'Z') < 8_000
 
 
-def test_a_lid_refused_home_ends_a_waited_move_as_a_stop_does(homed):
-    """A home the lid refuses before it moves anything still stops every
-    axis, and the X move in flight says so."""
+def test_a_home_asked_as_the_lid_stops_a_move_is_refused_for_the_lid(homed, monkeypatch):
+    """The lid opening under an X move stops every axis, and a Z home asked
+    in that moment is refused for the lid, not ended as a Stop someone asked
+    for. The stage's stop landed after the home was asked and before it drove,
+    which on a loaded host it does about one time in five: the home read it
+    as a Stop pressed just after Home and said it was stopped."""
     x = homed.motion.start_move_absolute('X', 100_000)
     homed.simulation.interlock(lid_open=True)
-    with pytest.raises(HardwareCommandRefusedError):
+    x_ended = []
+    frame_validity = homed.imaging.frame_validity
+    invalidate = frame_validity.invalidate
+
+    def _held_until_x_ends(source):
+        # A stand-in by design: the home is held after it was asked, until the
+        # stage's lid stop has ended X, so that stop lands where the race puts it.
+        if source == 'z_move' and not x_ended:
+            x_ended.append(_ended(x))
+        return invalidate(source)
+
+    monkeypatch.setattr(frame_validity, 'invalidate', _held_until_x_ends)
+    with pytest.raises(HardwareCommandRefusedError) as refused:
         homed.motion.home('Z')
-    assert _ended(x) == 'stopped'
+    assert refused.value.reason == 'lid_open'
+    assert x_ended == ['stopped']
     # X set out from its index position, down toward 100 mm.
     assert 100_000 < _at(homed, 'X') < 117_690
 
