@@ -95,64 +95,65 @@ def _refused(call) -> HardwareCommandRefusedError:
 # --- The refusal names what is missing ----------------------------------------
 
 
+# Every motion command, which a manual scope refuses naming its motors.
+_MANUAL_REFUSES = {
+    'move_absolute': lambda m: m.move_absolute('Z', 1000.0),
+    'move_relative': lambda m: m.move_relative('X', 10.0),
+    'start_move_absolute': lambda m: m.start_move_absolute('Y', 1000.0),
+    'move_turret': lambda m: m.move_turret(2),
+    'home_all': lambda m: m.home('ALL'),
+    'home_z': lambda m: m.home('Z'),
+    'home_t': lambda m: m.home('T'),
+    'stop_motion': lambda m: m.stop_motion(),
+    'precision': lambda m: m.set_precision_mode('Z', True),
+    'acceleration': lambda m: m.set_acceleration_limit(val_pct=50),
+}
+
+# The commands a Z-only scope refuses, each with the part it names.
+_Z_ONLY_REFUSES = {
+    'move_x': (lambda m: m.move_absolute('X', 1000.0), MissingPart.X),
+    'move_y': (lambda m: m.start_move_relative('Y', 10.0), MissingPart.Y),
+    'precision_x': (lambda m: m.set_precision_mode('X', True), MissingPart.X),
+    'move_turret': (lambda m: m.move_turret(2), MissingPart.TURRET),
+    'home_t': (lambda m: m.home('T'), MissingPart.TURRET),
+}
+
+
+def _refused_otherwise(commands: dict, motion) -> dict:
+    """Each of ``commands`` (name -> (command, expected refusal words)) that
+    ``motion`` does not refuse with those words, with what it did instead."""
+    wrong = {}
+    for name, (command, expected) in commands.items():
+        try:
+            answer = command(motion)
+        except HardwareCommandRefusedError as refusal:
+            words = (refusal.reason, refusal.missing, str(refusal))
+            if words[: len(expected)] != expected:
+                wrong[name] = words
+        else:
+            wrong[name] = f'answered {answer!r}'
+    return wrong
+
+
 @pytest.mark.parametrize('model', MANUAL)
-@pytest.mark.parametrize(
-    'command',
-    [
-        lambda m: m.move_absolute('Z', 1000.0),
-        lambda m: m.move_relative('X', 10.0),
-        lambda m: m.start_move_absolute('Y', 1000.0),
-        lambda m: m.move_turret(2),
-        lambda m: m.home('ALL'),
-        lambda m: m.home('Z'),
-        lambda m: m.home('T'),
-        lambda m: m.stop_motion(),
-        lambda m: m.set_precision_mode('Z', True),
-        lambda m: m.set_acceleration_limit(val_pct=50),
-    ],
-    ids=[
-        'move_absolute',
-        'move_relative',
-        'start_move_absolute',
-        'move_turret',
-        'home_all',
-        'home_z',
-        'home_t',
-        'stop_motion',
-        'precision',
-        'acceleration',
-    ],
-)
-def test_a_manual_scope_has_no_motors(make_session, model, command):
+def test_a_manual_scope_has_no_motors(make_session, model):
     scope = make_session(model).scope
+    expected = ('axis_absent', MissingPart.MOTORS, 'This microscope has no motors.')
 
-    refusal = _refused(lambda: command(scope.motion))
-
-    assert refusal.reason == 'axis_absent'
-    assert refusal.missing is MissingPart.MOTORS
-    assert str(refusal) == 'This microscope has no motors.'
+    commands = {name: (command, expected) for name, command in _MANUAL_REFUSES.items()}
+    assert _refused_otherwise(commands, scope.motion) == {}
 
 
 @pytest.mark.parametrize('model', Z_ONLY)
-@pytest.mark.parametrize(
-    ('command', 'part'),
-    [
-        (lambda m: m.move_absolute('X', 1000.0), MissingPart.X),
-        (lambda m: m.start_move_relative('Y', 10.0), MissingPart.Y),
-        (lambda m: m.set_precision_mode('X', True), MissingPart.X),
-        (lambda m: m.move_turret(2), MissingPart.TURRET),
-        (lambda m: m.home('T'), MissingPart.TURRET),
-    ],
-    ids=['move_x', 'move_y', 'precision_x', 'move_turret', 'home_t'],
-)
-def test_a_z_only_scope_names_the_axis_it_lacks(make_session, monkeypatch, model, command, part):
+def test_a_z_only_scope_names_the_axis_it_lacks(make_session, monkeypatch, model):
     scope = make_session(model).scope
     z_before = scope.motion.get_current_position('Z')
     sent = _spy_wire(monkeypatch, scope)
 
-    refusal = _refused(lambda: command(scope.motion))
-
-    assert (refusal.reason, refusal.missing) == ('axis_absent', part)
+    commands = {
+        name: (command, ('axis_absent', part)) for name, (command, part) in _Z_ONLY_REFUSES.items()
+    }
+    assert _refused_otherwise(commands, scope.motion) == {}
     assert sent == []
     # A turret command parks no Z and records no slot for a turret that is not there.
     assert scope.motion.get_current_position('Z') == z_before
@@ -171,6 +172,7 @@ def test_a_scope_with_no_turret_names_the_turret(make_session, monkeypatch):
     assert scope.motion.get_turret_slot() is None
 
 
+# parametrize-justified: each model brings up its own scope and motion boards
 @pytest.mark.parametrize('model', EVERY_MODEL)
 def test_a_name_that_is_no_axis_is_refused_before_the_hardware_is_asked(make_session, model):
     """A name that is no axis is the request's fault on every model, a manual one included."""
@@ -209,6 +211,7 @@ def test_go_to_step_on_a_scope_whose_board_did_not_come_up_is_refused(make_sessi
     assert (refusal.reason, refusal.missing) == ('not_connected', MissingPart.MOTOR_CONTROLLER)
 
 
+# parametrize-justified: each model brings up its own scope and motion boards
 @pytest.mark.parametrize('model', EVERY_MODEL)
 def test_stop_after_disconnect_says_the_scope_is_disconnected(make_session, model):
     session = make_session(model)
