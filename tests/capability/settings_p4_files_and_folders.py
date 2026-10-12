@@ -9,7 +9,8 @@ GUI entry points (all in ui/lumaviewpro.kv, dispatched by the four
   apply_stitching_to_folder       kv:1729,1742
   apply_zprojection_to_folder     kv:1766
   apply_composite_gen_to_folder   kv:1820
-  choose_quick_enhance_target     kv:1844 -> file_dialogs.py:546/567
+  load_quick_enhance_input_image  (Quick Enhance, Enhance image...)
+  apply_quick_enhance_to_folder   (Quick Enhance, Enhance folder...)
   load_graphing_data              kv:3648
   save_graph                      kv:3847
   load_cell_count_input_image     kv:3888
@@ -66,7 +67,8 @@ try:
         'load_cell_count_method': ('load_cell_count_method', 'cell_count'),
         'saveas_cell_count_method': ('save_cell_count_method', 'cell_count'),
         'load_cell_count_input_image': ('set_cell_count_source', 'cell_count'),
-        'choose_quick_enhance_target': ('quick_enhance', 'enhance'),
+        'load_quick_enhance_input_image': ('quick_enhance', 'enhance'),
+        'apply_quick_enhance_to_folder': ('quick_enhance', 'enhance'),
         'load_graphing_data': ('load_graphing_data', 'graph'),
         'save_graph': ('save_graph', 'graph'),
     }

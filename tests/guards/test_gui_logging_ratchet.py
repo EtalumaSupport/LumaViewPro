@@ -241,9 +241,13 @@ _ROSTER = {
     ),
     'ProtocolSettings.tiling_size_apply_id': ('APPLY_TILING',),
     'ProtocolSettings.tiling_size_spinner': ('TILING',),
-    'QuickEnhanceControls.FileOrFolderChooseBTN(choose:choose_quick_enhance_target)': (
-        'FILE_OR_FOLDER_CHOOSE',
-        'FILE_OR_FOLDER_CHOOSE_OPEN',
+    'QuickEnhanceControls.FileChooseBTN(choose:load_quick_enhance_input_image)': (
+        'FILE_CHOOSE',
+        'FILE_CHOOSE_OPEN',
+    ),
+    'QuickEnhanceControls.FolderChooseBTN(choose:apply_quick_enhance_to_folder)': (
+        'FOLDER_CHOOSE',
+        'FOLDER_CHOOSE_OPEN',
     ),
     'VerticalControl.RoundedButton(goto_bookmark)': ('GOTO_Z_BOOKMARK',),
     'VerticalControl.RoundedButton(set_all_bookmarks)': ('SET_ALL_BOOKMARKS',),

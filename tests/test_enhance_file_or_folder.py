@@ -1,4 +1,4 @@
-"""One-click Enhance picker and central-viewer handoff regression guards."""
+"""Quick Enhance through the Session: a missing target is refused, progress counts, outputs reach the viewer."""
 
 import ast
 from pathlib import Path
@@ -47,60 +47,6 @@ def _write_source(path):
         significant_bits=8,
         save_encoding='right_aligned',
     )
-
-
-def test_macos_enhance_picker_accepts_a_file_or_folder_in_one_native_dialog():
-    source = (REPO / 'ui' / 'file_dialogs.py').read_text(encoding='utf-8')
-    tree = ast.parse(source)
-    method = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name == '_macos_choose_file_or_folder'
-    )
-    assert 'choose file or folder' in ast.get_source_segment(source, method)
-
-
-def test_non_macos_enhance_picker_offers_both_native_target_kinds():
-    source = (REPO / 'ui' / 'file_dialogs.py').read_text(encoding='utf-8')
-    tree = ast.parse(source)
-    method = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef)
-        and node.name == '_platform_native_choose_file_or_folder'
-    )
-    body = ast.get_source_segment(source, method)
-    assert 'Toplevel' in body
-    assert 'askopenfilename' in body
-    assert 'askdirectory' in body
-
-
-def test_non_macos_enhance_picker_uses_image_and_folder_labels():
-    source = (REPO / 'ui' / 'file_dialogs.py').read_text(encoding='utf-8')
-    tree = ast.parse(source)
-    method = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef)
-        and node.name == '_platform_native_choose_file_or_folder'
-    )
-    body = ast.get_source_segment(source, method)
-
-    assert 'Choose image or folder' in body
-    assert "text='Image'" in body
-    assert "text='Folder'" in body
-
-
-def test_enhance_picker_hands_the_path_on_after_the_protocol_guard():
-    # Whether the path is a file, a folder or nothing is the API's question,
-    # asked where the build reads it: the picker hands the path on as chosen.
-    body = _class_method_source(
-        'ui/file_dialogs.py', 'FileOrFolderChooseBTN', 'on_selection_function'
-    )
-    guard_idx = body.find('session.run_lockout')
-    dispatch_idx = body.find('set_source(path)')
-    assert guard_idx != -1 and guard_idx < dispatch_idx
-    assert 'is_dir' not in body and 'is_file' not in body
 
 
 def test_a_target_that_is_not_there_is_refused_on_the_lane(tmp_path, monkeypatch):
@@ -185,12 +131,4 @@ def test_the_mode_router_keeps_a_stitcher_for_every_mode():
     assert 'fft_phase_stitcher' in router
     assert 'overlap_stitcher' in router
     assert 'stage_position_stitcher' in router
-
-
-def test_application_registers_the_one_click_picker():
-    app_source = (REPO / 'lumaviewpro.py').read_text(encoding='utf-8')
-    assert 'FileOrFolderChooseBTN' in app_source
-
-    router = (REPO / 'modules' / 'stitching_core.py').read_text(encoding='utf-8')
-    assert "mode == 'fast_preview'" in router
     assert 'quality_local_ncc' in router

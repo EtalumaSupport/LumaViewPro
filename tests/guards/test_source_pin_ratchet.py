@@ -129,7 +129,7 @@ _FRAGILE_PIN = {
     'tests/test_composite_channel_extract_672.py': 2,
     'tests/guards/test_controls_lockout.py': 5,
     'tests/test_dark_floor_capture_guard.py': 1,
-    'tests/test_enhance_file_or_folder.py': 7,
+    'tests/test_enhance_file_or_folder.py': 2,
     'tests/test_fatal_abort_led_safety.py': 2,
     'tests/test_histogram_display_gating.py': 1,
     'tests/test_image_mode.py': 2,

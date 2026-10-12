@@ -5,9 +5,9 @@ osascript exits 1 both when the person cancels a panel and when its script
 fails, and the two differ only in the AppleScript error number on stderr
 (-128 is the cancel). The macOS pickers read the exit code alone and turned
 every failure into a cancel, so the runner's failure report was never
-reached on macOS: the Enhance picker, whose script macOS will not compile
-with a default location (-2740), did nothing on every click and said
-nothing. A cancel is recorded under the record name its button already
+reached on macOS: the Enhance picker of the time, whose script macOS
+would not compile with a default location (-2740), did nothing on every
+click and said nothing. A cancel is recorded under the record name its button already
 writes, so the interaction log shows which picker the person closed.
 """
 
@@ -49,10 +49,44 @@ def test_a_failing_script_raises_with_osascript_words(monkeypatch):
         file_dialogs._osascript_choice('script')
 
 
-def test_the_enhance_picker_failure_reaches_the_runner(monkeypatch):
+def test_a_picker_s_script_failure_reaches_the_runner(monkeypatch):
     _osascript_answers(monkeypatch, 1, stderr=_COMPILE_ERROR)
     with pytest.raises(RuntimeError, match=r'\(-2740\)'):
-        file_dialogs._macos_choose_file_or_folder(initial_dir='/data')
+        file_dialogs._macos_choose_folder(initial_dir='/data')
+
+
+@pytest.mark.skipif(sys.platform != 'darwin', reason='compiles with osacompile')
+def test_every_macos_picker_s_script_compiles(monkeypatch, tmp_path):
+    """Each picker's AppleScript, with every clause it can carry, is one macOS accepts.
+
+    The Enhance picker asked for 'choose file or folder', a command
+    AppleScript does not have; with a default location it never compiled, and
+    Enhance never opened on a Mac. The scripts are compiled, not run, so no
+    panel opens.
+    """
+    scripts = {}
+    for name, build in (
+        ('open', lambda: file_dialogs._macos_open_file('/tmp', file_dialogs._IMAGE_FILETYPES)),
+        ('folder', lambda: file_dialogs._macos_choose_folder('/tmp')),
+        ('save', lambda: file_dialogs._macos_save_file('/tmp', 'protocol.tsv')),
+    ):
+        monkeypatch.setattr(
+            file_dialogs, '_osascript_choice', lambda script, n=name: scripts.setdefault(n, script)
+        )
+        build()
+
+    refused = {}
+    for name, script in scripts.items():
+        compiled = subprocess.run(
+            ['osacompile', '-o', str(tmp_path / f'{name}.scpt'), '-e', script],
+            capture_output=True,
+            text=True,
+        )
+        if compiled.returncode != 0:
+            refused[name] = compiled.stderr.strip()
+
+    assert sorted(scripts) == ['folder', 'open', 'save']
+    assert refused == {}
 
 
 @pytest.mark.skipif(sys.platform != 'darwin', reason='runs osascript')
@@ -79,11 +113,6 @@ def test_a_panel_past_the_backstop_is_a_failure(monkeypatch):
     ('button', 'context', 'record'),
     [
         (file_dialogs.FileChooseBTN, 'load_protocol', 'FILE_CHOOSE'),
-        (
-            file_dialogs.FileOrFolderChooseBTN,
-            'choose_quick_enhance_target',
-            'FILE_OR_FOLDER_CHOOSE',
-        ),
         (file_dialogs.FolderChooseBTN, 'live_folder', 'FOLDER_CHOOSE'),
         (file_dialogs.FileSaveBTN, 'saveas_protocol', 'FILE_SAVE'),
     ],

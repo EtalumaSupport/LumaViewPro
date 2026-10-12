@@ -442,7 +442,7 @@ from modules.settings_init import fall_back_to_template
 # strip these as unused; the per-file ignore in pyproject.toml ([tool.ruff.lint
 # .per-file-ignores] "lumaviewpro.py" lists F401) silences that. Do not remove
 # any of these without first grepping ui/*.kv for the class name.
-from ui.file_dialogs import FileChooseBTN, FileOrFolderChooseBTN, FileSaveBTN, FolderChooseBTN
+from ui.file_dialogs import FileChooseBTN, FileSaveBTN, FolderChooseBTN
 from ui.histogram import Histogram
 from ui.image_settings import (
     AccordionItemImageSettingsBase,

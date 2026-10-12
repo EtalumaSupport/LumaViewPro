@@ -42,7 +42,7 @@ _POST_PROCESSING_CONTEXTS = (
 # fires, busy sticks True, and the panel's disabled binding wedges until
 # restart. The other file contexts run synchronously on selection and cannot
 # wedge, so only the executor-backed one is listed.
-_POST_PROCESSING_FILE_CONTEXTS = ('choose_quick_enhance_target',)
+_POST_PROCESSING_FILE_CONTEXTS = ('load_quick_enhance_input_image',)
 
 
 def _zprojection_picker_default_path(live_folder: pathlib.Path) -> str:
@@ -175,15 +175,6 @@ def _macos_choose_folder(initial_dir=None):
     return _osascript_choice(script)
 
 
-def _macos_choose_file_or_folder(initial_dir=None):
-    """Show one native macOS picker that accepts either an image or a folder."""
-    script = 'set theItem to choose file or folder'
-    if initial_dir:
-        script += f' default location POSIX file "{_escape_applescript(initial_dir)}"'
-    script += '\nPOSIX path of theItem'
-    return _osascript_choice(script)
-
-
 def _foregrounded_tk_root():
     """Build the invisible Tk root a tkinter picker parents to, foregrounded.
 
@@ -254,61 +245,6 @@ def _platform_native_open_file(initial_dir, filetypes):
             initialdir=initial_dir,
             filetypes=filetypes,
         )
-    finally:
-        root.destroy()
-    return path or None
-
-
-def _platform_native_choose_file_or_folder(initial_dir, filetypes):
-    """Return one user-chosen file or folder on every supported platform.
-
-    Cocoa has a single native panel for both target kinds. Tk does not, so
-    Windows/Linux present one modal image/folder/cancel choice followed by
-    the matching native picker. The LVP panel remains a single visible action.
-    """
-    if sys.platform == 'darwin':
-        return _macos_choose_file_or_folder(initial_dir=initial_dir)
-
-    from tkinter import Button as TkButton
-    from tkinter import Frame, Label, Toplevel, filedialog
-
-    root = _foregrounded_tk_root()
-    try:
-        choice = {'value': None}
-
-        def select(value):
-            choice['value'] = value
-            dialog.destroy()
-
-        dialog = Toplevel(root)
-        dialog.title('Enhance')
-        dialog.transient(root)
-        dialog.resizable(False, False)
-        dialog.protocol('WM_DELETE_WINDOW', lambda: select(None))
-        Label(dialog, text='Choose image or folder').pack(padx=24, pady=(20, 12))
-        buttons = Frame(dialog)
-        TkButton(buttons, text='Image', command=lambda: select(True)).pack(side='left', padx=4)
-        TkButton(buttons, text='Folder', command=lambda: select(False)).pack(side='left', padx=4)
-        TkButton(buttons, text='Cancel', command=lambda: select(None)).pack(side='left', padx=4)
-        buttons.pack(padx=16, pady=(0, 16))
-        dialog.wait_visibility()
-        dialog.grab_set()
-        dialog.wait_window()
-        choose_file = choice['value']
-        if choose_file is True:
-            path = filedialog.askopenfilename(
-                parent=root,
-                initialdir=initial_dir,
-                filetypes=filetypes,
-            )
-        elif choose_file is False:
-            path = filedialog.askdirectory(
-                parent=root,
-                initialdir=initial_dir,
-                title='Select folder to enhance',
-            )
-        else:
-            path = ''
     finally:
         root.destroy()
     return path or None
@@ -569,55 +505,6 @@ class FileChooseBTN(HoverBehavior, Button):
 
             elif self.context == 'load_cell_count_method':
                 ctx.cell_count_content.load_method_from_file(file=self.selection[0])
-
-
-class FileOrFolderChooseBTN(HoverBehavior, Button):
-    """One Enhance entry action that accepts either a supported image or a folder."""
-
-    context = StringProperty()
-    selection = ListProperty([])
-
-    def choose(self, context):
-        gui_logger.button('FILE_OR_FOLDER_CHOOSE_OPEN', f'context={context}')
-        logger.info(f'[LVP Main  ] FileOrFolderChooseBTN.choose({context})')
-        self.context = context
-        if context != 'choose_quick_enhance_target':
-            logger.error('Unsupported file-or-folder context: %s', context)
-            return
-
-        initial_dir = str(pathlib.Path(_app_ctx.ctx.settings['live_folder']))
-        filetypes = _IMAGE_FILETYPES
-        _run_native_dialog_async(
-            self,
-            lambda: _platform_native_choose_file_or_folder(initial_dir, filetypes),
-            lambda path: self.handle_selection(selection=[path]),
-            on_cancel=lambda: gui_logger.select(
-                'FILE_OR_FOLDER_CHOOSE', f'context={context} cancelled'
-            ),
-        )
-
-    def handle_selection(self, selection):
-        if selection:
-            self.selection = selection
-            self.on_selection_function()
-
-    def on_selection_function(self, *a, **k):
-        if not self.selection:
-            return
-        path = pathlib.Path(self.selection[0])
-        gui_logger.select('FILE_OR_FOLDER_CHOOSE', f'context={self.context} path={path}')
-        ctx = _app_ctx.ctx
-        if ctx.session.run_lockout:
-            from modules.notification_center import notifications
-
-            notifications.warning(
-                'Post-Processing',
-                'Protocol running',
-                'Post-processing cannot run while a protocol scan is in progress. '
-                'Stop or finish the protocol first, then retry.',
-            )
-            return
-        ctx.quick_enhance_controls.set_source(path)
 
 
 class FolderChooseBTN(HoverBehavior, Button):

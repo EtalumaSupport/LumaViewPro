@@ -44,14 +44,19 @@ def test_lumaviewpro_kv_parses_with_quick_enhance_controls():
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_quick_enhance_kv_offers_one_click_enhance_without_panel_prose():
+def test_quick_enhance_kv_offers_an_image_and_a_folder_button_without_panel_prose():
     content = KV_PATH.read_text(encoding='utf-8')
     quick_enhance_rule = content[
         content.index('<QuickEnhanceControls>:') : content.index('<QuickEnhanceUtilityButton@')
     ]
 
-    assert quick_enhance_rule.count('FileOrFolderChooseBTN:') == 1
-    assert "text: 'Enhance'" in quick_enhance_rule
+    # One native picker per kind: no platform offers a file or a folder in
+    # one panel, and a prompt asking which came first was its own complaint.
+    assert quick_enhance_rule.count('FileChooseBTN:') == 1
+    assert quick_enhance_rule.count('FolderChooseBTN:') == 1
+    assert "self.choose('load_quick_enhance_input_image')" in quick_enhance_rule
+    assert "self.choose('apply_quick_enhance_to_folder')" in quick_enhance_rule
+    assert 'FileOrFolderChooseBTN' not in quick_enhance_rule
     # The build popup reports the progress and the outcome; a line under the
     # button kept the last outcome on screen after it stopped being news.
     assert 'Label:' not in quick_enhance_rule

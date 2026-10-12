@@ -1935,11 +1935,17 @@
 			size: self.width - dp(4), self.height - dp(4)
 			radius: [dp(8)]
 
-	FileOrFolderChooseBTN:
-		text: 'Enhance'
+	FileChooseBTN:
+		text: 'Enhance image...'
 		size_hint_y: None
 		height: '38dp'
-		on_release: self.choose('choose_quick_enhance_target')
+		on_release: self.choose('load_quick_enhance_input_image')
+
+	FolderChooseBTN:
+		text: 'Enhance folder...'
+		size_hint_y: None
+		height: '38dp'
+		on_release: self.choose('apply_quick_enhance_to_folder')
 
 <QuickEnhanceUtilityButton@RoundedButton>:
 	font_size: '12sp'

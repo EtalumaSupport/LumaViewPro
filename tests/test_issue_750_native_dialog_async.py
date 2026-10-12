@@ -41,7 +41,6 @@ _TREE = ast.parse(_SRC)
 _PRIMITIVE_NAMES = {
     '_foregrounded_tk_root',
     '_platform_native_choose_folder',
-    '_platform_native_choose_file_or_folder',
     '_platform_native_open_file',
     '_platform_native_save_file',
 }
@@ -112,7 +111,7 @@ def test_tkinter_confined_to_platform_primitives():
 def test_choose_methods_route_through_the_one_runner():
     """Each choose() body calls _run_native_dialog_async and carries no
     sys.platform branch -- platform dispatch lives in the primitives only."""
-    assert len(_CHOOSE_CLASSES) == 4, f'the picker buttons read from the module: {_CHOOSE_CLASSES}'
+    assert len(_CHOOSE_CLASSES) == 3, f'the picker buttons read from the module: {_CHOOSE_CLASSES}'
     for class_name in _CHOOSE_CLASSES:
         method = _choose_method(class_name)
         body_src = ast.get_source_segment(_SRC, method)
@@ -163,7 +162,7 @@ def test_macos_primitives_use_the_zombie_backstop_timeout():
         for n in _function_defs()
         if n.name.startswith('_macos_') and n.name.endswith(('_file', '_folder'))
     ]
-    assert len(pickers) == 4
+    assert len(pickers) == 3
     for node in pickers:
         src = ast.get_source_segment(_SRC, node)
         assert '_osascript_choice(' in src and 'subprocess.run' not in src, (
