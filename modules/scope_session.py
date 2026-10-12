@@ -626,7 +626,7 @@ class ScopeSession:
         """
         return self.sequenced_capture_runner.run_in_progress()
 
-    @api
+    @api(reads=True)
     def held_by_other(self, run: 'RunHandle | None') -> bool:
         """Whether the scope is held by anything but *run*, a run start() returned.
 
@@ -1384,7 +1384,7 @@ class ScopeSession:
             raise RemedyUnknownError(remedy.member, remedies)
         return action()
 
-    @api
+    @api(reads=True)
     def get_layer_configs(self, specific_layers: list | None = None) -> dict:
         """The stored settings of each layer, or of ``specific_layers``.
 
@@ -1417,7 +1417,7 @@ class ScopeSession:
         for entry in layer_entries:
             entry['autofocus'] = False
 
-    @api
+    @api(reads=True)
     def saved_focus(self, layer: str) -> float:
         """The Z saved as ``layer``'s focus.
 
@@ -1434,25 +1434,25 @@ class ScopeSession:
             raise FocusNotSavedError(layer)
         return focus
 
-    @api
+    @api(reads=True)
     def get_stim_configs(self) -> dict:
         import modules.config_helpers as config_helpers
 
         return config_helpers.get_stim_configs(self.settings)
 
-    @api
+    @api(reads=True)
     def get_enabled_stim_configs(self) -> dict:
         import modules.config_helpers as config_helpers
 
         return config_helpers.get_enabled_stim_configs(self.settings)
 
-    @api
+    @api(reads=True)
     def get_auto_gain_settings(self) -> dict:
         import modules.config_helpers as config_helpers
 
         return config_helpers.get_auto_gain_settings(self.settings)
 
-    @api
+    @api(reads=True)
     def get_sequenced_capture_config(
         self,
         *,
@@ -2346,7 +2346,7 @@ class ScopeSession:
             preview_on=self.settings['protocol_led_on'],
         )
 
-    @api
+    @api(reads=True)
     def protocol_size_advisory(self, protocol: 'Protocol') -> 'ProtocolSizeAdvisory | None':
         """Ask a protocol whether it is large enough to warn the user about.
 
@@ -2370,7 +2370,7 @@ class ScopeSession:
             global_max_fps=run_settings['video_max_fps'],
         )
 
-    @api
+    @api(reads=True)
     def get_settings_snapshot(self) -> dict:
         """A deep copy of the settings dict, taken under the lock.
 
@@ -2381,7 +2381,7 @@ class ScopeSession:
         with self.settings_lock:
             return copy.deepcopy(self.settings)
 
-    @api
+    @api(reads=True)
     def get_setting(self, path: str) -> 'SettingValue':
         """A copy of one setting, named by its dotted path: ``'stage_offset'``, ``'scale_bar.enabled'``.
 
@@ -2473,7 +2473,7 @@ class ScopeSession:
         with self.settings_lock:
             self._store_setting('live_folder', stored)
 
-    @api(in_process=True)
+    @api(in_process=True, reads=True)
     def live_folder_path(self, name: str) -> pathlib.Path:
         """The absolute path that ``name``, a name under the live folder, names.
 
@@ -2516,7 +2516,7 @@ class ScopeSession:
             )
         return (root / name).resolve()
 
-    @api
+    @api(reads=True)
     def live_folder_listing(self, name: str = '.') -> tuple[LiveFolderEntry, ...]:
         """What the folder ``name`` under the live folder holds, one level, sorted by name.
 
@@ -2927,7 +2927,7 @@ class ScopeSession:
             return
         self.apply_layer_camera(layer)
 
-    @api
+    @api(reads=True)
     def bring_up_record(self) -> 'BringUpRecord':
         """What bring-up found, substituted and set aside, for a client that asks later.
 
@@ -3056,7 +3056,7 @@ class ScopeSession:
         """
         return path_utils.app_runtime()
 
-    @api
+    @api(reads=True)
     def plugin_health(self) -> 'PluginHealth | None':
         """The loaded plugins, the ones that did not load, and their runtime errors.
 
@@ -3142,7 +3142,7 @@ class ScopeSession:
         """
         return PLUGIN_API_LEVEL
 
-    @api
+    @api(reads=True)
     def settings_are_provisional(self) -> bool:
         """Is the app running on defaults nobody has agreed to keep?
 
@@ -3248,7 +3248,7 @@ class ScopeSession:
         if self.plugins is not None:
             self.plugins.settings_saved(self, settings_snapshot)
 
-    @api
+    @api(reads=True)
     def capture_settings_snapshot(self) -> dict:
         """A settings snapshot for composing a capture or a run.
 
@@ -3313,7 +3313,7 @@ class ScopeSession:
             self.scope.scope_models, self.scope.layer_identity.model
         )
 
-    @api
+    @api(reads=True)
     def objective_question(self) -> 'ObjectiveQuestion | None':
         """Does the objective need confirming? The question, or None.
 
@@ -3583,7 +3583,7 @@ class ScopeSession:
         if holder is not None:
             raise HardwareCommandRefusedError('exclusive_activity_running', member, holder)
 
-    @api
+    @api(reads=True)
     def get_current_plate_position(self) -> dict:
         """The stage's position in plate coordinates, on the session's labware.
 
@@ -3802,7 +3802,7 @@ class ScopeSession:
         )
         return self._apply_frame(native, target)
 
-    @api
+    @api(reads=True)
     def get_binning_size(self) -> int:
         """The binning factor in force: the one the camera took and the store holds.
 
@@ -3814,7 +3814,7 @@ class ScopeSession:
 
         return config_helpers.get_binning_from_settings(self.settings)
 
-    @api
+    @api(reads=True)
     def frame_at_binning(self, size: int) -> dict:
         """The frame ``set_binning_size(size)`` will ask the camera for; nothing is applied.
 

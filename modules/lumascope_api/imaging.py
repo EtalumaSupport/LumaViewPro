@@ -2417,7 +2417,7 @@ class ImagingAPI:
             raise _mode_rejection('line_noise_reduction', enabled, 'line noise reduction')
         return True
 
-    @api
+    @api(reads=True)
     def get_black_level(self) -> float | None:
         """Read the camera's black level, live.
 
@@ -2443,7 +2443,7 @@ class ImagingAPI:
             return None
         return driver.get_black_level()
 
-    @api
+    @api(reads=True)
     def get_black_level_range(self) -> tuple[float, float] | None:
         """Read the range ``set_black_level`` accepts, live, in the units of
         ``get_black_level``.
@@ -2469,7 +2469,7 @@ class ImagingAPI:
             return None
         return driver.get_black_level_range()
 
-    @api
+    @api(reads=True)
     def get_resulting_frame_rate(self) -> float | None:
         """Read the frame rate the camera reports its current settings allow,
         live, in frames per second.
@@ -2985,7 +2985,7 @@ class ImagingAPI:
         exposure_ms = self.get_exposure_ms()
         return exposure_ms / 1000 if exposure_ms is not None else 0.0
 
-    @api
+    @api(reads=True)
     def get_live_camera_settings(self) -> dict:
         """Live-confirmed camera settings, omitting any field whose read
         did not just succeed.
@@ -3038,7 +3038,7 @@ class ImagingAPI:
             settings['pixel_format'] = pixel_format
         return settings
 
-    @api
+    @api(reads=True)
     def get_gain_db(self) -> float | None:
         """Get the current camera gain.
 
@@ -3055,7 +3055,7 @@ class ImagingAPI:
             None,
         )
 
-    @api
+    @api(reads=True)
     def get_exposure_ms(self) -> float | None:
         """Get the current camera exposure time.
 
@@ -3130,7 +3130,7 @@ class ImagingAPI:
         frame_size = self._get_frame_size()
         return int(frame_size['height']) if frame_size else None
 
-    @api
+    @api(reads=True)
     def get_binning_size(self) -> int:
         """Get the current camera binning size.
 
@@ -3149,7 +3149,7 @@ class ImagingAPI:
             1,
         )
 
-    @api
+    @api(reads=True)
     def get_pixel_alignment(self) -> dict:
         """Return the camera's deliverable frame-size granularity.
 
@@ -4190,7 +4190,7 @@ class ImagingAPI:
         stamped = driver.last_stamped_significant_bits()
         return int(stamped) if stamped is not None else self.significant_bits
 
-    @api(in_process=True)
+    @api(in_process=True, reads=True)
     def capture_frame_depth(self, array: np.ndarray | None) -> int:
         """Payload depth of a frame just produced by a capture call.
 
@@ -4213,7 +4213,7 @@ class ImagingAPI:
             return self.last_significant_bits
         return image_utils.summed_significant_bits(*summing)
 
-    @api(in_process=True)
+    @api(in_process=True, reads=True)
     def capture_frame_full_scale(self, array: np.ndarray | None) -> int:
         """The value at which a frame just produced by a capture call is saturated.
 
@@ -4232,7 +4232,7 @@ class ImagingAPI:
         return image_utils.summed_full_scale(*summing)
 
     # --- Streaming control ---
-    @api
+    @api(stop='ImagingAPI.stop_streaming')
     def start_streaming(self) -> None:
         """Begin camera streaming -- the public way to start the live feed, and wait.
 
@@ -4284,7 +4284,7 @@ class ImagingAPI:
             return
         driver.stop_grabbing()
 
-    @api
+    @api(reads=True)
     def is_streaming(self) -> bool:
         """Whether the camera is currently acquiring frames.
 
@@ -4466,7 +4466,7 @@ class ImagingAPI:
             value = self._camera_cache.get('min_exposure_ms')
         return None if value is None else float(value)
 
-    @api
+    @api(reads=True)
     def applied_gain_db_for(self, stored_gain_db: float) -> AppliedCameraSetting:
         """What a stored gain becomes on the attached camera.
 
@@ -4482,7 +4482,7 @@ class ImagingAPI:
         refuse_unless_finite_number(stored_gain_db, 'stored_gain_db')
         return cap_stored_value(stored_gain_db, self.max_gain_db_cached)
 
-    @api
+    @api(reads=True)
     def applied_exposure_ms_for(self, stored_exposure_ms: float) -> AppliedCameraSetting:
         """What a stored exposure becomes on the attached camera.
 
@@ -4496,7 +4496,7 @@ class ImagingAPI:
         refuse_unless_finite_number(stored_exposure_ms, 'stored_exposure_ms')
         return cap_stored_value(stored_exposure_ms, self.max_exposure_ms_cached)
 
-    @api
+    @api(reads=True)
     def applied_auto_gain_for(self, stored_auto_gain: bool) -> AppliedCameraSetting:
         """What a stored auto-gain preference becomes on the attached camera.
 
@@ -5146,7 +5146,7 @@ class ImagingAPI:
         """
         return self.frame_validity.is_valid
 
-    @api
+    @api(reads=True)
     def frames_until_valid(self, exclude_sources: tuple = ()) -> int:
         """Number of frames that must be grabbed before the next valid frame.
 
@@ -5383,7 +5383,7 @@ class ImagingAPI:
         if handle is not None:
             self._stream_check_scheduler.unschedule(handle)
 
-    @api
+    @api(reads=True)
     def get_delivered_rate(self) -> DeliveredRate:
         """Read the rate the camera delivered frames, and their bytes on the link.
 

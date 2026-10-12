@@ -952,19 +952,19 @@ class Protocol:
 
         return z_height_map
 
-    @api
+    @api(reads=True)
     def period(self) -> datetime.timedelta:
         return self._config['period']
 
-    @api
+    @api(reads=True)
     def duration(self) -> datetime.timedelta:
         return self._config['duration']
 
-    @api
+    @api(reads=True)
     def labware(self) -> str:
         return self._config['labware_id']
 
-    @api
+    @api(reads=True)
     def tiling(self) -> str | None:
         """The tile grid this protocol's steps carry.
 
@@ -997,12 +997,12 @@ class Protocol:
             )
         return label
 
-    @api
+    @api(reads=True)
     def capture_root(self) -> str:
         """The capture root as it was typed or loaded."""
         return self._config.get('capture_root', '')
 
-    @api
+    @api(reads=True)
     def capture_prefix(self) -> str:
         """The capture root as the prefix of a saved file's name.
 
@@ -1012,7 +1012,7 @@ class Protocol:
         """
         return self.sanitize_step_name(self.capture_root() or '')
 
-    @api
+    @api(reads=True)
     def layer_settings(self) -> dict:
         """Return per-layer settings keyed by layer name, each cell typed.
 
@@ -1332,7 +1332,7 @@ class Protocol:
             }
         )
 
-    @api(in_process=True)
+    @api(in_process=True, reads=True)
     def validate_steps(
         self, objective_helper: 'ObjectiveLoader', *, led_max_ma: int | None
     ) -> list:
@@ -1496,7 +1496,7 @@ class Protocol:
 
         return errors
 
-    @api
+    @api(reads=True)
     def num_steps(self) -> int:
         if self._num_steps_cache is None:
             self._num_steps_cache = len(self._config['steps'])
@@ -1630,7 +1630,7 @@ class Protocol:
         except ValueError as e:
             raise StepEditRefusedError(f'a step {column} of {value!r} {e}') from None
 
-    @api(in_process=True)
+    @api(in_process=True, reads=True)
     def steps(self) -> pd.DataFrame:
         """A copy of the steps frame.
 
@@ -1640,7 +1640,7 @@ class Protocol:
         """
         return self._config['steps'].copy()
 
-    @api
+    @api(reads=True)
     def estimate_write_mb(self, *, video_as_frames: bool = False, global_max_fps: float) -> float:
         """Estimate the disk this whole protocol will write, in MB.
 
@@ -1701,7 +1701,7 @@ class Protocol:
             )
         return total
 
-    @api
+    @api(reads=True)
     def size_advisory(
         self, *, video_as_frames: bool = False, global_max_fps: float
     ) -> ProtocolSizeAdvisory | None:
@@ -2061,7 +2061,7 @@ class Protocol:
 
         return step_dict['Name']
 
-    @api
+    @api(reads=True)
     def step(self, idx: int) -> pd.Series:
         """One step, as a DETACHED copy of its row.
 

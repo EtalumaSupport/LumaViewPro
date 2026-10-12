@@ -1606,7 +1606,7 @@ class Lumascope:
         """
         return not self.unconnected_parts()
 
-    @api
+    @api(reads=True)
     def unconnected_parts(self) -> tuple[str, ...]:
         """The parts this scope needs that are not connected, by name.
 

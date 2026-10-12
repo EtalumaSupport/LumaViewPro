@@ -99,7 +99,7 @@ class LayerIdentity:
     source: str
     model: str | None
 
-    @api(in_process=True)
+    @api(in_process=True, reads=True)
     def find(self, key_name: str) -> LayerRecord | None:
         """Return the layer whose stable key name matches, else None.
 

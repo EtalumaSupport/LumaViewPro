@@ -74,7 +74,7 @@ class RuntimeState:
 
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
 
-    @api
+    @api(reads=True)
     def get_labware(self) -> WellPlate:
         """The selected labware (well plate).
 
@@ -100,7 +100,7 @@ class RuntimeState:
         """
         self._turreted = turreted
 
-    @api
+    @api(reads=True)
     def is_turreted(self) -> bool:
         """Whether this scope derives its objective from the turret slot.
 
@@ -119,7 +119,7 @@ class RuntimeState:
             )
         return self._turreted
 
-    @api
+    @api(reads=True)
     def resolve_current_objective(self) -> tuple[str, dict]:
         """The active objective's id and metadata, or why it is unknown.
 
@@ -210,7 +210,7 @@ class RuntimeState:
         """
         return self._derive_current_objective()[0]
 
-    @api
+    @api(reads=True)
     def get_objective_info(self, objective_id: str | None) -> dict:
         """Get objective metadata by ID.
 
@@ -233,7 +233,7 @@ class RuntimeState:
         """
         return self._scope.objective_helper.get_objective_info(objective_id=objective_id)
 
-    @api
+    @api(reads=True)
     def get_available_objectives(self) -> list[str]:
         """Get list of all available objective IDs.
 
@@ -251,7 +251,7 @@ class RuntimeState:
         """
         return self._derive_current_objective()[1]
 
-    @api
+    @api(reads=True)
     def get_turret_config(self) -> dict:
         """The turret's objective assignments, from the settings.
 
@@ -265,7 +265,7 @@ class RuntimeState:
         """
         return self._scope.read_setting('turret_objectives')
 
-    @api
+    @api(reads=True)
     def get_stage_offset(self) -> dict:
         """The stage offset for coordinate transformations, from the settings.
 
@@ -278,7 +278,7 @@ class RuntimeState:
         """
         return self._scope.read_setting('stage_offset')
 
-    @api
+    @api(reads=True)
     def stage_to_plate(self, sx: float, sy: float) -> tuple[float, float]:
         """Convert a stage position (um) to plate coordinates (mm).
 
@@ -304,7 +304,7 @@ class RuntimeState:
             sy=sy,
         )
 
-    @api(in_process=True)
+    @api(in_process=True, reads=True)
     def plate_transform(self) -> Callable[[float, float], tuple[float, float]]:
         """The stage-to-plate transform bound to the labware and offset selected now.
 
@@ -333,7 +333,7 @@ class RuntimeState:
 
         return to_plate
 
-    @api
+    @api(reads=True)
     def plate_to_stage_axis(self, axis: str, plate_mm: float) -> float:
         """Convert one axis of a plate coordinate (mm) to a stage target (um).
 
@@ -360,7 +360,7 @@ class RuntimeState:
         )
         return sx if axis == 'X' else sy
 
-    @api
+    @api(reads=True)
     def get_well_label(self) -> str | None:
         """Get the well label for the current stage XY position.
 

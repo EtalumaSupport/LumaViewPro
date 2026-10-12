@@ -74,7 +74,7 @@ class ProtocolRunner:
     # Run methods
     # ------------------------------------------------------------------
 
-    @api
+    @api(stop='RunHandle.stop')
     def run_single_scan(
         self,
         protocol: Protocol,
@@ -121,7 +121,7 @@ class ProtocolRunner:
             return_to_position=return_to_position,
         )
 
-    @api
+    @api(stop='RunHandle.stop')
     def run_protocol(
         self,
         protocol: Protocol,
@@ -165,7 +165,7 @@ class ProtocolRunner:
             events=events,
         )
 
-    @api
+    @api(stop='RunHandle.stop')
     def start_composite(
         self,
         sequence_name: str = 'composite',
@@ -229,7 +229,7 @@ class ProtocolRunner:
             composite_thresholds_percent=config_helpers.get_composite_blend_thresholds(settings),
         )
 
-    @api
+    @api(stop='RunHandle.stop')
     def run_autofocus(
         self,
         layer: str | None,
@@ -349,7 +349,7 @@ class ProtocolRunner:
             claim=claim,
         )
 
-    @api
+    @api(stop='RunHandle.stop')
     def run_autofocus_all_steps(
         self,
         protocol: Protocol,
@@ -403,7 +403,7 @@ class ProtocolRunner:
             write_focus_to=protocol,
         )
 
-    @api
+    @api(stop='RunHandle.stop')
     def run_zstack(
         self,
         layer: str | None,

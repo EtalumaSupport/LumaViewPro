@@ -449,7 +449,7 @@ class MotionAPI:
         """
         return state in (AxisState.IDLE, AxisState.MOVING)
 
-    @api
+    @api(reads=True)
     def position_is_known(self, axis: str) -> bool:
         """Whether *axis* has a reference position an absolute move can use.
 
@@ -623,7 +623,7 @@ class MotionAPI:
             return HomingStoppedError(home, 'stopped', axes)
         return HomingFaultError(home, 'error', axes)
 
-    @api
+    @api(reads=True)
     def interlocks(self) -> frozenset[str]:
         """The stage's hardware interlocks open now (``'lid_open'``, ``'stage_unpowered'``).
 
@@ -896,7 +896,7 @@ class MotionAPI:
             self._stops_asked += 1
             raise MotorStopFailedError() from e
 
-    @api
+    @api(reads=True)
     def get_turret_position_for_objective_id(self, objective_id: str) -> int | None:
         """The turret slot to use for an objective, or None when no slot carries it.
 
@@ -938,7 +938,7 @@ class MotionAPI:
 
         return None
 
-    @api
+    @api(reads=True)
     def is_current_turret_position_objective_set(self) -> bool:
         """Check whether the objective slot at the current turret position is set.
 
@@ -1256,7 +1256,7 @@ class MotionAPI:
         self._last_turret_position = int(position)
         self._preferred_turret_slot = int(position)
 
-    @api
+    @api(reads=True)
     def get_turret_slot(self) -> int | None:
         """The turret slot in the light path, or None when it is not known.
 
@@ -1273,7 +1273,7 @@ class MotionAPI:
         """
         return self._last_turret_position
 
-    @api
+    @api(reads=True)
     def get_preferred_turret_slot(self) -> int | None:
         """The slot the last successful turret move landed on, or None.
 
@@ -1301,7 +1301,7 @@ class MotionAPI:
             refuse_unless_turret_slot(slot)
         self._preferred_turret_slot = slot
 
-    @api
+    @api(reads=True)
     def jog_step(self, axis: str, coarse: bool) -> float:
         """The jog step for ``axis`` under the active objective.
 
@@ -1321,7 +1321,7 @@ class MotionAPI:
         _, objective = self._scope.runtime_state.resolve_current_objective()
         return objective[f'{kind}_{"coarse" if coarse else "fine"}']
 
-    @api
+    @api(reads=True)
     def get_actual_position(self, axis: str) -> float | None:
         """Query the actual hardware position via serial (not cached); um for X/Y/Z, turret slot for T.
 
@@ -1417,7 +1417,7 @@ class MotionAPI:
             _api_log.warning(f'{axis} moving with {e.reason}: the stage stopped every axis')
             return False
 
-    @api
+    @api(reads=True)
     def get_limit_switch_status(self, axis: str) -> tuple[int, int]:
         """Get the limit switch status for an axis.
 
@@ -1463,7 +1463,7 @@ class MotionAPI:
             resp[axis] = self.get_limit_switch_status(axis=axis)
         return resp
 
-    @api
+    @api(reads=True)
     def is_moving(self) -> bool:
         """Check if any axis is currently moving.
 
@@ -1548,7 +1548,7 @@ class MotionAPI:
             return True
         return action == self._home_impl and self._scope.capabilities.has_turret
 
-    @api
+    @api(reads=True)
     def get_axis_state(self, axis: str) -> str:
         """Get the current state of an axis.
 
@@ -1624,7 +1624,7 @@ class MotionAPI:
         with self._axis_state_lock:
             return any(s in (AxisState.MOVING, AxisState.HOMING) for s in self._axis_state.values())
 
-    @api
+    @api(reads=True)
     def get_axis_limits(self, axis: str) -> Mapping[str, float] | None:
         """Get the travel limits for an axis, in um.
 
@@ -1701,7 +1701,7 @@ class MotionAPI:
         finally:
             _api_log.info('Z home DONE')
 
-    @api
+    @api(reads=True)
     def has_homed(self) -> bool:
         """Whether the stage / focus axes have a known reference position.
 
@@ -1726,7 +1726,7 @@ class MotionAPI:
             return False
         return all(self._position_known(state) for state in stage_states)
 
-    @api
+    @api(reads=True)
     def axes_without_position(self) -> dict[str, str]:
         """Which of this scope's axes do not know their position, and why.
 
@@ -1754,7 +1754,7 @@ class MotionAPI:
                 if not self._position_known(state)
             }
 
-    @api
+    @api(reads=True)
     def axis_positions(self) -> dict[str, AxisPosition]:
         """Every axis's state and its position, or None where the position is not known.
 
@@ -1843,7 +1843,7 @@ class MotionAPI:
         with self._pos_cache_lock:
             return self._pos_cache.get(axis, 0.0)
 
-    @api
+    @api(reads=True)
     def get_target_position(self, axis: str | None = None) -> float | dict | None:
         """Get the target position for an axis (where it is commanded to go); um for X/Y/Z, turret slot for T.
 

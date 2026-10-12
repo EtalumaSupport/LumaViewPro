@@ -226,7 +226,7 @@ class ManualRecordingController:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    @api
+    @api(stop='ManualRecordingController.stop')
     def start(
         self,
         *,

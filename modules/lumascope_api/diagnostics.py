@@ -144,7 +144,7 @@ class DiagnosticsAPI:
         self._scope = scope
 
     # --- Camera probes ---
-    @api
+    @api(reads=True)
     def get_camera_temperatures_degc(self) -> dict | None:
         """Get all camera temperature sensor readings.
 
@@ -172,7 +172,7 @@ class DiagnosticsAPI:
             return None
         return driver.get_all_temperatures()
 
-    @api
+    @api(reads=True)
     def get_camera_link_info(self) -> dict | None:
         """Read the camera's link, live.
 
@@ -223,7 +223,7 @@ class DiagnosticsAPI:
             return None
         return driver.get_link_info()
 
-    @api
+    @api(reads=True)
     def get_camera_diagnostic_info(self) -> dict:
         """Read-only snapshot of camera state for diagnostics.
 
@@ -275,7 +275,7 @@ class DiagnosticsAPI:
         _try('temperatures', self.get_camera_temperatures_degc)
         return info
 
-    @api
+    @api(engineering=True)
     def run_camera_bandwidth_test(
         self,
         num_frames: int,
@@ -395,7 +395,7 @@ class DiagnosticsAPI:
         )
         return results
 
-    @api
+    @api(engineering=True)
     def run_grab_lifecycle_benchmark(
         self,
         num_cycles: int = 100,
@@ -640,7 +640,7 @@ class DiagnosticsAPI:
         )
         return results
 
-    @api
+    @api(engineering=True)
     def run_pylon_diagnostic_probe(
         self,
         duration_s: float = 3.0,
@@ -989,7 +989,7 @@ class DiagnosticsAPI:
     # write that did not happen raises, so a caller cannot read a status
     # for one that did.
 
-    @api
+    @api(reads=True, engineering=True)
     def read_motor_drv_status(self, axis: str) -> int | None:
         """Read TMC5072 DRV_STATUS register for an axis.
 
@@ -1006,7 +1006,7 @@ class DiagnosticsAPI:
             return None
         return drv.read_drv_status(axis)
 
-    @api
+    @api(reads=True, engineering=True)
     def read_motor_fan_rpm(self) -> int | None:
         """Read motor-board fan tachometer RPM.
 
@@ -1018,7 +1018,7 @@ class DiagnosticsAPI:
             return None
         return drv.read_fanspeed()
 
-    @api
+    @api(engineering=True)
     def set_motor_fan_duty(self, duty_pct: int) -> None:
         """Set motor-board fan PWM duty cycle (0..100), and wait for it.
 
@@ -1071,7 +1071,7 @@ class DiagnosticsAPI:
             part = MissingPart.LED_ENGINEERING_MODE
             raise HardwareCommandRefusedError(part.reason, member, missing=part)
 
-    @api
+    @api(engineering=True)
     def enter_led_engineering_mode(self, timeout_s: float = 5.0) -> None:
         """Enter LED engineering mode via the driver-canonical handshake, and wait for it.
 
@@ -1102,7 +1102,7 @@ class DiagnosticsAPI:
     def _enter_led_engineering_mode_impl(drv, timeout_s: float) -> None:
         drv.enter_engineering_mode(timeout=timeout_s)
 
-    @api
+    @api(engineering=True)
     def exit_led_engineering_mode(self) -> None:
         """Exit LED engineering mode via the driver-canonical handshake, and wait for it.
 
@@ -1131,7 +1131,7 @@ class DiagnosticsAPI:
     # Bodies live here; Lumascope keeps thin wrappers calling down until
     # they retire.
 
-    @api
+    @api(reads=True)
     def get_motor_info(self) -> dict:
         """Get motor controller information.
 
@@ -1163,7 +1163,7 @@ class DiagnosticsAPI:
             'command_set': MOTOR_COMMANDS_TEXT if speaks_text else None,
         }
 
-    @api
+    @api(reads=True)
     def get_led_info(self) -> dict:
         """Get LED controller information.
 
@@ -1197,7 +1197,7 @@ class DiagnosticsAPI:
             'command_set': command_set,
         }
 
-    @api
+    @api(reads=True, engineering=True)
     def read_led_currents_ma(self) -> dict[int, float | None]:
         """Read the measured current of every LED channel, in mA.
 
@@ -1223,7 +1223,7 @@ class DiagnosticsAPI:
     def _read_led_currents_impl(drv) -> dict[int, float | None]:
         return {ch: drv.read_led_current(ch) for ch in drv.available_channels()}
 
-    @api
+    @api(reads=True)
     def get_camera_profile_info(self) -> dict | None:
         """Get detailed camera profile information for display.
 
@@ -1270,7 +1270,7 @@ class DiagnosticsAPI:
             'connected': connected,
         }
 
-    @api
+    @api(reads=True)
     def get_system_info(self) -> dict:
         """Get consolidated system information for all hardware.
 

@@ -495,7 +495,7 @@ class SimulationAPI:
 
     # --- what is injected ---
 
-    @api(in_process=True)
+    @api(in_process=True, reads=True)
     def injected(self) -> tuple[InjectedFault, ...]:
         """The faults injected since the last ``clear``, oldest first, as asked.
 

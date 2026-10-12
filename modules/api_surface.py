@@ -24,6 +24,14 @@ A marked member's annotations are its contract at the call as well: an
 argument of another type is refused before the member runs, for every
 caller (``modules.api_arguments``).
 
+Three marks say what a member does, each read by its own reader below:
+``reads`` that it changes nothing, so a host may answer it as a read;
+``stop`` the member, ``'Class.member'``, that stops what it starts -- its
+own class's, or the handle's it returns; ``engineering`` that it is a
+bench or support member, outside what a researcher's client needs. What a
+member may raise is its docstring's ``Raises:`` section, the one statement
+of its contract.
+
 An event declares its record where it is delivered: a listener member as
 ``@api(event=Record)``, a ``RunEvents`` field through
 ``event_metadata(Record)``.
@@ -57,6 +65,12 @@ EVENT_ATTRIBUTE = '_lvp_api_event'
 # The attribute a class that is not a dataclass or NamedTuple declares
 # itself a record under.
 RECORD_ATTRIBUTE = '_lvp_api_record'
+# The attributes the three marks are recorded under, each its own: a new
+# value of MARK_ATTRIBUTE would be read as unmarked by every host that
+# routes on it, and the member's route would go.
+READS_ATTRIBUTE = '_lvp_api_reads'
+STOP_ATTRIBUTE = '_lvp_api_stop'
+ENGINEERING_ATTRIBUTE = '_lvp_api_engineering'
 
 API = 'api'
 IN_PROCESS = 'in_process'
@@ -120,11 +134,19 @@ def _guarded(member: object) -> object:
 
 
 def api[M](
-    member: M | None = None, *, in_process: bool = False, event: type | None = None
+    member: M | None = None,
+    *,
+    in_process: bool = False,
+    event: type | None = None,
+    reads: bool = False,
+    stop: str | None = None,
+    engineering: bool = False,
 ) -> M | Callable[[M], M]:
     """Mark a member as API; used bare (``@api``) or as ``@api(in_process=True)``.
 
     ``event`` is the record of the event a listener member delivers.
+    ``reads``, ``stop`` and ``engineering`` are the marks the module
+    docstring describes.
     Goes outermost in a decorator stack. A member that takes an argument is
     returned behind its argument door, which refuses a value of another
     type than its annotation declares (``modules.api_arguments``); one that
@@ -137,6 +159,12 @@ def api[M](
         setattr(function, MARK_ATTRIBUTE, IN_PROCESS if in_process else API)
         if event is not None:
             setattr(function, EVENT_ATTRIBUTE, event)
+        if reads:
+            setattr(function, READS_ATTRIBUTE, True)
+        if stop is not None:
+            setattr(function, STOP_ATTRIBUTE, stop)
+        if engineering:
+            setattr(function, ENGINEERING_ATTRIBUTE, True)
         return target
 
     if member is None:
@@ -173,6 +201,21 @@ def mark_of(member: object) -> str | None:
 def fields_of(cls: type) -> tuple[str, ...]:
     """The data attributes *cls* itself publishes."""
     return vars(cls).get(FIELDS_ATTRIBUTE, ())
+
+
+def reads_of(member: object) -> bool:
+    """Whether *member* is marked as changing nothing."""
+    return getattr(_function_of(member), READS_ATTRIBUTE, False)
+
+
+def stop_of(member: object) -> str | None:
+    """The ``'Class.member'`` that stops what *member* starts, or None."""
+    return getattr(_function_of(member), STOP_ATTRIBUTE, None)
+
+
+def is_engineering(member: object) -> bool:
+    """Whether *member* is marked as a bench or support member."""
+    return getattr(_function_of(member), ENGINEERING_ATTRIBUTE, False)
 
 
 def event_metadata(record: type) -> dict[str, type]:

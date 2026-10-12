@@ -101,7 +101,7 @@ class TilingConfig:
                         f'got {type(entry[field]).__name__} in {filepath}'
                     )
 
-    @api(in_process=True)
+    @api(in_process=True, reads=True)
     def available_configs(self) -> list[str]:
         """``available``, as a list."""
         return list(self.available)
@@ -161,7 +161,7 @@ class TilingConfig:
 
         return self.get_label_from_mxn_size(m=m, n=n)
 
-    @api(in_process=True)
+    @api(in_process=True, reads=True)
     def default_config(self) -> str:
         """``default``; KeyError when the file names none."""
         if self.default is None:

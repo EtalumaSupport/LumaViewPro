@@ -1040,7 +1040,7 @@ class IlluminationAPI:
             )
 
     # --- State ---
-    @api
+    @api(reads=True)
     def get_led_state(self, channel: str) -> dict | None:
         """Get the on/off state and illumination for an LED channel.
 
@@ -1066,7 +1066,7 @@ class IlluminationAPI:
                 return {'enabled': False, 'illumination_ma': None}
             return {'enabled': True, 'illumination_ma': entry['illumination_ma']}
 
-    @api
+    @api(reads=True)
     def get_led_states(self) -> dict | None:
         """Get state and illumination for all LED channels.
 
@@ -1096,7 +1096,7 @@ class IlluminationAPI:
             }
 
     # --- Save / restore ---
-    @api
+    @api(reads=True)
     def save_led_state(self, tag: str) -> dict | None:
         """Snapshot the current LED state for later restoration.
 
@@ -1496,7 +1496,7 @@ class IlluminationAPI:
     # recordable and extinguishable even when the current identity
     # cannot name it (a mid-session identity change must never strand a
     # lit LED or drop it from a restore set).
-    @api
+    @api(reads=True)
     def ch2color(self, channel: int) -> str | None:
         """The stable layer name whose record drives *channel*, else None.
 
@@ -1513,7 +1513,7 @@ class IlluminationAPI:
                 return record.key_name
         return None
 
-    @api
+    @api(reads=True)
     def color2ch(self, color: str) -> int | None:
         """The LED board address of the layer named *color*, else None.
 

@@ -123,11 +123,11 @@ class WellPlateLoader(LabwareLoader):
     def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
         super().__init__(*arg, source_path=source_path)
 
-    @api
+    @api(reads=True)
     def get_plate_list(self) -> list[str]:
         return list(self.labware['Wellplate'].keys())
 
-    @api
+    @api(reads=True)
     def resolve_plate_key(self, plate_key: str) -> str:
         """The catalogue key for ``plate_key``, whatever spelling it arrived in.
 
@@ -146,7 +146,7 @@ class WellPlateLoader(LabwareLoader):
             )
         return resolved_key
 
-    @api
+    @api(reads=True)
     def is_known_plate(self, plate_key: 'SettingValue') -> bool:
         """Whether ``plate_key`` resolves to a plate, directly or under a retired spelling.
 
@@ -164,7 +164,7 @@ class WellPlateLoader(LabwareLoader):
             return False
         return True
 
-    @api
+    @api(reads=True)
     def get_plate(self, plate_key: str) -> labware.WellPlate:
         # The caller's own copy of the row: a changed plate would otherwise
         # change the catalogue every later reader gets.

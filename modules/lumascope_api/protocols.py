@@ -96,7 +96,7 @@ class ProtocolsAPI:
         """
         return pathlib.Path(self._scope.source_path) / 'data' / 'tiling.json'
 
-    @api
+    @api(reads=True)
     def tiling_config(self) -> TilingConfig:
         """The tiling grids this installation offers, from the scope's data folder.
 
@@ -396,7 +396,7 @@ class ProtocolsAPI:
         self._report_invalid_steps(protocol, solicited=True)
         return protocol.step(idx=step_idx)['Name']
 
-    @api
+    @api(reads=True)
     def focus_z(self, *, then: str) -> float:
         """The live Z, as a focus to save into a layer or a step.
 
@@ -601,7 +601,7 @@ class ProtocolsAPI:
         )
         self._report_invalid_steps(protocol, solicited=True)
 
-    @api
+    @api(reads=True)
     def plate_to_stage(
         self, protocol: Protocol, px: float, py: float, *, stage_offset: dict | None = None
     ) -> tuple[float, float]:
@@ -630,7 +630,7 @@ class ProtocolsAPI:
             py=py,
         )
 
-    @api(in_process=True)
+    @api(in_process=True, reads=True)
     def plate_transform(
         self, protocol: Protocol, *, stage_offset: dict | None
     ) -> Callable[[float, float], tuple[float, float]] | None:
@@ -674,7 +674,7 @@ class ProtocolsAPI:
 
         return to_plate
 
-    @api
+    @api(reads=True)
     def stage_targets(
         self,
         protocol: Protocol,
@@ -705,7 +705,7 @@ class ProtocolsAPI:
             x, y = self.plate_to_stage(protocol, px, py, stage_offset=stage_offset)
         return x, y, (z if 'Z' in axes else None)
 
-    @api
+    @api(reads=True)
     def step_targets(
         self, protocol: Protocol, step_idx: int, *, stage_offset: dict | None = None
     ) -> StepTargets:

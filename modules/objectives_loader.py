@@ -168,11 +168,11 @@ class ObjectiveLoader:
 
         return self._objectives[objective_id]
 
-    @api
+    @api(reads=True)
     def get_objectives_list(self) -> list:
         return list(self._objectives.keys())
 
-    @api(in_process=True)
+    @api(in_process=True, reads=True)
     def get_objectives_dataframe(self) -> pd.DataFrame:
         """The objectives table, as the caller's own copy.
 
