@@ -7,7 +7,6 @@ sequence, moves on all three axes, refuses X and Y with the lid open while
 Z still moves, and runs a protocol with tiling and a Z-stack.
 """
 
-import threading
 import time
 
 import pytest
@@ -19,6 +18,7 @@ from modules.exceptions import (
     MoveNotCompletedError,
     RunCheckFailedError,
 )
+from modules.lumascope_api import AxisState
 from tests.scope_fakes import bind_settings_like_a_session, build_scope, record_turret_answer
 from tests.test_integration import (  # noqa: F401 -- the fixtures are used by name
     _make_protocol,
@@ -178,14 +178,17 @@ def test_a_position_the_board_does_not_report_is_unread_not_none(homed):
 def test_the_motion_monitor_outlives_a_silence_during_a_move(homed):
     """The monitor reads the actual position of a moving axis; a board that
     misses those reads for a while is an unread position, which the monitor
-    handles, and a later move still arrives. A None position killed the
-    monitor thread, and every later move waited out its time limit."""
-    homed.motion.start_move_absolute('X', 60_000)
+    handles: the move arrives once the board answers again, and a later move
+    still arrives. A None position killed the monitor thread, and every
+    later move waited out its time limit."""
+    move = homed.motion.start_move_absolute('X', 60_000)
     time.sleep(0.05)
     homed.simulation.silence('motor')
     time.sleep(1.5)
+    # Answered, X arrives well inside the 1.5 s; silenced, no arrival is read.
+    assert homed.motion.get_axis_state('X') == AxisState.MOVING
     homed.simulation.unsilence('motor')
-    assert any(t.name == 'motion-monitor' and t.is_alive() for t in threading.enumerate())
+    move.wait()
     homed.motion.home()
     homed.motion.move_absolute('Y', 20_000)
     assert _at(homed, 'Y') == pytest.approx(20_000, abs=0.2)
