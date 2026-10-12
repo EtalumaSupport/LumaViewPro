@@ -110,7 +110,7 @@ def _recorded_reasons():
             fn = node.func
             label = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, 'id', None)
             if label in ('abort_run_fatal', '_abort_run_fatal', 'end_run_fatally', 'RunStartError'):
-                # (reason, domain, title, message) on the writer's own funnel,
+                # (reason, domain, message) on the writer's own funnel,
                 # (reason, title, message) through the runner's two seams and on
                 # the typed start failure -- the cause is first in all four.
                 arg = node.args[0] if node.args else None

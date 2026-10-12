@@ -1313,7 +1313,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'exclusive_activity_running': 'Another Activity Running',
         'recording_active': 'Recording Active',
         'files_writing': 'Files Still Writing',
-        'files_writing_stalled': 'File Writer Stalled',
+        'files_writing_stalled': ENDING_TITLES['file_writer_stalled'],
         'autofocus_running': 'Autofocus Running',
         'hardware_disconnected': 'Hardware Disconnected',
         'camera_not_streaming': 'Camera Not Streaming',

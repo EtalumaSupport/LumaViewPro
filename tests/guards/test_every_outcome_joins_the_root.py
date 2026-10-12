@@ -316,3 +316,16 @@ def test_no_production_call_passes_a_title_to_an_outcome():
                 ):
                     passing.append(f'{path.relative_to(REPO_ROOT)}:{node.lineno}')
     assert passing == [], f'a title passed where an outcome is built: {passing}'
+
+
+def test_a_refusal_s_titles_and_causes_name_the_same_reasons():
+    """Two reason-keyed tables on one class name one vocabulary: a reason with
+    a cause and no title fails where it is raised, a refusal turned crash."""
+    apart = [
+        f'{cls.__qualname__}: {sorted(set(vars(cls)["causes"]) ^ set(vars(cls)["_TITLES"]))}'
+        for cls in RAISABLE
+        if 'causes' in vars(cls)
+        and '_TITLES' in vars(cls)
+        and set(vars(cls)['causes']) != set(vars(cls)['_TITLES'])
+    ]
+    assert apart == [], f'causes and _TITLES name different reasons: {apart}'
