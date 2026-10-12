@@ -70,8 +70,8 @@ def test_the_sweep_finds_the_focus_with_a_frame_in_flight_at_every_move():
         camera = session.scope._camera_driver
         render = camera._generate_image
 
-        def delivered_late():
-            image = render()
+        def delivered_late(exposure_us):
+            image = render(exposure_us)
             time.sleep(FRAME_DELIVERY_DELAY_S)
             return image
 

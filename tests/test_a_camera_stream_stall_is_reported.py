@@ -22,6 +22,7 @@ import time
 
 import pytest
 
+from drivers.camera_profiles import simulated_exposure_delay_frames
 import modules.video_cadence as video_cadence
 from modules.exceptions import CameraStreamStalledError
 from modules.lumascope_api.imaging import ImagingAPI
@@ -115,8 +116,12 @@ class TestWhatIsNotAStall:
     def test_a_long_exposure_is_not_a_stall(self, session, shown, caplog):
         # 800 ms between frames is past the 0.5 s floor; ten of them is the bound.
         imaging = session.scope.imaging
+        at_change = imaging._frames_delivered()
         imaging.set_exposure_ms(800.0)
         assert imaging.exposure_ms_cached == 800.0, 'precondition: the long exposure took'
+        # The frames the camera had started come at the old, short exposure.
+        in_flight = simulated_exposure_delay_frames()
+        assert _wait_for(lambda: imaging._frames_delivered() > at_change + in_flight, 3.0)
         started = time.monotonic()
         before = imaging._frames_delivered()
         with caplog.at_level(logging.INFO):
@@ -134,10 +139,10 @@ class TestWhatIsNotAStall:
         self, session, shown, caplog
     ):
         # A sensor still delivers the frames it exposed before the change, at
-        # the old exposure: here the camera's frames are held for 1.2 s at the
+        # the old exposure: the simulated camera's come 1 s apart after the
         # drop, past the short exposure's 0.5 s bound and inside the long
         # one's 10 s. Once the camera's pipeline of frames has come the short
-        # bound applies: the next hold of 1.5 s is a stall.
+        # bound applies: a hold of 1.5 s after it is a stall.
         imaging = session.scope.imaging
         imaging.set_exposure_ms(1000.0)
         before = imaging._frames_delivered()
@@ -146,9 +151,11 @@ class TestWhatIsNotAStall:
         )
         time.sleep(0.3)  # the check has run at the long exposure's bound
         with caplog.at_level(logging.INFO):
-            session.scope.simulation.stall_stream(0.0, 1.2)
+            at_drop = imaging._frames_delivered()
             imaging.set_exposure_ms(5.0)
-            time.sleep(1.6)
+            in_flight = simulated_exposure_delay_frames()
+            # The frames in flight, and one at the short exposure behind them.
+            assert _wait_for(lambda: imaging._frames_delivered() > at_drop + in_flight + 1, 5.0)
             assert shown == [], 'the frames in the pipeline were reported as a stall'
             assert _stall_lines(caplog) == []
 

@@ -7,6 +7,7 @@ camera state (exposure, gain, binning, frame size, pixel format), and
 supports the full Camera ABC interface.
 """
 
+import collections
 import datetime
 import pathlib
 from dataclasses import dataclass
@@ -21,7 +22,7 @@ import numpy as np
 
 from lvp_logger import logger
 from drivers.camera import Camera, FrameGrid, ImageHandlerBase, link_info
-from drivers.camera_profiles import simulated_profile
+from drivers.camera_profiles import simulated_exposure_delay_frames, simulated_profile
 from drivers.exceptions import HardwareError
 from drivers.registry import camera_registry
 from drivers.simulated_specimen import drift_frames, specimen_field
@@ -184,6 +185,9 @@ class SimulatedCamera(Camera):
         self._grab_delay = grab_delay
 
         self._exposure_us = 10_000.0  # 10 ms in microseconds
+        # The frames the sensor has started when the exposure changes, which
+        # still come out at the old exposure (see _acquisition_loop).
+        self._exposure_delay_frames = simulated_exposure_delay_frames()
         self._gain = 1.0
         self._black_level = 0.0
         self._pixel_format = 'Mono8'
@@ -514,16 +518,17 @@ class SimulatedCamera(Camera):
         """End a stall set by ``hold_frames``, or take back one not yet begun."""
         self._held_window = None
 
-    def _frame_interval_s(self) -> float:
-        """The free-run frame period: the exposure, never shorter than the
-        delivery ceiling's period. The pacing and the reported frame rate
-        both read it, so the report cannot drift from the pacing."""
-        return max(self._exposure_us / 1_000_000.0, 1.0 / self._MAX_DELIVERY_FPS)
+    def _frame_interval_s(self, exposure_us: float) -> float:
+        """The free-run frame period at ``exposure_us``: the exposure, never
+        shorter than the delivery ceiling's period. The pacing and the
+        reported frame rate both read it, so the report cannot drift from
+        the pacing."""
+        return max(exposure_us / 1_000_000.0, 1.0 / self._MAX_DELIVERY_FPS)
 
     def get_resulting_frame_rate(self) -> float | None:
         if not self.active:
             return None
-        return 1.0 / self._frame_interval_s()
+        return 1.0 / self._frame_interval_s(self._exposure_us)
 
     def get_link_info(self) -> dict | None:
         if not self.active:
@@ -546,14 +551,21 @@ class SimulatedCamera(Camera):
         callbacks. SimulatedCamera has no chunk surface, so chunks is always
         None -- recording callers already treat None as "skip chunk-derived
         metadata."
+
+        A frame is exposed at the exposure in force when it starts, and the
+        sensor has the dart's measured count of frames started when the
+        exposure changes; those come out at the old exposure, timed and lit
+        by it, and the new one reaches the output after them, as it does on
+        the bench.
         """
         next_due = time.monotonic()
         stalled = False
+        # The exposures of the frames started and not yet delivered, oldest first.
+        in_flight = collections.deque([self._exposure_us] * self._exposure_delay_frames)
         while not self._acquisition_stop.is_set():
             handler = self.cam_image_handler
             if handler is None or not self._grabbing:
                 return
-            interval_s = self._frame_interval_s()
             held = self._held_window
             now = time.monotonic()
             if held is not None and held[0] <= now < held[1]:
@@ -562,7 +574,9 @@ class SimulatedCamera(Camera):
                 if not stalled:
                     stalled = True
                     logger.info('[CAM Sim   ] simulated stall: frames stopped')
-                if self._acquisition_stop.wait(min(interval_s, held[1] - now)):
+                if self._acquisition_stop.wait(
+                    min(self._frame_interval_s(self._exposure_us), held[1] - now)
+                ):
                     return
                 next_due = time.monotonic()
                 continue
@@ -570,8 +584,10 @@ class SimulatedCamera(Camera):
                 stalled = False
                 logger.info('[CAM Sim   ] simulated stall: frames resumed')
             with self._lock:
-                image = self._generate_image()
+                in_flight.append(self._exposure_us)
+                image = self._generate_image(in_flight.popleft())
                 bits = self.significant_bits
+                next_exposure_us = in_flight[0] if in_flight else self._exposure_us
             # The transfer from a real camera to the host takes time after the
             # frame is exposed; the realistic preset charges it here, between
             # the frame being made and the host having it.
@@ -583,9 +599,9 @@ class SimulatedCamera(Camera):
             handler._store_frame(
                 image, datetime.datetime.now(), significant_bits=bits, wire_bytes=image.nbytes
             )
-            # Honor the configured exposure as the inter-frame interval,
+            # The next frame's own exposure is the inter-frame interval,
             # bounded below by the delivery ceiling.
-            next_due = max(next_due + interval_s, time.monotonic())
+            next_due = max(next_due + self._frame_interval_s(next_exposure_us), time.monotonic())
             if self._acquisition_stop.wait(next_due - time.monotonic()):
                 return
 
@@ -1015,8 +1031,8 @@ class SimulatedCamera(Camera):
             return 1.0
         return 1.0 if self._illumination_func() > 0.0 else 0.0
 
-    def _generate_image(self) -> np.ndarray:
-        """Generate a synthetic image based on current settings."""
+    def _generate_image(self, exposure_us: float) -> np.ndarray:
+        """Generate a synthetic image exposed for ``exposure_us``, at the other current settings."""
         h = self._height
         w = self._width
 
@@ -1029,7 +1045,7 @@ class SimulatedCamera(Camera):
 
         # Scale brightness by exposure and gain; the gain is held in dB, so it
         # multiplies the signal by 10^(dB/20)
-        raw = (self._exposure_us / 1_000_000.0) * 10.0 ** (self._gain / 20.0) * 10.0
+        raw = (exposure_us / 1_000_000.0) * 10.0 ** (self._gain / 20.0) * 10.0
         brightness = min(1.0, raw) * self._illumination_scale()
         if self._test_pattern == 'black':
             img = np.zeros((h, w), dtype=dtype)

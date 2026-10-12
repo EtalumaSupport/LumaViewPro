@@ -932,14 +932,14 @@ class TestNoPatternRequestedRendersTheSpecimen:
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='Black')
         cam.set_test_pattern(enabled=False)
-        frames = [np.asarray(cam._generate_image(), dtype=float) for _ in range(4)]
+        frames = [np.asarray(cam._generate_image(cam._exposure_us), dtype=float) for _ in range(4)]
         diffs = [float(np.mean(np.abs(a - b))) for a, b in itertools.pairwise(frames)]
         assert min(f.std() for f in frames) > 0
         assert min(diffs) > 0, 'consecutive frames are identical -- this is a static image'
 
     def test_a_fresh_camera_renders_the_specimen_without_load_specimen(self):
         cam = SimulatedCamera(width=480, height=300)
-        frames = [np.asarray(cam._generate_image(), dtype=float) for _ in range(4)]
+        frames = [np.asarray(cam._generate_image(cam._exposure_us), dtype=float) for _ in range(4)]
         diffs = [float(np.mean(np.abs(a - b))) for a, b in itertools.pairwise(frames)]
         assert min(diffs) > 0, 'the constructor default is a static image'
 
@@ -953,7 +953,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='NotAPattern')
         sim_cam.logger.warning.reset_mock()
-        img = np.asarray(cam._generate_image(), dtype=float)
+        img = np.asarray(cam._generate_image(cam._exposure_us), dtype=float)
 
         assert img.std() > 0, 'a bad name must still produce a usable frame'
         sim_cam.logger.warning.assert_called()
@@ -970,7 +970,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
         cam = SimulatedCamera()
         cam.set_test_pattern(enabled=False)
         cam._pixel_format = 'Mono12'
-        img = np.asarray(cam._generate_image(), dtype=float)
+        img = np.asarray(cam._generate_image(cam._exposure_us), dtype=float)
         assert img.max() > 255, (
             f'12-bit fallback peaks at {img.max()} -- not scaled to the 4095 range'
         )
@@ -1401,9 +1401,11 @@ class TestTheSpecimenField:
         cam.open_and_start()
         cam.set_focal_z(5000.0)
         cam.set_z_position(5000.0)
-        at_focus = [focus_vollath4_original(image=cam._generate_image()) for _ in range(4)]
+        at_focus = [
+            focus_vollath4_original(image=cam._generate_image(cam._exposure_us)) for _ in range(4)
+        ]
         cam.set_z_position(5001.0)
-        quarter_dof_off = focus_vollath4_original(image=cam._generate_image())
+        quarter_dof_off = focus_vollath4_original(image=cam._generate_image(cam._exposure_us))
         drift_spread = max(at_focus) - min(at_focus)
         assert drift_spread < (min(at_focus) - quarter_dof_off) / 10
 

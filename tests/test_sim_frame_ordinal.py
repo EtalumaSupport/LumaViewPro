@@ -167,7 +167,7 @@ class TestFieldsSurviveConcurrentStores:
         # must be handed out as ordinal n, however reads and stores interleave.
         counter = itertools.count(1)
 
-        def stamped():
+        def stamped(_exposure_us):
             frame = np.zeros((24, 32), dtype=np.uint8)
             frame[0, 0] = next(counter) % 251
             return frame

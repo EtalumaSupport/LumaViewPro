@@ -82,6 +82,8 @@ Adding a new camera model
 """
 
 import copy
+import json
+import pathlib
 from dataclasses import dataclass, field, replace
 
 
@@ -331,6 +333,24 @@ _DEFAULT = CameraProfile(
 def simulated_profile() -> CameraProfile:
     """The simulated camera's profile, a copy, as ``lookup_profile`` returns one."""
     return copy.deepcopy(_simulated)
+
+
+def simulated_exposure_delay_frames() -> int:
+    """How many frames the simulated camera delivers at the old exposure after a change.
+
+    The dart's measured count, read from its timing record, the one store of
+    it: a sensor finishes the frames it started, so they come out at the
+    exposure they were started with. A missing or unreadable record is a
+    broken installation and raises.
+    """
+    path = (
+        pathlib.Path(__file__).resolve().parent.parent
+        / 'data'
+        / 'camera_timing'
+        / f'{_daA3840_45um.model_name}.json'
+    )
+    with open(path) as f:
+        return int(json.load(f)['skip_frames']['exposure'])
 
 
 def ids_default_profile(model_name: str) -> CameraProfile:
