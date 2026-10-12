@@ -1963,6 +1963,22 @@ class CompositeFailedError(Fault, CaptureError):
     title = 'Composite Failed'
 
 
+class CompositeWaitExpiredError(CaptureError, Quiet, TimeoutError):
+    """The caller's ``merge_timeout_s`` ran out before the composite settled: nothing failed.
+
+    A ``TimeoutError``, as a caller's own wait expiring always is, and quiet:
+    the run or its merge may still be going. ``TimeoutError`` is the last
+    base, so its ``OSError`` constructor never reads the words and reason as
+    an errno.
+
+    Attributes:
+        reason: ``'merge_timeout'``.
+    """
+
+    title = 'Composite Still Running'
+    cause = RefusalCause.STATE
+
+
 class AutoGainNotSettledError(Fault, CaptureError):
     """Auto-gain locked with no usable exposure or gain from the camera.
 
@@ -3169,12 +3185,8 @@ class MoveFaultError(Fault, MoveNotCompletedError):
             the wait (a disconnect, a home). ``'position_unread'`` -- the
             board reported the axis arrived but not where, within the
             motion bound. ``'status_unread'`` -- the board did not report
-            whether the axis arrived, within the motion bound. ``'timed_out'`` -- the wait's
-            bound ran out before the axis arrived. Each of those leaves
-            the axis UNKNOWN. ``'still_moving'`` -- a wait
-            for motion the caller did not start ran out of time with the
-            axis still moving; the axis keeps the state its own move gives
-            it.
+            whether the axis arrived, within the motion bound. Each leaves
+            the axis UNKNOWN.
         title: The heading shown with the sentence, which follows the reason.
     """
 
@@ -3204,11 +3216,6 @@ class MoveFaultError(Fault, MoveNotCompletedError):
             'the motor board did not report whether it arrived. The {axis} '
             'position is now unknown -- home the scope before moving it again.'
         ),
-        'timed_out': (
-            'it did not arrive within the motion time limit. The {axis} position '
-            'is now unknown -- home the scope before moving it again.'
-        ),
-        'still_moving': 'the {axis} axis was still moving when the wait ran out of time.',
     }
 
     _TITLES: ClassVar[dict[str, str]] = {
@@ -3244,6 +3251,52 @@ class MoveStoppedError(Notice, MoveNotCompletedError):
         'stopped': 'the motors were stopped before it arrived.',
         'superseded': 'another command on the {axis} axis was given before it arrived.',
     }
+
+
+class MoveWaitExpiredError(MoveNotCompletedError, Quiet, TimeoutError):
+    """The caller's own wait ran out with the axis still moving: nothing failed.
+
+    A ``TimeoutError``, as a caller's own wait expiring always is, and quiet:
+    the move goes on, and the axis keeps the state its own move gives it.
+    ``TimeoutError`` is the last base, so its ``OSError`` constructor never
+    reads the axis and reason as an errno.
+
+    Attributes:
+        reason: ``'still_moving'``.
+    """
+
+    title = 'Still Moving'
+    cause = RefusalCause.STATE
+    _SENTENCES: ClassVar[dict[str, str]] = {
+        'still_moving': 'the {axis} axis was still moving when the wait ran out of time.',
+    }
+
+
+class LaneCallStillRunningError(Fault, Exception):
+    """The API's own bound on a call ran out before the call finished.
+
+    The hardware has stopped answering or is slower than the bound allows,
+    and the call may still finish: nothing says it failed, nor that it
+    will not change the scope after this. A fault, never a ``TimeoutError``,
+    which means only that the caller's own wait ran out.
+
+    Attributes:
+        reason: ``'still_running'``.
+        member: The API member whose call is still running.
+        timeout_s: The bound that ran out.
+    """
+
+    words_for_person = True
+    title = 'Still Running'
+    reason = 'still_running'
+
+    def __init__(self, member: str, timeout_s: float):
+        super().__init__(
+            f'{member} did not finish within {timeout_s:g} s and may still finish. '
+            'Check the scope before asking again.'
+        )
+        self.member = member
+        self.timeout_s = timeout_s
 
 
 class MotorStopFailedError(Fault, Exception):

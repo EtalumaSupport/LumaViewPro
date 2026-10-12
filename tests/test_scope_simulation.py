@@ -103,14 +103,13 @@ def test_a_silenced_motor_board_answers_nothing_until_unsilenced(scope):
 
 def test_a_held_axis_never_arrives_and_its_move_is_not_completed(scope, monkeypatch):
     """The waiter and the monitor give the move up on one bound, whichever
-    is first: ``'timed_out'`` or ``'stalled'``, each a move that did not
-    arrive."""
+    is first, and both name it ``'stalled'``: a move that did not arrive."""
     # The settle bound is 120 s; the patch stays until it has a seam.
     monkeypatch.setattr(scope.motion, '_MOTION_SETTLE_TIMEOUT_S', 0.3)
     scope.simulation.hold_axis('X')
     with pytest.raises(MoveNotCompletedError) as not_completed:
         scope.motion.move_absolute('X', 20_000.0)
-    assert not_completed.value.reason in {'timed_out', 'stalled'}
+    assert not_completed.value.reason == 'stalled'
     assert 0.0 < scope.motion.get_actual_position('X') < 20_000.0
 
 

@@ -18,7 +18,7 @@ from lib import profile_trace
 from modules.kivy_utils import schedule_ui
 from modules.notification_center import notifications
 from modules.activity_claim import ActivityClaim, Taking, acting, current_taking
-from modules.exceptions import HardwareCommandRefusedError, Refusal
+from modules.exceptions import HardwareCommandRefusedError, LaneCallStillRunningError, Refusal
 import threading
 import time
 
@@ -803,6 +803,8 @@ class SequentialIOExecutor:
                 waits on a lane.
             HardwareCommandRefusedError: the lane is closed, or the scope is
                 held by an activity this call is not made under.
+            LaneCallStillRunningError: ``timeout_s``, the API's own bound,
+                ran out with the task queued or running; it may still finish.
         """
         worker = getattr(_lane_worker, 'executor', None)
         if worker is self:
@@ -836,7 +838,7 @@ class SequentialIOExecutor:
                     self._caller_futures_pop_count += 1
             if mine is None:
                 return fut.result()
-            raise
+            raise LaneCallStillRunningError(member, timeout_s) from None
 
     def submit(
         self,

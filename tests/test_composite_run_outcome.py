@@ -20,6 +20,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from modules.exceptions import CaptureError
+from modules.notification_center import OutcomeKind, outcome_of
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from modules.run_outcome import PendingRunOutcome, RunEnding
 from tests.test_composite_run_config import _settings
@@ -160,12 +161,16 @@ class TestCompositeOutcomeIsObservable:
         )
 
     def test_an_outcome_that_never_settles_raises_rather_than_hanging(self):
+        """The caller's own merge_timeout_s ran out: a TimeoutError, quiet,
+        that is still a CaptureError; it was a fault, though nothing failed."""
         runner = self._runner_whose_run(self._COMPLETED, settle=False)
 
-        with pytest.raises(CaptureError) as excinfo:
+        with pytest.raises(TimeoutError) as excinfo:
             runner.run_composite(merge_timeout_s=0.05)
+        assert isinstance(excinfo.value, CaptureError)
         assert excinfo.value.reason == 'merge_timeout'
         assert 'wedged' in str(excinfo.value)
+        assert outcome_of(excinfo.value).kind == OutcomeKind.QUIET
 
     def test_a_refused_run_reaches_the_caller_as_a_refusal(self):
         # "Started, but with no outcome to wait on" is no longer a state

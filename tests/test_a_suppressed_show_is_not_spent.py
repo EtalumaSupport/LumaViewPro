@@ -24,7 +24,7 @@ def centre():
 
 
 def _fault():
-    return MoveFaultError('Z', 'timed_out')
+    return MoveFaultError('Z', 'stalled')
 
 
 def test_a_report_muted_by_an_unattended_run_leaves_it_to_the_request(centre):

@@ -48,10 +48,12 @@ from modules.exceptions import (
     HomingFailedError,
     HomingFaultError,
     HomingStoppedError,
+    LaneCallStillRunningError,
     MissingPart,
     MotorStopFailedError,
     MoveFaultError,
     MoveStoppedError,
+    MoveWaitExpiredError,
     PositionOutOfRangeError,
 )
 from modules.notification_center import notifications
@@ -192,10 +194,9 @@ class MoveInFlight:
         Raises:
             MoveNotCompletedError: The axis did not arrive. ``'stalled'``,
                 ``'board_lost'``, ``'position_unread'`` or
-                ``'status_unread'``, the motion monitor gave it up;
-                ``'faulted'``, something else set it UNKNOWN; ``'timed_out'``,
-                the motion bound ran out (each of these leaves the axis
-                UNKNOWN); ``'stopped'``, a stop the board took while it
+                ``'status_unread'``, the motion monitor gave it up, or the
+                motion bound ran out (``'stalled'``); ``'faulted'``, something
+                else set it UNKNOWN (each of these leaves the axis UNKNOWN); ``'stopped'``, a stop the board took while it
                 moved halted it, ``stop_motion``'s or the stage's own in
                 refusing a move; ``'superseded'``, another move or a home
                 took the axis before it arrived.
@@ -2103,8 +2104,8 @@ class MotionAPI:
                 own object when it gave the axis up, so the person is shown
                 it once: ``'stalled'``, ``'board_lost'``,
                 ``'position_unread'`` or ``'status_unread'``; ``'faulted'``
-                when something else set it UNKNOWN); ``'timed_out'``, it had
-                not ended when the wait's bound ran out -- the axis is then
+                when something else set it UNKNOWN); ``'stalled'`` too when it
+                had not ended as the wait's bound ran out -- the axis is then
                 written UNKNOWN, in the same hold as the check that the axis
                 is still this move's; ``'stopped'``, a STOP the board took
                 while it moved; ``'superseded'``, another move or a home
@@ -2117,7 +2118,7 @@ class MotionAPI:
                 axis,
                 AxisState.UNKNOWN,
                 verdict_for=move,
-                fault=MoveFaultError(axis, 'timed_out'),
+                fault=MoveFaultError(axis, 'stalled'),
             )
         if move.outcome == 'arrived':
             return
@@ -2488,7 +2489,7 @@ class MotionAPI:
                     + settle_windows * self._MOTION_SETTLE_TIMEOUT_S,
                     falsifies_recording=self._home_moves_turret(impl),
                 )
-        except concurrent.futures.TimeoutError:
+        except LaneCallStillRunningError:
             # The home is still queued or running, and its body releases the
             # claim when it ends; until then it is in flight.
             raise
@@ -2639,12 +2640,13 @@ class MotionAPI:
             timeout_s: Maximum seconds to wait for all of them (default 120s).
 
         Raises:
-            MoveNotCompletedError: An axis it waited for ended UNKNOWN (the
+            MoveFaultError: An axis it waited for ended UNKNOWN (the
                 monitor's own object when it gave the axis up: ``'stalled'``,
                 ``'board_lost'``, ``'position_unread'`` or ``'status_unread'``;
-                else ``'faulted'``), or was still moving
-                when ``timeout_s`` ran out (``'still_moving'``; its state is
-                left to its own move).
+                else ``'faulted'``).
+            MoveWaitExpiredError: ``'still_moving'``, a ``TimeoutError``: an
+                axis was still moving when ``timeout_s`` ran out; its state
+                is left to its own move.
             ArgumentRefusedError: ``'not_a_number'``, ``timeout_s`` is not a
                 finite number; a NaN deadline would end the wait at once.
         """
@@ -2658,7 +2660,7 @@ class MotionAPI:
         deadline = time.monotonic() + timeout_s
         for ax in moving:
             if not self._wait_for_axis_to_stop(ax, max(0.0, deadline - time.monotonic())):
-                raise MoveFaultError(ax, 'still_moving')
+                raise MoveWaitExpiredError(ax, 'still_moving')
         for ax in moving:
             with self._axis_state_lock:
                 unknown = self._axis_state.get(ax) == AxisState.UNKNOWN

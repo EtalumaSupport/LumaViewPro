@@ -80,7 +80,7 @@ def test_a_board_lost_during_the_wait_raises_board_lost(session, monkeypatch):
     assert motion.get_axis_state('Z') == AxisState.UNKNOWN
 
 
-def test_a_waited_move_whose_axis_never_arrives_raises_timed_out(session, monkeypatch):
+def test_a_waited_move_whose_axis_never_arrives_raises_stalled(session, monkeypatch):
     motion = session.scope.motion
     # Nothing confirms arrival once the monitor is stopped, so the wait's
     # bound is what ends it.
@@ -93,7 +93,7 @@ def test_a_waited_move_whose_axis_never_arrives_raises_timed_out(session, monkey
         motion.move_relative('Z', 20.0)
 
     assert exc.value.axis == 'Z'
-    assert exc.value.reason == 'timed_out'
+    assert exc.value.reason == 'stalled'
     assert motion.get_axis_state('Z') == AxisState.UNKNOWN
 
 
