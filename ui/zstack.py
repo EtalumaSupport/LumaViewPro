@@ -38,6 +38,8 @@ class ZStack(FloatLayout):
     # run, a recording, a diagnostic -- as the Session answers; greys the
     # button, and its own run leaves it live as that run's Stop.
     zstack_held = BooleanProperty(False)
+    # False on a scope with no focus axis: the block hides and takes no height.
+    visible = BooleanProperty(True)
 
     def set_steps(self):
         logger.info('[LVP Main  ] ZStack.set_steps()')

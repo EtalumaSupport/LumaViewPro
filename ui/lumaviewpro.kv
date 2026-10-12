@@ -458,258 +458,276 @@
 		Rectangle:
 			size: self.size
 			pos: self.pos
-	Label:
-		id: adjust_focus_label
-		text:'Adjust Focus'
-		font_size: '16sp'
-		size_hint_y: None
-		height: '30dp' if self.visible else 0
-		opacity: 1 if self.visible else 0
-		disabled: not self.visible
-		visible: True
-		spacing: '5dp'
-		color: [51/255, 181/255, 229/255, 1]
-
-	BoxLayout:
-		id: focus_block
-		orientation: 'horizontal'
-		size_hint_y: None
-		height: '170dp' if self.visible else 0
-		opacity: 1 if self.visible else 0
-		disabled: (not self.visible) or app.controls_locked
-		visible: True
-
-		BoxLayout:
-		    orientation: 'vertical'
-		    size_hint_x: None
-		    width: '40dp'
-		    spacing: '5dp'
-
-		    Label:
-		    Button:
-		        id: fast_up
-				tooltip_text: 'Coarse Up'
-				border: 0, 0, 0, 0
-		        size_hint: None, None
-		        size: '30dp', '40dp'
-				background_normal: './data/icons/UU_normal.png'
-				background_down: './data/icons/UU_down.png'
-				on_release: root.coarse_up()
-		    Button:
-		        id: slow_up
-				tooltip_text: 'Fine Up'
-				border: 0, 0, 0, 0
-		        size_hint: None, None
-		        size: '30dp', '30dp'
-				background_normal: './data/icons/U_normal.png'
-				background_down: './data/icons/U_down.png'
-				on_release: root.fine_up()
-		    Button:
-		        id: slow_down
-				tooltip_text: 'Fine Down'
-				border: 0, 0, 0, 0
-		        size_hint: None, None
-		        size: '30dp', '30dp'
-				background_normal: './data/icons/D_normal.png'
-				background_down: './data/icons/D_down.png'
-				on_release: root.fine_down()
-		    Button:
-		        id: fast_down
-				tooltip_text: 'Coarse Down'
-				border: 0, 0, 0, 0
-		        size_hint: None, None
-		        size: '30dp', '40dp'
-				background_normal: './data/icons/DD_normal.png'
-				background_down: './data/icons/DD_down.png'
-				on_release: root.coarse_down()
-		    Label:
-
+	# The panel scrolls when its controls are taller than the open drawer,
+	# as the other drawers do; every child declares its own height.
+	ModSliderAwareScrollView:
+		scroll_type: ['bars']
+		do_scroll_x: False
+		pos_hint: {'top': 1.0}
 		BoxLayout:
 			orientation: 'vertical'
-			size_hint_x: None
-			width: '40dp'
-			Label:
-				size_hint_y: None
-				height: '15dp'
-		    ModSlider:
-		        id: obj_position
-		        orientation: 'vertical'
-		        min: 0.
-		        max: 14000.
-		        value: 0.
-				step: 0.1
-		        cursor_size: '30dp','40dp'
-		        cursor_image: './data/icons/objective.png'
-		        cursor_disabled_image: './data/icons/objective.png'
-		        value_track: True
-		        value_track_color: 51/255, 181/255, 229/255, 1
-		        value_track_width: '5dp'
-				on_release: root.set_position(self.value)
-			Label:
-				size_hint_y: None
-				height: '15dp'
-
-		BoxLayout:
-		    orientation: 'vertical'
-		    padding: '5dp'
+			size_hint_y: None
+			height: self.minimum_height
 			spacing: '5dp'
-
-		    Label:
-		        size_hint_y: None
-		        height: '20dp'
-				halign: 'center'
-		        font_size: '12sp'
-		        text: 'Z-Position (um)'
-
-		    TextInput:
-				id: z_position_id
-            	multiline: False
-		        size_hint_y: None
-		        height: '30dp'
-		        font_size: '12sp'
-				halign: 'center'
-            	input_filter: 'float'
-		        text: ''
-				on_focus: if not self.focus: root.set_position_text(self.text)
+			Label:
+				id: adjust_focus_label
+				text:'Adjust Focus'
+				font_size: '16sp'
+				size_hint_y: None
+				height: '30dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: not self.visible
+				visible: True
+				spacing: '5dp'
+				color: [51/255, 181/255, 229/255, 1]
 
 			BoxLayout:
-				orientation:'horizontal'
-				padding: '0dp'
-				spacing: '5dp'
+				id: focus_block
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '170dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: (not self.visible) or app.controls_locked
+				visible: True
 
-				RoundedButton:
-					id: home_id
-					tooltip_text: 'Lower focus completely'
-					size_hint_y: None
-					height: '30dp'
+				BoxLayout:
+				    orientation: 'vertical'
+				    size_hint_x: None
+				    width: '40dp'
+				    spacing: '5dp'
+
+				    Label:
+				    Button:
+				        id: fast_up
+						tooltip_text: 'Coarse Up'
+						border: 0, 0, 0, 0
+				        size_hint: None, None
+				        size: '30dp', '40dp'
+						background_normal: './data/icons/UU_normal.png'
+						background_down: './data/icons/UU_down.png'
+						on_release: root.coarse_up()
+				    Button:
+				        id: slow_up
+						tooltip_text: 'Fine Up'
+						border: 0, 0, 0, 0
+				        size_hint: None, None
+				        size: '30dp', '30dp'
+						background_normal: './data/icons/U_normal.png'
+						background_down: './data/icons/U_down.png'
+						on_release: root.fine_up()
+				    Button:
+				        id: slow_down
+						tooltip_text: 'Fine Down'
+						border: 0, 0, 0, 0
+				        size_hint: None, None
+				        size: '30dp', '30dp'
+						background_normal: './data/icons/D_normal.png'
+						background_down: './data/icons/D_down.png'
+						on_release: root.fine_down()
+				    Button:
+				        id: fast_down
+						tooltip_text: 'Coarse Down'
+						border: 0, 0, 0, 0
+				        size_hint: None, None
+				        size: '30dp', '40dp'
+						background_normal: './data/icons/DD_normal.png'
+						background_down: './data/icons/DD_down.png'
+						on_release: root.coarse_down()
+				    Label:
+
+				BoxLayout:
+					orientation: 'vertical'
+					size_hint_x: None
+					width: '40dp'
+					Label:
+						size_hint_y: None
+						height: '15dp'
+				    ModSlider:
+				        id: obj_position
+				        orientation: 'vertical'
+				        min: 0.
+				        max: 14000.
+				        value: 0.
+						step: 0.1
+				        cursor_size: '30dp','40dp'
+				        cursor_image: './data/icons/objective.png'
+				        cursor_disabled_image: './data/icons/objective.png'
+				        value_track: True
+				        value_track_color: 51/255, 181/255, 229/255, 1
+				        value_track_width: '5dp'
+						on_release: root.set_position(self.value)
+					Label:
+						size_hint_y: None
+						height: '15dp'
+
+				BoxLayout:
+				    orientation: 'vertical'
+				    padding: '5dp'
+					spacing: '5dp'
+
+				    Label:
+				        size_hint_y: None
+				        height: '20dp'
+						halign: 'center'
+				        font_size: '12sp'
+				        text: 'Z-Position (um)'
+
+				    TextInput:
+						id: z_position_id
+		            	multiline: False
+				        size_hint_y: None
+				        height: '30dp'
+				        font_size: '12sp'
+						halign: 'center'
+		            	input_filter: 'float'
+				        text: ''
+						on_focus: if not self.focus: root.set_position_text(self.text)
+
+					BoxLayout:
+						orientation:'horizontal'
+						padding: '0dp'
+						spacing: '5dp'
+
+						RoundedButton:
+							id: home_id
+							tooltip_text: 'Lower focus completely'
+							size_hint_y: None
+							height: '30dp'
+							font_size: '12sp'
+							text: 'Home'
+							on_release: root.home()
+						RoundedButton:
+							text: 'Set Z'
+							tooltip_text: 'Store Z-value\nfor current channel'
+							size_hint_y: None
+							height: '30dp'
+							font_size: '12sp'
+							on_release: root.set_bookmark()
+						RoundedButton:
+							text: 'Set All Z'
+							tooltip_text: 'Store Z-value\nfor all channels'
+							size_hint_y: None
+							height: '30dp'
+							font_size: '12sp'
+							on_release: root.set_all_bookmarks()
+					RoundedButton:
+						text: 'Go to Set Z'
+						tooltip_text: 'Go to stored Z-value'
+						size_hint_y: None
+						height: '30dp'
+						font_size: '12sp'
+						on_release: root.goto_bookmark()
+
+			# Outside the locked focus box: this toggle is also the AF ABORT
+			# (second click) and must stay clickable during its own run. It
+			# locks only while a rival recording is live.
+			RoundedToggleButton:
+				id: autofocus_id
+				tooltip_text: 'Autofocus live image, make sure objective is set correctly and the starting focus is within a reasonable range of the true focus'
+				size_hint_y: None
+				height: '30dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				font_size: '12sp'
+				text: 'Autofocus'
+				disabled: (not self.visible) or root.autofocus_held or root.autofocus_pending
+				visible: True
+				on_release: root.run_autofocus_from_ui()
+
+			Label:
+				text:'Turret Selection'
+				id: turret_selection_label
+				font_size: '16sp'
+				size_hint_y: None
+				height: '30dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: not self.visible
+				spacing: '5dp'
+				color: [51/255, 181/255, 229/255, 1]
+				visible: True
+
+			BoxLayout:
+				orientation: 'horizontal'
+				id: turret_btn_box
+				size_hint_y: None
+				height: '30dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: (not self.visible) or app.controls_locked
+				visible: True
+
+				RoundedToggleButton:
+					id: turret_pos_1_btn
+					text: '< 1 >'
+					tooltip_text: 'Select turret position 1'
+		            on_release: root.turret_gesture(1)
+				RoundedToggleButton:
+					id: turret_pos_2_btn
+					text: '< 2 >'
+					tooltip_text: 'Select turret position 2'
+		            on_release: root.turret_gesture(2)
+				RoundedToggleButton:
+					id: turret_pos_3_btn
+					text: '< 3 >'
+					tooltip_text: 'Select turret position 3'
+		            on_release: root.turret_gesture(3)
+				RoundedToggleButton:
+					id: turret_pos_4_btn
+					text: '< 4 >'
+					tooltip_text: 'Select turret position 4'
+		            on_release: root.turret_gesture(4)
+
+			BoxLayout:
+		        orientation: 'horizontal'
+		        size_hint_y: None
+		        height: '30dp'
+		        disabled: app.controls_locked
+		        Label:
+		            text: 'Objective'
+		            size_hint_x: None
+		            width: '120dp'
 					font_size: '12sp'
-					text: 'Home'
-					on_release: root.home()
-				RoundedButton:
-					text: 'Set Z'
-					tooltip_text: 'Store Z-value\nfor current channel'
-					size_hint_y: None
-					height: '30dp'
-					font_size: '12sp'
-					on_release: root.set_bookmark()
-				RoundedButton:
-					text: 'Set All Z'
-					tooltip_text: 'Store Z-value\nfor all channels'
-					size_hint_y: None
-					height: '30dp'
-					font_size: '12sp'
-					on_release: root.set_all_bookmarks()
+			    PickSpinner:
+					id: objective_spinner2
+					sync_height: True
+			        text: 'Unknown'
+					font_size:'12sp'
+					option_cls: "SpinnerOption0"
+					# #631: text_autoupdate: True caused .values reassignment to reset
+					# .text to the alphabetically-first option, firing on_text with the
+					# wrong objective_id and tripping the misleading turret warning.
+					# Text shows the active objective the API derives, and only that:
+					# a person's pick arrives as on_pick and reaches the Session, and
+					# the display follows the Session's answer.
+			        on_release: root.load_objectives()
+			        log_name: 'OBJECTIVE'
+			        on_pick: root.pick_objective(args[1])
+
 			RoundedButton:
-				text: 'Go to Set Z'
-				tooltip_text: 'Go to stored Z-value'
+				id: reset_turret_objective_btn
+				text: 'Reset Turret Objective'
 				size_hint_y: None
 				height: '30dp'
 				font_size: '12sp'
-				on_release: root.goto_bookmark()
-
-	# Outside the locked focus box: this toggle is also the AF ABORT
-	# (second click) and must stay clickable during its own run. It
-	# locks only while a rival recording is live.
-	RoundedToggleButton:
-		id: autofocus_id
-		tooltip_text: 'Autofocus live image, make sure objective is set correctly and the starting focus is within a reasonable range of the true focus'
-		size_hint_y: None
-		height: '30dp' if self.visible else 0
-		opacity: 1 if self.visible else 0
-		font_size: '12sp'
-		text: 'Autofocus'
-		disabled: (not self.visible) or root.autofocus_held or root.autofocus_pending
-		visible: True
-		on_release: root.run_autofocus_from_ui()
-
-	Label:
-		text:'Turret Selection'
-		id: turret_selection_label
-		font_size: '16sp'
-		size_hint_y: None
-		height: '30dp' if self.visible else 0
-		opacity: 1 if self.visible else 0
-		disabled: not self.visible
-		spacing: '5dp'
-		color: [51/255, 181/255, 229/255, 1]
-		visible: True
-
-	BoxLayout:
-		orientation: 'horizontal'
-		id: turret_btn_box
-		size_hint_y: None
-		height: '30dp' if self.visible else 0
-		opacity: 1 if self.visible else 0
-		disabled: (not self.visible) or app.controls_locked
-		visible: True
-
-		RoundedToggleButton:
-			id: turret_pos_1_btn
-			text: '< 1 >'
-			tooltip_text: 'Select turret position 1'
-            on_release: root.turret_gesture(1)
-		RoundedToggleButton:
-			id: turret_pos_2_btn
-			text: '< 2 >'
-			tooltip_text: 'Select turret position 2'
-            on_release: root.turret_gesture(2)
-		RoundedToggleButton:
-			id: turret_pos_3_btn
-			text: '< 3 >'
-			tooltip_text: 'Select turret position 3'
-            on_release: root.turret_gesture(3)
-		RoundedToggleButton:
-			id: turret_pos_4_btn
-			text: '< 4 >'
-			tooltip_text: 'Select turret position 4'
-            on_release: root.turret_gesture(4)
-
-	BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: '30dp'
-        disabled: app.controls_locked
-        Label:
-            text: 'Objective'
-            size_hint_x: None
-            width: '120dp'
-			font_size: '12sp'
-	    PickSpinner:
-			id: objective_spinner2
-			sync_height: True
-	        text: 'Unknown'
-			font_size:'12sp'
-			option_cls: "SpinnerOption0"
-			# #631: text_autoupdate: True caused .values reassignment to reset
-			# .text to the alphabetically-first option, firing on_text with the
-			# wrong objective_id and tripping the misleading turret warning.
-			# Text shows the active objective the API derives, and only that:
-			# a person's pick arrives as on_pick and reaches the Session, and
-			# the display follows the Session's answer.
-	        on_release: root.load_objectives()
-	        log_name: 'OBJECTIVE'
-	        on_pick: root.pick_objective(args[1])
-
-	RoundedButton:
-		id: reset_turret_objective_btn
-		text: 'Reset Turret Objective'
-		size_hint_y: None
-		height: '30dp'
-		font_size: '12sp'
-		disabled: app.controls_locked
-		on_release: root.reset_turret_objective()
+				disabled: app.controls_locked
+				on_release: root.reset_turret_objective()
             
-	ZStack:
-		id: zstack_id
-		opacity: 1 if self.visible else 0
-		disabled: not self.visible
-		visible: True
+			ZStack:
+				id: zstack_id
+				opacity: 1 if self.visible else 0
+				disabled: not self.visible
+				visible: True
 
 
 # Z-Stack Settings
 <ZStack>:
+	# As tall as its controls, so the Objective Control panel can scroll it
+	# rather than squeeze it; none when the scope has no focus axis.
+	size_hint_y: None
+	height: zstack_box.height if self.visible else 0
 	BoxLayout:
+		id: zstack_box
 		orientation: 'vertical'
+		size_hint_y: None
+		height: self.minimum_height
 		padding: '5dp'
 	    spacing: '5dp'
 		pos_hint: {'x': 0.0, 'y': 0.0}
@@ -808,8 +826,6 @@
 			disabled: root.zstack_held or root.zstack_pending
 			on_release: root.run_zstack_acquire_from_ui()
 
-		Label:
-
 <XYStageControl>:
 	orientation: 'vertical'
 	padding: '5dp'
@@ -823,216 +839,225 @@
             size: self.size
             pos: self.pos
 
-	# HOME and CALIBRATE STAGE
-	BoxLayout:
-		orientation: 'horizontal'
-		size_hint_y: None
-		height: '30dp'
-		spacing: '5dp'
-
-		# HOME STAGE
-		RoundedButton: 
-			id: home_id
-			tooltip_text: 'Home microscope to upper left corner (A1)'
-			font_size: '12sp'
-			text: 'Home Stage'
-			on_release: root.home()
-		# Button: 
-		# 	id: center_id
-		# 	font_size: '12sp'
-		# 	text: 'Center Stage'
-		# 	on_release: root.center()
-		# Button:
-		# 	text: 'Calibrate'
-		# 	font_size: '12sp'
-		# 	on_release: root.calibrate()
-
-	# Two Columns for X and Y Directions
-	BoxLayout:
-		orientation: 'horizontal'
-		spacing: '5dp'
-		size_hint_y: None
-		height: '170dp'
-
-		# X Direction Controls
+	# The panel scrolls when its controls are taller than the open drawer,
+	# as the other drawers do; every child declares its own height.
+	ModSliderAwareScrollView:
+		scroll_type: ['bars']
+		do_scroll_x: False
+		pos_hint: {'top': 1.0}
 		BoxLayout:
 			orientation: 'vertical'
+			size_hint_y: None
+			height: self.minimum_height
 			spacing: '5dp'
+			# HOME and CALIBRATE STAGE
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				spacing: '5dp'
+
+				# HOME STAGE
+				RoundedButton: 
+					id: home_id
+					tooltip_text: 'Home microscope to upper left corner (A1)'
+					font_size: '12sp'
+					text: 'Home Stage'
+					on_release: root.home()
+				# Button: 
+				# 	id: center_id
+				# 	font_size: '12sp'
+				# 	text: 'Center Stage'
+				# 	on_release: root.center()
+				# Button:
+				# 	text: 'Calibrate'
+				# 	font_size: '12sp'
+				# 	on_release: root.calibrate()
+
+			# Two Columns for X and Y Directions
+			BoxLayout:
+				orientation: 'horizontal'
+				spacing: '5dp'
+				size_hint_y: None
+				height: '170dp'
+
+				# X Direction Controls
+				BoxLayout:
+					orientation: 'vertical'
+					spacing: '5dp'
 	
-			Label:
-				size_hint_y: None
-				height: '30dp'
-				font_size: '12sp'
-				text: 'X: (mm)'
-				tooltip_text: 'Current X value'
+					Label:
+						size_hint_y: None
+						height: '30dp'
+						font_size: '12sp'
+						text: 'X: (mm)'
+						tooltip_text: 'Current X value'
 
-			# Set and Display X Position	
-			TextInput:
-				id: x_pos_id
-				multiline: False
-				size_hint_y: None
-				height: '30dp'
-				font_size: '12sp'
-				halign: 'center'
-				input_filter: 'float'
-				text: ''
-				on_focus: if not self.focus: root.set_xposition(self.text)
+					# Set and Display X Position	
+					TextInput:
+						id: x_pos_id
+						multiline: False
+						size_hint_y: None
+						height: '30dp'
+						font_size: '12sp'
+						halign: 'center'
+						input_filter: 'float'
+						text: ''
+						on_focus: if not self.focus: root.set_xposition(self.text)
 			
-			# Set X Bookmark
-			RoundedButton:
-				size_hint_y: None
-				height: '30dp'
-				font_size: '12sp'
-				text: 'Set X'
-				tooltip_text: 'Save current X position'
-				on_release: root.set_xbookmark()
+					# Set X Bookmark
+					RoundedButton:
+						size_hint_y: None
+						height: '30dp'
+						font_size: '12sp'
+						text: 'Set X'
+						tooltip_text: 'Save current X position'
+						on_release: root.set_xbookmark()
 
-			# Goto X Bookmark
-			RoundedButton:
-				size_hint_y: None
-				height: '30dp'
-				font_size: '12sp'
-				text: 'Go to X'
-				tooltip_text: 'Return to saved X position'
-				on_release: root.goto_xbookmark()
+					# Goto X Bookmark
+					RoundedButton:
+						size_hint_y: None
+						height: '30dp'
+						font_size: '12sp'
+						text: 'Go to X'
+						tooltip_text: 'Return to saved X position'
+						on_release: root.goto_xbookmark()
 
-			# X-Dir Controls
-			BoxLayout:
-				orientation: 'horizontal'
-				spacing: '5dp'
-				size_hint_y: None
-				height: '30dp'
+					# X-Dir Controls
+					BoxLayout:
+						orientation: 'horizontal'
+						spacing: '5dp'
+						size_hint_y: None
+						height: '30dp'
 
-				Button: # COARSE LEFT
-					border: 0, 0, 0, 0
-					size_hint: None, None
-					tooltip_text: 'Coarse Left'
-					size: '30dp', '30dp'
-					background_normal: './data/icons/LL_normal.png'
-					background_down: './data/icons/LL_down.png'
-					on_release: root.coarse_left()
+						Button: # COARSE LEFT
+							border: 0, 0, 0, 0
+							size_hint: None, None
+							tooltip_text: 'Coarse Left'
+							size: '30dp', '30dp'
+							background_normal: './data/icons/LL_normal.png'
+							background_down: './data/icons/LL_down.png'
+							on_release: root.coarse_left()
 
-				Button: # FINE LEFT
-					id: slow_up
-					tooltip_text: 'Fine Left'
-					border: 0, 0, 0, 0
-					size_hint: None, None
-					size: '25dp', '30dp'
-					background_normal: './data/icons/L_normal.png'
-					background_down: './data/icons/L_down.png'
-					on_release: root.fine_left()
+						Button: # FINE LEFT
+							id: slow_up
+							tooltip_text: 'Fine Left'
+							border: 0, 0, 0, 0
+							size_hint: None, None
+							size: '25dp', '30dp'
+							background_normal: './data/icons/L_normal.png'
+							background_down: './data/icons/L_down.png'
+							on_release: root.fine_left()
 
-				Button: # FINE RIGHT
-					id: slow_down
-					tooltip_text: 'Fine Right'
-					border: 0, 0, 0, 0
-					size_hint: None, None
-					size: '25dp', '30dp'
-					background_normal: './data/icons/R_normal.png'
-					background_down: './data/icons/R_down.png'
-					on_release: root.fine_right()
+						Button: # FINE RIGHT
+							id: slow_down
+							tooltip_text: 'Fine Right'
+							border: 0, 0, 0, 0
+							size_hint: None, None
+							size: '25dp', '30dp'
+							background_normal: './data/icons/R_normal.png'
+							background_down: './data/icons/R_down.png'
+							on_release: root.fine_right()
 			
-				Button: # COARSE RIGHT
-					id: fast_down
-					tooltip_text: 'Coarse Right'
-					border: 0, 0, 0, 0
-					size_hint: None, None
-					size: '30dp', '30dp'
-					background_normal: './data/icons/RR_normal.png'
-					background_down: './data/icons/RR_down.png'
-					on_release: root.coarse_right()
+						Button: # COARSE RIGHT
+							id: fast_down
+							tooltip_text: 'Coarse Right'
+							border: 0, 0, 0, 0
+							size_hint: None, None
+							size: '30dp', '30dp'
+							background_normal: './data/icons/RR_normal.png'
+							background_down: './data/icons/RR_down.png'
+							on_release: root.coarse_right()
 
-		# Y Direction Controls
-		BoxLayout:
-			orientation: 'vertical'
-			spacing: '5dp'
+				# Y Direction Controls
+				BoxLayout:
+					orientation: 'vertical'
+					spacing: '5dp'
 
-			Label:
+					Label:
+						size_hint_y: None
+						height: '30dp'
+						font_size: '12sp'
+						text: 'Y: (mm)'
+
+					# Set and Display Y Position	
+					TextInput:
+						id: y_pos_id
+						multiline: False
+						size_hint_y: None
+						height: '30dp'
+						font_size: '12sp'
+						halign: 'center'
+						input_filter: 'float'
+						text: ''
+						on_focus: if not self.focus: root.set_yposition(self.text)
+
+					# Set Y Bookmark
+					RoundedButton:
+						size_hint_y: None
+						height: '30dp'
+						font_size: '12sp'
+						text: 'Set Y'
+						tooltip_text: 'Save current Y position'
+						on_release: root.set_ybookmark()
+
+					# Goto Y Bookmark
+					RoundedButton:
+						size_hint_y: None
+						height: '30dp'
+						font_size: '12sp'
+						text: 'Go to Y'
+						tooltip_text: 'Return to saved Y position'
+						on_release: root.goto_ybookmark()
+
+					# Y-Dir Controls
+					BoxLayout:
+						orientation: 'horizontal'
+						spacing: '5dp'
+						size_hint_y: None
+						height: '30dp'
+
+						Button: # COARSE FORWARD
+							id: fast_down
+							tooltip_text: 'Coarse upward'
+							border: 0, 0, 0, 0
+							size_hint: None, None
+							size: '30dp', ' 30dp'
+							background_normal: './data/icons/DD_normal.png'
+							background_down: './data/icons/DD_down.png'
+							on_release: root.coarse_back()
+						Button: # FINE FORWARD
+							border: 0, 0, 0, 0
+							tooltip_text: 'Fine upward'
+							size_hint: None, None
+							size: '25dp', '30dp'
+							background_normal: './data/icons/D_normal.png'
+							background_down: './data/icons/D_down.png'
+							on_release: root.fine_back()
+						Button: # FINE BACK
+							border: 0, 0, 0, 0
+							tooltip_text: 'Fine downward'
+							size_hint: None, None
+							size: '25dp', '30dp'
+							background_normal: './data/icons/U_normal.png'
+							background_down: './data/icons/U_down.png'
+							on_release: root.fine_fwd()
+						Button: # COARSE BACK
+							border: 0, 0, 0, 0
+							tooltip_text: 'Coarse downward'
+							size_hint: None, None
+							size: '30dp', '30dp'
+							background_normal: './data/icons/UU_normal.png'
+							background_down: './data/icons/UU_down.png'
+							on_release: root.coarse_fwd()
+
+			# Stage Display
+			FloatLayout:
+				padding: '5dp'
 				size_hint_y: None
-				height: '30dp'
-				font_size: '12sp'
-				text: 'Y: (mm)'
+				height: self.width * 2 / 3
+				id: xy_stage_holder_id
 
-			# Set and Display Y Position	
-			TextInput:
-				id: y_pos_id
-				multiline: False
-				size_hint_y: None
-				height: '30dp'
-				font_size: '12sp'
-				halign: 'center'
-				input_filter: 'float'
-				text: ''
-				on_focus: if not self.focus: root.set_yposition(self.text)
-
-			# Set Y Bookmark
-			RoundedButton:
-				size_hint_y: None
-				height: '30dp'
-				font_size: '12sp'
-				text: 'Set Y'
-				tooltip_text: 'Save current Y position'
-				on_release: root.set_ybookmark()
-
-			# Goto Y Bookmark
-			RoundedButton:
-				size_hint_y: None
-				height: '30dp'
-				font_size: '12sp'
-				text: 'Go to Y'
-				tooltip_text: 'Return to saved Y position'
-				on_release: root.goto_ybookmark()
-
-			# Y-Dir Controls
-			BoxLayout:
-				orientation: 'horizontal'
-				spacing: '5dp'
-				size_hint_y: None
-				height: '30dp'
-
-				Button: # COARSE FORWARD
-					id: fast_down
-					tooltip_text: 'Coarse upward'
-					border: 0, 0, 0, 0
-					size_hint: None, None
-					size: '30dp', ' 30dp'
-					background_normal: './data/icons/DD_normal.png'
-					background_down: './data/icons/DD_down.png'
-					on_release: root.coarse_back()
-				Button: # FINE FORWARD
-					border: 0, 0, 0, 0
-					tooltip_text: 'Fine upward'
-					size_hint: None, None
-					size: '25dp', '30dp'
-					background_normal: './data/icons/D_normal.png'
-					background_down: './data/icons/D_down.png'
-					on_release: root.fine_back()
-				Button: # FINE BACK
-					border: 0, 0, 0, 0
-					tooltip_text: 'Fine downward'
-					size_hint: None, None
-					size: '25dp', '30dp'
-					background_normal: './data/icons/U_normal.png'
-					background_down: './data/icons/U_down.png'
-					on_release: root.fine_fwd()
-				Button: # COARSE BACK
-					border: 0, 0, 0, 0
-					tooltip_text: 'Coarse downward'
-					size_hint: None, None
-					size: '30dp', '30dp'
-					background_normal: './data/icons/UU_normal.png'
-					background_down: './data/icons/UU_down.png'
-					on_release: root.coarse_fwd()
-
-	# Stage Display
-	FloatLayout:
-		padding: '5dp'
-		size_hint_y: None
-		height: self.width * 2 / 3
-		id: xy_stage_holder_id
-
-	# Fill Space		
-	Label:	
 
 
 # ProtocolSettings - Settings for Labware within ImageSettings
@@ -2762,8 +2787,6 @@
 					size_hint_x: 0.85
 					pos_hint: {'center_x': 0.5}
 					on_release: root.zip_logs_only()
-
-			Label:
 
 # LayerControl - Settings for Layers within ImageSettings
 # ------------------------------------------
