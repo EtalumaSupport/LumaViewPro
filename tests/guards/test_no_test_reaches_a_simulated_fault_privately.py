@@ -100,12 +100,10 @@ def private_fault_reaches() -> dict[str, list[str]]:
 # file's tests onto scope.simulation; never raise one.
 _PRIVATE_REACH_PIN: dict[str, int] = {
     'tests/capability/serial_p01_cable_pull.py': 2,
-    'tests/test_a_camera_stream_stall_is_reported.py': 6,
     'tests/test_a_home_is_believed_only_when_it_happened.py': 1,
     'tests/test_an_fx2_frame_ends_where_the_device_ends_it.py': 1,
     'tests/test_an_unplugged_fx2_is_removed.py': 8,
     'tests/test_audit_fixes.py': 3,
-    'tests/test_capture_requires_streaming.py': 1,
     'tests/test_lumascope_api.py': 3,
     'tests/test_motion_state_gate.py': 2,
     'tests/test_no_reply_is_no_reply.py': 9,

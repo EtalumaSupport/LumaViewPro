@@ -23,7 +23,6 @@ import time
 import pytest
 
 import modules.video_cadence as video_cadence
-from drivers.simulated_camera import SimulatedStall
 from modules.exceptions import CameraStreamStalledError
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.notification_center import Severity, notifications
@@ -83,9 +82,8 @@ def _wait_for(predicate, timeout_s):
 
 class TestAStallIsReported:
     def test_a_stall_is_shown_once_as_an_unsolicited_camera_fault(self, session, shown, caplog):
-        camera = session.scope._camera_driver
         with caplog.at_level(logging.INFO):
-            camera.hold_frames(SimulatedStall(after_s=0.2, for_s=1.5))
+            session.scope.simulation.stall_stream(0.2, 1.5)
             assert _wait_for(lambda: shown, 3.0), 'a stall was not reported'
             time.sleep(0.6)  # still inside the stall: no second report
         assert len(shown) == 1
@@ -97,9 +95,8 @@ class TestAStallIsReported:
         assert len(_stall_lines(caplog)) == 1
 
     def test_the_check_rearms_when_frames_resume(self, session, caplog):
-        camera = session.scope._camera_driver
         with caplog.at_level(logging.INFO):
-            camera.hold_frames(SimulatedStall(after_s=0.1, for_s=1.0))
+            session.scope.simulation.stall_stream(0.1, 1.0)
             assert _wait_for(lambda: len(_stall_lines(caplog)) == 1, 3.0)
             # The check re-arms once it sees frames again -- the state this
             # test is about; nothing public states it, and a clock only
@@ -108,7 +105,7 @@ class TestAStallIsReported:
             assert _wait_for(lambda: not imaging._stream_stall_reported, 10.0), (
                 'the check never saw frames resume'
             )
-            camera.hold_frames(SimulatedStall(after_s=0.1, for_s=1.0))
+            session.scope.simulation.stall_stream(0.1, 1.0)
             assert _wait_for(lambda: len(_stall_lines(caplog)) == 2, 3.0), (
                 'a second stall after frames resumed was not seen'
             )
@@ -142,7 +139,6 @@ class TestWhatIsNotAStall:
         # one's 10 s. Once the camera's pipeline of frames has come the short
         # bound applies: the next hold of 1.5 s is a stall.
         imaging = session.scope.imaging
-        camera = session.scope._camera_driver
         imaging.set_exposure_ms(1000.0)
         before = imaging._frames_delivered()
         assert _wait_for(lambda: imaging._frames_delivered() > before, 3.0), (
@@ -150,13 +146,13 @@ class TestWhatIsNotAStall:
         )
         time.sleep(0.3)  # the check has run at the long exposure's bound
         with caplog.at_level(logging.INFO):
-            camera.hold_frames(SimulatedStall(after_s=0.0, for_s=1.2))
+            session.scope.simulation.stall_stream(0.0, 1.2)
             imaging.set_exposure_ms(5.0)
             time.sleep(1.6)
             assert shown == [], 'the frames in the pipeline were reported as a stall'
             assert _stall_lines(caplog) == []
 
-            camera.hold_frames(SimulatedStall(after_s=0.3, for_s=1.5))
+            session.scope.simulation.stall_stream(0.3, 1.5)
             assert _wait_for(lambda: shown, 3.0), 'the short bound never came back'
 
     def test_a_camera_that_is_not_streaming_is_not_stalled(self, session, shown, caplog):
@@ -169,11 +165,10 @@ class TestWhatIsNotAStall:
 
 class TestWhereItIsNotShown:
     def test_an_unattended_run_logs_the_stall_and_shows_nothing(self, session, shown, caplog):
-        camera = session.scope._camera_driver
         notifications.open_run_scope(attended=False)
         try:
             with caplog.at_level(logging.INFO):
-                camera.hold_frames(SimulatedStall(after_s=0.1, for_s=1.5))
+                session.scope.simulation.stall_stream(0.1, 1.5)
                 assert _wait_for(lambda: _stall_lines(caplog), 3.0), 'the stall was not seen'
                 time.sleep(0.3)
         finally:

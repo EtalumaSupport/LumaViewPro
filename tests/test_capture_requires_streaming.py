@@ -14,7 +14,6 @@ from __future__ import annotations
 import datetime
 from unittest.mock import patch
 
-from drivers.simulated_camera import SimulatedStall
 from modules.lumascope_api import imaging as imaging_module
 
 
@@ -57,7 +56,7 @@ def test_capture_and_wait_returns_none_when_drain_stalls(sim_scope):
     """
     assert sim_scope.imaging.is_streaming()
     sim_scope.imaging.frame_validity.invalidate('exposure')
-    sim_scope._camera_driver.hold_frames(SimulatedStall(after_s=0.0, for_s=30.0))
+    sim_scope.simulation.stall_stream(0.0, 30.0)
 
     result = sim_scope.imaging.capture_and_wait(timeout_s=1.0)
 
