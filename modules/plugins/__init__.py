@@ -742,23 +742,27 @@ class PluginRegistry:
         self._settings_baseline = copy.deepcopy(host.get_settings_snapshot())
         discovered = list(importlib.metadata.entry_points(group=ENTRY_POINT_GROUP))
         count = 0
-        for ep in discovered:
-            ep_name = getattr(ep, 'name', '<unknown>')
-            if ep_name == ENGINEERING_PLUGIN and host.no_engineering:
-                logger.info(f'[Plugins ] {ep_name} left out: the host has no_engineering')
-                continue
-            try:
-                module = ep.load()
-            except Exception as e:
-                self.record_load_failure(
-                    ep_name, '', f'it could not be imported ({type(e).__name__}: {e})', e
-                )
-                continue
-            count += self._load_one(module, ep_name, host, host_version)
-        for module in BUILTIN_PLUGINS:
-            count += self._load_one(module, module.__name__, host, host_version)
-        logger.info(f'[Plugins ] discovery complete -- {count} loaded')
-        self._report_not_loaded()
+        # Reported in a finally: a discovery that stops partway still tells
+        # the person what it had found would not load.
+        try:
+            for ep in discovered:
+                ep_name = getattr(ep, 'name', '<unknown>')
+                if ep_name == ENGINEERING_PLUGIN and host.no_engineering:
+                    logger.info(f'[Plugins ] {ep_name} left out: the host has no_engineering')
+                    continue
+                try:
+                    module = ep.load()
+                except Exception as e:
+                    self.record_load_failure(
+                        ep_name, '', f'it could not be imported ({type(e).__name__}: {e})', e
+                    )
+                    continue
+                count += self._load_one(module, ep_name, host, host_version)
+            for module in BUILTIN_PLUGINS:
+                count += self._load_one(module, module.__name__, host, host_version)
+            logger.info(f'[Plugins ] discovery complete -- {count} loaded')
+        finally:
+            self._report_not_loaded()
 
     def _load_one(self, module: Any, found_as: str, host: Any, host_version: str) -> int:
         """Register one plugin module with *host*; 1 if it loaded, 0 if not."""

@@ -165,6 +165,20 @@ def test_two_plugins_failing_together_are_one_notice_naming_both(harness_ctx, ce
     assert '"alpha"' in centre_posts[0].message and '"beta"' in centre_posts[0].message
 
 
+def test_a_discovery_that_raises_still_reports_what_did_not_load(harness_ctx, centre_posts):
+    def _load_one_then_break(module, found_as, host, host_version):
+        raise RuntimeError('discovery broke')
+
+    with (
+        patch.object(harness_ctx.plugins, '_load_one', _load_one_then_break),
+        pytest.raises(RuntimeError, match='discovery broke'),
+    ):
+        _load(harness_ctx, _EntryPoint('alpha', raises=ImportError('a')), _EntryPoint('beta'))
+
+    assert [n.title for n in centre_posts] == ['Plugin Not Loaded']
+    assert '"alpha"' in centre_posts[0].message
+
+
 # ---------------------------------------------------------------------------
 # After load
 # ---------------------------------------------------------------------------
