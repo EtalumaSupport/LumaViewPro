@@ -390,37 +390,17 @@ def select_capture_pixel_format(
     return formats[0]
 
 
-def resolve_settings_image_mode(settings) -> str:
-    """The authoritative image_mode for a settings dict.
-
-    Prefers an explicit ``image_mode`` key; falls back to deriving it from the
-    legacy ``use_full_pixel_depth`` / ``false_color_16bit`` keys for installs
-    saved before the consolidated key existed.
-    """
-    mode = settings.get('image_mode')
-    if mode in _MODE_TABLE:
-        return mode
-    # A missing image_mode is a pre-consolidation install -- migrate it silently
-    # from the legacy keys. A present-but-unrecognized value is a corrupt setting:
-    # surface it, because the coercion below otherwise hides the data loss.
-    if mode is not None:
-        logger.warning(
-            f'[ImageMode] Stored image_mode {mode!r} is not recognized; '
-            'coercing to the legacy-derived default.'
-        )
-    return migrate_legacy_settings(
-        settings.get('use_full_pixel_depth', False),
-        settings.get('false_color_16bit', False),
-    )
-
-
 def migrate_settings_dict(settings: dict) -> bool:
     """Fold the two retiring keys into image_mode in-place, then drop them.
 
-    Run once on load, before the settings.json default-merge: an install
-    saved with the legacy keys (and no image_mode) keeps its capture/save
-    choice instead of being reset to the merged-in default. Returns whether
-    the dict changed, so the caller can log the one-time migration.
+    A read of the file as loaded, before the template merge, and the one
+    place the retired ``use_full_pixel_depth`` / ``false_color_16bit`` keys
+    are read: an install saved with them (and no image_mode) keeps its
+    capture/save choice instead of being reset to the merged-in default.
+    Every other reader indexes the prepared store's ``image_mode``, which
+    the merge fills and the writer's range check holds to a known mode.
+    Returns whether the dict changed, so the caller can log the one-time
+    migration.
 
     Args:
         settings: the loaded settings dict, mutated in place.
@@ -438,7 +418,19 @@ def migrate_settings_dict(settings: dict) -> bool:
     if not had_legacy and not needs_mode:
         return False
     if needs_mode:
-        settings['image_mode'] = resolve_settings_image_mode(settings)
+        # A missing image_mode is a pre-consolidation install, migrated
+        # silently from the legacy keys. A present-but-unrecognized value
+        # beside them is a corrupt setting: surface it, because the
+        # derivation below otherwise hides the data loss.
+        if 'image_mode' in settings:
+            logger.warning(
+                f'[ImageMode] Stored image_mode {settings["image_mode"]!r} is not '
+                'recognized; coercing to the legacy-derived default.'
+            )
+        settings['image_mode'] = migrate_legacy_settings(
+            settings.get('use_full_pixel_depth', False),
+            settings.get('false_color_16bit', False),
+        )
     settings.pop('use_full_pixel_depth', None)
     settings.pop('false_color_16bit', None)
     return True

@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 
 import modules.binning as binning
-import modules.image_mode as image_mode
 import modules.layer_record as layer_record
 from modules.lumascope_api._constants import is_turret_slot
 from lvp_logger import logger
@@ -106,9 +105,9 @@ class ScopeInitConfig:
             frame_width=settings['frame']['width'],
             frame_height=settings['frame']['height'],
             acceleration_pct=acceleration_pct,
-            image_mode=image_mode.resolve_settings_image_mode(settings),
+            image_mode=settings['image_mode'],
             expects_motion=expects_motion,
             expects_led=expects_led,
-            high_conversion_gain=settings.get('camera', {}).get('high_conversion_gain', False),
-            line_noise_reduction=settings.get('camera', {}).get('line_noise_reduction', False),
+            high_conversion_gain=settings['camera']['high_conversion_gain'],
+            line_noise_reduction=settings['camera']['line_noise_reduction'],
         )

@@ -108,6 +108,54 @@ def writers_of_settings_keys(keys) -> set[tuple[str, str]]:
     return found
 
 
+def settings_store_root(node: ast.AST, aliases: set[str]) -> bool:
+    """Whether ``node`` reaches the live settings store.
+
+    The store is ``settings`` by name, an attribute chain ending ``.settings``,
+    a subscript, ``.get`` or other call chain rooted there, or a local in
+    ``aliases`` (``settings_store_aliases``). The one resolver for the guards
+    that count the store's writers and its readers' second values.
+    """
+    while isinstance(node, (ast.Subscript, ast.Attribute, ast.Call)):
+        if isinstance(node, ast.Attribute) and node.attr == 'settings':
+            return True
+        node = node.func if isinstance(node, ast.Call) else node.value
+    return isinstance(node, ast.Name) and (node.id == 'settings' or node.id in aliases)
+
+
+def settings_store_aliases(fn: ast.AST) -> set[str]:
+    """Locals bound to the live settings or a block inside it, in this function.
+
+    A block is reached by subscript (``settings['video']``), by ``.get``
+    (``settings.get('video', {})``), or by either behind an ``or``
+    (``settings.get('video') or {}``), so a read through the local is a
+    read of the store.
+    """
+    found: set[str] = set()
+    for node in ast.walk(fn):
+        if not (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+        ):
+            continue
+        value = node.value
+        if isinstance(value, ast.BoolOp) and isinstance(value.op, ast.Or):
+            value = value.values[0]
+        binds = (
+            isinstance(value, ast.Subscript)
+            or (isinstance(value, ast.Attribute) and value.attr == 'settings')
+            or (
+                isinstance(value, ast.Call)
+                and isinstance(value.func, ast.Attribute)
+                and value.func.attr == 'get'
+            )
+        )
+        if binds and settings_store_root(value, found):
+            found.add(node.targets[0].id)
+    return found
+
+
 def _settings_path_leaf(node: ast.AST) -> str | None:
     """The last segment of a settings path written as a literal or an f-string."""
     if isinstance(node, ast.JoinedStr) and node.values:

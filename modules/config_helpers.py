@@ -176,28 +176,24 @@ def get_sequenced_run_settings(settings: dict, *, run_mode: SequencedCaptureRunM
         image_capture_config = get_image_capture_config_from_settings(settings)
     return {
         'image_capture_config': image_capture_config,
-        'keep_led_between_steps': (
-            False if autofocus_scan else settings.get('keep_led_between_steps', False)
-        ),
-        'video_as_frames': settings.get('video_as_frames', False),
+        'keep_led_between_steps': (False if autofocus_scan else settings['keep_led_between_steps']),
+        'video_as_frames': settings['video_as_frames'],
         'separate_folder_per_channel': (
-            False if autofocus_scan else settings.get('separate_folder_per_channel', False)
+            False if autofocus_scan else settings['separate_folder_per_channel']
         ),
-        'bf_af_for_fluorescence': settings.get('protocol', {}).get('bf_af_for_fluorescence', False),
-        'timestamp_overlay': settings.get('video', {}).get('timestamp_overlay', True),
-        'video_max_fps': settings.get('video', {}).get('max_fps', 0),
+        'bf_af_for_fluorescence': settings['protocol']['bf_af_for_fluorescence'],
+        'timestamp_overlay': settings['video']['timestamp_overlay'],
+        'video_max_fps': settings['video']['max_fps'],
     }
 
 
 def get_manual_video_max_duration(settings: dict) -> float:
     """Return the max recording duration in seconds (video.max_duration_seconds).
 
-    Owns the canonical 300-second default so it lives in one place instead
-    of being repeated at each read site, where one copy could drift from
-    the rest. Manual recording is stop-when-I-say bounded by this cap;
-    the default is what every un-configured user gets.
+    Manual recording is stop-when-I-say bounded by this cap. The store is
+    prepared, so the key is read; its shipped value is the template's.
     """
-    return settings.get('video', {}).get('max_duration_seconds', 300)
+    return settings['video']['max_duration_seconds']
 
 
 def get_ag_ae_max_exposure_ms(layer: str, ceilings: dict) -> float:
@@ -467,7 +463,7 @@ def log_environment_once():
 
 def log_system_metrics(settings: dict, *, scope: 'Lumascope') -> None:
     """Log CPU, RAM, and disk metrics, and the scope's camera delivery."""
-    path = settings.get('live_folder', '.')
+    path = settings['live_folder']
     # Resolve relative paths and handle missing directories gracefully.
     # On installed apps, live_folder may still be './capture' before
     # microscope_settings resolves it to Documents.
@@ -483,7 +479,7 @@ def log_system_metrics(settings: dict, *, scope: 'Lumascope') -> None:
     # hand-edited value of the STRING "false" would otherwise read truthy and
     # switch on a probe that can stall the process for hundreds of ms a tick.
     # Any non-boolean reads as off, which is the safe direction.
-    collect_open_files = settings.get('profiling', {}).get('open_files_enabled') is True
+    collect_open_files = settings['profiling']['open_files_enabled'] is True
     metrics = common_utils.system_metrics(path=path, collect_open_files=collect_open_files)
     free_space = common_utils.check_disk_space(path=path)
 
@@ -1020,15 +1016,15 @@ def get_binning_from_settings(settings: dict) -> int:
     label key this way, so this makes the two agree instead of adding a
     second convention.
     """
-    return binning.binning_size_str_to_int(settings.get('binning', {}).get('size', '1x1'))
+    return binning.binning_size_str_to_int(settings['binning']['size'])
 
 
 def get_frame_dimensions_from_settings(settings: dict) -> dict:
     """Read frame dimensions from settings dict (no UI needed)."""
-    frame = settings.get('frame', {})
+    frame = settings['frame']
     return {
-        'width': int(frame.get('width', 1900)),
-        'height': int(frame.get('height', 1900)),
+        'width': int(frame['width']),
+        'height': int(frame['height']),
     }
 
 
@@ -1038,10 +1034,6 @@ def get_protocol_time_params_from_settings(settings: dict) -> dict:
     Returns dict with 'period' and 'duration' as timedelta objects, converted
     from the store's minutes and hours and otherwise unchanged.
 
-    An ABSENT key still defaults -- the shipped template carries both and the
-    default merge fills them, so absent means a caller built a config without
-    a schedule, not a schedule that got corrupted.
-
     Raises:
         ProtocolScheduleRefusedError: a stored period or duration is not one the
             protocol can run. The store's two writers refuse one, so this
@@ -1049,25 +1041,24 @@ def get_protocol_time_params_from_settings(settings: dict) -> dict:
     """
     from modules.protocol import schedule_from_units
 
-    protocol = settings.get('protocol', {})
-    return {key: schedule_from_units(key, protocol.get(key, 1)) for key in ('period', 'duration')}
+    protocol = settings['protocol']
+    return {key: schedule_from_units(key, protocol[key]) for key in ('period', 'duration')}
 
 
 def get_image_capture_config_from_settings(settings: dict) -> image_mode.ImageCaptureConfig:
     """Read image capture config from settings dict (no UI needed).
 
-    Resolves the consolidated image_mode (and its capture_depth /
-    save_encoding). The explicit ``image_mode`` key is authoritative; absent
-    it, the mode is derived from the legacy keys for installs saved before the
-    consolidated key existed.
+    Reads the stored image_mode (and its capture_depth / save_encoding); the
+    load folds the legacy keys of an older install into it before the store
+    is prepared.
     """
-    output_format = settings.get('image_output_format', {})
-    mode = image_mode.resolve_settings_image_mode(settings)
+    output_format = settings['image_output_format']
+    mode = settings['image_mode']
     return image_mode.ImageCaptureConfig.from_image_mode(
         mode,
-        output_format_live=output_format.get('live', 'TIFF'),
-        output_format_sequenced=output_format.get('sequenced', 'TIFF'),
-        jpg_quality=settings.get('jpg_quality', 90),
+        output_format_live=output_format['live'],
+        output_format_sequenced=output_format['sequenced'],
+        jpg_quality=settings['jpg_quality'],
     )
 
 
@@ -1090,7 +1081,7 @@ def get_selected_labware_from_settings(
             replaces a stored plate the catalogue cannot resolve; this
             reader still refuses one in settings no bring-up has read.
     """
-    stored = settings.get('protocol', {}).get('labware')
+    stored = settings['protocol']['labware']
     if not isinstance(stored, str):
         raise ConfigError(f'the settings name no plate: protocol.labware is {stored!r}')
     labware_id = wellplate_loader.resolve_plate_key(stored)
@@ -1106,26 +1097,18 @@ def get_zstack_params_from_settings(settings: dict) -> dict:
     ``protocol.zstack`` container and a ``z_reference`` leaf found neither and
     answered with invented values instead of failing.
 
-    ``step_size`` defaults to 0, matching the shipped container, so an
-    unconfigured store reports no stack. Defaulting it to 1 made
-    ``number_of_steps()`` answer 1 for a store that has no z-stack at all.
-
-    ``position`` can only be absent from a HAND-BUILT settings dict -- the
-    template ships it and the load merge fills it in -- so it yields None
-    rather than a guessed reference. A run that does not z-stack never
-    consumes the value, and inventing 'center' is exactly what makes a missing
-    key invisible. The guard lives where the value is used, in
-    ``ZStackConfig.step_positions``.
+    The store is prepared, so every key is read. The shipped ``step_size``
+    is 0, so an unconfigured store reports no stack.
 
     Raises:
         ConfigError: ``position`` holds a label with no config token, or
             ``range`` / ``step_size`` will not parse as a number.
     """
-    zstack = settings.get('zstack', {})
-    position = zstack.get('position')
+    zstack = settings['zstack']
+    position = zstack['position']
     parsed = {}
     for key in ('range', 'step_size'):
-        raw = zstack.get(key, 0)
+        raw = zstack[key]
         try:
             parsed[key] = float(raw)
         except (TypeError, ValueError):
@@ -1136,12 +1119,8 @@ def get_zstack_params_from_settings(settings: dict) -> dict:
     return {
         'range': parsed['range'],
         'step_size': parsed['step_size'],
-        'z_reference': (
-            None
-            if position is None
-            else common_utils.convert_zstack_reference_position_setting_to_config(
-                text_label=position
-            )
+        'z_reference': common_utils.convert_zstack_reference_position_setting_to_config(
+            text_label=position
         ),
     }
 
@@ -1233,7 +1212,7 @@ def get_composite_blend_thresholds(settings: dict) -> dict:
     return {
         layer: settings[layer]['composite_brightness_threshold']
         for layer in common_utils.get_layers()
-        if 'composite_brightness_threshold' in settings.get(layer, {})
+        if 'composite_brightness_threshold' in settings[layer]
     }
 
 
@@ -1253,8 +1232,8 @@ def get_composite_image_capture_config_from_settings(
       12-bit acquisition would spend exposure time on depth the merged
       artifact discards.
     """
-    output_format = settings.get('image_output_format', {})
-    requested = output_format.get('sequenced', image_mode.OUTPUT_FORMAT_TIFF)
+    output_format = settings['image_output_format']
+    requested = output_format['sequenced']
     if requested in image_mode.MERGEABLE_SEQUENCED_FORMATS:
         resolved = requested
     else:
@@ -1266,9 +1245,9 @@ def get_composite_image_capture_config_from_settings(
 
     return image_mode.ImageCaptureConfig.from_image_mode(
         image_mode.IMAGE_MODE_8BIT,
-        output_format_live=output_format.get('live', image_mode.OUTPUT_FORMAT_TIFF),
+        output_format_live=output_format['live'],
         output_format_sequenced=resolved,
-        jpg_quality=settings.get('jpg_quality', 90),
+        jpg_quality=settings['jpg_quality'],
     )
 
 
@@ -1481,7 +1460,7 @@ def get_sequenced_capture_config_from_settings(
             # Overlap is stored top-level, not under protocol. Reading it from
             # under protocol found nothing and silently gave every headless
             # run 0% overlap regardless of what the user had configured.
-            'tiling_overlap_percent': settings.get('tiling_overlap_percent', 0.0),
+            'tiling_overlap_percent': settings['tiling_overlap_percent'],
             'layer_configs': get_layer_configs(settings),
             'period': time_params['period'],
             'duration': time_params['duration'],

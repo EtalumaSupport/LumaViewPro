@@ -440,7 +440,7 @@ class TestGetCurrentPlatePosition:
 
 class TestLogSystemMetrics:
     def test_calls_system_metrics(self):
-        settings = _make_settings()
+        settings = complete_settings(live_folder='/tmp')
         with (
             patch('modules.common_utils.system_metrics') as mock_metrics,
             patch('modules.common_utils.check_disk_space') as mock_disk,

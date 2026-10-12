@@ -319,8 +319,8 @@ class ManualRecordingController:
                 message='The camera has not reported its exposure time, so the '
                 'recording cannot be started. Reconnect the camera and try again.',
             )
-        video_settings = settings.get('video', {})
-        max_fps = video_settings.get('max_fps', 0)
+        video_settings = settings['video']
+        max_fps = video_settings['max_fps']
         # Manual recording asks for no rate of its own: it records every
         # frame the camera delivers, limited only by the user's setting
         # when one is set.
@@ -438,7 +438,7 @@ class ManualRecordingController:
                 bit_depth=capture_config.capture_depth,
                 output_dir=save_folder,
                 filename_template=manual_frame_filename_template(),
-                timestamp_overlay=video_settings.get('timestamp_overlay', True),
+                timestamp_overlay=video_settings['timestamp_overlay'],
                 manifest_extra=manifest_extra,
                 # The MP4 leg's artifacts share the flat Manual folder, so its
                 # manifest is named after the video the writer actually wrote --

@@ -594,7 +594,7 @@ class Lumascope:
         if simulate:
             from modules.settings_init import settings
 
-            default_model = settings.get('microscope', 'LS850T') if settings else 'LS850T'
+            default_model = (settings or self._settings_template)['microscope']
             model = sim_model or configured_model or default_model
             sim_axes = model_axes(self._scope_models, model)
             sim_led_board, sim_motor_board = self._simulated_boards(model, sim_axes)

@@ -20,7 +20,9 @@ from tests.scope_fakes import build_scope
 
 _BASE_SETTINGS = {
     'binning': {'size': '1x1'},
+    'camera': {'high_conversion_gain': False, 'line_noise_reduction': False},
     'frame': {'width': 1900, 'height': 1900},
+    'image_mode': '8bit',
     'objective_id': '4x',
     'turret_objectives': None,
     'motion': {'acceleration_max_pct': 100},
@@ -105,7 +107,7 @@ class TestFromSettings:
         assert config.expects_led is True
 
     def test_capture_depth_resolved_from_image_mode(self):
-        # No image_mode key -> the 8-bit default mode.
+        # The stored mode is carried as itself.
         config = ScopeInitConfig.from_settings(_BASE_SETTINGS, turreted=False)
         assert config.image_mode == '8bit'
         # A 12-bit image mode is carried as itself, so initialize() applies a

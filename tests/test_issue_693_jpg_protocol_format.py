@@ -22,6 +22,7 @@ import pandas as pd
 import pytest
 
 from modules import config_helpers
+from tests.settings_fixtures import complete_settings
 from modules.composite_generation import CompositeGeneration
 from modules.exceptions import PostProcessingRefusedError
 
@@ -63,14 +64,9 @@ def test_quality_row_shared_across_live_and_sequenced():
 
 def test_settings_config_reads_jpg_quality():
     cfg = config_helpers.get_image_capture_config_from_settings(
-        {'image_output_format': {'live': 'JPG', 'sequenced': 'JPG'}, 'jpg_quality': 40}
+        complete_settings(image_output_format={'live': 'JPG', 'sequenced': 'JPG'}, jpg_quality=40)
     )
     assert cfg.jpg_quality == 40
-
-
-def test_settings_config_defaults_jpg_quality_when_absent():
-    cfg = config_helpers.get_image_capture_config_from_settings({})
-    assert cfg.jpg_quality == 90
 
 
 # --- Part 3: composite / stitch guard against JPG source ---------------------

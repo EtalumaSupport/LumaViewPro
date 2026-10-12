@@ -36,5 +36,5 @@ def resolve_output_save_encoding(array: np.ndarray) -> str:
         return image_mode.encoding_for_array(array)
 
     with _app_ctx.ctx.settings_lock:
-        mode = image_mode.resolve_settings_image_mode(_app_ctx.ctx.settings)
+        mode = _app_ctx.ctx.settings['image_mode']
     return image_mode.save_encoding_for_derived_output(array, mode)

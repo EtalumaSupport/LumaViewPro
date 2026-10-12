@@ -846,6 +846,10 @@ def _resolve_settings_path(directory):
     raise FileNotFoundError(f'No settings files found in {data_dir}')
 
 
+# The four readers below read the file as read, before it is prepared: the
+# logger, the profilers and the tracer are configured before the live
+# settings exist, so a key an older file lacks takes its shipped value
+# here. Every other reader indexes the prepared store.
 def load_debug_setting(directory: str) -> bool:
     global debug_setting, debug_setting_source
 

@@ -1586,13 +1586,13 @@ class ScopeSession:
         with self.settings_lock:
             for name in common_utils.get_layers():
                 layer = self.settings[name]
-                if layer.get('acquire') not in ('image', 'video'):
+                if layer['acquire'] not in ('image', 'video'):
                     continue
                 stim = layer.get('stim_config')
                 layer_settings[name] = {
                     'Layer': name,
                     'Acquire': layer['acquire'],
-                    **{column: layer.get(key, '') for column, key in _LAYER_SETTINGS_KEYS},
+                    **{column: layer[key] for column, key in _LAYER_SETTINGS_KEYS},
                     'Stim_Enabled': (
                         stim['enabled'] if isinstance(stim, dict) and 'enabled' in stim else ''
                     ),
@@ -1828,7 +1828,7 @@ class ScopeSession:
             stim_configs=self.get_stim_configs(),
             plate_position=self.plate_position_on(protocol.labware()),
             objective_id=objective_id,
-            channel_order=self.settings.get('step_channel_order', None),
+            channel_order=self.settings['step_channel_order'],
             before_step=before_step,
             after_step=after_step,
         )
@@ -2679,9 +2679,7 @@ class ScopeSession:
 
         if self.scope.capabilities.has_xy_stage:
             return
-        # select_labware refuses a protocol block that is not a mapping.
-        block = self.settings.get('protocol')
-        stored = block.get('labware') if isinstance(block, dict) else None
+        stored = self.settings['protocol']['labware']
         if not self.select_labware(CENTER_PLATE):
             return
         logger.info(
@@ -2703,8 +2701,7 @@ class ScopeSession:
         Returns:
             ``[('protocol.labware', stored, shipped)]`` when replaced, else ``[]``.
         """
-        block = self.settings.get('protocol')
-        stored = block.get('labware') if isinstance(block, dict) else None
+        stored = self.settings['protocol']['labware']
         if self.wellplate_loader.is_known_plate(stored):
             return []
         shipped = self.scope.settings_template['protocol']['labware']
@@ -3324,8 +3321,8 @@ class ScopeSession:
                 or moved.
         """
         has_turret = self.scope_has_turret()
-        first_run = not self.settings.get('objective_confirmed', False)
-        slots = self.settings.get('turret_objectives') or {}
+        first_run = not self.settings['objective_confirmed']
+        slots = self.settings['turret_objectives']
         position = self.scope.motion.get_turret_slot() if has_turret else None
         # A known slot with no assignment owes the question. An unknown slot
         # alone does not: it is unknown during every turret move, and asking
@@ -3474,11 +3471,10 @@ class ScopeSession:
         labware_name = self.wellplate_loader.resolve_plate_key(labware_name)
         protocol_settings = self.settings.get('protocol')
         if not isinstance(protocol_settings, dict):
-            # Settings handed straight to a factory skip the template merge
-            # that puts this block there, so it can be missing -- and a
-            # hand-edited file can put something that is not a mapping in its
-            # place. Named here, so the refusal says what is wrong rather
-            # than failing inside the write.
+            # Every dict reaches the session through create's preparation,
+            # which holds this block to the template's kind; a dict that
+            # bypassed it is a bug, named here so the refusal says what is
+            # wrong rather than failing inside the write.
             raise ConfigError(
                 'settings have no usable protocol block; the labware selection '
                 f'has nowhere to live (found {type(protocol_settings).__name__})'
@@ -3595,7 +3591,7 @@ class ScopeSession:
         self.scope.motion.refuse_unknown_positions(
             ('X', 'Y', 'Z'), recording=True, then='try again'
         )
-        return self.plate_position_on(self.settings.get('protocol', {}).get('labware'))
+        return self.plate_position_on(self.settings['protocol']['labware'])
 
     def plate_position_on(self, labware_id: str) -> dict:
         """The stage's position in plate coordinates, on the plate ``labware_id`` names.
@@ -4006,7 +4002,7 @@ class ScopeSession:
         # file and the flag disagree on exactly the machines that care. A host
         # loads its plugins before it starts metrics.
         start_kwargs = {}
-        interval_s = self.settings.get('profiling', {}).get('metrics_interval_s')
+        interval_s = self.settings['profiling']['metrics_interval_s']
         if interval_s is not None:
             start_kwargs['system_metrics_interval_s'] = float(interval_s)
         elif self.engineering_mode:

@@ -32,6 +32,7 @@ class TestFuturesMetricsFormat:
 
         from modules import app_context, config_helpers
         from tests.scope_fakes import scope_delivering_nothing
+        from tests.settings_fixtures import complete_settings
 
         class _RecordingLogger:
             def __init__(self):
@@ -63,7 +64,7 @@ class TestFuturesMetricsFormat:
         )
 
         config_helpers.log_system_metrics(
-            {'live_folder': str(tmp_path)}, scope=scope_delivering_nothing()
+            complete_settings(live_folder=str(tmp_path)), scope=scope_delivering_nothing()
         )
 
         futures_lines = [m for m in rec.messages if '[FUTURES METRICS]' in m]

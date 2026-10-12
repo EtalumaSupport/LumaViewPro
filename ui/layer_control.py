@@ -139,7 +139,7 @@ class LayerControl(BoxLayout):
         scope_display = getattr(_app_ctx.ctx, 'scope_display', None)
         if scope_display is None:
             return
-        sum_count = _app_ctx.ctx.settings.get(self.layer, {}).get('sum')
+        sum_count = _app_ctx.ctx.settings[self.layer]['sum']
         self.sum_depth_hint_active = image_mode.depth_truncation_warning_active(
             sum_count, scope_display.image_mode
         )

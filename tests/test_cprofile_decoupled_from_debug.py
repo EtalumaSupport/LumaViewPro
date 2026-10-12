@@ -24,7 +24,7 @@ SETTINGS = json.loads((REPO / 'data' / 'settings.json').read_text())
 
 
 def test_cprofile_gated_on_own_flag_not_debug_mode():
-    assert "settings.get('cprofile_enabled'" in LVP
+    assert "settings['cprofile_enabled']" in LVP
     # The cProfile start must no longer be triggered by debug_mode.
     assert 'cProfile enabled (cprofile_enabled=true)' in LVP
     assert 'cProfile enabled (debug_mode=true)' not in LVP

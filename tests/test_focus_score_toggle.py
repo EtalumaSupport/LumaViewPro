@@ -35,11 +35,11 @@ def test_focus_score_enabled_predicate_exists():
     assert _find_func('_focus_score_enabled') is not None
 
 
-def test_predicate_reads_the_setting_with_default_off():
+def test_predicate_indexes_the_live_setting():
     fn = _find_func('_focus_score_enabled')
     body = ast.get_source_segment(SRC, fn)
-    # Reads the live settings dict, default False (absent flag == off).
-    assert "ctx.settings.get('focus_score_enabled', False)" in body
+    # Indexes the live settings dict, which carries every shipped key.
+    assert "ctx.settings['focus_score_enabled']" in body
 
 
 def test_focus_function_gated_by_the_toggle():

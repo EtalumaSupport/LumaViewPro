@@ -61,7 +61,7 @@ class TestStartStop:
         )
 
     def test_start_metrics_without_override_uses_logger_defaults(self):
-        session = _make_session(settings={})
+        session = _make_session(settings={'profiling': {'metrics_interval_s': None}})
         session.start_metrics()
         session.metrics_logger.start.assert_called_once_with(_SCHEDULER)
 

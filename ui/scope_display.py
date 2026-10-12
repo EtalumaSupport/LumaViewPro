@@ -658,7 +658,7 @@ class ScopeDisplay(Image):
         without a restart; a value cached on the first frame would freeze at
         whatever the setting was when the first frame arrived.
         """
-        return bool(ctx is not None and ctx.settings.get('focus_score_enabled', False))
+        return bool(ctx is not None and ctx.settings['focus_score_enabled'])
 
     @staticmethod
     def _debug_perf_enabled(ctx):
@@ -669,7 +669,7 @@ class ScopeDisplay(Image):
         first frame arrived -- if that was before settings finished loading it
         stuck at False and [PERF] never logged even after debug_mode went on.
         """
-        return bool(ctx is not None and ctx.settings.get('debug_mode', False))
+        return bool(ctx is not None and ctx.settings['debug_mode'])
 
     def set_engineering_ui(self, mean, stddev, af_score, open_layer):
         ctx = _app_ctx.ctx

@@ -86,6 +86,12 @@ def build_scope(**kwargs):
     from modules.lumascope_api import Lumascope
     from tests.settings_fixtures import complete_settings
 
+    # A simulated scope no test names a model for is the LS850T, the
+    # model every bare test scope has been built on; a scope with no
+    # session's settings would otherwise take the template's model, and
+    # the tests that home or assign a turret would lose it.
+    if kwargs.get('simulate') and not (kwargs.get('sim_model') or kwargs.get('configured_model')):
+        kwargs['sim_model'] = 'LS850T'
     scope = Lumascope(**kwargs)
     _TEARDOWNS.append(scope.disconnect)
     if kwargs.get('simulate') and scope.camera_connected:

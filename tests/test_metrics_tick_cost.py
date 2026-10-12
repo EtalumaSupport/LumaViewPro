@@ -32,6 +32,7 @@ import pytest
 
 from modules import app_context, common_utils, config_helpers
 from tests.scope_fakes import real_executor_bundle, scope_delivering_nothing
+from tests.settings_fixtures import complete_settings
 
 
 @pytest.fixture
@@ -107,23 +108,16 @@ class TestOpenFilesGate:
     def test_only_a_real_true_enables_the_probe(self, monkeypatch, configured, tmp_path):
         # 'true' and 'yes' are the dangerous half: truthy strings that a
         # loose read would honour.
-        settings = {
-            'live_folder': str(tmp_path),
-            'profiling': {'open_files_enabled': configured},
-        }
+        settings = complete_settings(
+            live_folder=str(tmp_path), profiling={'open_files_enabled': configured}
+        )
         assert _routed_gate_value(monkeypatch, settings) is False
 
     def test_a_real_true_enables_it(self, monkeypatch, tmp_path):
-        settings = {
-            'live_folder': str(tmp_path),
-            'profiling': {'open_files_enabled': True},
-        }
+        settings = complete_settings(
+            live_folder=str(tmp_path), profiling={'open_files_enabled': True}
+        )
         assert _routed_gate_value(monkeypatch, settings) is True
-
-    def test_missing_profiling_block_reads_as_off(self, monkeypatch, tmp_path):
-        # Headless sessions can hold an empty settings dict, and the
-        # default merge is best-effort -- absent must mean off.
-        assert _routed_gate_value(monkeypatch, {'live_folder': str(tmp_path)}) is False
 
 
 class TestHandleMetricsLine:
@@ -133,7 +127,9 @@ class TestHandleMetricsLine:
         # which is the distinction under test.
         backing = defaultdict(float)
         backing.update(metrics)
-        rec = _drive_log_system_metrics(monkeypatch, {'live_folder': str(tmp_path)}, backing)
+        rec = _drive_log_system_metrics(
+            monkeypatch, complete_settings(live_folder=str(tmp_path)), backing
+        )
         return [m for m in rec.messages if '[HANDLE METRICS]' in m]
 
     def test_disabled_renders_as_off_not_as_a_failure(self, monkeypatch, tmp_path):
@@ -166,7 +162,7 @@ def _make_session(**kwargs):
     from tests.scope_fakes import spec_scope
 
     defaults = {
-        'settings': {},
+        'settings': {'profiling': {'metrics_interval_s': None}},
         'scope': spec_scope(),
         'executor_bundle': real_executor_bundle(),
         'scheduler': _SCHEDULER,
