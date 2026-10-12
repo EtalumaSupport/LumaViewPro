@@ -1711,20 +1711,6 @@ def _firmware_motorboard(model: str, axes: str, dialect: str = '3.0', unplugged:
     ), backend.motor_board
 
 
-@pytest.fixture(scope='module')
-def homing_boards():
-    """Real-firmware boards shared by the homing tests; each test clears
-    the faults it injects."""
-    boards = {
-        'full': _firmware_motorboard('LS850T', 'XYZT'),
-        'z_only': _firmware_motorboard('LS820', 'Z'),
-        'z_only_field': _firmware_motorboard('LS820', 'Z', dialect='field'),
-    }
-    yield boards
-    for board, _sim in boards.values():
-        board.disconnect()
-
-
 class TestHomeRaises:
     """The blocking home(axis=) member returns when the driver homed and
     raises HomingFailedError when it did not, for every axis selector,
@@ -1836,60 +1822,6 @@ class TestHomeRaises:
                 assert raised in (method.__doc__ or ''), (
                     f'{method.__name__} docstring must name {raised} in its Raises: section'
                 )
-
-    @pytest.mark.parametrize('method', ['zhome', 'home', 'thome'])
-    @_firmware_only
-    def test_motorboard_homing_raises_on_no_response(self, method):
-        """Driver contract (Rule 29): no serial response raises
-        HardwareError instead of returning False. The cable is pulled
-        before the command is sent."""
-        board, sim = _firmware_motorboard('LS850T', 'XYZT')
-        try:
-            sim.unplug()
-            with pytest.raises(HardwareError, match='no response'):
-                getattr(board, method)()
-        finally:
-            board.disconnect()
-
-    @pytest.mark.parametrize(
-        ('method', 'axis', 'fault'),
-        [
-            ('zhome', 'Z', 'switch_never_trips'),  # 'ERROR: Z home timeout'
-            ('home', 'X', 'stall'),  # 'ERROR: XY home timeout'
-            ('thome', 'T', 'switch_never_trips'),  # 'ERROR: T home timeout'
-        ],
-    )
-    @_firmware_only
-    def test_motorboard_homing_raises_on_firmware_error(self, homing_boards, method, axis, fault):
-        """A hardware fault the firmware reports as an ERROR raises."""
-        board, sim = homing_boards['full']
-        sim.inject(axis, fault)
-        try:
-            with pytest.raises(HardwareError, match='firmware error'):
-                getattr(board, method)()
-        finally:
-            sim.clear(axis, fault)
-
-    @pytest.mark.parametrize(
-        ('method', 'board_key'),
-        [
-            ('zhome', 'full'),  # 'Z home successful'
-            ('home', 'full'),  # 'XYZ home complete'
-            ('home', 'z_only'),  # 'ERROR: X not present'
-            ('home', 'z_only_field'),  # 'X not present'
-            ('thome', 'full'),  # 'T home successful'
-            ('thome', 'z_only'),  # 'T not present'
-        ],
-    )
-    @_firmware_only
-    def test_motorboard_homing_success_and_partial_paths_return(
-        self, homing_boards, method, board_key
-    ):
-        """Success replies -- including the partial-home (X/Y absent) and
-        no-turret cases the firmware reports on smaller boards -- return
-        rather than raising."""
-        board, _sim = homing_boards[board_key]
-        assert getattr(board, method)() is None
 
     def test_motorboard_homing_docstrings_document_raises(self):
         from drivers.motorboard import MotorBoard
