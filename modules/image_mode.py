@@ -34,10 +34,10 @@ IMAGE_MODE_12BIT_SCIENTIFIC = '12bit_scientific'
 IMAGE_MODE_12BIT_SCALED = '12bit_scaled'
 IMAGE_MODE_12BIT_FALSE_COLOR_RGB = '12bit_false_color_rgb'
 
-# The sequenced-output formats, spelled as the UI spinner and the settings
-# files hold them verbatim -- none can be renamed without a settings
-# migration. OUTPUT_FORMAT_HYPERSTACK swaps per-step TIFF writes for a
-# post-run per-well stack build.
+# The sequenced-output formats, spelled as the settings files hold them
+# verbatim -- none can be renamed without a settings migration. The
+# selectors show OUTPUT_FORMAT_LABELS instead. OUTPUT_FORMAT_HYPERSTACK swaps
+# per-step TIFF writes for a post-run per-well stack build.
 OUTPUT_FORMAT_TIFF = 'TIFF'
 OUTPUT_FORMAT_OME_TIFF = 'OME-TIFF'
 OUTPUT_FORMAT_JPG = 'JPG'
@@ -84,6 +84,20 @@ VALID_LIVE_OUTPUT_FORMATS = frozenset(
 )
 
 VALID_SEQUENCED_OUTPUT_FORMATS = VALID_LIVE_OUTPUT_FORMATS | {OUTPUT_FORMAT_HYPERSTACK}
+
+# User-facing labels for the output-format selectors, in selector order.
+# Settings, the run and REST keep the formats as spelled above, so a label
+# is renamed with no migration. The hyperstack's stored spelling is too wide
+# for the closed selector, which would shorten it mid-word. The labels must
+# stay distinct, because LABEL_TO_OUTPUT_FORMAT inverts this map.
+OUTPUT_FORMAT_LABELS = {
+    OUTPUT_FORMAT_TIFF: 'TIFF',
+    OUTPUT_FORMAT_OME_TIFF: 'OME-TIFF',
+    OUTPUT_FORMAT_HYPERSTACK: 'Hyperstack',
+    OUTPUT_FORMAT_JPG: 'JPG',
+}
+
+LABEL_TO_OUTPUT_FORMAT = {label: fmt for fmt, label in OUTPUT_FORMAT_LABELS.items()}
 
 DEFAULT_IMAGE_MODE = IMAGE_MODE_8BIT
 

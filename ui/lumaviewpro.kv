@@ -2438,7 +2438,7 @@
 				height: '30dp'
 				Label:
 					text: 'Sequenced Image Format'
-					tooltip_text: 'Choose between TIFF, OME-TIFF,\nOME-TIFF Hyperstack, or JPG\nfor Protocol image capture.\nJPG is 8-bit lossy with no embedded metadata\nand cannot be used for composite / stitch.'
+					tooltip_text: 'Choose between TIFF, OME-TIFF,\nHyperstack, or JPG\nfor Protocol image capture.\nHyperstack saves each well as one\nOME-TIFF stack after the run.\nJPG is 8-bit lossy with no embedded metadata\nand cannot be used for composite / stitch.'
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
@@ -2454,7 +2454,7 @@
 					log_name: 'SEQUENCED_IMAGE_OUTPUT_FORMAT'
 					text_follows_pick: True
 					on_text: root.select_sequenced_image_output_format()
-					values: ('TIFF', 'OME-TIFF', 'OME-TIFF Hyperstack', 'JPG')
+					values: ('TIFF', 'OME-TIFF', 'Hyperstack', 'JPG')
 
 			BoxLayout:
 				id: jpg_quality_row

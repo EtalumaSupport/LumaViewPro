@@ -184,8 +184,8 @@ class MicroscopeSettings(BoxLayout):
         self.ids['jpg_quality_slider'].value = jpg_quality
         self.ids['jpg_quality_value_label'].text = str(jpg_quality)
 
-        self.ids['sequenced_image_output_format_spinner'].text = settings['image_output_format'][
-            'sequenced'
+        self.ids['sequenced_image_output_format_spinner'].text = image_mode.OUTPUT_FORMAT_LABELS[
+            settings['image_output_format']['sequenced']
         ]
 
         # The exposure/gain slider caps from the live camera (the resolver
@@ -422,7 +422,9 @@ class MicroscopeSettings(BoxLayout):
         gui_logger.slider('JPG_QUALITY', int(value))
 
     def select_sequenced_image_output_format(self):
-        fmt = self.ids['sequenced_image_output_format_spinner'].text
+        fmt = image_mode.LABEL_TO_OUTPUT_FORMAT[
+            self.ids['sequenced_image_output_format_spinner'].text
+        ]
         # As the live format: a spinner set from the store writes nothing.
         if fmt == _app_ctx.ctx.settings['image_output_format']['sequenced']:
             return

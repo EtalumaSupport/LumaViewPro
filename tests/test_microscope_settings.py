@@ -803,6 +803,8 @@ class TestTheImageModeSelectorRendersTheApi:
     def test_a_format_pick_refreshes_the_jpg_hint(self, handler, spinner):
         from types import SimpleNamespace
 
+        import modules.image_mode as image_mode_real
+
         settings = {'image_output_format': {'live': 'TIFF', 'sequenced': 'TIFF'}}
         refreshed = []
 
@@ -817,6 +819,7 @@ class TestTheImageModeSelectorRendersTheApi:
                     ctx=SimpleNamespace(settings=settings, update_settings=update_settings)
                 ),
                 'gui_logger': SimpleNamespace(select=lambda *a: None),
+                'image_mode': image_mode_real,
                 'run_reported': lambda fn, on_done, name: fn(),
             },
         )
