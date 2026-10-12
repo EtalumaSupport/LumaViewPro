@@ -100,7 +100,11 @@ _BOARD_PAIRS = (
 # (`set_focal_z`, `get_nominal_focal_z`, ...), the camera's `hold_frames` (a
 # stalled stream, set from the --sim-camera-stall launch argument), the
 # motor's `hold_travel` (a move held part of the way, so a test acts on a
-# move that is provably travelling), and six firmware-update
+# move that is provably travelling), the fault doors a simulated scope's
+# faults are switched through (the motor's `unplug`, `replug`,
+# `drop_replies`, `stop_dropping`; the camera's `leave_bus`,
+# `refuse_write`, `allow_write`, `release_frames` and the two vocabularies
+# `WRITABLE_NODES` and `REFUSED_WRITE_ANSWERS`), and six firmware-update
 # methods on the motor simulator that anticipate the firmware-updating
 # work landing on the FW branch. Those six have no caller yet; when that
 # code calls them, `test_no_production_code_calls_simulator_only_names`
@@ -108,8 +112,8 @@ _BOARD_PAIRS = (
 # point.
 _SIM_ONLY_NAME_BUDGET = {
     'LEDBoard': 4,
-    'MotorBoard': 13,
-    'Camera': 14,
+    'MotorBoard': 17,
+    'Camera': 19,
 }
 
 # Parameter divergences that stay until the simulators gain a shared

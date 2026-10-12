@@ -548,5 +548,7 @@ class SimulatedFX2:
 
     def __init__(self, *, timing: str = 'instant'):
         self.device = SimulatedFX2Device(timing=timing)
-        self.connection = _FX2Connection(SimulatedFX2Transport(self.device))
+        # Kept for its faults: the transport is where the cable is pulled.
+        self.transport = SimulatedFX2Transport(self.device)
+        self.connection = _FX2Connection(self.transport)
         logger.info(f'[SimFX2    ] simulated FX2 up (timing={timing})')

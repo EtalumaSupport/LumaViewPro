@@ -191,7 +191,9 @@ class SimulatedLEDBoard:
         if self._delay > 0:
             time.sleep(self._delay)
 
-    def exchange_command(self, command, response_numlines=1, timeout=None):
+    def exchange_command(
+        self, command: str, response_numlines: int = 1, timeout: float | None = None
+    ) -> str | list[str] | None:
         """Exchange a single command with the simulated firmware.
 
         Honors failure injection (``fail_after`` / ``fail_on``) so callers
@@ -229,9 +231,11 @@ class SimulatedLEDBoard:
                 )
                 return None
 
-            # Failure injection: fail on specific commands
-            if command.strip() in self._fail_on:
-                logger.warning(f'[LED Sim   ] INJECTED FAILURE: timeout on {command.strip()}')
+            # Failure injection: fail on specific commands, matched by first
+            # word as the motor board matches them
+            cmd_word = command.strip().split()[0] if command.strip() else ''
+            if cmd_word in self._fail_on:
+                logger.warning(f'[LED Sim   ] INJECTED FAILURE: timeout on {cmd_word}')
                 _serial_log.warning(
                     f'[LED Sim] {command} -> INJECTED TIMEOUT '
                     f'({(time.monotonic() - t_start) * 1000:.1f}ms)'

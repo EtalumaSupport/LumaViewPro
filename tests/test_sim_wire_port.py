@@ -332,6 +332,43 @@ def test_a_board_that_goes_away_raises_as_a_pulled_cable_does():
         port.close()
 
 
+def test_a_counted_drop_takes_that_many_replies_and_the_next_comes():
+    port = _open()
+    try:
+        port._board.drop_next_reply(2)
+        assert _exchange(port, b'INFO') == b''
+        assert _exchange(port, b'INFO') == b''
+        assert b'Firmware:' in _exchange(port, b'INFO')
+    finally:
+        port.close()
+
+
+def test_a_disarmed_drop_takes_no_reply():
+    port = _open()
+    try:
+        port._board.drop_next_reply(3)
+        port._board.disarm_reply()
+        assert b'Firmware:' in _exchange(port, b'INFO')
+    finally:
+        port.close()
+
+
+def test_a_rebooting_board_is_found_again_only_when_its_boot_is_over():
+    backend = SimWireBackend(MotorBoardSpec('LS850T', ALL_AXES))
+    device = backend.comports()[0].device
+    port = backend.open(port=device, baudrate=115200, timeout=0.5, write_timeout=1)
+    try:
+        backend.motor_board.reboot(booting_for_s=0.5)
+        with pytest.raises(serial.SerialException, match='rebooted'):
+            port.write(b'INFO\n')
+        assert backend.comports() == []
+        with pytest.raises(serial.SerialException, match='unplugged'):
+            backend.open(port=device, baudrate=115200, timeout=0.5, write_timeout=1)
+        _wait_for(lambda: backend.comports(), what='the board to be found after its boot')
+    finally:
+        port.close()
+
+
 def test_output_nobody_reads_overflows_loudly(monkeypatch):
     monkeypatch.setattr(sim_port, 'RX_LIMIT_BYTES', 2048)
     port = _open()

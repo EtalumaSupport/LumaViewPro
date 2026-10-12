@@ -437,10 +437,15 @@ class TestATravelHold:
         # The hold went with the move it held: the axis takes a new one.
         board.hold_travel('Z').release()
 
-    def test_a_hold_is_refused_where_a_move_does_not_travel(self):
-        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='fast')
-        with pytest.raises(ValueError, match='realistic'):
-            board.hold_travel('X')
+    @pytest.mark.parametrize('timing', ['instant', 'fast'])
+    def test_a_move_with_no_travel_time_is_held_and_arrives_once_released(self, timing):
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing=timing)
+        hold = self._held(board)
+        assert board.current_pos('X') == pytest.approx(self.TARGET_UM / 2, rel=0.01)
+        assert board.target_status('X') is False
+        hold.release()
+        self._arrives(board)
+        assert board.current_pos('X') == pytest.approx(self.TARGET_UM, abs=1)
 
     @pytest.mark.parametrize('at_fraction', [0.0, 1.0, 1.5])
     def test_a_hold_is_part_of_the_way_along(self, at_fraction):
@@ -1687,6 +1692,43 @@ class TestFailureInjection:
         for _ in range(100):
             assert led.exchange_command('LED0_100') is not None
 
+    def test_an_unplugged_motor_board_is_found_dead_by_its_next_command(self):
+        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
+        m.unplug()
+        assert m.is_connected(), 'a pulled cable is found by a write, not before'
+        assert m.exchange_command('INFO') is None
+        assert (m.is_connected(), m.found) == (False, False)
+        m.connect()
+        assert not m.is_connected(), 'no port opens while the cable is out'
+        m.replug()
+        assert m.exchange_command('INFO') is not None
+        assert m.is_connected()
+
+    def test_a_counted_drop_takes_that_many_of_its_command(self):
+        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
+        m.drop_replies('ACTUAL_RZ', count=2)
+        assert m.exchange_command('INFO') is not None
+        assert m.exchange_command('ACTUAL_RZ') is None
+        assert m.exchange_command('ACTUAL_RZ') is None
+        assert m.exchange_command('ACTUAL_RZ') is not None
+
+    def test_a_drop_of_any_command_lasts_until_lifted(self):
+        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
+        m.drop_replies()
+        assert m.exchange_command('INFO') is None
+        assert m.exchange_command('ACTUAL_RX') is None
+        m.stop_dropping()
+        assert m.exchange_command('INFO') is not None
+
+    def test_a_drop_is_of_one_command_or_more(self):
+        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
+        with pytest.raises(ValueError, match='one command or more'):
+            m.drop_replies('INFO', count=0)
+
+    def test_led_fail_on_matches_by_first_word_as_the_motor_board_does(self):
+        led = SimulatedLEDBoard(fail_on={'LEDS_ENT'})
+        assert led.exchange_command('LEDS_ENT 1') is None
+
     def test_led_fast_path_also_fails(self):
         """_write_command_fast should also respect fail_after."""
         led = SimulatedLEDBoard(fail_after=2)
@@ -1695,6 +1737,47 @@ class TestFailureInjection:
         led._write_command_fast('LED2_100')  # cmd 3 -- should disconnect
         assert led.driver is None
         assert led.found is False
+
+
+class TestTheCamerasFaultDoors:
+    """A simulated camera refuses a node write once, leaves the bus, and
+    takes back a stall, through the doors ``scope.simulation`` drives."""
+
+    @pytest.mark.parametrize(
+        ('answer', 'returned'), [('false', False), ('none', None), ('true', True)]
+    )
+    def test_a_refused_write_answers_once_and_moves_nothing(self, answer, returned):
+        cam = SimulatedCamera()
+        cam.gain(2.0)
+        cam.refuse_write('gain', answer)
+        assert cam.gain(8.0) is returned
+        assert cam.get_gain() == pytest.approx(2.0)
+        cam.gain(8.0)
+        assert cam.get_gain() == pytest.approx(8.0)
+
+    def test_a_raising_write_raises(self):
+        cam = SimulatedCamera()
+        cam.refuse_write('exposure', 'raise')
+        with pytest.raises(RuntimeError, match='exposure node write failed'):
+            cam.exposure_t(5.0)
+
+    def test_a_refusal_no_write_met_is_taken_back(self):
+        cam = SimulatedCamera()
+        cam.refuse_write('gain', 'false')
+        cam.allow_write('gain')
+        assert cam.gain(8.0) is not False
+
+    def test_a_node_or_answer_it_lacks_is_refused(self):
+        cam = SimulatedCamera()
+        with pytest.raises(ValueError, match='focus'):
+            cam.refuse_write('focus', 'false')
+        with pytest.raises(ValueError, match='maybe'):
+            cam.refuse_write('gain', 'maybe')
+
+    def test_a_camera_that_leaves_the_bus_is_removed(self):
+        cam = SimulatedCamera()
+        cam.leave_bus()
+        assert cam.is_device_removed()
 
 
 class TestAnUnlitFieldIsDark:
