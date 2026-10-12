@@ -25,7 +25,6 @@ Issue #616 / #618 follow-up -- the rename of `xyhome` to `home`:
     and #618 to land. The rename retires the trap.
 """
 
-import sys
 import threading
 from typing import ClassVar
 
@@ -258,25 +257,6 @@ class TestLumascopeHome:
             assert scope.motion.get_axis_state(ax) == AxisState.IDLE
 
 
-def _firmware_board(model: str, axes: str, dialect: str = '3.0', unplugged: bool = False):
-    """A MotorBoard on the real firmware (the firmware-backed simulator)."""
-    from drivers.motorboard import MotorBoard
-    from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
-
-    backend = SimWireBackend(MotorBoardSpec(model, frozenset(axes), dialect=dialect))
-    if unplugged:
-        backend.motor_board.unplug()
-    return MotorBoard(
-        motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=backend
-    ), backend.motor_board
-
-
-firmware_only = pytest.mark.skipif(
-    not (sys.platform == 'darwin' or sys.platform.startswith('linux')),
-    reason='the firmware-backed simulator runs on macOS and Linux only',
-)
-
-
 class TestMotorBoardGetMicroscopeModelDisconnect:
     """drivers/motorboard.py::get_microscope_model() must NOT raise when
     the board is disconnected (self._fullinfo is None). Issue #632
@@ -284,27 +264,6 @@ class TestMotorBoardGetMicroscopeModelDisconnect:
     with TypeError 'NoneType is not subscriptable', killed the app's
     settings-load on first launch with Thonny holding the motor port.
     """
-
-    @firmware_only
-    def test_returns_none_when_fullinfo_not_cached(self):
-        # A board whose cable is out never connects, so no FULLINFO record
-        # is cached.
-        board, _sim = _firmware_board('LS850', 'XYZ', unplugged=True)
-        try:
-            assert not board.is_connected()
-            # Must return None, must not raise. Caller (UI) treats None
-            # as "use saved settings" -- safe path.
-            assert board.get_microscope_model() is None
-        finally:
-            board.disconnect()
-
-    @firmware_only
-    def test_returns_model_from_cached_fullinfo(self):
-        board, _sim = _firmware_board('LS850', 'XYZ')
-        try:
-            assert board.get_microscope_model() == 'LS850'
-        finally:
-            board.disconnect()
 
     def test_returns_none_when_model_key_missing(self):
         # Defense-in-depth: malformed cache shouldn't crash either.

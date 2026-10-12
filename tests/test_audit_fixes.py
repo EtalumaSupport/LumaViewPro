@@ -1692,25 +1692,6 @@ class TestSetBinningSizeAnswersByRaising:
         cam._mark_disconnected.assert_not_called()
 
 
-_firmware_only = pytest.mark.skipif(
-    not (sys.platform == 'darwin' or sys.platform.startswith('linux')),
-    reason='the firmware-backed simulator runs on macOS and Linux only',
-)
-
-
-def _firmware_motorboard(model: str, axes: str, dialect: str = '3.0', unplugged: bool = False):
-    """(MotorBoard, the simulated board behind it) on the real firmware."""
-    from drivers.motorboard import MotorBoard
-    from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
-
-    backend = SimWireBackend(MotorBoardSpec(model, frozenset(axes), dialect=dialect))
-    if unplugged:
-        backend.motor_board.unplug()
-    return MotorBoard(
-        motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=backend
-    ), backend.motor_board
-
-
 class TestHomeRaises:
     """The blocking home(axis=) member returns when the driver homed and
     raises HomingFailedError when it did not, for every axis selector,
@@ -2074,105 +2055,6 @@ class TestG4_MotorLogSuppression:
         source = pathlib.Path('drivers/motorboard.py').read_text()
         assert 'pause_thread()' not in source, (
             'motorboard.py must not use pause_thread() -- suppresses all thread logging (G4)'
-        )
-
-    class _RecordingLogger:
-        def __init__(self):
-            self.records = []
-
-        def __getattr__(self, level):
-            def _log(msg, *args, **kwargs):
-                self.records.append((level.upper(), str(msg)))
-
-            return _log
-
-        def count(self, level, substring=''):
-            return sum(1 for lvl, msg in self.records if lvl == level and substring in msg)
-
-    def _make_failing_board(self, monkeypatch):
-        """MotorBoard whose _open_serial always raises, with a recording
-        logger swapped into the module. connect() is the real method."""
-        import drivers.motorboard as motorboard_mod
-        import drivers.serialboard as serialboard_mod
-
-        recorder = self._RecordingLogger()
-        monkeypatch.setattr(motorboard_mod, 'logger', recorder)
-        # The connect failure is logged by the base class's one failure path.
-        monkeypatch.setattr(serialboard_mod, 'logger', recorder)
-
-        board = motorboard_mod.MotorBoard.__new__(motorboard_mod.MotorBoard)
-        board._lock = threading.RLock()
-        board._state_lock = threading.Lock()
-        board._label = '[XYZ Class ]'
-        board.port = '/dev/fake'
-        board.driver = None
-        board._connect_fails = 0
-        board._connect_log_suppressed = False
-
-        def fail_open():
-            raise OSError('port disappeared')
-
-        monkeypatch.setattr(board, '_open_serial', fail_open, raising=False)
-        monkeypatch.setattr(board, '_close_driver', lambda: None, raising=False)
-        return board, recorder
-
-    @_firmware_only
-    def test_connect_errors_suppressed_after_ten_failures(self, monkeypatch):
-        """Failures 1-9 log errors; the 10th replaces its error with ONE
-        critical announcing suppression; failures 11+ stay silent so a
-        permanently absent board cannot flood the error log. The board is
-        real firmware whose cable is out, so every connect() fails the way
-        it does on a scope with the motor board unplugged."""
-        import drivers.motorboard as motorboard_mod
-        import drivers.serialboard as serialboard_mod
-
-        recorder = self._RecordingLogger()
-        monkeypatch.setattr(motorboard_mod, 'logger', recorder)
-        # The connect failure is logged by the base class's one failure path.
-        monkeypatch.setattr(serialboard_mod, 'logger', recorder)
-        board, _sim = _firmware_motorboard('LS850T', 'XYZT', unplugged=True)
-        try:
-            # Construction sends nothing to a board not on USB; make it twelve.
-            while board._connect_fails < 12:
-                board.connect()
-        finally:
-            board.disconnect()
-        assert recorder.count('ERROR', 'connect() failed') == 9, (
-            f'only the pre-suppression failures may log errors; records: {recorder.records}'
-        )
-        assert recorder.count('CRITICAL', 'suppressing') == 1, (
-            'the 10th failure must announce suppression once at critical'
-        )
-
-    def test_connect_error_logging_resumes_after_success(self, monkeypatch):
-        """A successful connect resets the suppression, so a LATER failure
-        logs again -- suppression is per outage, not forever."""
-        board, recorder = self._make_failing_board(monkeypatch)
-        for _ in range(11):
-            board.connect()
-        assert recorder.count('ERROR', 'connect() failed') == 9
-
-        # Successful connect: _open_serial provides an open driver and the
-        # post-open steps are stubbed to no-ops.
-        def ok_open():
-            board.driver = MagicMock()
-            board.driver.is_open = True
-
-        monkeypatch.setattr(board, '_open_serial', ok_open, raising=False)
-        monkeypatch.setattr(board, '_reset_firmware', lambda: None, raising=False)
-        monkeypatch.setattr(board, 'fullinfo', lambda: {'model': 'LS850'}, raising=False)
-        board.connect()
-
-        board.driver = None
-
-        def fail_open():
-            raise OSError('port disappeared again')
-
-        monkeypatch.setattr(board, '_open_serial', fail_open, raising=False)
-        board.connect()
-        assert recorder.count('ERROR', 'connect() failed') == 10, (
-            'after a successful connect, a fresh failure must log again '
-            f'(suppression must reset); records: {recorder.records}'
         )
 
 
