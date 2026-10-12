@@ -2015,20 +2015,22 @@ class AutofocusZNotRestoredError(Fault, CaptureError):
         super().__init__(f'Could not restore Z position after autofocus stopped. {what}', reason)
 
 
-class RunWriteRefusedError(Fault, CaptureError):
+class RunWriteRefusedError(Refusal, CaptureError):
     """A write was handed to a run whose writes have ended.
 
     A run's writes end when its cleanup closes them, or when a writer
     recovery or a shutdown abandons them. A write arriving after that
     belongs to no run: taken, it would count toward the next run's files or
     land after the finished run said its files were written. The caller
-    says what was not saved.
+    says what was not saved. Nothing broke in declining it, and the same
+    write into a live run is taken, so its cause is the state.
 
     Reasons: ``run_ended`` (closed by the run's cleanup),
     ``writes_abandoned`` (abandoned by a recovery or a shutdown) or
     ``writer_shut_down`` (the file lane itself no longer takes work).
     """
 
+    cause = RefusalCause.STATE
     title = 'Not Saved'
 
     _WHY: ClassVar[dict[str, str]] = {

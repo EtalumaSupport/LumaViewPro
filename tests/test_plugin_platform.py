@@ -19,7 +19,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from modules.exceptions import PluginNotLoadedError
+from modules.exceptions import PluginNotLoadedError, RefusalCause
+from modules.notification_center import OutcomeKind, outcome_of
 from modules.plugins import (
     PluginRegistrationError,
     PluginSpec,
@@ -105,6 +106,14 @@ def test_ui_register_unknown_mount_raises(harness_ctx):
         )
     assert 'nonexistent.mount' in str(exc.value)
     assert 'left_sidebar.accordion' in str(exc.value)
+    # The plugin asked for something this LumaViewPro does not have; asking
+    # again unchanged cannot succeed.
+    outcome = outcome_of(exc.value)
+    assert (outcome.kind, outcome.cause, outcome.reason) == (
+        OutcomeKind.REFUSAL,
+        RefusalCause.REQUEST,
+        'unknown_mount_point',
+    )
 
 
 def test_ui_register_duplicate_name_raises(harness_ctx):
@@ -114,6 +123,12 @@ def test_ui_register_duplicate_name_raises(harness_ctx):
         harness_ctx.plugins.ui.register(spec, 'left_sidebar.accordion', lambda: None)
     assert "'dup'" in str(exc.value)
     assert "'ui'" in str(exc.value)
+    outcome = outcome_of(exc.value)
+    assert (outcome.kind, outcome.cause, outcome.reason) == (
+        OutcomeKind.REFUSAL,
+        RefusalCause.REQUEST,
+        'name_taken',
+    )
 
 
 def test_ui_health_after_register(harness_ctx):
@@ -332,6 +347,12 @@ def test_rest_register_raises_with_design_session_message(harness_ctx):
     assert 'REST design session' in msg or 'REST_API_PLAN.md' in msg
     # error message points plugin authors to the stub-mode opt-in
     assert 'enable_stub_mode' in msg
+    outcome = outcome_of(exc.value)
+    assert (outcome.kind, outcome.cause, outcome.reason) == (
+        OutcomeKind.REFUSAL,
+        RefusalCause.REQUEST,
+        'rest_namespace_reserved',
+    )
 
 
 # ---------------------------------------------------------------------------

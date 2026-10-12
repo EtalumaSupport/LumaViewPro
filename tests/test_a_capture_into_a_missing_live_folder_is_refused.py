@@ -14,7 +14,8 @@ import pathlib
 import pytest
 
 from modules import path_utils
-from modules.exceptions import LiveFolderPathRefusedError, RecordingRefusedError
+from modules.exceptions import LiveFolderPathRefusedError, RecordingRefusedError, RefusalCause
+from modules.notification_center import OutcomeKind, outcome_of
 from tests.test_manual_capture_overlay_save import (  # noqa: F401 -- the fixture is used by name
     LAYER,
     capture_ctx,
@@ -28,8 +29,15 @@ class TestTheLocationOwnerAnswers:
 
     def test_a_missing_folder_is_refused_by_name(self, tmp_path):
         gone = tmp_path / 'unplugged' / 'capture'
-        with pytest.raises(path_utils.CaptureLocationError, match=str(gone)):
+        with pytest.raises(path_utils.CaptureLocationError, match=str(gone)) as refused:
             path_utils.require_capture_location(gone)
+        # An unplugged drive comes back: the same capture may succeed later.
+        outcome = outcome_of(refused.value)
+        assert (outcome.kind, outcome.cause, outcome.reason) == (
+            OutcomeKind.REFUSAL,
+            RefusalCause.STATE,
+            'capture_location_unusable',
+        )
 
     def test_a_file_is_not_a_location(self, tmp_path):
         a_file = tmp_path / 'capture'

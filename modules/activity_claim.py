@@ -5,9 +5,8 @@ import contextlib
 import threading
 from collections.abc import Iterator
 from dataclasses import dataclass
-from lib.lumascope_error import Fault
 from modules.api_surface import api
-from modules.exceptions import SessionClosingError, the_activity_named
+from modules.exceptions import Refusal, RefusalCause, SessionClosingError, the_activity_named
 
 # The activity kinds that hold the WHOLE scope: a run and a diagnostic both
 # drive every axis, the LEDs and the camera, and a home leaves every axis
@@ -20,14 +19,28 @@ SCOPE_HOLDING_KINDS = frozenset({'protocol', 'diagnostic', 'home'})
 _acting = threading.local()
 
 
-class FalsifyingChangeInFlightError(Fault, Exception):
+class FalsifyingChangeInFlightError(Refusal, Exception):
     """A recording was asked for while a write that would falsify it runs.
 
     Raised by ``try_claim('recording')``. A recording writes nothing to a
     lane, so unlike a run it does not queue behind a turret or frame change
     already under way: started then, its first frames would record the
-    change and its file would claim the settings it read before it.
+    change and its file would claim the settings it read before it. The
+    change ends, and the same start may then succeed.
+
+    Attributes:
+        reason: ``'falsifying_change_in_flight'``.
     """
+
+    cause = RefusalCause.STATE
+    title = 'Microscope Changing'
+
+    def __init__(self):
+        super().__init__(
+            'The microscope is changing the objective or the camera frame; '
+            'a recording started now would record the change.'
+        )
+        self.reason = 'falsifying_change_in_flight'
 
 
 def current_taking() -> 'Taking | None':

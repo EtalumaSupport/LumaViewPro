@@ -9,23 +9,41 @@ import pathlib
 import sys
 from enum import StrEnum
 
-from lib.lumascope_error import Fault
-from modules.exceptions import InstallationFileError
+from modules.exceptions import InstallationFileError, Refusal, RefusalCause
 
 
 MAX_COLLISION_SUFFIX = 999
 
 
-class CaptureLocationError(Fault, Exception):
-    """The capture location cannot hold a new output directory."""
+class CaptureLocationError(Refusal, Exception):
+    """The capture location cannot hold a new output directory.
+
+    The location's state, not the request: a drive is plugged back in, a
+    folder made writable, old captures moved away, and the same capture
+    may then succeed.
+
+    Attributes:
+        reason: ``'capture_location_unusable'`` -- the location is missing,
+            is not a folder, or refused the new directory;
+            ``'names_exhausted'`` -- the name and every numbered variant
+            are taken.
+    """
+
+    cause = RefusalCause.STATE
+    title = 'Save Location Unusable'
+
+    def __init__(self, reason: str, message: str):
+        super().__init__(message)
+        self.reason = reason
 
 
 def _inaccessible(location: pathlib.Path) -> CaptureLocationError:
     """The one sentence for a capture location that is not there."""
     return CaptureLocationError(
+        'capture_location_unusable',
         f'{location} is not an accessible capture location. '
         'Check that the save location exists and any external drive is '
-        'connected, then try again.'
+        'connected, then try again.',
     )
 
 
@@ -99,13 +117,15 @@ def allocate_directory(desired: pathlib.Path) -> pathlib.Path:
             raise _inaccessible(desired.parent) from exc
         except OSError as exc:
             raise CaptureLocationError(
-                f'Could not create {candidate} in the capture location: {exc}'
+                'capture_location_unusable',
+                f'Could not create {candidate} in the capture location: {exc}',
             ) from exc
         return candidate
     raise CaptureLocationError(
+        'names_exhausted',
         f'{desired.name} and its first {MAX_COLLISION_SUFFIX} numbered variants '
         'all exist in the capture location. Move or remove some captures, or '
-        'choose a different save location.'
+        'choose a different save location.',
     )
 
 

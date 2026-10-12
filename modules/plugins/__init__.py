@@ -35,11 +35,12 @@ from dataclasses import dataclass, field
 from typing import Any
 from collections.abc import Callable, Iterable
 
-from lib.lumascope_error import Fault
 from modules.exceptions import (
     PluginFailedError,
     PluginNotLoadedError,
     PluginProcessorSkippedError,
+    Refusal,
+    RefusalCause,
 )
 from modules.notification_center import notifications
 from modules.api_surface import api_fields
@@ -90,14 +91,27 @@ UI_MOUNT_POINTS = frozenset(
 # ---------------------------------------------------------------------------
 
 
-class PluginRegistrationError(Fault, Exception):
-    """Raised when a plugin cannot be registered.
+class PluginRegistrationError(Refusal, Exception):
+    """A plugin asked a namespace for something this LumaViewPro does not give.
 
-    Causes: name collision within a namespace, unknown mount point,
-    version mismatch, malformed spec. The plugin is NOT loaded and the
-    app continues. The loader catches the raise from the plugin's
-    register(ctx) and reports it as that plugin's load failure.
+    The plugin is NOT loaded and the app continues. The loader catches the
+    raise from the plugin's register(ctx) and reports it as that plugin's
+    load failure. The same registration fails again unchanged, so its cause
+    is the request.
+
+    Attributes:
+        reason: ``'name_taken'`` -- the namespace already holds a plugin of
+            that name; ``'unknown_mount_point'`` -- no UI mount point has
+            that name; ``'rest_namespace_reserved'`` -- the REST namespace
+            takes no routers yet.
     """
+
+    cause = RefusalCause.REQUEST
+    title = 'Plugin Not Registered'
+
+    def __init__(self, reason: str, message: str):
+        super().__init__(message)
+        self.reason = reason
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +273,7 @@ class _BaseNamespace:
     def _assert_unique(self, spec: PluginSpec) -> None:
         if spec.name in self._loaded:
             raise PluginRegistrationError(
-                f"Plugin '{spec.name}' already registered in '{self.NAMESPACE}'"
+                'name_taken', f"Plugin '{spec.name}' already registered in '{self.NAMESPACE}'"
             )
 
 
@@ -279,7 +293,8 @@ class UIRegistry(_BaseNamespace):
     def register(self, spec: PluginSpec, mount_point: str, builder: Callable[[], Any]) -> None:
         if mount_point not in UI_MOUNT_POINTS:
             raise PluginRegistrationError(
-                f"Unknown UI mount point '{mount_point}'. Known: {sorted(UI_MOUNT_POINTS)}"
+                'unknown_mount_point',
+                f"Unknown UI mount point '{mount_point}'. Known: {sorted(UI_MOUNT_POINTS)}",
             )
         with self._lock:
             self._assert_unique(spec)
@@ -464,12 +479,13 @@ class RESTRegistry(_BaseNamespace):
                 self._stubbed_routers[spec.name] = router
             return
         raise PluginRegistrationError(
+            'rest_namespace_reserved',
             'ctx.plugins.rest is reserved but not yet implemented. '
             'REST URL convention is locked at the REST design session '
             '(tracked at docs/TODO.md). Plan to register here when '
             'REST_API_PLAN.md Phase 1 ships. '
             'Prototype against the future shape via '
-            'ctx.plugins.rest.enable_stub_mode() (non-production).'
+            'ctx.plugins.rest.enable_stub_mode() (non-production).',
         )
 
 

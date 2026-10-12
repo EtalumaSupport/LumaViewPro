@@ -29,13 +29,13 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+from typing import ClassVar
 
 from fastapi.responses import JSONResponse
 
-from lib.lumascope_error import Fault
 from modules import notification_center
 from modules.api_surface import fields_of
-from modules.exceptions import RefusalCause
+from modules.exceptions import Refusal, RefusalCause
 from modules.notification_center import OutcomeKind, outcome_of
 from rest.routes import wire_form
 
@@ -125,8 +125,12 @@ def result(value: object) -> Answer:
     return Answer(200, value)
 
 
-class ServerRefusedError(Fault, Exception):
+class ServerRefusedError(Refusal, Exception):
     """A request the server itself answers: it never reached a member.
+
+    A refusal, answered with its own status rather than its cause's: a
+    server too busy says 503 and when to ask again, where a member's refusal
+    for the scope's state says 409.
 
     Attributes:
         status: The HTTP status.
@@ -135,6 +139,18 @@ class ServerRefusedError(Fault, Exception):
         headers: Headers the answer carries, such as ``Retry-After``.
         extra: Further members of the problem, such as ``errors``.
     """
+
+    causes: ClassVar[dict[str, RefusalCause]] = {
+        'not_found': RefusalCause.REQUEST,
+        'invalid_request': RefusalCause.REQUEST,
+        'method_not_allowed': RefusalCause.REQUEST,
+        'unsupported_media_type': RefusalCause.REQUEST,
+        'handle_shared': RefusalCause.REQUEST,
+        'overloaded': RefusalCause.STATE,
+        'server_closing': RefusalCause.STATE,
+        'no_frame_yet': RefusalCause.STATE,
+        'job_running': RefusalCause.STATE,
+    }
 
     def __init__(
         self,
@@ -148,7 +164,7 @@ class ServerRefusedError(Fault, Exception):
     ) -> None:
         super().__init__(detail)
         self.status = status
-        self.reason = reason
+        self.reason = self._declared(reason)
         self.title = title
         self.headers = headers or {}
         self.extra = extra or {}
