@@ -108,8 +108,8 @@ def go_to_step_update_ui(step):
 
     Delegates per-layer widget updates to LayerControl.set_step_state(),
     which encapsulates widget knowledge. This function handles only the
-    cross-layer concerns: opening the settings panel, expanding the
-    accordion, and setting the LED button during protocol preview.
+    cross-layer concerns: opening the settings panel and expanding the
+    accordion. The LED button is the listener bridge's, which draws the LED.
     """
     ctx = _app_ctx.ctx
 
@@ -145,15 +145,7 @@ def go_to_step_update_ui(step):
                 # Build a minimal step dict for the other layer's stim only
                 other_obj.set_step_state({'Stim_Config': {layer: sc[layer]}})
 
-    # Set LED button state to show which channel is active for this step.
-    # During protocol only: show the step's channel as 'down' so the user sees
-    # which LED is being used, even though the actual on/off happens in the
-    # executor. Outside a run the listener bridge is the sole button writer,
-    # reflecting driver truth -- a forced 'down' here would go stale and any
-    # later apply_settings(update_led=True) would re-light the channel.
-    # "During protocol" is a run in progress, not the run lockout: the
-    # lockout deliberately holds through the post-run writing-files
-    # window, when stepping is manual and no LED event will ever correct a
-    # forced 'down' left here.
-    if ctx.session.run_in_progress:
-        layer_obj.ids['enable_led_btn'].state = 'down'
+    # The LED button is not written here: it shows the LED, and the listener
+    # bridge, the button's one writer, draws it from the LED state store --
+    # during a run too, so the step's button is down while, and only while,
+    # its LED is lit.

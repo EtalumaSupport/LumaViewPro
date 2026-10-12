@@ -680,7 +680,7 @@ class LayerControl(BoxLayout):
         The record is here and not in update_led_state, because every
         apply_settings also runs that, and an apply is not a press. Writing
         the button's state is not a press either: it never dispatches
-        on_release, so the app may set it without a guard.
+        on_release. Its one writer is the listener bridge, drawing the LED.
         """
         gui_logger.toggle(f'LED_{self.layer}', self.ids['enable_led_btn'].state == 'down')
         self.update_led_state()
@@ -984,7 +984,9 @@ class LayerControl(BoxLayout):
             ):
                 self.update_shader(dt=0)
 
-        def disable_leds_for_other_layers(dt=None):
+        def disable_leds_for_other_layers():
+            # Reached only past the run lockout's return above: a run's LEDs
+            # are the run's.
             if self.ids['enable_led_btn'].state == 'down':
                 # Turn off any OTHER layer's LED so only this layer's channel
                 # stays lit (one LED on at a time at the hardware level).
@@ -996,27 +998,21 @@ class LayerControl(BoxLayout):
                 # the bus only for a layer that is actually on -- no cycle on
                 # a plain slider move, and this layer's own LED is never
                 # disturbed (its current is owned by update_led_state).
-                if not ctx.session.run_lockout:
-                    illumination_api = ctx.scope.illumination
-                    for layer in common_utils.get_layers():
-                        if layer == self.layer:
-                            continue
-                        # None with no LED board installed: nothing is lit.
-                        state = illumination_api.get_led_state(channel=layer)
-                        if state is not None and state['enabled']:
-                            submit_reported(
-                                lambda lit=layer: illumination_api.led_off(lit),
-                                None,
-                                f'LED_{layer}_OFF',
-                                lane=ctx.io_executor,
-                            )
-                # Update button states (visual only -- hardware already handled)
+                illumination_api = ctx.scope.illumination
                 for layer in common_utils.get_layers():
-                    if layer != self.layer:
-                        layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-                        btn = layer_obj.ids['enable_led_btn']
-                        if btn.state != 'normal':
-                            btn.state = 'normal'
+                    if layer == self.layer:
+                        continue
+                    # None with no LED board installed: nothing is lit.
+                    state = illumination_api.get_led_state(channel=layer)
+                    if state is not None and state['enabled']:
+                        submit_reported(
+                            lambda lit=layer: illumination_api.led_off(lit),
+                            None,
+                            f'LED_{layer}_OFF',
+                            lane=ctx.io_executor,
+                        )
+                # The other layers' buttons follow the LEDs: each off fires
+                # the LED listener, and the listener bridge draws the button.
 
         if ctx.session.run_lockout:
             # Protocol actively running -- capture() handles camera settings
@@ -1025,7 +1021,6 @@ class LayerControl(BoxLayout):
                 f'[APPLY_SETTINGS DIAG] {self.layer} -- early return '
                 f'(protocol running). Camera settings NOT applied.'
             )
-            Clock.schedule_once(disable_leds_for_other_layers, 0)
             Clock.schedule_once(update_shader, 0)
             return
         # All other cases: apply camera settings normally.

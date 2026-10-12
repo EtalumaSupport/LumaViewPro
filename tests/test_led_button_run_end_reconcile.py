@@ -15,10 +15,9 @@ Contract under test, two halves:
    Stop left behind. The run-state edge that says nothing holds the
    scope any more draws it, through the one writer of the displays
    every run shares.
-2. The indicator write itself gates on the RUNNER's truth, not the
-   ctx.protocol_running lockout flag: that flag deliberately outlives
-   the run through the "Writing Files..." window, where a manual step
-   would re-create the stale write with no later healer.
+2. Step navigation writes no indicator at all, during a run or after
+   it: the button shows the LED, and the listener bridge draws it from
+   the LED state store (Eric, 2026-10-12: "Always the LED truth").
 """
 
 import sys
@@ -167,12 +166,12 @@ def test_drain_window_step_does_not_write_the_run_indicator(monkeypatch):
     )
 
 
-def test_live_run_step_still_writes_the_run_indicator(monkeypatch):
-    """Behavior-preservation guard (passes pre- and post-fix): during a
-    live run the indicator still shows the upcoming step's channel."""
+def test_a_live_runs_step_leaves_the_led_button_to_the_led(monkeypatch):
+    """During a run, going to a step with its LED still dark leaves the
+    button off: it is drawn from the LED, not from the step."""
     _stand, layers = _build_env(monkeypatch, run_in_progress=True)
     layers['BF'].ids['enable_led_btn'].state = 'normal'
 
     go_to_step_update_ui({'Color': 'BF'})
 
-    assert layers['BF'].ids['enable_led_btn'].state == 'down'
+    assert layers['BF'].ids['enable_led_btn'].state == 'normal'
