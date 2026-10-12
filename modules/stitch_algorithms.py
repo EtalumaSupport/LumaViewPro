@@ -254,15 +254,50 @@ def _overlap_views(
     return left_view, right_view
 
 
-def _ncc_score(a: np.ndarray, b: np.ndarray) -> float:
-    a = a.astype(np.float32)
-    b = b.astype(np.float32)
-    a -= float(a.mean())
-    b -= float(b.mean())
-    denom = float(np.sqrt(np.sum(a * a) * np.sum(b * b)))
-    if denom <= 1e-6:
-        return -1.0
-    return float(np.sum(a * b) / denom)
+def _correction_range(
+    nominal: int,
+    length: int,
+    max_correction_px: int,
+    min_overlap_px: int,
+) -> tuple[int, int] | None:
+    """The corrections along one axis that leave at least min_overlap_px shared.
+
+    The overlap along an axis depends only on that axis's correction, so the
+    candidates form one interval per axis, and the 2-D candidates are their
+    product.
+    """
+    lo, hi = -max_correction_px, max_correction_px
+    if nominal > 0:
+        hi = min(hi, length - nominal - min_overlap_px)
+    elif nominal < 0:
+        lo = max(lo, min_overlap_px - length - nominal)
+    else:
+        lo = max(lo, min_overlap_px - length)
+        hi = min(hi, length - min_overlap_px)
+    if lo > hi:
+        return None
+    return lo, hi
+
+
+def _template_and_search(
+    nominal: int,
+    length: int,
+    lo: int,
+    hi: int,
+) -> tuple[slice, slice]:
+    """Along one axis, the reference span every candidate shares, and the moving span it sweeps.
+
+    The template is the part of the reference overlap the moving tile covers
+    at every correction in [lo, hi]; sliding it across the search span visits
+    each correction once, the search start being the correction hi, so every
+    candidate's pixels lie inside both tiles.
+    """
+    template_start = max(0, nominal + hi)
+    template_stop = min(length, nominal + lo + length)
+    return (
+        slice(template_start, template_stop),
+        slice(template_start - nominal - hi, template_stop - nominal - lo),
+    )
 
 
 def estimate_overlap_offset(
@@ -280,29 +315,33 @@ def estimate_overlap_offset(
     tile. The search is intentionally local: nominal stage coordinates already
     provide the coarse placement, and overlap registration only handles small
     acquisition/position errors.
+
+    The score is the normalized cross-correlation of the overlap at the best
+    correction. Every candidate correction is scored in one template match
+    rather than one correlation per candidate, which is what keeps a seam in
+    milliseconds. The candidates are the corrections within max_correction_px
+    that leave at least min_overlap_px of overlap on both axes; when there are
+    none, or either strip is flat, there is nothing to correlate and the answer
+    is no correction at score -1.
     """
-    ref_gray = _gray_float(reference)
-    mov_gray = _gray_float(moving)
+    h, w = reference.shape[:2]
+    range_x = _correction_range(nominal_dx, w, max_correction_px, min_overlap_px)
+    range_y = _correction_range(nominal_dy, h, max_correction_px, min_overlap_px)
+    if range_x is None or range_y is None:
+        return 0, 0, -1.0
 
-    best = (0, 0, -1.0)
-    for corr_y in range(-max_correction_px, max_correction_px + 1):
-        for corr_x in range(-max_correction_px, max_correction_px + 1):
-            views = _overlap_views(
-                ref_gray,
-                mov_gray,
-                dx=nominal_dx + corr_x,
-                dy=nominal_dy + corr_y,
-            )
-            if views is None:
-                continue
-            ref_view, mov_view = views
-            if ref_view.shape[0] < min_overlap_px or ref_view.shape[1] < min_overlap_px:
-                continue
-            score = _ncc_score(ref_view, mov_view)
-            if score > best[2]:
-                best = (corr_x, corr_y, score)
+    template_x, search_x = _template_and_search(nominal_dx, w, *range_x)
+    template_y, search_y = _template_and_search(nominal_dy, h, *range_y)
+    template = _gray_float(reference[template_y, template_x])
+    search = _gray_float(moving[search_y, search_x])
+    # matchTemplate's normalized score is 1.0 at every position of a flat
+    # template, a confident answer from no content at all.
+    if float(template.std()) <= 1e-6 or float(search.std()) <= 1e-6:
+        return 0, 0, -1.0
 
-    return best
+    scores = cv2.matchTemplate(search, template, cv2.TM_CCOEFF_NORMED)
+    _, best_score, _, (best_col, best_row) = cv2.minMaxLoc(scores)
+    return range_x[1] - best_col, range_y[1] - best_row, float(best_score)
 
 
 def estimate_phase_offset(

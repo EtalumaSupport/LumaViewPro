@@ -4,6 +4,7 @@
 import logging
 import pathlib
 import re
+import time
 
 import cv2
 import numpy as np
@@ -20,6 +21,7 @@ from modules.stitch_algorithms import (
     _image_stats,
     align_tile_positions,
     color_transfer,
+    estimate_overlap_offset,
     estimate_phase_offset,
     _grab_contours,
     crop_to_content,
@@ -1122,6 +1124,113 @@ class TestLiveStitcherRealGeometry:
 
         assert result['status'] is False
         assert 'pixel_size_um' in result['error']
+
+
+def _textured_neighbours(
+    tile_shape: tuple[int, int],
+    nominal: tuple[int, int],
+    jitter: tuple[int, int],
+    channels: int,
+    dtype: type,
+) -> tuple[np.ndarray, np.ndarray]:
+    """A reference tile and its neighbour cut from one smooth random scene.
+
+    The neighbour sits at nominal + jitter from the reference, so the
+    correction a registration should find is the jitter.
+    """
+    tile_h, tile_w = tile_shape
+    rng = np.random.default_rng(3)
+    scene = cv2.GaussianBlur(rng.random((3 * tile_h, 3 * tile_w)).astype(np.float32), (0, 0), 2.5)
+    scene = (scene - scene.min()) / (scene.max() - scene.min())
+    scene = (scene * (255 if dtype == np.uint8 else 4095)).astype(dtype)
+    if channels == 3:
+        scene = np.dstack([scene] * 3)
+    ref = scene[tile_h : 2 * tile_h, tile_w : 2 * tile_w]
+    y0 = tile_h + nominal[1] + jitter[1]
+    x0 = tile_w + nominal[0] + jitter[0]
+    return ref, scene[y0 : y0 + tile_h, x0 : x0 + tile_w]
+
+
+class TestOverlapOffsetSearch:
+    """estimate_overlap_offset: the best correction within max_correction_px
+    among the corrections that leave min_overlap_px of overlap, at its score,
+    or no correction at -1 when there is nothing to correlate."""
+
+    def test_recovers_the_jitter_for_every_neighbour_direction_and_pixel_type(self):
+        """Right, left, down and up neighbours (the flood registers all four),
+        mono and RGB, 8- and 16-bit, at 10% and 30% overlap: the correction is
+        the jitter."""
+        # 300 x 320 keeps even a 10% overlap wider than min_overlap_px plus
+        # the largest jitter, so every jitter is a candidate in every case.
+        tile_h, tile_w = 300, 320
+        offenders = []
+        for direction in ('right', 'left', 'down', 'up'):
+            for overlap_fraction in (0.1, 0.3):
+                along = tile_w if direction in ('right', 'left') else tile_h
+                step = along - round(overlap_fraction * along)
+                nominal = {
+                    'right': (step, 0),
+                    'left': (-step, 0),
+                    'down': (0, step),
+                    'up': (0, -step),
+                }[direction]
+                for channels in (1, 3):
+                    for dtype in (np.uint8, np.uint16):
+                        for jitter in ((0, 0), (5, -3), (-7, 9), (12, -12)):
+                            ref, mov = _textured_neighbours(
+                                (tile_h, tile_w), nominal, jitter, channels, dtype
+                            )
+                            corr_x, corr_y, score = estimate_overlap_offset(ref, mov, *nominal)
+                            if (corr_x, corr_y) != jitter or score < 0.9:
+                                offenders.append(
+                                    (
+                                        direction,
+                                        overlap_fraction,
+                                        channels,
+                                        dtype.__name__,
+                                        jitter,
+                                        (corr_x, corr_y, round(score, 3)),
+                                    )
+                                )
+        assert not offenders, offenders
+
+    def test_a_narrow_overlap_searches_the_shifts_that_leave_min_overlap(self):
+        """A 20 px overlap still registers a jitter that narrows it to 16 px:
+        the candidates are cut at min_overlap_px, not dropped wholesale."""
+        nominal = (300, 0)
+        ref, mov = _textured_neighbours((200, 320), nominal, (4, -6), 1, np.uint16)
+
+        corr_x, corr_y, _ = estimate_overlap_offset(ref, mov, *nominal, min_overlap_px=16)
+
+        assert (corr_x, corr_y) == (4, -6)
+
+    def test_nothing_to_correlate_answers_no_correction(self):
+        """A flat strip, and an overlap no candidate widens to min_overlap_px,
+        each answer no correction at -1, never a confident shift."""
+        flat = np.full((200, 320), 700, dtype=np.uint16)
+        textured, _ = _textured_neighbours((200, 320), (0, 0), (0, 0), 1, np.uint16)
+
+        assert estimate_overlap_offset(flat, flat, 290, 0) == (0, 0, -1.0)
+        assert estimate_overlap_offset(textured, textured, 310, 0, max_correction_px=3) == (
+            0,
+            0,
+            -1.0,
+        )
+
+    @pytest.mark.slow
+    def test_a_full_frame_seam_is_searched_in_milliseconds(self):
+        """A 1900 px tile's seam at 15% overlap is one template match, not one
+        correlation per candidate shift (0.7-1.6 s a seam on a Mac, 4.75 s on
+        a field host, before)."""
+        nominal = (1615, 0)
+        ref, mov = _textured_neighbours((1900, 1900), nominal, (5, -3), 1, np.uint16)
+
+        started = time.perf_counter()
+        corr_x, corr_y, _ = estimate_overlap_offset(ref, mov, *nominal)
+        elapsed_s = time.perf_counter() - started
+
+        assert (corr_x, corr_y) == (5, -3)
+        assert elapsed_s < 0.15
 
 
 class TestPositionAwareStitcher:
