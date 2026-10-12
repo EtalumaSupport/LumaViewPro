@@ -44,7 +44,8 @@ def _run_build(build, popup, label: str, on_done=None) -> None:
     or failure once, as the request of the person who pressed the button.
     The popup then shows the build's own words for what it made, or closes
     when the build raised: its outcome has already been told. *on_done*
-    gets the result, or None, for a panel that shows more of it.
+    gets the result, or None, once the build has ended, for a panel that
+    holds a state for its length.
     """
     produced = {}
 
