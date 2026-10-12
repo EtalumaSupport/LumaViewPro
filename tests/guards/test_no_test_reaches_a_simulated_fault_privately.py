@@ -120,7 +120,6 @@ _PRIVATE_REACH_PIN: dict[str, int] = {
     'tests/test_motion_state_gate.py': 2,
     'tests/test_sim_wire_led_link.py': 5,
     'tests/test_sim_wire_reconnect.py': 5,
-    'tests/test_the_ls720_in_the_simulator.py': 10,
 }
 
 

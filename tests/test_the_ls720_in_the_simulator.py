@@ -109,7 +109,7 @@ def test_each_axis_moves_through_the_api(homed):
 
 
 def test_the_lid_refuses_x_and_y_and_lets_z_move(homed):
-    _board(homed).lid_open = True
+    homed.simulation.interlock(lid_open=True)
     assert homed.motion.interlocks() == {'lid_open'}
     for axis in ('X', 'Y'):
         with pytest.raises(HardwareCommandRefusedError) as refused:
@@ -131,7 +131,7 @@ def test_a_lid_refusal_ends_a_waited_move_on_another_axis_as_a_stop_does(homed):
     a Z move in flight learns it was stopped, as after stop_motion, instead
     of reading its halt as arrival."""
     z = homed.motion.start_move_absolute('Z', 8_000)
-    _board(homed).lid_open = True
+    homed.simulation.interlock(lid_open=True)
     with pytest.raises(HardwareCommandRefusedError):
         homed.motion.move_absolute('X', 1_000)
     assert _ended(z) == 'stopped'
@@ -142,7 +142,7 @@ def test_a_lid_refused_home_ends_a_waited_move_as_a_stop_does(homed):
     """A home the lid refuses before it moves anything still stops every
     axis, and the X move in flight says so."""
     x = homed.motion.start_move_absolute('X', 100_000)
-    _board(homed).lid_open = True
+    homed.simulation.interlock(lid_open=True)
     with pytest.raises(HardwareCommandRefusedError):
         homed.motion.home('Z')
     assert _ended(x) == 'stopped'
@@ -152,7 +152,7 @@ def test_a_lid_refused_home_ends_a_waited_move_as_a_stop_does(homed):
 
 def test_a_home_with_the_lid_open_is_refused_and_moves_nothing(homed):
     homed.motion.move_absolute('Z', 1_000)
-    _board(homed).lid_open = True
+    homed.simulation.interlock(lid_open=True)
     with pytest.raises(HardwareCommandRefusedError) as refused:
         homed.motion.home()
     assert refused.value.reason == 'lid_open'
@@ -164,7 +164,7 @@ def test_a_position_the_board_does_not_report_is_unread_not_none(homed):
     """A board that stays silent leaves the position unread: a relative
     move is refused before anything drives, and the read raises, as on an
     EL-0940. A None position reached the move's arithmetic as a TypeError."""
-    _board(homed).silent = True
+    homed.simulation.silence('motor')
     try:
         with pytest.raises(HardwareCommandRefusedError) as refused:
             homed.motion.move_relative('X', -100)
@@ -172,7 +172,7 @@ def test_a_position_the_board_does_not_report_is_unread_not_none(homed):
         with pytest.raises(HardwareError, match='no reply from the TMCM-6110'):
             homed.motion.get_actual_position('X')
     finally:
-        _board(homed).silent = False
+        homed.simulation.unsilence('motor')
 
 
 def test_the_motion_monitor_outlives_a_silence_during_a_move(homed):
@@ -182,9 +182,9 @@ def test_the_motion_monitor_outlives_a_silence_during_a_move(homed):
     monitor thread, and every later move waited out its time limit."""
     homed.motion.start_move_absolute('X', 60_000)
     time.sleep(0.05)
-    _board(homed).silent = True
+    homed.simulation.silence('motor')
     time.sleep(1.5)
-    _board(homed).silent = False
+    homed.simulation.unsilence('motor')
     assert any(t.name == 'motion-monitor' and t.is_alive() for t in threading.enumerate())
     homed.motion.home()
     homed.motion.move_absolute('Y', 20_000)
@@ -195,12 +195,12 @@ def test_a_run_whose_lid_read_fails_is_not_checked_not_refused(homed, executor, 
     """A board that does not answer the lid read leaves the stage's state
     unknown: the run is neither admitted nor refused, as when the
     connection read crashes."""
-    _board(homed).silent = True
+    homed.simulation.silence('motor')
     try:
         with pytest.raises(RunCheckFailedError) as failed:
             _run_and_wait(executor, _make_protocol([_BF_STEP]), tmp_path)
     finally:
-        _board(homed).silent = False
+        homed.simulation.unsilence('motor')
     assert failed.value.reason == 'hardware_state_unknown'
     assert "read the stage's interlocks" in failed.value.message
     assert 'no reply from the TMCM-6110' in str(failed.value.__cause__)
