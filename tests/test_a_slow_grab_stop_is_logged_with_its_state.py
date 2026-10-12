@@ -31,14 +31,20 @@ class _Records(logging.Handler):
         self.records.append(record)
 
 
-def _stop_with_log(cam, stop_takes_s):
-    """Run ``cam.stop_grabbing()`` with a clock the stop advances by ``stop_takes_s``."""
+def _stop_with_log(cam, stop_takes_s, during_stop=None):
+    """Run ``cam.stop_grabbing()`` with a clock the stop advances by ``stop_takes_s``.
+
+    ``during_stop``, when given, runs inside the stop, as the SDK's own
+    counters would move while it waits.
+    """
     from drivers import pyloncamera
 
     clock = [100.0]
 
     def stop():
         clock[0] += stop_takes_s
+        if during_stop is not None:
+            during_stop()
 
     if cam.active is not None:
         cam.active.StopGrabbing.side_effect = stop
@@ -64,8 +70,14 @@ def test_a_slow_stop_is_a_warning_with_its_elapsed_time_after_the_state_it_stopp
     cam.active.GetStreamGrabberNodeMap.return_value.GetNode.return_value.GetValue.return_value = 7
     cam.active.GetInstantCameraNodeMap.return_value.GetNode.return_value.GetValue.return_value = 3
     cam.active.GetNodeMap.return_value.GetNode.return_value.GetValue.return_value = 'Complete'
+    write_timeouts = [0]
+    tl_value = cam.active.GetTLNodeMap.return_value.GetNode.return_value.GetValue
+    tl_value.side_effect = lambda: write_timeouts[0]
 
-    records = _stop_with_log(cam, stop_takes_s=11.02)
+    def a_write_times_out():
+        write_timeouts[0] += 1
+
+    records = _stop_with_log(cam, stop_takes_s=11.02, during_stop=a_write_times_out)
 
     cam.active.StopGrabbing.assert_called_once_with()
     pre = [r.getMessage() for r in records if r.getMessage().startswith('pylon StopGrabbing() [')]
@@ -76,11 +88,15 @@ def test_a_slow_stop_is_a_warning_with_its_elapsed_time_after_the_state_it_stopp
         'Statistic_Total_Buffer_Count=7 ',
         'NumQueuedBuffers=3 ',
         'BslAcquisitionStopMode=Complete ',
+        'WriteTimeout=0 ',
+        'StatisticReadWriteTimeoutCount=0 ',
         'AcquisitionActive=Complete ExposureActive=Complete live_read_ms=0.0',
     ):
         assert field in pre[0], f'{field} missing from the pre-stop line: {pre[0]}'
     warnings = [r.getMessage() for r in records if r.levelno == logging.WARNING]
-    assert warnings == ['pylon StopGrabbing [stop_grabbing] returned after 11020.0 ms'], warnings
+    assert len(warnings) == 1, warnings
+    assert warnings[0].startswith('pylon StopGrabbing [stop_grabbing] returned after 11020.0 ms: ')
+    assert 'StatisticReadWriteTimeoutCount=1 ' in warnings[0], warnings[0]
 
 
 def test_a_fast_stop_logs_its_elapsed_time_and_no_warning():
@@ -89,9 +105,10 @@ def test_a_fast_stop_logs_its_elapsed_time_and_no_warning():
     records = _stop_with_log(cam, stop_takes_s=0.02)
 
     assert not [r for r in records if r.levelno >= logging.WARNING]
-    assert 'pylon StopGrabbing [stop_grabbing] returned after 20.0 ms' in [
-        r.getMessage() for r in records
-    ]
+    assert any(
+        r.getMessage().startswith('pylon StopGrabbing [stop_grabbing] returned after 20.0 ms: ')
+        for r in records
+    ), [r.getMessage() for r in records]
 
 
 def test_a_node_the_camera_lacks_is_named_and_the_stop_still_runs():

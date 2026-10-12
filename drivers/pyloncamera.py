@@ -785,14 +785,29 @@ class PylonCamera(Camera):
     # on a daA3840-45um took 14-71 ms; its stalled ones a near-constant 11 s.
     _SLOW_GRAB_STOP_S = 1.0
 
+    # The device transport layer's register-access timeouts and retries, and
+    # its counters of timed-out and failed accesses (Basler doc
+    # transport-layer-parameters.html). The stop's stalled wait is inside a
+    # register write, so a timeout counter that rises across a slow stop says
+    # a register access timed out during it.
+    _TL_SETTING_NODES = ('ReadTimeout', 'WriteTimeout', 'MaxRetryCountRead', 'MaxRetryCountWrite')
+    _TL_COUNTER_NODES = (
+        'StatisticReadWriteTimeoutCount',
+        'Statistic_Write_Operations_Failed_Count',
+        'Statistic_Write_Pipe_Reset_Count',
+        'Statistic_Read_Operations_Failed_Count',
+        'Statistic_Last_Error_Status_Text',
+    )
+
     def _timed_stop_grabbing(self, camera, caller: str) -> None:
         """Call ``camera.StopGrabbing()``, logging the state it stopped from and how long it took.
 
         One line before the stop records what was in flight, one after
-        records the elapsed time (WARNING at ``_SLOW_GRAB_STOP_S`` or more),
-        so a bundle tells a slow stop from a fast one, and shows what
-        differed between them, without anyone timing log lines by hand. A
-        failure is logged with its elapsed time and raised to the caller.
+        records the elapsed time (WARNING at ``_SLOW_GRAB_STOP_S`` or more)
+        and the transport layer's access counters again, so a bundle tells a
+        slow stop from a fast one, and shows what differed between them,
+        without anyone timing log lines by hand. A failure is logged with its
+        elapsed time and raised to the caller.
         """
         _cam_log.info(f'pylon StopGrabbing() [{caller}]: {self._grab_stop_state(camera)}')
         t0 = time.perf_counter()
@@ -800,19 +815,35 @@ class PylonCamera(Camera):
             camera.StopGrabbing()
         except Exception as e:
             elapsed_ms = (time.perf_counter() - t0) * 1000.0
-            _cam_log.warning(f'pylon StopGrabbing [{caller}] FAILED after {elapsed_ms:.1f} ms: {e}')
+            _cam_log.warning(
+                f'pylon StopGrabbing [{caller}] FAILED after {elapsed_ms:.1f} ms: {e}; '
+                f'{self._transport_layer_state(camera, self._TL_COUNTER_NODES)}'
+            )
             raise
         elapsed_s = time.perf_counter() - t0
         level = logging.WARNING if elapsed_s >= self._SLOW_GRAB_STOP_S else logging.INFO
         _cam_log.log(
-            level, f'pylon StopGrabbing [{caller}] returned after {elapsed_s * 1000.0:.1f} ms'
+            level,
+            f'pylon StopGrabbing [{caller}] returned after {elapsed_s * 1000.0:.1f} ms: '
+            f'{self._transport_layer_state(camera, self._TL_COUNTER_NODES)}',
         )
+
+    def _transport_layer_state(self, camera, names) -> str:
+        """Read the named device transport-layer nodes for a stop's log line; never raises."""
+        if camera is None:
+            return 'no camera'
+        try:
+            tl = camera.GetTLNodeMap()
+        except Exception as e:
+            return f'tl_nodemap=<{type(e).__name__}: {e}>'
+        return ' '.join(f'{name}={self._safe_node(tl, name)}' for name in names)
 
     def _grab_stop_state(self, camera) -> str:
         """Describe the grab a stop is about to end, for the pre-stop log line.
 
         Host-side reads first (frames stored, the stream grabber's status and
-        statistics, the instant camera's buffer counts), then the stop mode,
+        statistics, the instant camera's buffer counts, the transport layer's
+        timeouts, retries and access counters), then the stop mode,
         then a timed live read of ``AcquisitionActive`` / ``ExposureActive``:
         the values say whether an exposure or transfer was in flight, and the
         read's time says whether the camera's control channel was already
@@ -837,6 +868,9 @@ class PylonCamera(Camera):
             )
         except Exception as e:
             parts.append(f'instant_camera_nodemap=<{type(e).__name__}: {e}>')
+        parts.append(
+            self._transport_layer_state(camera, self._TL_SETTING_NODES + self._TL_COUNTER_NODES)
+        )
         try:
             nm = camera.GetNodeMap()
             parts.append(f'BslAcquisitionStopMode={self._safe_node(nm, "BslAcquisitionStopMode")}')
