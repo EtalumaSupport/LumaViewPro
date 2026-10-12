@@ -98,6 +98,7 @@ print(len(released))
 """
 
 
+@pytest.mark.needs_display
 def test_a_state_write_is_not_a_press():
     done = subprocess.run(
         [sys.executable, '-c', _STATE_WRITE_IS_NOT_A_PRESS],

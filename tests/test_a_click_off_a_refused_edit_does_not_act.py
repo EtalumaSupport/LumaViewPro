@@ -12,7 +12,6 @@ A window needs a display. Linux CI has none, so there the test is skipped;
 the suite run before every push runs on a desktop and runs it.
 """
 
-import os
 import pathlib
 import subprocess
 import sys
@@ -75,10 +74,7 @@ for typed in ('0.005', '20'):
 """
 
 
-@pytest.mark.skipif(
-    sys.platform.startswith('linux') and not os.environ.get('DISPLAY'),
-    reason='a real touch needs a window, and this Linux host has no display',
-)
+@pytest.mark.needs_display
 def test_run_off_a_refused_period_does_not_start_and_off_a_taken_one_does():
     result = subprocess.run(
         [sys.executable, '-c', _SCRIPT, str(REPO)],

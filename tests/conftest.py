@@ -702,6 +702,11 @@ def pytest_configure(config):
         'timing_sensitive: measures wall-clock timing and can be flaky '
         'under CI/load (only runs with --run-timing-sensitive)',
     )
+    config.addinivalue_line(
+        'markers',
+        'needs_display: opens a real Kivy window (skipped on a Linux host '
+        'with no display, such as the GitHub runner)',
+    )
 
     if config.getoption('--driver-log', default=False):
         _enable_driver_logging(config)
@@ -806,7 +811,8 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
 
 
 def pytest_collection_modifyitems(config, items):
-    """Skip hardware-marked tests unless the matching opt-in flag is set."""
+    """Skip hardware-marked tests unless the matching opt-in flag is set, and
+    window tests on a host with no display."""
     gates = [
         ('ids_hardware', '--run-ids-hardware'),
         ('pylon_hardware', '--run-pylon-hardware'),
@@ -820,6 +826,11 @@ def pytest_collection_modifyitems(config, items):
         skip = pytest.mark.skip(reason=f'needs {flag}')
         for item in items:
             if marker in item.keywords:
+                item.add_marker(skip)
+    if sys.platform.startswith('linux') and not os.environ.get('DISPLAY'):
+        skip = pytest.mark.skip(reason='needs a display, and this Linux host has none')
+        for item in items:
+            if 'needs_display' in item.keywords:
                 item.add_marker(skip)
 
 
