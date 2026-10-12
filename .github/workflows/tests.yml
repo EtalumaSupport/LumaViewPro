@@ -67,7 +67,7 @@ jobs:
       # source rather than committed (the macOS one is committed); the script
       # reads the pin and applies the same patches either way.
       - name: Simulator runtime
-        run: scripts/build_sim_runtime.sh
+        run: drivers/sim_wire/runtime/build_sim_runtime.sh
 
       # No extra -q: pyproject addopts already carries `-q --tb=short`, and a
       # second one makes -qq, which suppresses the failure summary and leaves
