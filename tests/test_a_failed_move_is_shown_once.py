@@ -91,6 +91,7 @@ _DRIVER_MOVES = {
 }
 
 
+# parametrize-justified: each kind patches a different driver call and counts its own popup
 @pytest.mark.parametrize('kind', list(_DRIVER_MOVES))
 def test_a_driver_failure_is_one_popup_chained_to_the_drivers_error(
     session, centre_posts, monkeypatch, kind

@@ -73,6 +73,7 @@ def _restore_settings_globals():
 
 
 @pytest.mark.slow
+# parametrize-justified: each example runs its own __main__ in-process
 @pytest.mark.parametrize('name', EXAMPLES)
 def test_example_runs_in_suite(name):
     """Run the example's __main__ path in-process under the suite mocks."""

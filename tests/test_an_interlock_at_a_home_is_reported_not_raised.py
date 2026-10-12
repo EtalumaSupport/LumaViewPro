@@ -41,6 +41,7 @@ def session(tmp_path):
         s.shutdown()
 
 
+# parametrize-justified: each reason runs its own session's bring-up
 @pytest.mark.parametrize('reason', sorted(REASONS))
 def test_bring_up_shows_it_once_and_leaves_the_turret_alone(session, centre_posts, reason):
     turret = []
@@ -56,6 +57,7 @@ def test_bring_up_shows_it_once_and_leaves_the_turret_alone(session, centre_post
     assert turret == []
 
 
+# parametrize-justified: each reason runs its own homing test on its own session
 @pytest.mark.parametrize('reason', sorted(REASONS))
 def test_the_report_records_it_against_the_axis(session, monkeypatch, reason):
     home_sim_scope(session.scope)

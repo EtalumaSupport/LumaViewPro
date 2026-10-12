@@ -132,6 +132,7 @@ def _pulled(scope) -> None:
     scope.simulation.unplug('motor')
 
 
+# parametrize-justified: a cable pull is permanent for its scope
 @pytest.mark.parametrize('home', list(_HOMES))
 def test_a_home_after_a_cable_pull_fails_at_once(scope, home):
     # #632: a disconnected motor must not hold the caller while the driver
@@ -149,6 +150,7 @@ def test_a_home_after_a_cable_pull_fails_at_once(scope, home):
     'HomingFailedError, a homing fault, where its cause is the Z safety move for a turret '
     'home. Only the next call knows the motor is disconnected',
 )
+# parametrize-justified: a cable pull is permanent for its scope
 @pytest.mark.parametrize('home', list(_HOMES))
 def test_a_home_after_a_cable_pull_says_the_motor_is_not_connected(scope, home):
     _pulled(scope)

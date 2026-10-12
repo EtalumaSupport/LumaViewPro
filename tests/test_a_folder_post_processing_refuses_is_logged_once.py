@@ -67,6 +67,7 @@ _FOLDERS = {
 }
 
 
+# parametrize-justified: each folder has its own stubs and tmp folder
 @pytest.mark.parametrize('folder', sorted(_FOLDERS))
 def test_every_folder_it_cannot_process_logs_no_error(folder, tmp_path, caplog, monkeypatch):
     stubs, words = _FOLDERS[folder]

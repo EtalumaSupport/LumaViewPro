@@ -35,6 +35,7 @@ SCOPES = [
 ]
 
 
+# parametrize-justified: each model and tier is its own module-scoped session
 @pytest.fixture(scope='module', params=SCOPES)
 def session(request):
     model, tier = request.param

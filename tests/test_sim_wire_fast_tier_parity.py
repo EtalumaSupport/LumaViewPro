@@ -89,6 +89,7 @@ def test_every_known_difference_names_a_replayed_call():
 
 
 @pytest.mark.slow
+# parametrize-justified: each group carries its own gap mark
 @pytest.mark.parametrize('group', marked(_GROUPS, _GAPS))
 def test_replies_match_the_bench(replayed_on_the_fast_tier, group):
     wrong = []

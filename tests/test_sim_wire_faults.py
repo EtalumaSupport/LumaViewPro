@@ -193,6 +193,7 @@ def scope(request):
 
 @firmware_only
 class TestTheFirmwareMeetsTheFault:
+    # parametrize-justified: each dialect boots its own firmware emulator
     @pytest.mark.parametrize('scope', [(d, False) for d in DIALECTS], indirect=True)
     def test_a_z_switch_that_never_trips_is_the_firmwares_home_timeout(self, scope):
         # Homed through the driver's own home calls, with the deadlines they
@@ -207,6 +208,7 @@ class TestTheFirmwareMeetsTheFault:
         sim.clear('Z', tmc5072.SWITCH_NEVER_TRIPS)
         assert board.zhome() is None
 
+    # parametrize-justified: each dialect boots its own firmware emulator
     @pytest.mark.parametrize('scope', [(d, False) for d in DIALECTS], indirect=True)
     def test_a_stalled_x_is_the_firmwares_xy_home_timeout(self, scope):
         board, sim = scope

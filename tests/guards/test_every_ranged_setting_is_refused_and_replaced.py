@@ -98,6 +98,7 @@ def test_a_write_outside_the_range_is_refused_and_nothing_is_written(session, pa
     assert session.get_settings_snapshot() == before
 
 
+# parametrize-justified: each case writes its own data folder and runs its own load
 @pytest.mark.parametrize(('path', 'value'), _CASES)
 def test_a_stored_value_outside_the_range_is_replaced_at_load_and_told_once(tmp_path, path, value):
     data_dir = tmp_path / 'data'

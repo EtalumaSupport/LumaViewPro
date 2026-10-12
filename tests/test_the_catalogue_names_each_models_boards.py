@@ -54,6 +54,7 @@ def test_every_row_names_an_led_board_and_a_motor_board_exactly_when_it_has_axes
         assert 'MotorBoard' not in entry
 
 
+# parametrize-justified: each model brings up its own scope
 @pytest.mark.parametrize('model', sorted(MODELS))
 def test_the_simulated_scope_is_built_with_the_boards_its_row_names(model):
     scope = _scope(model, register_atexit=False)

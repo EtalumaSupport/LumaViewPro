@@ -130,6 +130,7 @@ def unknown(monkeypatch, centre_posts):
     return SimpleNamespace(scope=scope, settings=settings, posts=centre_posts)
 
 
+# parametrize-justified: each gesture builds its own GUI fixture and counts its own popups
 @pytest.mark.parametrize('gesture', list(GESTURES))
 def test_the_refusal_is_one_warning_and_nothing_is_saved(unknown, gesture):
     import copy

@@ -48,6 +48,7 @@ def test_the_catalogue_has_manual_scopes():
     assert {'LS620', 'LS560'} <= set(MANUAL)
 
 
+# parametrize-justified: each model brings up its own scope
 @pytest.mark.parametrize('model', sorted(MODELS))
 def test_the_fast_tier_reports_every_catalogue_models_axes(model):
     scope = build_scope(
@@ -74,6 +75,7 @@ def _session(model: str, tier: str) -> ScopeSession:
 
 
 @pytest.mark.parametrize('tier', TIERS)
+# parametrize-justified: each model and tier brings up its own session
 @pytest.mark.parametrize('model', MANUAL)
 def test_a_manual_scope_starts_without_a_home_and_is_admitted(model, tier, centre_posts):
     session = _session(model, tier)

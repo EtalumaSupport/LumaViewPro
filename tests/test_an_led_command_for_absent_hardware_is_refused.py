@@ -77,6 +77,7 @@ def _preview(lit: bool) -> LedTransitionCtx:
 # --- Board present: nothing changes but an LED the model lacks --------------------
 
 
+# parametrize-justified: each model brings up its own scope and LED board
 @pytest.mark.parametrize('model', EVERY_MODEL)
 def test_with_its_board_an_led_lights_and_goes_dark_as_before(make_session, caplog, model):
     illumination = make_session(model).scope.illumination
@@ -135,6 +136,7 @@ def test_a_name_that_is_no_layer_and_a_number_off_the_board_are_the_requests(mak
 # --- No LED board ----------------------------------------------------------------
 
 
+# parametrize-justified: each model brings up its own scope and LED board
 @pytest.mark.parametrize('model', EVERY_MODEL)
 def test_without_its_board_a_light_is_refused_and_an_off_is_satisfied(
     make_session, monkeypatch, caplog, model

@@ -220,6 +220,7 @@ def _microstep_um(axis: str) -> float:
     return 1000.0 / _UNIT_CONFIG['Axis Microsteps per mm / Objective'][axis]
 
 
+# parametrize-justified: each group carries its own slow or flaky mark
 @pytest.mark.parametrize(
     'group', marked(_REPLY_GROUPS, _REPLY_GAPS, _FLAKY_REPLY_GAPS, slow=_TIMED_REPLY_GROUPS)
 )
@@ -242,6 +243,7 @@ def test_replies_match_the_bench(request, group):
 
 
 @pytest.mark.slow
+# parametrize-justified: each group carries its own flaky mark
 @pytest.mark.parametrize('group', marked(_DURATION_GROUPS, _DURATION_GAPS, _FLAKY_DURATION_GAPS))
 def test_durations_fall_within_the_bench(replayed_on_the_firmware, group):
     outside = []
@@ -267,6 +269,7 @@ def test_a_unit_config_for_another_scope_is_refused():
         sim_backend.MotorBoardSpec('LS820', frozenset('Z'), unit_config=_UNIT_CONFIG)
 
 
+# parametrize-justified: each dialect boots its own firmware emulator
 @pytest.mark.parametrize('dialect', sim_backend.DIALECTS)
 def test_the_runtime_computes_in_single_precision_as_the_board_does(dialect):
     # 2**24 + 1 is the smallest integer a single-precision float cannot hold.

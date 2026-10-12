@@ -80,6 +80,7 @@ def run_probe(path, scratch):
 
 
 @pytest.mark.slow
+# parametrize-justified: each probe runs in its own subprocess and tmp folder
 @pytest.mark.parametrize('probe', probe_files(), ids=lambda p: p.stem)
 def test_probe(probe, tmp_path):
     """Green when every `check` passed AND every `void` is still a void.

@@ -156,6 +156,7 @@ class TestTheUnwindDoesOnlyWhatTheStateJustifies:
     discovered on a bench.
     """
 
+    # parametrize-justified: each case breaks a different seam on a fresh runner
     @pytest.mark.parametrize('label,seam', [(s[0], s[1]) for s in SETUP_STATEMENTS if not s[2]])
     def test_before_the_parameters_exist_the_stage_is_not_touched(self, label, seam, monkeypatch):
         runner, scope = af_runner_and_scope()
@@ -169,6 +170,7 @@ class TestTheUnwindDoesOnlyWhatTheStateJustifies:
             'so the unwind has no position to restore to and must not move'
         )
 
+    # parametrize-justified: each case breaks a different seam on a fresh runner
     @pytest.mark.parametrize('label,seam', [(s[0], s[1]) for s in SETUP_STATEMENTS if s[2]])
     def test_after_the_parameters_exist_the_restore_fires_as_a_no_op_move(
         self, label, seam, monkeypatch

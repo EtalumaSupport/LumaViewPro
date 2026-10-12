@@ -174,6 +174,7 @@ class TestTheMembers:
         assert ran == [], f'{impl} ran inside the recording'
 
     @pytest.mark.slow
+    # parametrize-justified: each admitted write runs and changes the scope
     @pytest.mark.parametrize(('call',), [(o[1],) for o in _OPEN], ids=[o[0] for o in _OPEN])
     def test_an_open_write_is_admitted(self, sim_session, recording, call):
         call(sim_session.scope)

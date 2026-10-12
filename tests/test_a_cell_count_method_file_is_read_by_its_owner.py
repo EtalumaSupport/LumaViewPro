@@ -58,6 +58,7 @@ def test_a_method_the_count_cannot_use_is_not_saved(tmp_path):
     assert not path.exists()
 
 
+# parametrize-justified: each case writes its own file and is refused for its own reason
 @pytest.mark.parametrize(
     ('saved', 'reason', 'words'),
     [

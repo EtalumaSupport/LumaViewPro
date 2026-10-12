@@ -75,6 +75,7 @@ def _firmware_pid(port) -> int:
     return port._board._life.process.proc.pid
 
 
+# parametrize-justified: each dialect boots its own firmware emulator
 @pytest.mark.parametrize('dialect', sim_backend.DIALECTS)
 def test_the_production_driver_connects_through_the_emulator(dialect):
     spec = MotorBoardSpec('LS850T', ALL_AXES, dialect=dialect)
@@ -120,6 +121,7 @@ def test_the_axes_the_board_reports_are_the_axes_it_was_given():
 _PENDING_CTRL_C = "import sys\nprint('ready')\nx = sum(range(20000000))\nsys.stdin.readline()\n"
 
 
+# parametrize-justified: each dialect boots its own firmware emulator
 @pytest.mark.parametrize('dialect', sim_backend.DIALECTS)
 def test_a_ctrl_c_that_lands_before_the_read_fires_when_the_read_begins(dialect):
     # After each reply the firmware collects garbage and then blocks reading
@@ -147,6 +149,7 @@ def test_a_ctrl_c_that_lands_before_the_read_fires_when_the_read_begins(dialect)
         proc.stdout.close()
 
 
+# parametrize-justified: each dialect boots its own firmware emulator
 @pytest.mark.parametrize('dialect', sim_backend.DIALECTS)
 def test_ctrl_c_interrupts_the_running_firmware_into_the_repl(dialect):
     port = _open(dialect)
@@ -159,6 +162,7 @@ def test_ctrl_c_interrupts_the_running_firmware_into_the_repl(dialect):
         port.close()
 
 
+# parametrize-justified: each dialect boots its own firmware emulator
 @pytest.mark.parametrize('dialect', sim_backend.DIALECTS)
 def test_ctrl_c_and_ctrl_b_at_the_repl_are_the_repls_and_ctrl_d_still_resets(dialect):
     # A driver's recovery sends Ctrl-C twice, then Ctrl-B, then Ctrl-D. On the

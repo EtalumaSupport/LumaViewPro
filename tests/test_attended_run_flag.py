@@ -66,6 +66,7 @@ _RUN_KINDS = [
 ]
 
 
+# parametrize-justified: each run kind starts its own runner
 @pytest.mark.parametrize(
     ('run_mode', 'trigger', 'attended'),
     [(mode, trigger, attended) for mode, triggers, attended in _RUN_KINDS for trigger in triggers],

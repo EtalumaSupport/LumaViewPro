@@ -56,6 +56,7 @@ def _scope(**kwargs) -> Lumascope:
     )
 
 
+# parametrize-justified: each model brings up its own firmware-tier scope
 @pytest.mark.parametrize('model', sorted(MODELS))
 def test_the_firmware_tier_reports_every_catalogue_models_axes(model):
     scope = _scope(sim_tier='firmware', sim_model=model)
@@ -106,6 +107,7 @@ def test_an_emulator_that_does_not_come_up_raises_naming_the_driver(monkeypatch)
 # the production FX2 driver on a simulated FX2.
 
 
+# parametrize-justified: each model brings up its own firmware-tier scope
 @pytest.mark.parametrize('model', sorted(MODELS))
 def test_the_firmware_tier_runs_the_led_firmware_on_every_el0940_model(model):
     scope = _scope(sim_tier='firmware', sim_model=model)
