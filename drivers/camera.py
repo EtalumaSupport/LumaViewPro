@@ -1473,7 +1473,11 @@ class Camera(ABC):
         """Grab a fresh capture-quality frame, waiting if necessary.
 
         Used by the still-capture path to guarantee the returned frame
-        was acquired after the call (not a stale live-preview frame).
+        arrived after the call (not a stale live-preview frame). It may
+        still have been exposed before the call: frames already in the
+        camera's pipeline arrive first, however many there are, so a frame
+        that must reflect a change is taken after frame validity has
+        drained them (``capture_and_wait``).
 
         Args:
             timeout_s: Maximum wait in seconds.
