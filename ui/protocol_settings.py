@@ -1,7 +1,6 @@
 # Copyright Etaluma, Inc.
 import logging
 import os
-import time
 import typing
 
 from kivy.clock import Clock
@@ -40,7 +39,6 @@ from ui.ui_helpers import (
     sync_layer_widgets_from_settings,
     typed_number,
 )
-from ui.progress_popup import show_popup
 
 logger = logging.getLogger('LVP.ui.protocol_settings')
 
@@ -622,18 +620,6 @@ class ProtocolSettings(FloatLayout):
         """Show the panel's protocol: its steps on the stage and in the step editor."""
         _app_ctx.ctx.stage.set_protocol_steps(self._protocol)
         self.update_step_ui()
-
-    @show_popup
-    def _show_popup_message(self, popup, title, message, delay_sec):
-        popup.title = title
-        popup.text = message
-        time.sleep(delay_sec)
-        # `done` is a Kivy BooleanProperty whose `done=True` write triggers
-        # the bound `popup.dismiss` dispatch. The decorator runs this method
-        # on a daemon Thread; writing the property here would dispatch
-        # `popup.dismiss` on the worker thread and can corrupt the Kivy
-        # property graph mid-dispatch. Marshal to the UI thread.
-        Clock.schedule_once(lambda dt: setattr(self, 'done', True), 0)
 
     def load_persisted_protocol(self) -> None:
         """Adopt the protocol the last session left behind, once, at startup.

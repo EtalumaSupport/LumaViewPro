@@ -75,10 +75,6 @@ LOAD_STRING_MODULES = (
     'ui/progress_popup.py',
     'ui/popup_close.py',
     'ui/range_slider.py',
-    # No controls: its block is a demo inside _Example(App).build(), reachable
-    # only under __main__. Registered anyway so the census provably covers
-    # every load_string in the tree and no one has to re-judge that.
-    'ui/circular_progress_bar.py',
 )
 
 KV_FILE = 'ui/lumaviewpro.kv'
