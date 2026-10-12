@@ -15,6 +15,7 @@ runs, and many clients waiting on jobs hold no thread a new call needs.
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 
@@ -23,6 +24,7 @@ from fastapi.testclient import TestClient
 
 import rest.jobs
 from modules.scope_session import ScopeSession
+from rest import problems
 from rest.app import build_app
 from tests.settings_fixtures import complete_settings
 
@@ -88,6 +90,26 @@ def test_a_call_past_the_clients_wait_is_a_job_that_ends_in_its_answer(client, h
     assert ended.json()['status'] == 'completed'
     assert ended.json()['result'] is None
     assert ended.json()['ended'] is not None
+
+
+def test_a_job_read_as_finished_has_its_end_time_however_soon_it_is_read():
+    # Read in the same loop pass its answer settles, before the loop runs
+    # anything else: a reader on the loop can be scheduled there.
+    async def read_as_it_settles():
+        jobs = rest.jobs.JobRegistry()
+        answered = asyncio.get_running_loop().create_future()
+        job = jobs.adopt(
+            answered, member='scope/illumination/leds_off', requested=problems.now(), progress=None
+        )
+        await asyncio.sleep(0)
+        answer = problems.result(None)
+        answered.set_result(answer)
+        return jobs.get(job.id).view(), answer
+
+    view, answer = asyncio.run(read_as_it_settles())
+
+    assert view['status'] == 'completed'
+    assert view['ended'] == answer.ended.isoformat()
 
 
 @pytest.mark.parametrize('prefer', ['wait=3; note=x', 'wait="3"', 'respond-async, wait=3'])
@@ -223,11 +245,21 @@ def test_a_finished_job_past_the_count_bound_is_let_go(client, held, monkeypatch
 
 
 def test_many_clients_waiting_on_a_job_hold_nothing_a_new_call_needs(client, held):
+    """A new call is answered while 45 clients still wait on a job.
+
+    A wait that held what a new call needs would answer it only once a
+    waiter's own wait ran out, so the call is bounded by the waiters' wait,
+    never by how fast the host is: a loaded host answers it in about half
+    a second, a held one in no less than the wait.
+    """
+    waiters_wait_s = 10
     accepted = client.post('/api/v1/scope/illumination/leds_off', headers={'Prefer': 'wait=0'})
     location = accepted.headers['Location']
     waiting = [
         threading.Thread(
-            target=client.get, args=(location,), kwargs={'headers': {'Prefer': 'wait=10'}}
+            target=client.get,
+            args=(location,),
+            kwargs={'headers': {'Prefer': f'wait={waiters_wait_s}'}},
         )
         for _ in range(45)
     ]
@@ -238,9 +270,13 @@ def test_many_clients_waiting_on_a_job_hold_nothing_a_new_call_needs(client, hel
     start = time.monotonic()
     answered = client.get('/api/v1/app_version')
     took = time.monotonic() - start
+    still_waiting = sum(t.is_alive() for t in waiting)
 
     held.set()
     for t in waiting:
-        t.join(10)
+        t.join(waiters_wait_s)
     assert answered.status_code == 200
-    assert took < 0.1, f'{took:.3f} s behind 45 waiting clients'
+    assert still_waiting == len(waiting), (
+        f'answered only after {len(waiting) - still_waiting} waiters gave up'
+    )
+    assert took < waiters_wait_s / 2, f'{took:.3f} s behind {len(waiting)} waiting clients'

@@ -19,6 +19,8 @@ import subprocess
 import sys
 from types import SimpleNamespace
 
+import pytest
+
 import ui.post_processing as panel_module
 from modules.post_processing import default_cell_count_method
 
@@ -107,6 +109,7 @@ print(len(released))
 """
 
 
+@pytest.mark.needs_display
 def test_a_range_slider_releases_only_the_touch_it_grabbed(tmp_path):
     # Real Kivy in a child process: the test environment stands its widgets in.
     # Kivy writes its config and icons into KIVY_HOME, so the child gets one

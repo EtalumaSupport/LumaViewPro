@@ -28,6 +28,7 @@ an id every client shares.
 from __future__ import annotations
 
 import dataclasses
+import datetime
 
 from fastapi.responses import JSONResponse
 
@@ -79,6 +80,11 @@ _CAUSE_STATUS = {RefusalCause.REQUEST: 422, RefusalCause.STATE: 409, None: 409}
 _FAULT_STATUS = 500
 
 
+def now() -> datetime.datetime:
+    """The local time with its offset, as answers and jobs are stamped."""
+    return datetime.datetime.now().astimezone()
+
+
 @dataclasses.dataclass(frozen=True)
 class Answer:
     """What a request is answered: a result, or a problem.
@@ -91,11 +97,14 @@ class Answer:
         status: The HTTP status.
         body: The JSON-ready body: the encoded result, or the problem.
         headers: Headers the answer carries, such as ``Retry-After``.
+        ended: When the call ended: when its answer was made. A job's end
+            time is this, so a job read as finished always has one.
     """
 
     status: int
     body: object
     headers: dict[str, str] = dataclasses.field(default_factory=dict)
+    ended: datetime.datetime = dataclasses.field(default_factory=now)
 
     @property
     def is_problem(self) -> bool:

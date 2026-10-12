@@ -98,15 +98,16 @@ class ManualCaptureController:
         Returns:
             A Future of the paths written, the unmarked file first. The
             still is on the camera lane when this returns, so a run started
-            after it waits for it while it runs. The Future raises what the
+            after it waits for it when it is running or was put on an idle
+            lane. The Future raises what the
             capture raised: ``ObjectiveUnknownError`` when the objective in
             the light path is unknown (nothing captured), ``CaptureError``
             (reason ``'no_frame_returned'``) when no frame passed, with the
             capture engine's cause as its message;
             ``HardwareCommandRefusedError`` (reason
             ``'exclusive_activity_running'``) when a run took the scope
-            while the still was queued behind other camera work, before it
-            started; ``CancelledError`` when the lane dropped it unrun (the
+            while the still was queued behind other camera work, waiting or
+            running when it was put on the lane; ``CancelledError`` when the lane dropped it unrun (the
             scope disconnected). The Future sets no timeout: its caller
             bounds its own wait.
 

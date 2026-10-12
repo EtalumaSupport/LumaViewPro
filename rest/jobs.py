@@ -44,10 +44,6 @@ FINISHED_LIMIT = 1000
 FINISHED_AGE = datetime.timedelta(hours=24)
 
 
-def _now() -> datetime.datetime:
-    return datetime.datetime.now().astimezone()
-
-
 @dataclasses.dataclass(frozen=True)
 class Wait:
     """How long a client will wait, and whether it said so.
@@ -111,18 +107,16 @@ class Job:
         self.answered = answered
         self.progress = progress
         self._started = started
-        self.ended: datetime.datetime | None = None
-        # Registered on the loop, whichever thread made the job: an asyncio
-        # future takes callbacks only there.
-        answered.get_loop().call_soon_threadsafe(answered.add_done_callback, self._end)
-
-    def _end(self, _answered: asyncio.Future[Answer]) -> None:
-        self.ended = _now()
 
     @property
     def finished(self) -> bool:
         """Whether the call has ended."""
         return self.answered.done()
+
+    @property
+    def ended(self) -> datetime.datetime | None:
+        """When the call ended, as its answer says; None while it runs."""
+        return self.answered.result().ended if self.finished else None
 
     def view(self) -> dict[str, object]:
         """The job as a client reads it."""
@@ -257,7 +251,11 @@ class JobRegistry:
             )
 
         job = self._add(
-            member, _now(), answered, None, started=lambda: future.running() or future.done()
+            member,
+            problems.now(),
+            answered,
+            None,
+            started=lambda: future.running() or future.done(),
         )
         future.add_done_callback(finished)
         return job.view()
@@ -281,10 +279,10 @@ class JobRegistry:
 
     def _prune(self) -> None:
         finished = sorted(
-            (j for j in self._jobs.values() if j.finished and j.ended is not None),
+            (j for j in self._jobs.values() if j.finished),
             key=lambda j: j.ended,
         )
-        oldest = _now() - FINISHED_AGE
+        oldest = problems.now() - FINISHED_AGE
         excess = len(finished) - FINISHED_LIMIT
         for i, job in enumerate(finished):
             if i < excess or job.ended < oldest:

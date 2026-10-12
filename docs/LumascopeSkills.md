@@ -598,11 +598,14 @@ closed. When it returns, the still is on the camera lane. The Future raises
 (nothing captured) and `CaptureError` (reason `'no_frame_returned'`, the
 capture engine's cause as its message) when no frame passed.
 `session.manual_capture.in_flight` is True from the call until the still
-has finished or been refused. A run started while a still is RUNNING waits
-for it to finish before it touches the camera, so the still saves under the
-state it started with and the run begins after it; a still not yet running
-when a run takes the scope (queued behind other camera work) is refused, and
-its Future raises `HardwareCommandRefusedError` (reason
+has finished or been refused. The order of the calls decides, not how soon
+the lane's worker wakes. A run started after `capture()` returns waits for the
+still before it touches the camera when the still is running or was put on an
+idle camera lane, so the
+still saves under the state it started with and the run begins after it. A
+still queued behind other camera work (another command waiting or running
+when `capture()` put it there) and not yet running when a run takes the scope
+is refused, and its Future raises `HardwareCommandRefusedError` (reason
 `'exclusive_activity_running'`).
 
 To save a frame you already hold, capture it and call `save_image`. It
