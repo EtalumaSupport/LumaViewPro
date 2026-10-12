@@ -381,9 +381,11 @@ class VerticalControl(BoxLayout):
         if run is None or not run.is_live:
             button.state = 'normal'
             button.text = 'Autofocus'
+            gui_logger.display('AUTOFOCUS_BUTTON', f'{button.text} held={self.autofocus_held}')
             return
         button.state = 'down'
         button.text = 'Stopping...' if run.is_stopping else 'Focusing...'
+        gui_logger.display('AUTOFOCUS_BUTTON', f'{button.text} held={self.autofocus_held}')
         # Armed by the run it bounds, the first time that run is seen live,
         # and once per run: a timer armed before the run existed outlived
         # every exit that started nothing and reached forward to abort the

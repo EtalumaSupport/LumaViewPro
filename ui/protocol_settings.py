@@ -1007,26 +1007,36 @@ class ProtocolSettings(FloatLayout):
         for trigger, look in _PANEL_RUN_BUTTONS.items():
             button = self.ids[look.button_id]
             run = self._runs_started_here.get(trigger)
-            setattr(self, look.held_flag, session.held_by_other(run))
+            held = session.held_by_other(run)
+            setattr(self, look.held_flag, held)
             label = _running_label(run, trigger, look)
             if label is not None:
                 button.state = 'down'
                 button.text = label
                 if look.running_background is not None:
                     button.background_down = look.running_background
-                continue
-
-            button.state = 'normal'
-            if draining and run is not None and run.is_last_run:
-                button.text = (
-                    'File writer stalled'
-                    if session.protocol_files_stalled
-                    else f'Writing Files... ({session.protocol_files_pending})'
-                )
+                # A protocol's scans remaining are progress; its stage is running.
+                stage = label if label in ('Stopping...', look.running_text) else 'running'
             else:
-                button.text = look.idle_text
-            if look.idle_background is not None:
-                button.background_down = look.idle_background
+                button.state = 'normal'
+                if draining and run is not None and run.is_last_run:
+                    stalled = session.protocol_files_stalled
+                    button.text = (
+                        'File writer stalled'
+                        if stalled
+                        else f'Writing Files... ({session.protocol_files_pending})'
+                    )
+                    stage = button.text if stalled else 'Writing Files...'
+                else:
+                    button.text = look.idle_text
+                    stage = button.text
+                if look.idle_background is not None:
+                    button.background_down = look.idle_background
+            gui_logger.display(
+                f'RUN_BUTTON_{trigger.upper()}',
+                f'{button.text} held={held}',
+                stage=f'{stage} held={held}',
+            )
 
         if draining:
             self._drain_tick_trigger()

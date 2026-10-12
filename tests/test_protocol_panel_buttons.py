@@ -358,6 +358,39 @@ def test_a_finished_runs_drain_shows_its_count(app_ctx, engine, session):
     assert panel.ids['run_protocol_btn'].text == 'Run Full Protocol'
 
 
+def test_each_button_records_what_it_shows_and_whether_it_is_held(app_ctx, engine, session, caplog):
+    """The GUI record carries each button's words and its greying, once per stage.
+
+    A held button is grey whatever the controls lock says: another activity
+    -- a recording's files still being written among them -- holds the scope.
+    The drain's count is progress, so a falling count is one line.
+    """
+    import logging
+
+    from modules import gui_logger
+
+    gui_logger._shown.clear()
+    caplog.set_level(logging.INFO, logger='LVP.gui_interactions')
+    panel = _Panel()
+    finished = _handle(engine)
+    panel._runs_started_here['protocol'] = finished
+    engine._last_run.return_value = finished
+    session.held_by_other = lambda run: run is None
+    session.protocol_files_draining = True
+
+    for pending in (12, 7, 3):
+        session.protocol_files_pending = pending
+        panel.draw_protocol_buttons()
+
+    lines = [r.getMessage() for r in caplog.records if r.name == 'LVP.gui_interactions']
+    gui_logger._shown.clear()
+    assert lines == [
+        'DISPLAY RUN_BUTTON_SCAN Run One Scan held=True',
+        'DISPLAY RUN_BUTTON_PROTOCOL Writing Files... (12) held=False',
+        'DISPLAY RUN_BUTTON_AUTOFOCUS_SCAN Autofocus All Steps held=True',
+    ]
+
+
 def test_a_live_runs_own_writes_do_not_disable_its_stop(app_ctx, engine, session):
     panel = _Panel()
     handle = _handle(engine)

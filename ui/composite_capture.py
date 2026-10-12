@@ -146,6 +146,9 @@ class CompositeCapture(FloatLayout):
         run = self._composite_run
         live = run is not None and run.is_live
         self.ids['composite_btn'].state = 'down' if live else 'normal'
+        gui_logger.display(
+            'COMPOSITE_BUTTON', f'{"Stop" if live else "Composite"} held={self.composite_held}'
+        )
         if live:
             set_title_event_text('Compositing...')
 

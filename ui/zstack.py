@@ -178,9 +178,16 @@ class ZStack(FloatLayout):
         if label is None:
             button.state = 'normal'
             button.text = 'Acquire'
-            return
-        button.state = 'down'
-        button.text = label
+        else:
+            button.state = 'down'
+            button.text = label
+        # The slice count is progress; the stage is acquiring or stopping.
+        stage = button.text if label in (None, 'Stopping...') else 'Z running'
+        gui_logger.display(
+            'ZSTACK_BUTTON',
+            f'{button.text} held={self.zstack_held}',
+            stage=f'{stage} held={self.zstack_held}',
+        )
 
 
 def _running_label(run: 'RunHandle | None') -> str | None:
