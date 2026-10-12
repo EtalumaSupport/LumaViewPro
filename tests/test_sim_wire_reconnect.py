@@ -60,9 +60,8 @@ def _silent_reconnect(scope) -> dict[str, bool]:
 
 
 def test_after_a_cable_pull_the_firmware_and_the_api_both_still_know_the_stage(scope):
-    board = scope._motion_driver._backend.motor_board
-    board.unplug()
-    board.replug()
+    scope.simulation.unplug('motor')
+    scope.simulation.replug('motor')
     assert _silent_reconnect(scope) == {'X': True, 'Y': True, 'Z': True, 'T': True}
     assert scope.motion.axes_without_position() == {}
     assert scope.motion.has_homed()
@@ -74,7 +73,7 @@ def test_after_a_cable_pull_the_firmware_and_the_api_both_still_know_the_stage(s
     'across a board reboot; the triage track holds the fix',
 )
 def test_after_a_reboot_the_api_no_longer_claims_to_know_the_stage(scope):
-    scope._motion_driver._backend.motor_board.reboot()
+    scope.simulation.reboot('motor')
     assert _silent_reconnect(scope) == {'X': False, 'Y': False, 'Z': False, 'T': False}
     assert set(scope.motion.axes_without_position()) == {'X', 'Y', 'Z', 'T'}
     assert not scope.motion.has_homed()
@@ -106,7 +105,7 @@ def test_a_cable_pulled_mid_move_faults_the_axis_within_the_deadline_and_says_so
         # Read before the pull: the monitor's disconnect clock starts after
         # it, so the interval measured from here can only be the longer.
         pulled = time.monotonic()
-        session.scope._motion_driver._backend.motor_board.unplug()
+        session.scope.simulation.unplug('motor')
         while motion.is_moving():
             assert time.monotonic() - pulled < motion._DISCONNECT_FAULT_S + 2.0, 'X stayed MOVING'
             time.sleep(0.05)
@@ -130,7 +129,7 @@ _HOMES = {
 
 
 def _pulled(scope) -> None:
-    scope._motion_driver._backend.motor_board.unplug()
+    scope.simulation.unplug('motor')
 
 
 @pytest.mark.parametrize('home', list(_HOMES))

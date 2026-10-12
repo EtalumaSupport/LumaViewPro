@@ -37,7 +37,8 @@ _UNCONFIRMED = ('LED Safety', 'LED command did not confirm')
 
 @pytest.fixture
 def scope(centre_posts):
-    """(the illumination API, the simulated LED board, the centre's posts)."""
+    """(the illumination API, the simulated LED board, the centre's posts,
+    the scope's faults)."""
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(
             sim_backend, 'LedBoardSpec', functools.partial(sim_backend.LedBoardSpec, oracle=True)
@@ -52,6 +53,7 @@ def scope(centre_posts):
             session.scope.illumination,
             session.scope._led_driver._backend.led_board,
             centre_posts,
+            session.scope.simulation,
         )
     finally:
         session.shutdown()
@@ -81,8 +83,8 @@ def _driven(illumination, board) -> dict:
 
 
 def test_a_dropped_echo_leaves_the_answer_and_the_api_is_right(scope):
-    illumination, board, posts = scope
-    board.drop_next_reply()
+    illumination, board, posts, simulation = scope
+    simulation.drop_replies('led')
     illumination.led_on(0, 10)
     assert _believed(illumination) == {'Blue': 10.0}
     # The firmware's mA_to_dac: int(60.936 * 10 + 890).
@@ -97,15 +99,15 @@ def test_a_dropped_echo_leaves_the_answer_and_the_api_is_right(scope):
     "answer, and the board's own answer is discarded unread",
 )
 def test_a_garbled_reply_does_not_confirm_a_write(scope):
-    illumination, board, posts = scope
+    illumination, board, posts, _simulation = scope
     board.garble_next_reply()
     illumination.led_on(0, 10)
     assert _warnings(posts) == [_UNCONFIRMED]
 
 
 def test_a_write_the_board_never_got_is_reported(scope):
-    illumination, board, posts = scope
-    board.unplug()
+    illumination, board, posts, simulation = scope
+    simulation.unplug('led')
     illumination.led_on(1, 10)
     assert _warnings(posts) == [_UNCONFIRMED]
     assert _driven(illumination, board) == {}
@@ -118,8 +120,8 @@ def test_a_write_the_board_never_got_is_reported(scope):
     'and led_on returns as if it had succeeded',
 )
 def test_a_write_the_board_never_got_is_not_believed(scope):
-    illumination, board, _posts = scope
-    board.unplug()
+    illumination, _board, _posts, simulation = scope
+    simulation.unplug('led')
     illumination.led_on(1, 10)
     assert _believed(illumination) == {}
 
@@ -127,8 +129,8 @@ def test_a_write_the_board_never_got_is_not_believed(scope):
 def test_a_write_to_a_lost_board_fails_out_loud(scope):
     from modules.exceptions import HardwareCommandRefusedError
 
-    illumination, board, _posts = scope
-    board.unplug()
+    illumination, _board, _posts, simulation = scope
+    simulation.unplug('led')
     illumination.led_on(1, 10)
     with pytest.raises(HardwareCommandRefusedError) as refused:
         illumination.led_on(2, 10)
@@ -142,9 +144,9 @@ def test_a_write_to_a_lost_board_fails_out_loud(scope):
     'the rebooted board drives nothing',
 )
 def test_after_a_reboot_the_api_does_not_believe_a_channel_lit(scope):
-    illumination, board, _posts = scope
+    illumination, board, _posts, simulation = scope
     illumination.led_on(0, 10)
-    board.reboot()
+    simulation.reboot('led')
     illumination.led_on(1, 10)  # the write that finds the link gone
     # The firmware's boot clears the DAC.
     deadline = time.monotonic() + 10

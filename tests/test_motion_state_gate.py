@@ -28,7 +28,6 @@ import time
 import pytest
 
 from drivers.exceptions import HardwareError
-from drivers.sim_wire.mp import tmc5072
 from modules.exceptions import (
     AxisStateUnknownError,
     HardwareCommandRefusedError,
@@ -82,14 +81,10 @@ def scope(session):
     return session.scope
 
 
-def _board(scope):
-    return scope._motion_driver._backend.motor_board
-
-
 def _fail_home(scope):
     """Stall the X motor: the stage never reaches its home switch, and the
     firmware's home fails."""
-    _board(scope).inject('X', tmc5072.STALL)
+    scope.simulation.fail_home('X', 'stall')
 
 
 def _home_and_fail(scope):
@@ -195,7 +190,7 @@ def test_turret_home_recovers_from_unknown_z(scope):
     and the turret can never be re-homed without a restart.
     """
     _home_and_fail(scope)
-    _board(scope).clear('X', tmc5072.STALL)
+    scope.simulation.clear()
     # Turret homing must survive an UNKNOWN Z -- it is the recovery path.
     scope.motion._home_turret_impl()
     assert scope.motion._axis_state['T'] == AxisState.IDLE
@@ -248,7 +243,7 @@ def test_stage_fault_revokes_homed_state(scope):
 
 def _pull_the_cable(scope):
     """The board stops answering: the next target write gets nothing."""
-    _board(scope).unplug()
+    scope.simulation.unplug('motor')
 
 
 def test_driver_move_raises_when_target_write_is_unanswered(scope):

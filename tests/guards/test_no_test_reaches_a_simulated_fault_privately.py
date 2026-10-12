@@ -11,9 +11,10 @@ API into one simulator's internals, and is pinned to that simulator.
 
 Counted: a read, write, call or ``setattr`` of a name only the simulators'
 fault doors carry, from any test file, unless the receiver is reached
-through ``.simulation``. A test whose subject IS a simulator or the driver
-over one, with no scope, uses the doors as its fixture: such a file is named
-in ``_OWN_DOORS`` with why, and is not counted.
+through ``.simulation`` or is a local named ``simulation``. A test whose
+subject IS a simulator or the driver over one, with no scope, uses the
+doors as its fixture: such a file is named in ``_OWN_DOORS`` with why, and
+is not counted.
 
 The pin is an EQUALITY per file, at the guard's first run: a fall lowers the
 file's entry in the same commit that moves its tests; an entry is never
@@ -82,7 +83,8 @@ def _through_simulation(node: ast.Attribute) -> bool:
         if isinstance(receiver, ast.Attribute) and receiver.attr == 'simulation':
             return True
         receiver = receiver.func if isinstance(receiver, ast.Call) else receiver.value
-    return False
+    # A test that took the member set into a local: ``simulation = scope.simulation``.
+    return isinstance(receiver, ast.Name) and receiver.id == 'simulation'
 
 
 def _setattr_name(node: ast.Call) -> str | None:
@@ -119,9 +121,6 @@ _PRIVATE_REACH_PIN: dict[str, int] = {
     'tests/test_an_unplugged_fx2_is_removed.py': 1,
     'tests/test_audit_fixes.py': 3,
     'tests/test_lumascope_api.py': 3,
-    'tests/test_motion_state_gate.py': 2,
-    'tests/test_sim_wire_led_link.py': 5,
-    'tests/test_sim_wire_reconnect.py': 5,
 }
 
 
