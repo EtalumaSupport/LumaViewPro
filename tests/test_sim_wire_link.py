@@ -147,16 +147,16 @@ class TestTheLinkAtThePort:
         finally:
             stop.set()
             racer.join()
-        # By name: the launch's watcher subshell carries the runtime's path in
-        # its arguments and shares the board's directory, but it is `sh`.
+        # Each launch is a direct child of this process in the board's
+        # directory, `sh` until it execs the firmware -- which it may not have
+        # done yet when reboot() returns -- so it is counted by where it runs,
+        # not by its name. The launch's watcher and its `sleep` are its own
+        # children, and a killed launch is reaped before reboot() returns.
         workdir = os.path.realpath(backend.motor_board._life.workdir)
         firmware = []
-        for child in psutil.Process().children(recursive=True):
-            # A killed firmware's watcher and its `sleep` exit on their own
-            # one-second poll, so one can be gone before it is read. The
-            # firmware itself is reaped before reboot() returns.
+        for child in psutil.Process().children(recursive=False):
             try:
-                if child.name().startswith('micropython') and child.cwd() == workdir:
+                if child.cwd() == workdir:
                     firmware.append(child)
             except psutil.NoSuchProcess:
                 continue
