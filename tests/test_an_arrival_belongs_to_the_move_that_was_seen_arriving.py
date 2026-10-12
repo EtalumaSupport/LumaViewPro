@@ -366,7 +366,7 @@ def test_a_leg_that_never_arrives_fails_the_move_within_the_lanes_bound(session,
     def the_board_dies_after_the_legs_write(axis, pos, *args, **kwargs):
         real_write(axis, pos, *args, **kwargs)
         if axis == 'Z' and pos == leg_um:
-            driver._fail_after = driver._cmd_count
+            session.scope.simulation.unplug('motor')
 
     monkeypatch.setattr(driver, 'move_abs_pos', the_board_dies_after_the_legs_write)
     t0 = time.monotonic()
@@ -379,7 +379,7 @@ def test_a_leg_that_never_arrives_fails_the_move_within_the_lanes_bound(session,
     assert motion.get_axis_state('Z') == AxisState.UNKNOWN
 
     monkeypatch.setattr(driver, 'move_abs_pos', real_write)
-    driver._fail_after = None
+    session.scope.simulation.replug('motor')
     driver.connect()
     home_sim_scope(session.scope)
     motion.move_absolute('Z', 3000.0, overshoot_enabled=True)

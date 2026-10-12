@@ -10,7 +10,6 @@ Timing modes:
   'realistic' -- serial delays and speed-limited movement matching real hardware
 
 Failure injection (for testing error recovery):
-  fail_after=N      -- disconnect after N commands (simulates USB cable pull)
   fail_on={'ZHOME'} -- return None for specific commands (simulates timeout)
   unplug() / replug()            -- the cable pulled and put back
   drop_replies(command, count)   -- no reply to a command, by its first word
@@ -116,7 +115,6 @@ class SimulatedMotorBoard:
         protocol_version: str = 'legacy',  # v3.0 STUB: 'legacy' or 'v3'
         *,
         motorconfig_defaults: Mapping,
-        fail_after: int | None = None,
         fail_on: set | None = None,
         axes: Iterable[str] | None = None,
         **kwargs,
@@ -133,14 +131,12 @@ class SimulatedMotorBoard:
         self._axes = frozenset(axes)
 
         # Failure injection
-        self._fail_after = fail_after  # disconnect after N commands
         # Commands answered with nothing, by first word, until lifted; None
         # in the set is every command.
         self._fail_on = fail_on or set()
         # Commands answered with nothing a number of times, by first word
         # (None: any command), each count spent by the commands it drops.
         self._counted_drops: dict[str | None, int] = {}
-        self._cmd_count = 0
         # Whether the cable is in. Unplugged, every command goes unanswered
         # and the board is not connected until it is plugged back in.
         self._plugged = True
@@ -449,7 +445,7 @@ class SimulatedMotorBoard:
     ) -> str | list[str] | None:
         """Exchange a single command with the simulated firmware.
 
-        Honors failure injection (``fail_after`` / ``fail_on``) so callers
+        Honors failure injection (``unplug``, ``drop_replies``) so callers
         can exercise disconnect / timeout paths without real hardware.
 
         Args:
@@ -475,20 +471,6 @@ class SimulatedMotorBoard:
                 except Exception:
                     return None
             if self.driver is None:
-                return None
-
-            # Failure injection: disconnect after N commands
-            self._cmd_count += 1
-            if self._fail_after is not None and self._cmd_count > self._fail_after:
-                logger.warning(
-                    f'[XYZ Sim   ] INJECTED FAILURE: disconnect after {self._fail_after} commands'
-                )
-                self.driver = None
-                self.found = False
-                _serial_log.warning(
-                    f'[XYZ Sim] {command} -> INJECTED DISCONNECT '
-                    f'({(time.monotonic() - t_start) * 1000:.1f}ms)'
-                )
                 return None
 
             # Failure injection: fail on specific commands

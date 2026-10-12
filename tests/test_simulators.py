@@ -1607,23 +1607,6 @@ class TestFailureInjection:
 
     # --- Motor board ---
 
-    def test_motor_fail_after_disconnects(self):
-        """Motor board should return None after N commands."""
-        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, fail_after=3)
-        assert m.exchange_command('INFO') is not None  # cmd 1
-        assert m.exchange_command('INFO') is not None  # cmd 2
-        assert m.exchange_command('INFO') is not None  # cmd 3
-        assert m.exchange_command('INFO') is None  # cmd 4 -- disconnected
-        assert m.driver is None
-
-    def test_motor_fail_after_sets_found_false(self):
-        """After injected disconnect, found should be False."""
-        m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, fail_after=1)
-        assert m.found is True
-        m.exchange_command('INFO')  # cmd 1 -- succeeds
-        m.exchange_command('INFO')  # cmd 2 -- fails
-        assert m.found is False
-
     def test_motor_fail_on_specific_command(self):
         """Motor board should return None for targeted commands only."""
         m = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, fail_on={'ZHOME'})
@@ -1649,35 +1632,7 @@ class TestFailureInjection:
         for _ in range(100):
             assert m.exchange_command('INFO') is not None
 
-    def test_motor_fail_after_affects_move(self):
-        """Mid-protocol disconnect: move starts OK, then fails."""
-        m = SimulatedMotorBoard(
-            motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, fail_after=5, timing='instant'
-        )
-        m.exchange_command('HOME')  # cmd 1
-        m.move_abs_pos('Z', 5000)  # cmd 2: one leg, one target write
-        assert m.exchange_command('ACTUAL_RZ') is not None  # cmd 3
-        assert m.exchange_command('ACTUAL_RZ') is not None  # cmd 4
-        assert m.exchange_command('ACTUAL_RZ') is not None  # cmd 5
-        assert m.exchange_command('ACTUAL_RZ') is None  # the board is gone after the fifth
-
     # --- LED board ---
-
-    def test_led_fail_after_disconnects(self):
-        """LED board should return None after N commands."""
-        led = SimulatedLEDBoard(fail_after=2)
-        assert led.exchange_command('LEDS_ENT') is not None  # cmd 1
-        assert led.exchange_command('LED0_100') is not None  # cmd 2
-        assert led.exchange_command('LEDS_OFF') is None  # cmd 3 -- disconnected
-        assert led.driver is None
-
-    def test_led_fail_after_sets_found_false(self):
-        """After injected disconnect, found should be False."""
-        led = SimulatedLEDBoard(fail_after=1)
-        assert led.found is True
-        led.exchange_command('LEDS_ENT')  # cmd 1 -- succeeds
-        led.exchange_command('LED0_100')  # cmd 2 -- fails
-        assert led.found is False
 
     def test_led_fail_on_specific_command(self):
         """LED board should return None for targeted commands only."""
@@ -1728,15 +1683,6 @@ class TestFailureInjection:
     def test_led_fail_on_matches_by_first_word_as_the_motor_board_does(self):
         led = SimulatedLEDBoard(fail_on={'LEDS_ENT'})
         assert led.exchange_command('LEDS_ENT 1') is None
-
-    def test_led_fast_path_also_fails(self):
-        """_write_command_fast should also respect fail_after."""
-        led = SimulatedLEDBoard(fail_after=2)
-        led._write_command_fast('LED0_100')  # cmd 1
-        led._write_command_fast('LED1_100')  # cmd 2
-        led._write_command_fast('LED2_100')  # cmd 3 -- should disconnect
-        assert led.driver is None
-        assert led.found is False
 
 
 class TestTheCamerasFaultDoors:

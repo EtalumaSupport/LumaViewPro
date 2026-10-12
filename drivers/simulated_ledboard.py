@@ -10,7 +10,6 @@ Timing modes:
   'realistic' -- serial delays matching real hardware (~12ms per command)
 
 Failure injection (for testing error recovery):
-  fail_after=N      -- disconnect after N commands (simulates USB cable pull)
   fail_on={'LEDS_ENT'} -- return None for specific commands (simulates timeout)
 """
 
@@ -65,7 +64,6 @@ class SimulatedLEDBoard:
         firmware_date: str | None = None,
         protocol_version: str = 'legacy',  # v3.0 STUB: 'legacy' or 'v3'
         supports_firmware_stim: bool = False,
-        fail_after: int | None = None,
         fail_on: set | None = None,
         **kwargs,
     ):
@@ -85,9 +83,7 @@ class SimulatedLEDBoard:
         self._supports_firmware_stim = supports_firmware_stim
 
         # Failure injection
-        self._fail_after = fail_after  # disconnect after N commands
         self._fail_on = fail_on or set()  # return None for these commands
-        self._cmd_count = 0
 
         # Apply timing preset (overrides delay if preset given)
         self.set_timing_mode(timing)
@@ -196,7 +192,7 @@ class SimulatedLEDBoard:
     ) -> str | list[str] | None:
         """Exchange a single command with the simulated firmware.
 
-        Honors failure injection (``fail_after`` / ``fail_on``) so callers
+        Honors failure injection (``fail_on``) so callers
         can exercise disconnect / timeout paths without real hardware.
 
         Args:
@@ -215,20 +211,6 @@ class SimulatedLEDBoard:
                 except Exception:
                     return None
             if self.driver is None:
-                return None
-
-            # Failure injection: disconnect after N commands
-            self._cmd_count += 1
-            if self._fail_after is not None and self._cmd_count > self._fail_after:
-                logger.warning(
-                    f'[LED Sim   ] INJECTED FAILURE: disconnect after {self._fail_after} commands'
-                )
-                self.driver = None
-                self.found = False
-                _serial_log.warning(
-                    f'[LED Sim] {command} -> INJECTED DISCONNECT '
-                    f'({(time.monotonic() - t_start) * 1000:.1f}ms)'
-                )
                 return None
 
             # Failure injection: fail on specific commands, matched by first
@@ -281,20 +263,6 @@ class SimulatedLEDBoard:
                 except Exception:
                     return
             if self.driver is None:
-                return
-
-            # Failure injection (same as exchange_command)
-            self._cmd_count += 1
-            if self._fail_after is not None and self._cmd_count > self._fail_after:
-                logger.warning(
-                    f'[LED Sim   ] INJECTED FAILURE: disconnect after {self._fail_after} commands'
-                )
-                self.driver = None
-                self.found = False
-                _serial_log.warning(
-                    f'[LED Sim] {command} -> INJECTED DISCONNECT (write_fast) '
-                    f'({(time.monotonic() - t_start) * 1000:.1f}ms)'
-                )
                 return
 
             # No delay on fast path
