@@ -46,10 +46,8 @@ MAX_CONSECUTIVE_SCAN_FAILURES = 3
 # One object, because a normal ending is one fact: the loop reaches its end
 # either having run every scan or having been told to stop, and both exits
 # report through the same record.
-RUN_COMPLETED = RunEnding(
-    'completed', 'completed', 'Protocol Complete', 'The run finished normally.'
-)
-RUN_STOPPED = RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped')
+RUN_COMPLETED = RunEnding('completed', 'completed', 'The run finished normally.')
+RUN_STOPPED = RunEnding('aborted', 'stopped', 'Stopped')
 
 
 class ProtocolRunLoop:
@@ -74,7 +72,7 @@ class ProtocolRunLoop:
                 f'[PROTOCOL] Run loop aborted by exception; cleanup will run: {ex}',
                 exc_info=True,
             )
-            ending = RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', str(ex))
+            ending = RunEnding('failed', 'run_loop_crashed', str(ex))
             self._p._ending.set_if_unset(ending)
         finally:
             self._p._cleanup(
@@ -82,7 +80,6 @@ class ProtocolRunLoop:
                 or RunEnding(
                     'failed',
                     'run_loop_crashed',
-                    'Protocol Crashed',
                     'The run loop stopped without saying how the run ended.',
                 ),
                 run,
@@ -176,7 +173,7 @@ class ProtocolRunLoop:
         # the disconnect below.
         stalled = p._take_camera()
         if stalled is not None:
-            p.end_run_fatally(stalled.reason, stalled.title, stalled.message)
+            p.end_run_fatally(stalled.reason, stalled.message)
             return stalled
 
         while p._is_run_live() and not p._aborted.is_set():
@@ -200,13 +197,12 @@ class ProtocolRunLoop:
                         ending = RunEnding(
                             'failed',
                             'hardware_disconnected',
-                            'Protocol Aborted',
                             'Hardware disconnected during protocol run. '
                             'Check the USB cable and power connections, '
                             'save the protocol, then restart LumaViewPro '
                             'and the protocol.',
                         )
-                        p.end_run_fatally(ending.reason, ending.title, ending.message)
+                        p.end_run_fatally(ending.reason, ending.message)
                         return ending
 
                 # Check if we've completed all scans
@@ -269,7 +265,7 @@ class ProtocolRunLoop:
                     logger.error(f'[PROTOCOL] {msg} -- aborting protocol')
                     # The funnel sets the abort this site used to set by hand,
                     # so the next iteration still exits and cleanup still runs.
-                    p.abort_run_fatal('disk_space_critical', 'Protocol Aborted', msg)
+                    p.abort_run_fatal('disk_space_critical', msg)
                     break
 
                 # No nuclear leds_off before step 0: each step's capture makes
@@ -376,13 +372,12 @@ class ProtocolRunLoop:
                     ending = RunEnding(
                         'failed',
                         'hardware_disconnected',
-                        'Protocol Aborted',
                         'Hardware disconnected during protocol run. '
                         'Check the USB cable and power connections, save '
                         'the protocol, then restart LumaViewPro and the '
                         'protocol.',
                     )
-                    p.end_run_fatally(ending.reason, ending.title, ending.message)
+                    p.end_run_fatally(ending.reason, ending.message)
                     return ending
 
                 # A move the stage's interlock refused is not transient: the
@@ -396,10 +391,9 @@ class ProtocolRunLoop:
                     ending = RunEnding(
                         'failed',
                         'interlock',
-                        f'Protocol Aborted -- {ex.title}',
                         f'The run stopped. {ex}',
                     )
-                    p.end_run_fatally(ending.reason, ending.title, ending.message)
+                    p.end_run_fatally(ending.reason, ending.message)
                     return ending
 
                 # A lost axis position is not transient: nothing in a run
@@ -417,11 +411,10 @@ class ProtocolRunLoop:
                     ending = RunEnding(
                         'failed',
                         'position_lost',
-                        'Protocol Aborted -- Position Lost',
                         f'The run stopped: {describe_unknown_positions(lost_axes)}. '
                         'Home the scope before running the protocol again.',
                     )
-                    p.end_run_fatally(ending.reason, ending.title, ending.message)
+                    p.end_run_fatally(ending.reason, ending.message)
                     return ending
 
                 # Transient: log warning, do NOT increment scan_count,
@@ -446,13 +439,9 @@ class ProtocolRunLoop:
                         'and the log for the cause, save the protocol, then '
                         'restart LumaViewPro and the protocol.'
                     )
-                    ending = RunEnding(
-                        'failed', 'consecutive_scan_failures', 'Protocol Aborted', message
-                    )
+                    ending = RunEnding('failed', 'consecutive_scan_failures', message)
                     notifications.report_outcome(
-                        RunFailedError(
-                            reason=ending.reason, title=ending.title, message=ending.message
-                        ),
+                        RunFailedError(reason=ending.reason, message=ending.message),
                         solicited=False,
                         category='Protocol',
                     )

@@ -159,7 +159,7 @@ def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
     scope.illumination.color2ch.return_value = 1
     af_thread = MagicMock()
     af_thread.current_future = None
-    ending = RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped')
+    ending = RunEnding('aborted', 'stopped', 'Stopped')
 
     swap_lanes(scope, io=_FakeExecutor(), camera=_FakeExecutor())
     run_cleanup(

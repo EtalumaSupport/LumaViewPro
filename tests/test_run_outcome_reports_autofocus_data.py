@@ -49,7 +49,7 @@ TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
 
 def _ending(status: str = 'completed') -> RunEnding:
-    return RunEnding(status=status, reason='stopped', title='t', message='m')
+    return RunEnding(status=status, reason='stopped', message='m')
 
 
 def _make_af_step_protocol():

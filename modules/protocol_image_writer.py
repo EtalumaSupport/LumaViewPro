@@ -641,7 +641,7 @@ class ProtocolImageWriter:
         self._capture_slots: dict[tuple[int, int], FailedCapture | None] = {}
         self._capture_slots_lock = threading.Lock()
 
-    def _abort_run_fatal(self, reason: str, domain: str, title: str, message: str) -> None:
+    def _abort_run_fatal(self, reason: str, domain: str, message: str) -> None:
         """The one fatal-abort path: every run-killing fault routes here.
 
         Ordering is load-bearing:
@@ -668,12 +668,12 @@ class ProtocolImageWriter:
         """
         self._abort_fn()
         self._fatal_abort_event.set()
-        self._ending.set_if_unset(RunEnding('failed', reason, title, message))
+        self._ending.set_if_unset(RunEnding('failed', reason, message))
         self._scope.illumination.force_off()
         from modules.notification_center import notifications
 
         notifications.report_outcome(
-            RunFailedError(reason=reason, title=title, message=message),
+            RunFailedError(reason=reason, message=message),
             solicited=False,
             category=domain,
         )
@@ -865,7 +865,6 @@ class ProtocolImageWriter:
             self._abort_run_fatal(
                 'hardware_disconnected',
                 'Protocol',
-                'Protocol Aborted',
                 'The camera was disconnected during the protocol run. '
                 'Check the USB cable and power connections, save the '
                 'protocol, then restart LumaViewPro and the protocol.',
@@ -902,7 +901,6 @@ class ProtocolImageWriter:
                 self._abort_run_fatal(
                     'led_channel_unavailable',
                     'Protocol',
-                    'Channel not available',
                     f"This microscope has no '{step_color}' LED "
                     f'channel, so its steps cannot capture here. '
                     f'The protocol was stopped after '
@@ -914,7 +912,6 @@ class ProtocolImageWriter:
                 self._abort_run_fatal(
                     'camera_failure',
                     'Protocol',
-                    'Camera Failure',
                     f'Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.',
                 )
 
@@ -972,7 +969,6 @@ class ProtocolImageWriter:
         self._abort_run_fatal(
             'file_writer_stalled',
             'Protocol',
-            'File Writer Stalled',
             f'Saving stopped making progress ({stuck}), so the protocol '
             f'was stopped to avoid losing more captures. Check that the '
             f'save drive is connected and responsive, then run the '
@@ -1559,7 +1555,6 @@ class ProtocolImageWriter:
                 self._abort_run_fatal(
                     'disk_space_critical',
                     'FileIO',
-                    'Disk Space Critical',
                     f'Only {free_mb:.0f} MB free. Aborting protocol to prevent data loss.',
                 )
                 # Raised, not returned: a return reads as a write that

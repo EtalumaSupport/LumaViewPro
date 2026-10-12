@@ -207,9 +207,7 @@ class TestTheFlagAndTheClaimEndTogether:
         from modules.run_outcome import RunEnding
 
         with pytest.raises(RuntimeError, match='cleanup died'):
-            runner._cleanup_inner(
-                RunEnding('aborted', 'stopped', 'Stopped', 'Stopped by test'), run, []
-            )
+            runner._cleanup_inner(RunEnding('aborted', 'stopped', 'Stopped by test'), run, [])
 
         assert not runner.run_in_progress(), (
             'a run that released the scope still reports itself in progress'

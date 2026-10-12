@@ -167,7 +167,7 @@ class TestTheRunnerHandsOverItsOwnDirectory:
 
         after_end = []
         runner._cleanup_inner(
-            RunEnding('completed', 'completed', 'Done', 'The run finished.'), run, after_end
+            RunEnding('completed', 'completed', 'The run finished.'), run, after_end
         )
         # A successor's setup replaces the runner's field before run_ended
         # goes out; run_ended still carries this run's.

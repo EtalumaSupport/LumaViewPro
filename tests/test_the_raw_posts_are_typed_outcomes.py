@@ -68,14 +68,12 @@ _FAULTS = [
         False,
     ),
     (
-        exc.RunFailedToStartError(reason='start_failed', title='Run failed to start', message='m'),
+        exc.RunFailedToStartError(reason='start_failed', message='m'),
         'start_failed',
         False,
     ),
     (
-        exc.RunFailedError(
-            reason='motion_timeout', title='Protocol Error -- Motion Timeout', message='m'
-        ),
+        exc.RunFailedError(reason='motion_timeout', message='m'),
         'motion_timeout',
         True,
     ),
@@ -110,12 +108,12 @@ def test_a_failed_run_is_shown_through_an_unattended_runs_mute_and_a_failed_star
     centre_posts, unattended_run
 ):
     notifications.report_outcome(
-        exc.RunFailedError(reason='disk_space_critical', title='Disk Space Critical', message='m'),
+        exc.RunFailedError(reason='disk_space_critical', message='m'),
         solicited=False,
         category='FileIO',
     )
     notifications.report_outcome(
-        exc.RunFailedToStartError(reason='start_failed', title='Run failed to start', message='m'),
+        exc.RunFailedToStartError(reason='start_failed', message='m'),
         solicited=False,
         category='Protocol',
     )

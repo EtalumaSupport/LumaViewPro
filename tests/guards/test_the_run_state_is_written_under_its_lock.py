@@ -66,9 +66,9 @@ def _runner_in(*states):
 )
 def test_a_fatal_ending_puts_a_live_run_in_error_and_aborts_it(states):
     runner = _runner_in(*states)
-    runner.end_run_fatally('motion_timeout', 'Protocol Error', 'timed out')
+    runner.end_run_fatally('motion_timeout', 'timed out')
     assert runner._state is ProtocolState.ERROR
-    runner.abort_run_fatal.assert_called_once_with('motion_timeout', 'Protocol Error', 'timed out')
+    runner.abort_run_fatal.assert_called_once_with('motion_timeout', 'timed out')
 
 
 @pytest.mark.parametrize(
@@ -80,7 +80,7 @@ def test_a_fatal_ending_puts_a_live_run_in_error_and_aborts_it(states):
 )
 def test_a_fatal_ending_of_a_run_already_ending_keeps_its_state_and_still_aborts(states):
     runner = _runner_in(*states)
-    runner.end_run_fatally('motion_timeout', 'Protocol Error', 'timed out')
+    runner.end_run_fatally('motion_timeout', 'timed out')
     assert runner._state is states[-1]
     runner.abort_run_fatal.assert_called_once()
 

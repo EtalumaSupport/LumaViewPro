@@ -29,7 +29,7 @@ from modules.protocol_state_machine import PROTOCOL_STATE_TRANSITIONS, ProtocolS
 from modules.run_outcome import RunEnding
 from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
 
-_ABORTED = RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped by test')
+_ABORTED = RunEnding('aborted', 'stopped', 'Stopped by test')
 
 
 def _started_runner():
@@ -144,7 +144,7 @@ def test_a_live_error_run_reads_as_in_progress():
     runner._set_state(ProtocolState.ERROR)
 
     assert runner.run_in_progress(), 'a run unwinding through ERROR reads as no run at all'
-    runner._cleanup(RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'died'), run)
+    runner._cleanup(RunEnding('failed', 'run_loop_crashed', 'died'), run)
 
 
 def test_a_run_that_died_still_ends_idle():
@@ -153,7 +153,7 @@ def test_a_run_that_died_still_ends_idle():
     runner, run = _started_runner()
     runner._set_state(ProtocolState.ERROR)
 
-    runner._cleanup(RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'died'), run)
+    runner._cleanup(RunEnding('failed', 'run_loop_crashed', 'died'), run)
 
     assert runner._state is ProtocolState.IDLE, 'a failed run never became idle again'
     assert runner._activity_claim.holder is None, 'the activity claim outlived the run'

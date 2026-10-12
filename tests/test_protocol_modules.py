@@ -330,7 +330,7 @@ class TestRunCleanup:
         camera_exec = _FakeExecutor()
         ending = overrides.pop(
             'ending',
-            RunEnding('completed', 'completed', 'Protocol Complete', 'The run finished normally.'),
+            RunEnding('completed', 'completed', 'The run finished normally.'),
         )
 
         defaults = {

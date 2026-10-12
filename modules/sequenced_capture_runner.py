@@ -801,9 +801,7 @@ class SequencedCaptureRunner:
             # Recorded only past the guard above: a Stop that was refused
             # ended no run, and must not leave a reason behind for the next
             # one to report.
-            self._ending.set_if_unset(
-                RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped')
-            )
+            self._ending.set_if_unset(RunEnding('aborted', 'stopped', 'Stopped'))
             self.protocol_thread.abort()
 
     def force_reset(self, reason: str) -> None:
@@ -831,7 +829,7 @@ class SequencedCaptureRunner:
                 f'[{self.LOGGER_NAME}] force_reset({reason}): tearing down the '
                 f'{self._last_run_trigger()} run without an owner check'
             )
-            ending = RunEnding('aborted', 'shutdown', 'Protocol Stopped', reason)
+            ending = RunEnding('aborted', 'shutdown', reason)
             self._ending.set_if_unset(ending)
             self.protocol_thread.abort()
             run = self._run_handle
@@ -1490,7 +1488,6 @@ class SequencedCaptureRunner:
                 return RunEnding(
                     'failed',
                     'camera_lane_stalled',
-                    'Camera Busy',
                     'A camera command did not finish, so the run did not start. '
                     'Restart LumaViewPro if the camera stays busy.',
                 )
@@ -1766,7 +1763,6 @@ class SequencedCaptureRunner:
             ):
                 raise RunStartError(
                     'dispatch_refused',
-                    'Run failed to start',
                     str(dispatch_future.exception()),
                 ) from dispatch_future.exception()
         except Exception as exc:
@@ -1795,7 +1791,6 @@ class SequencedCaptureRunner:
         except FileNotFoundError:
             raise RunStartError(
                 'capture_location_unusable',
-                'Run failed to start',
                 f'Unable to save data to {self._parent_dir!s}. '
                 'Please select an accessible capture location.',
             ) from None
@@ -1804,7 +1799,7 @@ class SequencedCaptureRunner:
         if not result['status']:
             # The allocator's own sentence: every failure it reports is about
             # the capture location, so it shares that code.
-            raise RunStartError('capture_location_unusable', 'Run failed to start', result['error'])
+            raise RunStartError('capture_location_unusable', result['error'])
 
         try:
             self._initialize_run_dir()
@@ -1814,7 +1809,6 @@ class SequencedCaptureRunner:
             # string is neither a sentence nor safe to put in front of them.
             raise RunStartError(
                 'run_dir_init_failed',
-                'Run failed to start',
                 'The run folder could not be initialized. See the log for details.',
             ) from ex
 
@@ -1827,7 +1821,7 @@ class SequencedCaptureRunner:
         """
         logger.error(f'[{self.LOGGER_NAME} ] Run failed during start: {exc}', exc_info=True)
         if isinstance(exc, RunStartError):
-            ending = RunEnding('failed_at_start', exc.reason, exc.title, exc.message)
+            ending = RunEnding('failed_at_start', exc.reason, exc.message)
         else:
             # Anything else reaching here is not an L1 sentence -- a serial
             # fault from the camera-state save, say. The user gets the one
@@ -1835,7 +1829,6 @@ class SequencedCaptureRunner:
             ending = RunEnding(
                 'failed_at_start',
                 'start_failed',
-                'Run failed to start',
                 'The run could not start. See the log for details.',
             )
         self._ending.set_if_unset(ending)
@@ -1845,7 +1838,7 @@ class SequencedCaptureRunner:
         from modules.notification_center import notifications
 
         notifications.report_outcome(
-            RunFailedToStartError(reason=ending.reason, title=ending.title, message=ending.message),
+            RunFailedToStartError(reason=ending.reason, message=ending.message),
             solicited=False,
             category='Protocol',
         )
@@ -1876,7 +1869,7 @@ class SequencedCaptureRunner:
         run._run_dir = None
         self._cleanup(ending, run)
 
-    def abort_run_fatal(self, reason: str, title: str, message: str) -> None:
+    def abort_run_fatal(self, reason: str, message: str) -> None:
         """End the run now: abort, mark it dark, record the cause, darken.
 
         The one way the run loop and the step runner reach the fatal-abort
@@ -1887,7 +1880,7 @@ class SequencedCaptureRunner:
         The writer is built before the run is dispatched and is replaced only
         by the next run's reset, so it is never absent while a run is live.
         """
-        self._image_writer._abort_run_fatal(reason, 'Protocol', title, message)
+        self._image_writer._abort_run_fatal(reason, 'Protocol', message)
 
     def end_scan(self) -> None:
         """A scan's end: SCANNING back to RUNNING, if the run is still scanning.
@@ -1900,7 +1893,7 @@ class SequencedCaptureRunner:
             if self._state == ProtocolState.SCANNING:
                 self._state = ProtocolState.RUNNING
 
-    def end_run_fatally(self, reason: str, title: str, message: str) -> None:
+    def end_run_fatally(self, reason: str, message: str) -> None:
         """Put a live run in ERROR, then abort it fatally.
 
         The one fatal ending of the run loop and the step runner. ERROR is
@@ -1914,7 +1907,7 @@ class SequencedCaptureRunner:
             if self._state in (ProtocolState.RUNNING, ProtocolState.SCANNING):
                 validate_transition(self._state, ProtocolState.ERROR, self.LOGGER_NAME)
                 self._state = ProtocolState.ERROR
-        self.abort_run_fatal(reason, title, message)
+        self.abort_run_fatal(reason, message)
 
     def _is_run_live(self) -> bool:
         """Is a run happening, in any phase? The one predicate.
@@ -2110,7 +2103,7 @@ class SequencedCaptureRunner:
             from modules.notification_center import notifications
 
             notifications.report_outcome(incomplete, solicited=False, category='Protocol')
-        return RunEnding('incomplete', 'captures_failed', incomplete.title, str(incomplete))
+        return RunEnding('incomplete', 'captures_failed', str(incomplete))
 
     def _settle_run_outcome(self, ending: RunEnding) -> None:
         """Arm the merge on a composite that reached its end; settle every other ending.

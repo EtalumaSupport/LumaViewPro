@@ -201,12 +201,12 @@ class TestOnlyACompletedScanWritesItsFocus:
         engine = self._engine_after_a_scan(protocol)
 
         engine._write_focus(
-            RunEnding('completed', 'completed', 't', 'm'),
+            RunEnding('completed', 'completed', 'm'),
             RunHandle(engine, pending, RunWriteBatch(MagicMock())),
         )
 
         assert protocol.steps()['Z'].tolist() == [5111.0, 5222.0]
-        pending.resolve_if_pending(RunEnding('completed', 'completed', 't', 'm'))
+        pending.resolve_if_pending(RunEnding('completed', 'completed', 'm'))
         assert pending.wait(timeout_s=1.0).focus_written is True
 
     @pytest.mark.parametrize('status', ['aborted', 'failed', 'failed_at_start'])
@@ -216,10 +216,10 @@ class TestOnlyACompletedScanWritesItsFocus:
         pending.record_focus_written(False)  # as start() records it
         engine = self._engine_after_a_scan(protocol)
 
-        engine._write_focus(RunEnding(status, 'stopped', 't', 'm'), pending)
+        engine._write_focus(RunEnding(status, 'stopped', 'm'), pending)
 
         assert protocol.steps()['Z'].tolist() == [STEP_Z_UM, STEP_Z_UM]
-        pending.resolve_if_pending(RunEnding(status, 'stopped', 't', 'm'))
+        pending.resolve_if_pending(RunEnding(status, 'stopped', 'm'))
         assert pending.wait(timeout_s=1.0).focus_written is False
 
 
@@ -285,7 +285,7 @@ class TestTheProtocolsOneFocusWriter:
 class TestEverySettlePathCarriesWhetherTheFocusWasWritten:
     @staticmethod
     def _ending():
-        return RunEnding(status='completed', reason='', title='t', message='m')
+        return RunEnding(status='completed', reason='completed', message='m')
 
     def test_cleanups_resolver_carries_it(self):
         pending = PendingRunOutcome()

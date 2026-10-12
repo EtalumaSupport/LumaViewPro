@@ -205,7 +205,7 @@ def test_the_safety_darken_does_not_wait_for_a_busy_io_lane(sim_session, monkeyp
             # returns before touching the LEDs.
             scr.SequencedCaptureRunner._cleanup_inner(
                 stub,
-                RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'died'),
+                RunEnding('failed', 'run_loop_crashed', 'died'),
                 stub.run_outcome(),
                 [],
             )

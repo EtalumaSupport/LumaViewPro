@@ -21,7 +21,7 @@ from unittest.mock import MagicMock
 
 from modules.exceptions import RunAlreadyEndedError
 from modules.run_events import RunEvents
-from modules.run_outcome import EndingLatch, PendingRunOutcome, RunEnding
+from modules.run_outcome import ENDING_TITLES, EndingLatch, PendingRunOutcome, RunEnding
 from tests.ast_seams import REPO_ROOT
 from tests.protocol_drives import run_identity
 
@@ -36,8 +36,8 @@ MODULES = REPO_ROOT / 'modules'
 class TestEndingLatch:
     def test_the_first_ending_is_the_one_kept(self):
         latch = EndingLatch()
-        first = RunEnding('failed', 'motion_timeout', 'Timeout', 'the cause')
-        later = RunEnding('failed', 'run_loop_crashed', 'Crash', 'the consequence')
+        first = RunEnding('failed', 'motion_timeout', 'the cause')
+        later = RunEnding('failed', 'run_loop_crashed', 'the consequence')
 
         assert latch.set_if_unset(first) is True
         assert latch.set_if_unset(later) is False, (
@@ -53,10 +53,11 @@ class TestEndingLatch:
         latch = EndingLatch()
         start = threading.Barrier(8)
         wins = []
+        reasons = sorted(ENDING_TITLES)[:8]
 
         def race(i):
             start.wait()
-            if latch.set_if_unset(RunEnding('failed', f'code_{i}', 't', 'm')):
+            if latch.set_if_unset(RunEnding('failed', reasons[i], 'm')):
                 wins.append(i)
 
         threads = [threading.Thread(target=race, args=(i,)) for i in range(8)]
@@ -66,10 +67,10 @@ class TestEndingLatch:
             t.join()
 
         assert len(wins) == 1, f'{len(wins)} writers each believed they were first'
-        assert latch.get().reason == f'code_{wins[0]}'
+        assert latch.get().reason == reasons[wins[0]]
 
     def test_the_record_cannot_be_mutated_after_the_fact(self):
-        ending = RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped by test')
+        ending = RunEnding('aborted', 'stopped', 'Stopped by test')
         with pytest.raises(dataclasses.FrozenInstanceError):
             ending.status = 'completed'
 
@@ -79,31 +80,11 @@ class TestEndingLatch:
 # site can state an ending without one.
 # ---------------------------------------------------------------------------
 
-# Every reason this codebase may record, with the site that owns it. A new
-# fault site fails this test until it appears here -- which is the point:
-# the vocabulary is a contract with REST and the SDK, not an ad-hoc string.
-COVERAGE = {
-    'led_channel_unavailable',
-    'camera_failure',
-    'file_writer_stalled',
-    'disk_space_critical',
-    'video_writer_died',
-    'motion_timeout',
-    'position_lost',
-    'interlock',
-    'hardware_disconnected',
-    'consecutive_scan_failures',
-    'run_loop_crashed',
-    'camera_lane_stalled',
-    'stopped',
-    'shutdown',
-    'capture_location_unusable',
-    'run_dir_init_failed',
-    'dispatch_refused',
-    'start_failed',
-    'completed',
-    'captures_failed',
-}
+# Every reason a run may end with is a row of the one table that titles it:
+# a new fault site fails this test until its reason has a row -- which is the
+# point: the vocabulary is a contract with REST and the SDK, not an ad-hoc
+# string, and it is kept in one place.
+COVERAGE = set(ENDING_TITLES)
 
 ENDING_FILES = [
     'protocol_run_loop.py',
@@ -333,7 +314,7 @@ class TestAStartFailureCarriesItsCause:
         )
         scr.SequencedCaptureRunner._fail_run_at_start(
             stub,
-            RunStartError('capture_location_unusable', 'Run failed to start', 'Pick a folder.'),
+            RunStartError('capture_location_unusable', 'Pick a folder.'),
             PendingRunOutcome(),
         )
 
@@ -417,8 +398,8 @@ def _run_cleanup_args(monkeypatch, stub, stated):
     return seen
 
 
-COMPLETED = RunEnding('completed', 'completed', 'Protocol Complete', 'The run finished normally.')
-STOPPED = RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped by test')
+COMPLETED = RunEnding('completed', 'completed', 'The run finished normally.')
+STOPPED = RunEnding('aborted', 'stopped', 'Stopped by test')
 
 
 class TestTheLatchOutranksTheWordTheLoopStated:
@@ -428,9 +409,7 @@ class TestTheLatchOutranksTheWordTheLoopStated:
         reported as a completed run, because cleanup took the loop's word.
         """
         stub = _cleanup_stub(
-            latched=RunEnding(
-                'failed', 'video_writer_died', 'Video Writer Failed', 'the lane died'
-            ),
+            latched=RunEnding('failed', 'video_writer_died', 'the lane died'),
             forced_dark=True,
         )
         seen = _run_cleanup_args(monkeypatch, stub, COMPLETED)
@@ -486,9 +465,8 @@ class TestAMotionTimeoutEndsTheRunAsAFault:
 
         aborts = runner._image_writer._abort_run_fatal.call_args_list
         assert len(aborts) == 1, f'a motion timeout must end the run once; got {len(aborts)}'
-        reason, _domain, title, _message = aborts[0].args
+        reason, _domain, _message = aborts[0].args
         assert reason == 'motion_timeout'
-        assert 'Motion Timeout' in title
 
 
 class TestTheRunLoopsOwnEndings:
@@ -535,9 +513,8 @@ class TestTheRunLoopsOwnEndings:
 
         aborts = runner._image_writer._abort_run_fatal.call_args_list
         assert len(aborts) >= 1, 'a disk floor below the run estimate must end the run'
-        reason, _domain, title, message = aborts[0].args
+        reason, _domain, message = aborts[0].args
         assert reason == 'disk_space_critical'
-        assert title == 'Protocol Aborted'
         assert '12 MB free' in message, f'the message must name the shortfall; got {message!r}'
 
 

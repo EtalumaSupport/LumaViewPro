@@ -70,7 +70,7 @@ def _make_runner_stub(scope, *, lease):
 
 def _run_cleanup_inner(stub, ending=None):
     if ending is None:
-        ending = RunEnding('failed', 'run_loop_crashed', 'Protocol Crashed', 'died')
+        ending = RunEnding('failed', 'run_loop_crashed', 'died')
     scr.SequencedCaptureRunner._cleanup_inner(stub, ending, stub.run_outcome(), [])
 
 

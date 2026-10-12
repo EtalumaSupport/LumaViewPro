@@ -234,9 +234,7 @@ def test_a_video_steps_writers_death_ends_the_run_in_the_faults_words(tmp_path, 
     assert isinstance(fault, VideoWriterFailedError) and fault.protocol_step is True
     assert fault.__cause__ is killer
     assert kw == {'solicited': False, 'category': 'Recording', 'log_only': True}
-    step._abort_run_fatal.assert_called_once_with(
-        'video_writer_died', 'Recording', fault.title, str(fault)
-    )
+    step._abort_run_fatal.assert_called_once_with('video_writer_died', 'Recording', str(fault))
 
 
 def test_a_video_steps_lost_details_file_is_reported_once_chained(tmp_path, monkeypatch):

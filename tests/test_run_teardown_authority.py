@@ -225,21 +225,21 @@ class TestAStopControlCanSayTheRunIsStopping:
         from modules.run_outcome import RunEnding
 
         runner = self._runner(True, monkeypatch)
-        runner._ending.set_if_unset(RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped'))
+        runner._ending.set_if_unset(RunEnding('aborted', 'stopped', 'Stopped'))
         assert runner._is_stopping(object()) is True
 
     def test_a_run_the_instrument_ended_is_not_stopping(self, monkeypatch):
         from modules.run_outcome import RunEnding
 
         runner = self._runner(True, monkeypatch)
-        runner._ending.set_if_unset(RunEnding('failed', 'motion_timeout', 'T', 'M'))
+        runner._ending.set_if_unset(RunEnding('failed', 'motion_timeout', 'M'))
         assert runner._is_stopping(object()) is False
 
     def test_a_run_that_is_not_live_is_not_stopping(self, monkeypatch):
         from modules.run_outcome import RunEnding
 
         runner = self._runner(False, monkeypatch)
-        runner._ending.set_if_unset(RunEnding('aborted', 'stopped', 'Protocol Stopped', 'Stopped'))
+        runner._ending.set_if_unset(RunEnding('aborted', 'stopped', 'Stopped'))
         assert runner._is_stopping(object()) is False
 
     def test_a_real_stop_reads_stopping_until_the_run_has_ended(self, executor, tmp_path):

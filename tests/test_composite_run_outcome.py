@@ -99,7 +99,7 @@ class TestCompositeRunsAsItsOwnKind:
 class TestCompositeOutcomeIsObservable:
     """B17: the merge, not the capture, is what the caller learns about."""
 
-    _COMPLETED = RunEnding('completed', 'completed', 'Protocol Complete', 'The run finished.')
+    _COMPLETED = RunEnding('completed', 'completed', 'The run finished.')
 
     def _runner_whose_run(
         self, ending, *, merged=False, artifact_path=None, merge_reason='', settle=True
@@ -149,9 +149,7 @@ class TestCompositeOutcomeIsObservable:
         # is empty and the code the caller gets is why the RUN stopped.
         # Collapsing both into one field is what made 'aborted' and
         # 'merge_failed' indistinguishable to anyone deciding what to retry.
-        runner = self._runner_whose_run(
-            RunEnding(status, reason, 'Protocol Stopped', 'The run did not finish.')
-        )
+        runner = self._runner_whose_run(RunEnding(status, reason, 'The run did not finish.'))
 
         with pytest.raises(CaptureError) as excinfo:
             runner.run_composite()

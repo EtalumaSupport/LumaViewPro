@@ -198,7 +198,7 @@ class ProtocolStepRunner:
                 # The ERROR state is written before the funnel darkens the
                 # sample and notifies, so a raise from the funnel cannot cost
                 # this site the state that stops the loop re-entering.
-                p.end_run_fatally('motion_timeout', 'Protocol Error -- Motion Timeout', timeout_msg)
+                p.end_run_fatally('motion_timeout', timeout_msg)
             return
         p._motion_wait_start = None
 

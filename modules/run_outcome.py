@@ -57,6 +57,33 @@ from collections.abc import Callable
 from modules.api_surface import api, api_fields
 
 
+# The heading of each way a run can end, by the ending's reason: the one
+# place an ending is titled, so the popup, the run's outcome and the failure
+# raised to a caller title one ending one way wherever it was recorded.
+ENDING_TITLES: dict[str, str] = {
+    'completed': 'Protocol Complete',
+    'stopped': 'Protocol Stopped',
+    'shutdown': 'Protocol Stopped',
+    'captures_failed': 'Run Incomplete',
+    'start_failed': 'Run failed to start',
+    'dispatch_refused': 'Run failed to start',
+    'capture_location_unusable': 'Run failed to start',
+    'run_dir_init_failed': 'Run failed to start',
+    'camera_lane_stalled': 'Camera Busy',
+    'run_loop_crashed': 'Protocol Crashed',
+    'hardware_disconnected': 'Protocol Aborted',
+    'consecutive_scan_failures': 'Protocol Aborted',
+    'interlock': 'Protocol Aborted -- Stage Interlock',
+    'position_lost': 'Protocol Aborted -- Position Lost',
+    'motion_timeout': 'Protocol Error -- Motion Timeout',
+    'disk_space_critical': 'Disk Space Critical',
+    'file_writer_stalled': 'File Writer Stalled',
+    'video_writer_died': 'Recording Failed',
+    'led_channel_unavailable': 'Channel not available',
+    'camera_failure': 'Camera Failure',
+}
+
+
 @dataclasses.dataclass(frozen=True)
 class RunEnding:
     """How a run ended, and why, in the shape a refusal already uses.
@@ -70,8 +97,10 @@ class RunEnding:
             including the strike ceiling for scans that kept failing.
         reason: Machine-readable cause, stable enough for a caller to
             branch on ('motion_timeout', 'disk_space_critical',
-            'stopped', ...).
-        title: Short human sentence, suitable as a popup heading.
+            'stopped', ...); one of ``ENDING_TITLES``' keys, or the
+            ending fails where it is made.
+        title: Short human sentence, suitable as a popup heading: the
+            reason's, from ``ENDING_TITLES``.
         message: The sentence a user reads. Never a raw exception
             string -- those go to the log, not into a field a remote
             caller serialises.
@@ -79,8 +108,16 @@ class RunEnding:
 
     status: str
     reason: str
-    title: str
     message: str
+
+    def __post_init__(self):
+        if self.reason not in ENDING_TITLES:
+            raise TypeError(f'a run cannot end with the reason {self.reason!r}: it has no title')
+
+    @property
+    def title(self) -> str:
+        """The reason's heading."""
+        return ENDING_TITLES[self.reason]
 
 
 # Endings whose own popup already told the person the run's files were not

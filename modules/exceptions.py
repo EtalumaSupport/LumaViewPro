@@ -13,6 +13,7 @@ from typing import ClassVar
 
 from lib.lumascope_error import Fault, LumascopeError
 from modules.api_surface import api_fields
+from modules.run_outcome import ENDING_TITLES
 
 
 @api_fields('member', 'confirm_text', 'cancel_text')
@@ -1434,16 +1435,18 @@ class RunStartError(Fault, ProtocolError):
     and the popup.
 
     Attributes:
-        reason: Machine-readable cause.
-        title: Short heading for the user.
+        reason: Machine-readable cause, a run ending's reason.
+        title: Short heading for the user, the run ending's.
         message: The sentence a user reads -- never a raw exception
             string; those belong in the log.
     """
 
-    def __init__(self, reason: str, title: str, message: str):
+    def __init__(self, reason: str, message: str):
+        if reason not in ENDING_TITLES:
+            raise TypeError(f'RunStartError has no reason {reason!r}')
         super().__init__(f'{reason}: {message}')
         self.reason = reason
-        self.title = title
+        self.title = ENDING_TITLES[reason]
         self.message = message
 
 
@@ -1721,7 +1724,7 @@ class VideoWriterFailedError(Fault, CaptureError):
             recording; each is named in its own words.
     """
 
-    title = 'Recording Failed'
+    title = ENDING_TITLES['video_writer_died']
 
     def __init__(self, *, protocol_step: bool):
         stopped = (
@@ -1958,7 +1961,7 @@ class RunIncompleteError(Fault, CaptureError):
             order they failed.
     """
 
-    title = 'Run Incomplete'
+    title = ENDING_TITLES['captures_failed']
     _NAMED_AT_MOST = 5
 
     def __init__(self, *, asked: int, captured: int, failed_steps: list[str]):
@@ -1989,15 +1992,15 @@ class RunFailedError(Fault, CaptureError):
     read the same.
 
     Attributes:
-        title: The ending's heading.
+        title: The ending's heading, its reason's (``ENDING_TITLES``).
         reason: The ending's machine-readable cause.
     """
 
     fatal = True
 
-    def __init__(self, *, reason: str, title: str, message: str):
+    def __init__(self, *, reason: str, message: str):
         super().__init__(message, reason)
-        self.title = title
+        self.title = ENDING_TITLES[reason]
 
 
 class RunFailedToStartError(Fault, CaptureError):
@@ -2007,13 +2010,13 @@ class RunFailedToStartError(Fault, CaptureError):
     unattended mute, so the person who started it sees it.
 
     Attributes:
-        title: The ending's heading.
+        title: The ending's heading, its reason's (``ENDING_TITLES``).
         reason: The ending's machine-readable cause.
     """
 
-    def __init__(self, *, reason: str, title: str, message: str):
+    def __init__(self, *, reason: str, message: str):
         super().__init__(message, reason)
-        self.title = title
+        self.title = ENDING_TITLES[reason]
 
 
 class CompositeFailedError(Fault, CaptureError):
@@ -2225,7 +2228,7 @@ class FileWriterStalledError(Fault, CaptureError):
         remedy: Recovering the file writer, which gives up on the unsaved images.
     """
 
-    title = 'File Writer Stalled'
+    title = ENDING_TITLES['file_writer_stalled']
 
     def __init__(self, run: str, stuck: str, unsaved: int):
         super().__init__(

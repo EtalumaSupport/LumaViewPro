@@ -77,8 +77,8 @@ class TestRunLoopInnerClassifiesByConnection:
         assert len(aborts) == 1, (
             f'a disconnect must abort the run exactly once; got {len(aborts)} calls'
         )
-        reason, _domain, title, message = aborts[0].args
-        assert (reason, title) == ('hardware_disconnected', 'Protocol Aborted'), (
+        reason, _domain, message = aborts[0].args
+        assert reason == 'hardware_disconnected', (
             f'the abort must name the disconnect as its cause; got {aborts[0].args}'
         )
         assert 'Hardware disconnected' in message, (

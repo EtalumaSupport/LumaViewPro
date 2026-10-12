@@ -257,7 +257,6 @@ class ProtocolVideoStep:
             self._abort_run_fatal(
                 'disk_space_critical',
                 'FileIO',
-                'Disk Space Critical',
                 f'Only {free_mb:.0f} MB free -- the video step needs ~{required_mb:.0f} MB. '
                 'Aborting protocol to prevent data loss.',
             )
@@ -598,7 +597,6 @@ class ProtocolVideoStep:
             self._abort_run_fatal(
                 'disk_space_critical',
                 'FileIO',
-                'Disk Space Critical',
                 f'Free disk fell to {free_mb:.0f} MB during a video step. '
                 'Aborting protocol to prevent data loss.',
             )
@@ -698,7 +696,7 @@ class ProtocolVideoStep:
                     notifications.report_outcome(
                         died, solicited=False, category='Recording', log_only=True
                     )
-                    self._abort_run_fatal('video_writer_died', 'Recording', died.title, str(died))
+                    self._abort_run_fatal('video_writer_died', 'Recording', str(died))
                     self._record_dropped_capture(
                         reason='video_write_failed', capture_time=self._start_dt
                     )

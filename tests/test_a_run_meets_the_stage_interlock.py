@@ -99,7 +99,7 @@ class TestARunThatMeetsTheLidEndsAtOnce:
 
         shown = [(n.title, n.message) for n in centre_posts if n.shown]
         assert (outcome.status, outcome.reason) == ('failed', 'interlock')
-        assert outcome.title == 'Protocol Aborted -- Lid Open'
+        assert outcome.title == 'Protocol Aborted -- Stage Interlock'
         assert LID_WORDS in outcome.message
         assert len(refused) == 1, f'the refused move was retried: {refused}'
         assert [title for title, _ in shown if title == outcome.title] == [outcome.title]

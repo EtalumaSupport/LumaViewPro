@@ -1433,7 +1433,7 @@ def _run_cleanup_kwargs(**overrides):
 
     ending = overrides.pop(
         'ending',
-        RunEnding('completed', 'completed', 'Protocol Complete', 'The run finished normally.'),
+        RunEnding('completed', 'completed', 'The run finished normally.'),
     )
     kwargs = {
         'get_state_fn': MagicMock(return_value=ProtocolState.RUNNING),
