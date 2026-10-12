@@ -64,7 +64,7 @@ OPENAPI_RESPONSES: dict[int | str, dict] = {
     for code, words in (
         (
             '4XX',
-            'Refused: 422 when the request cannot succeed on this scope, 409 when its state refused it; 404, 405, 415 for the request itself. Beside the members above, a problem carries the fields its type publishes, such as `argument`, and `errors` for a body that does not fit.',
+            'Refused: 422 when the request cannot succeed on this scope, 409 when its state refused it or a stop ended it; 404, 405, 415 for the request itself. Beside the members above, a problem carries the fields its type publishes, such as `argument`, and `errors` for a body that does not fit.',
         ),
         (
             '5XX',
@@ -74,10 +74,10 @@ OPENAPI_RESPONSES: dict[int | str, dict] = {
 }
 TYPE_PREFIX = 'urn:lumascope:problem:'
 
-# What each cause of a refusal or quiet outcome answers.
+# What each cause of a refusal, quiet outcome or raised notice answers: a
+# notice ends a request that nothing failed, as a stopped move does.
 _CAUSE_STATUS = {RefusalCause.REQUEST: 422, RefusalCause.STATE: 409, None: 409}
-# What a fault answers. A notice is reported, never raised, so one raised is
-# a defect and answers as a fault does.
+# What a fault answers.
 _FAULT_STATUS = 500
 
 
@@ -243,7 +243,7 @@ def answered_by_member(exception: Exception, request_id: str) -> Answer:
         exception, solicited=True, category='REST', log_only=True
     )
     outcome = outcome_of(exception)
-    if outcome.kind in (OutcomeKind.REFUSAL, OutcomeKind.QUIET):
+    if outcome.kind in (OutcomeKind.REFUSAL, OutcomeKind.QUIET, OutcomeKind.NOTICE):
         status = _CAUSE_STATUS[outcome.cause]
     else:
         status = _FAULT_STATUS

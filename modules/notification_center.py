@@ -129,9 +129,10 @@ class Outcome:
         reason: Its machine-readable code; empty when its type declares none.
         remedy: The one action that answers it, when it has one.
         fatal: A fault that ends what was running.
-        cause: Whether the same request could succeed later, as a refusal's
-            or a quiet outcome's type declares (``RefusalCause``); None for a
-            fault, a notice, and a by-contract cancel, which declares none.
+        cause: Whether the same request could succeed later, as a refusal's,
+            a quiet outcome's or a raised notice's type declares
+            (``RefusalCause``); None for a fault, a notice that is only
+            reported, and a by-contract cancel, which declares none.
     """
 
     kind: OutcomeKind
@@ -168,7 +169,7 @@ def outcome_of(exception: BaseException) -> Outcome:
         reason=getattr(exception, 'reason', None) or '',
         remedy=getattr(exception, 'remedy', None),
         fatal=fault and bool(getattr(exception, 'fatal', False)),
-        cause=_cause_of(exception) if kind in (OutcomeKind.REFUSAL, OutcomeKind.QUIET) else None,
+        cause=_cause_of(exception) if not fault else None,
     )
 
 
@@ -573,8 +574,8 @@ class NotificationCenter:
         """Log an outcome once and show it at most once, as its type says.
 
         The one place an outcome becomes a log record and a notification: an
-        exception that ended its flight, or a notice, which is reported and
-        never raised. What it is -- a refusal (``Refusal``), a notice
+        exception that ended its flight, or a notice, most of which are
+        reported and never raised. What it is -- a refusal (``Refusal``), a notice
         (``Notice``), a quiet outcome (``Quiet``, or a by-contract cancel) or
         a fault (anything else) -- and the words, title and level all come
         from the exception's type; the caller says only whether a person just

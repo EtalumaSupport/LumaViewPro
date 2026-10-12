@@ -31,6 +31,7 @@ from modules.exceptions import (
 )
 from modules.scope_session import ScopeSession
 from rest.app import build_app
+from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 
 UUID_URN = re.compile(r'urn:uuid:[0-9a-f-]{36}')
@@ -118,6 +119,33 @@ def test_a_fault_is_500_titled_by_its_class_in_its_own_words(client, session, mo
         'bad shape (3,)',
     )
     assert (body['kind'], body['reason']) == ('fault', None)
+
+
+def test_a_move_another_request_stopped_answers_409_as_a_notice(client, session):
+    home_sim_scope(session.scope)
+    hold = session.scope._motion_driver.hold_travel('X')
+    started = client.post(
+        '/api/v1/scope/motion/move_absolute',
+        json={'axis': 'X', 'position': 60000},
+        headers={'Prefer': 'wait=0'},
+    )
+    assert started.status_code == 202
+    assert hold.reached.wait(10), 'the move never got part of the way'
+
+    assert client.post('/api/v1/scope/motion/stop_motion').status_code == 200
+    job = client.get(started.headers['Location'], headers={'Prefer': 'wait=10'}).json()
+
+    assert job['status'] == 'failed'
+    error = job['error']
+    assert (error['status'], error['kind'], error['reason'], error['title']) == (
+        409,
+        'notice',
+        'stopped',
+        'Move Stopped',
+    )
+    assert (
+        error['detail'] == 'The X move did not complete: the motors were stopped before it arrived.'
+    )
 
 
 def test_a_quiet_outcome_answers_by_its_cause_and_says_it_is_quiet(client, session, monkeypatch):

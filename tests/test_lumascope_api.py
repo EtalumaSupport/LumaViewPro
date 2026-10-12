@@ -34,7 +34,7 @@ from typing import ClassVar
 import pytest
 
 from drivers.exceptions import HardwareError
-from modules.exceptions import ArgumentRefusedError, HardwareCommandRefusedError, HomingFailedError
+from modules.exceptions import ArgumentRefusedError, HardwareCommandRefusedError, HomingFaultError
 from modules.lumascope_api import Lumascope, AxisState
 from modules.notification_center import notifications, Severity
 from drivers.null_motorboard import NullMotionBoard
@@ -225,7 +225,7 @@ class TestLumascopeHome:
 
         scope._motion_driver.home = fails
 
-        with pytest.raises(HomingFailedError) as failed:
+        with pytest.raises(HomingFaultError) as failed:
             scope.motion.home()
 
         assert failed.value.title == 'Homing Failed'

@@ -23,7 +23,8 @@ import threading
 
 import pytest
 
-from modules.exceptions import HardwareCommandRefusedError, HomingFailedError
+from modules.exceptions import HardwareCommandRefusedError, HomingStoppedError
+from modules.notification_center import OutcomeKind, outcome_of
 from tests.scope_fakes import bind_settings_like_a_session, build_scope, record_turret_answer
 
 
@@ -62,10 +63,11 @@ def test_a_stop_before_the_driver_homes_ends_the_home_with_nothing_moved(homed, 
     before = homed.motion.get_current_position()
     _press_stop_during_the_apis_switch_read(homed, monkeypatch)
 
-    with pytest.raises(HomingFailedError) as ended:
+    with pytest.raises(HomingStoppedError) as ended:
         homed.motion.home(axis)
 
-    assert ended.value.reason == 'stopped'
+    assert (ended.value.reason, ended.value.title) == ('stopped', 'Homing Stopped')
+    assert outcome_of(ended.value).kind == OutcomeKind.NOTICE
     assert ended.value.axes == ()
     assert 'before it began' in str(ended.value)
     assert homed.motion.axes_without_position() == {}
@@ -112,9 +114,10 @@ def test_a_stop_while_the_board_homes_ends_it_only_where_the_board_can_take_one(
         assert homing.wait(30)
         if _STOPS_A_HOME[homed.capabilities.model]:
             homed.motion.stop_motion()
-            with pytest.raises(HomingFailedError) as ended:
+            with pytest.raises(HomingStoppedError) as ended:
                 home.result(60)
-            assert ended.value.reason == 'stopped'
+            assert (ended.value.reason, ended.value.title) == ('stopped', 'Homing Stopped')
+            assert outcome_of(ended.value).kind == OutcomeKind.NOTICE
             assert ended.value.axes
         else:
             with pytest.raises(HardwareCommandRefusedError) as refused:

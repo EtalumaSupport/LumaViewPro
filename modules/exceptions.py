@@ -222,9 +222,11 @@ class Notice(LumascopeError):  # noqa: N818 -- a kind of outcome, not an error
     """An outcome that tells the person something: nothing failed and nothing was declined.
 
     Mixed into an exception whose message is written for the person -- a
-    capture saved without its position, a long operation starting -- and
-    reported, never raised: nothing waits on a notice, so the reporter is the
-    whole of its flight. It is shown as a notice under ``title`` in its own
+    capture saved without its position, a long operation starting, a move
+    someone else stopped. Most are reported, never raised: nothing waits on
+    them, so the reporter is the whole of their flight. One that ends a
+    caller's request is raised, as a stopped move is, and reported where
+    its flight stops. It is shown as a notice under ``title`` in its own
     words, and logged at NOTICE. Its kind belongs to its type, as a
     refusal's does, so every client that hears it reads the same answer.
 
@@ -232,11 +234,15 @@ class Notice(LumascopeError):  # noqa: N818 -- a kind of outcome, not an error
         title: The heading the person reads above the message.
         reason: The machine-readable code a client branches on, since two
             notices can share a title.
+        cause: For a notice that is raised, whether the same request could
+            succeed later, stated on the type as a refusal's is; None for
+            one that is only reported.
     """
 
     title: str
     reason: str
     remedy: Remedy | None = None
+    cause: 'RefusalCause | None' = None
 
 
 class _Umbrella(LumascopeError):  # noqa: N818 -- a mixin on the root, not an error
@@ -3111,13 +3117,15 @@ class AxisStateUnknownError(Refusal, Exception):
         self.axis = next(iter(axes))
 
 
-class MoveNotCompletedError(Fault, Exception):
-    """A move ended without its axis arriving at the target.
+class MoveNotCompletedError(_Umbrella, Exception):
+    """A move ended without its axis arriving at the target: the subject, never raised itself.
 
-    The move was driven, so this is a failure, not a refusal: the motor
-    may have travelled any part of the way. A waited move that returns
-    means the axis arrived; this move could not say that, so it raises
-    instead of reporting a position nobody reached.
+    A waited move that returns means the axis arrived; this move could not
+    say that, so it raises instead of reporting a position nobody reached.
+    ``except MoveNotCompletedError`` catches every way a move ends short;
+    the child raised says which, and its kind with it: ``MoveFaultError``
+    when the move failed, ``MoveStoppedError`` when a stop or a later
+    command ended it.
 
     Distinct from ``AxisStateUnknownError``, which refuses a move before
     anything is driven and offers ``force=True`` -- advice that is wrong
@@ -3125,6 +3133,24 @@ class MoveNotCompletedError(Fault, Exception):
 
     Attributes:
         axis: The axis whose move did not complete.
+        reason: The child's code for how the move ended.
+        title: The heading shown with the sentence.
+    """
+
+    _SENTENCES: ClassVar[dict[str, str]]
+
+    def __init__(self, axis: str, reason: str):
+        super().__init__(
+            f'The {axis} move did not complete: ' + self._SENTENCES[reason].format(axis=axis)
+        )
+        self.axis = axis
+        self.reason = reason
+
+
+class MoveFaultError(Fault, MoveNotCompletedError):
+    """A move failed: the motor may have travelled any part of the way.
+
+    Attributes:
         reason: ``'driver_failed'`` -- the motor board did not take the
             command (chained from the driver's error). ``'stalled'`` --
             the motion monitor gave the axis up: it did not reach its
@@ -3136,13 +3162,7 @@ class MoveNotCompletedError(Fault, Exception):
             motion bound. ``'status_unread'`` -- the board did not report
             whether the axis arrived, within the motion bound. ``'timed_out'`` -- the wait's
             bound ran out before the axis arrived. Each of those leaves
-            the axis UNKNOWN. ``'stopped'`` -- a stop the board took while
-            it moved halted it, ``stop_motion`` or the stage's own stop in
-            refusing a move; the axis is where the stop left it, which its
-            position reports, and a turret is in no known slot.
-            ``'superseded'`` -- another move or a home took the axis before
-            this one arrived; that command's own outcome says where the
-            axis went. ``'still_moving'`` -- a wait
+            the axis UNKNOWN. ``'still_moving'`` -- a wait
             for motion the caller did not start ran out of time with the
             axis still moving; the axis keeps the state its own move gives
             it.
@@ -3179,8 +3199,6 @@ class MoveNotCompletedError(Fault, Exception):
             'it did not arrive within the motion time limit. The {axis} position '
             'is now unknown -- home the scope before moving it again.'
         ),
-        'stopped': 'the motors were stopped before it arrived.',
-        'superseded': 'another command on the {axis} axis was given before it arrived.',
         'still_moving': 'the {axis} axis was still moving when the wait ran out of time.',
     }
 
@@ -3192,12 +3210,31 @@ class MoveNotCompletedError(Fault, Exception):
     }
 
     def __init__(self, axis: str, reason: str):
-        super().__init__(
-            f'The {axis} move did not complete: ' + self._SENTENCES[reason].format(axis=axis)
-        )
-        self.axis = axis
-        self.reason = reason
+        super().__init__(axis, reason)
         self.title = self._TITLES.get(reason, 'Move Did Not Complete')
+
+
+class MoveStoppedError(Notice, MoveNotCompletedError):
+    """A move was ended before it arrived by a stop or a later command: nothing failed.
+
+    A notice: the person whose move someone else stopped is told so, as
+    information, and a REST caller is answered 409. The axis is where the
+    stop or the later command left it, which its position reports.
+
+    Attributes:
+        reason: ``'stopped'`` -- a stop the board took while it moved
+            halted it, ``stop_motion`` or the stage's own stop in refusing
+            a move; a turret is then in no known slot. ``'superseded'`` --
+            another move or a home took the axis before this one arrived;
+            that command's own outcome says where the axis went.
+    """
+
+    title = 'Move Stopped'
+    cause = RefusalCause.STATE
+    _SENTENCES: ClassVar[dict[str, str]] = {
+        'stopped': 'the motors were stopped before it arrived.',
+        'superseded': 'another command on the {axis} axis was given before it arrived.',
+    }
 
 
 class MotorStopFailedError(Fault, Exception):
@@ -3261,29 +3298,18 @@ class ScopeDisconnectError(Fault, Exception):
         super().__init__(' '.join(self._WORDS[part] for part in self.parts))
 
 
-class HomingFailedError(Fault, Exception):
-    """A home did not establish a reference position.
+class HomingFailedError(_Umbrella, Exception):
+    """A home ended without establishing a reference position: the subject, never raised itself.
 
-    The driver raised, or the home finished and a homed axis's position
-    could not be read. Each
-    leaves the axes UNKNOWN, so no caller may take the scope as knowing
-    where it is. A failure, not a refusal: the motors may have moved.
-    Chained from the driver's exception when there is one. A Stop that
-    landed before the driver was asked to home ends it with no axis
-    left unknown: nothing it homes had moved.
+    ``except HomingFailedError`` catches every way a home ends short; the
+    child raised says which, and its kind with it: ``HomingFaultError``
+    when the home failed, ``HomingStoppedError`` when a Stop ended it.
 
     Attributes:
         home: What was homed: ``'ALL'``, ``'Z'`` or ``'T'``.
-        reason: ``'error'`` -- the home raised; ``'unread'`` -- homed,
-            but ``axes`` could not be read; ``'lid_open'`` -- the lid was
-            opened while the home was moving; ``'stopped'`` -- a Stop ended
-            the home.
-        axes: The axes left without a known position; empty for a home a
-            Stop ended before it was driven.
+        reason: The child's code for how the home ended.
+        axes: The axes left without a known position.
     """
-
-    words_for_person = True
-    title = 'Homing Failed'
 
     _SUBJECTS: ClassVar[dict[str, str]] = {
         'ALL': 'Homing',
@@ -3295,25 +3321,60 @@ class HomingFailedError(Fault, Exception):
         self.home = home
         self.reason = reason
         self.axes = tuple(axes)
-        if reason == 'unread':
-            sentence = (
+        super().__init__(self._sentence(self._SUBJECTS[home]))
+
+    def _sentence(self, subject: str) -> str:
+        raise NotImplementedError
+
+
+class HomingFaultError(Fault, HomingFailedError):
+    """A home failed: the driver raised, or a homed axis's position could not be read.
+
+    Each leaves the axes UNKNOWN, so no caller may take the scope as
+    knowing where it is. The motors may have moved. Chained from the
+    driver's exception when there is one.
+
+    Attributes:
+        reason: ``'error'`` -- the home raised; ``'unread'`` -- homed, but
+            ``axes`` could not be read; ``'lid_open'`` -- the lid was
+            opened while the home was moving.
+    """
+
+    words_for_person = True
+    title = 'Homing Failed'
+
+    def _sentence(self, subject: str) -> str:
+        if self.reason == 'unread':
+            return (
                 f'Homing finished but the position of {", ".join(self.axes)} '
                 'could not be read. Position is unknown.'
             )
-        elif reason == 'lid_open':
-            sentence = (
-                f"{self._SUBJECTS[home]} stopped: the microscope's lid was opened. "
-                'Position is unknown.'
-            )
-        elif reason == 'stopped' and not self.axes:
-            sentence = (
-                f'{self._SUBJECTS[home]} was stopped before it began. The position is as it was.'
-            )
-        elif reason == 'stopped':
-            sentence = f'{self._SUBJECTS[home]} was stopped. Position is unknown.'
-        else:
-            sentence = f'{self._SUBJECTS[home]} encountered an error. Position is unknown.'
-        super().__init__(sentence)
+        if self.reason == 'lid_open':
+            return f"{subject} stopped: the microscope's lid was opened. Position is unknown."
+        return f'{subject} encountered an error. Position is unknown.'
+
+
+class HomingStoppedError(Notice, HomingFailedError):
+    """A home was ended by a Stop: nothing failed.
+
+    A notice: the person whose home someone else stopped is told so, as
+    information, and a REST caller is answered 409. A Stop that landed
+    before the driver was asked to home names no axis: nothing it homes
+    had moved.
+
+    Attributes:
+        reason: ``'stopped'`` -- a Stop ended the home.
+        axes: The axes left without a known position; empty for a home a
+            Stop ended before it was driven.
+    """
+
+    title = 'Homing Stopped'
+    cause = RefusalCause.STATE
+
+    def _sentence(self, subject: str) -> str:
+        if not self.axes:
+            return f'{subject} was stopped before it began. The position is as it was.'
+        return f'{subject} was stopped. Position is unknown.'
 
 
 class AutofocusAborted(_Umbrella, Exception):  # noqa: N818 -- cancellation/abort signal, not an error; non-Error suffix is intentional

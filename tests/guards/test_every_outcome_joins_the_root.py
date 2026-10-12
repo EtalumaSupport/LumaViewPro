@@ -9,8 +9,8 @@ one reporter (``notification_center.outcome_of``), so a class with no kind
 reads as a fault by default and a class with two reads as whichever the
 reporter asks about first.
 
-The umbrellas (``ConfigError``, ``ProtocolError``, ``CaptureError``,
-``AutofocusAborted``) name a subject, not a kind: each child states its own.
+The umbrellas (each class that names ``_Umbrella`` among its bases, such as
+``ConfigError``) name a subject, not a kind: each child states its own.
 
 Discovered, not listed: every class in ``modules/``, ``drivers/`` and
 ``rest/`` whose bases reach a built-in exception. The simulator walker's two
@@ -27,12 +27,10 @@ import pytest
 
 from lib.lumascope_error import Fault, LumascopeError
 from modules.exceptions import (
-    AutofocusAborted,
     CaptureError,
     ConfigError,
     InstallationFileError,
     Notice,
-    ProtocolError,
     Quiet,
     Refusal,
     _Umbrella,
@@ -40,7 +38,6 @@ from modules.exceptions import (
 from tests.ast_seams import REPO_ROOT, module_name
 
 KINDS = (Refusal, Notice, Quiet, Fault)
-UMBRELLAS = (ConfigError, ProtocolError, CaptureError, AutofocusAborted)
 _BUILTIN_EXCEPTIONS = {
     name
     for name, value in vars(builtins).items()
@@ -77,6 +74,7 @@ def _resolved():
 
 
 EXCEPTION_CLASSES = _resolved()
+UMBRELLAS = tuple(cls for cls in EXCEPTION_CLASSES if _Umbrella in cls.__bases__)
 
 
 def test_the_discovery_finds_the_api_s_exceptions():
@@ -116,11 +114,26 @@ def test_except_exception_still_catches_every_one():
     assert left == [], f'every except Exception would stop catching these: {_named(left)}'
 
 
-@pytest.mark.parametrize('umbrella', UMBRELLAS, ids=lambda cls: cls.__name__)
-def test_an_umbrella_cannot_be_raised(umbrella):
+def test_no_umbrella_can_be_raised():
     """A raise of the subject alone has no kind, no reason and no title to answer with."""
-    with pytest.raises(TypeError, match='never raised'):
-        umbrella('a message', 'a_reason') if umbrella is CaptureError else umbrella('a message')
+    assert {
+        'ConfigError',
+        'ProtocolError',
+        'CaptureError',
+        'AutofocusAborted',
+        'MoveNotCompletedError',
+        'HomingFailedError',
+    } <= {cls.__name__ for cls in UMBRELLAS}, 'the umbrella discovery drifted'
+    constructed = []
+    for umbrella in UMBRELLAS:
+        try:
+            # Refused before any __init__ runs, so the arguments are never read.
+            umbrella('a message')
+        except TypeError as refused:
+            if 'never raised' in str(refused):
+                continue
+        constructed.append(umbrella.__name__)
+    assert constructed == [], f'these umbrellas can be raised themselves: {constructed}'
 
 
 def test_an_umbrella_s_children_are_still_caught_by_it():

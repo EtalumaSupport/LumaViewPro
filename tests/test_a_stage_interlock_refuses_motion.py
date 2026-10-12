@@ -28,6 +28,8 @@ from modules.exceptions import (
     INTERLOCK_REASONS,
     HardwareCommandRefusedError,
     HomingFailedError,
+    HomingFaultError,
+    HomingStoppedError,
     MoveNotCompletedError,
 )
 from modules.lumascope_api import AxisState
@@ -65,8 +67,8 @@ class TestTheRefusalsWords:
         assert {'not_connected', 'lid_open', 'stage_unpowered'} == HARDWARE_STATE_REASONS
 
     def test_a_home_the_lid_ended_and_one_a_stop_ended_say_so(self):
-        lid = HomingFailedError('ALL', 'lid_open', ('X', 'Y', 'Z'))
-        stopped = HomingFailedError('Z', 'stopped', ('Z',))
+        lid = HomingFaultError('ALL', 'lid_open', ('X', 'Y', 'Z'))
+        stopped = HomingStoppedError('Z', 'stopped', ('Z',))
 
         assert str(lid) == "Homing stopped: the microscope's lid was opened. Position is unknown."
         assert str(stopped) == 'Z axis homing was stopped. Position is unknown.'

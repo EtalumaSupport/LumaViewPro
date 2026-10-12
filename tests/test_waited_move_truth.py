@@ -18,7 +18,7 @@ import threading
 
 import pytest
 
-from modules.exceptions import MoveNotCompletedError
+from modules.exceptions import MoveFaultError, MoveNotCompletedError
 from modules.lumascope_api.motion import AxisState
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
@@ -129,7 +129,7 @@ def test_the_executor_shows_the_failure_in_its_own_words(centre_posts):
     from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
     def _move():
-        raise MoveNotCompletedError('T', 'faulted')
+        raise MoveFaultError('T', 'faulted')
 
     executor = SequentialIOExecutor(name='TEST')
     task = IOTask(_move)
@@ -139,7 +139,7 @@ def test_the_executor_shows_the_failure_in_its_own_words(centre_posts):
     result, exception = task.run()
     executor._on_task_done(task, result, exception)
 
-    assert [n.message for n in centre_posts] == [str(MoveNotCompletedError('T', 'faulted'))]
+    assert [n.message for n in centre_posts] == [str(MoveFaultError('T', 'faulted'))]
 
 
 def test_another_axis_timing_out_does_not_fail_an_arrived_move(session, monkeypatch):

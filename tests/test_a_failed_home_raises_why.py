@@ -4,7 +4,7 @@
 A GUI Home press, a script, bring-up and REST all get the same thing. No
 motor controller is a refusal ("Not Connected"): nothing was driven. A
 driver that raises and a home whose position could not be read are one
-fault, ``HomingFailedError`` ("Homing Failed"), naming the axes left
+fault, ``HomingFaultError`` ("Homing Failed"), naming the axes left
 without a position and chained from the driver's
 exception where there is one. The home itself shows nothing: whoever waits
 on it reports it, once.
@@ -20,7 +20,7 @@ import logging
 import pytest
 
 from drivers.exceptions import HardwareError
-from modules.exceptions import HardwareCommandRefusedError, HomingFailedError
+from modules.exceptions import HardwareCommandRefusedError, HomingFailedError, HomingFaultError
 from modules.lumascope_api import AxisState
 from tests.scope_fakes import build_scope
 
@@ -64,7 +64,7 @@ def test_a_driver_that_raises_is_chained_not_rewrapped(scope, monkeypatch, route
 
     monkeypatch.setattr(scope._motion_driver, DRIVER_CALL[route], _raise)
 
-    with pytest.raises(HomingFailedError) as raised:
+    with pytest.raises(HomingFaultError) as raised:
         scope.motion.home(route)
 
     assert raised.value.reason == 'error'
@@ -80,7 +80,7 @@ def test_a_home_whose_position_is_unread_names_the_unread_axis(scope, route):
     unread = 'Z' if route in ('ALL', 'Z') else 'T'
     scope._motion_driver._fail_on.add(f'TARGET_R{unread}')
 
-    with pytest.raises(HomingFailedError) as raised:
+    with pytest.raises(HomingFaultError) as raised:
         scope.motion.home(route)
 
     assert raised.value.reason == 'unread'

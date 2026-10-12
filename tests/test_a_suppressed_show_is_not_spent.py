@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from modules.exceptions import MoveNotCompletedError
+from modules.exceptions import MoveFaultError
 from modules.notification_center import NotificationCenter, Severity
 
 
@@ -24,7 +24,7 @@ def centre():
 
 
 def _fault():
-    return MoveNotCompletedError('Z', 'timed_out')
+    return MoveFaultError('Z', 'timed_out')
 
 
 def test_a_report_muted_by_an_unattended_run_leaves_it_to_the_request(centre):

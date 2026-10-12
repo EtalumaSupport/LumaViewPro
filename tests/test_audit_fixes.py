@@ -1832,9 +1832,10 @@ class TestHomeRaises:
         from modules.lumascope_api.motion import MotionAPI
 
         for method in (MotionAPI.home,):
-            assert 'HomingFailedError' in (method.__doc__ or ''), (
-                f'{method.__name__} docstring must name HomingFailedError in its Raises: section'
-            )
+            for raised in ('HomingFaultError', 'HomingStoppedError'):
+                assert raised in (method.__doc__ or ''), (
+                    f'{method.__name__} docstring must name {raised} in its Raises: section'
+                )
 
     @pytest.mark.parametrize('method', ['zhome', 'home', 'thome'])
     @_firmware_only

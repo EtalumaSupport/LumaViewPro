@@ -12,8 +12,13 @@ import time
 
 import pytest
 
-from modules.exceptions import MotorStopFailedError, MoveNotCompletedError
+from modules.exceptions import (
+    MotorStopFailedError,
+    MoveNotCompletedError,
+    MoveStoppedError,
+)
 from modules.lumascope_api.motion import AxisState
+from modules.notification_center import OutcomeKind, outcome_of
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
@@ -36,11 +41,20 @@ def session(tmp_path):
 _HOLD_WAIT_S = 10.0
 
 
+def _ended(e: MoveNotCompletedError) -> str:
+    """The reason a move ended with, checked against its kind: a stop is a
+    notice, told to the person as information, and every other ending a fault."""
+    stop = e.reason in ('stopped', 'superseded')
+    assert isinstance(e, MoveStoppedError) is stop, (type(e).__name__, e.reason)
+    assert outcome_of(e).kind == (OutcomeKind.NOTICE if stop else OutcomeKind.FAULT)
+    return e.reason
+
+
 def _reason(handle):
     try:
         handle.wait()
     except MoveNotCompletedError as e:
-        return e.reason
+        return _ended(e)
     return 'arrived'
 
 
@@ -198,7 +212,7 @@ def _turret_change_reason(motion):
     try:
         motion._move_turret_impl(2)
     except MoveNotCompletedError as e:
-        return e.reason
+        return _ended(e)
     return 'arrived'
 
 

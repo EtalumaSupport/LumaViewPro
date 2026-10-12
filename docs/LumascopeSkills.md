@@ -1020,7 +1020,7 @@ session.add_run_state_listener(on_run_state)
 
 A call that fails or is refused raises to you; that exception is the call's outcome, and it is yours to report. Outcomes that no caller waits on -- a camera stream that stops, a run that ends short of its captures, a recording the disk floor stopped, a finished run's file writer that stalls, a notice that a capture was saved without its position -- reach you through the session's outcome subscription instead:
 
-Every exception the scope raises is a `LumascopeError` (`lib.lumascope_error`), so one `except LumascopeError` catches them all, and every one is still an `Exception` (or the built-in it always was, such as `ValueError`), so no `except` you already have changes what it catches. Each says what it is by one kind among its bases: a refusal (`Refusal`, `modules.exceptions`: declined, nothing broke), a notice (`Notice`), a quiet outcome (`Quiet`) or a fault (`Fault`, `lib.lumascope_error`: something failed); `notification_center.outcome_of(exception)` reads it for you. `ConfigError`, `ProtocolError` and `CaptureError` name a subject, not a kind: catch them to catch every outcome about it, but none is raised itself (constructing one raises `TypeError`), so what you receive is always the child that says what happened, with its `reason` and `title`. A program or installation defect is `ConfigurationDefectError` (a `ConfigError` and a fault, its `reason` naming the broken contract, such as `settings_not_prepared` or `scope_not_composed`), never a refusal: nothing you send changes it.
+Every exception the scope raises is a `LumascopeError` (`lib.lumascope_error`), so one `except LumascopeError` catches them all, and every one is still an `Exception` (or the built-in it always was, such as `ValueError`), so no `except` you already have changes what it catches. Each says what it is by one kind among its bases: a refusal (`Refusal`, `modules.exceptions`: declined, nothing broke), a notice (`Notice`), a quiet outcome (`Quiet`) or a fault (`Fault`, `lib.lumascope_error`: something failed); `notification_center.outcome_of(exception)` reads it for you. `ConfigError`, `ProtocolError`, `CaptureError`, `MoveNotCompletedError` and `HomingFailedError` name a subject, not a kind: catch them to catch every outcome about it, but none is raised itself (constructing one raises `TypeError`), so what you receive is always the child that says what happened, with its `reason` and `title`. A program or installation defect is `ConfigurationDefectError` (a `ConfigError` and a fault, its `reason` naming the broken contract, such as `settings_not_prepared` or `scope_not_composed`), never a refusal: nothing you send changes it.
 
 ```python
 def on_outcome(n):               # runs on the thread that reported it: return promptly, never wait on a run or the scope
@@ -1297,11 +1297,13 @@ scope.motion.home(axis='T')                      # turret only (parks Z at 0, ho
 # no motor controller, or no Z or turret to home; or 'lid_open' /
 # 'stage_unpowered': the stage's interlock refused the home before anything
 # moved; nothing moved, and every axis keeps the state it had) or
-# HomingFailedError (title 'Homing Failed'; .reason 'error' |
-# 'unread' | 'lid_open' (the lid was opened while the home moved) |
-# 'stopped' (stop_motion ended it), .axes the axes left unknown, chained
-# from the driver's error when there is one). A stop_motion that lands
-# after home() is called but before the board starts homing ends the home
+# HomingFailedError, never raised itself, whose child says how the home
+# ended (.home, .reason, .axes the axes left unknown): HomingFaultError, a
+# fault titled 'Homing Failed' (.reason 'error' | 'unread' | 'lid_open' (the
+# lid was opened while the home moved), chained from the driver's error when
+# there is one), or HomingStoppedError, a notice titled 'Homing Stopped'
+# (.reason 'stopped', stop_motion ended it). A stop_motion that lands after
+# home() is called but before the board starts homing ends the home
 # 'stopped' with .axes empty: nothing moved, every axis keeps its state.
 # Once the board is homing, a stop_motion ends the home only on a board
 # that can take a STOP mid-home (the LS720's); on the EL-0940 it raises
@@ -1390,9 +1392,11 @@ y.wait()
 scope.motion.move_relative('Z', 100)
 scope.motion.start_move_relative('Z', 100).wait()
 
-# A move that does not complete raises MoveNotCompletedError, one object with
-# .axis, .reason and .title, and the axis is UNKNOWN afterwards (except
-# 'stopped' and 'superseded'): 'driver_failed' (the board did not take the command; chained
+# A move that does not complete raises MoveNotCompletedError, never raised
+# itself, one object with .axis, .reason and .title. Its child says which
+# kind: MoveStoppedError, a notice titled 'Move Stopped', for 'stopped' and
+# 'superseded'; MoveFaultError, a fault, for every other reason, after which
+# the axis is UNKNOWN: 'driver_failed' (the board did not take the command; chained
 # from the driver's error), 'stalled' / 'board_lost' / 'position_unread' /
 # 'status_unread' (the motion monitor gave the axis up -- 'position_unread' when
 # the board said it arrived but never said where, 'status_unread' when it never
@@ -2344,11 +2348,11 @@ Every answer that is not a result is an RFC 9457 problem, `application/problem+j
  "remedy": null, "argument": "axis", "offered": ["X", "Y", "Z", "T"]}
 ```
 
-`title` and `detail` are the words a Python caller gets; `reason` is the code to branch on (`type` is `urn:lumascope:problem:<reason>`, or `about:blank` for a fault that declares none); `kind` is the outcome's (`refusal`, `quiet`, `fault`); `remedy` is the action that answers it, sent back as `POST /api/v1/apply_remedy {"remedy": ...}`; `instance` names the request. A refusal also carries the fields its type publishes, such as `argument` and `offered` for a refused argument, so a client corrects its request without reading the words. A fault whose type declares no title is titled by its exception class's name (`"ValueError"`), with `str()` of the exception as `detail`; one that declares no reason has `reason` `null` and `type` `about:blank`, and `kind` `fault`. A client branches on a 500 by its status, and on `reason` only where one is given.
+`title` and `detail` are the words a Python caller gets; `reason` is the code to branch on (`type` is `urn:lumascope:problem:<reason>`, or `about:blank` for a fault that declares none); `kind` is the outcome's (`refusal`, `quiet`, `notice`, `fault`); `remedy` is the action that answers it, sent back as `POST /api/v1/apply_remedy {"remedy": ...}`; `instance` names the request. A refusal also carries the fields its type publishes, such as `argument` and `offered` for a refused argument, so a client corrects its request without reading the words. A fault whose type declares no title is titled by its exception class's name (`"ValueError"`), with `str()` of the exception as `detail`; one that declares no reason has `reason` `null` and `type` `about:blank`, and `kind` `fault`. A client branches on a 500 by its status, and on `reason` only where one is given.
 
 | Status | When |
 |---|---|
-| `409` | A refusal the scope's state gave (`cause` `'state'`): the same request may succeed once that changes, so it is the one to retry. |
+| `409` | A refusal the scope's state gave (`cause` `'state'`): the same request may succeed once that changes, so it is the one to retry. Also a move or home a stop ended (`kind` `notice`, `reason` `stopped` or `superseded`): nothing failed. |
 | `422` | A refusal of the request as sent (`cause` `'request'`): change it before sending it again. Also `invalid_request`, a body that does not fit the member. |
 | `500` | A fault: the call failed. |
 | `404` | `not_found`: no such route, handle, job or file. |
