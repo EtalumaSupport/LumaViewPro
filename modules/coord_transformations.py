@@ -11,7 +11,28 @@ the current plate mounting position.
 """
 
 from modules.finite_number import refuse_unless_finite_number
+from modules.request_fields import key_path, refuse_unless_kind, required
 import modules.labware as lw
+
+
+def stage_offset_axes(stage_offset: dict[str, float]) -> tuple[float, float]:
+    """The X and Y of ``stage_offset``, each a finite number of um.
+
+    A caller may hand its own offset (a run keeps the one it started
+    with), so it is read as a request: a missing or non-numeric axis would
+    otherwise convert to a ``KeyError`` or a NaN position.
+
+    Raises:
+        ArgumentRefusedError: ``'missing_key'`` or ``'not_a_number'``,
+            naming ``stage_offset['x']`` or ``stage_offset['y']``.
+    """
+    refuse_unless_kind(stage_offset, 'dict', 'stage_offset')
+    axes = []
+    for axis in ('x', 'y'):
+        value = required(stage_offset, axis, 'stage_offset')
+        refuse_unless_kind(value, 'number', key_path('stage_offset', axis))
+        axes.append(value)
+    return axes[0], axes[1]
 
 
 class CoordinateTransformer:
@@ -34,14 +55,15 @@ class CoordinateTransformer:
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, ``sx`` or ``sy`` is not
-                a finite number.
+                a finite number; as ``stage_offset_axes`` refuses ``stage_offset``.
         """
         for name, value in (('sx', sx), ('sy', sy)):
             refuse_unless_finite_number(value, name)
+        offset_x, offset_y = stage_offset_axes(stage_offset)
         dim_max = labware.get_dimensions()
 
-        px = dim_max['x'] - (stage_offset['x'] + sx) / 1000
-        py = dim_max['y'] - (stage_offset['y'] + sy) / 1000
+        px = dim_max['x'] - (offset_x + sx) / 1000
+        py = dim_max['y'] - (offset_y + sy) / 1000
 
         return px, py
 
@@ -64,7 +86,7 @@ class CoordinateTransformer:
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, ``px`` or ``py`` is not
-                a finite number.
+                a finite number; as ``stage_offset_axes`` refuses ``stage_offset``.
 
         This is a pure transform and does NOT bound its input: callers
         that ENUMERATE candidate positions -- protocol validation, tile
@@ -77,11 +99,12 @@ class CoordinateTransformer:
         """
         for name, value in (('px', px), ('py', py)):
             refuse_unless_finite_number(value, name)
+        offset_x, offset_y = stage_offset_axes(stage_offset)
 
         dim_max = labware.get_dimensions()
 
-        sx = (dim_max['x'] - stage_offset['x'] / 1000 - px) * 1000  # mm -> um
-        sy = (dim_max['y'] - stage_offset['y'] / 1000 - py) * 1000
+        sx = (dim_max['x'] - offset_x / 1000 - px) * 1000  # mm -> um
+        sy = (dim_max['y'] - offset_y / 1000 - py) * 1000
 
         return sx, sy
 

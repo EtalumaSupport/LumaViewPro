@@ -23,6 +23,7 @@ import numpy as np
 
 import modules.common_utils as common_utils
 from modules.finite_number import refuse_unless_finite_number
+from modules.request_fields import key_path, refuse_unless_kind, required
 import modules.image_utils as image_utils
 from drivers import camera_profiles
 from drivers.exceptions import HardwareError
@@ -312,6 +313,24 @@ def _value_rejection(setting: str, requested: float) -> CameraSettingRejected:
     return CameraSettingRejected(
         setting, requested, message=_REJECTED_VALUE_WORDS[setting](requested)
     )
+
+
+def _refuse_unless_auto_gain_settings(settings: object, argument: str) -> None:
+    """Refuse an auto-gain settings dictionary the write cannot read.
+
+    Read on the caller's thread, before the dispatch: the write reads the
+    keys on the camera lane, where a missing one failed as the camera's
+    rejection of a change it was never sent.
+
+    Raises:
+        ArgumentRefusedError: ``'wrong_kind'``, ``'missing_key'`` or
+            ``'not_a_number'``, naming the key's path under ``argument``.
+    """
+    refuse_unless_kind(settings, 'dict', argument)
+    for key in ('target_brightness', 'min_gain_db', 'max_gain_db'):
+        refuse_unless_kind(required(settings, key, argument), 'number', key_path(argument, key))
+    for key in ('max_exposure_ms', 'min_exposure_ms'):
+        refuse_unless_kind(settings.get(key), 'number', key_path(argument, key), nullable=True)
 
 
 def _mode_rejection(setting: str, requested: object, what: str) -> CameraSettingRejected:
@@ -1606,7 +1625,10 @@ class ImagingAPI:
                 camera, for turning auto-gain on with no camera connected or
                 one removed during the write; turning it off is satisfied
                 either way.
+            ArgumentRefusedError: ``settings`` lacks a key the write reads,
+                or one is not a number.
         """
+        _refuse_unless_auto_gain_settings(settings, 'settings')
         result = self._dispatch_camera(
             self._set_auto_gain_impl,
             'set_auto_gain',
@@ -4785,7 +4807,13 @@ class ImagingAPI:
                 external-caller surface, where an omitted layer should not
                 be a TypeError, and the default keeps such a call
                 self-describing in api.log rather than anonymous.
+
+        Raises:
+            ArgumentRefusedError: ``auto_gain_settings`` lacks a key the
+                auto-gain write reads, or one is not a number.
         """
+        if auto_gain_settings is not None:
+            _refuse_unless_auto_gain_settings(auto_gain_settings, 'auto_gain_settings')
         return self._dispatch_camera(
             self._apply_layer_camera_settings_impl,
             'apply_layer_camera_settings',

@@ -2837,6 +2837,8 @@ class ArgumentRefusedError(Refusal, ValueError):
               ``offered``.
             - ``'plate_frame_axis'`` -- a plate coordinate for an axis the
               plate frame does not define (``offered``: X and Y).
+            - ``'out_of_range'`` -- a number outside the ``limits`` its
+              member takes.
             - ``'fan_duty_out_of_range'`` -- a fan duty outside 0 to 100
               percent.
             - ``'layer_unknown'`` -- the name is not one of this release's
@@ -2928,6 +2930,10 @@ class ArgumentRefusedError(Refusal, ValueError):
         'plate_frame_axis': (
             'Not a Plate Axis',
             'Plate coordinates are defined for {offered} only; {argument} {value!r} is not one of them.',
+        ),
+        'out_of_range': (
+            'Value Out of Range',
+            '{argument} must be from {low:g} to {high:g}; {value!r} is outside it.',
         ),
         'fan_duty_out_of_range': (
             'Fan Duty Not Changed',

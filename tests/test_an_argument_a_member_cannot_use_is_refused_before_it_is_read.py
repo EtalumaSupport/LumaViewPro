@@ -1,0 +1,126 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+"""An argument a member cannot use is refused at the member, as the request it is.
+
+Each member here read its argument where it was first used: a stage offset
+with no ``'x'`` raised ``KeyError``, auto-gain settings with no target were
+reported as the camera's rejection of a change it was never sent, and a
+diagnostic's duration of 10^12 s overflowed the camera lane's wait. Each is
+now refused before the member acts, with the reason a client branches on.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from modules.exceptions import ArgumentRefusedError
+from modules.scope_session import ScopeSession
+from tests.scope_fakes import home_sim_scope
+from tests.settings_fixtures import complete_settings
+
+_AUTO_GAIN = {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
+
+
+@pytest.fixture
+def session(tmp_path):
+    s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+    home_sim_scope(s.scope)
+    # A protocol has steps only for a layer that acquires.
+    s.set_layer_acquire('BF', 'image')
+    yield s
+    s.shutdown()
+
+
+def _rows(session):
+    """Each member and argument, by the refusal and reason it answers."""
+    scope = session.scope
+    protocol = session.new_protocol()
+    diagnostics = scope.diagnostics
+    return [
+        (
+            'plate_to_stage, no x',
+            ArgumentRefusedError,
+            'missing_key',
+            lambda: scope.protocols.plate_to_stage(protocol, 1.0, 1.0, stage_offset={'y': 0}),
+        ),
+        (
+            'plate_to_stage, NaN x',
+            ArgumentRefusedError,
+            'not_a_number',
+            lambda: scope.protocols.plate_to_stage(
+                protocol, 1.0, 1.0, stage_offset={'x': float('nan'), 'y': 0}
+            ),
+        ),
+        (
+            'step_targets, empty offset',
+            ArgumentRefusedError,
+            'missing_key',
+            lambda: scope.protocols.step_targets(protocol, 0, stage_offset={}),
+        ),
+        (
+            'plate_transform, empty offset',
+            ArgumentRefusedError,
+            'missing_key',
+            lambda: scope.protocols.plate_transform(protocol, stage_offset={}),
+        ),
+        (
+            'set_auto_gain, no target',
+            ArgumentRefusedError,
+            'missing_key',
+            lambda: scope.imaging.set_auto_gain(True, {'min_gain_db': 0, 'max_gain_db': 20}),
+        ),
+        (
+            'set_auto_gain, text exposure bound',
+            ArgumentRefusedError,
+            'not_a_number',
+            lambda: scope.imaging.set_auto_gain(True, {**_AUTO_GAIN, 'max_exposure_ms': 'x'}),
+        ),
+        (
+            'apply_layer_camera_settings, empty auto-gain settings',
+            ArgumentRefusedError,
+            'missing_key',
+            lambda: scope.imaging.apply_layer_camera_settings(
+                1.0, 5.0, auto_gain=True, auto_gain_settings={}
+            ),
+        ),
+        (
+            'run_grab_lifecycle_benchmark, too many cycles',
+            ArgumentRefusedError,
+            'out_of_range',
+            lambda: diagnostics.run_grab_lifecycle_benchmark(num_cycles=10_001),
+        ),
+        (
+            'run_grab_lifecycle_benchmark, negative delay',
+            ArgumentRefusedError,
+            'out_of_range',
+            lambda: diagnostics.run_grab_lifecycle_benchmark(inter_cycle_delay_ms=-1.0),
+        ),
+        (
+            'run_pylon_diagnostic_probe, negative duration',
+            ArgumentRefusedError,
+            'out_of_range',
+            lambda: diagnostics.run_pylon_diagnostic_probe(duration_s=-1.0),
+        ),
+        (
+            'run_pylon_diagnostic_probe, 10^12 s',
+            ArgumentRefusedError,
+            'out_of_range',
+            lambda: diagnostics.run_pylon_diagnostic_probe(duration_s=1e12),
+        ),
+    ]
+
+
+def test_every_argument_a_member_cannot_use_is_refused_with_its_reason(session):
+    wrong = []
+    for case, refusal, reason, call in _rows(session):
+        try:
+            call()
+        except refusal as refused:
+            if refused.reason != reason:
+                wrong.append(f'{case}: refused {refused.reason!r}, not {reason!r}')
+        except Exception as raised:  # each offender is named in the one failure
+            wrong.append(
+                f'{case}: raised {type(raised).__name__} {getattr(raised, "reason", None)!r}'
+            )
+        else:
+            wrong.append(f'{case}: was not refused')
+    assert not wrong, '\n'.join(wrong)

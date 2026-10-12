@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING
 import modules.common_utils as common_utils
 import modules.path_utils as path_utils
 from modules.finite_number import refuse_unless_finite_number
-from modules.coord_transformations import CoordinateTransformer
+from modules.coord_transformations import CoordinateTransformer, stage_offset_axes
 from modules.exceptions import (
     ArgumentRefusedError,
     PositionOutOfRangeError,
@@ -614,6 +614,8 @@ class ProtocolsAPI:
         run keeps the offset it started with).
 
         Raises:
+            ArgumentRefusedError: ``px`` or ``py`` is not a finite number;
+                ``stage_offset`` lacks a numeric ``'x'`` or ``'y'``.
             CatalogueNameRefusedError: the protocol's plate is not in the
                 catalogue (``'labware_unknown'``).
             ConfigError: no session has bound the scope, so it has no stage
@@ -656,10 +658,13 @@ class ProtocolsAPI:
         Raises:
             CatalogueNameRefusedError: the protocol's plate is not in the
                 catalogue (``'labware_unknown'``).
+            ArgumentRefusedError: as ``stage_offset_axes`` refuses
+                ``stage_offset``; asked here, so the function cannot.
         """
         if stage_offset is None:
             return None
         labware = self._scope.wellplate_loader.get_plate(plate_key=protocol.labware())
+        stage_offset_axes(stage_offset)
         stage_offset = dict(stage_offset)
 
         def to_plate(sx: float, sy: float) -> tuple[float, float]:

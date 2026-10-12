@@ -41,6 +41,26 @@ _SPI_READ = re.compile(r'SPI[A-Z]0X([0-7][0-9A-F])\d+')
 # come back as strings so a report can write them where the reply would
 # have gone; anything that times, parses or counts a reply tells them from
 # one with ``is_board_reply``.
+# What the camera benchmarks take: generous for any characterization, and
+# short of a lane wait the host cannot hold (a huge one overflowed it).
+_BENCHMARK_CYCLES = (1, 10_000)
+_BENCHMARK_DELAY_MS = (0, 60_000)
+_BENCHMARK_SLOW_S = (0, 600)
+_PROBE_DURATION_S = (0, 3_600)
+
+
+def _refuse_outside(value: object, argument: str, limits: tuple[float, float]) -> None:
+    """Refuse ``value`` unless it is a finite number within ``limits``, ends included.
+
+    Raises:
+        ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``.
+    """
+    refuse_unless_finite_number(value, argument)
+    low, high = limits
+    if not low <= value <= high:
+        raise ArgumentRefusedError('out_of_range', argument=argument, value=value, limits=limits)
+
+
 NOT_CONNECTED = 'Board not connected'
 NO_REPLY = 'None'  # a single-line read that timed out
 NO_RESPONSE = 'No response'  # a multi-line read that returned nothing
@@ -396,14 +416,18 @@ class DiagnosticsAPI:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected.
             ArgumentRefusedError: ``'not_a_number'``, a time is not a finite
-                number. Nothing reached the camera.
+                number; ``'out_of_range'``, ``num_cycles`` is outside 1 to
+                10,000, ``inter_cycle_delay_ms`` outside 0 to 60,000 or
+                ``slow_threshold_s`` outside 0 to 600. Nothing reached the
+                camera.
         """
-        for name, value in (
-            ('inter_cycle_delay_ms', inter_cycle_delay_ms),
-            ('slow_threshold_s', slow_threshold_s),
+        for name, value, limits in (
+            ('num_cycles', num_cycles, _BENCHMARK_CYCLES),
+            ('inter_cycle_delay_ms', inter_cycle_delay_ms, _BENCHMARK_DELAY_MS),
+            ('slow_threshold_s', slow_threshold_s, _BENCHMARK_SLOW_S),
         ):
-            refuse_unless_finite_number(value, name)
-        bound_s = num_cycles * (self._GRAB_CYCLE_BOUND_S + max(0.0, inter_cycle_delay_ms) / 1000.0)
+            _refuse_outside(value, name, limits)
+        bound_s = num_cycles * (self._GRAB_CYCLE_BOUND_S + inter_cycle_delay_ms / 1000.0)
         return self._scope.imaging._dispatch_camera(
             self._run_grab_lifecycle_benchmark_impl,
             'run_grab_lifecycle_benchmark',
@@ -636,9 +660,10 @@ class DiagnosticsAPI:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected.
             ArgumentRefusedError: ``'not_a_number'``, ``duration_s`` is not a finite
-                number. Nothing reached the camera.
+                number; ``'out_of_range'``, it is outside 0 to 3,600.
+                Nothing reached the camera.
         """
-        refuse_unless_finite_number(duration_s, 'duration_s')
+        _refuse_outside(duration_s, 'duration_s', _PROBE_DURATION_S)
         return self._scope.imaging._dispatch_camera(
             self._run_pylon_diagnostic_probe_impl,
             'run_pylon_diagnostic_probe',
