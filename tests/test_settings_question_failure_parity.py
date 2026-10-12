@@ -856,16 +856,16 @@ class TestTheDebugBannerTellsTheTruth:
     def test_a_rejected_current_json_is_not_named_as_the_debug_source(self, tmp_path, monkeypatch):
         """The startup banner reported "(from current.json)" for a file
         the reader had just refused -- the one line that would have told
-        the bench operator the truth 19 s into the log."""
+        the bench operator the truth 19 s into the log. The shipped file
+        answers instead, as preparation's fallback does, and is named."""
         data = tmp_path / 'data'
         data.mkdir()
         (data / 'current.json').write_text('{"debug_mode": true,,,')
+        (data / 'settings.json').write_text(json.dumps({'debug_mode': False}))
         monkeypatch.setattr(settings_init, 'debug_setting_source', None)
 
-        with pytest.raises(settings_init.SettingsFileError):
-            settings_init.load_debug_setting(str(tmp_path))
-
-        assert settings_init.debug_setting_source is None
+        assert settings_init.load_debug_setting(str(tmp_path)) is False
+        assert settings_init.debug_setting_source == 'settings.json'
 
     def test_a_readable_file_is_still_named(self, tmp_path, monkeypatch):
         """Control: the banner must still name the file it did read, or

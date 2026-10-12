@@ -847,94 +847,65 @@ def _resolve_settings_path(directory):
     raise FileNotFoundError(f'No settings files found in {data_dir}')
 
 
-# The four readers below read the file as read, before it is prepared: the
-# logger, the profilers and the tracer are configured before the live
-# settings exist, so a key an older file lacks takes its shipped value
-# here. Every other reader indexes the prepared store.
+def read_before_preparation(directory: str, key: str) -> tuple[object, str]:
+    """One installation-only setting, read before the settings are prepared.
+
+    For what a process needs before ``prepare_settings`` can run: the
+    instance lock a second launch must meet before it touches the files,
+    and the logger, profilers and tracer configured before anything logs.
+    Read only, by preparation's own rule: ``current.json`` is live, and the
+    shipped ``settings.json`` answers when ``current.json`` is missing,
+    unusable (preparation reports that once it runs), or lacks the key (a
+    key a later release added). Every other reader indexes the prepared
+    store.
+
+    Returns:
+        The value, and the basename of the file it came from.
+
+    Raises:
+        FileNotFoundError: no shipped ``settings.json``.
+        SettingsFileError: the shipped ``settings.json`` is unusable.
+        KeyError: the shipped ``settings.json`` lacks ``key``.
+    """
+    data_dir = os.path.join(directory, 'data')
+    try:
+        live = read_settings_json(os.path.join(data_dir, 'current.json'))
+    except (FileNotFoundError, SettingsFileError):
+        live = {}
+    if key in live:
+        return live[key], 'current.json'
+    return read_settings_json(os.path.join(data_dir, 'settings.json'))[key], 'settings.json'
+
+
 def load_debug_setting(directory: str) -> bool:
     global debug_setting, debug_setting_source
-
-    try:
-        filename = _resolve_settings_path(directory)
-
-        temp_settings = read_settings_json(filename)
-
-        # Named as the source only after the read succeeds: a rejected
-        # file must not appear in the banner as the settings in force.
-        debug_setting_source = os.path.basename(filename)
-
-        debug_setting = temp_settings.get('debug_mode', False)
-        return debug_setting
-
-    except Exception as e:
-        raise e
+    debug_setting, debug_setting_source = read_before_preparation(directory, 'debug_mode')
+    return debug_setting
 
 
 def load_profile_trace_setting(directory: str) -> dict:
-    """Read profile_trace.enabled + profile_trace.output_dir from settings.
+    """profile_trace_enabled and profile_trace_output_dir, before preparation.
 
-    Returns a dict {"enabled": bool, "output_dir": str | None}. Missing
-    or unreadable settings file resolves to {"enabled": False,
-    "output_dir": None} so the caller never has to guard for absence;
-    profile_trace defaults OFF in that case.
-
-    Called from lib/profile_trace.py at module-import time, mirroring
-    the timing of load_debug_setting() above. Replaces the prior
-    LVP_PROFILE_TRACE environment-variable gate.
+    Returns ``{"enabled": bool, "output_dir": str | None}``. Called from
+    lib/profile_trace.py at import, as load_debug_setting is from the logger.
     """
-    try:
-        filename = _resolve_settings_path(directory)
-        temp_settings = read_settings_json(filename)
-    except Exception:
-        return {'enabled': False, 'output_dir': None}
-
-    return {
-        'enabled': bool(temp_settings.get('profile_trace_enabled', False)),
-        'output_dir': temp_settings.get('profile_trace_output_dir') or None,
-    }
+    enabled, _ = read_before_preparation(directory, 'profile_trace_enabled')
+    output_dir, _ = read_before_preparation(directory, 'profile_trace_output_dir')
+    return {'enabled': bool(enabled), 'output_dir': output_dir or None}
 
 
 def load_tracemalloc_setting(directory: str) -> bool:
-    """Read tracemalloc_enabled from settings.
-
-    Returns bool. Missing or unreadable settings file resolves to False
-    so the caller never has to guard for absence; tracemalloc defaults
-    OFF in that case (10-30% process-memory overhead is the cost).
-
-    Called from modules/common_utils.py at module-import time, mirroring
-    the timing of load_profile_trace_setting() above. Replaces the prior
-    LVP_TRACEMALLOC environment-variable gate.
-    """
-    try:
-        filename = _resolve_settings_path(directory)
-        temp_settings = read_settings_json(filename)
-    except Exception:
-        return False
-
-    return bool(temp_settings.get('tracemalloc_enabled', False))
+    """tracemalloc_enabled, before preparation; read by modules/common_utils.py at import."""
+    enabled, _ = read_before_preparation(directory, 'tracemalloc_enabled')
+    return bool(enabled)
 
 
 def load_memory_profile_setting(directory: str) -> dict:
-    """Read memory_profile settings (gate + cadence).
+    """memory_profile_enabled and memory_profile_interval_s, before preparation.
 
-    Returns ``{"enabled": bool, "interval_s": float}``. Missing or unreadable
-    settings file resolves to ``{"enabled": False, "interval_s": 5.0}`` so the
-    caller never has to guard for absence; the memory profiler defaults OFF
-    (tracemalloc carries 10-30% process-memory overhead, the same cost as the
-    tracemalloc gate). Enable via ``memory_profile_enabled: true`` in the live
-    settings (current.json once it exists, settings.json default) -- the same
-    merged-settings path as profile_trace / tracemalloc.
-
-    Called from lib/memory_profile.py, mirroring load_profile_trace_setting /
-    load_tracemalloc_setting above.
+    Returns ``{"enabled": bool, "interval_s": float}``; read by
+    lib/memory_profile.py.
     """
-    try:
-        filename = _resolve_settings_path(directory)
-        temp_settings = read_settings_json(filename)
-    except Exception:
-        return {'enabled': False, 'interval_s': 5.0}
-
-    return {
-        'enabled': bool(temp_settings.get('memory_profile_enabled', False)),
-        'interval_s': float(temp_settings.get('memory_profile_interval_s', 5.0)),
-    }
+    enabled, _ = read_before_preparation(directory, 'memory_profile_enabled')
+    interval_s, _ = read_before_preparation(directory, 'memory_profile_interval_s')
+    return {'enabled': bool(enabled), 'interval_s': float(interval_s)}

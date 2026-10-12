@@ -105,7 +105,7 @@ print(json.dumps({
 def test_a_folder_of_links_keeps_every_readers_data_in_that_folder(tmp_path):
     folder = tmp_path / 'launch'
     folder.mkdir()
-    for item in ('lvp_logger.py', 'modules', 'lib', 'version.txt'):
+    for item in ('lvp_logger.py', 'modules', 'lib', 'version.txt', 'data'):
         (folder / item).symlink_to(REPO / item)
 
     roots = json.loads(

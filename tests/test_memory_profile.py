@@ -8,49 +8,49 @@ settings.json merged read, default-off) and the disabled-path no-ops.
 
 import json
 
+import pytest
+
 from lib import memory_profile
 from modules.settings_init import load_memory_profile_setting
 
+_SHIPPED = {'memory_profile_enabled': False, 'memory_profile_interval_s': 5.0}
 
-def _write_settings(directory, payload):
+
+def _write(directory, name, payload):
     data = directory / 'data'
     data.mkdir(parents=True, exist_ok=True)
-    (data / 'settings.json').write_text(json.dumps(payload))
+    (data / name).write_text(json.dumps(payload))
 
 
 class TestGate:
-    def test_missing_settings_defaults_off(self, tmp_path):
-        cfg = load_memory_profile_setting(tmp_path)  # no data/ at all
-        assert cfg['enabled'] is False
-        assert cfg['interval_s'] == 5.0
+    """Read before preparation: current.json, else the shipped settings.json."""
 
-    def test_absent_key_defaults_off(self, tmp_path):
-        _write_settings(tmp_path, {'debug_mode': True})
-        cfg = load_memory_profile_setting(tmp_path)
-        assert cfg['enabled'] is False
+    def test_an_installation_with_no_settings_is_an_error_not_off(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            load_memory_profile_setting(tmp_path)
 
-    def test_enabled_flag_read(self, tmp_path):
-        _write_settings(tmp_path, {'memory_profile_enabled': True})
-        cfg = load_memory_profile_setting(tmp_path)
-        assert cfg['enabled'] is True
-        assert cfg['interval_s'] == 5.0
-
-    def test_interval_override_read(self, tmp_path):
-        _write_settings(
-            tmp_path, {'memory_profile_enabled': True, 'memory_profile_interval_s': 2.0}
-        )
-        cfg = load_memory_profile_setting(tmp_path)
-        assert cfg['interval_s'] == 2.0
+    def test_the_shipped_values_answer_with_no_current_json(self, tmp_path):
+        _write(tmp_path, 'settings.json', _SHIPPED)
+        assert load_memory_profile_setting(tmp_path) == {'enabled': False, 'interval_s': 5.0}
 
     def test_current_json_wins_over_settings(self, tmp_path):
-        # current.json is the live merged file; it should be the read source
-        # when present (the same precedence the other profiling gates use).
-        data = tmp_path / 'data'
-        data.mkdir(parents=True, exist_ok=True)
-        (data / 'settings.json').write_text(json.dumps({'memory_profile_enabled': False}))
-        (data / 'current.json').write_text(json.dumps({'memory_profile_enabled': True}))
-        cfg = load_memory_profile_setting(tmp_path)
-        assert cfg['enabled'] is True
+        _write(tmp_path, 'settings.json', _SHIPPED)
+        _write(
+            tmp_path,
+            'current.json',
+            {'memory_profile_enabled': True, 'memory_profile_interval_s': 2.0},
+        )
+        assert load_memory_profile_setting(tmp_path) == {'enabled': True, 'interval_s': 2.0}
+
+    def test_a_key_current_json_lacks_takes_the_shipped_value(self, tmp_path):
+        _write(tmp_path, 'settings.json', {**_SHIPPED, 'memory_profile_interval_s': 7.0})
+        _write(tmp_path, 'current.json', {'memory_profile_enabled': True})
+        assert load_memory_profile_setting(tmp_path) == {'enabled': True, 'interval_s': 7.0}
+
+    def test_an_unusable_current_json_takes_the_shipped_values(self, tmp_path):
+        _write(tmp_path, 'settings.json', _SHIPPED)
+        (tmp_path / 'data' / 'current.json').write_text('{"memory_profile_enabled": true,,,')
+        assert load_memory_profile_setting(tmp_path) == {'enabled': False, 'interval_s': 5.0}
 
 
 class TestDisabledNoOps:
@@ -62,7 +62,7 @@ class TestDisabledNoOps:
 
     def test_start_disabled_leaves_profiler_off(self, tmp_path):
         # Point start() at a settings dir with the gate off; it must stay off.
-        _write_settings(tmp_path, {'memory_profile_enabled': False})
+        _write(tmp_path, 'settings.json', _SHIPPED)
         # start() is idempotent via a module flag; this test only asserts the
         # disabled outcome, which holds regardless of prior start() calls.
         memory_profile.start(str(tmp_path))

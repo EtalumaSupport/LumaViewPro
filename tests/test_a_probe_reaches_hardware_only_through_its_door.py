@@ -44,6 +44,8 @@ def test_a_simulated_probe_refuses_the_hardware_flag_by_name(tmp_path):
 def test_the_hardware_door_refuses_an_installation_with_no_current_json(tmp_path):
     root = tmp_path / 'install'
     (root / 'data').mkdir(parents=True)
+    # Installed as shipped, before the first run has written current.json.
+    (root / 'data' / 'settings.json').symlink_to(REPO / 'data' / 'settings.json')
     # The door reads the root the app reads; here it is pointed at an empty
     # installation, so the refusal is reached before any session is built.
     code = (
