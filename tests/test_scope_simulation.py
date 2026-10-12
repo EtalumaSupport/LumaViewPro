@@ -202,9 +202,11 @@ def test_injected_lists_what_was_asked_and_clear_takes_it_all_back(scope):
     assert scope.imaging.frame_validity.target('gain') == 4.0
 
 
-def test_clear_releases_a_held_axis(scope):
-    scope.simulation.hold_axis('X')
+def test_a_held_axis_says_when_it_halted_and_clear_releases_it(scope):
+    halted = scope.simulation.hold_axis('X')
     handle = scope.motion.start_move_absolute('X', 20_000.0)
+    assert halted.wait(10.0), 'the held move never halted'
+    assert 0.0 < scope.motion.get_actual_position('X') < 20_000.0
     scope.simulation.clear()
     handle.wait()
     assert scope.motion.get_actual_position('X') == pytest.approx(20_000.0, abs=0.1)

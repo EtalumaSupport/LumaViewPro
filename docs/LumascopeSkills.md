@@ -2636,7 +2636,7 @@ Which board answers a member depends on how the model is simulated. The **fast**
 | `unplug(board)`, `replug(board)` | the cable pulled and put back | motor | either board | TMCM-6110; FX2 (`replug` refused) |
 | `reboot(board, booting_for_s=0.0)` | the firmware restarts; found again after the boot | refused | either board | refused |
 | `fail_home(axis, how)` | a home that fails: `'switch_never_trips'`, `'stall'` or `'absent'` | refused | every `how` | TMCM-6110, `'switch_never_trips'` |
-| `hold_axis(axis, at_fraction=0.5)` | the next move halts part of the way and never arrives | motor | refused (the axis arrives) | refused |
+| `hold_axis(axis, at_fraction=0.5)` | the next move halts part of the way and never arrives; returns an event set once it has halted | motor | refused (the axis arrives) | refused |
 | `interlock(lid_open=None, powered=None)` | the stage interlock's inputs | refused | refused | TMCM-6110 |
 | `remove_camera()` | the camera leaves the bus, for the session | camera | camera | FX2 |
 | `refuse_camera_write(node, answer)` | the next write of `node` (`'gain'`, `'exposure'`, `'auto_exposure'`, `'frame_size'`, `'binning'`, `'pixel_format'`, `'black_level'`) answers `'false'`, `'none'`, `'true'` or `'raise'` | camera | camera | refused |

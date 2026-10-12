@@ -21,6 +21,7 @@ A fault is armed for the next command, not the one in flight.
 from __future__ import annotations
 
 import dataclasses
+import threading
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -357,12 +358,18 @@ class SimulationAPI:
         self._record('fail_home', undo, axis=axis, how=how)
 
     @api(in_process=True)
-    def hold_axis(self, axis: str, at_fraction: float = 0.5) -> None:
+    def hold_axis(self, axis: str, at_fraction: float = 0.5) -> threading.Event:
         """``axis``'s next move halts part of the way and never arrives, until ``clear``.
 
         Args:
             axis: The axis whose next move is held.
             at_fraction: How far along its travel it halts, between 0 and 1.
+
+        Returns:
+            An event set once the move has halted at the hold, for a caller
+            acting on a move while it travels: waited on, it replaces a
+            guess with a clock at how far the move has got. ``clear``
+            releases the move, which then travels the rest.
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
@@ -381,6 +388,7 @@ class SimulationAPI:
             raise self._not_injectable('hold_axis', target)
         hold = target.hold_travel(axis, at_fraction)
         self._record('hold_axis', hold.release, axis=axis, at_fraction=at_fraction)
+        return hold.reached
 
     @api(in_process=True)
     def interlock(self, lid_open: bool | None = None, powered: bool | None = None) -> None:
