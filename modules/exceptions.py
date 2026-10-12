@@ -6,14 +6,17 @@ For driver-layer hardware exceptions (HardwareError), see drivers/exceptions.py.
 """
 
 import pathlib
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from lib.lumascope_error import Fault, LumascopeError
 from modules.api_surface import api_fields
 from modules.run_outcome import ENDING_TITLES
+
+if TYPE_CHECKING:
+    from modules.plugins import PluginNotLoaded
 
 
 @api_fields('member', 'confirm_text', 'cancel_text')
@@ -2323,8 +2326,8 @@ class FrameHandlerRemovedError(Refusal, Exception):
         self.reason = reason
 
 
-class PluginError(Fault, Exception):
-    """A plugin failed: it did not load, or it failed after loading.
+class PluginError(_Umbrella, Exception):
+    """A plugin failed: it did not load, or it failed after loading. The subject, never raised itself.
 
     Nothing raises these: the plugin host catches the plugin's own failure
     and has no caller to raise to, so each is built to be reported, chained
@@ -2333,59 +2336,61 @@ class PluginError(Fault, Exception):
     so its failure is a fault for the person to hear about while the rest
     of the application carries on.
 
-    The title names the plugin, so two plugins failing together are two
-    notices rather than one that hides the other.
-
-    Attributes:
-        plugin_name: The plugin that failed.
+    Each kind's title is its class's; the words name the plugin.
     """
 
     words_for_person = True
 
-    def __init__(self, plugin_name: str, title: str, message: str):
-        super().__init__(message)
-        self.plugin_name = plugin_name
-        self.title = title
 
+class PluginNotLoadedError(Fault, PluginError):
+    """Plugins found at discovery did not load, every one of them in one outcome.
 
-class PluginNotLoadedError(PluginError):
-    """A plugin found in the plugin group did not load.
+    Discovery reports once, when it ends: the reporter merges notices that
+    share a title within its window, so one outcome per plugin would show
+    only the first of several failing together. The host chains every
+    plugin's own exception, as an ``ExceptionGroup``, so the one log record
+    carries each traceback.
 
     Attributes:
-        reason: Why, in words a person can act on.
+        failures: What did not load, each with its name and why, in the
+            order discovery found them.
     """
 
-    def __init__(self, plugin_name: str, reason: str):
+    reason = 'plugin_not_loaded'
+    title = 'Plugin Not Loaded'
+
+    def __init__(self, failures: 'Sequence[PluginNotLoaded]'):
         super().__init__(
-            plugin_name,
-            f'Plugin Not Loaded: {plugin_name}',
-            f'The "{plugin_name}" plugin did not load: {reason}. The rest of '
-            'LumaViewPro is unaffected.',
+            ' '.join(f'The "{f.name}" plugin did not load: {f.reason}.' for f in failures)
+            + ' The rest of LumaViewPro is unaffected.'
         )
-        self.reason = reason
+        self.failures = tuple(failures)
 
 
-class PluginFailedError(PluginError):
+class PluginFailedError(Fault, PluginError):
     """A loaded plugin failed while the host was calling it.
 
     Attributes:
+        plugin_name: The plugin that failed.
         hook: What the host was calling the plugin for.
         detail: The plugin's own account of the failure, when it gave one.
     """
 
+    reason = 'plugin_failed'
+    title = 'Plugin Error'
+
     def __init__(self, plugin_name: str, hook: str, detail: str = ''):
         said = f' It said: {detail}' if detail else ''
         super().__init__(
-            plugin_name,
-            f'Plugin Error: {plugin_name}',
             f'The "{plugin_name}" plugin failed ({hook}), so that action did not '
-            f'complete. The rest of LumaViewPro is unaffected.{said}',
+            f'complete. The rest of LumaViewPro is unaffected.{said}'
         )
+        self.plugin_name = plugin_name
         self.hook = hook
         self.detail = detail
 
 
-class PluginProcessorSkippedError(PluginError):
+class PluginProcessorSkippedError(Fault, PluginError):
     """A run's post-processing by a plugin did not run: the plugin was unloaded first.
 
     The session's close unloads plugins before it waits for the work under
@@ -2399,17 +2404,20 @@ class PluginProcessorSkippedError(PluginError):
         run: The run whose folder was not processed, by its protocol name
             or its folder.
         folder: The run's folder.
+        plugin_name: The plugin whose processing did not run.
     """
+
+    reason = 'processor_skipped'
+    title = 'Post-Processing Skipped'
 
     def __init__(self, plugin_name: str, run: str, folder: str):
         super().__init__(
-            plugin_name,
-            f'Post-Processing Skipped: {plugin_name}',
             f'The "{plugin_name}" plugin did not process the run "{run}": it had been '
             f"unloaded before the run finished, as LumaViewPro's close does first. The "
             f"run's images are all in {folder}; process them with the plugin when it is "
             'next loaded.',
         )
+        self.plugin_name = plugin_name
         self.run = run
         self.folder = folder
 

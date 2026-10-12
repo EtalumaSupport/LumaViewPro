@@ -516,6 +516,9 @@ class PluginRegistry:
         # as skipped rather than dropped without a word.
         self._unloaded: set[str] = set()
         self._not_loaded: list[PluginNotLoaded] = []
+        # Recorded by this discovery and not yet reported, each with the
+        # plugin's own exception: load() reports them together when it ends.
+        self._unreported: list[tuple[PluginNotLoaded, BaseException | None]] = []
         # The settings as subscribers last heard them: taken at load, so a
         # change made before the first save is told at that save. Written
         # by load() and settings_saved(), on the host's thread.
@@ -575,11 +578,12 @@ class PluginRegistry:
     def record_load_failure(
         self, name: str, version: str, reason: str, cause: BaseException | None = None
     ) -> None:
-        """Record that a plugin did not load, and report it.
+        """Record that a plugin did not load, for the discovery's one report.
 
-        The one place a load failure becomes an outcome, so no path that
-        drops a plugin can keep it without telling anyone. The record is
-        kept in ``not_loaded()``.
+        The one place a load failure is recorded, so no path that drops a
+        plugin can keep it without telling anyone: ``load()`` reports every
+        failure recorded here as one outcome when discovery ends. The record
+        is kept in ``not_loaded()``.
 
         Args:
             name: The plugin's name, or its entry point's when it has no spec.
@@ -588,10 +592,27 @@ class PluginRegistry:
             cause: The plugin's own exception, when there is one; its
                 traceback is carried into the one log record.
         """
+        record = PluginNotLoaded(name, version, reason)
         with self._loaded_lock:
-            self._not_loaded.append(PluginNotLoaded(name, version, reason))
-        outcome = PluginNotLoadedError(name, reason)
-        outcome.__cause__ = cause
+            self._not_loaded.append(record)
+            self._unreported.append((record, cause))
+
+    def _report_not_loaded(self) -> None:
+        """Report every load failure recorded since the last report, as one outcome.
+
+        One, not one per plugin: the reporter merges notices that share a
+        title within its window, so plugins failing together would show as
+        the first of them alone. Every plugin's own exception is chained, so
+        the one log record carries each traceback.
+        """
+        with self._loaded_lock:
+            unreported, self._unreported = self._unreported, []
+        if not unreported:
+            return
+        outcome = PluginNotLoadedError([record for record, _ in unreported])
+        causes = [cause for _, cause in unreported if cause is not None]
+        if causes:
+            outcome.__cause__ = BaseExceptionGroup('the plugins that did not load', causes)
         notifications.report_outcome(outcome, solicited=False, category='Plugins')
 
     def record_runtime_error(
@@ -704,7 +725,8 @@ class PluginRegistry:
         them, so an installed package claiming a built-in's name keeps it and
         the built-in is the one reported as not loaded. Each plugin's
         register(host) is wrapped; a plugin that does not load, for any
-        reason, is recorded and reported and the rest still load. The
+        reason, is recorded and the rest still load; every one recorded is
+        reported together, once, when discovery ends. The
         settings subscribers will be told about are taken here. With the
         host's ``no_engineering``, the engineering plugin is left out
         before it is imported: not checked, not registered, not reported.
@@ -736,6 +758,7 @@ class PluginRegistry:
         for module in BUILTIN_PLUGINS:
             count += self._load_one(module, module.__name__, host, host_version)
         logger.info(f'[Plugins ] discovery complete -- {count} loaded')
+        self._report_not_loaded()
 
     def _load_one(self, module: Any, found_as: str, host: Any, host_version: str) -> int:
         """Register one plugin module with *host*; 1 if it loaded, 0 if not."""

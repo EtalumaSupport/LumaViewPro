@@ -4,9 +4,11 @@
 A plugin is separately versioned and may not be ours, so the host catches
 its failure and carries on. Whether it failed to load or failed after
 loading, the failure goes through one of the registry's two recorders,
-which keep it for diagnostics and hand it to the one reporter: one log
-record carrying the plugin's own traceback, and one notice whose title
-names the plugin, so two plugins failing together are two notices.
+which keep it for diagnostics, and reaches the one reporter: one log
+record carrying the plugin's own traceback, and one notice under its
+class's title whose words name the plugin. Discovery reports once, when it
+ends, naming every plugin that did not load, so plugins failing together
+are not merged into one notice that names only the first.
 """
 
 from __future__ import annotations
@@ -73,16 +75,19 @@ def _load(ctx, *eps):
         ctx.plugins.load(ctx, '4.0.0')
 
 
-def _assert_one_report(centre_posts, caplog, kind, title, *, cause=None):
-    assert [(n.severity, n.title) for n in centre_posts] == [(Severity.ERROR, title)]
+def _assert_one_report(centre_posts, caplog, kind, plugin, *, cause=None):
+    assert [(n.severity, n.title) for n in centre_posts] == [(Severity.ERROR, kind.title)]
+    assert f'"{plugin}"' in centre_posts[0].message, centre_posts[0].message
     faults = _faults(caplog)
     assert len(faults) == 1, [r.getMessage() for r in faults]
     reported = faults[0].exc_info[1]
     assert isinstance(reported, kind)
-    assert reported.title == title
     if cause is not None:
-        assert reported.__cause__ is cause
-        assert faults[0].exc_info[1].__cause__.__traceback__ is not None
+        # Discovery's one report chains every plugin's own exception.
+        chained = reported.__cause__
+        causes = chained.exceptions if isinstance(chained, BaseExceptionGroup) else (chained,)
+        assert cause in causes
+        assert cause.__traceback__ is not None
     assert _plugin_logger_errors(caplog) == [], 'a second log line beside the report'
 
 
@@ -103,7 +108,7 @@ def test_a_plugin_that_cannot_be_imported_is_reported(harness_ctx, centre_posts,
         centre_posts,
         outcome_records,
         PluginNotLoadedError,
-        'Plugin Not Loaded: broken_import',
+        'broken_import',
         cause=boom,
     )
     assert 'broken_import' in [s.name for s in harness_ctx.plugins.not_loaded()]
@@ -112,9 +117,7 @@ def test_a_plugin_that_cannot_be_imported_is_reported(harness_ctx, centre_posts,
 def test_a_package_that_is_not_a_plugin_is_reported(harness_ctx, centre_posts, outcome_records):
     _load(harness_ctx, _EntryPoint('not_a_plugin', _module('not_a_plugin', spec=False)))
 
-    _assert_one_report(
-        centre_posts, outcome_records, PluginNotLoadedError, 'Plugin Not Loaded: not_a_plugin'
-    )
+    _assert_one_report(centre_posts, outcome_records, PluginNotLoadedError, 'not_a_plugin')
     assert 'PluginSpec' in centre_posts[0].message
 
 
@@ -122,9 +125,7 @@ def test_a_plugin_for_another_version_is_reported(harness_ctx, centre_posts, out
     mod = _module('too_new', requires='>=5.0.0', register=lambda ctx: None)
     _load(harness_ctx, _EntryPoint('too_new', mod))
 
-    _assert_one_report(
-        centre_posts, outcome_records, PluginNotLoadedError, 'Plugin Not Loaded: too_new'
-    )
+    _assert_one_report(centre_posts, outcome_records, PluginNotLoadedError, 'too_new')
     assert '>=5.0.0' in centre_posts[0].message and '4.0.0' in centre_posts[0].message
     assert 'too_new' in [s.name for s in harness_ctx.plugins.not_loaded()]
 
@@ -132,9 +133,7 @@ def test_a_plugin_for_another_version_is_reported(harness_ctx, centre_posts, out
 def test_a_plugin_with_no_register_is_reported(harness_ctx, centre_posts, outcome_records):
     _load(harness_ctx, _EntryPoint('no_register', _module('no_register')))
 
-    _assert_one_report(
-        centre_posts, outcome_records, PluginNotLoadedError, 'Plugin Not Loaded: no_register'
-    )
+    _assert_one_report(centre_posts, outcome_records, PluginNotLoadedError, 'no_register')
 
 
 def test_a_plugin_whose_register_raises_is_reported(harness_ctx, centre_posts, outcome_records):
@@ -149,23 +148,21 @@ def test_a_plugin_whose_register_raises_is_reported(harness_ctx, centre_posts, o
         centre_posts,
         outcome_records,
         PluginNotLoadedError,
-        'Plugin Not Loaded: bad_register',
+        'bad_register',
         cause=boom,
     )
     assert 'register exploded' in centre_posts[0].message
 
 
-def test_two_plugins_failing_together_are_both_shown(harness_ctx, centre_posts):
+def test_two_plugins_failing_together_are_one_notice_naming_both(harness_ctx, centre_posts):
     _load(
         harness_ctx,
         _EntryPoint('alpha', raises=ImportError('a')),
         _EntryPoint('beta', raises=ImportError('b')),
     )
 
-    assert [n.title for n in centre_posts] == [
-        'Plugin Not Loaded: alpha',
-        'Plugin Not Loaded: beta',
-    ]
+    assert [n.title for n in centre_posts] == ['Plugin Not Loaded']
+    assert '"alpha"' in centre_posts[0].message and '"beta"' in centre_posts[0].message
 
 
 # ---------------------------------------------------------------------------
@@ -195,9 +192,7 @@ def test_a_ui_crash_or_a_failed_mount_is_reported(harness_ctx, centre_posts, out
 
     harness_ctx.plugins.record_runtime_error('crashy', hook, boom)
 
-    _assert_one_report(
-        centre_posts, outcome_records, PluginFailedError, 'Plugin Error: crashy', cause=boom
-    )
+    _assert_one_report(centre_posts, outcome_records, PluginFailedError, 'crashy', cause=boom)
     errors = harness_ctx.plugins.post_processing.health().last_runtime_errors
     assert [(e.plugin_name, e.hook, e.exc_type) for e in errors] == [('crashy', hook, 'ValueError')]
 
@@ -213,9 +208,7 @@ def test_a_settings_handler_that_raises_is_reported(harness_ctx, centre_posts, o
 
     harness_ctx.plugins.notify_settings_changed(harness_ctx, {'a': 1}, ['a'])
 
-    _assert_one_report(
-        centre_posts, outcome_records, PluginFailedError, 'Plugin Error: listener', cause=boom
-    )
+    _assert_one_report(centre_posts, outcome_records, PluginFailedError, 'listener', cause=boom)
     errors = harness_ctx.plugins.post_processing.health().last_runtime_errors
     assert [e.hook for e in errors] == ['on_settings_changed']
 
@@ -231,7 +224,8 @@ def test_a_plugin_in_no_namespace_is_still_reported(harness_ctx, centre_posts, o
 
     harness_ctx.plugins.notify_settings_changed(harness_ctx, {'a': 1}, ['a'])
 
-    assert [n.title for n in centre_posts] == ['Plugin Error: homeless']
+    assert [n.title for n in centre_posts] == ['Plugin Error']
+    assert '"homeless"' in centre_posts[0].message
 
 
 def _run_complete(ctx, tmp_path):
@@ -249,9 +243,7 @@ def test_a_post_run_processor_that_raises_is_reported(
     _loaded_post_processor(harness_ctx, 'auto_bad', processor, auto_run_on_protocol_complete=True)
     _run_complete(harness_ctx, tmp_path)
 
-    _assert_one_report(
-        centre_posts, outcome_records, PluginFailedError, 'Plugin Error: auto_bad', cause=boom
-    )
+    _assert_one_report(centre_posts, outcome_records, PluginFailedError, 'auto_bad', cause=boom)
 
 
 def test_a_post_run_processor_returning_the_wrong_type_is_reported(
@@ -262,7 +254,7 @@ def test_a_post_run_processor_returning_the_wrong_type_is_reported(
     )
     _run_complete(harness_ctx, tmp_path)
 
-    _assert_one_report(centre_posts, outcome_records, PluginFailedError, 'Plugin Error: auto_wrong')
+    _assert_one_report(centre_posts, outcome_records, PluginFailedError, 'auto_wrong')
     assert 'str' in centre_posts[0].message
 
 
@@ -277,9 +269,7 @@ def test_a_post_run_processor_reporting_failure_is_shown_in_its_words(
     )
     _run_complete(harness_ctx, tmp_path)
 
-    _assert_one_report(
-        centre_posts, outcome_records, PluginFailedError, 'Plugin Error: auto_failed'
-    )
+    _assert_one_report(centre_posts, outcome_records, PluginFailedError, 'auto_failed')
     assert 'no tiles found in the run folder' in centre_posts[0].message
 
 
@@ -340,9 +330,7 @@ def test_the_crash_guard_reports_a_plugin_crash_through_the_recorder(
         answer = handle(None, crash)
 
     assert answer == _ExceptionManager.PASS
-    _assert_one_report(
-        centre_posts, outcome_records, PluginFailedError, 'Plugin Error: crashy', cause=caught
-    )
+    _assert_one_report(centre_posts, outcome_records, PluginFailedError, 'crashy', cause=caught)
 
 
 def test_the_crash_guard_leaves_our_own_crashes_to_raise(harness_ctx, centre_posts, monkeypatch):

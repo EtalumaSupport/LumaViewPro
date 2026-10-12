@@ -568,7 +568,8 @@ def test_load_plugins_refuses_a_plugin_older_than_the_hosts_minimum(harness_ctx,
     report.assert_called_once()
     outcome = report.call_args.args[0]
     assert isinstance(outcome, PluginNotLoadedError)
-    assert outcome.reason == reason
+    assert outcome.reason == 'plugin_not_loaded'
+    assert [(f.name, f.reason) for f in outcome.failures] == [('etaluma_engineering', reason)]
 
 
 @pytest.mark.parametrize('version', ['1.0.6', '1.1.0'])
