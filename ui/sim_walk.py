@@ -213,7 +213,15 @@ class SimWalk:
             ]
             if buttons:
                 button = _one(buttons, repr(step['button']), 'the open popups')
-                yield from self._touch(button, f'popup button {step["button"]!r}')
+                view = next(v for v in open_popups() if _contains(v, button))
+                dismissed = []
+                uid = view.fbind('on_pre_dismiss', lambda *_, d=dismissed: d.append(True))
+                try:
+                    yield from self._touch(button, f'popup button {step["button"]!r}')
+                finally:
+                    view.unbind_uid('on_pre_dismiss', uid)
+                if dismissed:
+                    yield from self._until_closed(view)
                 return
             if time.monotonic() > deadline:
                 if optional:
@@ -221,6 +229,18 @@ class SimWalk:
                     return
                 raise WalkStepError(
                     f'no open popup has a {step["button"]!r} button after {timeout:g} s'
+                )
+            yield _POLL_S
+
+    def _until_closed(self, view):
+        # A dismissed popup stays on the window, still open, until its fade
+        # has run; the next step would find it there and stop, on a host
+        # slow enough that the fade outlasts the step between.
+        deadline = time.monotonic() + _WAIT_TIMEOUT_S
+        while view in open_popups():
+            if time.monotonic() > deadline:
+                raise WalkStepError(
+                    f'the popup {getattr(view, "title", "")!r} was answered but never closed'
                 )
             yield _POLL_S
 
