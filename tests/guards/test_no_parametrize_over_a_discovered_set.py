@@ -125,7 +125,6 @@ _COMPUTED_PIN = {
     'tests/test_a_stage_interlock_refuses_motion.py': 1,
     'tests/test_a_step_cell_is_its_columns_type.py': 1,
     'tests/test_an_fx2_exposure_is_the_setting_at_every_window.py': 3,
-    'tests/test_an_fx2_gain_and_bring_up_follow_the_data_sheet.py': 2,
     'tests/test_an_interlock_at_a_home_is_reported_not_raised.py': 2,
     'tests/test_an_led_command_for_absent_hardware_is_refused.py': 2,
     'tests/test_api_examples.py': 3,
