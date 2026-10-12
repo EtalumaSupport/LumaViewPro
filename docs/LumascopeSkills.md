@@ -424,7 +424,8 @@ setting by its keys joined with dots (`'BF.sum'`, `'zstack.step_size'`,
 are `session.scope.settings_template`. Two settings act on the whole
 process as they are written: `logging.default.level`, the level of the
 main log on every host (applied when the session is created, before its
-scope comes up, and on each write), and `logging.autofocus`, whether each
+scope comes up, and on each write; the installation's `debug_mode` puts it
+at DEBUG whatever it says), and `logging.autofocus`, whether each
 focus score is logged. The write is taken under the lock,
 or refused with `SettingRefusedError` (from `modules.exceptions`) and
 nothing is written. It carries the refused setting's `path`, and for

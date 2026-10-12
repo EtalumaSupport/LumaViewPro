@@ -154,17 +154,19 @@ def custom_except_hook(exc_type, exc_value, exc_traceback):
 # ensures logger is specific to the file importing lvp_logger
 logger = logging.getLogger(__name__)
 
-# The verbosity floor until a session is created: INFO. The setting
-# logging.default.level is the one floor after that -- the session applies it
-# to both logger trees that write to the main log, the 'LVP' parent (all LVP.*
-# child loggers, incl. the preview [PERF] line) and lvp_logger's own logger, on
-# every host (scope_session._apply_logging). Loggers that want a fixed floor
+# The verbosity floor until a session is created: DEBUG when debug_mode is on
+# (the installation's switch for a detailed log, so startup is in it too),
+# INFO otherwise. After that the session applies the same rule -- DEBUG under
+# debug_mode, else logging.default.level -- to both logger trees that write to
+# the main log, the 'LVP' parent (all LVP.* child loggers, incl. the preview
+# [PERF] line) and lvp_logger's own logger, on every host
+# (scope_session._apply_logging). Loggers that want a fixed floor
 # set their own level (e.g. LVP.camera stays DEBUG -- the always-on camera.log
 # firehose).
 # Note: do NOT reintroduce a global logging.disable() here -- it overrides every
 # logger's own level (it was silently starving camera.log of DEBUG) and split
 # the toggle into two gates. The per-logger level is the canonical mechanism.
-_log_level = logging.INFO
+_log_level = logging.DEBUG if debug else logging.INFO
 
 _lvp_parent = logging.getLogger('LVP')
 _lvp_parent.setLevel(_log_level)
@@ -759,8 +761,8 @@ def log_environment_banner(
     _git_hash = git_revision()
     logger.info(f'[LVP Main  ] Git:       {_git_hash or "unknown (use CommitGUID or Built)"}')
 
-    # debug_mode gates the live view's [PERF] instrumentation, which logs at
-    # DEBUG, so it reaches the log when logging.default.level is DEBUG too.
+    # debug_mode puts the main log at DEBUG, the live view's [PERF] lines
+    # included.
     # State the resolved value AND which file it came from so a
     # support bundle alone answers "was debug on, and where is it set?" --
     # the live value is read from current.json once that exists, so editing

@@ -7,7 +7,8 @@ module logged at the level ``debug_mode`` chose, on every host, and a
 stored level outside its range logged a traceback on top of the
 preparation's one report (#832). The session now applies both settings
 from its prepared settings, when it is created and when either is written,
-to the loggers that write the main log.
+to the loggers that write the main log; ``debug_mode``, the installation's
+switch for a detailed log, holds the level at DEBUG.
 """
 
 import logging
@@ -30,9 +31,11 @@ def restored_logging():
     autofocus_functions.enable_af_score_logging(enable=before[1])
 
 
-def _session(level='INFO', autofocus=False):
+def _session(level='INFO', autofocus=False, debug_mode=False):
     return ScopeSession.create(
-        complete_settings(logging={'default': {'level': level}, 'autofocus': autofocus}),
+        complete_settings(
+            logging={'default': {'level': level}, 'autofocus': autofocus}, debug_mode=debug_mode
+        ),
         simulate=True,
     )
 
@@ -60,6 +63,18 @@ def test_a_written_level_takes_effect_as_it_is_written(restored_logging):
     session = _session(level='INFO')
     try:
         session.update_settings('logging.default.level', 'DEBUG')
+        assert restored_logging.level == logging.DEBUG
+    finally:
+        session.shutdown()
+
+
+def test_debug_mode_puts_the_main_log_at_debug_whatever_the_level_says(restored_logging):
+    # The installation's one switch for a detailed log: on, a written level
+    # does not take it below DEBUG.
+    session = _session(level='INFO', debug_mode=True)
+    try:
+        assert restored_logging.level == logging.DEBUG
+        session.update_settings('logging.default.level', 'WARNING')
         assert restored_logging.level == logging.DEBUG
     finally:
         session.shutdown()

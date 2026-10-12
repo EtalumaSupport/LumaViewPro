@@ -899,9 +899,9 @@ class ScopeDisplay(Image):
             # Publish for thread.add_frame_listener fan-out
             self._last_rendered_frame = (image_bytes, image_shape, t_blit_scheduled)
 
-            # Performance instrumentation gated on settings.debug_mode. The
-            # [PERF] logger.debug below reaches the log when the log level
-            # (logging.default.level) is DEBUG as well.
+            # Performance instrumentation gated on settings.debug_mode, which
+            # also puts the main log at DEBUG, so the [PERF] logger.debug
+            # below reaches it.
             if self._debug_perf_enabled(ctx):
                 self._perf_grab_times.append(t_grab_end - t_grab_start)
                 self._perf_process_times.append(t_process_end - t_process_start)

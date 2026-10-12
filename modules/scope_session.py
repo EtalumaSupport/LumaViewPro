@@ -168,13 +168,15 @@ def _apply_logging(settings: dict) -> None:
     its scope is brought up, and again when either setting is written, so
     the logger never disagrees with the store. The level goes on both
     loggers that write the main log -- the 'LVP' parent of every module's
-    logger, and lvp_logger's own.
+    logger, and lvp_logger's own. ``debug_mode`` is the installation's
+    switch for a detailed log: on, the level is DEBUG, as lvp_logger set it
+    from the first line; off, it is ``logging.default.level``.
     """
     import logging
 
     import modules.autofocus_functions as autofocus_functions
 
-    level = settings['logging']['default']['level'].upper()
+    level = 'DEBUG' if settings['debug_mode'] else settings['logging']['default']['level'].upper()
     for name in ('LVP', 'lvp_logger'):
         logging.getLogger(name).setLevel(level)
     logger.info(f'[Session  ] Log level {level}')
