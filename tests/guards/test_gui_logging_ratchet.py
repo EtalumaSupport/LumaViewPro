@@ -38,6 +38,7 @@ from __future__ import annotations
 from tests.gui_logging_census import (
     LOAD_STRING_MODULES,
     census,
+    handlers_run_twice_by_a_write,
     person_handlers_called_from_python,
     person_records_on_value_changes,
 )
@@ -523,3 +524,18 @@ def test_a_pick_spinner_that_names_no_record_is_reported(monkeypatch):
     spinners = gui_census.pick_spinners()
     assert spinners['Scratch.unnamed_spinner']['static'] == []
     assert spinners['Scratch.named_spinner']['static'] == ['TILING']
+
+
+def test_a_restore_runs_a_handler_once():
+    """Writing a widget's text runs its ``on_text`` handler; calling it as well runs it twice.
+
+    The settings restore wrote the binning spinner and then called its handler,
+    so every cold start applied the stored binning twice; the labware and
+    video-format restores had the same shape. A function that writes a
+    widget's text leaves its handler to that write.
+    """
+    found = handlers_run_twice_by_a_write()
+    assert not found, (
+        f'{len(found)} function(s) write a widget and call its on_text handler too: {found}. '
+        'The write already runs the handler.'
+    )

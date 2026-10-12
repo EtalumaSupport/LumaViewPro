@@ -630,3 +630,47 @@ def person_handlers_called_from_python():
                     continue
                 out.append(f'{rel}:{node.lineno} {caller.name} -> {name}')
     return sorted(set(out))
+
+
+def _text_written_ids(fn):
+    """The ids whose ``.text`` ``fn`` assigns: ``<anything>.ids['x'].text = ...``."""
+    ids = set()
+    for node in ast.walk(fn):
+        targets = node.targets if isinstance(node, ast.Assign) else []
+        for target in targets:
+            if (
+                isinstance(target, ast.Attribute)
+                and target.attr == 'text'
+                and isinstance(target.value, ast.Subscript)
+                and isinstance(target.value.value, ast.Attribute)
+                and target.value.value.attr == 'ids'
+                and isinstance(target.value.slice, ast.Constant)
+            ):
+                ids.add(target.value.slice.value)
+    return ids
+
+
+def handlers_run_twice_by_a_write():
+    """Every function that writes a widget's text and also calls that widget's ``on_text`` handler.
+
+    The write dispatches the handler when the text changes, so the call runs
+    it a second time. ``file:line function: id -> handler`` for each.
+    """
+    on_text = defaultdict(set)
+    for label, text in kv_sources():
+        for block in _blocks(label, text):
+            if block['event'] == 'on_text' and block['id']:
+                on_text[block['id']].update(block['root_methods'])
+    out = []
+    for path in _python_paths():
+        rel = path.relative_to(REPO_ROOT).as_posix()
+        for fn in _top_level_functions(ast.parse(path.read_text())):
+            called = {
+                node.func.attr
+                for node in ast.walk(fn)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            }
+            for widget_id in _text_written_ids(fn):
+                for handler in sorted(on_text.get(widget_id, set()) & called):
+                    out.append(f'{rel}:{fn.lineno} {fn.name}: {widget_id} -> {handler}')
+    return sorted(out)

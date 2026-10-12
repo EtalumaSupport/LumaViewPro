@@ -274,9 +274,8 @@ class ProtocolSettings(FloatLayout):
         self._protocol = ctx.session.create_empty_protocol()
         self._show_schedule()
 
-        # The panel applying the plate it already shows, so the scope is on it
-        # even when no protocol loaded.
-        self.select_labware()
+        # The plate is not selected here: bring-up put the scope on the stored
+        # plate, and the scope's visibility restore shows it in the spinner.
         self.update_step_ui()
 
         # DISABLED: BF AF for fluorescence -- not yet tested, hidden for 4.0.0.

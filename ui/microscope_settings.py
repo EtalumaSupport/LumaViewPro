@@ -202,8 +202,6 @@ class MicroscopeSettings(BoxLayout):
         else:
             self.ids['video_recording_format_spinner'].text = 'Frames'
 
-        self.select_video_recording_format()
-
         ctx.live_view_fps = settings['live_view_fps']
 
         fps_label = 'Max (uncapped)' if ctx.live_view_fps == 0 else str(ctx.live_view_fps)
@@ -222,9 +220,9 @@ class MicroscopeSettings(BoxLayout):
         self._write_frame_text(settings['frame']['width'], settings['frame']['height'])
 
         # Pixel Binning -- UI recalculation only, scope.imaging.set_binning_size()
-        # was applied by the Session's bring-up
+        # was applied by the Session's bring-up. Writing the spinner runs its
+        # handler, once; the kv starts it on 'Select', so the write always does.
         self.ids['binning_spinner'].text = binning_size_str
-        self.select_binning_size()
 
         # The settings-to-scope bring-up ran in the Session before this
         # widget existed: the labware selected, scope.initialize()
@@ -242,7 +240,6 @@ class MicroscopeSettings(BoxLayout):
 
         protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
         protocol_settings.ids['labware_spinner'].text = settings['protocol']['labware']
-        protocol_settings.select_labware()
         # Apply the persisted step-location view at startup; the toggle
         # that edits this now lives in Advanced Settings.
         ctx.stage.show_protocol_steps(enable=settings['show_step_locations'])

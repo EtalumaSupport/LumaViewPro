@@ -175,9 +175,9 @@ class _Microscope(ms.MicroscopeSettings):
             'sequenced_image_output_format_spinner': _Spinner(
                 'Select', self.select_sequenced_image_output_format
             ),
-            'video_recording_format_spinner': _Spinner(
-                'Select', self.select_video_recording_format
-            ),
+            # kv text 'Select' with text_autoupdate, which takes the first
+            # value on construction: the spinner reads 'mp4' before any restore.
+            'video_recording_format_spinner': _Spinner('mp4', self.select_video_recording_format),
             'binning_spinner': _Spinner('Select', self.select_binning_size),
             'jpg_quality_slider': SimpleNamespace(value=0),
             'jpg_quality_value_label': SimpleNamespace(text=''),
@@ -267,22 +267,22 @@ def cold_start(tmp_path, monkeypatch, caplog):
 
 
 def test_restoring_labware_at_startup_is_not_recorded_as_a_selection(cold_start):
-    """The restore writes the spinner, whose write runs select_labware, and
-    then calls it again: two records of the stored plate, neither a pick."""
+    """The restore shows the stored plate and records no pick. (In the app
+    the scope's visibility restore has shown it already, which this fixture
+    stubs, so whether this write runs select_labware is not asserted here.)"""
     plate = cold_start.settings['protocol']['labware']
     assert cold_start.labware.ids['labware_spinner'].text == plate
-    assert cold_start.labware.picks == 2, 'the write and the call each ran the handler'
     assert not [line for line in cold_start.recorded if line.startswith('SELECT LABWARE')], (
         cold_start.recorded
     )
 
 
 def test_restoring_binning_at_startup_is_not_recorded_as_a_selection(cold_start):
-    """The twin of the labware restore: the spinner write and the explicit
-    select_binning_size() each run the handler; neither is a pick."""
+    """The twin of the labware restore: the spinner write runs
+    select_binning_size once, and it is not a pick."""
     label = cold_start.settings['binning']['size']
     assert cold_start.microscope.ids['binning_spinner'].text == label
-    assert cold_start.microscope.binning_picks == 2, 'the write and the call each ran the handler'
+    assert cold_start.microscope.binning_picks == 1, 'the restore ran the handler other than once'
     assert not [line for line in cold_start.recorded if line.startswith('SELECT BINNING')], (
         cold_start.recorded
     )
