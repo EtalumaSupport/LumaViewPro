@@ -260,7 +260,7 @@ def test_a_camera_mode_is_stored_only_once_the_camera_took_it(
     assert session.settings['camera'][path] is True
 
     def refused(value):
-        raise CameraSettingRejected(path, value, title='Not applied', message='refused')
+        raise CameraSettingRejected(path, value, message='refused')
 
     monkeypatch.setattr(imaging, imaging_setter, refused)
     with pytest.raises(CameraSettingRejected):

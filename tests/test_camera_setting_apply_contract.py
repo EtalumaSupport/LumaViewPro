@@ -79,7 +79,7 @@ def _assert_carries_its_words(rejected, title, in_sentence, centre_posts):
     person's sentence the reporter shows."""
     shown = _posted(centre_posts, Severity.ERROR) + _posted(centre_posts, Severity.WARNING)
     assert shown == [], 'the setter must not show the rejection itself; the reporter shows it once'
-    assert rejected.title == title
+    assert (rejected.reason, rejected.title) == ('camera_rejected', title)
     assert in_sentence in str(rejected), str(rejected)
 
 
@@ -96,7 +96,9 @@ def test_set_frame_size_rejection_raises_and_preserves_cache(centre_posts):
 
     assert excinfo.value.setting == 'frame_size'
     assert excinfo.value.requested == {'width': 1900, 'height': 1900}
-    _assert_carries_its_words(excinfo.value, 'Frame size change failed', '1900x1900', centre_posts)
+    _assert_carries_its_words(
+        excinfo.value, 'Camera Setting Not Applied', '1900x1900', centre_posts
+    )
     assert imaging.frame_size_cached == {'width': 1936, 'height': 1216}, (
         'a rejected resize must leave the cache at the geometry the hardware still holds'
     )
@@ -112,7 +114,7 @@ def test_set_binning_size_rejection_raises_and_preserves_cache(centre_posts):
 
     assert excinfo.value.setting == 'binning'
     assert excinfo.value.requested == 4
-    _assert_carries_its_words(excinfo.value, 'Binning change failed', '4x4', centre_posts)
+    _assert_carries_its_words(excinfo.value, 'Camera Setting Not Applied', '4x4', centre_posts)
     assert imaging._binning_size == 2, (
         'a rejected binning must not commit the requested factor -- '
         'scale-bar / FOV math reads this value'
@@ -129,7 +131,7 @@ def test_set_pixel_format_rejection_raises_and_preserves_cache(centre_posts):
 
     assert excinfo.value.setting == 'pixel_format'
     assert excinfo.value.requested == 'Mono8'
-    _assert_carries_its_words(excinfo.value, 'Pixel format change failed', 'Mono8', centre_posts)
+    _assert_carries_its_words(excinfo.value, 'Camera Setting Not Applied', 'Mono8', centre_posts)
     assert imaging.pixel_format_cached == 'Mono12'
 
 
@@ -152,7 +154,7 @@ def test_a_reported_rejection_is_shown_once_in_its_own_words(centre_posts):
     centre.report_outcome(excinfo.value, solicited=True, category='BINNING')
 
     assert [(n.severity, n.title, n.message) for n in shown] == [
-        (Severity.ERROR, 'Binning change failed', str(excinfo.value))
+        (Severity.ERROR, 'Camera Setting Not Applied', str(excinfo.value))
     ]
     assert '4x4' in shown[0].message
     assert _posted(centre_posts, Severity.ERROR) == [], 'the setter showed it as well'
@@ -197,7 +199,7 @@ def test_set_binning_size_driver_raise_becomes_typed_rejection(centre_posts):
     # which the reporter's log line carries.
     assert str(excinfo.value.__cause__) == 'SDK sulked'
     _assert_carries_its_words(
-        excinfo.value, 'Binning change failed', 'did not accept', centre_posts
+        excinfo.value, 'Camera Setting Not Applied', 'did not accept', centre_posts
     )
     assert imaging._binning_size == 2  # prior factor intact
 
@@ -216,7 +218,7 @@ def test_set_pixel_format_driver_raise_becomes_typed_rejection(centre_posts):
 
     assert str(excinfo.value.__cause__) == 'SDK sulked'
     _assert_carries_its_words(
-        excinfo.value, 'Pixel format change failed', 'did not accept', centre_posts
+        excinfo.value, 'Camera Setting Not Applied', 'did not accept', centre_posts
     )
     assert imaging.pixel_format_cached == 'Mono12'
 

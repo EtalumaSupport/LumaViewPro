@@ -108,9 +108,7 @@ class TestGoingToAStep:
 
     def test_a_camera_refusal_is_raised_once_the_stage_has_arrived(self, session, monkeypatch):
         protocol, _bf_idx, blue_idx = _two_step_protocol(session)
-        refused = CameraSettingRejected(
-            'gain_db', 10.0, title='Camera Setting Not Applied', message='x'
-        )
+        refused = CameraSettingRejected('gain_db', 10.0, message='x')
         monkeypatch.setattr(
             session.scope.imaging,
             'apply_layer_camera_settings',

@@ -3520,18 +3520,20 @@ class CameraSettingRejected(Fault, Exception):  # noqa: N818 -- named for the ev
     notifies it.
 
     Attributes:
+        reason: ``'camera_rejected'``: the setting is in ``setting`` and in
+            the words, so one reason names the one condition.
         setting: Machine-readable setting name (e.g. 'frame_size').
         requested: The value the caller asked for.
-        title: The notification title the reporter shows.
     """
 
     words_for_person = True
+    reason = 'camera_rejected'
+    title = 'Camera Setting Not Applied'
 
-    def __init__(self, setting: str, requested, *, title: str, message: str):
+    def __init__(self, setting: str, requested, *, message: str):
         super().__init__(message)
         self.setting = setting
         self.requested = requested
-        self.title = title
 
 
 class CameraSettingUnsupportedError(Refusal, ValueError):
@@ -3552,14 +3554,14 @@ class CameraSettingUnsupportedError(Refusal, ValueError):
     # Hardware this camera does not have is the request's: asking again,
     # unchanged, never finds it.
     cause = RefusalCause.REQUEST
+    title = 'Not Available on This Camera'
 
-    def __init__(self, setting: str, requested, offered, *, title: str, message: str):
+    def __init__(self, setting: str, requested, offered, *, message: str):
         super().__init__(message)
         self.reason = f'{setting}_unsupported'
         self.setting = setting
         self.requested = requested
         self.offered = offered
-        self.title = title
 
 
 class CameraSettingOutOfRangeError(Refusal, ValueError):
@@ -3580,12 +3582,12 @@ class CameraSettingOutOfRangeError(Refusal, ValueError):
         minimum: The camera's declared floor, or None when it declares none
             (an undeclared floor is not checked).
         maximum: The camera's declared ceiling, or None when it declares none.
-        title: The notification title the reporter shows.
     """
 
     # The range is the attached camera's, fixed for its life, so a value
     # outside it is refused every time it is sent.
     cause = RefusalCause.REQUEST
+    title = 'Camera Setting Out of Range'
 
     def __init__(
         self,
@@ -3594,7 +3596,6 @@ class CameraSettingOutOfRangeError(Refusal, ValueError):
         minimum: float | None,
         maximum: float | None,
         *,
-        title: str,
         message: str,
     ):
         super().__init__(message)
@@ -3603,7 +3604,6 @@ class CameraSettingOutOfRangeError(Refusal, ValueError):
         self.requested = requested
         self.minimum = minimum
         self.maximum = maximum
-        self.title = title
 
 
 class FrameDepthError(Fault, Exception):

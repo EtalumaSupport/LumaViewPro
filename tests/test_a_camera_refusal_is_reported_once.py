@@ -33,9 +33,7 @@ from tests.scope_fakes import (
 
 
 def _rejected(setting='gain_db', requested=7.0):
-    return CameraSettingRejected(
-        setting, requested, title='Camera Setting Not Applied', message='x'
-    )
+    return CameraSettingRejected(setting, requested, message='x')
 
 
 @pytest.fixture

@@ -108,7 +108,7 @@ def test_the_locks_refused_disarm_is_reported(sim_imaging, reported, monkeypatch
 
 
 def _refusal(setting='auto_gain'):
-    return CameraSettingRejected(setting, False, title='Camera Setting Not Applied', message='x')
+    return CameraSettingRejected(setting, False, message='x')
 
 
 def test_the_runs_arm_take_reports_a_refused_disarm(reported):

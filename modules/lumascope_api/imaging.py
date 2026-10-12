@@ -273,35 +273,32 @@ if TYPE_CHECKING:
 _api_log = _logging.getLogger('LVP.api')
 
 
-def _rejected_gain_words(gain_db: float) -> tuple[str, str]:
-    """The title and sentence for a gain the camera refused.
+def _rejected_gain_words(gain_db: float) -> str:
+    """The sentence for a gain the camera refused.
 
     One home for every raise of a gain refusal: the public setter, the
     layer apply and the reports of refusals whose flight ends in the API.
     """
     return (
-        'Camera Setting Not Applied',
         f'The camera rejected the gain change to {float(gain_db):.1f} dB. '
         'Captures will continue at the previous gain. Check that '
         'the value is within the camera limits.',
     )
 
 
-def _rejected_mode_words(what: str) -> tuple[str, str]:
-    """The title and sentence for a mode change the camera refused."""
+def _rejected_mode_words(what: str) -> str:
+    """The sentence for a mode change the camera refused."""
     return (
-        'Camera Setting Not Applied',
         f'The camera did not take the {what} change. Captures will continue '
         'with the camera as it was.',
     )
 
 
-def _rejected_black_level_words(black_level: float) -> tuple[str, str]:
-    """The title and sentence for a black level the camera refused; see
+def _rejected_black_level_words(black_level: float) -> str:
+    """The sentence for a black level the camera refused; see
     ``_rejected_gain_words``. A camera holding its black level automatically
     refuses a manual one, which the sentence names."""
     return (
-        'Camera Setting Not Applied',
         f'The camera did not accept the black level {float(black_level):g}. '
         'Captures will continue at the previous black level. A camera that '
         'sets its black level automatically takes no manual value.',
@@ -310,14 +307,14 @@ def _rejected_black_level_words(black_level: float) -> tuple[str, str]:
 
 def _value_rejection(setting: str, requested: float) -> CameraSettingRejected:
     """The typed refusal of a camera value setting, in its one set of words."""
-    title, message = _REJECTED_VALUE_WORDS[setting](requested)
-    return CameraSettingRejected(setting, requested, title=title, message=message)
+    return CameraSettingRejected(
+        setting, requested, message=_REJECTED_VALUE_WORDS[setting](requested)
+    )
 
 
 def _mode_rejection(setting: str, requested: object, what: str) -> CameraSettingRejected:
     """The typed refusal of a mode change, in its one set of words."""
-    title, message = _rejected_mode_words(what)
-    return CameraSettingRejected(setting, requested, title=title, message=message)
+    return CameraSettingRejected(setting, requested, message=_rejected_mode_words(what))
 
 
 def _absent_mode_refusal(
@@ -333,7 +330,6 @@ def _absent_mode_refusal(
         setting,
         requested,
         offered=offered,
-        title='Not Available on This Camera',
         message=f'This camera has no {what}. {consequence}',
     )
 
@@ -374,11 +370,10 @@ def _value_in_effect(result: object, requested: float, scale: float = 1.0) -> fl
     return requested
 
 
-def _rejected_exposure_words(exposure_ms: float) -> tuple[str, str]:
-    """The title and sentence for an exposure the camera refused; see
+def _rejected_exposure_words(exposure_ms: float) -> str:
+    """The sentence for an exposure the camera refused; see
     ``_rejected_gain_words``."""
     return (
-        'Camera Setting Not Applied',
         f'The camera rejected the exposure change to {float(exposure_ms):g} ms. '
         'Captures will continue at the previous exposure. Check '
         'that the value is within the camera limits.',
@@ -1474,7 +1469,6 @@ class ImagingAPI:
                 value,
                 minimum,
                 maximum,
-                title='Camera Setting Out of Range',
                 message=(
                     f"{noun.capitalize()} {value:g} {unit} is outside this camera's range, "
                     f'{camera_range_words(minimum, maximum, unit)}. The {noun} was not changed.'
@@ -1945,7 +1939,7 @@ class ImagingAPI:
         return result
 
     def _camera_setting_rejection(
-        self, setting: str, requested, title: str, body: str
+        self, setting: str, requested, body: str
     ) -> CameraSettingRejected:
         """Build the typed rejection for a camera-setting apply.
 
@@ -1954,7 +1948,7 @@ class ImagingAPI:
         here: the rejection is reported once, by whoever ends its flight,
         in the words it carries.
         """
-        return CameraSettingRejected(setting, requested, title=title, message=body)
+        return CameraSettingRejected(setting, requested, message=body)
 
     def set_frame_size(self, w: int, h: int) -> dict | None:
         """Set the camera frame size in pixels, and wait for it.
@@ -2035,7 +2029,6 @@ class ImagingAPI:
             return self._camera_setting_rejection(
                 'frame_size',
                 {'width': w, 'height': h},
-                'Frame size change failed',
                 f'The camera did not accept the frame size {w}x{h}. '
                 f'It remains at the previous size -- try again, or check '
                 f'the USB connection if this repeats.',
@@ -2134,7 +2127,6 @@ class ImagingAPI:
             return self._camera_setting_rejection(
                 'binning',
                 size,
-                'Binning change failed',
                 f'The camera did not accept {size}x{size} binning. It remains '
                 f'at the previous binning -- try again, or check the USB '
                 f'connection if this repeats.',
@@ -2228,7 +2220,6 @@ class ImagingAPI:
             return self._camera_setting_rejection(
                 'pixel_format',
                 pixel_format,
-                'Pixel format change failed',
                 f'The camera did not accept the pixel format {pixel_format}. '
                 f'It remains at the previous format -- try again, or check '
                 f'the USB connection if this repeats.',
@@ -2310,7 +2301,6 @@ class ImagingAPI:
                 'conversion_gain_mode',
                 mode,
                 offered=('High', 'Low'),
-                title='Not Available on This Camera',
                 message=f'There is no conversion gain mode {mode!r}: the modes are High and Low.',
             )
         result = self._camera_write(
@@ -4888,7 +4878,6 @@ class ImagingAPI:
             raise CameraSettingRejected(
                 ','.join(r.setting for r in refused),
                 tuple(r.requested for r in refused),
-                title=refused[0].title,
                 message=' '.join(str(r) for r in refused),
             )
         return {'gain_db': gain_result, 'exposure_ms': exposure_result}

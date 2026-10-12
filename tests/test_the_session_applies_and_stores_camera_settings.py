@@ -190,7 +190,7 @@ class TestTheBinning:
             session.set_binning_size(8)
 
         assert isinstance(refused.value, Refusal)
-        assert refused.value.title == 'Binning not supported'
+        assert refused.value.title == 'Not Available on This Camera'
         assert '8x8' in str(refused.value)
         assert refused.value.reason == 'binning_unsupported'
         assert writes == []

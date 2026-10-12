@@ -3772,7 +3772,6 @@ class ScopeSession:
                 'binning',
                 size,
                 offered,
-                title='Binning not supported',
                 message=f'This camera does not support {label} binning.',
             )
         native = self._native_frame()
