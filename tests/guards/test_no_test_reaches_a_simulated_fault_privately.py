@@ -57,7 +57,20 @@ _DOOR_NAMES = frozenset(
 
 # Test files whose subject is a simulator, or a driver over its simulated
 # board with no scope: the doors are what they test or their fixture.
-_OWN_DOORS: dict[str, str] = {}
+_OWN_DOORS: dict[str, str] = {
+    'tests/test_simulators.py': 'the fast boards and camera, door by door',
+    'tests/test_simulated_camera_stall.py': "the simulated camera's stall, on a bare camera",
+    'tests/test_tmcm6110.py': 'the TMCM-6110 driver over its simulated board, no scope',
+    'tests/test_no_reply_is_no_reply.py': "the EL-0940 drivers' reading of a dropped reply, at the wire",
+    'tests/test_sim_wire_port.py': 'the emulated port itself',
+    'tests/test_sim_wire_link.py': "the motor board's USB link over the emulated port, no scope",
+    'tests/test_sim_wire_led.py': 'the LED firmware behind its own emulated port, no scope',
+    'tests/test_sim_wire_faults.py': "the firmware simulator's hardware faults and write oracle",
+    'tests/test_sim_wire_homing.py': "the motor driver's home on the shipped firmware, no scope",
+    'tests/test_a_home_is_believed_only_when_it_happened.py': (
+        "the motor driver's reading of a home, on the firmware simulator"
+    ),
+}
 
 
 def _through_simulation(node: ast.Attribute) -> bool:
@@ -100,24 +113,14 @@ def private_fault_reaches() -> dict[str, list[str]]:
 # file's tests onto scope.simulation; never raise one.
 _PRIVATE_REACH_PIN: dict[str, int] = {
     'tests/capability/serial_p01_cable_pull.py': 2,
-    'tests/test_a_home_is_believed_only_when_it_happened.py': 1,
     'tests/test_an_fx2_frame_ends_where_the_device_ends_it.py': 1,
     'tests/test_an_unplugged_fx2_is_removed.py': 8,
     'tests/test_audit_fixes.py': 3,
     'tests/test_lumascope_api.py': 3,
     'tests/test_motion_state_gate.py': 2,
-    'tests/test_no_reply_is_no_reply.py': 9,
-    'tests/test_sim_wire_faults.py': 7,
-    'tests/test_sim_wire_homing.py': 1,
-    'tests/test_sim_wire_led.py': 3,
     'tests/test_sim_wire_led_link.py': 5,
-    'tests/test_sim_wire_link.py': 9,
-    'tests/test_sim_wire_port.py': 4,
     'tests/test_sim_wire_reconnect.py': 5,
-    'tests/test_simulated_camera_stall.py': 1,
-    'tests/test_simulators.py': 18,
     'tests/test_the_ls720_in_the_simulator.py': 10,
-    'tests/test_tmcm6110.py': 20,
 }
 
 
