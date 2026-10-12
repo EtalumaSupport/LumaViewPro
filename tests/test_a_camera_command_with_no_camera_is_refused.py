@@ -160,38 +160,51 @@ def test_a_scope_with_no_camera_comes_up_and_says_so_once(
     assert len(reports) == 1, [(n.title, n.message) for n in reports]
 
 
+def _not_named_as_the_camera(commands: dict, target) -> dict:
+    """Each command of ``commands`` run on ``target`` that is not refused
+    naming the camera, with what it answered instead."""
+    wrong = {}
+    for name, command in commands.items():
+        try:
+            answer = command(target)
+        except HardwareCommandRefusedError as refusal:
+            words = (refusal.reason, refusal.missing, str(refusal))
+            if words != ('not_connected', MissingPart.CAMERA, 'The camera is not connected.'):
+                wrong[name] = words
+        else:
+            wrong[name] = f'answered {answer!r}'
+    return wrong
+
+
 @pytest.mark.parametrize('model', ('LS850', 'LS620'))
-@pytest.mark.parametrize('command', list(REFUSED.values()), ids=list(REFUSED))
-def test_with_no_camera_a_command_is_refused_naming_it(
-    make_session, monkeypatch, centre_posts, model, command
+def test_with_no_camera_every_command_is_refused_naming_it(
+    make_session, monkeypatch, centre_posts, model
 ):
     session = _camera_less(make_session, monkeypatch, model)
     before = _camera_store(session)
     centre_posts.clear()
 
-    _assert_names_the_camera(_refused(lambda: command(session.scope.imaging)))
-
+    assert _not_named_as_the_camera(REFUSED, session.scope.imaging) == {}
     assert _camera_store(session) == before
     assert _camera_posts(centre_posts) == []
 
 
-@pytest.mark.parametrize('runner', list(DIAGNOSTIC_RUNNERS.values()), ids=list(DIAGNOSTIC_RUNNERS))
-def test_with_no_camera_a_diagnostic_runner_is_refused_naming_it(make_session, monkeypatch, runner):
+def test_with_no_camera_every_diagnostic_runner_is_refused_naming_it(make_session, monkeypatch):
     session = _camera_less(make_session, monkeypatch, 'LS850')
 
-    _assert_names_the_camera(_refused(lambda: runner(session.scope.diagnostics)))
+    assert _not_named_as_the_camera(DIAGNOSTIC_RUNNERS, session.scope.diagnostics) == {}
 
 
 @pytest.mark.parametrize('model', ('LS850', 'LS620'))
-@pytest.mark.parametrize('off', list(SATISFIED.values()), ids=list(SATISFIED))
-def test_with_no_camera_an_off_is_satisfied_with_its_own_answer(
-    make_session, monkeypatch, centre_posts, model, off
+def test_with_no_camera_every_off_is_satisfied_with_its_own_answer(
+    make_session, monkeypatch, centre_posts, model
 ):
-    with_camera = off(make_session(model).scope.imaging)
+    camera = make_session(model).scope.imaging
+    with_camera = {name: off(camera) for name, off in SATISFIED.items()}
     session = _camera_less(make_session, monkeypatch, model)
     centre_posts.clear()
 
-    assert off(session.scope.imaging) == with_camera
+    assert {name: off(session.scope.imaging) for name, off in SATISFIED.items()} == with_camera
     assert _camera_posts(centre_posts) == []
 
 
