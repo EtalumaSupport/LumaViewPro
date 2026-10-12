@@ -361,6 +361,9 @@ class SimulationAPI:
     def hold_axis(self, axis: str, at_fraction: float = 0.5) -> threading.Event:
         """``axis``'s next move halts part of the way and never arrives, until ``clear``.
 
+        A stop, a home or a new target on the axis ends the move it holds,
+        and with it the hold, as on a real stage.
+
         Args:
             axis: The axis whose next move is held.
             at_fraction: How far along its travel it halts, between 0 and 1.
