@@ -158,8 +158,15 @@ class SimulatedCamera(Camera):
         'black_level': 'set_black_level',
     }
     # What a refused write answers, by name: a real SDK's node write
-    # answers False, nothing, a bare True that confirms no value, or raises.
-    REFUSED_WRITE_ANSWERS: ClassVar[tuple[str, ...]] = ('false', 'none', 'true', 'raise')
+    # answers False, nothing, a bare True that confirms no value, or raises;
+    # or answers False because the camera left the bus during the write.
+    REFUSED_WRITE_ANSWERS: ClassVar[tuple[str, ...]] = (
+        'false',
+        'none',
+        'true',
+        'raise',
+        'removed',
+    )
 
     def __init__(
         self,
@@ -474,7 +481,9 @@ class SimulatedCamera(Camera):
             node: One of ``WRITABLE_NODES``.
             answer: One of ``REFUSED_WRITE_ANSWERS``: ``'false'``,
                 ``'none'`` or ``'true'`` is returned; ``'raise'`` raises
-                ``RuntimeError`` as a failed node write.
+                ``RuntimeError`` as a failed node write; ``'removed'``
+                takes the camera off the bus and returns False, as a
+                camera pulled during the write does.
 
         Raises:
             ValueError: ``node`` or ``answer`` is not one of those.
@@ -492,6 +501,9 @@ class SimulatedCamera(Camera):
             logger.warning(f'[CAM Sim   ] {node} write refused ({answer}, simulated)')
             if answer == 'raise':
                 raise RuntimeError(f'simulated {node} node write failed')
+            if answer == 'removed':
+                self.leave_bus()
+                return False
             return {'false': False, 'none': None, 'true': True}[answer]
 
         vars(self)[setter] = refused

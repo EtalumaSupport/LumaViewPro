@@ -447,7 +447,9 @@ class SimulationAPI:
                 ``'pixel_format'`` or ``'black_level'``.
             answer: What the node write answers: ``'false'``, ``'none'``
                 (no confirmation), ``'true'`` (a bare True that confirms no
-                value) or ``'raise'``.
+                value), ``'raise'``, or ``'removed'`` (False, with the camera
+                gone from the bus during the write; it stays removed for the
+                session, as after ``remove_camera``).
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
