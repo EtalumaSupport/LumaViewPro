@@ -964,6 +964,11 @@ class Tmcm6110Board:
     def supports_motor_stop(self) -> bool:
         return True
 
+    def supports_stopping_a_home(self) -> bool:
+        """The host runs the home a command at a time, each reading the
+        abort ``motor_stop`` sets."""
+        return True
+
     def supports_fan(self) -> bool:
         return False
 

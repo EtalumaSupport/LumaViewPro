@@ -1303,6 +1303,10 @@ scope.motion.home(axis='T')                      # turret only (parks Z at 0, ho
 # from the driver's error when there is one). A stop_motion that lands
 # after home() is called but before the board starts homing ends the home
 # 'stopped' with .axes empty: nothing moved, every axis keeps its state.
+# Once the board is homing, a stop_motion ends the home only on a board
+# that can take a STOP mid-home (the LS720's); on the EL-0940 it raises
+# HardwareCommandRefusedError reason 'home_in_flight', nothing is sent, and
+# the home runs to its end -- for a turret home, its Z park and restore too.
 # A home holds the scope as a run does, from when it is asked until it ends:
 # every other request -- a move, an LED, a camera setting, a run, a
 # recording, a diagnostic -- raises HardwareCommandRefusedError (or the
@@ -1364,6 +1368,8 @@ scope.motion.get_actual_position('Z')            # hardware position via serial 
 scope.motion.stop_motion()                       # stop all in-flight moves (the app-level abort for the move_* family)
 # A STOP the board did not take raises MotorStopFailedError (title 'Motor Stop
 # Failed', chained from the driver's error): the stage may still be moving.
+# While a home drives on a board that cannot stop one, it raises
+# HardwareCommandRefusedError reason 'home_in_flight' (see home() above).
 session.set_acceleration_limit(50)               # motor acceleration cap, percent of max (1-100, else AccelerationLimitRefusedError)
 scope.motion.set_precision_mode('Z', True)       # per-axis precision mode on the motor board
 

@@ -1250,6 +1250,15 @@ class MotorBoard(SerialBoard):
         """
         return self._command_supported('STOP', '_supports_stop_cached')
 
+    def supports_stopping_a_home(self) -> bool:
+        """Whether a STOP sent during a home ends it: never, on this driver.
+
+        ``zhome``, ``thome`` and ``home`` hold the board's exchange until
+        the home replies, so a STOP cannot reach the board until the home
+        has ended.
+        """
+        return False
+
     def supports_fan(self) -> bool:
         """Whether the connected firmware implements the fan commands
         (FAN:<duty> PWM control + FANSPEED tachometer query).

@@ -459,6 +459,10 @@ class NullMotionBoard:
         """No motor hardware: no command family is supported."""
         return False
 
+    def supports_stopping_a_home(self) -> bool:
+        """No motor hardware: nothing homes, so nothing is stopped."""
+        return False
+
     def supports_fan(self) -> bool:
         """No motor hardware: no command family is supported."""
         return False

@@ -358,6 +358,10 @@ class SimulatedMotorBoard:
         """Sim firmware supports every command family."""
         return True
 
+    def supports_stopping_a_home(self) -> bool:
+        """As ``MotorBoard``: a home holds the exchange the STOP needs."""
+        return False
+
     def supports_fan(self) -> bool:
         """Sim firmware supports every command family."""
         return True

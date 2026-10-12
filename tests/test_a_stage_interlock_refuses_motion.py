@@ -206,6 +206,10 @@ class TestAHomeTheInterlockRefuses:
 
     @pytest.mark.parametrize('route, call', [('ALL', 'home'), ('Z', 'zhome')])
     def test_a_stop_that_ended_it_is_named_as_a_stop(self, scope, monkeypatch, route, call):
+        # a stand-in by design: on a board that can take a STOP mid-home; the
+        # LS850's refuses one (tests/test_a_stop_just_after_home_ends_the_home.py).
+        monkeypatch.setattr(scope._motion_driver, 'supports_stopping_a_home', lambda: True)
+
         def stopped_mid_home():
             scope.motion.stop_motion()
             raise RuntimeError('the home was aborted')
