@@ -5,8 +5,6 @@ from dataclasses import dataclass
 import modules.binning as binning
 import modules.image_mode as image_mode
 import modules.layer_record as layer_record
-import modules.settings_paths as settings_paths
-from modules.exceptions import ConfigError
 from modules.lumascope_api._constants import is_turret_slot
 from lvp_logger import logger
 
@@ -79,45 +77,12 @@ class ScopeInitConfig:
         deserves the notification. Identity outranks the scopes.json
         entry here because a unit's own config can differ from its model.
 
-        Raises:
-            ConfigError: ``frame``, ``binning``, ``stage_offset``,
-                ``turret_objectives``, ``scale_bar.enabled`` or
-                ``motion.acceleration_max_pct`` is missing, or
-                ``objective_id`` is missing on a scope with no turret. Every
-                other field has a value ``initialize`` can apply harmlessly
-                when absent; these do not -- a frame the
-                camera never held is silent-wrong geometry, the binning is the
-                other half of that geometry and bring-up stores what the
-                camera delivered at into the same slot, an invented stage
-                offset puts every plate position somewhere else on the stage,
-                an objective default that names no shipped objective was
-                prefix-matched to a real one and stamped into every saved
-                image's scale, an invented acceleration limit commands the
-                motors at a limit nobody chose, and the scope reads the turret
-                map and the scale bar from the settings at every use, so one
-                missing would fail every objective read or capture rather
-                than once, here.
-            SettingRefusedError: ``'out_of_range'``, the acceleration limit
-                is one no board may be given -- refused before bring-up
-                commands anything, by the rule the load replaces such a
-                value by: a dict handed to a session never went through the
-                load.
+        ``settings`` is a prepared dict (``settings_init.prepare_loaded``,
+        which every session's settings went through): every key is
+        present and every value is inside the writer's range, so each is
+        indexed here, never hedged.
         """
-        required = ('frame', 'binning', 'stage_offset', 'turret_objectives', 'scale_bar', 'motion')
-        if not turreted:
-            required += ('objective_id',)
-        missing = [key for key in required if key not in settings]
-        if 'motion' in settings and 'acceleration_max_pct' not in settings['motion']:
-            missing.append('motion.acceleration_max_pct')
-        if 'scale_bar' in settings and 'enabled' not in settings['scale_bar']:
-            missing.append('scale_bar.enabled')
-        if missing:
-            raise ConfigError(
-                f'settings cannot configure a scope: missing {missing}; '
-                'a factory-built session needs them, a file-sourced one has them'
-            )
         acceleration_pct = settings['motion']['acceleration_max_pct']
-        settings_paths.refuse_outside_range('motion.acceleration_max_pct', acceleration_pct)
         binning_size = binning.binning_size_str_to_int(text=settings['binning']['size'])
         expects_motion = layer_record.entry_expects_motion(scope_config)
         preferred_turret_slot = settings.get('turret_position')

@@ -93,13 +93,13 @@ def test_a_stored_shipped_focus_is_read_as_never_saved():
     assert all(stored[layer]['focus'] is None for layer in forgotten)
 
 
-def test_the_load_migrations_read_a_stored_shipped_focus_as_never_saved(caplog):
+def test_the_files_retirements_read_a_stored_shipped_focus_as_never_saved(caplog):
     import logging
 
     stored = {'Blue': {'focus': 4950.0}, 'BF': {'focus': 5998.6}}
 
     with caplog.at_level(logging.INFO):
-        settings_init._apply_load_migrations(logging.getLogger('test'), stored)
+        settings_init._retire_shipped_values(logging.getLogger('test'), stored)
 
     assert stored['Blue']['focus'] is None
     assert stored['BF']['focus'] == 5998.6

@@ -27,7 +27,7 @@ from drivers.sim_wire.backend import LED_DEVICE, SimWireBackend
 from drivers.tmcm6110 import Tmcm6110Board
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
-from modules.exceptions import ConfigError
+from modules.exceptions import ConfigError, SettingRefusedError
 from modules.layer_record import load_scope_models, model_axes
 from modules.lumascope_api import Lumascope
 from modules.scope_session import ScopeSession
@@ -148,14 +148,11 @@ class TestTheSessionReadsTheTier:
         assert template['simulator_tier'] == 'realistic'
 
     def test_a_setting_that_names_no_tier_is_refused(self):
-        with pytest.raises(ConfigError, match="simulator_tier 'turbo'"):
+        # By the writer's rule, at the session's door, before a scope is built.
+        with pytest.raises(SettingRefusedError) as refused:
             ScopeSession.create(complete_settings(simulator_tier='turbo'), simulate=True)
-
-    def test_a_settings_dict_without_the_key_is_refused(self):
-        settings = complete_settings()
-        del settings['simulator_tier']
-        with pytest.raises(ConfigError, match="no 'simulator_tier'"):
-            ScopeSession.create(settings, simulate=True)
+        assert (refused.value.reason, refused.value.path) == ('out_of_range', 'simulator_tier')
+        assert "'turbo' is not one of fast, firmware, realistic" in str(refused.value)
 
     def test_the_firmware_tier_builds_the_production_driver(self):
         session = ScopeSession.create(

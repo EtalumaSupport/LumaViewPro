@@ -11,7 +11,6 @@ those expectations is pinned in `tests/test_bring_up_is_a_record.py`.
 
 import pytest
 
-from modules.exceptions import ConfigError, SettingRefusedError
 from modules.scope_init_config import ScopeInitConfig
 from modules.lumascope_api._constants import ACCELERATION_PCT_MAX
 from tests.scope_fakes import build_scope
@@ -157,38 +156,17 @@ class TestFromSettings:
 
 
 class TestAccelerationBound:
-    """A settings dict's acceleration limit is refused before bring-up
-    commands anything, never clamped.
+    """A settings dict's acceleration limit is carried as stored.
 
-    A dict handed straight to a session never went through the load, which
-    replaces a stored value out of range; refusing it here, before any
-    hardware is commanded, keeps it from failing mid-bring-up.
+    The limit is held to its range before this reads it: the file's at
+    the load, a handed dict's at the session's door, by the writer's one
+    rule (``tests/test_a_settings_dict_handed_to_create_is_prepared_as_the_file_is.py``).
     """
-
-    @pytest.mark.parametrize('stored', [ACCELERATION_PCT_MAX + 400, 0, -3, '50', '', None, True])
-    def test_a_stored_value_no_board_may_take_is_refused(self, stored):
-        settings = {**_BASE_SETTINGS, 'motion': {'acceleration_max_pct': stored}}
-        with pytest.raises(SettingRefusedError) as refused:
-            ScopeInitConfig.from_settings(settings, turreted=False)
-        assert (refused.value.reason, refused.value.path) == (
-            'out_of_range',
-            'motion.acceleration_max_pct',
-        )
-        # Its words are the acceleration owner's sentence, ended once.
-        assert str(refused.value).endswith('from 1 to 100.')
 
     def test_an_in_range_value_is_carried(self):
         settings = {**_BASE_SETTINGS, 'motion': {'acceleration_max_pct': 50}}
         config = ScopeInitConfig.from_settings(settings, turreted=False)
         assert config.acceleration_pct == 50
-
-    def test_an_absent_acceleration_is_refused_by_name(self):
-        for settings in (
-            {key: value for key, value in _BASE_SETTINGS.items() if key != 'motion'},
-            {**_BASE_SETTINGS, 'motion': {}},
-        ):
-            with pytest.raises(ConfigError, match='motion'):
-                ScopeInitConfig.from_settings(settings, turreted=False)
 
     def test_the_api_refuses_on_the_same_bound(self):
         """from_settings and the motion API read the one check."""

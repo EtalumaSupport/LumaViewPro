@@ -428,23 +428,16 @@ def _leaf_paths(block: dict, prefix: str = '') -> typing.Iterator[tuple[str, obj
             yield path, value
 
 
-def replace_refused_stored_values(
+def _values_the_writer_refuses(
     settings: dict, template: dict
-) -> StoredSettingReplacedNotice | None:
-    """Replace each stored value the writer would refuse with the shipped one.
+) -> typing.Iterator[tuple[str, dict, str, object, SettingRefusedError]]:
+    """Every value in ``settings`` the writer's own rule refuses, with the refusal.
 
-    The load's half of the writer: a file written before a rule was held,
-    or edited by hand, can hold a value no write could store -- of the wrong
-    kind, NaN, or outside a range. Every setting the template holds is
-    checked by the writer's own rule, so the two hold one rule. That key
-    alone takes the template's value, in the settings the app runs on and so
-    in the file at its next save; every other setting stays the person's.
-
-    Returns:
-        One notice naming every replaced value, for the Session to report
-        once a host can hear it; None when nothing was replaced.
+    Every setting the template holds is checked by the writer's rule, so
+    the load and a handed dict hold one rule with the write. Yields the
+    dotted path, the dict holding the value and its key, the shipped value,
+    and the refusal the writer would raise.
     """
-    replaced = []
     for path, shipped in _leaf_paths(template):
         *parents, leaf = path.split('.')
         stored = settings
@@ -456,7 +449,42 @@ def replace_refused_stored_values(
             continue
         try:
             _refuse_kind_or_range(shipped, path, stored[leaf])
-        except SettingRefusedError:
-            replaced.append((path, stored[leaf], shipped))
-            stored[leaf] = copy.deepcopy(shipped)
+        except SettingRefusedError as refused:
+            yield path, stored, leaf, shipped, refused
+
+
+def replace_refused_stored_values(
+    settings: dict, template: dict
+) -> StoredSettingReplacedNotice | None:
+    """Replace each stored value the writer would refuse with the shipped one.
+
+    The load's half of the writer: a file written before a rule was held,
+    or edited by hand, can hold a value no write could store -- of the wrong
+    kind, NaN, or outside a range -- and nobody can fix a file at load, so
+    that key alone takes the template's value, in the settings the app runs
+    on and so in the file at its next save; every other setting stays the
+    person's.
+
+    Returns:
+        One notice naming every replaced value, for the Session to report
+        once a host can hear it; None when nothing was replaced.
+    """
+    replaced = []
+    for path, holder, leaf, shipped, _refused in _values_the_writer_refuses(settings, template):
+        replaced.append((path, holder[leaf], shipped))
+        holder[leaf] = copy.deepcopy(shipped)
     return StoredSettingReplacedNotice(replaced) if replaced else None
+
+
+def refuse_handed_values(settings: dict, template: dict) -> None:
+    """Refuse the first value in a dict a caller handed in that the writer refuses.
+
+    The write's half, for a dict handed to a session whole: the caller can
+    fix its dict, so a value no write could store is refused as a write of
+    it would be, by the same rule, before anything runs on it.
+
+    Raises:
+        SettingRefusedError: as ``check_write`` raises it for that value.
+    """
+    for *_, refused in _values_the_writer_refuses(settings, template):
+        raise refused

@@ -994,7 +994,12 @@ class ScopeSession:
                 ``simulate``: a real scope's file lane writes to a real drive,
                 and only the simulated camera stalls.
                 ``'needs_simulated_camera'``, ``sim_camera_stall`` for a model
-                simulated with an FX2.
+                simulated with an FX2. ``'wrong_kind'``, a block of
+                ``settings`` that is not the kind the shipped template holds
+                (``argument`` names it).
+            SettingRefusedError: a value in ``settings`` the writer refuses,
+                under the write's own reason: a dict handed to a session is
+                a write of every key at once, held to the same ranges.
         """
         from modules.lumascope_api._lumascope import _fire_pre_release_warning
         from modules.path_utils import get_source_root
@@ -1013,6 +1018,20 @@ class ScopeSession:
             raise ArgumentRefusedError(
                 'needs_simulated_scope', argument='sim_file_stall', value=sim_file_stall
             )
+        # The one preparation every settings dict gets: a dict a caller
+        # hands in is completed from the shipped template as the file is,
+        # so nothing below hedges for a key it lacks, and is held to the
+        # writer's ranges as a write is. The template is the one read of
+        # it, the scope's own when the scope was built elsewhere.
+        if scope is None:
+            root = get_source_root(source_path)
+            template = settings_init._load_template(logger, str(root / 'data' / 'settings.json'))
+        else:
+            root = scope.source_path
+            template = scope.settings_template
+        settings = settings_init.prepare_loaded(
+            logger, settings, template, str(root), source='settings', handed=True
+        )
         if warn_pre_release:
             _fire_pre_release_warning()
 
@@ -1145,11 +1164,6 @@ class ScopeSession:
         from drivers.sim_wire.backend import DEFAULT_DIALECT, runtime_missing
         from modules.lumascope_api._constants import SIMULATOR_TIERS
 
-        if 'simulator_tier' not in settings:
-            raise ConfigError(
-                "settings have no 'simulator_tier'; a prepared settings dict carries it "
-                'from the shipped template'
-            )
         tier = settings['simulator_tier']
         if tier not in SIMULATOR_TIERS:
             raise ConfigError(f'simulator_tier {tier!r} is not one of {SIMULATOR_TIERS}')
@@ -2670,11 +2684,13 @@ class ScopeSession:
     def _replace_an_unresolvable_stored_plate(self) -> list[tuple[str, object, object]]:
         """Replace a stored plate the catalogue cannot resolve with the shipped one.
 
-        A null, a non-string, an empty name or a plate the catalogue no
-        longer has. The catalogue is first available here, at bring-up, so
-        the name is judged here rather than with the load's other stored
-        values. Refusing it instead brought the GUI up on the shipped
-        template, dropping every other stored setting for one plate name.
+        An empty name or a plate the catalogue no longer has; a null or a
+        non-string never reaches here, since the load replaces it and a
+        session's door refuses it, by the writer's rule. The catalogue is
+        first available here, at bring-up, so the name is judged here
+        rather than with the load's other stored values. Refusing it
+        instead brought the GUI up on the shipped template, dropping every
+        other stored setting for one plate name.
 
         Returns:
             ``[('protocol.labware', stored, shipped)]`` when replaced, else ``[]``.
@@ -2798,10 +2814,6 @@ class ScopeSession:
                 f'[Session  ] scope reports model {detected}, not in the catalogue; '
                 f'the stored model {stored!r} stands'
             )
-        # A caller-supplied dict never went through prepare_settings, whose
-        # normalizer is the one boundary between the file's string slot keys
-        # and the runtime's ints; without it every slot reads as unassigned.
-        settings_init._normalize_turret_slot_keys(self.settings)
         self._put_a_stageless_scope_on_center_plate()
         scope_config = scope_models.get(self.settings.get('microscope'))
         # Before anything is commanded: every well position is computed on it.

@@ -984,8 +984,10 @@ class SettingRefusedError(Refusal, ConfigError):
 
     Raised by ``ScopeSession.update_settings`` and ``set_live_folder``, by
     the members that own a ranged setting (``set_layer_acquire``,
-    ``set_image_mode``) and by a settings dict handed to a session, through
-    ``settings_paths.refuse_outside_range``. A caller that maps refusals to
+    ``set_image_mode``, through ``settings_paths.refuse_outside_range``) and
+    for a settings dict handed to a session, at ``create``'s door
+    (``settings_init.prepare_loaded``, through
+    ``settings_paths.refuse_handed_values``). A caller that maps refusals to
     responses branches on ``reason``; a person reads the message.
 
     Attributes:

@@ -1,35 +1,43 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Complete settings for a factory-built session.
+"""Settings for a factory-built session, the shipped template under a test's overrides.
 
-A session factory configures the scope it builds from the settings it is
-handed, and refuses a dict that cannot configure one (no ``frame``, no
-``objective_id``). File-sourced settings are always complete -- the
-pipeline validates them by name and merges the shipped template in --
-but a test that hands the factory a hand-built dict has to complete it
-the same way, and say which keys it means to override.
+A session's factory completes the dict it is handed from the shipped
+template, as the file's preparation does, so a test may hand it any
+dict. ``complete_settings`` is the convenience for a test that wants the
+template's values with a few of its own laid over, said by name, and the
+fast simulator tier the suite runs on. Its live folder is a fresh
+temporary one unless the test names its own: the template's is relative
+to the installation, and the door would create it under the checkout.
 
-Ten test modules install a ``MagicMock`` as ``modules.settings_init`` at
-import time. Importing that name here would return the mock (and the
-merge would silently return the bare overrides) or, imported first,
-would replace the mock for those modules. So the real module is loaded
-from its file at call time and never registered in ``sys.modules``.
+The template is read through ``settings_init._load_template``, the one
+read of it, so what the application sees of the template the fixtures
+see too.
 """
 
 import copy
-import importlib.util
+import logging
 import pathlib
+import tempfile
+
+from modules import settings_init, settings_paths
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 _TEMPLATE = _REPO_ROOT / 'data' / 'settings.json'
+_LOGGER = logging.getLogger('tests.settings_fixtures')
+
+# Where a fixture's live folders go: the test session's temporary root,
+# set by ``tests/conftest.py`` for the session, else the system's.
+LIVE_FOLDER_ROOT: pathlib.Path | None = None
 
 
-def _real_settings_init():
-    spec = importlib.util.spec_from_file_location(
-        'modules.settings_init', _REPO_ROOT / 'modules' / 'settings_init.py'
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+def shipped_template() -> dict:
+    """The shipped template as the application reads it."""
+    return settings_init._load_template(_LOGGER, str(_TEMPLATE))
+
+
+def _fresh_live_folder() -> str:
+    root = LIVE_FOLDER_ROOT or pathlib.Path(tempfile.mkdtemp(prefix='lvp_live_folders_'))
+    return tempfile.mkdtemp(prefix='live_', dir=root)
 
 
 def complete_settings(**overrides) -> dict:
@@ -41,26 +49,18 @@ def complete_settings(**overrides) -> dict:
     would sit beside an int-keyed override and the later normalization
     would let the template's ``None`` win.
     """
-    si = _real_settings_init()
     merged = copy.deepcopy(overrides)
-    template = si.read_settings_json(str(_TEMPLATE), None)
+    template = shipped_template()
     # The template ships the firmware tier; the suite runs the fast one
     # unless a test asks for the other by name. Moving a test class to the
     # firmware tier is a decision taken per class, not by the template.
     template['simulator_tier'] = 'fast'
-    si._normalize_turret_slot_keys(merged)
-    si._normalize_turret_slot_keys(template)
-    si._deep_merge_defaults(merged, template)
+    if 'live_folder' not in merged:
+        merged['live_folder'] = _fresh_live_folder()
+    settings_init._normalize_turret_slot_keys(merged)
+    settings_init._normalize_turret_slot_keys(template)
+    settings_init._deep_merge_defaults(merged, template)
     return merged
-
-
-def complete_settings_without(*keys, **overrides) -> dict:
-    """``complete_settings`` with the named top-level keys removed -- the
-    shape a factory must refuse."""
-    settings = complete_settings(**overrides)
-    for key in keys:
-        settings.pop(key, None)
-    return settings
 
 
 def settings_writer(settings: dict):
@@ -72,11 +72,7 @@ def settings_writer(settings: dict):
     dict -- the same check against the shipped template, then the store --
     so a widget that writes a path the Session would refuse fails here too.
     """
-    import json
-
-    from modules import settings_paths
-
-    template = json.loads(_TEMPLATE.read_text(encoding='utf-8'))
+    template = shipped_template()
 
     def update_settings(path: str, value: object) -> None:
         settings_paths.check_write(template, path, value)

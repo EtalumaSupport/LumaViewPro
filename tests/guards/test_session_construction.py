@@ -16,7 +16,7 @@ import pytest
 
 import tests.ast_seams as ast_seams
 from modules.scope_session import ScopeSession
-from tests.scope_fakes import real_executor_bundle, spec_scope
+from tests.scope_fakes import build_scope, real_executor_bundle, spec_scope
 from tests.settings_fixtures import complete_settings
 
 
@@ -133,11 +133,14 @@ class TestScopeOwnershipIsConstructorState:
             session.scope.disconnect()
 
     def test_a_passed_scope_is_not_owned(self):
-        session = ScopeSession.create(settings=complete_settings(), scope=spec_scope())
+        session = ScopeSession.create(
+            settings=complete_settings(), scope=build_scope(simulate=True)
+        )
         try:
             assert session._owns_scope is False
         finally:
             session.shutdown()
+            session.scope.disconnect()
 
     def test_a_direct_construction_is_not_owned(self):
         session = ScopeSession(

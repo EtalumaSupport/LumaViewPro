@@ -467,6 +467,22 @@ def _every_simulated_camera_is_disconnected_by_its_test():
 
 
 @pytest.fixture(scope='session', autouse=True)
+def _the_fixtures_live_folders_are_temporary(tmp_path_factory):
+    """A settings dict ``complete_settings`` builds with no live folder named gets a fresh temporary one.
+
+    The template's live folder is relative to the installation, and a
+    session's door brings the folder up where it is, so a hand-built dict
+    that named none would have the door create ``capture`` under the
+    checkout, once per test.
+    """
+    from tests import settings_fixtures
+
+    settings_fixtures.LIVE_FOLDER_ROOT = tmp_path_factory.mktemp('live_folders')
+    yield
+    settings_fixtures.LIVE_FOLDER_ROOT = None
+
+
+@pytest.fixture(scope='session', autouse=True)
 def _every_session_is_shut_down_by_its_test():
     """Every session, however a test built it, is shut down when that test ends.
 

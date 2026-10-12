@@ -346,6 +346,11 @@ def spec_scope(**attrs):
     try:
         # a stand-in by design: the specced double every spec_scope caller takes
         double = create_autospec(real, instance=True, spec_set=True)
+        # A session's factory prepares the settings it is handed against
+        # the scope's own template, read from the scope's root: the
+        # double answers both as the real scope does, not as a mock.
+        double.settings_template = real.settings_template
+        double.source_path = real.source_path
     finally:
         # The spec is captured by create_autospec; the live object has
         # served its purpose and must not keep simulated drivers open.

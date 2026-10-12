@@ -171,7 +171,7 @@ def _by_design() -> list[str]:
 
 # Seeded at LVP dev/4.0.0 b17419cc (2026-10-09) with 237 entries. Only shrinks: a
 # commit that takes a stand-in to the simulator deletes its entry and lowers this.
-ALLOWED_ENTRIES = 230
+ALLOWED_ENTRIES = 229
 ALLOWED = frozenset(
     {
         'tests/af_drives.py::af_runner_and_scope',
@@ -181,7 +181,6 @@ ALLOWED = frozenset(
         'tests/guards/test_live_display_hold_is_a_callback.py::_writer',
         'tests/guards/test_session_construction.py::TestCreateTakesTheHostInjections.test_create_takes_no_lanes',
         'tests/guards/test_session_construction.py::TestScopeOwnershipIsConstructorState.test_a_direct_construction_is_not_owned',
-        'tests/guards/test_session_construction.py::TestScopeOwnershipIsConstructorState.test_a_passed_scope_is_not_owned',
         'tests/guards/test_session_construction.py::TestScopeOwnershipIsConstructorState.test_a_session_needs_a_bundle',
         'tests/guards/test_session_metrics_lifecycle.py::_make_session',
         'tests/plugin_test_harness.py::_make_ctx',

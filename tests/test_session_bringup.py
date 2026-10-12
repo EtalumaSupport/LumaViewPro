@@ -2,12 +2,14 @@
 """A factory-built session is a configured session.
 
 `ScopeSession.create`, for a scope it builds, runs
-the settings-to-scope bring-up before it returns: the turret slot keys
-normalized, the slot-1 objective adopted, the labware selected, the
-scope initialized, the camera start gate released. A session that came
-back from a factory can therefore save an image, refuses settings that
-cannot configure a scope by name, and never leaves threads behind when
-it refuses.
+the settings-to-scope bring-up before it returns: the settings prepared
+as the file's are, the turret slot keys normalized, the slot-1 objective
+adopted, the labware selected, the scope initialized, the camera start
+gate released. A session that came back from a factory can therefore
+save an image, refuses a settings block of the wrong kind by name, and
+never leaves threads behind when it refuses. What the preparation makes
+of a hand-built dict is pinned in
+`tests/test_a_settings_dict_handed_to_create_is_prepared_as_the_file_is.py`.
 """
 
 import threading
@@ -16,10 +18,10 @@ import time
 import numpy as np
 import pytest
 
-from modules.exceptions import ArgumentRefusedError, ConfigError
+from modules.exceptions import ArgumentRefusedError
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
-from tests.settings_fixtures import complete_settings, complete_settings_without
+from tests.settings_fixtures import complete_settings
 from tests.frame_records import frame_record, plate
 
 
@@ -73,29 +75,7 @@ class TestAFactorySessionIsConfigured:
         assert path is not None
 
 
-class TestSettingsThatCannotConfigureAScope:
-    def test_missing_frame_refuses_by_key(self):
-        with pytest.raises(ConfigError, match='frame'):
-            ScopeSession.create(complete_settings_without('frame'), simulate=True)
-
-    def test_missing_binning_refuses_by_key(self):
-        # The other half of the frame's geometry: bring-up stores the binning
-        # the camera delivered at into this slot, so a dict without it is
-        # refused by name, not run at a binning nobody stated.
-        with pytest.raises(ConfigError, match='binning'):
-            ScopeSession.create(complete_settings_without('binning'), simulate=True)
-
-    def test_a_turret_scope_needs_no_stored_objective(self, tmp_path):
-        """On a turret scope the objective is the slot's assignment; a stored
-        id names nothing, so its absence is not a reason to refuse."""
-        session = ScopeSession.create(
-            complete_settings_without(
-                'objective_id', live_folder=str(tmp_path), microscope='LS850T'
-            ),
-            simulate=True,
-        )
-        session.shutdown()
-
+class TestSettingsHandedToAFactory:
     def test_string_turret_keys_are_normalized_and_slot_one_answers(self, tmp_path):
         """A caller dict carries JSON string keys; the file pipeline never saw
         it. The slot map must still be keyed by int, so the turret in slot 1
@@ -129,8 +109,9 @@ class TestSettingsThatCannotConfigureAScope:
 class TestARefusingFactoryLeavesNothingBehind:
     def test_thread_count_returns_to_baseline(self):
         baseline = threading.active_count()
-        with pytest.raises(ConfigError):
-            ScopeSession.create(complete_settings_without('frame'), simulate=True)
+        with pytest.raises(ArgumentRefusedError) as refused:
+            ScopeSession.create(complete_settings(frame='1900 by 1900'), simulate=True)
+        assert (refused.value.reason, refused.value.argument) == ('wrong_kind', 'settings.frame')
         # Other tests' threads may finish during the wait; what matters is
         # that the refusing factory left none of its own behind.
         assert _wait_for_thread_count(baseline) <= baseline

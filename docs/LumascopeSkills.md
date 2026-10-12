@@ -323,7 +323,7 @@ ScopeSession.set_ui_dispatcher(
 )                                           # once, before the first ScopeSession.create
 ```
 
-**Settings a factory needs.** A file-sourced dict (the loader above) is validated by name and complete. Bring-up adopts the model the hardware reports into `settings['microscope']` whenever the catalogue knows that model, so the microscope key is an input the bring-up may correct. A hand-built dict must carry `frame` and `binning` -- `create` raises `ConfigError` naming the missing key -- and on a scope with no turret an `objective_id` the objective catalogue (`data/objectives.json`) does not hold, a missing or null one included, is replaced by the shipped objective at bring-up, where the catalogue is first available, and told as part of the load's `stored_setting_replaced` notice (below). A stored plate (`settings['protocol']['labware']`) the labware catalogue cannot resolve -- a null, a non-string, an empty name, a plate it no longer has -- is replaced by the shipped plate at bring-up and told as part of the load's `stored_setting_replaced` notice (below); every other stored setting is kept. After bring-up, every writer of the selection refuses a plate the catalogue does not have. A turreted scope does not read the stored `objective_id`: its objective is unknown until the turret is homed or moved to a slot, then it is that slot's assignment. `turret_objectives` keys may be JSON strings or ints; the factory normalizes them. A configured session may still owe the objective question (`session.objective_question()`, above); the factories do not ask it. A missing or unusable `labware.json`, `objectives.json`, `scopes.json` or `motorconfig_defaults.json` stops the scope's construction with `InstallationFileError` (see "Initialization").
+**Settings a factory needs.** Every dict `create` takes is prepared as the file's is, by the one preparation (`settings_init.prepare_loaded`): a hand-built dict is completed from the shipped template, so a key it lacks takes the template's value at every depth and no reader hedges for it; a value in it the writer refuses (outside its range, of the wrong kind, not a number) is refused as a write of it would be, `SettingRefusedError` naming the path, since a dict handed to a session is a write of every key at once, where the file's such value is replaced and told; a block of the wrong kind (a `frame` that is not an object) is refused as the argument, `ArgumentRefusedError` (`wrong_kind`) naming `settings.<path>`. A dict the loader above already prepared goes through unchanged. Bring-up adopts the model the hardware reports into `settings['microscope']` whenever the catalogue knows that model, so the microscope key is an input the bring-up may correct. On a scope with no turret an `objective_id` the objective catalogue (`data/objectives.json`) does not hold is replaced by the shipped objective at bring-up, where the catalogue is first available, and told as part of the load's `stored_setting_replaced` notice (below). A stored plate (`settings['protocol']['labware']`) the labware catalogue cannot resolve -- an empty name, a plate it no longer has -- is replaced by the shipped plate at bring-up and told as part of the load's `stored_setting_replaced` notice (below); every other stored setting is kept. A null or a non-string in either place never reaches bring-up: the preparation above replaces it in a file and refuses it in a handed dict, as the writer would. After bring-up, every writer of the selection refuses a plate the catalogue does not have. A turreted scope does not read the stored `objective_id`: its objective is unknown until the turret is homed or moved to a slot, then it is that slot's assignment. `turret_objectives` keys may be JSON strings or ints; the factory normalizes them. A configured session may still owe the objective question (`session.objective_question()`, above); the factories do not ask it. A missing or unusable `labware.json`, `objectives.json`, `scopes.json` or `motorconfig_defaults.json` stops the scope's construction with `InstallationFileError` (see "Initialization").
 
 For **simulated** (no hardware needed, development / CI):
 
@@ -515,12 +515,12 @@ session.start_metrics()   # start periodic runtime-health logging
 session.stop_metrics()    # stop it (idempotent; shutdown() calls this too)
 ```
 
-The session owns the metrics-logger lifecycle. Metrics start only when the
-host injected a scheduler at construction (`ScopeSession(...,
-metrics_scheduler=ThreadingTimerScheduler())` for REST / headless hosts;
-the GUI injects a Kivy-clock scheduler) — with no scheduler,
-`start_metrics()` is a no-op, so factory-built sessions keep metrics off
-unless the host opts in. `settings['profiling']['metrics_interval_s']`
+The session owns the metrics-logger lifecycle and one scheduler for every
+periodic consumer, plain daemon timers on every host (never a UI clock:
+a safety bound armed on a UI loop stops when the UI freezes). The
+scheduler existing does not start metrics: they run only after
+`start_metrics()`, so every session, factory-built or not, keeps metrics
+off unless the host opts in. `settings['profiling']['metrics_interval_s']`
 overrides the default hourly cadence. `start_metrics()` raises
 `RuntimeError` if metrics are already running; `stop_metrics()` is
 idempotent. These members

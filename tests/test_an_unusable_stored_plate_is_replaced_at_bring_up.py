@@ -1,12 +1,15 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A stored plate the catalogue cannot resolve is replaced at bring-up, and told once per load.
 
-Bring-up refused a stored labware the catalogue did not have (a null, a
-number, an empty name, a plate since removed) with ConfigError, and the
-GUI's answer to that refusal is to come up on the shipped template:
-every other stored setting was dropped for one bad plate name. The plate
-is now replaced by the shipped one where the catalogue is first
-available, and the replacement joins the load's own in one notice.
+Bring-up refused a stored labware the catalogue did not have (an empty
+name, a plate since removed) with ConfigError, and the GUI's answer to
+that refusal is to come up on the shipped template: every other stored
+setting was dropped for one bad plate name. The plate is now replaced by
+the shipped one where the catalogue is first available, and the
+replacement joins the load's own in one notice. A null or a number never
+reaches bring-up: the load replaces it and a session's door refuses it,
+by the writer's rule
+(test_a_settings_dict_handed_to_create_is_prepared_as_the_file_is).
 """
 
 import json
@@ -49,7 +52,7 @@ def _loaded(tmp_path, edit):
     return settings
 
 
-@pytest.mark.parametrize('stored', [None, 7, '', 'A plate since removed'])
+@pytest.mark.parametrize('stored', ['', 'A plate since removed'])
 def test_the_scope_comes_up_on_the_shipped_plate_and_keeps_every_other_setting(tmp_path, stored):
     settings = complete_settings(live_folder=str(tmp_path), jpg_quality=77)
     settings['protocol']['labware'] = stored
