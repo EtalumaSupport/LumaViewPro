@@ -106,7 +106,6 @@ def computed_parametrize_sites():
 _COMPUTED_PIN = {
     'tests/capability/test_capability_probes.py': 1,
     'tests/guards/test_architecture_fixes.py': 2,
-    'tests/guards/test_every_api_member_has_a_door.py': 1,
     'tests/guards/test_every_ranged_setting_is_refused_and_replaced.py': 2,
     'tests/guards/test_every_refusal_declares_its_cause.py': 1,
     'tests/guards/test_l2_surface_vocabulary.py': 1,

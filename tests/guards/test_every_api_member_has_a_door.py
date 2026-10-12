@@ -7,8 +7,6 @@ form no check is written for, would fail that first call -- in a client's
 hands. Building every door here makes it a build failure instead.
 """
 
-import pytest
-
 from modules import api_arguments, api_surface, wire_encoding
 
 
@@ -22,11 +20,7 @@ def _members_with_a_door():
             original = getattr(function, '__wrapped__', None)
             if original is None:
                 continue
-            found.append(
-                pytest.param(
-                    original, not isinstance(member, staticmethod), id=f'{cls_name}.{name}'
-                )
-            )
+            found.append((f'{cls_name}.{name}', original, not isinstance(member, staticmethod)))
     return found
 
 
@@ -37,6 +31,11 @@ def test_the_members_with_an_argument_are_found():
     assert len(MEMBERS) > 150
 
 
-@pytest.mark.parametrize('function, bound', MEMBERS)
-def test_the_door_builds(function, bound):
-    api_arguments.door_for(function, bound=bound)
+def test_every_door_builds():
+    failed = {}
+    for label, function, bound in MEMBERS:
+        try:
+            api_arguments.door_for(function, bound=bound)
+        except Exception as ex:  # the defect under test: any door that does not build
+            failed[label] = f'{type(ex).__name__}: {ex}'
+    assert not failed, f'a door does not build: {failed}'
