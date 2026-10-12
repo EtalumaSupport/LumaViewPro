@@ -418,18 +418,46 @@ class TestSelectBinningHandler:
     Session on the camera lane; the store is the Session's to write. During
     init it only redraws. Live, it shows the frame the new binning will give
     in the boxes before it submits, so an edit typed while the apply runs is
-    read against the binning the selector shows."""
+    read against the binning the selector shows. A preview the Session refuses
+    is reported once, through the real boundary, and no apply is sent."""
 
-    def _make_select(self, initializing, settings):
+    @pytest.fixture(autouse=True)
+    def _reported(self, monkeypatch):
+        """The outcomes the real boundary hands the one reporter, in order."""
+        import ui.ui_helpers as ui_helpers
+        from modules.notification_center import notifications
+
+        reported = []
+        # No Kivy frame advances between tests, so a refusal another test
+        # left would read as this input's.
+        monkeypatch.setattr(ui_helpers, '_unanswered_frame', None)
+        monkeypatch.setattr(
+            notifications, 'report_outcome', lambda exc, **_kw: reported.append(exc)
+        )
+        return reported
+
+    def _make_select(self, initializing, settings, preview_refusal=None):
         from types import SimpleNamespace
 
         import modules.binning as binning_real
+        from ui.ui_helpers import refused_in_this_input, run_reported
 
         submits = []
         previews = []
         applies = []
+
+        def _frame_at_binning(size):
+            previews.append(size)
+            if preview_refusal is not None:
+                raise preview_refusal
+            return {'width': 960, 'height': 600}
+
+        # A stand-in by design: the subject is the handler's answer to what
+        # the Session says; the Session's own refusal is pinned against the
+        # simulated scope in
+        # test_an_argument_a_member_cannot_use_is_refused_before_it_is_read.py.
         session = SimpleNamespace(
-            frame_at_binning=lambda size: previews.append(size) or {'width': 960, 'height': 600},
+            frame_at_binning=_frame_at_binning,
             set_binning_size=lambda size: applies.append(size),
         )
         ctx = SimpleNamespace(
@@ -462,6 +490,8 @@ class TestSelectBinningHandler:
             'gui_logger': MagicMock(),
             'logger': MagicMock(),
             'submit_reported': _submit_reported,
+            'run_reported': run_reported,
+            'refused_in_this_input': refused_in_this_input,
         }
         fn = _compile_ms_method('select_binning_size', namespace)
         redraw = _compile_ms_method('_redraw_framing', namespace)
@@ -506,6 +536,28 @@ class TestSelectBinningHandler:
         assert submit['redraw'] is fake_self._framing_applied
         submit['call']()
         assert applies == [2]
+
+    def test_a_refused_preview_is_reported_once_and_sends_no_apply(self, _reported):
+        from modules.exceptions import CameraSettingUnsupportedError
+
+        settings = {'binning': {'size': '1x1'}, 'frame': {'width': 1920, 'height': 1200}}
+        refusal = CameraSettingUnsupportedError('binning', 2, [1], message='not offered')
+        fn, fake_self, _ctx, submits, previews, applies = self._make_select(
+            False, settings, preview_refusal=refusal
+        )
+
+        fn(fake_self)
+
+        assert previews == [2]
+        assert _reported == [refusal], 'the refusal reaches the one reporter, once'
+        assert submits == [] and applies == [], 'an apply the Session would refuse is not sent'
+        assert fake_self.ids['binning_spinner'].text == '1x1', (
+            'the selector shows the stored binning'
+        )
+        assert (fake_self.ids['frame_width_id'].text, fake_self.ids['frame_height_id'].text) == (
+            '1920',
+            '1200',
+        )
 
 
 class TestImageModeMirrorAgreesWithTheStore:

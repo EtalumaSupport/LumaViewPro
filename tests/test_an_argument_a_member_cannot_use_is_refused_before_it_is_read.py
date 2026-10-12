@@ -3,16 +3,19 @@
 
 Each member here read its argument where it was first used: a stage offset
 with no ``'x'`` raised ``KeyError``, auto-gain settings with no target were
-reported as the camera's rejection of a change it was never sent, and a
-diagnostic's duration of 10^12 s overflowed the camera lane's wait. Each is
-now refused before the member acts, with the reason a client branches on.
+reported as the camera's rejection of a change it was never sent, a binning
+of 0 divided by zero, and a diagnostic's duration of 10^12 s overflowed the
+camera lane's wait. Each is now refused before the member acts, with the
+reason a client branches on. The walk of every route
+(``tests/guards/test_a_bad_request_is_answered_as_a_request.py``) holds the
+class; this pins each member at the cheap end, on every push.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from modules.exceptions import ArgumentRefusedError
+from modules.exceptions import ArgumentRefusedError, CameraSettingUnsupportedError
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
@@ -83,6 +86,12 @@ def _rows(session):
             ),
         ),
         (
+            'frame_at_binning, 0',
+            CameraSettingUnsupportedError,
+            'binning_unsupported',
+            lambda: session.frame_at_binning(0),
+        ),
+        (
             'run_grab_lifecycle_benchmark, too many cycles',
             ArgumentRefusedError,
             'out_of_range',
@@ -124,3 +133,11 @@ def test_every_argument_a_member_cannot_use_is_refused_with_its_reason(session):
         else:
             wrong.append(f'{case}: was not refused')
     assert not wrong, '\n'.join(wrong)
+
+
+def test_a_binning_this_camera_offers_is_still_previewed(session):
+    size = session.scope.capabilities.camera_binning_sizes[-1]
+
+    preview = session.frame_at_binning(size)
+
+    assert preview['width'] > 0 and preview['height'] > 0

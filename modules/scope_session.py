@@ -3764,15 +3764,8 @@ class ScopeSession:
         # Asked before the offered sizes: a scope with no camera offers
         # none, and "does not support" would name the wrong cause.
         imaging.refuse_camera_not_connected('set_binning_size')
-        offered = self.scope.capabilities.camera_binning_sizes
+        self._refuse_unoffered_binning(size)
         label = binning.binning_size_int_to_str(size)
-        if size not in offered:
-            raise CameraSettingUnsupportedError(
-                'binning',
-                size,
-                offered,
-                message=f'This camera does not support {label} binning.',
-            )
         native = self._native_frame()
         imaging.set_binning_size(size)
         with self.settings_lock:
@@ -3833,8 +3826,31 @@ class ScopeSession:
         the new binning while the apply is still running. The camera's own
         answer (its grid, its minimum at the new binning) can differ; the
         stored frame after the apply is the truth.
+
+        Raises:
+            CameraSettingUnsupportedError: This camera does not offer
+                ``size``, as ``set_binning_size`` refuses it.
         """
+        self._refuse_unoffered_binning(size)
         return self._target_frame(self._native_frame(), size)
+
+    def _refuse_unoffered_binning(self, size: int) -> None:
+        """Refuse a binning factor this camera does not offer.
+
+        Raises:
+            CameraSettingUnsupportedError: ``size`` is not one of
+                ``capabilities.camera_binning_sizes``.
+        """
+        offered = self.scope.capabilities.camera_binning_sizes
+        if size not in offered:
+            raise CameraSettingUnsupportedError(
+                'binning',
+                size,
+                offered,
+                message=(
+                    f'This camera does not support {binning.binning_size_int_to_str(size)} binning.'
+                ),
+            )
 
     def _native_frame(self) -> dict:
         """The stored unbinned region, or one rebuilt from the displayed frame.

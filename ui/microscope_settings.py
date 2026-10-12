@@ -24,7 +24,7 @@ from modules.memory_profiler import MemoryLeakProfiler
 from modules.notification_center import notifications
 import modules.image_mode as image_mode
 from modules.zstack_config import ZStackConfig
-from ui.ui_helpers import run_reported, submit_reported
+from ui.ui_helpers import refused_in_this_input, run_reported, submit_reported
 
 logger = logging.getLogger('LVP.ui.microscope_settings')
 
@@ -545,8 +545,17 @@ class MicroscopeSettings(BoxLayout):
         # The boxes show the frame the new binning will give while the apply
         # runs, so an edit typed meanwhile is read against the binning the
         # spinner shows; the redraw then shows what the camera delivered.
-        preview = session.frame_at_binning(size)
-        self._write_frame_text(preview['width'], preview['height'])
+        run_reported(
+            lambda: self._write_frame_text(**session.frame_at_binning(size)),
+            None,
+            'BINNING',
+        )
+        # A binning this camera does not offer is refused by the preview as
+        # the apply would refuse it; the apply is not sent to be refused
+        # again, and the panel goes back to the stored binning and frame.
+        if refused_in_this_input():
+            self._redraw_framing()
+            return
         submit_reported(
             lambda: session.set_binning_size(size),
             self._framing_applied,
