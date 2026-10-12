@@ -695,7 +695,6 @@ class ConfigurationDefectError(Fault, ConfigError):
         'layers_unresolved': 'Scope Model Not Known',
         'scope_not_composed': 'Configuration Fault',
         'scope_not_initialized': 'Configuration Fault',
-        'objective_catalogue_empty': 'Configuration Fault',
         'zstack_reference_unchecked': 'Configuration Fault',
     }
     _FOR_PERSON: ClassVar[frozenset[str]] = frozenset({'layers_unresolved'})

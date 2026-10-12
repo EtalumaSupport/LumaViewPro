@@ -32,7 +32,7 @@ def _patch_ctx(monkeypatch, *, spinner_text: str, settings: dict, loader):
 
 
 class TestGetSelectedLabware:
-    """UI variant -- the stored plate, or ConfigError; never another plate."""
+    """UI variant -- the stored plate, or the catalogue's refusal; never another plate."""
 
     def test_settings_is_the_single_store(self, monkeypatch):
         # Settings owns the selection: the spinner writes through on
@@ -92,22 +92,6 @@ class TestGetSelectedLabware:
         from modules.config_ui_getters import get_selected_labware
 
         with pytest.raises(CatalogueNameRefusedError, match=r"labware catalogue.*'New' is not one"):
-            get_selected_labware()
-
-    def test_spinner_empty_and_settings_naming_no_plate_is_refused(self, monkeypatch):
-        from modules.exceptions import ConfigError
-        from modules.labware_loader import WellPlateLoader
-
-        _patch_ctx(
-            monkeypatch,
-            spinner_text='',
-            settings={'protocol': {'labware': None}},
-            loader=WellPlateLoader(),
-        )
-
-        from modules.config_ui_getters import get_selected_labware
-
-        with pytest.raises(ConfigError):
             get_selected_labware()
 
     def test_no_first_available_plate_is_substituted(self, monkeypatch):

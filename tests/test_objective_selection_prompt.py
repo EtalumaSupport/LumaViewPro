@@ -166,9 +166,7 @@ class TestTheQuestionIsRendered:
         h = _Harness(
             monkeypatch,
             _ScriptedSession(
-                ConfigurationDefectError(
-                    'objective_catalogue_empty', 'the objective catalogue is empty'
-                )
+                ConfigurationDefectError('scope_not_initialized', 'the scope was never initialized')
             ),
         )
         h.prompt()
@@ -178,7 +176,7 @@ class TestTheQuestionIsRendered:
         assert [(n.severity, n.title) for n in centre_posts] == [
             (Severity.ERROR, 'Configuration Fault')
         ]
-        assert 'catalogue' not in centre_posts[0].message
+        assert 'initialized' not in centre_posts[0].message
         assert h.error_popups == []
 
 
@@ -209,9 +207,7 @@ class TestTheContinuationFollowsTheQuestion:
         h = _Harness(
             monkeypatch,
             _ScriptedSession(
-                ConfigurationDefectError(
-                    'objective_catalogue_empty', 'the objective catalogue is empty'
-                )
+                ConfigurationDefectError('scope_not_initialized', 'the scope was never initialized')
             ),
         )
         runs = self._prompt(h)

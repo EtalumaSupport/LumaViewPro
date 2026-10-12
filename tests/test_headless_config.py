@@ -125,10 +125,6 @@ class TestGetSelectedLabware:
         )
         assert labware_id == 'Center Plate'
 
-    def test_settings_naming_no_plate_are_refused(self):
-        with pytest.raises(ConfigError, match='the settings name no plate'):
-            get_selected_labware_from_settings({'protocol': {'labware': None}}, _wellplate_loader())
-
     def test_an_unknown_plate_is_refused_by_name(self):
         with pytest.raises(
             CatalogueNameRefusedError, match=r"labware catalogue.*'nonexistent' is not one"
@@ -192,21 +188,6 @@ class TestGetZstackParams:
             ).number_of_steps()
             == 0
         )
-
-    def test_unmapped_position_label_refuses_as_config_error(self):
-        """Typed, not a bare Exception -- REST middleware can only map the
-        typed error onto a response."""
-        with pytest.raises(ConfigError, match='Unknown Z-stack position reference'):
-            get_zstack_params_from_settings(
-                complete_settings(zstack={'position': 'Focus at Middle'})
-            )
-
-    @pytest.mark.parametrize('key', ['range', 'step_size'])
-    def test_unparseable_number_refuses_as_config_error(self, key):
-        """A raw ValueError from float() escaped this lane untyped, so one
-        corrupt value failed differently on the GUI and REST lanes."""
-        with pytest.raises(ConfigError, match=f'Z-stack {key} is not a number'):
-            get_zstack_params_from_settings(complete_settings(zstack={key: 'wide'}))
 
     def test_a_null_reference_refuses_loudly_where_it_is_consumed(self):
         """A config built with no reference -> a named refusal where it is used.

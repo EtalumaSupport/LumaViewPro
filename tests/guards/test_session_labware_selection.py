@@ -19,7 +19,7 @@ import logging
 import pytest
 
 from modules import labware_loader
-from modules.exceptions import ArgumentTypeRefusedError, CatalogueNameRefusedError, ConfigError
+from modules.exceptions import ArgumentTypeRefusedError, CatalogueNameRefusedError
 from modules.scope_session import ScopeSession
 from tests.ast_seams import writers_of_settings_keys
 from tests.settings_fixtures import complete_settings
@@ -152,33 +152,6 @@ class TestRefusals:
 
         assert session.settings['protocol']['labware'] == STARTING_PLATE
         assert _runtime_plate_shape(session) == before
-
-    def test_settings_with_no_protocol_block_are_refused_before_anything_moves(self, sessions):
-        """A store that cannot hold the plate is refused by name.
-
-        Settings handed straight to a factory skip the template merge that
-        puts the protocol block there, so it can genuinely be absent; the
-        caller hears that, not an error from inside the write.
-        """
-        session = sessions()
-        del session.settings['protocol']
-
-        with pytest.raises(ConfigError, match='no usable protocol block'):
-            session.select_labware(OTHER_PLATE)
-
-    @pytest.mark.parametrize('block', ['a string', ['a', 'list'], 7])
-    def test_a_protocol_block_that_is_not_a_mapping_is_refused_the_same_way(self, sessions, block):
-        """Absent and unusable are the same answer to the caller.
-
-        A hand-edited settings file can put anything in that slot. Checking
-        only for None would let the rest through to a reach that raises
-        AttributeError instead of the refusal this member promises.
-        """
-        session = sessions()
-        session.settings['protocol'] = block
-
-        with pytest.raises(ConfigError, match='no usable protocol block'):
-            session.select_labware(OTHER_PLATE)
 
     def test_a_non_string_is_refused_at_the_door_and_nothing_stored(self, sessions):
         """A wire payload decodes to whatever it decodes to.

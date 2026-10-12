@@ -18,7 +18,6 @@ import modules.binning as binning
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 from lvp_logger import logger, metrics_logger
-from modules.exceptions import ConfigurationDefectError
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol_state_machine import SequencedCaptureRunMode
@@ -1072,7 +1071,6 @@ def get_selected_labware_from_settings(
     since the settings named it is found under its old spelling.
 
     Raises:
-        ConfigError: The settings name no plate.
         CatalogueNameRefusedError: ``'labware_unknown'``, the settings name
             a plate the catalogue does not have; ``offered`` carries the
             plates it has. No other plate is substituted: a different plate's geometry puts
@@ -1081,12 +1079,7 @@ def get_selected_labware_from_settings(
             replaces a stored plate the catalogue cannot resolve; this
             reader still refuses one in settings no bring-up has read.
     """
-    stored = settings['protocol']['labware']
-    if not isinstance(stored, str):
-        raise ConfigurationDefectError(
-            'settings_not_prepared', f'the settings name no plate: protocol.labware is {stored!r}'
-        )
-    labware_id = wellplate_loader.resolve_plate_key(stored)
+    labware_id = wellplate_loader.resolve_plate_key(settings['protocol']['labware'])
     return labware_id, wellplate_loader.get_plate(plate_key=labware_id)
 
 
@@ -1099,32 +1092,17 @@ def get_zstack_params_from_settings(settings: dict) -> dict:
     ``protocol.zstack`` container and a ``z_reference`` leaf found neither and
     answered with invented values instead of failing.
 
-    The store is prepared, so every key is read. The shipped ``step_size``
-    is 0, so an unconfigured store reports no stack.
-
-    Raises:
-        ConfigError: ``position`` holds a label with no config token, or
-            ``range`` / ``step_size`` will not parse as a number.
+    The store is prepared, so every key is read, and each holds what its
+    writer and the load allow: ``range`` and ``step_size`` a finite number,
+    ``position`` one of the z-stack labels. The shipped ``step_size`` is 0,
+    so an unconfigured store reports no stack.
     """
     zstack = settings['zstack']
-    position = zstack['position']
-    parsed = {}
-    for key in ('range', 'step_size'):
-        raw = zstack[key]
-        try:
-            parsed[key] = float(raw)
-        except (TypeError, ValueError):
-            # A raw ValueError from float() escapes this lane untyped, so the
-            # GUI and a REST caller see different failures for one corrupt
-            # value. Both get the refusal the rest of the lane raises.
-            raise ConfigurationDefectError(
-                'settings_not_prepared', f'Z-stack {key} is not a number: {raw!r}'
-            ) from None
     return {
-        'range': parsed['range'],
-        'step_size': parsed['step_size'],
+        'range': float(zstack['range']),
+        'step_size': float(zstack['step_size']),
         'z_reference': common_utils.convert_zstack_reference_position_setting_to_config(
-            text_label=position
+            text_label=zstack['position']
         ),
     }
 

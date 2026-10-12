@@ -409,10 +409,6 @@ class TestSettingsDoNotOverrideRunConfig:
 
 
 class TestIllegalConfigStatesUnrepresentable:
-    def test_unknown_mode_is_refused(self):
-        with pytest.raises(ConfigError):
-            ImageCaptureConfig.from_image_mode('not_a_mode')
-
     def test_frozen_instance_rejects_assignment(self):
         config = ImageCaptureConfig.from_image_mode('8bit')
         with pytest.raises(dataclasses.FrozenInstanceError):

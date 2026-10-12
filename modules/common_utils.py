@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING, ClassVar, Final, Protocol
 import numpy as np
 import psutil
 
-from modules.exceptions import ConfigurationDefectError
 from modules.video_cadence import effective_recording_fps
 
 if TYPE_CHECKING:
@@ -414,16 +413,7 @@ ZSTACK_POSITION_LABELS: Final[dict[str, str]] = {
 
 
 def convert_zstack_reference_position_setting_to_config(text_label: str) -> str:
-    if text_label in ZSTACK_POSITION_LABELS:
-        return ZSTACK_POSITION_LABELS[text_label]
-
-    # ConfigError, not a bare Exception: this refusal now reaches the settings
-    # lane as well as the widget lane, and REST middleware can only map the
-    # typed error onto a response. A bare Exception surfaces as an unhandled
-    # server fault for what is a bad value in the caller's config.
-    raise ConfigurationDefectError(
-        'settings_not_prepared', f'Unknown Z-stack position reference: {text_label}'
-    )
+    return ZSTACK_POSITION_LABELS[text_label]
 
 
 def first_few(items: list[str], *, separator: str, limit: int = 5) -> str:

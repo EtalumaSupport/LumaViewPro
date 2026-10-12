@@ -55,7 +55,6 @@ from modules.exceptions import (
     ArgumentRefusedError,
     CameraSettingUnsupportedError,
     ConfigError,
-    ConfigurationDefectError,
     DiagnosticRefusedError,
     FileWriterNotStuckError,
     HARDWARE_STATE_REASONS,
@@ -1199,13 +1198,8 @@ class ScopeSession:
         runtime that is present but broken raises further down.
         """
         from drivers.sim_wire.backend import DEFAULT_DIALECT, runtime_missing
-        from modules.lumascope_api._constants import SIMULATOR_TIERS
 
         tier = settings['simulator_tier']
-        if tier not in SIMULATOR_TIERS:
-            raise ConfigurationDefectError(
-                'settings_not_prepared', f'simulator_tier {tier!r} is not one of {SIMULATOR_TIERS}'
-            )
         missing = runtime_missing(DEFAULT_DIALECT) if tier != 'fast' else None
         if missing is not None:
             logger.warning(
@@ -2649,12 +2643,6 @@ class ScopeSession:
         *blocks, leaf = path.split('.')
         holder = self.settings
         for block in blocks:
-            if not isinstance(holder.get(block), dict):
-                raise ConfigurationDefectError(
-                    'settings_not_prepared',
-                    f'these settings have no {block!r} block for {path}: they were '
-                    'not prepared from the template',
-                )
             holder = holder[block]
         holder[leaf] = value
 
@@ -3390,11 +3378,6 @@ class ScopeSession:
         if has_turret and position is None:
             raise ObjectiveUnknownError('slot_unknown')
         choices = tuple(self.objective_helper.get_objectives_list())
-        if not choices:
-            raise ConfigurationDefectError(
-                'objective_catalogue_empty',
-                'the objective catalogue is empty; cannot ask which objective is installed',
-            )
         # Only the slot's own assignment names glass anyone has confirmed. The
         # stored objective_id does not: the question is owed on a turretless
         # scope only before anyone has confirmed one, when it is the shipped
@@ -3502,26 +3485,13 @@ class ScopeSession:
         Raises:
             CatalogueNameRefusedError: ``'labware_unknown'``, the labware
                 catalogue has no plate by that name. Nothing is written.
-            ConfigError: the settings have no protocol block to hold the
-                selection. Nothing is written.
             HardwareCommandRefusedError: A run, a diagnostic or a recording
                 holds the scope and ``labware_name`` is not the plate in place
                 (``exclusive_activity_running``): each states its positions
                 against the plate it started with. Nothing is written.
         """
         labware_name = self.wellplate_loader.resolve_plate_key(labware_name)
-        protocol_settings = self.settings.get('protocol')
-        if not isinstance(protocol_settings, dict):
-            # Every dict reaches the session through create's preparation,
-            # which holds this block to the template's kind; a dict that
-            # bypassed it is a bug, named here so the refusal says what is
-            # wrong rather than failing inside the write.
-            raise ConfigurationDefectError(
-                'settings_not_prepared',
-                'settings have no usable protocol block; the labware selection '
-                f'has nowhere to live (found {type(protocol_settings).__name__})',
-            )
-        if labware_name == protocol_settings.get('labware'):
+        if labware_name == self.settings['protocol']['labware']:
             # A holder is refused only a different plate: the GUI re-selects
             # the current one whenever its panels redraw, under any hold.
             return False

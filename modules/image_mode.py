@@ -106,16 +106,8 @@ def resolve_image_mode(mode: str) -> dict:
 
     Returns:
         A fresh dict with 'capture_depth' (int) and 'save_encoding' (str).
-
-    Raises:
-        ConfigError: if mode is not a recognized IMAGE_MODE_* value.
     """
-    try:
-        return dict(_MODE_TABLE[mode])
-    except KeyError:
-        raise ConfigurationDefectError(
-            'settings_not_prepared', f'unknown image_mode: {mode!r}'
-        ) from None
+    return dict(_MODE_TABLE[mode])
 
 
 @dataclasses.dataclass(frozen=True)
