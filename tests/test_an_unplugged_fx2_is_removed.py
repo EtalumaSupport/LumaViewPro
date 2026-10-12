@@ -55,7 +55,7 @@ def test_an_unplug_while_streaming_disconnects_the_camera_and_the_led(session):
     camera = scope._camera_driver
     grab_thread = camera._grab_thread
 
-    _transport(session).unplug()
+    session.scope.simulation.unplug('led')
 
     assert _wait_until(lambda: not scope.camera_connected, 6.0)
     assert scope.led_connected is False
@@ -81,7 +81,7 @@ def test_a_silent_device_still_on_the_bus_is_removed_only_at_the_ceiling(session
     scope = session.scope
     start = time.monotonic()
 
-    _transport(session).go_silent()
+    session.scope.simulation.silence('led')
 
     assert _wait_until(lambda: time.monotonic() - start > 3.0, 4.0)
     assert scope.camera_connected is True
@@ -92,7 +92,7 @@ def test_a_gain_written_after_the_removal_is_not_recorded(session):
     scope = session.scope
     before = scope.imaging.gain_db_cached
 
-    _transport(session).unplug()
+    session.scope.simulation.unplug('led')
     assert _wait_until(lambda: not scope.camera_connected, 6.0)
     with pytest.raises(HardwareCommandRefusedError) as exc:
         scope.imaging.set_gain_db(before + 6.0)
@@ -118,7 +118,7 @@ def test_a_gain_written_before_the_teardown_ends_is_not_recorded(session):
 
 def test_the_settings_are_saved_after_the_scope_is_unplugged(session, tmp_path):
     scope = session.scope
-    _transport(session).unplug()
+    session.scope.simulation.unplug('led')
     assert _wait_until(lambda: not scope.camera_connected, 6.0)
 
     out = tmp_path / 'current.json'
@@ -133,7 +133,7 @@ def test_the_shutdown_after_a_removal_raises_nothing():
     settings['simulator_tier'] = 'fast'
     session = ScopeSession.create(settings, simulate=True)
     session.scope.imaging.start_streaming()
-    session.scope._led_driver._fx2._transport.unplug()
+    session.scope.simulation.unplug('led')
     assert _wait_until(lambda: not session.scope.camera_connected, 6.0)
 
     session.shutdown()
@@ -175,7 +175,7 @@ def test_the_removal_is_not_run_on_the_grab_thread(session):
         return original()
 
     camera.disconnect = recording_disconnect
-    _transport(session).unplug()
+    session.scope.simulation.unplug('led')
     assert _wait_until(lambda: seen, 6.0)
     assert seen[0].endswith('RemovalTeardown')
 
@@ -229,7 +229,7 @@ def test_the_shutdown_after_a_removal_writes_nothing_to_the_gone_led():
     settings['simulator_tier'] = 'fast'
     session = ScopeSession.create(settings, simulate=True)
     session.scope.imaging.start_streaming()
-    session.scope._led_driver._fx2._transport.unplug()
+    session.scope.simulation.unplug('led')
     assert _wait_until(lambda: not session.scope.camera_connected, 6.0)
     led = session.scope._led_driver
     writes = []

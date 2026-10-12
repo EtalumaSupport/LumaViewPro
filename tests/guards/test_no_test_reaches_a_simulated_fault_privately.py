@@ -59,6 +59,9 @@ _DOOR_NAMES = frozenset(
 # board with no scope: the doors are what they test or their fixture.
 _OWN_DOORS: dict[str, str] = {
     'tests/test_simulators.py': 'the fast boards and camera, door by door',
+    'tests/test_an_fx2_frame_ends_where_the_device_ends_it.py': (
+        'the FX2 stream over a bare simulated FX2, no scope'
+    ),
     'tests/test_simulated_camera_stall.py': "the simulated camera's stall, on a bare camera",
     'tests/test_tmcm6110.py': 'the TMCM-6110 driver over its simulated board, no scope',
     'tests/test_no_reply_is_no_reply.py': "the EL-0940 drivers' reading of a dropped reply, at the wire",
@@ -113,8 +116,7 @@ def private_fault_reaches() -> dict[str, list[str]]:
 # file's tests onto scope.simulation; never raise one.
 _PRIVATE_REACH_PIN: dict[str, int] = {
     'tests/capability/serial_p01_cable_pull.py': 2,
-    'tests/test_an_fx2_frame_ends_where_the_device_ends_it.py': 1,
-    'tests/test_an_unplugged_fx2_is_removed.py': 8,
+    'tests/test_an_unplugged_fx2_is_removed.py': 1,
     'tests/test_audit_fixes.py': 3,
     'tests/test_lumascope_api.py': 3,
     'tests/test_motion_state_gate.py': 2,
