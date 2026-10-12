@@ -5,7 +5,8 @@ The GUI opened the protocol the last start left behind and decided the
 remembered path's fate itself, clearing it only when no file was there: a
 file that was there but could not be read kept its path, and the next start
 failed on it again. ``ScopeSession.open_remembered_protocol`` owns the rule
-beside the path's one writer: a missing or unreadable file is forgotten, and
+beside the path's one writer: a path with no file at it (nothing, or a
+folder) is forgotten quietly, an unreadable file is forgotten and raised, and
 a refusal (a plate the catalogue lacks, a malformed file, glass the turret
 cannot place) keeps the path, because the file is real and what is wrong can
 be put right.
@@ -16,6 +17,7 @@ import logging
 import pytest
 
 from modules.exceptions import ProtocolNotLoadedError
+import modules.protocol as protocol_module
 from modules.protocol import ProtocolFormatError
 from tests.test_labware_name_resolution import _protocol_file
 from tests.test_loading_a_protocol_puts_the_scope_on_its_plate import (  # noqa: F401 -- pytest fixture
@@ -38,8 +40,12 @@ def test_no_remembered_path_opens_nothing(session):
     assert _remembered(session) == ''
 
 
-def test_a_remembered_file_that_is_gone_is_forgotten_at_info(session, tmp_path, caplog):
-    _remember(session, tmp_path / 'deleted.tsv')
+@pytest.mark.parametrize('kind', ['deleted', 'a folder'])
+def test_a_remembered_path_with_no_file_is_forgotten_at_info(session, tmp_path, caplog, kind):
+    path = tmp_path / 'protocol.tsv'
+    if kind == 'a folder':
+        path.mkdir()
+    _remember(session, path)
 
     with caplog.at_level(logging.INFO):
         assert session.open_remembered_protocol() is None
@@ -48,10 +54,18 @@ def test_a_remembered_file_that_is_gone_is_forgotten_at_info(session, tmp_path, 
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
-def test_a_remembered_file_that_cannot_be_read_is_forgotten_and_raised(session, tmp_path):
-    unreadable = tmp_path / 'folder.tsv'
-    unreadable.mkdir()
-    _remember(session, unreadable)
+def test_a_remembered_file_that_cannot_be_read_is_forgotten_and_raised(
+    session, tmp_path, monkeypatch
+):
+    path = _protocol_file(tmp_path, '6 well microplate')
+    _remember(session, path)
+
+    # a stand-in by design: a disk that fails a read, which the simulator
+    # cannot produce; the reader opens the file through its module's ``open``.
+    def failing_open(*args, **kwargs):
+        raise PermissionError(13, 'Permission denied')
+
+    monkeypatch.setattr(protocol_module, 'open', failing_open, raising=False)
 
     with pytest.raises(ProtocolNotLoadedError):
         session.open_remembered_protocol()

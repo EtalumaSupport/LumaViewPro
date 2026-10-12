@@ -1501,8 +1501,8 @@ class ScopeSession:
         anything else.
 
         Raises:
-            ProtocolNotLoadedError, ProtocolFormatError,
-            ProtocolRunRefusedError: As
+            LiveFolderPathRefusedError, ProtocolNotLoadedError,
+            ProtocolFormatError, ProtocolRunRefusedError: As
                 ``ProtocolsAPI.load_protocol`` raises them.
             ConfigError, HardwareCommandRefusedError: As ``select_labware``
                 raises them; the scope stays on the plate it had.
@@ -2530,17 +2530,11 @@ class ScopeSession:
 
         Raises:
             LiveFolderPathRefusedError: as ``live_folder_path`` raises it;
-                ``'not_a_folder'``, ``name`` is a file or names nothing.
+                ``'not_found'``, ``name`` names nothing; ``'not_a_folder'``,
+                ``name`` is a file.
         """
         root = self.live_folder_path('.')
-        folder = self.live_folder_path(name)
-        if not folder.is_dir():
-            raise LiveFolderPathRefusedError(
-                'not_a_folder',
-                name,
-                f'{name!r} is not a folder in the live folder {root}. List a folder the '
-                "live folder's own listing names.",
-            )
+        folder = path_utils.existing_folder(self.live_folder_path(name), given=name)
         entries = []
         # By the name's text: a Windows path compares without case, so
         # sorting the paths would order the same folder differently by host.
@@ -2582,8 +2576,8 @@ class ScopeSession:
         writes.
 
         Raises:
-            ProtocolNotLoadedError, ProtocolFormatError,
-            ProtocolRunRefusedError, ConfigError,
+            LiveFolderPathRefusedError, ProtocolNotLoadedError,
+            ProtocolFormatError, ProtocolRunRefusedError, ConfigError,
             HardwareCommandRefusedError: As ``load_protocol`` and
                 ``apply_layer_settings`` raise them; no path is remembered.
         """
@@ -2607,9 +2601,10 @@ class ScopeSession:
         remembered path it reads.
 
         Returns:
-            The protocol, or None when no path is remembered or its file is
-            gone (the path is then forgotten, logged at INFO: a protocol moved
-            or deleted since is not a fault).
+            The protocol, or None when no path is remembered or no file is
+            at it, whether nothing or a folder is there (the path is then
+            forgotten, logged at INFO: a protocol moved or deleted since is
+            not a fault).
 
         Raises:
             ProtocolNotLoadedError: The file is there and cannot be read; the
@@ -2624,12 +2619,12 @@ class ScopeSession:
         # exists, so an empty path would be loaded and fail as a fault.
         if not file_path:
             return None
-        if not pathlib.Path(file_path).exists():
-            logger.info(f'[Session   ] The remembered protocol {file_path} is gone; forgotten.')
-            self.set_protocol_filepath('')
-            return None
         try:
             return self.open_protocol(file_path)
+        except LiveFolderPathRefusedError as gone:
+            logger.info(f'[Session   ] The remembered protocol is gone ({gone}); forgotten.')
+            self.set_protocol_filepath('')
+            return None
         except ProtocolNotLoadedError:
             self.set_protocol_filepath('')
             raise

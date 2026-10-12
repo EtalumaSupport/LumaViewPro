@@ -34,6 +34,7 @@ from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
 import modules.common_utils as common_utils
+import modules.path_utils as path_utils
 from modules.finite_number import refuse_unless_finite_number
 from modules.coord_transformations import CoordinateTransformer
 from modules.exceptions import (
@@ -126,7 +127,9 @@ class ProtocolsAPI:
             Protocol: The loaded Protocol instance.
 
         Raises:
-            ProtocolNotLoadedError: The file cannot be read.
+            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+                ``file_path``; ``'not_a_file'``, a folder is.
+            ProtocolNotLoadedError: The file is there and cannot be read.
             ProtocolFormatError: On format issues (same surface as
                 Protocol.from_file), or when the file names a plate this
                 installation's labware catalogue does not have. Refused
@@ -142,7 +145,7 @@ class ProtocolsAPI:
         from modules.protocol import Protocol
 
         protocol = Protocol.from_file(
-            file_path=file_path,
+            file_path=path_utils.existing_file(file_path),
             tiling_configs_file_loc=self.tiling_configs_path(),
             wellplate_loader=self._scope.wellplate_loader,
         )

@@ -9,7 +9,12 @@ import pathlib
 import sys
 from enum import StrEnum
 
-from modules.exceptions import InstallationFileError, Refusal, RefusalCause
+from modules.exceptions import (
+    InstallationFileError,
+    LiveFolderPathRefusedError,
+    Refusal,
+    RefusalCause,
+)
 
 
 MAX_COLLISION_SUFFIX = 999
@@ -63,6 +68,54 @@ def require_capture_location(live_folder: str | pathlib.Path) -> pathlib.Path:
     if not folder.is_dir():
         raise _inaccessible(folder)
     return folder
+
+
+def existing_file(path: str | os.PathLike, *, given: str | None = None) -> pathlib.Path:
+    """``path`` as a path, if a file is there to read.
+
+    Args:
+        given: The name the caller gave, when it is not ``path`` itself (a
+            wire caller's name under the live folder); the refusal names it.
+
+    Raises:
+        LiveFolderPathRefusedError: ``'not_found'``, nothing is at ``path``;
+            ``'not_a_file'``, a folder is.
+    """
+    path = pathlib.Path(path)
+    name = str(path) if given is None else given
+    if path.is_file():
+        return path
+    if path.is_dir():
+        raise LiveFolderPathRefusedError(
+            'not_a_file', name, f'{name} is a folder, not a file. Give the path of a file.'
+        )
+    raise LiveFolderPathRefusedError(
+        'not_found', name, f'There is nothing at {name}. Give the path of a file that exists.'
+    )
+
+
+def existing_folder(path: str | os.PathLike, *, given: str | None = None) -> pathlib.Path:
+    """``path`` as a path, if a folder is there to read.
+
+    Args:
+        given: The name the caller gave, when it is not ``path`` itself (a
+            wire caller's name under the live folder); the refusal names it.
+
+    Raises:
+        LiveFolderPathRefusedError: ``'not_found'``, nothing is at ``path``;
+            ``'not_a_folder'``, a file is.
+    """
+    path = pathlib.Path(path)
+    name = str(path) if given is None else given
+    if path.is_dir():
+        return path
+    if path.exists():
+        raise LiveFolderPathRefusedError(
+            'not_a_folder', name, f'{name} is a file, not a folder. Give the path of a folder.'
+        )
+    raise LiveFolderPathRefusedError(
+        'not_found', name, f'There is nothing at {name}. Give the path of a folder that exists.'
+    )
 
 
 def resolves_inside(root: str | pathlib.Path, path: str | pathlib.Path) -> bool:

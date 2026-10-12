@@ -491,8 +491,17 @@ bytes; `modified` a timezone-aware local `datetime`. `'.'` lists the live
 folder itself. An entry gone by the time it is read (a file a run renames
 into place, a link to nothing) is not listed; a link that leads outside
 the live folder is listed, and refused where its name is used. `name` is refused as
-`live_folder_path` refuses it, and with reason `not_a_folder` when it is a
-file or names nothing.
+`live_folder_path` refuses it, with reason `not_found` when it names
+nothing, and with reason `not_a_folder` when it is a file.
+
+**A path that cannot be used is refused as a request.** A member that
+reads a path the caller gives refuses it before reading, with
+`LiveFolderPathRefusedError`: reason `not_found` when nothing is there,
+`not_a_file` when a folder is where a file is expected, and
+`not_a_folder` when a file is where a folder is expected
+(`load_protocol('runs')` on a folder is `not_a_file`). Over REST each is a
+422. A fault (`ProtocolNotLoadedError`) is left for a path that is usable
+and still failed: a file that is there and cannot be read.
 
 Writing into the settings dict you passed to `create` directly skips every check above and the
 lock; it is not a supported write.

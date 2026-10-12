@@ -166,30 +166,34 @@ class RemedyUnknownError(Refusal, ValueError):
 
 
 class LiveFolderPathRefusedError(Refusal, ValueError):
-    """A wire caller's path was refused: it does not name a place inside the live folder.
+    """A path the caller gave was refused: it cannot be used as the member uses it.
 
-    Raised by ``ScopeSession.live_folder_path``. A REST caller names a file
-    or folder by a name under the live folder, the one folder it may reach;
-    a name that is a path of its own, or that climbs out, reaches the rest
-    of the machine.
+    Raised by ``ScopeSession.live_folder_path`` for a wire caller's name,
+    which may reach only the live folder: a name that is a path of its own,
+    or that climbs out, reaches the rest of the machine. Raised by the
+    ``path_utils`` checks for any caller's path that is missing or of the
+    wrong kind, before the member reads or writes it.
 
     Attributes:
         reason: ``'outside_live_folder'`` -- the name is empty, absolute,
             carries a drive or a network share, or leads outside the live
             folder through ``..`` or a link. ``'capture_location_unusable'``
             -- the live folder itself is missing or not a folder.
-            ``'not_a_folder'`` -- a listing's name is a file or names
-            nothing.
-        name: The name that was given.
+            ``'not_found'`` -- nothing is at the path. ``'not_a_file'`` --
+            a folder is where a file is expected. ``'not_a_folder'`` -- a
+            file is where a folder is expected.
+        name: The name or path that was given.
     """
 
     title = 'Path Not Available'
-    # A missing live folder is an unplugged drive, which comes back; a name
-    # that is a file, or names nothing, is listed again unchanged, so a
+    # A missing live folder is an unplugged drive, which comes back; a path
+    # that is missing or of the wrong kind is answered again unchanged, so a
     # polling client must not wait on it.
     causes: ClassVar[dict[str, RefusalCause]] = {
         'outside_live_folder': RefusalCause.REQUEST,
         'capture_location_unusable': RefusalCause.STATE,
+        'not_found': RefusalCause.REQUEST,
+        'not_a_file': RefusalCause.REQUEST,
         'not_a_folder': RefusalCause.REQUEST,
     }
 

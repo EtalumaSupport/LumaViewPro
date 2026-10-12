@@ -7,7 +7,8 @@ saved at the top, the images a run wrote. ``session.live_folder_listing``
 lists one level, each entry by the full name a path parameter, a download
 and a further listing all take, ``/``-separated on every host. A name
 outside the live folder is refused as ``live_folder_path`` refuses it, and
-a name that is not a folder is refused rather than answered empty.
+a name that is not a folder is refused rather than answered empty: as
+``not_a_folder`` for a file, ``not_found`` for nothing.
 """
 
 from __future__ import annotations
@@ -81,9 +82,11 @@ def test_a_name_outside_the_live_folder_is_refused(session, name):
     assert refused.value.reason == 'outside_live_folder'
 
 
-@pytest.mark.parametrize('name', ['plate.tsv', 'no_such_folder'])
-def test_a_name_that_is_not_a_folder_is_refused(session, name):
+@pytest.mark.parametrize(
+    ('name', 'reason'), [('plate.tsv', 'not_a_folder'), ('no_such_folder', 'not_found')]
+)
+def test_a_name_that_is_not_a_folder_is_refused_by_what_is_there(session, name, reason):
     with pytest.raises(LiveFolderPathRefusedError) as refused:
         session.live_folder_listing(name)
-    assert refused.value.reason == 'not_a_folder'
+    assert refused.value.reason == reason
     assert refused.value.name == name
