@@ -44,6 +44,7 @@ def _spy_build(monkeypatch, cls, method_name):
             'new_count': 0,
             'output_root': str(path),
             'artifact_paths': [],
+            'excluded_inputs': (),
         }
 
     monkeypatch.setattr(cls, method_name, record)

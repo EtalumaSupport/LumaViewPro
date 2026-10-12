@@ -176,6 +176,7 @@ def test_a_running_and_a_queued_build_both_finish(sim_session, tmp_path):
             output_root=pathlib.Path(folder),
             artifact_paths=(),
             degraded_outputs=(),
+            excluded_inputs=(),
         )
 
     def build(name):

@@ -65,8 +65,12 @@ def _run_build(build, popup, label: str, on_done=None) -> None:
             return
         popup.progress = 100
         popup.text = result.message
-        degraded = isinstance(result, BuildResult) and bool(result.degraded_outputs)
-        Clock.schedule_once(lambda dt: popup.dismiss(), 5 if degraded else 2)
+        # A result that names a fallback or files left out stays up long
+        # enough to be read; the build says which, the panel only holds it.
+        noted = isinstance(result, BuildResult) and bool(
+            result.degraded_outputs or result.excluded_inputs
+        )
+        Clock.schedule_once(lambda dt: popup.dismiss(), 5 if noted else 2)
 
     submit_reported(_build, _show, label, lane=_app_ctx.ctx.session.post_processing.lane)
 

@@ -579,6 +579,8 @@ class VideoBuilder(ProtocolPostProcessor):
                 dropped_frames=0,
                 artifact_paths=[],
                 output_root=str(path),
+                accounting_note='',
+                excluded_inputs=(),
             )
         dropped = result.get('metadata', {}).get('dropped_frames', 0)
         if dropped:
@@ -590,13 +592,17 @@ class VideoBuilder(ProtocolPostProcessor):
                 dropped_frames=dropped,
                 artifact_paths=[str(result['actual_output_file_loc'])],
                 output_root=str(path),
+                accounting_note='',
+                excluded_inputs=(),
             )
         # What a protocol folder's build answers: the file it made, where it
         # landed, so a caller is told the video and not only that it worked.
+        # It reads the recording's frames alone, so nothing is left out.
         return {
             'status': True,
             'message': 'Success.',
             'new_count': 1,
             'output_root': str(path),
             'artifact_paths': [str(result['actual_output_file_loc'])],
+            'excluded_inputs': (),
         }

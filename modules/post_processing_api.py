@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING
 from lvp_logger import logger
 from modules import live_work, path_utils
 from modules.exceptions import (
+    ExcludedInput,
     PostProcessingFailedError,
     PostProcessingOperation,
     PostProcessingRefusedError,
@@ -68,7 +69,9 @@ class DegradedOutput:
     fallback_reason: str
 
 
-@api_fields('message', 'new_count', 'output_root', 'artifact_paths', 'degraded_outputs')
+@api_fields(
+    'message', 'new_count', 'output_root', 'artifact_paths', 'degraded_outputs', 'excluded_inputs'
+)
 @dataclasses.dataclass(frozen=True)
 class BuildResult:
     """What a stitch, z-projection, composite or video build made.
@@ -80,6 +83,10 @@ class BuildResult:
         artifact_paths: Each file it made, where it landed.
         degraded_outputs: The files a fallback algorithm made; empty when
             none.
+        excluded_inputs: The files of each kind in the folder the build
+            did not take (a stitch's per-tile composites), not counting
+            its own earlier outputs; empty when none. The message names
+            them, with the route to their output where there is one.
     """
 
     message: str
@@ -87,6 +94,7 @@ class BuildResult:
     output_root: pathlib.Path
     artifact_paths: tuple[pathlib.Path, ...]
     degraded_outputs: tuple[DegradedOutput, ...]
+    excluded_inputs: tuple[ExcludedInput, ...]
 
 
 @api_fields('source_path', 'output_path', 'recipe_path')
@@ -148,6 +156,7 @@ def _build_result(answer: dict) -> BuildResult:
             )
             for degraded in answer.get('degraded_outputs', ())
         ),
+        excluded_inputs=tuple(answer['excluded_inputs']),
     )
 
 

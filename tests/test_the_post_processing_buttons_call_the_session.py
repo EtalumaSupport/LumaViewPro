@@ -31,6 +31,7 @@ def session(monkeypatch):
         output_root=pathlib.Path('folder'),
         artifact_paths=(),
         degraded_outputs=(),
+        excluded_inputs=(),
     )
     for member in ('stitch', 'zproject', 'composite', 'video'):
         getattr(ctx.session.post_processing, member).return_value = built

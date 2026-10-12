@@ -1618,6 +1618,26 @@ class PostProcessingRefusedError(Refusal, CaptureError):
         self.title = self._TITLES[key]
 
 
+@api_fields('kind', 'count')
+@dataclass(frozen=True)
+class ExcludedInput:
+    """Files of one kind a post-processing build found in the folder and did not take.
+
+    A build's own earlier outputs are not among them: those it has already
+    made.
+
+    Attributes:
+        kind: What the files are: ``composite``, ``stitched``, ``zproject``,
+            ``video``, ``hyperstack``, or ``other`` (a recording's frames,
+            which only a video or a hyperstack takes).
+        count: How many.
+    """
+
+    kind: str
+    count: int
+
+
+@api_fields('excluded_inputs')
 class PostProcessingFailedError(Fault, CaptureError):
     """A post-processing build did not produce everything it was asked for.
 
@@ -1632,7 +1652,12 @@ class PostProcessingFailedError(Fault, CaptureError):
         produced_paths: Every artifact that was written.
         output_root: The folder the artifacts went under, or None.
         errors: Every failed group's error, in order.
+        excluded_inputs: The files of each kind the build did not take, as
+            a complete build's result names them; empty for an operation
+            that reads no protocol folder (Quick Enhance, a cell count).
     """
+
+    excluded_inputs: tuple[ExcludedInput, ...]
 
     _TITLES: ClassVar[dict[tuple[PostProcessingOperation, str], str]] = {
         (operation, reason): f'{operation} {heading}'
@@ -1651,6 +1676,7 @@ class PostProcessingFailedError(Fault, CaptureError):
         produced_paths: Iterable[str] = (),
         output_root: 'str | None' = None,
         errors: Iterable[str] = (),
+        excluded_inputs: 'Iterable[ExcludedInput]' = (),
     ):
         produced_paths = tuple(produced_paths)
         if produced_paths:
@@ -1664,6 +1690,7 @@ class PostProcessingFailedError(Fault, CaptureError):
         self.produced_paths = produced_paths
         self.output_root = output_root
         self.errors = tuple(errors)
+        self.excluded_inputs = tuple(excluded_inputs)
         self.title = self._TITLES[(operation, reason)]
 
 

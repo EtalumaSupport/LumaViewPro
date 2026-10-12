@@ -101,6 +101,7 @@ def _built(message, folder):
         output_root=pathlib.Path(folder),
         artifact_paths=(),
         degraded_outputs=(),
+        excluded_inputs=(),
     )
 
 

@@ -13,6 +13,7 @@ import modules.recording_frames as recording_frames
 from modules.api_surface import ProgressCallback
 from modules.common_utils import PostFunction
 from modules.exceptions import (
+    ExcludedInput,
     PostProcessingFailedError,
     PostProcessingOperation,
     PostProcessingRefusedError,
@@ -37,7 +38,7 @@ from lvp_logger import logger
 # fit is the defect this table exists to avoid.
 _EXCLUDED_REMEDY = {
     (PostFunction.STITCHED, PostFunction.COMPOSITE): (
-        ' Stitch the channels first, then composite the result.'
+        ' Composites are not stitched; Composite builds them from the stitched channels.'
     ),
 }
 
@@ -249,8 +250,15 @@ class ProtocolPostProcessor(abc.ABC):
         dropped_frames: int,
         artifact_paths: list,
         output_root: str,
+        accounting_note: str,
+        excluded_inputs: tuple[ExcludedInput, ...],
     ) -> PostProcessingFailedError:
-        """The outcome of a build that did not produce everything asked of it."""
+        """The outcome of a build that did not produce everything asked of it.
+
+        It carries what the build left out as a complete result does, so a
+        group that failed does not also silence the inputs that were never
+        tried.
+        """
         label = self.operation_label.lower()
         missing = []
         if group_errors:
@@ -274,10 +282,11 @@ class ProtocolPostProcessor(abc.ABC):
         sentence = '; '.join(missing)
         return PostProcessingFailedError(
             operation=self.operation_label,
-            missing=f'{sentence[0].upper()}{sentence[1:]}.',
+            missing=f'{sentence[0].upper()}{sentence[1:]}.{accounting_note}',
             produced_paths=artifact_paths,
             output_root=output_root,
             errors=group_errors,
+            excluded_inputs=excluded_inputs,
         )
 
     def _refuse(self, reason: str, message: str) -> PostProcessingRefusedError:
@@ -355,32 +364,42 @@ class ProtocolPostProcessor(abc.ABC):
         # and empty-result messages are built from survivors, so uncounted
         # drops misattribute the outcome (a composite-only folder read as
         # "lacks multi-tile structure"). Dropped rows self-describe their
-        # category through their own PostFunction flags.
+        # category through their own PostFunction flags. A dropped row that
+        # carries this operation's own flag is its own earlier output, already
+        # made rather than left out (a stitched composite is a stitch's own,
+        # though it is a composite too): it is counted only to explain a
+        # folder that holds nothing else.
         pre_filter_df = df
         df = self._filter_ignored_types(df=df)
-        excluded_counts: dict[str, int] = {}
+        own_flag = self._post_function.value
+        left_out_counts: dict[str, int] = {}
         excluded_kinds: set = set()
+        already_made = 0
         dropped_rows = pre_filter_df.loc[pre_filter_df.index.difference(df.index)]
         for _, dropped in dropped_rows.iterrows():
-            for flag in PostFunction.list_values():
-                if dropped[flag]:
-                    category = f'{flag.lower()} file(s)'
-                    excluded_kinds.add(PostFunction(flag))
-                    break
-            else:
-                category = 'other file(s)'
-            excluded_counts[category] = excluded_counts.get(category, 0) + 1
-        if excluded_counts:
-            excluded_text = ', '.join(
-                f'{count} {category}' for category, count in sorted(excluded_counts.items())
-            )
+            if dropped[own_flag]:
+                already_made += 1
+                continue
+            kind = next((flag for flag in PostFunction.list_values() if dropped[flag]), None)
+            if kind is not None:
+                excluded_kinds.add(PostFunction(kind))
+            word = kind.lower() if kind is not None else 'other'
+            left_out_counts[word] = left_out_counts.get(word, 0) + 1
+        excluded_inputs = tuple(
+            ExcludedInput(kind=word, count=count) for word, count in sorted(left_out_counts.items())
+        )
+        excluded_text = ', '.join(f'{item.count} {item.kind} file(s)' for item in excluded_inputs)
+        derived_counts = dict(left_out_counts)
+        if already_made:
+            derived_counts[own_flag.lower()] = already_made
+        derived_text = ', '.join(
+            f'{count} {word} file(s)' for word, count in sorted(derived_counts.items())
+        )
+        if derived_text:
             logger.info(
                 f'[{self._name} ] {len(dropped_rows)} input file(s) excluded from '
-                f'{self._post_function.value.lower()} generation: {excluded_text}'
+                f'{own_flag.lower()} generation: {derived_text}'
             )
-        else:
-            excluded_text = ''
-            excluded_kinds = set()
 
         groups = self._get_groups(df)
 
@@ -592,7 +611,10 @@ class ProtocolPostProcessor(abc.ABC):
             if skipped_single_paths
             else ''
         )
-        excluded_note = f' Excluded from this operation: {excluded_text}.' if excluded_text else ''
+        remedy = _remedy_for(self._post_function, excluded_kinds)
+        excluded_note = (
+            f' Excluded from this operation: {excluded_text}.{remedy}' if excluded_text else ''
+        )
         accounting_note = f'{single_skip_note}{excluded_note}'
 
         if (new_count == 0) and (existing_count == 0):
@@ -606,16 +628,17 @@ class ProtocolPostProcessor(abc.ABC):
                     f'artifacts would be indistinguishable. See '
                     f'lumaviewpro.log for the colliding names.',
                 )
-            if excluded_text and last_error is None:
+            if derived_text and last_error is None:
                 # The emptiness is explained by what the filter excluded, not
                 # by the folder's structure -- a structural hint here sent
                 # users hunting for missing tiles a composite folder has.
+                # Own earlier outputs count here: a folder of nothing else
+                # is explained by them.
                 fname_lower = fname.lower()
-                remedy = _remedy_for(self._post_function, excluded_kinds)
                 raise self._refuse(
                     'excluded_inputs',
                     f'No {fname_lower} was generated: this folder holds only '
-                    f'{excluded_text}, which are derived outputs.'
+                    f'{derived_text}, which are derived outputs.'
                     f'{remedy}{single_skip_note}',
                 )
             needed = _MULTI_FRAME_REQUIREMENT.get(
@@ -643,6 +666,8 @@ class ProtocolPostProcessor(abc.ABC):
                 dropped_frames=dropped_frames,
                 artifact_paths=artifact_paths,
                 output_root=str(root_path),
+                accounting_note=accounting_note,
+                excluded_inputs=excluded_inputs,
             )
 
         end_ts = datetime.datetime.now()
@@ -664,6 +689,7 @@ class ProtocolPostProcessor(abc.ABC):
                 'output_root': str(root_path),
                 'artifact_paths': artifact_paths,
                 'accounting_note': accounting_note,
+                'excluded_inputs': excluded_inputs,
             }
         return {
             'status': True,
@@ -672,4 +698,5 @@ class ProtocolPostProcessor(abc.ABC):
             'output_root': str(root_path),
             'artifact_paths': artifact_paths,
             'accounting_note': accounting_note,
+            'excluded_inputs': excluded_inputs,
         }

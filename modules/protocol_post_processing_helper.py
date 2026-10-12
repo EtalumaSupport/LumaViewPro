@@ -386,8 +386,11 @@ class ProtocolPostProcessingHelper:
                 'message': user_msg,
             }
 
+        # Renumbered: each frame arrives with its own 0-based index, and a
+        # label shared by a raw row and a post-processed row lets a caller
+        # that finds rows by label mistake one for the other.
         df_list = [raw_images_df, post_images_df]
-        images_df = pd.concat([df for df in df_list if not df.empty])
+        images_df = pd.concat([df for df in df_list if not df.empty], ignore_index=True)
 
         return {
             'status': True,
