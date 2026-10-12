@@ -426,10 +426,6 @@ else:
 
 from modules import gui_logger
 from modules.app_config import (
-    load_autofocus_log_enable,
-    load_log_level,
-)
-from modules.app_config import (
     load_mode as _load_mode,
 )
 from modules.exceptions import ConfigError
@@ -736,8 +732,6 @@ class LumaViewProApp(TooltipMixin, App):
         # MetricsLogger owns the executor watchdog, system metrics, and camera-temp
         # logging so adding a new periodic metric only requires editing one module.
 
-        load_log_level(source_path)
-        load_autofocus_log_enable(source_path)
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
 
         def after_the_startup_motion() -> None:
@@ -1007,7 +1001,7 @@ class LumaViewProApp(TooltipMixin, App):
 
         # Load engineering mode early so _init_ui() methods see the correct value.
         # ENGINEERING_MODE is build-only; intentionally a local, not a global.
-        ENGINEERING_MODE = _load_mode(source_path)
+        ENGINEERING_MODE = _load_mode(settings)
 
         stage = Stage()
 

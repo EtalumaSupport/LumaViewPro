@@ -10835,7 +10835,8 @@ class TestDebugGateIsNotEnvVar:
         # overrides every logger's own level (it was silently starving
         # camera.log's always-on DEBUG firehose) and split the debug
         # toggle into two gates. The canonical mechanism is the per-logger
-        # level driven by debug_mode; the global disable must not return.
+        # level, logging.default.level as the session applies it; the global
+        # disable must not return.
         import ast
 
         src = self._lvp_logger_source()
@@ -10854,7 +10855,7 @@ class TestDebugGateIsNotEnvVar:
                     hits.append(node.lineno)
         assert not hits, (
             'lvp_logger.py must not call logging.disable() -- DEBUG gating '
-            'is the per-logger level driven by debug_mode, not a global '
+            'is the per-logger level the session applies, not a global '
             f'kill-switch. Found at line(s): {hits}'
         )
 

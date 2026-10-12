@@ -160,6 +160,27 @@ def _scheduler_callback_error(exc: BaseException) -> None:
     notifications.report_outcome(exc, solicited=False, category='Scheduler')
 
 
+def _apply_logging(settings: dict) -> None:
+    """Put the settings' log level on the main log, and the autofocus score log on or off.
+
+    Logging is process-wide, so the settings of the session a host builds
+    decide it, on every host: applied when the session is created, before
+    its scope is brought up, and again when either setting is written, so
+    the logger never disagrees with the store. The level goes on both
+    loggers that write the main log -- the 'LVP' parent of every module's
+    logger, and lvp_logger's own.
+    """
+    import logging
+
+    import modules.autofocus_functions as autofocus_functions
+
+    level = settings['logging']['default']['level'].upper()
+    for name in ('LVP', 'lvp_logger'):
+        logging.getLogger(name).setLevel(level)
+    logger.info(f'[Session  ] Log level {level}')
+    autofocus_functions.enable_af_score_logging(enable=bool(settings['logging']['autofocus']))
+
+
 def _tell_stored_replacements(pending: list[tuple[str, object, object]]) -> None:
     """Tell, as one notice, the stored settings a load replaced, and empty ``pending``.
 
@@ -950,6 +971,10 @@ class ScopeSession:
         protocol_thread (started) and scope_display_thread (constructed,
         not started).
 
+        The settings' log level and autofocus score log are applied to the
+        process's logging first, so every host logs as its settings say,
+        bring-up included.
+
         A scope the factory builds is brought up before this returns
         (``configure_scope``, then the camera start gate released) and is
         torn down by ``shutdown()``; a scope passed in is the caller's
@@ -1039,6 +1064,7 @@ class ScopeSession:
         settings = settings_init.prepare_loaded(
             logger, settings, template, str(root), source='settings', handed=True
         )
+        _apply_logging(settings)
         if warn_pre_release:
             _fire_pre_release_warning()
 
@@ -2406,6 +2432,8 @@ class ScopeSession:
         A layer's gain or exposure is stored as written, the person's
         intent; a camera that cannot reach it is driven at its own limit
         when the layer is applied (``ImagingAPI.applied_gain_db_for``).
+        The log level and the autofocus score log (``'logging.*'``) take
+        effect as they are written.
         """
         settings_paths.check_write(
             self.scope.settings_template,
@@ -2415,6 +2443,8 @@ class ScopeSession:
         )
         with self.settings_lock:
             self._store_setting(path, value)
+            if path.startswith('logging.'):
+                _apply_logging(self.settings)
 
     @api(in_process=True)
     def set_live_folder(self, folder: str) -> None:

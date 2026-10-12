@@ -1,15 +1,16 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
-Application configuration loaders extracted from lumaviewpro.py.
+Application configuration read at the GUI's startup.
 
-These functions read settings from JSON files (current.json / settings.json)
-and configure logging, engineering mode, and other app-level settings.
+The instance lock's port is read from the settings files, before any
+settings are prepared: a host takes the lock before it loads anything, so a
+second launch exits first. Engineering mode is read from the prepared
+settings.
 """
 
 import logging
 import pathlib
 
-import modules.autofocus_functions as autofocus_functions
 from modules.path_utils import get_source_root
 from modules.settings_init import SettingsFileError, read_settings_json
 
@@ -17,12 +18,12 @@ logger = logging.getLogger('LVP.modules.app_config')
 
 
 def _iter_settings_files(source_path: str | pathlib.Path | None = None):
-    # Deliberately not _resolve_settings_path. These readers run at startup
-    # before settings_init merges defaults, and they yield BOTH files so a key
+    # Deliberately not _resolve_settings_path. The lock port is read at
+    # startup before settings_init merges defaults, and this yields BOTH files so a key
     # absent from current.json falls through to settings.json (callers retry on
     # KeyError). The resolver returns only the first existing file -- no
     # fallthrough -- so swapping it in would drop keys that live only in
-    # settings.json. Revisit if these reads move onto the merged settings dict.
+    # settings.json.
     #
     # The fallthrough earns its keep across upgrades: a key added in a later
     # release exists in the shipped settings.json but not in an installed
@@ -30,27 +31,6 @@ def _iter_settings_files(source_path: str | pathlib.Path | None = None):
     data_dir = get_source_root(source_path) / 'data'
     yield data_dir / 'current.json'
     yield data_dir / 'settings.json'
-
-
-def load_log_level(source_path: str | pathlib.Path | None = None) -> None:
-    """Read log level from settings and apply to the root LVP logger."""
-    for settings_file in _iter_settings_files(source_path):
-        try:
-            data = read_settings_json(settings_file, logger)
-        except FileNotFoundError:
-            continue
-        except SettingsFileError as e:
-            # Try the next file: a key absent here may live in the other one.
-            logger.warning(f'Failed to parse {settings_file}: {e}')
-            continue
-
-        try:
-            # A level's name in any case; the settings writer holds it to one.
-            log_level = logging.getLevelName(data['logging']['default']['level'].upper())
-            logger.setLevel(level=log_level)
-            return
-        except Exception:
-            logger.warning('Failed to read log level from %s', settings_file, exc_info=True)
 
 
 def get_lvp_lock_port(source_path: str | pathlib.Path | None = None) -> int:
@@ -74,46 +54,9 @@ def get_lvp_lock_port(source_path: str | pathlib.Path | None = None) -> int:
     return DEFAULT_LVP_LOCK_PORT
 
 
-def load_autofocus_log_enable(source_path: str | pathlib.Path | None = None) -> None:
-    """Enable autofocus score logging if configured in settings."""
-    for settings_file in _iter_settings_files(source_path):
-        try:
-            data = read_settings_json(settings_file, logger)
-        except FileNotFoundError:
-            continue
-        except SettingsFileError as e:
-            # Try the next file: a key absent here may live in the other one.
-            logger.warning(f'Failed to parse {settings_file}: {e}')
-            continue
-
-        try:
-            if data['logging']['autofocus']:
-                autofocus_functions.enable_af_score_logging(enable=True)
-            return
-        except Exception:
-            logger.warning(
-                'Failed to read autofocus log setting from %s', settings_file, exc_info=True
-            )
-
-
-def load_mode(source_path: str | pathlib.Path | None = None) -> bool:
-    """Read engineering mode flag from settings. Returns True if engineering mode."""
-    for settings_file in _iter_settings_files(source_path):
-        try:
-            data = read_settings_json(settings_file, logger)
-        except FileNotFoundError:
-            continue
-        except SettingsFileError as e:
-            # Try the next file: a key absent here may live in the other one.
-            logger.warning(f'Failed to parse {settings_file}: {e}')
-            continue
-
-        try:
-            mode = data['mode']
-            if mode == 'engineering':
-                logger.info('Enabling engineering mode')
-                return True
-        except Exception:
-            logger.warning('Failed to read mode from %s', settings_file, exc_info=True)
-
+def load_mode(settings: dict) -> bool:
+    """Whether the prepared settings start the app in engineering mode."""
+    if settings['mode'] == 'engineering':
+        logger.info('Enabling engineering mode')
+        return True
     return False

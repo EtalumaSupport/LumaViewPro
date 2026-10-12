@@ -46,9 +46,10 @@ class TestRootLoggerCapturedInBundle:
         assert '_root_logger.setLevel(logging.DEBUG)' in _SRC
 
     def test_bundle_handler_filters_to_main_log_floor(self):
-        # file_handler level set so a root/library DEBUG firehose does not
-        # flood the bundle.
-        assert 'file_handler.setLevel(_log_level)' in _SRC
+        # The bundle passes LVP's records at the level the session set and
+        # anyone else's from INFO up, so a root/library DEBUG firehose does
+        # not flood the bundle.
+        assert 'file_handler.addFilter(_MainLogFloor())' in _SRC
 
 
 class TestConsoleGuardedOnStderr:

@@ -421,7 +421,11 @@ that can take the value gets it back.
 **`update_settings(path, value)` is the one write.** `path` names one
 setting by its keys joined with dots (`'BF.sum'`, `'zstack.step_size'`,
 `'video.max_fps'`); the settings that exist, and the kind each holds,
-are `session.scope.settings_template`. The write is taken under the lock,
+are `session.scope.settings_template`. Two settings act on the whole
+process as they are written: `logging.default.level`, the level of the
+main log on every host (applied when the session is created, before its
+scope comes up, and on each write), and `logging.autofocus`, whether each
+focus score is logged. The write is taken under the lock,
 or refused with `SettingRefusedError` (from `modules.exceptions`) and
 nothing is written. It carries the refused setting's `path`, and for
 `has_member` the `member` to call instead; a REST problem carries both.
