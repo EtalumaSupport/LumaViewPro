@@ -85,32 +85,35 @@ def test_the_discovery_finds_the_api_s_exceptions():
     assert {'HardwareError', 'ProtocolRunRefusedError', 'ServerRefusedError'} <= names
 
 
-@pytest.mark.parametrize('cls', EXCEPTION_CLASSES, ids=lambda cls: cls.__qualname__)
-def test_every_exception_is_a_lumascope_error(cls):
-    assert issubclass(cls, LumascopeError), (
-        f'{cls.__module__}.{cls.__qualname__} is not a LumascopeError: a caller catching '
-        'what the scope raises misses it'
+def _named(classes):
+    return [f'{cls.__module__}.{cls.__qualname__}' for cls in classes]
+
+
+def test_every_exception_is_a_lumascope_error():
+    outside = [cls for cls in EXCEPTION_CLASSES if not issubclass(cls, LumascopeError)]
+    assert outside == [], (
+        f'not LumascopeErrors, so a caller catching what the scope raises misses them: '
+        f'{_named(outside)}'
     )
 
 
-@pytest.mark.parametrize('cls', EXCEPTION_CLASSES, ids=lambda cls: cls.__qualname__)
-def test_every_exception_has_exactly_one_kind_or_is_an_umbrella(cls):
-    kinds = [kind.__name__ for kind in KINDS if issubclass(cls, kind)]
-    if cls in UMBRELLAS:
-        assert kinds == [], f'{cls.__name__} is an umbrella and states no kind; got {kinds}'
-        return
-    assert len(kinds) == 1, (
-        f'{cls.__module__}.{cls.__qualname__} must be exactly one of Refusal, Notice, Quiet '
-        f'or Fault; it is {kinds or "none"}'
+def test_every_exception_has_exactly_one_kind_or_is_an_umbrella():
+    wrong = []
+    for cls in EXCEPTION_CLASSES:
+        kinds = [kind.__name__ for kind in KINDS if issubclass(cls, kind)]
+        expected = 0 if cls in UMBRELLAS else 1
+        if len(kinds) != expected:
+            wrong.append(f'{cls.__module__}.{cls.__qualname__}: {kinds or "none"}')
+    assert wrong == [], (
+        'each must be exactly one of Refusal, Notice, Quiet or Fault, and an umbrella '
+        f'none: {wrong}'
     )
 
 
-@pytest.mark.parametrize('cls', EXCEPTION_CLASSES, ids=lambda cls: cls.__qualname__)
-def test_except_exception_still_catches_every_one(cls):
+def test_except_exception_still_catches_every_one():
     """Joining the root moves no class out of an existing ``except Exception``."""
-    assert issubclass(cls, Exception), (
-        f'{cls.__qualname__} left Exception: every except Exception would stop catching it'
-    )
+    left = [cls for cls in EXCEPTION_CLASSES if not issubclass(cls, Exception)]
+    assert left == [], f'every except Exception would stop catching these: {_named(left)}'
 
 
 @pytest.mark.parametrize('umbrella', UMBRELLAS, ids=lambda cls: cls.__name__)
