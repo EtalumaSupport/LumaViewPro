@@ -768,9 +768,8 @@ class MotionAPI:
         Raises:
             ArgumentRefusedError: ``'axis_unknown'``, a name in *axes* is
                 no axis name.
-            AxisStateUnknownError: Naming every refused axis. Reported once
-                through the one reporter before it is raised, so a caller
-                that reports it again shows nothing more.
+            AxisStateUnknownError: Naming every refused axis. Raised, not
+                reported: the gesture's boundary reports it.
         """
         wanted = set(axes)
         for axis in wanted:
@@ -784,11 +783,7 @@ class MotionAPI:
         }
         if not refused:
             return
-        error = AxisStateUnknownError(refused, then=then)
-        # Solicited: the user just asked for this, so it reaches them even
-        # while a run is in flight.
-        notifications.report_outcome(error, solicited=True, category='Motion')
-        raise error
+        raise AxisStateUnknownError(refused, then=then)
 
     # ------------------------------------------------------------------
     # Stateless method bodies.

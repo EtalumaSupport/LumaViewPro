@@ -6,8 +6,8 @@ layer configs, ran its own turret pre-check with its own popup, ordered
 the channels, and called the protocol module directly once per layer --
 and when no layer was set to acquire it returned bare, so the click did
 nothing and said nothing. The protocols API now owns the add: it refuses
-through its one funnel (one log line, one notification, one typed
-exception) and returns the names it inserted, and the Session composes
+through its one funnel, a typed exception the caller's boundary reports,
+and returns the names it inserted, and the Session composes
 the inputs from its own settings so a script can add a step the way the
 GUI does.
 """
@@ -62,7 +62,7 @@ def turret_in_a_known_slot(scope):
 
 @pytest.mark.usefixtures('turret_in_a_known_slot')
 class TestTheApiRefuses:
-    def test_no_acquiring_layer_is_refused_once_and_adds_nothing(self, scope, centre_posts):
+    def test_no_acquiring_layer_is_refused_and_adds_nothing(self, scope, centre_posts):
         protocol = _empty_protocol_for_add()
         captured = _capture_notifications(centre_posts)
 
@@ -70,7 +70,7 @@ class TestTheApiRefuses:
             _add(scope, protocol, _layer_configs(), before_step=0)
 
         assert excinfo.value.reason == 'no_acquiring_layer'
-        assert len(captured) == 1
+        assert list(captured) == []
         assert protocol.num_steps() == 0
 
     def test_an_unset_turret_objective_is_refused_before_anything_is_read(
@@ -87,7 +87,7 @@ class TestTheApiRefuses:
             _add(scope, protocol, _layer_configs(BF='image'), before_step=0)
 
         assert excinfo.value.reason == 'turret_objective_unset'
-        assert len(captured) == 1
+        assert list(captured) == []
         assert protocol.num_steps() == 0
 
     def test_an_unknown_objective_is_refused_and_adds_nothing(self, scope, centre_posts):
@@ -104,7 +104,7 @@ class TestTheApiRefuses:
         # The objective in the light path becomes known on a home or a
         # select, so the same add can succeed later.
         assert excinfo.value.cause == RefusalCause.STATE
-        assert len(captured) == 1
+        assert list(captured) == []
         assert protocol.num_steps() == 0
 
     def test_an_unknown_axis_position_is_refused_before_anything_else(
@@ -129,7 +129,7 @@ class TestTheApiRefuses:
             'Cannot add the step. Z is still homing; the Y position is unknown. '
             'Home the scope, then add the step.'
         )
-        assert len(captured) == 1
+        assert list(captured) == []
         assert protocol.num_steps() == 0
 
 
@@ -208,5 +208,5 @@ class TestAScriptAddsAStepThroughTheSession:
             session.add_step(protocol, before_step=0)
 
         assert excinfo.value.reason == 'no_acquiring_layer'
-        assert len(captured) == 1
+        assert list(captured) == []
         assert protocol.num_steps() == 0

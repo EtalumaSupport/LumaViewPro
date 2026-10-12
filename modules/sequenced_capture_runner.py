@@ -1010,17 +1010,14 @@ class SequencedCaptureRunner:
         holder_trigger: 'str | None' = None,
         remedy: Remedy | None = None,
     ) -> typing.NoReturn:
-        """Report once, and raise, the typed refusal.
+        """Raise the typed refusal.
 
-        The single funnel every refusal gate routes through. The one
-        reporter logs and shows it -- one WARNING line naming the reason,
-        one warning, answered to whoever asked even during a run -- and the
-        same exception is raised, so a caller that reports it again changes
-        nothing and a caller that reconciles its own state tells no one.
+        The single funnel every refusal gate routes through. Raised, not
+        reported: the boundary the caller sits behind reports it -- the
+        GUI's as a person's request, shown even during a run; REST's
+        logged and answered -- so a REST caller is not also shown it.
         """
-        from modules.notification_center import notifications
-
-        refusal = ProtocolRunRefusedError(
+        raise ProtocolRunRefusedError(
             reason=reason,
             title=title,
             message=message,
@@ -1028,8 +1025,6 @@ class SequencedCaptureRunner:
             holder_trigger=holder_trigger,
             remedy=remedy,
         )
-        notifications.report_outcome(refusal, solicited=True, category='Protocol')
-        raise refusal
 
     def prepare(
         self,

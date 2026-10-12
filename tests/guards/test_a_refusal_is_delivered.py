@@ -14,10 +14,12 @@ So a refusal carries ``solicited``, and both rules stand aside for it.
 reach a watching user, but one fault repeating is still one fault -- and
 the tests below pin that the two axes stay separate.
 
-Provenance, not severity, is what makes a notification solicited, so the
-axis is set at the refusal funnels rather than remembered per gate. The
-AST test is what makes that unmissable: it discovers every module that
-raises the typed refusal rather than reading a list.
+Provenance, not severity, is what makes a notification solicited, and
+only the boundary a request arrived through knows it: the GUI's marks a
+person's press solicited, REST's answers the caller and shows no one. So
+the refusal funnels raise and report nothing, and the boundary reports.
+The AST test is what makes that unmissable: it discovers every function
+that builds the typed refusal rather than reading a list.
 """
 
 import ast
@@ -106,26 +108,55 @@ def test_shutdown_still_suppresses_a_refusal(centre_and_seen):
     assert seen == [], 'a notification was dispatched after teardown began'
 
 
-def test_the_runner_funnel_delivers_its_refusal_during_an_unattended_run(
+def test_the_gui_boundary_delivers_a_funnel_refusal_during_an_unattended_run(
     centre_posts, unattended_run
 ):
-    """End to end through the production funnel, not a reconstruction of it."""
-    from modules.exceptions import ProtocolRunRefusedError
+    """End to end: the production funnel raises, the GUI's boundary reports.
+
+    A person's press during an unattended run is answered: the boundary
+    marks it solicited, so the run's mute stands aside.
+    """
     from modules.sequenced_capture_runner import SequencedCaptureRunner
+    from ui.ui_helpers import run_reported
 
     runner = object.__new__(SequencedCaptureRunner)
-    with pytest.raises(ProtocolRunRefusedError):
+
+    def press():
         runner._refuse(
             reason='already_running',
             title='Already Running',
             message='A protocol run is already in progress.',
         )
 
+    run_reported(press, None, 'RUN_START')
+
     assert [(n.reason, n.shown) for n in centre_posts] == [('already_running', True)], (
-        'the runner funnel posted a refusal that never reached the user'
+        'the boundary posted a refusal that never reached the user'
     )
     assert centre_posts[0].solicited is True
     assert centre_posts[0].operation_key, 'without a key the bridge stacks a dialog per press'
+
+
+def test_a_funnel_refusal_outside_any_boundary_is_raised_and_posts_nothing(centre_posts):
+    """A Python caller, and REST beneath its own boundary, is answered by the raise.
+
+    Posting at the funnel decided shown and solicited before any boundary
+    saw the refusal, so a REST caller was answered AND every listener was
+    shown it.
+    """
+    from modules.exceptions import ProtocolRunRefusedError
+    from modules.sequenced_capture_runner import SequencedCaptureRunner
+
+    runner = object.__new__(SequencedCaptureRunner)
+    with pytest.raises(ProtocolRunRefusedError) as raised:
+        runner._refuse(
+            reason='already_running',
+            title='Already Running',
+            message='A protocol run is already in progress.',
+        )
+
+    assert raised.value.reason == 'already_running'
+    assert list(centre_posts) == []
 
 
 def _functions_raising_the_typed_refusal():
@@ -133,9 +164,8 @@ def _functions_raising_the_typed_refusal():
 
     Discovered rather than listed: a new refusal funnel added to a module
     nobody remembered to enumerate is exactly the drift this guards. Found
-    by the construction, not by a ``raise`` of it: a funnel builds the
-    refusal, hands it to the reporter and raises that same object, so an
-    inline ``raise ProtocolRunRefusedError(...)`` is no longer its shape.
+    by the construction, not by a ``raise`` of it, so a funnel that builds
+    the refusal and hands it to the reporter before raising it is found.
     """
     found = []
     for path in sorted((REPO_ROOT / 'modules').rglob('*.py')):
@@ -155,27 +185,23 @@ def _functions_raising_the_typed_refusal():
     return found
 
 
-def test_every_refusal_funnel_marks_its_notification_solicited():
-    """The contract lives at the funnel, not in each gate's memory."""
+def test_no_refusal_funnel_reports_what_it_raises():
+    """The report belongs to the boundary, not to the funnel."""
     funnels = _functions_raising_the_typed_refusal()
     assert funnels, 'the scan found no refusal funnel at all -- the AST shape drifted'
 
-    silent = []
-    for rel_path, node in funnels:
-        posts_solicited = any(
+    reporting = [
+        f'{rel_path}::{node.name} (line {node.lineno})'
+        for rel_path, node in funnels
+        if any(
             isinstance(n, ast.Call)
-            and any(
-                kw.arg == 'solicited'
-                and isinstance(kw.value, ast.Constant)
-                and kw.value.value is True
-                for kw in n.keywords
-            )
+            and isinstance(n.func, ast.Attribute)
+            and n.func.attr == 'report_outcome'
             for n in ast.walk(node)
         )
-        if not posts_solicited:
-            silent.append(f'{rel_path}::{node.name} (line {node.lineno})')
+    ]
 
-    assert not silent, (
-        'these raise the typed refusal but post no solicited notification, so the '
-        'refusal is dropped whenever a run is in flight: ' + ', '.join(silent)
+    assert not reporting, (
+        'these build the typed refusal and report it, deciding shown and solicited '
+        'before the boundary the caller sits behind sees it: ' + ', '.join(reporting)
     )

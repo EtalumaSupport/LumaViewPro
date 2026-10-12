@@ -648,7 +648,7 @@ class ProtocolSettings(FloatLayout):
         it, a missing or unreadable file forgets it. The panel shows what
         the Session answered: the protocol, or the kept file's name over an
         empty protocol, so the person can see which protocol to come back
-        to.
+        to; the reporter shows why it was not loaded.
 
         Non-navigating, as the startup load has always been: it adopts the
         protocol and fills the panel without driving the stage.
@@ -660,13 +660,12 @@ class ProtocolSettings(FloatLayout):
                 self._adopt_protocol(protocol, ctx.settings['protocol']['filepath'], navigate=False)
                 return
         except Exception as e:
-            # Logged, not shown: nobody asked for this load. A refusal the
-            # API has already reported is not logged again.
+            # Shown, though nobody asked for this load: the panel shows only
+            # the kept file's name, and this is the one place the person
+            # learns why their protocol did not load, or was forgotten.
             from modules.notification_center import notifications
 
-            notifications.report_outcome(
-                e, solicited=False, category='UI:LOAD_PROTOCOL', log_only=True
-            )
+            notifications.report_outcome(e, solicited=False, category='UI:LOAD_PROTOCOL')
 
         filepath = ctx.settings['protocol']['filepath']
         if filepath:

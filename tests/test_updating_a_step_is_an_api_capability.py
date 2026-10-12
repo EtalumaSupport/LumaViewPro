@@ -111,7 +111,7 @@ class TestTheApiRefuses:
             'Cannot update the step. The X position is unknown. '
             'Home the scope, then update the step.'
         )
-        assert len(captured) == 1
+        assert list(captured) == []
         assert _step(protocol) == before
 
     def test_an_unset_turret_objective_is_refused_and_the_step_is_unchanged(
@@ -129,7 +129,7 @@ class TestTheApiRefuses:
             _update(scope, protocol)
 
         assert excinfo.value.reason == 'turret_objective_unset'
-        assert len(captured) == 1
+        assert list(captured) == []
         assert _step(protocol) == before
 
     def test_an_unknown_objective_is_refused_and_the_step_is_unchanged(self, scope, centre_posts):
@@ -141,7 +141,7 @@ class TestTheApiRefuses:
             _update(scope, protocol, objective_id=None)
 
         assert excinfo.value.reason == 'objective_unknown'
-        assert len(captured) == 1
+        assert list(captured) == []
         assert _step(protocol) == before
 
 
@@ -246,5 +246,5 @@ class TestAScriptUpdatesAStepThroughTheSession:
             session.update_step(protocol, 0, layer='BF')
 
         assert excinfo.value.reason == 'step_position_unknown'
-        assert len(captured) == 1
+        assert list(captured) == []
         assert _step(protocol) == before

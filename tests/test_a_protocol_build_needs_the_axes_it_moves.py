@@ -5,8 +5,8 @@ Both are built by moving an axis, against that axis's travel limits. A
 scope with no motor for the axis has no limits (its axes map is empty),
 and the builders used to log an error and return an unchanged protocol --
 so a caller that asked for a stack got a single plane and a status that
-read as success. The build now refuses, once, in words the person reads,
-with the reason a run that needs a missing axis already carries.
+read as success. The build now refuses, in words the person reads, raised
+for the caller's boundary to report, with the reason a run that needs a missing axis already carries.
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ def _tile_2x2(proto, axis_limits):
 
 
 @pytest.mark.parametrize('axis_limits', [{}, _WIDE_XY], ids=['no motors', 'no Z'])
-def test_a_zstack_without_z_is_refused_once_and_builds_nothing(axis_limits, centre_posts):
+def test_a_zstack_without_z_is_refused_and_builds_nothing(axis_limits, centre_posts):
     proto = _one_step_protocol()
     before = proto.steps().copy()
     captured = _capture_notifications(centre_posts)
@@ -58,12 +58,12 @@ def test_a_zstack_without_z_is_refused_once_and_builds_nothing(axis_limits, cent
 
     assert refused.value.reason == UNREACHABLE
     assert 'Z' in refused.value.message
-    assert len(captured) == 1
+    assert list(captured) == []
     assert proto.steps().equals(before)
 
 
 @pytest.mark.parametrize('axis_limits', [{}, _WIDE_Z], ids=['no motors', 'Z only'])
-def test_a_tile_grid_without_xy_is_refused_once_and_builds_nothing(axis_limits, centre_posts):
+def test_a_tile_grid_without_xy_is_refused_and_builds_nothing(axis_limits, centre_posts):
     proto = _one_step_protocol()
     before = proto.steps().copy()
     captured = _capture_notifications(centre_posts)
@@ -73,5 +73,5 @@ def test_a_tile_grid_without_xy_is_refused_once_and_builds_nothing(axis_limits, 
 
     assert refused.value.reason == UNREACHABLE
     assert 'X, Y' in refused.value.message
-    assert len(captured) == 1
+    assert list(captured) == []
     assert proto.steps().equals(before)

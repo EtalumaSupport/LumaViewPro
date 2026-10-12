@@ -113,16 +113,15 @@ def _read_only(value):
 
 
 def _refuse_build(*, reason: str, title: str, message: str) -> NoReturn:
-    """Report once, and raise, a refused protocol build (a tile grid, a z-stack).
+    """Raise a refused protocol build (a tile grid, a z-stack).
 
     Refused where the protocol is built, so the GUI, a script and REST are all
-    told the same thing. Callers pass the reason as a literal, which is how the
-    refusal census reads it.
+    told the same thing. Raised, not reported: the boundary the caller sits
+    behind reports it, so a REST caller is answered and not also shown it.
+    Callers pass the reason as a literal, which is how the refusal census
+    reads it.
     """
-    refusal = ProtocolRunRefusedError(reason=reason, title=title, message=message)
-    # Solicited: the refusal answers the build the caller just asked for.
-    notifications.report_outcome(refusal, solicited=True, category='Protocol')
-    raise refusal
+    raise ProtocolRunRefusedError(reason=reason, title=title, message=message)
 
 
 def _refuse_unless_tiling_offered(tiling_config: TilingConfig, tiling: str) -> None:

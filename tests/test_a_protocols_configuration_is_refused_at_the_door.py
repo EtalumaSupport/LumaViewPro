@@ -7,8 +7,9 @@ wrong kind a ``TypeError`` from ``round()`` -- a 500 over REST -- while
 ``True`` built as 1 ms and NaN built a tile grid. ``create_protocol`` now
 judges the whole configuration first, every key the build reads, and names
 the key's path in ``argument``. What only the build can see -- no objective,
-no focus, an overlap outside 0-50 -- is refused by the build and reported
-once.
+no focus, an overlap outside 0-50 -- is refused by the build and raised,
+not reported: the boundary the caller sits behind reports it, so a REST
+caller is answered 422 and no one is shown it.
 """
 
 import copy
@@ -32,16 +33,6 @@ def session(tmp_path_factory):
 @pytest.fixture
 def config(session):
     return copy.deepcopy(session.get_sequenced_capture_config())
-
-
-@pytest.fixture
-def reported(monkeypatch):
-    calls = []
-    monkeypatch.setattr(
-        'modules.notification_center.notifications.report_outcome',
-        lambda exc, **kw: calls.append(exc),
-    )
-    return calls
 
 
 def _refused(session, reason, **sources):
@@ -128,17 +119,17 @@ def test_not_exactly_one_source_is_refused(session, sources):
     _refused(session, 'protocol_source_ambiguous', **sources)
 
 
-def test_steps_with_no_objective_are_refused_and_reported_once(session, config, reported):
+def test_steps_with_no_objective_are_refused_and_post_nothing(session, config, centre_posts):
     config['objective_id'] = None
     with pytest.raises(ProtocolRunRefusedError) as refused:
         session.scope.protocols.create_protocol(input_config=config)
     assert refused.value.reason == 'objective_not_given'
     assert refused.value.cause == RefusalCause.REQUEST
-    assert reported == [refused.value]
+    assert list(centre_posts) == []
 
 
-def test_a_layer_with_no_focus_and_no_current_z_is_refused_and_reported_once(
-    session, config, reported
+def test_a_layer_with_no_focus_and_no_current_z_is_refused_and_posts_nothing(
+    session, config, centre_posts
 ):
     config['layer_configs']['BF']['focus'] = None
     config['positions'] = [{'x': 10.0, 'y': 10.0, 'z': None, 'name': 'A1'}]
@@ -146,18 +137,18 @@ def test_a_layer_with_no_focus_and_no_current_z_is_refused_and_reported_once(
     with pytest.raises(ProtocolRunRefusedError) as refused:
         session.scope.protocols.create_protocol(input_config=config)
     assert refused.value.reason == 'focus_not_given'
-    assert reported == [refused.value]
+    assert list(centre_posts) == []
 
 
 @pytest.mark.parametrize('overlap', [-1.0, 51.0])
-def test_an_overlap_outside_0_to_50_is_refused_and_reported_once(
-    session, config, reported, overlap
+def test_an_overlap_outside_0_to_50_is_refused_and_posts_nothing(
+    session, config, centre_posts, overlap
 ):
     config['tiling_overlap_percent'] = overlap
     with pytest.raises(ProtocolRunRefusedError) as refused:
         session.scope.protocols.create_protocol(input_config=config)
     assert refused.value.reason == 'overlap_out_of_range'
-    assert reported == [refused.value]
+    assert list(centre_posts) == []
 
 
 def test_a_wire_client_is_refused_as_the_request_naming_the_key(session, config):
@@ -232,3 +223,19 @@ def test_an_overlap_no_grid_can_take_is_refused_at_one_tile_too(session, overlap
             overlap_percent=overlap,
         )
     assert refused.value.reason == reason
+
+
+def test_a_build_refusal_over_the_wire_is_answered_422_and_shown_to_no_one(
+    session, config, centre_posts
+):
+    """REST's boundary answers the caller; nothing posts for a listener to show."""
+    config['objective_id'] = None
+    config['period'] = config['period'].total_seconds()
+    config['duration'] = config['duration'].total_seconds()
+    with TestClient(build_app(session)) as client:
+        answer = client.post(
+            '/api/v1/scope/protocols/create_protocol', json={'input_config': config}
+        )
+    assert answer.status_code == 422
+    assert answer.json()['reason'] == 'objective_not_given'
+    assert [n for n in centre_posts if n.shown] == []

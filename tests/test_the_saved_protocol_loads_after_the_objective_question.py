@@ -199,6 +199,55 @@ class TestAnEmptyPathIsNoSavedProtocol:
         assert drawn == ['schedule', 'steps']
 
 
+class TestARefusedStartupLoadIsShown:
+    def test_the_person_is_told_why_the_saved_protocol_did_not_load(
+        self, monkeypatch, centre_posts
+    ):
+        """Nobody pressed anything, but the panel shows only the kept file's
+        name over an empty protocol: the reporter's post is the one place
+        the person learns why. The API raises and reports nothing, so the
+        panel's report is the only one."""
+        from types import SimpleNamespace
+
+        import modules.app_context as _app_ctx
+        from modules.exceptions import ProtocolRunRefusedError
+        from ui.protocol_settings import ProtocolSettings
+
+        refusal = ProtocolRunRefusedError(
+            reason='objective_not_mounted',
+            title='Objective Not Mounted',
+            message='The protocol names an objective that is not mounted.',
+        )
+
+        def refused():
+            raise refusal
+
+        settings = {'protocol': {'filepath': 'plate.tsv'}}
+        # A stand-in by design: the subject is the panel's catcher, and the
+        # Session's open is its interchangeable collaborator.
+        monkeypatch.setattr(
+            _app_ctx,
+            'ctx',
+            SimpleNamespace(
+                settings=settings,
+                session=SimpleNamespace(
+                    create_empty_protocol=lambda: object(),
+                    open_remembered_protocol=refused,
+                ),
+            ),
+        )
+        stand = SimpleNamespace(
+            ids={'protocol_filename': SimpleNamespace(text='')},
+            _show_schedule=lambda: None,
+            update_step_ui=lambda: None,
+        )
+
+        ProtocolSettings.load_persisted_protocol(stand)
+
+        assert [(n.title, n.shown) for n in centre_posts] == [('Objective Not Mounted', True)]
+        assert stand.ids['protocol_filename'].text == 'plate.tsv'
+
+
 class TestARefusedStartupLoadKeepsThePath:
     def test_the_panel_leaves_the_remembered_path_to_the_session(self):
         """Which failure forgets the path is the Session's rule

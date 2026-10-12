@@ -1307,28 +1307,25 @@ class TestRule14_A4_PreRunValidationNotify:
     """A4: Pre-run validation errors must surface a user notification (Rule 14)."""
 
     def _run_with_validation_errors(self, centre_posts, errors):
+        """The refusal prepare() raised; it posts nothing, for its caller's boundary to show."""
         from modules.exceptions import ProtocolRunRefusedError
-        from modules.notification_center import Severity
 
         runner = _bare_capture_runner()
         kwargs = _scr_run_kwargs()
         kwargs['protocol'].validate_for_run.return_value = errors
-        with pytest.raises(ProtocolRunRefusedError):
+        with pytest.raises(ProtocolRunRefusedError) as refused:
             runner.prepare(**kwargs)
-        # A validation failure is a refusal, shown as a warning.
-        captured = [
-            (n.category, n.title, n.message) for n in centre_posts if n.severity == Severity.WARNING
-        ]
-        return runner, kwargs['protocol'], captured
+        assert list(centre_posts) == [], 'the funnel raises; the boundary reports'
+        assert refused.value.reason == 'validation_failed'
+        return runner, kwargs['protocol'], refused.value
 
     def test_validation_errors_branch_notifies(self, centre_posts):
-        """A failing pre-run validation must notify the user and abort the run."""
-        runner, protocol, captured = self._run_with_validation_errors(
+        """A failing pre-run validation is refused, titled for the person, and aborts the run."""
+        runner, protocol, refusal = self._run_with_validation_errors(
             centre_posts, ['step 1: X position outside axis limits']
         )
-        assert captured, 'validation_errors return path must post a warning (A4 -- Rule 14)'
-        assert captured[0][1] == 'Validation failed', (
-            f"notification title must be 'Validation failed'; got {captured[0]}"
+        assert refusal.title == 'Validation failed', (
+            f"the refusal's title must be 'Validation failed'; got {refusal.title!r}"
         )
         assert not protocol.copy_for_execution.called, (
             'run must abort at validation, before snapshotting the protocol'
@@ -1336,11 +1333,10 @@ class TestRule14_A4_PreRunValidationNotify:
         assert not runner.run_in_progress(), 'run must not start'
 
     def test_validation_summary_truncates_at_five(self, centre_posts):
-        """Notification summary must show first 5 errors; mention 'see log' for overflow."""
+        """The refusal's words show the first 5 errors; mention 'see log' for overflow."""
         errors = [f'error number {i}' for i in range(1, 8)]
-        _, _, captured = self._run_with_validation_errors(centre_posts, errors)
-        assert captured, 'seven validation errors must still notify'
-        body = captured[0][2]
+        _, _, refusal = self._run_with_validation_errors(centre_posts, errors)
+        body = refusal.message
         for i in range(1, 6):
             assert f'error number {i}' in body, f'first five errors must be listed; got: {body}'
         assert 'error number 6' not in body and 'error number 7' not in body, (

@@ -1,9 +1,10 @@
 # Copyright Etaluma, Inc.
 """A run refusal is one report: one WARNING line naming its reason, one warning.
 
-The refusal funnels hand the refusal to the one reporter and raise that same
-object, so whoever reports it again -- the GUI boundary, a lane's epilogue --
-changes nothing. A check that crashed is a fault instead: raised with the crash
+The refusal funnels raise and report nothing; the boundary the caller sits
+behind hands the refusal to the one reporter, which logs it once and shows
+it once, so whoever reports it again -- a lane's epilogue -- changes
+nothing. A check that crashed is a fault instead: raised with the crash
 chained, reported by its caller, logged once with both tracebacks.
 """
 
@@ -25,32 +26,42 @@ def _refuse_through_the_runner():
     from modules.sequenced_capture_runner import SequencedCaptureRunner
 
     runner = object.__new__(SequencedCaptureRunner)
-    with pytest.raises(ProtocolRunRefusedError) as raised:
-        runner._refuse(
-            reason='already_running',
-            title='Already Running',
-            message='A run is using the microscope.',
-        )
-    return raised.value
+    runner._refuse(
+        reason='already_running',
+        title='Already Running',
+        message='A run is using the microscope.',
+    )
 
 
 def _refuse_through_the_protocols_api():
     from modules.lumascope_api.protocols import ProtocolsAPI
 
     api = object.__new__(ProtocolsAPI)
-    with pytest.raises(ProtocolRunRefusedError) as raised:
-        api._refuse(
-            reason='objective_not_mounted',
-            title='Objective Not On The Turret',
-            message='The protocol names an objective no turret slot holds.',
-        )
-    return raised.value
+    api._refuse(
+        reason='objective_not_mounted',
+        title='Objective Not On The Turret',
+        message='The protocol names an objective no turret slot holds.',
+    )
 
 
 @pytest.mark.parametrize('refuse', [_refuse_through_the_runner, _refuse_through_the_protocols_api])
 def test_a_funnel_refusal_is_one_warning_line_naming_its_reason(centre_posts, caplog, refuse):
+    """Raised by the funnel, reported by the GUI's boundary a person's press sits behind."""
+    from ui.ui_helpers import run_reported
+
+    refused = []
+
+    def press():
+        try:
+            refuse()
+        except ProtocolRunRefusedError as refusal:
+            refused.append(refusal)
+            raise
+
     with caplog.at_level(logging.DEBUG):
-        refusal = refuse()
+        run_reported(press, None, 'RUN')
+
+    [refusal] = refused
 
     records = [r for r in caplog.records if r.levelno >= logging.WARNING]
     assert len(records) == 1, [r.getMessage() for r in records]
