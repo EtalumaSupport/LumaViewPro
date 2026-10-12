@@ -59,9 +59,10 @@ def test_a_full_scale_pixel_saturates_under_the_offset_and_does_not_wrap(sim_sco
 def test_a_camera_refusal_is_a_rejection_in_the_black_levels_words(sim_scope):
     with (
         patch.object(sim_scope._camera_driver, 'set_black_level', return_value=False),
-        pytest.raises(CameraSettingRejected, match='did not accept the black level 4'),
+        pytest.raises(CameraSettingRejected) as rejected,
     ):
         sim_scope.imaging.set_black_level(4.0)
+    assert str(rejected.value).startswith('The camera did not accept the black level 4.')
 
 
 def test_the_simulator_reloads_its_default_black_level_at_connect(sim_scope):

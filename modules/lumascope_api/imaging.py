@@ -282,7 +282,7 @@ def _rejected_gain_words(gain_db: float) -> str:
     return (
         f'The camera rejected the gain change to {float(gain_db):.1f} dB. '
         'Captures will continue at the previous gain. Check that '
-        'the value is within the camera limits.',
+        'the value is within the camera limits.'
     )
 
 
@@ -290,7 +290,7 @@ def _rejected_mode_words(what: str) -> str:
     """The sentence for a mode change the camera refused."""
     return (
         f'The camera did not take the {what} change. Captures will continue '
-        'with the camera as it was.',
+        'with the camera as it was.'
     )
 
 
@@ -301,7 +301,7 @@ def _rejected_black_level_words(black_level: float) -> str:
     return (
         f'The camera did not accept the black level {float(black_level):g}. '
         'Captures will continue at the previous black level. A camera that '
-        'sets its black level automatically takes no manual value.',
+        'sets its black level automatically takes no manual value.'
     )
 
 
@@ -376,7 +376,7 @@ def _rejected_exposure_words(exposure_ms: float) -> str:
     return (
         f'The camera rejected the exposure change to {float(exposure_ms):g} ms. '
         'Captures will continue at the previous exposure. Check '
-        'that the value is within the camera limits.',
+        'that the value is within the camera limits.'
     )
 
 

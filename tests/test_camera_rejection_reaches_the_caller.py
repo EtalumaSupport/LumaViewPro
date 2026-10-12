@@ -62,6 +62,7 @@ class TestAConfirmedRejectionReachesTheCaller:
 
         assert excinfo.value.setting == 'gain_db'
         assert excinfo.value.requested == 7.0
+        assert str(excinfo.value).startswith('The camera rejected the gain change to 7.0 dB.')
 
     def test_a_refused_exposure_raises_by_name(self, sim_imaging, monkeypatch):
         imaging, cam = sim_imaging
@@ -72,6 +73,7 @@ class TestAConfirmedRejectionReachesTheCaller:
 
         assert excinfo.value.setting == 'exposure_ms'
         assert excinfo.value.requested == 25.0
+        assert str(excinfo.value).startswith('The camera rejected the exposure change to 25 ms.')
 
     def test_the_api_shows_nothing_itself(self, sim_imaging, centre_posts, monkeypatch):
         """The raise carries the words; whoever ends its flight shows them, so
